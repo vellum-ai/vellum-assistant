@@ -815,6 +815,60 @@ describe("pairDeliveryWithConversation", () => {
     expect(getBindingByChannelChatMock).not.toHaveBeenCalled();
   });
 
+  // ── conversationMetadata.conversationType override ─────────────────
+
+  test("uses conversationMetadata.conversationType when set, overriding channel strategy", async () => {
+    const signal = makeSignal({
+      conversationMetadata: {
+        source: "heartbeat",
+        groupId: "system:background",
+        conversationType: "background",
+      },
+    });
+    const copy = makeCopy({ conversationTitle: "Heartbeat Alert" });
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      copy,
+    );
+
+    expect(result.conversationId).toBe("conv-001");
+    expect(result.strategy).toBe("start_new_conversation");
+    expect(createConversationMock).toHaveBeenCalledTimes(1);
+    const callArgs = createConversationMock.mock.calls[0]![0] as Record<
+      string,
+      unknown
+    >;
+    // vellum channel normally yields "standard", but the metadata override wins
+    expect(callArgs.conversationType).toBe("background");
+  });
+
+  test("falls back to channel strategy when conversationMetadata.conversationType is not set", async () => {
+    const signal = makeSignal({
+      conversationMetadata: {
+        source: "scheduler",
+        groupId: "group-1",
+      },
+    });
+    const copy = makeCopy();
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      copy,
+    );
+
+    expect(result.conversationId).toBe("conv-001");
+    expect(createConversationMock).toHaveBeenCalledTimes(1);
+    const callArgs = createConversationMock.mock.calls[0]![0] as Record<
+      string,
+      unknown
+    >;
+    // No override — vellum (start_new_conversation) defaults to "standard"
+    expect(callArgs.conversationType).toBe("standard");
+  });
+
   // ── not_deliverable (voice) ───────────────────────────────────────
 
   test("returns null conversationId and messageId for not_deliverable strategy", async () => {
