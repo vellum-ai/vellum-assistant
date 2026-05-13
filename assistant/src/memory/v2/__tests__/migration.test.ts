@@ -754,6 +754,93 @@ describe("runMemoryV2Migration", () => {
     expect(body).toContain("second body");
   });
 
+  test("force=true cleanly strips the prior migration block from essentials.md", async () => {
+    insertNode(database, {
+      content: "Alice prefers VS Code.",
+      significance: 0.95,
+    });
+    await runMemoryV2Migration({
+      workspaceDir,
+      database,
+      provider: buildStubProvider("body"),
+    });
+
+    const essentialsPath = join(workspaceDir, "memory", "essentials.md");
+    const afterFirst = readFileSync(essentialsPath, "utf-8");
+    expect(afterFirst).toContain("<!-- migration:v1-to-v2 -->");
+    expect(afterFirst).toContain("<!-- /migration:v1-to-v2 -->");
+
+    await runMemoryV2Migration({
+      workspaceDir,
+      database,
+      provider: buildStubProvider("body"),
+      force: true,
+    });
+
+    const afterRerun = readFileSync(essentialsPath, "utf-8");
+    // Exactly one migration block — no leftover/duplicated markers.
+    expect(afterRerun.match(/<!-- migration:v1-to-v2 -->/g)?.length ?? 0).toBe(
+      1,
+    );
+    expect(
+      afterRerun.match(/<!-- \/migration:v1-to-v2 -->/g)?.length ?? 0,
+    ).toBe(1);
+  });
+
+  test("force=true preserves user-appended content after the migration block", async () => {
+    insertNode(database, {
+      content: "Alice prefers VS Code.",
+      significance: 0.95,
+    });
+    await runMemoryV2Migration({
+      workspaceDir,
+      database,
+      provider: buildStubProvider("body"),
+    });
+
+    const essentialsPath = join(workspaceDir, "memory", "essentials.md");
+    const beforeAppend = readFileSync(essentialsPath, "utf-8");
+    const userAppended = "\nUser added this after the migration ran.\n";
+    writeFileSync(essentialsPath, beforeAppend + userAppended, "utf-8");
+
+    await runMemoryV2Migration({
+      workspaceDir,
+      database,
+      provider: buildStubProvider("body"),
+      force: true,
+    });
+
+    const after = readFileSync(essentialsPath, "utf-8");
+    expect(after).toContain("User added this after the migration ran.");
+    // And exactly one migration envelope remains.
+    expect(after.match(/<!-- migration:v1-to-v2 -->/g)?.length ?? 0).toBe(1);
+    expect(after.match(/<!-- \/migration:v1-to-v2 -->/g)?.length ?? 0).toBe(1);
+  });
+
+  test("force=true on legacy (close-marker-less) file strips only up to the next blank line", async () => {
+    // Simulate a file written by the prior migration format: opening marker
+    // with no closing sentinel, with user-appended content separated by a
+    // blank line. The strip should preserve the user content.
+    insertNode(database, { content: "Alice prefers VS Code." });
+    const essentialsPath = join(workspaceDir, "memory", "essentials.md");
+    writeFileSync(
+      essentialsPath,
+      "<!-- migration:v1-to-v2 -->\nlegacy migrated line\n\nUser-appended legacy note.\n",
+      "utf-8",
+    );
+
+    await runMemoryV2Migration({
+      workspaceDir,
+      database,
+      provider: buildStubProvider("body"),
+      force: true,
+    });
+
+    const after = readFileSync(essentialsPath, "utf-8");
+    expect(after).toContain("User-appended legacy note.");
+    expect(after).not.toContain("legacy migrated line");
+  });
+
   test("clearing the sentinel allows a non-force re-run", async () => {
     insertNode(database, { content: "fact" });
     const provider = buildStubProvider("body");

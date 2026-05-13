@@ -643,12 +643,15 @@ export async function runMemoryV2Migration(
 }
 
 /**
- * HTML marker embedded in each appended block so a crash-recovery rerun can
- * detect already-applied promotions and skip the append. `appendLines` is a
- * read-modify-write — without this, a crash between `appendPromotions` and
- * `writeSentinel` would let the next boot duplicate every promotion line.
+ * Paired HTML markers wrapped around each appended block. The opening marker
+ * also serves as the idempotency guard: `appendLines` is a read-modify-write,
+ * and without it a crash between `appendPromotions` and `writeSentinel` would
+ * let the next boot duplicate every promotion line. The closing marker
+ * delimits the migration-inserted region so a force-rerun strip can remove
+ * exactly that block without touching user/assistant edits appended below.
  */
-const PROMOTION_MARKER = "<!-- migration:v1-to-v2 -->";
+const PROMOTION_MARKER_OPEN = "<!-- migration:v1-to-v2 -->";
+const PROMOTION_MARKER_CLOSE = "<!-- /migration:v1-to-v2 -->";
 
 /**
  * Append each promotion bucket to its target file. Files are created if
@@ -680,8 +683,8 @@ async function appendPromotions(
 
 /**
  * Append `lines` to `path`, creating it (with a trailing newline) if absent.
- * If the file already contains `PROMOTION_MARKER`, the append is skipped — a
- * prior partially-completed migration already wrote this block.
+ * If the file already contains `PROMOTION_MARKER_OPEN`, the append is skipped
+ * — a prior partially-completed migration already wrote this block.
  */
 async function appendLines(path: string, lines: string[]): Promise<void> {
   let existing = "";
@@ -690,16 +693,17 @@ async function appendLines(path: string, lines: string[]): Promise<void> {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
-  if (existing.includes(PROMOTION_MARKER)) return;
+  if (existing.includes(PROMOTION_MARKER_OPEN)) return;
   const trailing = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
-  const next = `${existing}${trailing}${PROMOTION_MARKER}\n${lines.join("\n")}\n`;
+  const block = `${PROMOTION_MARKER_OPEN}\n${lines.join("\n")}\n${PROMOTION_MARKER_CLOSE}\n`;
+  const next = `${existing}${trailing}${block}`;
   await writeFile(path, next, "utf-8");
 }
 
 /**
- * Strip any prior migration-block (everything from the marker line through
- * end of file) from each promotion target. Called on force-reruns so the
- * marker guard in `appendLines` doesn't skip the new promotions.
+ * Strip any prior migration-block from each promotion target. Called on
+ * force-reruns so the marker guard in `appendLines` doesn't skip the new
+ * promotions.
  */
 async function stripPromotionMarkerBlocks(workspaceDir: string): Promise<void> {
   const memoryDir = join(workspaceDir, "memory");
@@ -718,6 +722,21 @@ async function stripPromotionMarkerBlocks(workspaceDir: string): Promise<void> {
   await Promise.all(candidates.map(stripMarkerBlock));
 }
 
+/**
+ * Remove the migration-inserted block from `path` while preserving anything
+ * the user or assistant appended after it. The block is identified by the
+ * `[PROMOTION_MARKER_OPEN ... PROMOTION_MARKER_CLOSE]` envelope; everything
+ * outside that envelope is left intact.
+ *
+ * Backwards-compat: a few PR-30044 force-reruns landed before the closing
+ * sentinel existed, so files in the wild may contain an opening marker with
+ * no matching close. In that case strip up to the next blank line (the
+ * conventional separator between the migration block and user-appended
+ * content) — or, failing that, to EOF, matching the previous behavior. The
+ * blank-line fallback is the only case where pre-existing user content can
+ * still be dropped, and only when the user appended without a blank-line
+ * separator against the prior format.
+ */
 async function stripMarkerBlock(path: string): Promise<void> {
   let existing: string;
   try {
@@ -726,13 +745,29 @@ async function stripMarkerBlock(path: string): Promise<void> {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
     throw err;
   }
-  const idx = existing.indexOf(PROMOTION_MARKER);
-  if (idx === -1) return;
-  // Cut from the start of the marker line. `idx` already points at the marker,
-  // which `appendLines` always wrote at the start of its own line, so a plain
-  // slice here also drops the leading newline that preceded it (if any).
-  const trimmed = existing.slice(0, idx).replace(/\n+$/, "");
-  const next = trimmed.length === 0 ? "" : `${trimmed}\n`;
+  const openIdx = existing.indexOf(PROMOTION_MARKER_OPEN);
+  if (openIdx === -1) return;
+
+  let endIdx: number;
+  const closeIdx = existing.indexOf(PROMOTION_MARKER_CLOSE, openIdx);
+  if (closeIdx !== -1) {
+    endIdx = closeIdx + PROMOTION_MARKER_CLOSE.length;
+    if (existing[endIdx] === "\n") endIdx += 1;
+  } else {
+    const blankIdx = existing.indexOf("\n\n", openIdx);
+    endIdx = blankIdx === -1 ? existing.length : blankIdx + 2;
+  }
+
+  const head = existing.slice(0, openIdx).replace(/\n+$/, "");
+  const tail = existing.slice(endIdx);
+  let next: string;
+  if (head.length === 0) {
+    next = tail;
+  } else if (tail.length === 0) {
+    next = `${head}\n`;
+  } else {
+    next = `${head}\n${tail}`;
+  }
   await writeFile(path, next, "utf-8");
 }
 
