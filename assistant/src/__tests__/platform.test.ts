@@ -16,6 +16,7 @@ import {
   getWorkspaceConfigPath,
   getWorkspaceDir,
   getWorkspaceHooksDir,
+  getWorkspacePluginsDir,
   getWorkspacePromptPath,
   getWorkspaceSkillsDir,
   getXdgVellumConfigDirName,
@@ -161,6 +162,7 @@ describe("workspace path primitives", () => {
     expect(getWorkspaceConfigPath()).toBe(join(ws, "config.json"));
     expect(getWorkspaceSkillsDir()).toBe(join(ws, "skills"));
     expect(getWorkspaceHooksDir()).toBe(join(ws, "hooks"));
+    expect(getWorkspacePluginsDir()).toBe(join(ws, "plugins"));
     expect(getWorkspacePromptPath("IDENTITY.md")).toBe(join(ws, "IDENTITY.md"));
     expect(getWorkspacePromptPath("SOUL.md")).toBe(join(ws, "SOUL.md"));
   });

@@ -43,9 +43,20 @@ interface GitHubRelease {
   prerelease: boolean;
 }
 
+/**
+ * Cache shape persisted under `<workspace>/data/changelog-cache.json`.
+ *
+ * - `recent` holds the most recent stable releases, capped at
+ *   `CACHE_STABLE_LIMIT`. TTL-gated via `fetchedAt`.
+ * - `byTag` is a content-addressed slot for single-tag lookups. Release
+ *   tags are immutable once published, so entries here are kept without a
+ *   TTL — first `show <tag>` populates, subsequent calls short-circuit
+ *   the fetch.
+ */
 interface CacheStore {
   fetchedAt: string;
-  releases: GitHubRelease[];
+  recent: GitHubRelease[];
+  byTag: Record<string, GitHubRelease>;
 }
 
 // ── Config ───────────────────────────────────────────────────────────
@@ -54,6 +65,19 @@ const REPO = "vellum-ai/vellum-assistant";
 const LIST_TTL_MS = 60 * 60 * 1000;
 const DEFAULT_LIST_LIMIT = 30;
 const MAX_LIST_LIMIT = 100;
+/**
+ * Maximum number of stable releases we persist in the rolling `recent` slot.
+ * Most callers only ever read the latest one or two; capping the cache keeps
+ * the file small and the network round-trip predictable.
+ */
+const CACHE_STABLE_LIMIT = 5;
+/**
+ * When fetching, request a page size that comfortably covers the caller's
+ * requested limit plus a small buffer to absorb the occasional draft or
+ * pre-release without forcing a second round-trip.
+ */
+const STABLE_BUFFER = 5;
+const MIN_FETCH_PAGE_SIZE = 30;
 const FETCH_TIMEOUT_MS = 10_000;
 const USER_AGENT = "vellum-assistant-cli";
 
@@ -72,7 +96,9 @@ function readCache(): CacheStore | null {
     ) as Partial<CacheStore>;
     if (
       typeof parsed.fetchedAt !== "string" ||
-      !Array.isArray(parsed.releases)
+      !Array.isArray(parsed.recent) ||
+      typeof parsed.byTag !== "object" ||
+      parsed.byTag === null
     ) {
       return null;
     }
@@ -122,8 +148,20 @@ function describeGithubError(status: number, body: string): string {
   return `GitHub API error ${status}: ${body || "(no body)"}`;
 }
 
+/**
+ * Compute the per-page size for a fetch that needs to cover `limit` stable
+ * releases. The buffer absorbs drafts/prereleases without paginating; we cap
+ * at `MAX_LIST_LIMIT` because that's GitHub's per-page maximum.
+ */
+function pageSizeFor(limit: number): number {
+  return Math.min(
+    MAX_LIST_LIMIT,
+    Math.max(limit + STABLE_BUFFER, MIN_FETCH_PAGE_SIZE),
+  );
+}
+
 async function fetchReleaseList(limit: number): Promise<GitHubRelease[]> {
-  const url = `https://api.github.com/repos/${REPO}/releases?per_page=${limit}`;
+  const url = `https://api.github.com/repos/${REPO}/releases?per_page=${pageSizeFor(limit)}`;
   const res = await githubFetch(url);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -150,28 +188,72 @@ interface LoadOpts {
   limit: number;
 }
 
+/**
+ * Persist the rolling list of stable releases. Cap at `CACHE_STABLE_LIMIT`.
+ * Mirror each entry into `byTag` so single-tag lookups short-circuit fetches
+ * for any tag that appears in the rolling list. Preserves any existing
+ * tag-keyed entries (which never expire).
+ */
+function persistRecent(stable: GitHubRelease[]): void {
+  const previous = readCache();
+  const recent = stable.slice(0, CACHE_STABLE_LIMIT);
+  const byTag: Record<string, GitHubRelease> = { ...(previous?.byTag ?? {}) };
+  for (const r of recent) {
+    byTag[r.tag_name] = r;
+  }
+  writeCache({ fetchedAt: new Date().toISOString(), recent, byTag });
+}
+
+/**
+ * Persist a single tag fetched via `show <tag>`. Tags are immutable; this
+ * entry survives subsequent list refreshes.
+ */
+function persistByTag(release: GitHubRelease): void {
+  const previous = readCache();
+  writeCache({
+    fetchedAt: previous?.fetchedAt ?? new Date().toISOString(),
+    recent: previous?.recent ?? [],
+    byTag: { ...(previous?.byTag ?? {}), [release.tag_name]: release },
+  });
+}
+
+/**
+ * Returns up to `opts.limit` stable releases, newest first. Uses the cached
+ * rolling list when fresh and large enough; otherwise fetches a single page
+ * sized via `pageSizeFor` and filters stable. The cached rolling list is
+ * capped at `CACHE_STABLE_LIMIT` even if the caller asks for more.
+ */
 async function loadReleases(opts: LoadOpts): Promise<GitHubRelease[]> {
   if (!opts.noCache) {
     const cache = readCache();
-    if (cache && !isStale(cache) && cache.releases.length >= opts.limit) {
-      return cache.releases.slice(0, opts.limit);
+    if (cache && !isStale(cache) && cache.recent.length >= opts.limit) {
+      return cache.recent.slice(0, opts.limit);
     }
   }
-  const releases = await fetchReleaseList(opts.limit);
-  writeCache({ fetchedAt: new Date().toISOString(), releases });
-  return releases;
+  const raw = await fetchReleaseList(opts.limit);
+  const stable = stableReleases(raw);
+  persistRecent(stable);
+  return stable.slice(0, opts.limit);
 }
 
+/**
+ * Returns the release for a specific tag. Prefers the cached `byTag` slot
+ * (immutable, no TTL), then the rolling recent list, then the network.
+ * Persists fetched results into `byTag` so subsequent lookups short-circuit.
+ */
 async function loadReleaseByTag(
   tag: string,
   opts: { noCache: boolean },
 ): Promise<GitHubRelease | null> {
   if (!opts.noCache) {
     const cache = readCache();
-    const hit = cache?.releases.find((r) => r.tag_name === tag);
+    const hit =
+      cache?.byTag[tag] ?? cache?.recent.find((r) => r.tag_name === tag);
     if (hit) return hit;
   }
-  return fetchReleaseByTag(tag);
+  const release = await fetchReleaseByTag(tag);
+  if (release) persistByTag(release);
+  return release;
 }
 
 // ── Filtering / version utilities ────────────────────────────────────
@@ -264,11 +346,12 @@ interface DefaultOpts extends CommonOpts {
 async function runDefault(opts: DefaultOpts): Promise<void> {
   const noCache = opts.cache === false;
   const useJson = opts.json === true;
-  const limit = parseLimit(opts.limit, DEFAULT_LIST_LIMIT);
 
   if (opts.since) {
+    // --since needs the full rolling list so we can filter by tag.
+    const limit = parseLimit(opts.limit, DEFAULT_LIST_LIMIT);
     const floor = normalizeTag(opts.since);
-    const all = stableReleases(await loadReleases({ noCache, limit }));
+    const all = await loadReleases({ noCache, limit });
     const newer = all
       .filter((r) => compareTags(r.tag_name, floor) > 0)
       .sort((a, b) => compareTags(b.tag_name, a.tag_name));
@@ -285,7 +368,10 @@ async function runDefault(opts: DefaultOpts): Promise<void> {
     return;
   }
 
-  const releases = stableReleases(await loadReleases({ noCache, limit }));
+  // Bare default action only needs the latest stable release. Asking for 1
+  // means a populated cache (even with a single entry) is enough to short-
+  // circuit the network round-trip.
+  const releases = await loadReleases({ noCache, limit: 1 });
   if (releases.length === 0) {
     emitError("No releases found.");
   }
@@ -310,10 +396,7 @@ async function runList(opts: CommonOpts): Promise<void> {
   const noCache = opts.cache === false;
   const useJson = opts.json === true;
   const limit = parseLimit(opts.limit, DEFAULT_LIST_LIMIT);
-  const releases = stableReleases(await loadReleases({ noCache, limit })).slice(
-    0,
-    limit,
-  );
+  const releases = await loadReleases({ noCache, limit });
   if (useJson) {
     emit(JSON.stringify({ releases }, null, 2));
     return;
@@ -335,15 +418,17 @@ export function registerChangelogCommand(program: Command): void {
   registerCommand(program, {
     name: "changelog",
     transport: "local",
-    description: "Show release notes (fetched on demand from GitHub Releases)",
+    description:
+      "Show release notes of the Vellum Assistant to see what new capabilities you have!",
     build: (cmd) => {
       cmd.addHelpText(
         "after",
         `
 Release notes are fetched on demand from the public GitHub Releases of
-${REPO}. Results are cached locally for ${LIST_TTL_MS / 60_000} minutes;
-pass --no-cache to bypass the cache. Specific tags are cached without TTL
-because release tags are immutable.
+${REPO}. The most recent ${CACHE_STABLE_LIMIT} stable releases are cached
+locally for ${LIST_TTL_MS / 60_000} minutes; pass --no-cache to bypass.
+Specific tags are cached indefinitely once seen because release tags are
+immutable.
 
 Examples:
   $ assistant changelog                       Show the latest release
@@ -391,24 +476,3 @@ Examples:
     },
   });
 }
-
-// ── Test-only exports ────────────────────────────────────────────────
-
-/**
- * Internal helpers exported for unit tests only. Not part of the public CLI
- * contract — do not import from outside `cli/commands/__tests__`.
- */
-export const __testing = {
-  compareTags,
-  normalizeTag,
-  stableReleases,
-  renderRelease,
-  renderList,
-  parseLimit,
-  readCache,
-  writeCache,
-  isStale,
-  loadReleases,
-  loadReleaseByTag,
-  getCachePath,
-};

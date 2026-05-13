@@ -32,6 +32,7 @@ export interface CatalogSkill {
   version?: string;
   updatedAt?: string;
   metadata?: {
+    emoji?: string;
     vellum?: {
       "display-name"?: string;
       "activation-hints"?: string[];
@@ -379,7 +380,12 @@ export async function resolveCatalog(
         const localIds = new Set(local.map((s) => s.id));
         const merged = [...local, ...remote.filter((s) => !localIds.has(s.id))];
         log.info(
-          { skillId, source: "merged", localCount: local.length, remoteCount: remote.length },
+          {
+            skillId,
+            source: "merged",
+            localCount: local.length,
+            remoteCount: remote.length,
+          },
           "Resolved skills catalog from local+remote merge",
         );
         return merged;
@@ -393,7 +399,10 @@ export async function resolveCatalog(
     }
   }
 
-  log.info({ skillId, source: "remote" }, "Resolved skills catalog from platform API");
+  log.info(
+    { skillId, source: "remote" },
+    "Resolved skills catalog from platform API",
+  );
   return fetchCatalog();
 }
 
@@ -434,7 +443,10 @@ export async function autoInstallFromCatalog(
   // of attempting a fresh install that would fail.
   const skillDir = join(getWorkspaceSkillsDir(), skillId);
   if (existsSync(join(skillDir, "SKILL.md"))) {
-    log.info({ skillId, source: "disk-reindex" }, "Skill already on disk, re-indexing");
+    log.info(
+      { skillId, source: "disk-reindex" },
+      "Skill already on disk, re-indexing",
+    );
     upsertSkillsIndex(skillId);
     return true;
   }

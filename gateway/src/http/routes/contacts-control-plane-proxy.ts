@@ -325,12 +325,18 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       }
 
       // ── Service-layer write (gateway DB + assistant DB dual-write) ───
+      //
+      // SECURITY: `role` and `principalId` are auth/authz fields. They are
+      // NEVER read from the request body. The route is protected by generic
+      // edge auth, not a guardian-specific check — accepting these fields
+      // from the body would let any authenticated caller rebind the guardian
+      // (e.g. POST /v1/contacts with the guardian's id + role:"guardian" +
+      // their own principalId). Guardian role is set exclusively through
+      // guardian-bootstrap, which uses raw SQL with its own privileged path.
       const store = new ContactStore();
       const { contact, created } = await store.upsertContact({
         id: body.id as string | undefined,
         displayName,
-        role: body.role as string | undefined,
-        principalId: body.principalId as string | null | undefined,
         notes: body.notes as string | null | undefined,
         contactType: body.contactType as string | undefined,
         assistantMetadata:

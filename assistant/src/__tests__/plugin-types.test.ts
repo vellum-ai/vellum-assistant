@@ -66,8 +66,6 @@ describe("plugin core types", () => {
     const manifest: PluginManifest = {
       name: "sample-plugin",
       version: "0.1.0",
-      provides: { sampleApi: "v1" },
-      requires: { pluginRuntime: "v1" },
       requiresCredential: ["SAMPLE_API_KEY"],
       requiresFlag: ["sample-feature"],
       config: { parse: (input: unknown) => input },
@@ -236,7 +234,6 @@ describe("plugin core types", () => {
           void ctx.logger;
           void ctx.pluginStorageDir;
           void ctx.assistantVersion;
-          void ctx.apiVersions;
         },
         async shutdown() {
           // no-op

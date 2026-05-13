@@ -562,9 +562,6 @@ export const defaultInjectorsPlugin: Plugin = {
   manifest: {
     name: "default-injectors",
     version: "1.0.0",
-    requires: {
-      pluginRuntime: "v1",
-    },
   },
   injectors: [
     diskPressureWarningInjector,

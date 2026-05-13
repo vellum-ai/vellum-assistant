@@ -27,7 +27,6 @@ import {
   switchConversation,
   undoLastMessage,
 } from "../../daemon/handlers/conversations.js";
-import type { ConversationListInvalidatedReason } from "../../daemon/message-types/conversations.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import {
   archiveConversation,
@@ -49,9 +48,12 @@ import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
+import {
+  publishConversationListAndMetadataChanged,
+  publishConversationListChanged,
+  publishConversationTitleChanged,
+} from "../sync/resource-sync-events.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import { setInferenceProfileSession } from "./inference-profile-session-handler.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -66,24 +68,6 @@ function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
   if (!id) throw new NotFoundError(`Conversation ${rawId} not found`);
   return id;
-}
-
-function publishListInvalidated(
-  reason: ConversationListInvalidatedReason,
-): void {
-  assistantEventHub
-    .publish(
-      buildAssistantEvent({
-        type: "conversation_list_invalidated",
-        reason,
-      }),
-    )
-    .catch((err) => {
-      log.warn(
-        { err },
-        `Failed to publish conversation_list_invalidated (${reason})`,
-      );
-    });
 }
 
 function cancelScheduleIfLast(conversationId: string): void {
@@ -108,6 +92,7 @@ function handleCreateConversation({ body = {} }: RouteHandlerArgs) {
   });
   if (result.created) {
     updateConversationTitle(result.conversationId, "New Conversation");
+    publishConversationListAndMetadataChanged("created", result.conversationId);
   }
   log.info(
     {
@@ -151,6 +136,7 @@ async function handleForkConversation({ body = {} }: RouteHandlerArgs) {
         `Forked conversation ${forkedConversation.id} could not be loaded`,
       );
     }
+    publishConversationListAndMetadataChanged("created", forkedConversation.id);
     return { conversation: detail.conversation };
   } catch (err) {
     if (err instanceof UserError) {
@@ -217,25 +203,7 @@ function handleRenameConversation({
   }
   updateConversationTitle(pathParams.id!, name, 0);
 
-  assistantEventHub
-    .publish(
-      buildAssistantEvent(
-        {
-          type: "conversation_title_updated",
-          conversationId: pathParams.id!,
-          title: name,
-        },
-        pathParams.id!,
-      ),
-    )
-    .catch((err) => {
-      log.warn(
-        { err, conversationId: pathParams.id },
-        "Failed to publish conversation_title_updated",
-      );
-    });
-
-  publishListInvalidated("renamed");
+  publishConversationTitleChanged(pathParams.id!, name);
 
   return { ok: true };
 }
@@ -249,6 +217,7 @@ function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
     );
   }
   clearAllConversations();
+  publishConversationListChanged("deleted");
   return undefined;
 }
 
@@ -279,6 +248,7 @@ function handleWipeConversation({ pathParams = {} }: RouteHandlerArgs) {
     },
     "Wiped conversation and reverted memory changes",
   );
+  publishConversationListAndMetadataChanged("deleted", resolvedId);
   return {
     wiped: true,
     unsupersededItems: 0,
@@ -308,7 +278,7 @@ function handleDeleteConversation({ pathParams = {} }: RouteHandlerArgs) {
   }
   log.info({ conversationId: resolvedId }, "Deleted conversation");
 
-  publishListInvalidated("deleted");
+  publishConversationListAndMetadataChanged("deleted", resolvedId);
 
   return undefined;
 }
@@ -319,6 +289,7 @@ function handleArchiveConversation({ pathParams = {} }: RouteHandlerArgs) {
   if (!archived) {
     throw new NotFoundError(`Conversation ${pathParams.id} not found`);
   }
+  publishConversationListAndMetadataChanged("reordered", resolvedId);
   return { ok: true, conversationId: resolvedId };
 }
 
@@ -328,6 +299,7 @@ function handleUnarchiveConversation({ pathParams = {} }: RouteHandlerArgs) {
   if (!unarchived) {
     throw new NotFoundError(`Conversation ${pathParams.id} not found`);
   }
+  publishConversationListAndMetadataChanged("reordered", resolvedId);
   return { ok: true, conversationId: resolvedId };
 }
 
@@ -387,7 +359,10 @@ function handleReorderConversations({ body = {} }: RouteHandlerArgs) {
       groupId: u.groupId,
     })),
   );
-  publishListInvalidated("reordered");
+  publishConversationListAndMetadataChanged(
+    "reordered",
+    updates.map((u) => u.conversationId),
+  );
   return { ok: true };
 }
 

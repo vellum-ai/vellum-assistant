@@ -734,6 +734,40 @@ public struct ConversationListInvalidatedMessage: Decodable, Sendable {
     public let reason: String
 }
 
+/// Generic persisted-state invalidation event.
+///
+/// Tags name stale resources and intentionally do not carry resource data.
+/// Routing/refetch behavior is added separately by the native sync router.
+public struct SyncChangedMessage: Decodable, Sendable {
+    public let tags: [String]
+
+    public init(tags: [String]) {
+        self.tags = tags
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tags
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard var tagContainer = try? container.nestedUnkeyedContainer(forKey: .tags) else {
+            tags = []
+            return
+        }
+
+        var decodedTags: [String] = []
+        while !tagContainer.isAtEnd {
+            if let tag = try? tagContainer.decode(String.self) {
+                decodedTags.append(tag)
+            } else {
+                _ = try? tagContainer.decode(AnyCodable.self)
+            }
+        }
+        tags = decodedTags
+    }
+}
+
 /// Conversation title update push message emitted after first-turn auto-titling.
 /// Backed by generated `ConversationTitleUpdated`.
 public typealias ConversationTitleUpdatedMessage = ConversationTitleUpdated
@@ -2857,6 +2891,7 @@ public enum ServerMessage: Decodable, Sendable {
     case conversationTitleUpdated(ConversationTitleUpdatedMessage)
     case conversationListResponse(ConversationListResponseMessage)
     case conversationListInvalidated(ConversationListInvalidatedMessage)
+    case syncChanged(SyncChangedMessage)
     case historyResponse(HistoryResponse)
     case memoryStatus(MemoryStatusMessage)
     case memoryRecalled(MemoryRecalledMessage)
@@ -3380,6 +3415,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "conversation_list_invalidated":
             let message = try ConversationListInvalidatedMessage(from: decoder)
             self = .conversationListInvalidated(message)
+        case "sync_changed":
+            let message = try SyncChangedMessage(from: decoder)
+            self = .syncChanged(message)
         case "schedule_conversation_created":
             let message = try ScheduleConversationCreated(from: decoder)
             self = .scheduleConversationCreated(message)

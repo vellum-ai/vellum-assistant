@@ -107,11 +107,11 @@ export function parseSimpleYaml(yaml) {
 }
 
 function stripQuotes(s) {
-  if (
-    (s.startsWith('"') && s.endsWith('"')) ||
-    (s.startsWith("'") && s.endsWith("'"))
-  ) {
+  if (s.startsWith('"') && s.endsWith('"')) {
     return processEscapes(s.slice(1, -1));
+  }
+  if (s.startsWith("'") && s.endsWith("'")) {
+    return s.slice(1, -1).replace(/''/g, "'");
   }
   return s;
 }

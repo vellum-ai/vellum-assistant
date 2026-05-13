@@ -145,6 +145,7 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { conversationMessagesSyncTag } from "../daemon/message-types/sync.js";
 import {
   processMessage,
   processMessageInBackground,
@@ -346,7 +347,13 @@ describe("processMessageInBackground Slack option propagation", () => {
     };
     loopOnEvent?.(delta);
 
-    expect(broadcastMessages).toEqual([delta]);
+    expect(broadcastMessages).toEqual([
+      {
+        type: "sync_changed",
+        tags: [conversationMessagesSyncTag("conv-background-slack")],
+      },
+      delta,
+    ]);
     expect(observedMessages).toEqual([delta]);
 
     activeConversation.__loopDeferred.resolve();

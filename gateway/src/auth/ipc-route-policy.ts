@@ -77,6 +77,19 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["upgrade_broadcast", ["internal.write"], ["svc_gateway"]],
   ["workspace_commit", ["internal.write"], ["svc_gateway"]],
 
+  // Backups (incremental + destinations)
+  ["backup_destinations_add", ["settings.write"]],
+  ["backup_destinations_list", ["settings.read"]],
+  ["backup_destinations_remove", ["settings.write"]],
+  ["backup_destinations_set_encrypt", ["settings.write"]],
+  ["backup_disable", ["settings.write"]],
+  ["backup_enable", ["settings.write"]],
+  ["backup_status", ["settings.read"]],
+  ["backups_create", ["settings.write"]],
+  ["backups_list", ["settings.read"]],
+  ["backups_restore", ["settings.write"]],
+  ["backups_verify", ["settings.read"]],
+
   // Calls
   ["calls_answer", ["calls.write"]],
   ["calls_cancel", ["calls.write"]],
@@ -88,9 +101,61 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["channels_readiness_get", ["settings.read"]],
   ["channels_readiness_refresh_post", ["settings.write"]],
 
-  // Config / platform
+  // Config
+  ["config_allowlist_validate", ["settings.read"]],
   ["config_platform_get", ["settings.read"]],
   ["config_platform_put", ["settings.write"]],
+  ["config_schema_get", ["settings.read"]],
+  ["config_set", ["settings.write"]],
+
+  // Conversation CLI
+  //
+  // The daemon HTTP policy elevates these from chat.* to settings.*
+  // (see `assistant/src/runtime/auth/route-policy.ts` —
+  // `conversations/cli/clear` is locked to `settings.write` "mirroring the
+  // `conversations/clear-all` and `conversations/wipe` gates" because
+  // clear-cli wipes every conversation + message + vector collection).
+  // The IPC entries mirror that elevation — anything weaker on IPC would
+  // mean a future scope profile granting `chat.write` without
+  // `settings.write` lets the destructive clear-cli bypass the daemon's
+  // explicit elevation.
+  ["conversation_create_cli", ["settings.write"]],
+  ["conversation_export_cli", ["settings.read"]],
+  ["conversation_list_cli", ["settings.read"]],
+  ["conversations_clear_cli", ["settings.write"]],
+
+  // Credentials
+  //
+  // Every credential route declares `policyKey: "secrets"` and uses POST
+  // (except `credentials_status` which is GET). The daemon HTTP router
+  // resolves them as:
+  //   - POST → "secrets:POST" not registered → falls back to "secrets"
+  //     → settings.write
+  //   - GET  → "secrets:GET" → settings.read
+  // So inspect/list/reveal/set/delete all require settings.write on the
+  // HTTP path. Mapping the read-shaped ones (list/inspect/reveal) to
+  // settings.read on IPC would make IPC strictly more permissive than
+  // HTTP — exactly the drift class the gateway IPC policy table exists
+  // to prevent.
+  //
+  // ATL-510 separately tracks the `credentials_reveal` plaintext-leak
+  // (the handler returns the plaintext value); that's a route-level fix,
+  // not a policy-table change.
+  ["credentials_delete", ["settings.write"]],
+  ["credentials_inspect", ["settings.write"]],
+  ["credentials_list", ["settings.write"]],
+  ["credentials_reveal", ["settings.write"]],
+  ["credentials_set", ["settings.write"]],
+  ["credentials_status", ["settings.read"]],
+
+  // Debug
+  //
+  // VELLUM_DEBUG=1 gates the handler at the daemon side — when debug
+  // mode is off (the default), the handler returns an error before
+  // executing any command. The IPC scope here is the defense-in-depth
+  // layer: it requires settings.write on the edge JWT in addition to
+  // the daemon-side VELLUM_DEBUG gate.
+  ["debug_bash", ["settings.write"]],
 
   // Diagnostics
   ["diagnostics_envvars_get", ["settings.read"]],
@@ -100,7 +165,50 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["messages_tts", ["chat.read"]],
   ["stt_providers", ["settings.read"]],
   ["stt_transcribe", ["chat.write"]],
+  // `stt_transcribe_file` reads/transcodes an arbitrary host filesystem
+  // path. The daemon HTTP policy locks it to ["local"] because, in the
+  // daemon's words, "non-local callers cannot be allowed to drive it"
+  // (`assistant/src/runtime/auth/route-policy.ts` — `stt/transcribe-file`
+  // policy block). The IPC entry mirrors that boundary — otherwise an
+  // actor JWT with chat.write can drive arbitrary host-path reads
+  // through the gateway IPC proxy.
+  ["stt_transcribe_file", ["chat.write"], ["local"]],
   ["tts_synthesize", ["chat.read"]],
+  ["tts_synthesize_cli", ["chat.read"]],
+
+  // Domain
+  ["domain_register", ["settings.write"]],
+  ["domain_status", ["settings.read"]],
+
+  // Email
+  ["email_attachment_get", ["settings.read"]],
+  ["email_attachment_list", ["settings.read"]],
+  ["email_download", ["settings.read"]],
+  ["email_list", ["settings.read"]],
+  ["email_register", ["settings.write"]],
+  ["email_send", ["settings.write"]],
+  ["email_status", ["settings.read"]],
+  ["email_unregister", ["settings.write"]],
+
+  // Platform
+  ["platform_callback_routes_list", ["settings.read"]],
+  ["platform_callback_routes_register", ["settings.write"]],
+  ["platform_connect", ["settings.write"]],
+  ["platform_disconnect", ["settings.write"]],
+  ["platform_status", ["settings.read"]],
+
+  // Schedules
+  ["createSchedule", ["settings.write"]],
+
+  // Sequences
+  ["sequence_cancel_enrollment", ["settings.write"]],
+  ["sequence_get", ["settings.read"]],
+  ["sequence_guardrails_set", ["settings.write"]],
+  ["sequence_guardrails_show", ["settings.read"]],
+  ["sequence_list", ["settings.read"]],
+  ["sequence_pause", ["settings.write"]],
+  ["sequence_resume", ["settings.write"]],
+  ["sequence_stats", ["settings.read"]],
 
   // Documents
   ["getDocument", ["settings.read"]],

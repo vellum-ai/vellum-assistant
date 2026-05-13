@@ -98,8 +98,6 @@ export const defaultPersistencePlugin: Plugin = {
   manifest: {
     name: "default-persistence",
     version: "1.0.0",
-    provides: { persistence: "v1" },
-    requires: { pluginRuntime: "v1" },
   },
   middleware: {
     persistence: passthrough,

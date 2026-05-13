@@ -30,6 +30,7 @@ import {
 import { updateMetaFile } from "../memory/conversation-disk-view.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import { buildSlackMetaForPersistence } from "./conversation-messaging.js";
@@ -368,6 +369,7 @@ export async function processMessage(
       serverChannelMeta,
     );
     conversation.getMessages().push(assistantMsg);
+    publishConversationMessagesChanged(conversationId);
     return { messageId: persisted.id };
   }
 
@@ -421,6 +423,7 @@ export async function processMessage(
       compactChannelMeta,
     );
     conversation.getMessages().push(assistantMsg);
+    publishConversationMessagesChanged(conversationId);
     return { messageId: persisted.id };
   }
 
@@ -436,6 +439,7 @@ export async function processMessage(
     requestId,
     persistMetadata,
   );
+  publishConversationMessagesChanged(conversationId);
 
   if (options?.isInteractive === true) {
     conversation.updateClient(broadcastMessage, false);
@@ -500,6 +504,7 @@ export async function processMessageInBackground(
     requestId,
     persistMetadata,
   );
+  publishConversationMessagesChanged(conversationId);
 
   if (options?.isInteractive === true) {
     conversation.updateClient(broadcastMessage, false);

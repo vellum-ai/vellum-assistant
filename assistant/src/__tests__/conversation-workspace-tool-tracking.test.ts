@@ -61,7 +61,11 @@ mock.module("../config/loader.js", () => ({
       pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
-    memory: { enabled: false, v2: { enabled: false } },
+    memory: {
+      enabled: false,
+      v2: { enabled: false },
+      retrieval: { scratchpadInjection: { enabled: true } },
+    },
     daemon: {
       startupSocketWaitMs: 5000,
       stopTimeoutMs: 5000,

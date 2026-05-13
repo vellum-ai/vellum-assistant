@@ -18,6 +18,7 @@ import {
   reorderGroups,
   updateGroup,
 } from "../../memory/group-crud.js";
+import { publishConversationListChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -47,6 +48,7 @@ function handleCreateGroup({ body = {} }: RouteHandlerArgs) {
   }
   try {
     const group = createGroup(name);
+    publishConversationListChanged("created");
     return serializeGroup(group);
   } catch (err) {
     if (
@@ -90,6 +92,7 @@ function handleUpdateGroup({ pathParams = {}, body = {} }: RouteHandlerArgs) {
   if (!updated) {
     throw new NotFoundError("Group not found");
   }
+  publishConversationListChanged("reordered");
   return serializeGroup(updated);
 }
 
@@ -103,6 +106,7 @@ function handleDeleteGroup({ pathParams = {} }: RouteHandlerArgs) {
     throw new ForbiddenError("System groups cannot be deleted");
   }
   deleteGroup(groupId);
+  publishConversationListChanged("reordered");
 }
 
 function handleReorderGroups({ body = {} }: RouteHandlerArgs) {
@@ -131,6 +135,7 @@ function handleReorderGroups({ body = {} }: RouteHandlerArgs) {
     }
   }
   reorderGroups(updates);
+  publishConversationListChanged("reordered");
   return { ok: true };
 }
 

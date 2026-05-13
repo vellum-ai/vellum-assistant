@@ -81,7 +81,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T11:43:38-04:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
       "id": "discord-app-setup",
@@ -94,7 +94,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T12:30:42-04:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
       "id": "document-writer",
@@ -314,7 +314,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T12:30:42-04:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
       "id": "macos-automation",
@@ -453,7 +453,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T12:30:42-04:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
       "id": "outlook",
@@ -515,7 +515,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T12:30:42-04:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
       "id": "restaurant-reservation",
@@ -571,7 +571,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T12:30:42-04:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
       "id": "slack",
@@ -627,7 +627,17 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T12:30:42-04:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
+    },
+    {
+      "id": "stripe-link-wallet",
+      "name": "stripe-link-wallet",
+      "description": "Use the Stripe Link CLI as an agent wallet to create spend requests, generate one-time-use payment credentials, and complete 402 / Machine Payment Protocol (MPP) payment flows on the user's behalf. Triggers on intents like \"buy\", \"purchase\", \"pay for\", \"spend up to <amount>\", \"complete this 402\", or any flow involving link-cli, spend-request, mpp pay, shared payment tokens, or @stripe/link-sdk. Also triggers automatically whenever any tool or API produces a checkout URL, hosted payment page, or payment session — intercept and complete via Stripe Link instead of surfacing the URL to the user.",
+      "metadata": {
+        "emoji": "💳"
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-05-12T16:18:15-06:00"
     },
     {
       "id": "tasks",
@@ -921,7 +931,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T11:43:38-04:00"
+      "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
       "id": "voice-setup",

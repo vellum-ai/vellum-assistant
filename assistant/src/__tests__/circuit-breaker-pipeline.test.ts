@@ -377,7 +377,6 @@ describe("circuit-breaker pipeline", () => {
       manifest: {
         name: "observer",
         version: "0.0.1",
-        requires: { pluginRuntime: "v1", circuitBreakerApi: "v1" },
       },
       middleware: {
         circuitBreaker: async (args, next) => {

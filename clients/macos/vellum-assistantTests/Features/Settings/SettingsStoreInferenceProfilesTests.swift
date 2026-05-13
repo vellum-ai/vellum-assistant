@@ -722,10 +722,13 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertEqual(stored?.source, "managed")
     }
 
-    /// `nil` / whitespace-only `label` → `NSNull()` on the wire so the
-    /// daemon deletes the label key (clear-to-seed). `nil` `status` →
-    /// normalized to the literal `"active"` enum value.
-    func testSetManagedProfilePolicySendsNullLabelAndNormalizesStatusToActiveForNilInputs() async {
+    /// `nil` / whitespace-only `label` and `status` → wire serializes as
+    /// `NSNull` (= JSON null) so the daemon's `patchManagedProfileFields`
+    /// route applies the null-clear sentinel from #30362, deleting the
+    /// `label` / `status` key on disk. The daemon schema change in #30387
+    /// (`.nullable()` on both fields) is what makes this reachable
+    /// end-to-end.
+    func testSetManagedProfilePolicySendsNullForClearedLabelAndStatus() async {
         store.loadInferenceProfiles(config: [
             "llm": [
                 "profiles": [
@@ -752,43 +755,48 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
             call.fragment["label"] is NSNull,
             "nil label must serialize as NSNull so the daemon clears it"
         )
-        XCTAssertEqual(call.fragment["status"] as? String, "active")
-        XCTAssertEqual(call.fragment.count, 2, "Fragment should contain both label (NSNull) and status keys")
+        XCTAssertTrue(
+            call.fragment["status"] is NSNull,
+            "nil status must serialize as NSNull so the daemon clears it (active-by-absence)"
+        )
+        XCTAssertEqual(call.fragment.count, 2, "Fragment should contain both label and status keys (both NSNull)")
 
         let stored = store.profiles.first(where: { $0.name == "balanced" })
         XCTAssertNil(stored?.label, "Label must be cleared locally when NSNull sent on the wire")
-        XCTAssertNil(stored?.status, "Status normalized to nil (== active) locally")
+        XCTAssertNil(stored?.status, "Status must be cleared locally when NSNull sent on the wire")
         // Seed fields preserved.
         XCTAssertEqual(stored?.provider, "anthropic")
         XCTAssertEqual(stored?.model, "claude-opus-4-7")
     }
 
-    /// `status: "active"` and `status: nil` both produce the same wire
-    /// payload (`"active"`). Anything other than the literal `"disabled"`
-    /// is normalized to `"active"` so the daemon's `ProfileStatusSchema`
-    /// enum is satisfied for every input shape the editor can produce.
-    func testSetManagedProfilePolicyAlwaysSendsValidEnumStatusForActiveBucket() async {
+    /// Status passes through verbatim for the two valid enum values.
+    /// `nil` / `""` both serialize as `NSNull` (clear sentinel) — same
+    /// shape as a never-set status, which renders active-by-absence.
+    func testSetManagedProfilePolicyStatusPassThroughAndClearShapes() async {
         store.loadInferenceProfiles(config: [
             "llm": ["profiles": ["balanced": ["source": "managed"]]]
         ])
 
-        // Explicit "active"
         _ = await store.setManagedProfilePolicy(name: "balanced", label: "L", status: "active")
-        // Nil
+        _ = await store.setManagedProfilePolicy(name: "balanced", label: "L", status: "disabled")
         _ = await store.setManagedProfilePolicy(name: "balanced", label: "L", status: nil)
-        // Empty string (defensive)
         _ = await store.setManagedProfilePolicy(name: "balanced", label: "L", status: "")
 
-        XCTAssertEqual(
-            mockSettingsClient.replaceInferenceProfileCalls.map { $0.fragment["status"] as? String },
-            ["active", "active", "active"],
-            "Every non-disabled status input must normalize to the literal \"active\" enum value"
-        )
+        let calls = mockSettingsClient.replaceInferenceProfileCalls
+        XCTAssertEqual(calls[0].fragment["status"] as? String, "active",
+                       "Explicit \"active\" must pass through verbatim")
+        XCTAssertEqual(calls[1].fragment["status"] as? String, "disabled",
+                       "Explicit \"disabled\" must pass through verbatim")
+        XCTAssertTrue(calls[2].fragment["status"] is NSNull,
+                      "nil status must serialize as NSNull (clear sentinel)")
+        XCTAssertTrue(calls[3].fragment["status"] is NSNull,
+                      "Empty-string status must serialize as NSNull (clear sentinel)")
     }
 
     /// Wire-format invariants across (nil, "", whitespace, real value)
-    /// for both inputs: label is NSNull when empty/nil, String when
-    /// non-empty; status is always a valid enum String.
+    /// for both inputs: label and status are NSNull when empty/nil,
+    /// String when non-empty. Symmetric clear semantics — no field-specific
+    /// normalization on either side.
     func testSetManagedProfilePolicyWireFormatInvariants() async {
         store.loadInferenceProfiles(config: [
             "llm": ["profiles": ["balanced": ["source": "managed"]]]
@@ -808,6 +816,10 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
 
         for (idx, call) in mockSettingsClient.replaceInferenceProfileCalls.enumerated() {
             let labelIsEmpty = idx / statusInputs.count < 3 // nil, "", "   "
+            // Status input cycles within each label row. Indices 0/1 in
+            // a row are nil / "" (clear); 2/3 are "active" / "disabled".
+            let statusIsCleared = idx % statusInputs.count < 2
+
             if labelIsEmpty {
                 XCTAssertTrue(
                     call.fragment["label"] is NSNull,
@@ -819,14 +831,18 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
                     "Call #\(idx): non-empty label must be a String"
                 )
             }
-            XCTAssertFalse(
-                call.fragment["status"] is NSNull,
-                "Call #\(idx): status must never be NSNull"
-            )
-            XCTAssertTrue(
-                call.fragment["status"] is String,
-                "Call #\(idx): status key must always be present as a String"
-            )
+
+            if statusIsCleared {
+                XCTAssertTrue(
+                    call.fragment["status"] is NSNull,
+                    "Call #\(idx): empty/nil status must be NSNull (clear sentinel)"
+                )
+            } else {
+                XCTAssertTrue(
+                    call.fragment["status"] is String,
+                    "Call #\(idx): non-empty status must be a String"
+                )
+            }
         }
     }
 

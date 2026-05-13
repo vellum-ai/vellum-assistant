@@ -102,8 +102,6 @@ struct SettingsGeneralTab: View {
                 TeleportSection(assistant: assistant, onClose: onClose)
             }
             SettingsAppearanceTab(store: store)
-            OpenSourceSettingsCard()
-            DiscordCommunitySettingsCard()
             if !lockfileAssistants.isEmpty {
                 retireAssistantSection
             }

@@ -58,8 +58,6 @@ export const defaultToolExecutePlugin: Plugin = {
   manifest: {
     name: "default-tool-execute",
     version: "1.0.0",
-    provides: { toolExecuteApi: "v1" },
-    requires: { pluginRuntime: "v1", toolExecuteApi: "v1" },
   },
   middleware: {
     toolExecute: defaultToolExecute,

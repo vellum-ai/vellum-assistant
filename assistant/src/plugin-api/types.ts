@@ -36,10 +36,13 @@ export interface PluginInitContext {
   logger: unknown;
   /** Absolute path to `<workspaceDir>/plugins-data/<plugin>/` (created by bootstrap). */
   pluginStorageDir: string;
-  /** Assistant semver for compatibility checks inside the plugin. */
+  /**
+   * Assistant semver. Plugins can compare against this for defensive
+   * runtime checks — but the canonical compat contract is the host
+   * version against the plugin's `peerDependencies["@vellumai/plugin-api"]`
+   * semver range, enforced at load time by the external-plugin loader.
+   */
   assistantVersion: string;
-  /** Capability → version-list map (`ASSISTANT_API_VERSIONS`) for defensive runtime checks. */
-  apiVersions: Record<string, string[]>;
 }
 
 // ─── Shutdown context ────────────────────────────────────────────────────────

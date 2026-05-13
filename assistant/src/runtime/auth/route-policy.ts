@@ -285,7 +285,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "slack/channels", scopes: ["settings.read"] },
   { endpoint: "slack/share", scopes: ["settings.write"] },
 
-  // Channel readiness
+  // Channel availability + readiness
+  { endpoint: "channels/available", scopes: ["settings.read"] },
   { endpoint: "channels/readiness", scopes: ["settings.read"] },
   { endpoint: "channels/readiness/refresh", scopes: ["settings.write"] },
 

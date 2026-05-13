@@ -172,14 +172,21 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
   private async selectByMessageIds(ids: string[]): Promise<LogRow[]> {
     if (ids.length === 0) return [];
     const aid = await this.assistantId();
-    // ClickHouse Array(String) URL encoding is fiddly; the message IDs are
-    // server-generated UUIDs (or safe internal strings), so inline the
-    // literal after escaping single quotes. No SQL-injection surface — the
-    // values originate from our own SQLite messages table.
-    const idLiteral =
-      "[" +
-      ids.map((id) => `'${id.replace(/'/g, "''")}'`).join(",") +
-      "]";
+    // Bind each id as its own {id_N:String} placeholder. The IDs ultimately
+    // come from a caller-supplied path parameter — `getAssistantMessageIdsInTurn`
+    // passes the input straight through when the message lookup misses — so
+    // inline literal building (even with quote-doubling) is unsafe: ClickHouse
+    // honors `\'` as an escaped quote inside string literals, letting a
+    // backslash-suffixed id break out of the IN clause and bypass the
+    // `assistant_id` scope filter. Type-bound parameters carry value, not
+    // syntax, regardless of content.
+    const params: Record<string, string> = { assistant_id: aid };
+    const placeholders: string[] = [];
+    for (let i = 0; i < ids.length; i++) {
+      const key = `id_${i}`;
+      params[key] = ids[i]!;
+      placeholders.push(`{${key}:String}`);
+    }
     const sql = `SELECT
         id,
         conversation_id,
@@ -190,11 +197,11 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
         toUnixTimestamp64Milli(created_at) AS created_at
       FROM ${this.tableRef()}
       WHERE assistant_id = {assistant_id:String}
-        AND message_id IN ${idLiteral}
+        AND message_id IN (${placeholders.join(",")})
       ORDER BY created_at ASC, id ASC
       LIMIT 1 BY id
       FORMAT JSONEachRow`;
-    const rows = await this.exec(sql, { assistant_id: aid });
+    const rows = await this.exec(sql, params);
     return rows.map((r) => this.toLogRow(r));
   }
 
