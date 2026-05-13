@@ -1,29 +1,75 @@
 /**
  * Behavioral test for the simple-memory plugin's `simple_memory_recall` tool
  * after its conversion from "list entries in this conversation" to "search
- * across all entries". Imports the on-disk plugin's tool file directly so
- * the test fails if the type imports (`@vellumai/plugin-api`) regress, the
- * search wiring breaks, or the description copy drifts in a way that no
- * longer describes a search tool.
+ * across all entries".
+ *
+ * The plugin lives under `experimental/plugins/simple-memory/` and its
+ * source files import `@vellumai/plugin-api` — a runtime-only resolution
+ * (boot-shim or installed npm package), not a path tsc can follow. To
+ * keep the assistant's type-check graph clean we load the plugin via
+ * `await import(…)` so tsc treats the bindings as opaque, and rely on
+ * the runtime e2e loader test for typed-surface coverage.
  */
 
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import {
-  appendEntry,
-  clearState,
-  type MemoryEntry,
-  newEntryId,
-  setState,
-} from "../../../experimental/plugins/simple-memory/src/state.js";
-import recallTool from "../../../experimental/plugins/simple-memory/tools/recall.js";
+const PLUGIN_DIR = join(
+  dirname(import.meta.dir),
+  "..",
+  "..",
+  "experimental",
+  "plugins",
+  "simple-memory",
+);
 
-interface ToolCtxShape {
-  conversationId: string;
-  workingDir: string;
+interface MemoryEntry {
+  readonly id: string;
+  readonly conversationId: string;
+  readonly text: string;
+  readonly createdAt: number;
 }
 
-function ctx(conversationId: string): ToolCtxShape {
+interface ToolResult {
+  content: string;
+  isError: boolean;
+}
+
+interface RecallTool {
+  getDefinition(): {
+    name: string;
+    description: string;
+    input_schema: {
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+  };
+  execute(
+    input: Record<string, unknown>,
+    ctx: { conversationId: string; workingDir: string },
+  ): Promise<ToolResult>;
+}
+
+interface StateModule {
+  setState(state: {
+    storePath: string;
+    entries: MemoryEntry[];
+    logger: {
+      info(obj: Record<string, unknown>, msg?: string): void;
+      warn(obj: Record<string, unknown>, msg?: string): void;
+      error(obj: Record<string, unknown>, msg?: string): void;
+      debug(obj: Record<string, unknown>, msg?: string): void;
+    };
+  }): void;
+  clearState(): void;
+  appendEntry(entry: MemoryEntry): void;
+  newEntryId(): string;
+}
+
+let recallTool: RecallTool;
+let stateModule: StateModule;
+
+function ctx(conversationId: string) {
   return { conversationId, workingDir: process.cwd() };
 }
 
@@ -41,26 +87,40 @@ function makeEntry(
   text: string,
   createdAt: number,
 ): MemoryEntry {
-  return { id: newEntryId(), conversationId, text, createdAt };
+  return {
+    id: stateModule.newEntryId(),
+    conversationId,
+    text,
+    createdAt,
+  };
 }
 
 function seed(entries: MemoryEntry[]): void {
-  setState({
+  stateModule.setState({
     storePath: "/dev/null",
     entries: [],
     logger: silentLogger(),
   });
   for (const entry of entries) {
-    appendEntry(entry);
+    stateModule.appendEntry(entry);
   }
 }
 
 describe("simple_memory_recall — search behavior", () => {
-  beforeEach(() => {
-    clearState();
+  beforeEach(async () => {
+    const recallModule = (await import(
+      join(PLUGIN_DIR, "tools/recall.ts")
+    )) as {
+      default: RecallTool;
+    };
+    recallTool = recallModule.default;
+    stateModule = (await import(
+      join(PLUGIN_DIR, "src/state.ts")
+    )) as StateModule;
+    stateModule.clearState();
   });
   afterEach(() => {
-    clearState();
+    stateModule.clearState();
   });
 
   test("getDefinition advertises a required `query` parameter", () => {
@@ -86,7 +146,10 @@ describe("simple_memory_recall — search behavior", () => {
 
   test("no matches returns a deterministic message (no error)", async () => {
     seed([makeEntry("conv-a", "Vargas prefers terse register", 1_000)]);
-    const r = await recallTool.execute({ query: "nothing-like-this" }, ctx("conv-a"));
+    const r = await recallTool.execute(
+      { query: "nothing-like-this" },
+      ctx("conv-a"),
+    );
     expect(r.isError).toBe(false);
     expect(r.content).toMatch(/no matches for: nothing-like-this/);
   });
