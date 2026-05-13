@@ -7,7 +7,6 @@ import { client } from "./commands/client";
 import { env } from "./commands/env";
 import { events } from "./commands/events";
 import { exec } from "./commands/exec";
-import { experimental } from "./commands/experimental";
 import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
 import { logs } from "./commands/logs";
@@ -37,7 +36,6 @@ const commands = {
   env,
   events,
   exec,
-  experimental,
   hatch,
   login,
   logout,
@@ -72,7 +70,6 @@ function printHelp(): void {
   console.log("  env      Manage the default CLI environment");
   console.log("  events   Stream events from a running assistant");
   console.log("  exec     Execute a command inside an assistant's container");
-  console.log("  experimental  Unstable commands (plugins, ...)");
   console.log("  hatch    Create a new assistant instance");
   console.log("  logs     View logs from an assistant instance");
   console.log("  login    Log in to the Vellum platform");

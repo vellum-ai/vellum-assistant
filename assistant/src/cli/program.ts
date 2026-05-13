@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { getConfigReadOnly } from "../config/loader.js";
 import { isEmailEnabled } from "../email/feature-gate.js";
+import { isExternalPluginsEnabled } from "../plugins/feature-gate.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 import { registerAttachmentCommand } from "./commands/attachment.js";
@@ -37,6 +38,7 @@ import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPendingCommand } from "./commands/pending.js";
 import { registerPlatformCommand } from "./commands/platform/index.js";
+import { registerPluginsCommand } from "./commands/plugins.js";
 import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerSkillsCommand } from "./commands/skills.js";
@@ -107,6 +109,9 @@ Examples:
   registerOAuthCommand(program);
   registerPendingCommand(program);
   registerPlatformCommand(program);
+  if (isExternalPluginsEnabled(getConfigReadOnly())) {
+    registerPluginsCommand(program);
+  }
   registerRoutesCommand(program);
   registerSequenceCommand(program);
   registerStatusCommand(program);
