@@ -70,21 +70,22 @@ struct SubagentDetailPanel: View {
                 Spacer()
                 if isRunning {
                     Button(action: { onAbort?() }) {
-                        HStack(spacing: VSpacing.xxs) {
-                            VIconView(.square, size: 8)
-                            Text("Abort")
-                                .font(VFont.labelDefault)
+                        HStack(spacing: VSpacing.xs) {
+                            VIconView(.square, size: 10)
+                            Text("Stop")
+                                .font(VFont.bodySmallEmphasised)
                         }
                         .foregroundStyle(VColor.systemNegativeStrong)
                         .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xxs)
+                        .padding(.vertical, VSpacing.xs)
+                        .frame(height: 32)
                         .background(
-                            RoundedRectangle(cornerRadius: VRadius.pill)
-                                .fill(VColor.systemNegativeStrong.opacity(0.12))
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .strokeBorder(VColor.systemNegativeStrong, lineWidth: 1)
                         )
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Abort subagent")
+                    .accessibilityLabel("Stop subagent")
                 }
             }
 
@@ -265,29 +266,33 @@ struct SubagentDetailPanel: View {
     @ViewBuilder
     private var statusBadge: some View {
         if let info = subagentInfo {
-            HStack(spacing: VSpacing.xs) {
-                Circle()
-                    .fill(statusColor(info.status))
-                    .frame(width: 8, height: 8)
-                Text(info.status.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(statusColor(info.status))
-            }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xxs)
-            .background(
-                Capsule()
-                    .fill(statusColor(info.status).opacity(0.12))
-            )
+            Text(info.status.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
+                .font(VFont.bodySmallEmphasised)
+                .foregroundStyle(statusTextColor(info.status))
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(statusBackgroundColor(info.status))
+                )
         }
     }
 
-    private func statusColor(_ status: SubagentStatus) -> Color {
+    private func statusTextColor(_ status: SubagentStatus) -> Color {
         switch status {
-        case .completed: return VColor.systemPositiveStrong
+        case .completed: return VColor.contentDefault
         case .failed, .aborted: return VColor.systemNegativeStrong
         case .running: return VColor.primaryActive
         default: return VColor.contentTertiary
+        }
+    }
+
+    private func statusBackgroundColor(_ status: SubagentStatus) -> Color {
+        switch status {
+        case .completed: return VColor.systemPositiveWeak
+        case .failed, .aborted: return VColor.systemNegativeStrong.opacity(0.12)
+        case .running: return VColor.primaryActive.opacity(0.12)
+        default: return VColor.contentTertiary.opacity(0.12)
         }
     }
 
