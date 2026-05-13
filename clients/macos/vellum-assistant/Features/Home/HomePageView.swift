@@ -65,6 +65,9 @@ struct HomePageView<DetailPanel: View>: View {
     /// refresh. Persistent per-account dismissal is a follow-up.
     @State private var suggestionsDismissed: Bool = false
 
+    /// Active category filter. `nil` means "All" — show every feed item.
+    @State private var activeFilter: FeedItemCategory? = nil
+
     /// Editorial column width. Bumped from 600pt to 960pt to match the
     /// Figma redesign — the new three-block layout reads as a wider page,
     /// not a narrow column.
@@ -125,6 +128,19 @@ struct HomePageView<DetailPanel: View>: View {
                             onDismissSuggestions()
                         }
                     )
+                }
+
+                HomeFeedFilterBar(
+                    activeFilter: activeFilter,
+                    onFilterChanged: { activeFilter = $0 }
+                )
+
+                if groupedFeed.isEmpty, activeFilter != nil {
+                    Text("No notifications")
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, VSpacing.xxl)
                 }
 
                 ForEach(Array(groupedFeed.enumerated()), id: \.element.group) { _, bucket in
@@ -245,7 +261,16 @@ struct HomePageView<DetailPanel: View>: View {
             if a.priority != b.priority { return a.priority > b.priority }
             return a.createdAt > b.createdAt
         }
-        let filtered = sorted.filter { $0.status != .dismissed }
+        let filtered = sorted.filter { item in
+            guard item.status != .dismissed else { return false }
+            // When a category filter is active, include items that match the
+            // filter OR items with no category (backward compat — legacy items
+            // that predate the category field should always remain visible).
+            if let active = activeFilter {
+                return item.category == active || item.category == nil
+            }
+            return true
+        }
         let buckets = HomeFeedTimeGroup.bucket(filtered)
         return buckets.map { bucket in
             (group: bucket.group, rows: HomeFeedGrouping.group(bucket.items))

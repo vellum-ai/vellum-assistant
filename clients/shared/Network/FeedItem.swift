@@ -53,7 +53,7 @@ public enum FeedItemUrgency: String, Codable, Sendable, Hashable {
 }
 
 /// Broad category for grouping and filtering feed items.
-public enum FeedItemCategory: String, Codable, Sendable, Hashable {
+public enum FeedItemCategory: String, Codable, Sendable, Hashable, CaseIterable {
     case security
     case scheduling
     case background
