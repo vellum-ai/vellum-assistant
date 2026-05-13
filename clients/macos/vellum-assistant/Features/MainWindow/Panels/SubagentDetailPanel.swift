@@ -320,10 +320,13 @@ struct SubagentDetailPanel: View {
     @ViewBuilder
     private func toolResultCardContent(_ event: SubagentEventItem) -> some View {
         if !event.content.isEmpty {
-            Text(event.content)
-                .font(VFont.bodyMediumLighter)
-                .foregroundStyle(VColor.contentDefault)
-                .textSelection(.enabled)
+            SubagentCollapsibleText(
+                text: event.content,
+                isExpanded: Binding(
+                    get: { state?.isEventExpanded(event.id) ?? false },
+                    set: { state?.setEventExpanded(event.id, expanded: $0) }
+                )
+            )
         }
     }
 
@@ -544,6 +547,35 @@ struct SubagentToolCallPair {
     }
 }
 
+
+// MARK: - Collapsible Text
+
+private struct SubagentCollapsibleText: View {
+    let text: String
+    @Binding var isExpanded: Bool
+    private let collapsedLineLimit = 4
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text(text)
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentDefault)
+                .lineLimit(isExpanded ? nil : collapsedLineLimit)
+                .textSelection(.enabled)
+
+            if !isExpanded {
+                Button {
+                    withAnimation(VAnimation.fast) { isExpanded = true }
+                } label: {
+                    Text("Show more")
+                        .font(VFont.bodySmallEmphasised)
+                        .foregroundStyle(VColor.primaryBase)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
 
 // MARK: - Text Event Action Overlay
 
