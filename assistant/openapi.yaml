@@ -13702,6 +13702,44 @@ paths:
               required:
                 - sourceText
               additionalProperties: false
+  /v1/skills/import:
+    post:
+      operationId: skills_import_post
+      summary: Import skill from file
+      description: Import a custom skill by uploading a ZIP or tar.gz archive containing a SKILL.md file.
+      tags:
+        - skills
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  skillId:
+                    type: string
+                required:
+                  - ok
+                  - skillId
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fileName:
+                  type: string
+                fileContent:
+                  type: string
+              required:
+                - fileName
+                - fileContent
+              additionalProperties: false
   /v1/skills/install:
     post:
       operationId: skills_install_post
