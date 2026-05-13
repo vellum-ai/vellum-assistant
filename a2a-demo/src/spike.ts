@@ -168,9 +168,9 @@ export function createSpikeServer(port: number) {
 export async function runSpike(port: number) {
   const server = createSpikeServer(port);
 
-  // Wait for the server to be listening before connecting the client
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolve, reject) => {
     server.once('listening', resolve);
+    server.once('error', reject);
     if (server.listening) resolve();
   });
 

@@ -17,10 +17,9 @@ describe('SDK spike roundtrip', () => {
   test('server/client lifecycle completes with echo artifact', async () => {
     server = createSpikeServer(PORT);
 
-    // Wait briefly for the server to be listening
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
       server.once('listening', resolve);
-      // If already listening, resolve immediately
+      server.once('error', reject);
       if (server.listening) resolve();
     });
 
