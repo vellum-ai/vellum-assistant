@@ -199,18 +199,26 @@ describe("buildSlackChannelLabelMap", () => {
     });
   });
 
-  test("does not resolve channel references that already have embedded labels", async () => {
+  test("does not resolve channel references that already have usable embedded labels", async () => {
     const resolved: string[] = [];
     const labels = await buildSlackChannelLabelMap(
-      ["<#C123|general> <#C456> <#C789|C789>"],
+      ["<#C123|general> <#C456> <#C789|C789> <#CEMPTY|   >"],
       async (channelId) => {
         resolved.push(channelId);
-        return channelId === "C456" ? "support" : "resolved";
+        return channelId === "C456"
+          ? "support"
+          : channelId === "CEMPTY"
+            ? "empty-label"
+            : "resolved";
       },
     );
 
-    expect(resolved).toEqual(["C456"]);
-    expect(labels).toEqual({ C456: "support" });
+    expect(resolved.sort()).toEqual(["C456", "C789", "CEMPTY"]);
+    expect(labels).toEqual({
+      C456: "support",
+      C789: "resolved",
+      CEMPTY: "empty-label",
+    });
   });
 
   test("omits unresolved labels and labels equal to the Slack channel ID", async () => {

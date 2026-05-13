@@ -109,7 +109,8 @@ export async function buildSlackChannelLabelMap(
     for (const match of text.matchAll(SLACK_CHANNEL_REFERENCE_RE)) {
       const id = match[1];
       const [, embeddedLabel] = splitSlackLabel(match[0].slice(1, -1));
-      if (embeddedLabel !== undefined) continue;
+      const sanitizedEmbeddedLabel = sanitizeOptionalLabel(embeddedLabel);
+      if (sanitizedEmbeddedLabel && sanitizedEmbeddedLabel !== id) continue;
       if (!seen.has(id)) {
         seen.add(id);
         ids.push(id);
