@@ -67,6 +67,7 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
 import {
   ALWAYS_INJECTED_ENV_VARS,
   buildSanitizedEnv,
+  KATA_SAFE_ENV_VARS,
   SAFE_ENV_VARS,
 } from "../tools/terminal/safe-env.js";
 
@@ -140,6 +141,28 @@ describe("buildSanitizedEnv", () => {
     expect(env.LC_CTYPE).toBe("UTF-8");
   });
 
+  test("only includes Kata apt variables when sandbox runtime is kata", () => {
+    process.env.VELLUM_SANDBOX_RUNTIME = "gvisor";
+    process.env.PATH = "/usr/bin";
+    process.env.VELLUM_APT_DATA_ROOT = "/data/system";
+    process.env.LD_LIBRARY_PATH = "/data/system/usr/lib";
+
+    let env = buildSanitizedEnv();
+    expect(env.VELLUM_APT_DATA_ROOT).toBeUndefined();
+    expect(env.LD_LIBRARY_PATH).toBeUndefined();
+    expect(env.PATH.split(":")).not.toContain("/data/system/usr/bin");
+
+    process.env.VELLUM_SANDBOX_RUNTIME = "kata";
+    env = buildSanitizedEnv();
+    expect(env.VELLUM_APT_DATA_ROOT).toBe("/data/system");
+    expect(env.PATH.split(":")).toContain("/data/system/usr/bin");
+    expect(env.PATH.split(":")).toContain("/data/system/usr/local/bin");
+    expect(env.LD_LIBRARY_PATH.split(":")).toContain("/data/system/usr/lib");
+    expect(env.LD_LIBRARY_PATH.split(":")).toContain(
+      "/data/system/usr/local/lib",
+    );
+  });
+
   test("defaults LANG and LC_ALL to UTF-8 when unset", () => {
     delete process.env.LANG;
     delete process.env.LC_ALL;
@@ -161,7 +184,11 @@ describe("buildSanitizedEnv", () => {
   test("result is a plain object with no prototype-inherited secrets", () => {
     const env = buildSanitizedEnv();
     const keys = Object.keys(env);
-    const safeKeys: string[] = [...SAFE_ENV_VARS, ...ALWAYS_INJECTED_ENV_VARS];
+    const safeKeys: string[] = [
+      ...SAFE_ENV_VARS,
+      ...KATA_SAFE_ENV_VARS,
+      ...ALWAYS_INJECTED_ENV_VARS,
+    ];
     for (const key of keys) {
       expect(safeKeys).toContain(key);
     }
