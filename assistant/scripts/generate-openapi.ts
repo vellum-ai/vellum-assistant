@@ -569,6 +569,55 @@ async function main() {
     }
     if (existing !== yamlOutput) {
       console.error("openapi.yaml is stale. Run: bun run generate:openapi");
+      // Emit the first byte-level divergence and a windowed diff around it
+      // so CI logs are actionable without a follow-up local repro.
+      const maxLen = Math.max(existing.length, yamlOutput.length);
+      let firstDiff = -1;
+      for (let i = 0; i < maxLen; i++) {
+        if (existing[i] !== yamlOutput[i]) {
+          firstDiff = i;
+          break;
+        }
+      }
+      if (firstDiff >= 0) {
+        const lineNo = (existing.slice(0, firstDiff).match(/\n/g) ?? []).length + 1;
+        const winStart = Math.max(0, firstDiff - 120);
+        const winEnd = Math.min(maxLen, firstDiff + 120);
+        console.error(`First divergence at byte ${firstDiff} (~line ${lineNo}):`);
+        console.error(`  existing[${winStart}..${winEnd}]:`);
+        console.error(`    ${JSON.stringify(existing.slice(winStart, winEnd))}`);
+        console.error(`  generated[${winStart}..${winEnd}]:`);
+        console.error(`    ${JSON.stringify(yamlOutput.slice(winStart, winEnd))}`);
+      }
+      // Also flag which path operations are present in one but not the other —
+      // the common failure mode is a missing or duplicated route entry, and
+      // the path keys are the actionable thing for the human reading the log.
+      const pathsRe = /^\s\s(\/\S+):/gm;
+      const existingPaths = new Set(
+        Array.from(existing.matchAll(pathsRe), (m) => m[1]),
+      );
+      const generatedPaths = new Set(
+        Array.from(yamlOutput.matchAll(pathsRe), (m) => m[1]),
+      );
+      const inExistingOnly = [...existingPaths].filter(
+        (p) => !generatedPaths.has(p),
+      );
+      const inGeneratedOnly = [...generatedPaths].filter(
+        (p) => !existingPaths.has(p),
+      );
+      if (inExistingOnly.length || inGeneratedOnly.length) {
+        console.error(
+          `Path set drift: existing has ${existingPaths.size} paths, generated has ${generatedPaths.size}`,
+        );
+        if (inGeneratedOnly.length) {
+          console.error(`  Only in generated (missing from committed yaml):`);
+          for (const p of inGeneratedOnly.slice(0, 20)) console.error(`    + ${p}`);
+        }
+        if (inExistingOnly.length) {
+          console.error(`  Only in existing (stale entries in committed yaml):`);
+          for (const p of inExistingOnly.slice(0, 20)) console.error(`    - ${p}`);
+        }
+      }
       process.exit(1);
     }
     console.log("openapi.yaml is up to date.");
