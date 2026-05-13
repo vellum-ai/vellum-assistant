@@ -176,7 +176,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-10T14:21:20-04:00"
+      "updatedAt": "2026-05-13T16:13:31-06:00"
     },
     {
       "id": "gmail",
@@ -643,7 +643,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T17:58:52-06:00"
+      "updatedAt": "2026-05-13T15:16:00-06:00"
     },
     {
       "id": "tasks",
@@ -973,7 +973,7 @@
           "emoji": "📺"
         }
       },
-      "updatedAt": "2026-04-09T16:40:47-04:00"
+      "updatedAt": "2026-05-13T15:16:00-06:00"
     },
     {
       "id": "watcher",
