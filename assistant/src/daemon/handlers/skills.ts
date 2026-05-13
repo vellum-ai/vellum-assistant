@@ -692,32 +692,44 @@ export async function getSkill(
   return { skill: detail };
 }
 
-export function getSkillLocalDetail(
-  skillId: string,
-): {
-  ok: true;
-  id: string;
-  name: string;
-  description: string;
-  emoji: string | null;
-  source: string;
-  state: string;
-  directoryPath: string;
-  featureFlag: string | null;
-  includes: string[] | null;
-  activationHints: string[] | null;
-  avoidWhen: string[] | null;
-  toolManifest: { valid: boolean; toolCount: number; toolNames: string[] } | null;
-  installMeta: Record<string, unknown> | null;
-  config: { enabled: boolean; envKeys: string[]; configKeys: string[] } | null;
-} | { ok: false; error: string; status: 404 | 500 } {
+export function getSkillLocalDetail(skillId: string):
+  | {
+      ok: true;
+      id: string;
+      name: string;
+      description: string;
+      emoji: string | null;
+      source: string;
+      state: string;
+      directoryPath: string;
+      featureFlag: string | null;
+      includes: string[] | null;
+      activationHints: string[] | null;
+      avoidWhen: string[] | null;
+      toolManifest: {
+        valid: boolean;
+        toolCount: number;
+        toolNames: string[];
+      } | null;
+      installMeta: Record<string, unknown> | null;
+      config: {
+        enabled: boolean;
+        envKeys: string[];
+        configKeys: string[];
+      } | null;
+    }
+  | { ok: false; error: string; status: 404 | 500 } {
   try {
     const catalog = loadSkillCatalog();
     const config = getConfig();
     const resolved = resolveSkillStates(catalog, config);
     const match = resolved.find((r) => r.summary.id === skillId);
     if (!match) {
-      return { ok: false, error: `Skill "${skillId}" not found. Run 'assistant skills list' to see available skills.`, status: 404 };
+      return {
+        ok: false,
+        error: `Skill "${skillId}" not found. Run 'assistant skills list' to see available skills.`,
+        status: 404,
+      };
     }
     const { summary, state, configEntry } = match;
     const installMeta = readInstallMeta(summary.directoryPath);
@@ -735,19 +747,31 @@ export function getSkillLocalDetail(
       activationHints: summary.activationHints ?? null,
       avoidWhen: summary.avoidWhen ?? null,
       toolManifest: summary.toolManifest
-        ? { valid: summary.toolManifest.valid, toolCount: summary.toolManifest.toolCount, toolNames: summary.toolManifest.toolNames }
+        ? {
+            valid: summary.toolManifest.valid,
+            toolCount: summary.toolManifest.toolCount,
+            toolNames: summary.toolManifest.toolNames,
+          }
         : null,
-      installMeta: installMeta ? (installMeta as unknown as Record<string, unknown>) : null,
+      installMeta: installMeta
+        ? (installMeta as unknown as Record<string, unknown>)
+        : null,
       config: configEntry
         ? {
             enabled: configEntry.enabled !== false,
             envKeys: configEntry.env ? Object.keys(configEntry.env) : [],
-            configKeys: configEntry.config ? Object.keys(configEntry.config) : [],
+            configKeys: configEntry.config
+              ? Object.keys(configEntry.config)
+              : [],
           }
         : null,
     };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err), status: 500 };
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      status: 500,
+    };
   }
 }
 
@@ -1157,7 +1181,10 @@ export async function installSkill(spec: {
         }
       } catch (err) {
         if (spec.catalogOnly) {
-          return { success: false, error: `Failed to install catalog skill "${spec.slug}"` };
+          return {
+            success: false,
+            error: `Failed to install catalog skill "${spec.slug}"`,
+          };
         }
         log.warn(
           { err, skillId: spec.slug },
@@ -1166,7 +1193,10 @@ export async function installSkill(spec: {
       }
 
     if (spec.catalogOnly) {
-      return { success: false, error: `Skill "${spec.slug}" not found in the Vellum catalog` };
+      return {
+        success: false,
+        error: `Skill "${spec.slug}" not found in the Vellum catalog`,
+      };
     }
 
     // skills.sh install path: route here when origin is explicitly "skillssh"
@@ -1733,20 +1763,6 @@ export async function importSkill(params: {
 
   const { skillId } = result;
   const skillDir = join(getWorkspaceSkillsDir(), skillId);
-
-  // Auto-enable the imported skill
-  try {
-    const raw = loadRawConfig();
-    ensureSkillEntry(raw, skillId).enabled = true;
-    saveConfigWithSuppression(raw);
-    broadcastMessage({
-      type: "skills_state_changed",
-      name: skillId,
-      state: "installed",
-    });
-  } catch (err) {
-    log.warn({ err, skillId }, "Failed to auto-enable imported skill");
-  }
 
   postInstallSkill(skillId, skillDir);
   return { success: true, skillId };
