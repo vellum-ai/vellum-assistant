@@ -392,7 +392,8 @@ const CROSS_CLIENT_EXPOSED_CAPABILITIES = new Set<HostProxyCapability>([
   "host_file",
   "host_browser",
 ]);
-const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
+// Tools that require a connected client but no specific host proxy capability.
+const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open", "ask_question"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
 
 /**
@@ -463,6 +464,14 @@ export function isToolActiveForContext(
     return !ctx.hasNoClient;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
+    if (
+      name === "ask_question" &&
+      ctx.channelCapabilities?.clientOS === "macos"
+    ) {
+      // macOS has no UI handler for question_request yet; hiding the tool
+      // avoids a 5-minute prompter timeout when the LLM would otherwise call it.
+      return false;
+    }
     return !ctx.hasNoClient;
   }
   if (PLATFORM_TOOL_NAMES.has(name)) {

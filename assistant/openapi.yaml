@@ -11825,6 +11825,60 @@ paths:
                       - name
                       - status
                     additionalProperties: false
+  /v1/question-response:
+    post:
+      operationId: questionresponse_post
+      summary: Resolve a pending ask-question prompt
+      description: Submit the user's response (option selection or free-text) for a pending question prompt by requestId.
+      tags:
+        - approvals
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  properties:
+                    requestId:
+                      type: string
+                    kind:
+                      type: string
+                      const: option
+                    optionId:
+                      type: string
+                  required:
+                    - requestId
+                    - kind
+                    - optionId
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    requestId:
+                      type: string
+                    kind:
+                      type: string
+                      const: free_text
+                    text:
+                      type: string
+                  required:
+                    - requestId
+                    - kind
+                    - text
+                  additionalProperties: false
   /v1/recordings/pause:
     post:
       operationId: recordings_pause_post
