@@ -51,11 +51,10 @@ describe("AskQuestionTool definition", () => {
     expect(def.description).toContain("'something else'");
     expect(def.description).toContain("plain-text clarification");
     expect(def.description).toContain("obvious from context");
-    // Prescriptive framing assertions — proactive ask, batching, skip-all.
+    // Prescriptive framing assertions — proactive ask, skip-all.
     expect(def.description).toContain("Use this tool whenever");
     expect(def.description).toContain("When in doubt");
-    expect(def.description).toContain("Batch related clarifications");
-    expect(def.description).toContain("skips every question");
+    expect(def.description).toContain("skips the question");
 
     const schema = def.input_schema as {
       properties: Record<

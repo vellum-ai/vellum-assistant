@@ -31,6 +31,10 @@ const InputSchema = z.object({
 export type AskQuestionInput = z.infer<typeof InputSchema>;
 
 // ── Tool description ────────────────────────────────────────────────
+// The input schema accepts a single `question` + `options` payload only.
+// Do not advertise a batched `questions` shape here — the executor will
+// reject it as invalid input. (Batching is planned but lives behind a
+// schema extension that has not landed yet.)
 
 const DESCRIPTION = [
   "Use this tool whenever the user's request is ambiguous and can be resolved",
@@ -45,9 +49,6 @@ const DESCRIPTION = [
   '`{id: "alice_work", label: "Alice (work)"}` and',
   '`{id: "alice_personal", label: "Alice (personal)"}`.',
   "",
-  "Batch related clarifications into one call by passing multiple entries in",
-  "`questions` (up to 5). Each question gets its own page with a Skip button.",
-  "",
   "When NOT to use this tool:",
   "- The answer is obvious from context or recent conversation.",
   "- The question is genuinely open-ended (more than ~4 plausible answers) —",
@@ -55,7 +56,7 @@ const DESCRIPTION = [
   "- You're about to take a low-stakes reversible action and can adjust based",
   "  on feedback.",
   "",
-  "If the user skips every question, proceed with reasonable defaults rather",
+  "If the user skips the question, proceed with reasonable defaults rather",
   "than re-asking — they're signaling they don't want to be interrupted further.",
   "",
   "Provide 2–4 options. A free-text fallback is always added by the UI — do not",
