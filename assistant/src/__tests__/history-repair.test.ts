@@ -766,6 +766,79 @@ describe("repairHistory", () => {
         (b as { text: string }).text.includes("srvtoolu_orphan"),
     );
     expect(downgraded).toBeDefined();
+    // Titles/URLs from the original results must survive the downgrade so
+    // the model can still reason about what was searched.
+    const text = (downgraded as { text: string }).text;
+    expect(text).toContain("Example");
+    expect(text).toContain("https://example.com");
+  });
+
+  test("preserves all titles/URLs when downgrading multi-result orphan", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "search" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_multi",
+            content: [
+              {
+                type: "web_search_result",
+                url: "https://alpha.test",
+                title: "Alpha",
+                encrypted_content: "enc_a",
+              },
+              {
+                type: "web_search_result",
+                url: "https://beta.test",
+                title: "Beta",
+                encrypted_content: "enc_b",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const { messages: repaired } = repairHistory(messages);
+    const downgraded = repaired[1].content.find((b) => b.type === "text") as
+      | { text: string }
+      | undefined;
+    expect(downgraded).toBeDefined();
+    expect(downgraded!.text).toContain("Alpha");
+    expect(downgraded!.text).toContain("https://alpha.test");
+    expect(downgraded!.text).toContain("Beta");
+    expect(downgraded!.text).toContain("https://beta.test");
+    // Must NOT emit the legacy fixed placeholder.
+    expect(downgraded!.text).not.toContain("[web search result]");
+  });
+
+  test("downgrades error-envelope web_search orphan to a stable marker", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "search" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srvtoolu_err",
+            content: {
+              type: "web_search_tool_result_error",
+              error_code: "unavailable",
+            },
+          },
+        ],
+      },
+    ];
+
+    const { messages: repaired } = repairHistory(messages);
+    const downgraded = repaired[1].content.find((b) => b.type === "text") as
+      | { text: string }
+      | undefined;
+    expect(downgraded).toBeDefined();
+    expect(downgraded!.text).toContain("srvtoolu_err");
+    expect(downgraded!.text).toContain("results unavailable");
   });
 
   test("repairs both orphan directions within the same assistant message", () => {
