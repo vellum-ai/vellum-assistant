@@ -63,6 +63,11 @@ struct ACPSessionDetailView: View {
     /// Compared against `lastScrollOffset` to decide whether the user is
     /// currently parked at the bottom.
     @State private var lastMaxScrollOffset: CGFloat = 0
+    /// Set when the ring buffer trims its head. On the next offset reading
+    /// we lower the watermark by the amount the content shifted, so the
+    /// "returned to bottom" check evaluates against the new shorter content
+    /// instead of the prior taller content's bottom.
+    @State private var pendingHeadTrim = false
     /// Wall clock used to refresh the elapsed time once per second while the
     /// session is still running. The view only reads it when the session is
     /// non-terminal so terminal sessions don't wake the timer.
@@ -330,13 +335,13 @@ struct ACPSessionDetailView: View {
                 .onChange(of: session.events.first?.id) {
                     // Oldest event changed — content was trimmed from the head of
                     // the ring buffer, which shrinks total content height and shifts
-                    // the offset baseline. Without resetting the watermark here,
-                    // `returnedToBottom` would never be satisfied again (the stored
-                    // max stays beyond the new actual bottom) and auto-scroll would
-                    // permanently lock out. The next offset reading re-establishes
-                    // both values for the now-shorter content.
-                    lastMaxScrollOffset = 0
-                    lastScrollOffset = 0
+                    // the offset baseline. Don't zero the watermark here: if the
+                    // user is stationary mid-list, the next reading would reseed
+                    // the watermark to their position and `returnedToBottom` would
+                    // immediately fire, falsely re-engaging auto-scroll. Defer to
+                    // the next offset reading, which lowers the watermark by the
+                    // observed content shift instead.
+                    pendingHeadTrim = true
                 }
                 .onChange(of: showThoughts) {
                     // Toggling thought visibility shrinks/grows the timeline,
@@ -381,6 +386,17 @@ struct ACPSessionDetailView: View {
         // auto-scroll; a return to the high-water mark resumes it.
         let currentOffset = -contentMinY
         defer { lastScrollOffset = currentOffset }
+
+        if pendingHeadTrim {
+            pendingHeadTrim = false
+            // Lower the watermark by the trimmed height (the difference
+            // between the pre-trim and post-trim offsets) and skip the
+            // movedUp/returnedToBottom evaluation — this tick's offset
+            // change is a layout artifact, not user input.
+            let trimmed = max(0, lastScrollOffset - currentOffset)
+            lastMaxScrollOffset = max(0, lastMaxScrollOffset - trimmed)
+            return
+        }
 
         let movedUp = currentOffset < lastScrollOffset - Self.scrollAtBottomTolerance
         // Evaluate against the *prior* high-water mark, before bumping it.
