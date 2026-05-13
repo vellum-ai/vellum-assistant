@@ -464,6 +464,14 @@ export function isToolActiveForContext(
     return !ctx.hasNoClient;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
+    if (
+      name === "ask_question" &&
+      ctx.channelCapabilities?.clientOS === "macos"
+    ) {
+      // macOS has no UI handler for question_request yet; hiding the tool
+      // avoids a 5-minute prompter timeout when the LLM would otherwise call it.
+      return false;
+    }
     return !ctx.hasNoClient;
   }
   if (PLATFORM_TOOL_NAMES.has(name)) {
