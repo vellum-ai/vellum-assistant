@@ -266,6 +266,11 @@ extension MainWindowView {
             detailPanel: {
                 switch activeHomeDetailPanel {
                 case .emailDraft(let item):
+                    // TODO: Wire HomeEmailEditor once FeedItem metadata
+                    // provides editable draft fields (to, subject, body)
+                    // and action callbacks (send, discard, connect).
+                    // HomeEmailEditor requires @Binding state and callbacks
+                    // that cannot be constructed from metadata alone.
                     HomeDetailPanel(
                         icon: nil,
                         title: item.title,
@@ -277,6 +282,11 @@ extension MainWindowView {
                             .padding(VSpacing.lg)
                     }
                 case .documentPreview(let item):
+                    // TODO: Wire HomeDocumentPreview once FeedItem
+                    // metadata provides an image (NSImage) or document
+                    // URL that can be loaded into the preview. Currently
+                    // the preview requires an NSImage which cannot be
+                    // constructed from string metadata.
                     HomeDetailPanel(
                         icon: nil,
                         title: item.title,
@@ -288,6 +298,12 @@ extension MainWindowView {
                             .padding(VSpacing.lg)
                     }
                 case .permissionChat(let item):
+                    // TODO: Wire HomePermissionChatPreview once FeedItem
+                    // metadata provides structured confirmation data
+                    // (ToolConfirmationData) and action callbacks
+                    // (allow, deny, alwaysAllow). The preview requires
+                    // complex types that cannot be constructed from
+                    // string metadata alone.
                     HomeDetailPanel(
                         icon: nil,
                         title: item.title,
@@ -903,23 +919,43 @@ extension MainWindowView {
 
 // MARK: - Feed Item Icon Helpers
 
-/// With the v2 schema collapsed to a single `.notification` type these
-/// helpers no longer per-type-dispatch — every feed item uses the same
-/// generic glyph. A per-item visual language driven by `urgency` or
-/// `detailPanel.kind` is a future iteration. The `FeedItem` parameter is
-/// retained (named `_` internally to flag intentionally unused) so a
-/// future per-urgency / per-detail-panel-kind dispatch can re-thread it
-/// without touching every call site.
-private func iconForFeedItem(_: FeedItem) -> VIcon {
-    .bell
+/// Icon glyph for a feed item in the detail panel, dispatched per
+/// `FeedItemCategory`. Falls back to `.bell` for items without a category.
+private func iconForFeedItem(_ item: FeedItem) -> VIcon {
+    switch item.category {
+    case .security:    return .shieldCheck
+    case .email:       return .mail
+    case .scheduling:  return .clock
+    case .background:  return .settings
+    case .system:      return .bell
+    case nil:          return .bell
+    }
 }
 
-private func iconForegroundForFeedItem(_: FeedItem) -> Color {
-    VColor.feedDigestStrong
+/// Foreground (glyph) color for the detail-panel recap icon, dispatched
+/// per `FeedItemCategory`.
+private func iconForegroundForFeedItem(_ item: FeedItem) -> Color {
+    switch item.category {
+    case .security:    return VColor.feedNudgeStrong
+    case .email:       return VColor.feedDigestStrong
+    case .scheduling:  return VColor.feedThreadStrong
+    case .background:  return VColor.systemInfoStrong
+    case .system:      return VColor.feedDigestStrong
+    case nil:          return VColor.feedDigestStrong
+    }
 }
 
-private func iconBackgroundForFeedItem(_: FeedItem) -> Color {
-    VColor.feedDigestWeak
+/// Background (circle fill) color for the detail-panel recap icon,
+/// dispatched per `FeedItemCategory`.
+private func iconBackgroundForFeedItem(_ item: FeedItem) -> Color {
+    switch item.category {
+    case .security:    return VColor.feedNudgeWeak
+    case .email:       return VColor.feedDigestWeak
+    case .scheduling:  return VColor.feedThreadWeak
+    case .background:  return VColor.systemInfoWeak
+    case .system:      return VColor.feedDigestWeak
+    case nil:          return VColor.feedDigestWeak
+    }
 }
 
 // MARK: - Wrapper Views
