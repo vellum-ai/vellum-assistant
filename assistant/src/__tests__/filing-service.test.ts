@@ -303,6 +303,116 @@ describe("FilingService", () => {
       expect(processMessageCalls).toHaveLength(1);
     });
 
+    // Helpers for the compaction-retry tests: hold the filing run open by
+    // making processMessage return a manually-resolved promise, so `activeRun`
+    // stays set and runCompactionOnce() sees the contention path.
+    function holdFilingRun(): {
+      release: () => void;
+      filingCalls: () => number;
+      compactionCalls: () => number;
+      waitForFilingStarted: () => Promise<void>;
+    } {
+      let release: (() => void) | undefined;
+      let started = false;
+      let filingCalls = 0;
+      let compactionCalls = 0;
+
+      setTestProcessMessage((...args: unknown[]) => {
+        const callSite = (args[3] as { callSite?: string } | undefined)
+          ?.callSite;
+        if (callSite === "filingAgent") {
+          filingCalls += 1;
+          started = true;
+          return new Promise((resolve) => {
+            release = () => resolve({ messageId: "filing-done" });
+          });
+        }
+        if (callSite === "compactionAgent") {
+          compactionCalls += 1;
+        }
+        return Promise.resolve({ messageId: "mock" });
+      });
+
+      return {
+        release: () => release?.(),
+        filingCalls: () => filingCalls,
+        compactionCalls: () => compactionCalls,
+        waitForFilingStarted: async () => {
+          while (!started) await Promise.resolve();
+        },
+      };
+    }
+
+    test("schedules a near-term retry when filing run is in-flight", async () => {
+      const hold = holdFilingRun();
+      // 5s retry override paired with a production-realistic 24h compaction
+      // interval — the assertion proves retry << interval.
+      const retryMs = 5_000;
+      mockConfig.filing.compactionIntervalMs = 24 * 60 * 60 * 1000;
+      const service = new FilingService({
+        compactionContendedRetryMs: retryMs,
+      });
+      const filingPromise = service.runOnce();
+      await hold.waitForFilingStarted();
+
+      const beforeRetry = Date.now();
+      const ran = await service.runCompactionOnce();
+
+      expect(ran).toBe(false);
+      expect(service.nextCompactionAt).not.toBeNull();
+      const nextAt = service.nextCompactionAt!;
+      expect(nextAt - beforeRetry).toBeLessThan(
+        mockConfig.filing.compactionIntervalMs,
+      );
+      expect(nextAt - beforeRetry).toBeLessThanOrEqual(retryMs + 100);
+
+      hold.release();
+      await filingPromise;
+      await service.stop();
+    });
+
+    test("retry fires after filing run completes", async () => {
+      const hold = holdFilingRun();
+      const service = new FilingService({ compactionContendedRetryMs: 1 });
+      const filingPromise = service.runOnce();
+      await hold.waitForFilingStarted();
+
+      const skipped = await service.runCompactionOnce();
+      expect(skipped).toBe(false);
+      expect(hold.compactionCalls()).toBe(0);
+
+      hold.release();
+      await filingPromise;
+
+      const start = Date.now();
+      while (hold.compactionCalls() === 0 && Date.now() - start < 1000) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+
+      expect(hold.filingCalls()).toBe(1);
+      expect(hold.compactionCalls()).toBe(1);
+
+      await service.stop();
+    });
+
+    test("stop() clears a scheduled compaction retry", async () => {
+      const hold = holdFilingRun();
+      const service = new FilingService({ compactionContendedRetryMs: 50 });
+      const filingPromise = service.runOnce();
+      await hold.waitForFilingStarted();
+      await service.runCompactionOnce();
+      expect(service.nextCompactionAt).not.toBeNull();
+
+      hold.release();
+      await filingPromise;
+      await service.stop();
+
+      // After stop, the retry timer must be cleared and never fire.
+      expect(service.nextCompactionAt).toBeNull();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(hold.compactionCalls()).toBe(0);
+    });
+
     test("respects active hours", async () => {
       mockConfig.filing.activeHoursStart = 9;
       mockConfig.filing.activeHoursEnd = 17;
