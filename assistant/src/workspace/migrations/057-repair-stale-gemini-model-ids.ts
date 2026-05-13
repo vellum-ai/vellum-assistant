@@ -35,8 +35,15 @@ export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
 
     const defaultBlock = readObject(llm.default);
     const defaultProvider = readProvider(defaultBlock);
+    const profiles = readObject(llm.profiles);
+    const activeProfileName =
+      typeof llm.activeProfile === "string" ? llm.activeProfile : undefined;
+    const activeProfileProvider =
+      profiles !== null && activeProfileName !== undefined
+        ? readProvider(readObject(profiles[activeProfileName]))
+        : undefined;
 
-    if (defaultBlock !== null && isGeminiBlock(defaultBlock, defaultProvider)) {
+    if (defaultBlock !== null && isGeminiProvider(defaultProvider)) {
       changed = repairModel(defaultBlock, DEFAULT_REPLACEMENT_MODEL) || changed;
     }
 
@@ -45,7 +52,14 @@ export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
       for (const [site, rawConfig] of Object.entries(callSites)) {
         const callSiteConfig = readObject(rawConfig);
         if (callSiteConfig === null) continue;
-        if (!isGeminiBlock(callSiteConfig, defaultProvider)) continue;
+        const effective = resolveCallSiteEffectiveProvider({
+          callSite: site,
+          callSiteConfig,
+          profiles,
+          activeProfileProvider,
+          defaultProvider,
+        });
+        if (!isGeminiProvider(effective)) continue;
         const replacement = LATENCY_CALL_SITES.has(site)
           ? LATENCY_REPLACEMENT_MODEL
           : DEFAULT_REPLACEMENT_MODEL;
@@ -53,12 +67,12 @@ export const repairStaleGeminiModelIdsMigration: WorkspaceMigration = {
       }
     }
 
-    const profiles = readObject(llm.profiles);
     if (profiles !== null) {
       for (const rawProfile of Object.values(profiles)) {
         const profile = readObject(rawProfile);
         if (profile === null) continue;
-        if (!isGeminiBlock(profile, defaultProvider)) continue;
+        const effective = readProvider(profile) ?? defaultProvider;
+        if (!isGeminiProvider(effective)) continue;
         changed = repairModel(profile, DEFAULT_REPLACEMENT_MODEL) || changed;
       }
     }
@@ -109,14 +123,51 @@ function readProvider(
   return typeof block.provider === "string" ? block.provider : undefined;
 }
 
-// A block targets Gemini if it explicitly sets provider="gemini", or if it has
-// no provider field and the default block resolves to Gemini. An explicit
-// non-Gemini provider blocks the rewrite.
-function isGeminiBlock(
-  block: Record<string, unknown>,
-  defaultProvider: string | undefined,
-): boolean {
-  const local = readProvider(block);
-  const effective = local ?? defaultProvider;
-  return effective === undefined || effective === "gemini";
+function isGeminiProvider(provider: string | undefined): boolean {
+  return provider === undefined || provider === "gemini";
+}
+
+// Walks the call-site provider resolution chain the same way
+// `resolveCallSiteConfig` does: for `mainAgent`, `activeProfile` overrides the
+// static `callSites.mainAgent` block, while for every other call site the
+// call-site block (and its referenced profile) wins over `activeProfile`.
+// Returns the highest-precedence explicit provider, falling back to `default`.
+function resolveCallSiteEffectiveProvider(args: {
+  callSite: string;
+  callSiteConfig: Record<string, unknown>;
+  profiles: Record<string, unknown> | null;
+  activeProfileProvider: string | undefined;
+  defaultProvider: string | undefined;
+}): string | undefined {
+  const {
+    callSite,
+    callSiteConfig,
+    profiles,
+    activeProfileProvider,
+    defaultProvider,
+  } = args;
+  const siteProvider = readProvider(callSiteConfig);
+  const siteProfileName =
+    typeof callSiteConfig.profile === "string"
+      ? callSiteConfig.profile
+      : undefined;
+  const siteProfileProvider =
+    profiles !== null && siteProfileName !== undefined
+      ? readProvider(readObject(profiles[siteProfileName]))
+      : undefined;
+
+  if (callSite === "mainAgent") {
+    return (
+      activeProfileProvider ??
+      siteProvider ??
+      siteProfileProvider ??
+      defaultProvider
+    );
+  }
+  return (
+    siteProvider ??
+    siteProfileProvider ??
+    activeProfileProvider ??
+    defaultProvider
+  );
 }
