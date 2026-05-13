@@ -86,4 +86,38 @@ describe("subagent-only tool filtering", () => {
     expect(isToolActiveForContext("ask_question", ctx)).toBe(false);
     expect(isToolActiveForContext(TEST_TOOL_NAME, ctx)).toBe(false);
   });
+
+  test("returns false for every tool when toolsDisabledDepth > 0", () => {
+    // `createResolveToolsCallback` returns an empty tool list when tools are
+    // disabled; mirror it here so system-prompt gating doesn't advertise tools
+    // the LLM cannot invoke.
+    const ctx: SkillProjectionContext = {
+      skillProjectionState: new Map(),
+      skillProjectionCache: {},
+      coreToolNames: new Set(),
+      toolsDisabledDepth: 1,
+      hasNoClient: false,
+    };
+
+    expect(isToolActiveForContext("bash", ctx)).toBe(false);
+    expect(isToolActiveForContext("ask_question", ctx)).toBe(false);
+  });
+
+  test("under disk-pressure cleanup mode, only cleanup-safe tools are active", () => {
+    // `createResolveToolsCallback` restricts the turn to cleanup-safe tools
+    // (`file_remove`, `bash`, etc.); ensure the helper agrees so the system
+    // prompt doesn't advertise tools that have been filtered out.
+    const ctx: SkillProjectionContext = {
+      skillProjectionState: new Map(),
+      skillProjectionCache: {},
+      coreToolNames: new Set(),
+      toolsDisabledDepth: 0,
+      hasNoClient: false,
+      diskPressureCleanupModeActive: true,
+    };
+
+    // `bash` is in DISK_PRESSURE_CLEANUP_TOOL_NAMES; `ask_question` is not.
+    expect(isToolActiveForContext("bash", ctx)).toBe(true);
+    expect(isToolActiveForContext("ask_question", ctx)).toBe(false);
+  });
 });
