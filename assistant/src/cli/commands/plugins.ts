@@ -9,6 +9,7 @@
 
 import type { Command } from "commander";
 
+import { confirmPrompt } from "../lib/confirm-prompt.js";
 import {
   DEFAULT_PLUGIN_REF,
   installPlugin,
@@ -140,8 +141,16 @@ Examples:
         .action(async (name: string, opts: { force?: boolean }) => {
           try {
             if (!opts.force) {
-              const confirmed = await confirmUninstall(name);
-              if (!confirmed) {
+              const result = await confirmPrompt({
+                question: `Uninstall plugin "${name}"? [y/N] `,
+                isTTY: Boolean(process.stdin.isTTY),
+                refuseNonInteractiveMessage: `Refusing to uninstall "${name}" non-interactively. Pass --force to confirm.`,
+              });
+              if (result === "non-interactive") {
+                process.exitCode = 1;
+                return;
+              }
+              if (result === "denied") {
                 console.log("Uninstall cancelled.");
                 return;
               }
@@ -173,35 +182,4 @@ Examples:
         });
     },
   });
-}
-
-/**
- * Prompt the user to confirm an uninstall. Returns `true` on `y`/`yes`,
- * `false` on `n`/`no` or EOF. Non-interactive stdin (no TTY) is treated
- * as a refusal — callers must pass `--force` in that case, which avoids
- * accidental destruction from a hung shell pipeline.
- */
-async function confirmUninstall(name: string): Promise<boolean> {
-  if (!process.stdin.isTTY) {
-    console.error(
-      `Refusing to uninstall "${name}" non-interactively. Pass --force to confirm.`,
-    );
-    return false;
-  }
-  process.stdout.write(`Uninstall plugin "${name}"? [y/N] `);
-  const answer = await new Promise<string>((resolve) => {
-    let buf = "";
-    const onData = (chunk: Buffer) => {
-      buf += chunk.toString("utf8");
-      const nl = buf.indexOf("\n");
-      if (nl >= 0) {
-        process.stdin.off("data", onData);
-        process.stdin.pause();
-        resolve(buf.slice(0, nl).trim());
-      }
-    };
-    process.stdin.resume();
-    process.stdin.on("data", onData);
-  });
-  return /^(y|yes)$/i.test(answer);
 }
