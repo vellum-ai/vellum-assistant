@@ -73,7 +73,7 @@ function installHintFor(command: string): string {
  */
 function findAgentBinary(agent: AcpAgentConfig): string | null {
   const PATH = agent.env?.PATH ?? process.env.PATH;
-  return Bun.which(agent.command, PATH ? { PATH } : undefined);
+  return Bun.which(agent.command, PATH != null ? { PATH } : undefined);
 }
 
 /**
