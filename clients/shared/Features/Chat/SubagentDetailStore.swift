@@ -168,6 +168,23 @@ public final class SubagentDetailStore {
         flushTask = nil
     }
 
+    /// Reset all subagent state and staging buffers.
+    ///
+    /// Each `ChatViewModel` owns its own `SubagentDetailStore`, so
+    /// conversation switching already yields a fresh store. This method
+    /// exists as a defensive safety-net: callers can invoke it to
+    /// guarantee no stale data leaks across conversations even if the
+    /// VM-per-conversation invariant is relaxed in the future.
+    public func clearAll() {
+        flushTask?.cancel()
+        flushTask = nil
+        subagentStates.removeAll()
+        stagedEvents.removeAll()
+        stagedObjectives.removeAll()
+        stagedUsage.removeAll()
+        terminalUsageReceivedIds.removeAll()
+    }
+
     // MARK: - Coalescing flush
 
     /// Schedule a flush of staged data into observed properties after the coalescing interval.
