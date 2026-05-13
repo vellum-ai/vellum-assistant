@@ -17,6 +17,7 @@ import {
   startGateway,
 } from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
+import { checkProviderApiKey } from "../lib/api-key-check.js";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
@@ -154,6 +155,18 @@ export async function wake(): Promise<void> {
   }
 
   if (!daemonRunning) {
+    const apiKeyCheck = checkProviderApiKey(resources.instanceDir);
+    if (!apiKeyCheck.hasKey) {
+      console.warn("");
+      console.warn(
+        "Warning: No LLM provider API key is configured. The assistant will fail when you try to send a message.",
+      );
+      console.warn(
+        `  To fix, add your ANTHROPIC_API_KEY (or another provider key) to:`,
+      );
+      console.warn(`  ${apiKeyCheck.envPath}`);
+      console.warn("");
+    }
     await startLocalDaemon(watch, resources, { foreground, signingKey });
   }
 
@@ -196,7 +209,10 @@ export async function wake(): Promise<void> {
 
   // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.
   const workspaceDir = join(resources.instanceDir, ".vellum", "workspace");
-  const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort, workspaceDir);
+  const ngrokChild = await maybeStartNgrokTunnel(
+    resources.gatewayPort,
+    workspaceDir,
+  );
   if (ngrokChild?.pid) {
     const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
     writeFileSync(ngrokPidFile, String(ngrokChild.pid));

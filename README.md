@@ -90,6 +90,51 @@ All commands target the default assistant. If you have multiple, pass the assist
 
 </details>
 
+<details>
+<summary>Linux / non-macOS notes</summary>
+
+<br>
+
+The macOS desktop app is not available on Linux. The CLI is the primary interface. Three things commonly trip up first-time Linux contributors:
+
+**1. Bun is not on PATH immediately after install**
+
+The Bun installer adds `~/.bun/bin` to `~/.bashrc`, but the change does not apply to your current terminal session. After running the installer, either open a new terminal or run:
+
+```bash
+export PATH="$HOME/.bun/bin:$PATH"
+```
+
+Run `bun --version` to confirm it works before continuing.
+
+**2. `vellum` command not found after `./setup.sh`**
+
+`setup.sh` registers the `vellum` command via `bun link`, which places the binary in `~/.bun/bin/`. If `~/.bun/bin` is not on your PATH yet (see above), `vellum` will not be found. The fix is the same — add `~/.bun/bin` to your PATH. Add the export line to `~/.bashrc` to make it permanent:
+
+```bash
+echo 'export PATH="$HOME/.bun/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**3. `ANTHROPIC_API_KEY` in `assistant/.env` is not used by `vellum wake`**
+
+The file `assistant/.env` (shipped in the repo with placeholder values like `sk-ant-...`) is only used when running the daemon directly via `bun run src/index.ts`. When you use `vellum wake`, the API key must be provided in one of two ways:
+
+- **Environment variable (recommended):** export the key before running `vellum wake`:
+  ```bash
+  export ANTHROPIC_API_KEY=<your-key>
+  vellum wake
+  ```
+- **Instance `.env` file:** add the key to `<instanceDir>/.vellum/.env`. The instance directory is shown in `~/.vellum.lock.json` under `resources.instanceDir`. For example:
+  ```bash
+  echo "ANTHROPIC_API_KEY=<your-key>" >> \
+    ~/.local/share/vellum/assistants/<name>/.vellum/.env
+  ```
+
+If no provider key is configured, `vellum wake` will print a warning and the assistant will fail when you send a message.
+
+</details>
+
 ---
 
 ## Infra and security
