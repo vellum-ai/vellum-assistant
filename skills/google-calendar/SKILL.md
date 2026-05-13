@@ -46,7 +46,7 @@ bun scripts/gcal.ts rsvp --event-id "abc123" --response accepted
 ## Connection Setup
 
 1. **Check connection health first.** Run `assistant oauth status google`. This checks whether the user's Google account is connected and the token is valid. Google Calendar shares the same OAuth connection as Gmail -- if the user already connected Gmail, calendar access is included.
-2. **If no connection is found or the status check fails:** Render one inline setup card and end the turn. Do not load the settings or OAuth setup skills until the user clicks a button.
+2. **If no connection is found or the status check fails:** Call the `ui_show` tool with the following JSON to render an inline setup card, then end your turn immediately. Do not load the settings or OAuth setup skills until the user clicks a button.
 
 ```json
 {

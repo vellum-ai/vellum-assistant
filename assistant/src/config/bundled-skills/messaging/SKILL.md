@@ -57,7 +57,7 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 ### Gmail
 
 1. **Try connecting directly first.** Run `assistant oauth status google`. This will show whether or not the user had previously connected their google account. If so, they are ready to go.
-2. **If no connections are found:** Render one inline setup card and end the turn. Do not load the settings or OAuth setup skills until the user clicks a button. Google is one shared connection for Gmail and Google Calendar.
+2. **If no connections are found:** Call the `ui_show` tool with the following JSON to render an inline setup card, then end your turn immediately. Do not load the settings or OAuth setup skills until the user clicks a button. Google is one shared connection for Gmail and Google Calendar.
 
 ```json
 {
