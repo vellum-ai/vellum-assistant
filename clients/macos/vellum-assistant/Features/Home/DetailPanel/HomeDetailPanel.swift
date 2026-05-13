@@ -52,9 +52,11 @@ struct HomeDetailPanel<Content: View>: View {
                 .accessibilityHidden(true)
 
             if scrollable {
-                ScrollView {
-                    content()
-                        .containerRelativeFrame(.horizontal, alignment: .topLeading)
+                GeometryReader { geo in
+                    ScrollView {
+                        content()
+                            .frame(width: geo.size.width, alignment: .topLeading)
+                    }
                 }
                 .layoutPriority(1)
             } else {
