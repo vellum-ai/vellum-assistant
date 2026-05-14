@@ -64,7 +64,6 @@ import {
 import { downloadSlackFile } from "../../messaging/providers/slack/download.js";
 import {
   mergeSlackMetadata,
-  readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
   type SlackFileMetadata,
   type SlackMessageMetadata,
