@@ -1,8 +1,13 @@
 import { createHmac } from "node:crypto";
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  mock,
+  beforeEach,
+  afterEach,
+} from "bun:test";
 import type { GatewayConfig } from "../../config.js";
-import type { CredentialCache } from "../../credential-cache.js";
-import { credentialKey } from "../../credential-key.js";
 
 // --- Mocks ----------------------------------------------------------------
 
@@ -29,12 +34,23 @@ const { createEmailWebhookHandler } = await import("./email-webhook.js");
 
 // --- Helpers ---------------------------------------------------------------
 
-const TEST_WEBHOOK_SECRET = "test-webhook-secret-1234";
+// Svix secrets are `whsec_<base64>`. The base64-decoded part is the
+// raw HMAC key. The example below decodes to `test-signing-key-1234567890`.
+const TEST_SIGNING_KEY = "whsec_dGVzdC1zaWduaW5nLWtleS0xMjM0NTY3ODkw";
 
-function computeSignature(body: string, secret: string): string {
-  return (
-    "sha256=" + createHmac("sha256", secret).update(body, "utf8").digest("hex")
-  );
+function computeSvixSignature(
+  msgId: string,
+  timestamp: number,
+  body: string,
+  key: string,
+): string {
+  const secretPart = key.startsWith("whsec_") ? key.slice(6) : key;
+  const secretBytes = Buffer.from(secretPart, "base64");
+  const signedContent = `${msgId}.${timestamp}.${body}`;
+  const sig = createHmac("sha256", secretBytes)
+    .update(signedContent, "utf8")
+    .digest("base64");
+  return `v1,${sig}`;
 }
 
 const baseConfig: GatewayConfig = {
@@ -91,40 +107,52 @@ function makeEmailPayload(overrides?: {
   });
 }
 
-function postRequest(body: string, secret?: string): Request {
-  const sigSecret = secret ?? TEST_WEBHOOK_SECRET;
-  return new Request("http://localhost:7830/webhooks/email", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "vellum-signature": computeSignature(body, sigSecret),
-    },
-    body,
-  });
+interface RequestOptions {
+  msgId?: string;
+  timestamp?: number; // Unix seconds; defaults to now
+  key?: string;
+  omitHeaders?: Array<"svix-id" | "svix-timestamp" | "svix-signature">;
+  signatureOverride?: string;
 }
 
-function makeCaches(secret?: string) {
-  const credentials = {
-    get: async (key: string) => {
-      if (key === credentialKey("vellum", "webhook_secret"))
-        return secret ?? TEST_WEBHOOK_SECRET;
-      return undefined;
-    },
-    invalidate: () => {},
-  } as unknown as CredentialCache;
-  return { credentials };
+function postRequest(body: string, opts: RequestOptions = {}): Request {
+  const msgId = opts.msgId ?? `msg_${Math.random().toString(36).slice(2)}`;
+  const timestamp = opts.timestamp ?? Math.floor(Date.now() / 1000);
+  const key = opts.key ?? TEST_SIGNING_KEY;
+  const signature =
+    opts.signatureOverride ?? computeSvixSignature(msgId, timestamp, body, key);
+
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  const omit = opts.omitHeaders ?? [];
+  if (!omit.includes("svix-id")) headers["svix-id"] = msgId;
+  if (!omit.includes("svix-timestamp"))
+    headers["svix-timestamp"] = String(timestamp);
+  if (!omit.includes("svix-signature")) headers["svix-signature"] = signature;
+
+  return new Request("http://localhost:7830/webhooks/email", {
+    method: "POST",
+    headers,
+    body,
+  });
 }
 
 // --- Tests ----------------------------------------------------------------
 
 describe("email-webhook", () => {
   beforeEach(() => {
+    process.env.RESEND_WEBHOOK_SIGNING_KEY = TEST_SIGNING_KEY;
     handleInboundMock.mockClear();
     handleInboundMock.mockResolvedValue({ forwarded: true, rejected: false });
   });
 
+  afterEach(() => {
+    delete process.env.RESEND_WEBHOOK_SIGNING_KEY;
+  });
+
   it("rejects non-POST requests with 405", async () => {
-    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const { handler } = createEmailWebhookHandler(baseConfig);
     const req = new Request("http://localhost:7830/webhooks/email", {
       method: "GET",
     });
@@ -133,7 +161,7 @@ describe("email-webhook", () => {
   });
 
   it("forwards a valid email event to runtime", async () => {
-    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const { handler } = createEmailWebhookHandler(baseConfig);
     const body = makeEmailPayload();
     const res = await handler(postRequest(body));
     expect(res.status).toBe(200);
@@ -161,7 +189,7 @@ describe("email-webhook", () => {
   });
 
   it("acknowledges payloads missing required fields", async () => {
-    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const { handler } = createEmailWebhookHandler(baseConfig);
     const body = JSON.stringify({ someOtherEvent: true });
     const res = await handler(postRequest(body));
     expect(res.status).toBe(200);
@@ -169,7 +197,7 @@ describe("email-webhook", () => {
   });
 
   it("deduplicates events by message ID", async () => {
-    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const { handler } = createEmailWebhookHandler(baseConfig);
     const body = makeEmailPayload({ messageId: "<dedup-test@example.com>" });
 
     const res1 = await handler(postRequest(body));
@@ -184,29 +212,21 @@ describe("email-webhook", () => {
 
   it("rejects payloads exceeding size limit", async () => {
     const config = { ...baseConfig, maxWebhookPayloadBytes: 10 };
-    const { handler } = createEmailWebhookHandler(config, makeCaches());
+    const { handler } = createEmailWebhookHandler(config);
     const body = makeEmailPayload();
     const res = await handler(postRequest(body));
     expect(res.status).toBe(413);
   });
 
   it("rejects invalid JSON with 400", async () => {
-    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const { handler } = createEmailWebhookHandler(baseConfig);
     const body = "not json";
-    const req = new Request("http://localhost:7830/webhooks/email", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "vellum-signature": computeSignature(body, TEST_WEBHOOK_SECRET),
-      },
-      body,
-    });
-    const res = await handler(req);
+    const res = await handler(postRequest(body));
     expect(res.status).toBe(400);
   });
 
   it("uses fromName as displayName when provided", async () => {
-    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const { handler } = createEmailWebhookHandler(baseConfig);
     const body = makeEmailPayload({
       from: "alice@example.com",
       fromName: "Alice Smith",
@@ -224,7 +244,7 @@ describe("email-webhook", () => {
   });
 
   it("falls back to email as displayName when fromName is absent", async () => {
-    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const { handler } = createEmailWebhookHandler(baseConfig);
     const body = makeEmailPayload({
       from: "bob@example.com",
       messageId: "<no-name@example.com>",
@@ -240,7 +260,7 @@ describe("email-webhook", () => {
   });
 
   it("prefers strippedText over bodyText", async () => {
-    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const { handler } = createEmailWebhookHandler(baseConfig);
     const body = makeEmailPayload({
       strippedText: "New reply here",
       bodyText: "On Monday, someone wrote:\n> old content\n\nNew reply here",
@@ -255,7 +275,7 @@ describe("email-webhook", () => {
   });
 
   it("falls back to bodyText when strippedText is absent", async () => {
-    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const { handler } = createEmailWebhookHandler(baseConfig);
     const body = JSON.stringify({
       from: "test@example.com",
       to: "bot@vellum.me",
@@ -271,28 +291,86 @@ describe("email-webhook", () => {
     expect(event.message.content).toBe("Full body content here");
   });
 
-  it("returns 409 when webhook secret is not configured", async () => {
-    const emptyCaches = {
-      credentials: {
-        get: async () => undefined,
-        invalidate: () => {},
-      } as unknown as CredentialCache,
-    };
-    const { handler } = createEmailWebhookHandler(baseConfig, emptyCaches);
-    const body = makeEmailPayload({ messageId: "<no-secret@example.com>" });
+  it("returns 409 when RESEND_WEBHOOK_SIGNING_KEY is not configured", async () => {
+    delete process.env.RESEND_WEBHOOK_SIGNING_KEY;
+    const { handler } = createEmailWebhookHandler(baseConfig);
+    const body = makeEmailPayload({ messageId: "<no-key@example.com>" });
     const res = await handler(postRequest(body));
     expect(res.status).toBe(409);
+    expect(handleInboundMock).not.toHaveBeenCalled();
   });
 
-  it("rejects requests with wrong webhook secret (HMAC mismatch)", async () => {
-    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
-    const body = makeEmailPayload({ messageId: "<wrong-secret@example.com>" });
-    // Sign with a different secret than what the cache returns
+  it("rejects requests signed with the wrong key (Svix mismatch)", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig);
+    const body = makeEmailPayload({ messageId: "<wrong-key@example.com>" });
+    const wrongKey = "whsec_d3Jvbmcta2V5LWZvci10ZXN0aW5n";
+    const res = await handler(postRequest(body, { key: wrongKey }));
+    expect(res.status).toBe(403);
+    expect(handleInboundMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects requests missing svix-signature header", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig);
+    const body = makeEmailPayload({ messageId: "<missing-sig@example.com>" });
+    const res = await handler(
+      postRequest(body, { omitHeaders: ["svix-signature"] }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects requests missing svix-id header", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig);
+    const body = makeEmailPayload({ messageId: "<missing-id@example.com>" });
+    const res = await handler(postRequest(body, { omitHeaders: ["svix-id"] }));
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects requests missing svix-timestamp header", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig);
+    const body = makeEmailPayload({ messageId: "<missing-ts@example.com>" });
+    const res = await handler(
+      postRequest(body, { omitHeaders: ["svix-timestamp"] }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects requests with stale timestamp (replay protection)", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig);
+    const body = makeEmailPayload({ messageId: "<stale-ts@example.com>" });
+    // 10 minutes ago — outside the ±5-minute tolerance window
+    const staleTimestamp = Math.floor(Date.now() / 1000) - 10 * 60;
+    const res = await handler(postRequest(body, { timestamp: staleTimestamp }));
+    expect(res.status).toBe(403);
+    expect(handleInboundMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects requests with future timestamp outside tolerance", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig);
+    const body = makeEmailPayload({ messageId: "<future-ts@example.com>" });
+    const futureTimestamp = Math.floor(Date.now() / 1000) + 10 * 60;
+    const res = await handler(
+      postRequest(body, { timestamp: futureTimestamp }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects requests with non-numeric timestamp", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig);
+    const body = makeEmailPayload({ messageId: "<bad-ts@example.com>" });
+    const msgId = "msg_bad_ts";
+    const sig = computeSvixSignature(
+      msgId,
+      Math.floor(Date.now() / 1000),
+      body,
+      TEST_SIGNING_KEY,
+    );
     const req = new Request("http://localhost:7830/webhooks/email", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "vellum-signature": computeSignature(body, "wrong-secret"),
+        "svix-id": msgId,
+        "svix-timestamp": "not-a-number",
+        "svix-signature": sig,
       },
       body,
     });
@@ -300,22 +378,37 @@ describe("email-webhook", () => {
     expect(res.status).toBe(403);
   });
 
-  it("rejects requests with missing signature header", async () => {
-    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
-    const body = makeEmailPayload({
-      messageId: "<missing-header@example.com>",
-    });
+  it("accepts signature header with multiple versioned entries (matches any v1)", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig);
+    const body = makeEmailPayload({ messageId: "<multi-sig@example.com>" });
+    const msgId = "msg_multi";
+    const timestamp = Math.floor(Date.now() / 1000);
+    const validSig = computeSvixSignature(
+      msgId,
+      timestamp,
+      body,
+      TEST_SIGNING_KEY,
+    );
+    // Mix in a `v2` entry and a bogus `v1` entry; valid `v1` should still match.
+    // (Pad bogus values to match base64 lengths so the constant-time comparator
+    // doesn't short-circuit on length mismatch alone.)
+    const compositeHeader = `v2,unrelatedB64== ${validSig} v1,bogusButSameLen==`;
     const req = new Request("http://localhost:7830/webhooks/email", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "svix-id": msgId,
+        "svix-timestamp": String(timestamp),
+        "svix-signature": compositeHeader,
+      },
       body,
     });
     const res = await handler(req);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
   });
 
   it("passes email subject and threading headers in sourceMetadata", async () => {
-    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const { handler } = createEmailWebhookHandler(baseConfig);
     const body = makeEmailPayload({
       subject: "Re: Project Update",
       inReplyTo: "<parent@example.com>",
@@ -343,10 +436,7 @@ describe("email-webhook", () => {
   });
 
   it("uses messageId as dedup key for event ID", async () => {
-    const { handler, dedupCache } = createEmailWebhookHandler(
-      baseConfig,
-      makeCaches(),
-    );
+    const { handler, dedupCache } = createEmailWebhookHandler(baseConfig);
     const body = makeEmailPayload({
       messageId: "<unique-dedup-id@example.com>",
     });
@@ -356,37 +446,5 @@ describe("email-webhook", () => {
     const status = dedupCache.reserve("<unique-dedup-id@example.com>");
     // Should return false because it's already reserved/marked
     expect(status).toBe(false);
-  });
-
-  it("returns 403 (not 409) when cache miss resolves on force-refresh but signature is invalid", async () => {
-    // Simulate: initial cache miss, force-refresh returns real secret,
-    // but signature doesn't match. Should be 403 (not 409 "not configured").
-    const caches = {
-      credentials: {
-        get: async (_key: string, opts?: { force?: boolean }) => {
-          // First call: cache miss
-          if (!opts?.force) return undefined;
-          // Force-refresh: return real secret
-          return TEST_WEBHOOK_SECRET;
-        },
-        invalidate: () => {},
-      } as unknown as CredentialCache,
-    };
-    const { handler } = createEmailWebhookHandler(baseConfig, caches);
-    const body = makeEmailPayload({
-      messageId: "<stale-var-fix@example.com>",
-    });
-    // Sign with wrong secret
-    const req = new Request("http://localhost:7830/webhooks/email", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "vellum-signature": computeSignature(body, "wrong-secret"),
-      },
-      body,
-    });
-    const res = await handler(req);
-    // This was the stale variable bug — it used to return 409 here
-    expect(res.status).toBe(403);
   });
 });

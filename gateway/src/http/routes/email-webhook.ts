@@ -2,10 +2,9 @@ import { buildEmailTransportMetadata } from "../../channels/transport-hints.js";
 import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
-import { credentialKey } from "../../credential-key.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import { normalizeEmailWebhook } from "../../email/normalize.js";
-import { verifyEmailWebhookSignature } from "../../email/verify.js";
+import { verifySvixSignature } from "../../email/verify.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import {
@@ -21,7 +20,7 @@ const log = getLogger("email-webhook");
 
 export function createEmailWebhookHandler(
   config: GatewayConfig,
-  caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
+  _caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ) {
   // 24-hour TTL — Message-IDs are globally unique per RFC 5322
   const dedupCache = new StringDedupCache(24 * 60 * 60_000);
@@ -59,65 +58,25 @@ export function createEmailWebhookHandler(
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
 
-    // Resolve webhook secret from credential cache
-    const webhookSecret = caches?.credentials
-      ? await caches.credentials.get(credentialKey("vellum", "webhook_secret"))
-      : undefined;
-
-    // If the initial cache read returned undefined but a credential cache is available,
-    // attempt one forced refresh before fail-closing — the credential may have been
-    // written after the TTL cache was last populated.
-    let effectiveSecret = webhookSecret;
-    if (!effectiveSecret && caches?.credentials) {
-      effectiveSecret = await caches.credentials.get(
-        credentialKey("vellum", "webhook_secret"),
-        { force: true },
+    // ── Signature verification (Svix) ───────────────────────────────
+    // Resend signs inbound email webhooks via Svix. The signing key for
+    // Vellum's managed Resend account is provided via the
+    // `RESEND_WEBHOOK_SIGNING_KEY` env var (e.g. `whsec_<base64>`).
+    //
+    // Fail closed when the key is not configured or the signature does
+    // not verify — never silently accept unauthenticated payloads.
+    const signingKey = process.env.RESEND_WEBHOOK_SIGNING_KEY;
+    if (!signingKey) {
+      tlog.warn(
+        "RESEND_WEBHOOK_SIGNING_KEY is not configured — rejecting request",
       );
-      if (effectiveSecret) {
-        tlog.info(
-          "Email webhook secret resolved after forced credential refresh",
-        );
-      }
-    }
-
-    // Signature validation is required — reject when no secret is configured
-    // rather than silently accepting unauthenticated payloads (fail-closed).
-    if (!effectiveSecret) {
-      tlog.warn("Email webhook secret is not configured — rejecting request");
       return Response.json(
-        { error: "Webhook secret not configured" },
+        { error: "Webhook signing key not configured" },
         { status: 409 },
       );
     }
 
-    let signatureValid = verifyEmailWebhookSignature(
-      req.headers,
-      rawBody,
-      effectiveSecret,
-    );
-
-    // One-shot force retry: if verification failed and caches are available,
-    // force-refresh the webhook secret and retry once.
-    if (!signatureValid && caches?.credentials) {
-      const freshSecret = await caches.credentials.get(
-        credentialKey("vellum", "webhook_secret"),
-        { force: true },
-      );
-      if (freshSecret) {
-        signatureValid = verifyEmailWebhookSignature(
-          req.headers,
-          rawBody,
-          freshSecret,
-        );
-        if (signatureValid) {
-          tlog.info(
-            "Email webhook signature verified after forced credential refresh",
-          );
-        }
-      }
-    }
-
-    if (!signatureValid) {
+    if (!verifySvixSignature(req.headers, rawBody, signingKey)) {
       tlog.warn("Email webhook signature verification failed");
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
