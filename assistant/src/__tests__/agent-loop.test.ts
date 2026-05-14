@@ -470,7 +470,6 @@ describe("AgentLoop", () => {
     ).toBe(false);
   });
 
-
   // 9. Tool executor error results are forwarded correctly
   test("forwards tool error results to provider", async () => {
     const { provider, calls } = createMockProvider([
@@ -1767,18 +1766,20 @@ describe("AgentLoop", () => {
     ]);
 
     // message_complete emitted for tool_use response + retry text response (not the empty one)
-    const messageCompletes = events.filter((e) => e.type === "message_complete");
+    const messageCompletes = events.filter(
+      (e) => e.type === "message_complete",
+    );
     expect(messageCompletes).toHaveLength(2);
   });
 
   // Regression: when the model emits [text, tool_use] in a single turn and then
-  // returns an empty response after the tool result, the loop must NOT nudge —
-  // the model already delivered its reply before the tool call, and nudging
-  // would trick it into re-sending the same text verbatim.
-  test("does not nudge empty response when prior turn had visible text", async () => {
+  // returns an empty response after the tool result, the loop must still ask
+  // for a text continuation. Otherwise the user sees the stream stop on the
+  // tool card and has to re-prompt for the actual answer.
+  test("nudges empty response after prior visible text with continuation prompt", async () => {
     const textPlusToolUseResponse: ProviderResponse = {
       content: [
-        { type: "text", text: "your move, husband." },
+        { type: "text", text: "I found the split." },
         {
           type: "tool_use",
           id: "t1",
@@ -1800,6 +1801,7 @@ describe("AgentLoop", () => {
     const { provider, calls } = createMockProvider([
       textPlusToolUseResponse,
       emptyResponse,
+      textResponse("The next step is to keep the client retry path boring."),
     ]);
 
     const toolExecutor = async () => ({
@@ -1817,35 +1819,45 @@ describe("AgentLoop", () => {
     const events: AgentEvent[] = [];
     const history = await loop.run([userMessage], collectEvents(events));
 
-    // Provider called exactly 2 times: initial [text+tool_use], then empty.
-    // No third (retry) call because the prior turn had visible text.
-    expect(calls).toHaveLength(2);
+    // Provider called 3 times: initial [text+tool_use], empty follow-up,
+    // then the continuation retry.
+    expect(calls).toHaveLength(3);
 
-    // No nudge message should appear anywhere in history.
-    const nudgeInHistory = history.some(
-      (m) =>
-        m.role === "user" &&
-        m.content.some(
-          (b) =>
-            b.type === "text" &&
-            "text" in b &&
-            (b as { text: string }).text.includes(
-              "previous response was empty",
-            ),
-        ),
-    );
-    expect(nudgeInHistory).toBe(false);
+    const retryMessages = calls[2].messages;
+    const lastRetryMessage = retryMessages[retryMessages.length - 1];
+    expect(lastRetryMessage.role).toBe("user");
+    expect(
+      lastRetryMessage.content.some(
+        (b) =>
+          b.type === "text" &&
+          "text" in b &&
+          (b as { text: string }).text.includes(
+            "without any final assistant text",
+          ),
+      ),
+    ).toBe(true);
 
     // The [text, tool_use] assistant message is preserved in history.
     const firstAssistant = history.find((m) => m.role === "assistant");
     expect(firstAssistant).toBeDefined();
     expect(firstAssistant!.content).toEqual([
-      { type: "text", text: "your move, husband." },
+      { type: "text", text: "I found the split." },
       {
         type: "tool_use",
         id: "t1",
         name: "read_file",
         input: { path: "/note.txt" },
+      },
+    ]);
+
+    const lastAssistant = [...history]
+      .reverse()
+      .find((m) => m.role === "assistant");
+    expect(lastAssistant).toBeDefined();
+    expect(lastAssistant!.content).toEqual([
+      {
+        type: "text",
+        text: "The next step is to keep the client retry path boring.",
       },
     ]);
   });
@@ -1883,7 +1895,9 @@ describe("AgentLoop", () => {
     expect(calls).toHaveLength(3);
 
     // message_complete: tool_use response + final empty response (retry exhausted)
-    const messageCompletes = events.filter((e) => e.type === "message_complete");
+    const messageCompletes = events.filter(
+      (e) => e.type === "message_complete",
+    );
     expect(messageCompletes).toHaveLength(2);
 
     // The last assistant message in history is the empty one

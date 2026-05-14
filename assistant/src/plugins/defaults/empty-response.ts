@@ -20,15 +20,14 @@
  * The terminal inspects the turn snapshot and returns one of:
  *
  * 1. `"nudge"`  — the turn produced no visible text, no tool calls, follows
- *                 at least one prior tool-use turn, no earlier turn in this
- *                 run() has already delivered visible text, AND the retry
- *                 counter is below `maxEmptyResponseRetries`. The loop
- *                 appends `nudgeText` (the `<system_notice>…` message below)
- *                 as a `user` turn and re-queries the model.
- * 2. `"accept"` — every other case. The turn either legitimately ended
- *                 (model said its piece earlier), is still in progress
- *                 (tool calls pending), or exhausted its retry budget. The
- *                 loop pushes the assistant message and continues normally.
+ *                 at least one prior tool-use turn, and the retry counter is
+ *                 below `maxEmptyResponseRetries`. The loop appends `nudgeText`
+ *                 (one of the `<system_notice>…` messages below) as a `user`
+ *                 turn and re-queries the model.
+ * 2. `"accept"` — every other case. The turn either has visible output, is
+ *                 still in progress (tool calls pending), has no prior tool
+ *                 use, or exhausted its retry budget. The loop pushes the
+ *                 assistant message and continues normally.
  *
  * The default never returns `"error"` — that action is an escape hatch for
  * downstream plugins (e.g. a circuit breaker) that want to surface an
@@ -59,6 +58,15 @@ const NUDGE_TEXT =
   "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text.</system_notice>";
 
 /**
+ * Variant used when the model streamed some text before a later tool call but
+ * then returned an empty follow-up after the tool result. This is the common
+ * "preamble + side-effect tool + silent end" failure mode; ask it to continue
+ * instead of re-sending text the user already saw.
+ */
+const CONTINUATION_NUDGE_TEXT =
+  "<system_notice>Your previous response ended after a tool result without any final assistant text. Continue the answer now, using the tool result if relevant. Do not repeat already-visible text verbatim. Do not use any tools — respond with text.</system_notice>";
+
+/**
  * Terminal handler for the `emptyResponse` pipeline. Exported so tests can
  * verify default behavior directly without going through `runPipeline`, and
  * so `agent/loop.ts` can pass it as the `terminal` argument to `runPipeline`.
@@ -74,13 +82,15 @@ export function defaultEmptyResponseTerminal(
   );
 
   const isEmptyTurn =
-    !hasVisibleText &&
-    args.toolUseBlocksLength === 0 &&
-    args.toolUseTurns > 0 &&
-    !args.priorAssistantHadVisibleText;
+    !hasVisibleText && args.toolUseBlocksLength === 0 && args.toolUseTurns > 0;
 
   if (isEmptyTurn && args.emptyResponseRetries < args.maxEmptyResponseRetries) {
-    return { action: "nudge", nudgeText: NUDGE_TEXT };
+    return {
+      action: "nudge",
+      nudgeText: args.priorAssistantHadVisibleText
+        ? CONTINUATION_NUDGE_TEXT
+        : NUDGE_TEXT,
+    };
   }
   return { action: "accept" };
 }

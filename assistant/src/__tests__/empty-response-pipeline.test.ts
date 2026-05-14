@@ -5,7 +5,7 @@
  * - Default plugin decision matches the original inline loop logic for the
  *   canonical cases (empty-after-tools → nudge, visible-text → accept,
  *   tool-use-blocks-present → accept, retries-exhausted → accept,
- *   prior-visible-text-in-run → accept).
+ *   prior-visible-text-in-run → continuation nudge).
  * - Swapping in a custom middleware that returns `action: "accept"` prevents
  *   the nudge and lets the loop fall through to history append.
  * - Swapping in a custom middleware that returns `action: "error"` is
@@ -60,6 +60,9 @@ function makeCtx(): TurnContext {
  */
 const CANONICAL_NUDGE_TEXT =
   "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text.</system_notice>";
+
+const CONTINUATION_NUDGE_TEXT =
+  "<system_notice>Your previous response ended after a tool result without any final assistant text. Continue the answer now, using the tool result if relevant. Do not repeat already-visible text verbatim. Do not use any tools — respond with text.</system_notice>";
 
 const emptyTextBlock: ContentBlock = { type: "text", text: "   " };
 
@@ -151,10 +154,10 @@ describe("emptyResponse pipeline — default decisions", () => {
     expect(decision.action).toBe("accept");
   });
 
-  test("prior assistant turn already delivered visible text → accept", async () => {
-    // Model said its piece earlier, ended with a side-effect tool, returned
-    // empty. Nudging would force a verbatim re-send of text the user already
-    // saw. Default must accept.
+  test("prior assistant turn already delivered visible text → continuation nudge", async () => {
+    // A preamble before a side-effect tool is not proof that the user got the
+    // final answer. Use a continuation-specific nudge so the model finishes
+    // the turn without repeating already-visible text verbatim.
     const decision = await runEmpty(
       makeArgs({
         responseContent: [],
@@ -162,7 +165,8 @@ describe("emptyResponse pipeline — default decisions", () => {
         priorAssistantHadVisibleText: true,
       }),
     );
-    expect(decision.action).toBe("accept");
+    expect(decision.action).toBe("nudge");
+    expect(decision.nudgeText).toBe(CONTINUATION_NUDGE_TEXT);
   });
 
   test("no prior tool-use turn (toolUseTurns === 0) → accept", async () => {

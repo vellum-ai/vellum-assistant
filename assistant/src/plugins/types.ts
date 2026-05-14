@@ -585,9 +585,9 @@ export type ToolResultTruncateResult = {
  * stateless across turns.
  *
  * `priorAssistantHadVisibleText` signals that an earlier turn in the current
- * `run()` invocation already delivered user-visible text. When true, an
- * empty follow-up is the model correctly ending its turn and nudging would
- * mislead it into resending text the user already saw.
+ * `run()` invocation already delivered user-visible text. The default
+ * pipeline still nudges empty post-tool responses in this case, but uses a
+ * continuation-specific prompt so the model does not resend text verbatim.
  */
 export interface EmptyResponseArgs {
   /** Content blocks produced by the assistant on this turn. */
@@ -1066,9 +1066,7 @@ export interface PluginSkillRegistration {
  * Unknown keys are populated by the loader for forward compatibility
  * but are not invoked by today's runtime.
  */
-export type PluginHookFn<TCtx = unknown> = (
-  ctx: TCtx,
-) => Promise<TCtx | void>;
+export type PluginHookFn<TCtx = unknown> = (ctx: TCtx) => Promise<TCtx | void>;
 
 /**
  * Map of lifecycle hooks contributed by a plugin. Keys match file
