@@ -18,6 +18,7 @@ Create and edit long-form documents using the built-in rich text editor. Documen
 
 - **document_create** - Opens a new document editor with an optional title and initial Markdown content. Returns a `surface_id` for subsequent updates.
 - **document_update** - Updates content in an open document editor by `surface_id`. Supports `replace` (overwrite) and `append` (add to end) modes.
+- **document_read** - Reads the current content of a document by `surface_id`. Use to verify content before editing.
 
 ## Workflow
 
