@@ -47,6 +47,14 @@ func parseInlineThinkingTags(_ text: String) -> [InlineContentChunk] {
             break
         }
 
+        // Capture any text between the previous cursor and the opening tag.
+        if openRange.lowerBound > cursor {
+            let preceding = String(text[cursor..<openRange.lowerBound])
+            if !preceding.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                chunks.append(.text(preceding))
+            }
+        }
+
         // Find the corresponding closing tag
         guard let pair = tagPairs.first(where: { $0.open == openTag }) else {
             break
