@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import {
   BUNDLED_SYSTEM_SECTIONS,
@@ -124,6 +124,27 @@ function resolveSection(
   }
   const bundled = BUNDLED_SYSTEM_SECTIONS.find((s) => s.id === id);
   if (!bundled) return null;
+
+  // A bundled section may delegate its body to a workspace file outside
+  // the section override directory (e.g. `SOUL.md` at the workspace
+  // root).  Read it now; missing/empty files yield "", which
+  // `renderSection` then gates off via its empty-body check.
+  if (bundled.workspacePath) {
+    const filePath = getWorkspacePromptPath(bundled.workspacePath);
+    let body = "";
+    if (existsSync(filePath)) {
+      try {
+        body = readFileSync(filePath, "utf-8");
+      } catch (err) {
+        log.warn(
+          { err, filePath, id },
+          "Failed to read section workspacePath",
+        );
+      }
+    }
+    return { enabled: bundled.enabled, body };
+  }
+
   return { enabled: bundled.enabled, body: bundled.body };
 }
 

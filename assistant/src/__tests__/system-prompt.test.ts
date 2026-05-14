@@ -78,12 +78,13 @@ const {
 } = await import("../prompts/system-prompt.js");
 
 /**
- * Extract just the workspace-file content (IDENTITY.md, SOUL.md,
- * BOOTSTRAP.md) from the full system prompt, stripping all static
- * instruction sections, configuration, and skills catalog.
+ * Extract IDENTITY.md / BOOTSTRAP.md content + the user persona from the
+ * dynamic block of the system prompt, stripping configuration, skills
+ * catalog, and connected services.
  *
- * After the cache-boundary refactor, workspace content lives in the
- * dynamic block (after SYSTEM_PROMPT_CACHE_BOUNDARY).
+ * SOUL.md no longer flows through this helper — it renders as the
+ * `09-soul` workspace-backed section in the static (cached) prefix.
+ * Tests that assert on SOUL.md content slice the static block directly.
  */
 function basePrompt(result: string): string {
   // The workspace files are in the dynamic block after the cache boundary.
@@ -140,7 +141,11 @@ describe("buildSystemPrompt", () => {
   test("uses SOUL.md when it exists", () => {
     writeFileSync(join(TEST_DIR, "SOUL.md"), "# My Soul\n\nBe awesome.");
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe("# My Soul\n\nBe awesome.");
+    // SOUL.md renders as the `09-soul` workspace-backed section in the
+    // static (cached) prefix before SYSTEM_PROMPT_CACHE_BOUNDARY.
+    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+    expect(boundaryIdx).toBeGreaterThan(-1);
+    expect(result.slice(0, boundaryIdx)).toContain("# My Soul\n\nBe awesome.");
   });
 
   test("uses IDENTITY.md when it exists", () => {
@@ -156,9 +161,11 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "# Identity\n\nI am Vellum.");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "# Soul\n\nBe thoughtful.");
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe(
-      "# Identity\n\nI am Vellum.\n\n# Soul\n\nBe thoughtful.",
-    );
+    // SOUL renders as the workspace-backed section in the static prefix;
+    // IDENTITY renders in the dynamic suffix.
+    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+    expect(result.slice(0, boundaryIdx)).toContain("# Soul\n\nBe thoughtful.");
+    expect(basePrompt(result)).toBe("# Identity\n\nI am Vellum.");
   });
 
   test("ignores empty SOUL.md", () => {
@@ -176,7 +183,12 @@ describe("buildSystemPrompt", () => {
   test("trims whitespace from file content", () => {
     writeFileSync(join(TEST_DIR, "SOUL.md"), "\n  Be kind  \n\n");
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe("Be kind");
+    // SOUL.md renders via the `09-soul` workspace-backed section;
+    // stripCommentLines + trim run inside the section renderer.
+    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+    const staticBlock = result.slice(0, boundaryIdx);
+    expect(staticBlock).toContain("Be kind");
+    expect(staticBlock).not.toContain("\n  Be kind  \n");
   });
 
   test("does not include skills catalog in system prompt", () => {
@@ -207,7 +219,12 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul content");
 
     const result = buildSystemPrompt();
-    expect(result).toContain("Identity content\n\nSoul content");
+    // After SOUL.md became the `09-soul` workspace-backed section, it
+    // renders in the static prefix while IDENTITY stays in the dynamic
+    // suffix — the two are no longer adjacent.  Verify both are present
+    // and the skills catalog is still suppressed.
+    expect(result).toContain("Identity content");
+    expect(result).toContain("Soul content");
     expect(result).not.toContain("## Available Skills");
   });
 
@@ -247,7 +264,12 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Identity");
     writeFileSync(join(TEST_DIR, "SOUL.md"), "Soul");
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe("Identity\n\nSoul");
+    // SOUL.md now renders in the static (cached) prefix via the 09-soul
+    // section, so it doesn't flow through basePrompt.  Assert that
+    // IDENTITY is the only dynamic content and that SOUL is still in the
+    // full prompt.
+    expect(basePrompt(result)).toBe("Identity");
+    expect(result).toContain("Soul");
   });
 
   test("does not read USER.md content from disk even when the file is present", () => {
@@ -269,9 +291,12 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt({
       userPersona: "# User persona\n\nName: Alice",
     });
+    // SOUL.md renders in the static (cached) prefix via the 09-soul section
+    // and is no longer part of the dynamic block sliced by basePrompt.
     expect(basePrompt(result)).toBe(
-      "Identity\n\nSoul\n\n# User persona\n\nName: Alice",
+      "Identity\n\n# User persona\n\nName: Alice",
     );
+    expect(result).toContain("Soul");
   });
 
   describe("BOOTSTRAP.md user persona placeholder", () => {
@@ -466,7 +491,11 @@ describe("buildSystemPrompt", () => {
       "First paragraph\n\n_ Comment between paragraphs\n\nSecond paragraph",
     );
     const result = buildSystemPrompt();
-    expect(basePrompt(result)).toBe("First paragraph\n\nSecond paragraph");
+    // SOUL.md renders in the static prefix via the 09-soul section, so we
+    // assert against the full prompt rather than basePrompt.  Comment lines
+    // are stripped and surrounding whitespace collapsed by renderSection.
+    expect(result).toContain("First paragraph\n\nSecond paragraph");
+    expect(result).not.toContain("Comment between paragraphs");
   });
 
   test("file with only comment lines is treated as empty", () => {

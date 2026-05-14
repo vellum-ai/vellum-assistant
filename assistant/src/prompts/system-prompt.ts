@@ -264,11 +264,11 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const systemParts: string[] = [...renderWorkspaceSections(ctx)];
   const dynamicStart = systemParts.length;
 
-  const soulPath = getWorkspacePromptPath("SOUL.md");
+  // SOUL.md is rendered by the `09-soul` workspace-backed section
+  // (see templates/system-sections.ts) — no inline read needed here.
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
   const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
 
-  const soul = readPromptFile(soulPath);
   const identity = readPromptFile(identityPath);
   const bootstrap = readPromptFile(bootstrapPath);
 
@@ -300,7 +300,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
       }
     }
   }
-  if (soul) systemParts.push(soul);
   if (options?.userPersona) systemParts.push(options.userPersona);
   if (options?.channelPersona) systemParts.push(options.channelPersona);
   if (includeBootstrap) {
