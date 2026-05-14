@@ -80,6 +80,8 @@ import {
   shouldExposePersonalMemory,
 } from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
+import { HOOKS } from "../plugin-api/constants.js";
+import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
 import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
 import {
@@ -91,7 +93,7 @@ import {
 import { defaultPersistenceTerminal } from "../plugins/defaults/persistence.js";
 import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate.js";
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate.js";
-import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CircuitBreakerArgs,
@@ -2009,6 +2011,30 @@ export async function runAgentLoopImpl(
       );
       runMessages = webSearchStrip.messages;
     }
+
+    // user-prompt-submit hook: plugins may transform `runMessages` right
+    // before the agent loop receives them. Fires once per user turn at
+    // the primary `agentLoop.run` only — the re-entry / retry calls
+    // further down in this function do not refire it (they're not new
+    // user submissions). Plugins may mutate `ctx.latestMessages` in place
+    // OR return a new context with a fresh array; `runHook` forwards
+    // whichever the chain settles on. Order is plugin registration order.
+    //
+    // Fires BEFORE `preRunHistoryLength` is captured so the boundary
+    // between pre-existing and hook-emitted messages — consumed by the
+    // ordering-error retry gate, the post-run reconcile loop, and the
+    // new-message extraction for persistence — reflects exactly what
+    // `agentLoop.run` receives.
+    const userPromptCtx: UserPromptSubmitContext = {
+      conversationId: ctx.conversationId,
+      originalMessages: ctx.messages,
+      latestMessages: runMessages,
+    };
+    const finalUserPromptCtx = await runHook(
+      HOOKS.USER_PROMPT_SUBMIT,
+      userPromptCtx,
+    );
+    runMessages = finalUserPromptCtx.latestMessages;
 
     let preRunHistoryLength = runMessages.length;
 

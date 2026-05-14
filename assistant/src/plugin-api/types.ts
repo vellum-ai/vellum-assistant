@@ -30,6 +30,8 @@
  * `@vellumai/plugin-api`.
  */
 
+import type { Message } from "../providers/types.js";
+
 // ─── Tool-execution types (re-exported from daemon source-of-truth) ──────────
 
 export type {
@@ -100,4 +102,43 @@ export interface PluginInitContext {
 export interface PluginShutdownContext {
   /** Assistant semver for compatibility checks inside the plugin. */
   assistantVersion: string;
+}
+
+// ─── User-prompt-submit hook context ─────────────────────────────────────────
+
+/**
+ * Context passed to the `user-prompt-submit` hook. Fires once per user
+ * turn, after the agent loop has prepared the message list (PKB / NOW /
+ * memory-graph injections, history repair, overflow reduction all already
+ * applied) and immediately before the messages are handed to the agent
+ * loop's tool/LLM iteration.
+ *
+ * The hook may transform `latestMessages` either by mutating it in place
+ * (`push` / `splice` / `length = 0`) or by returning a new context with
+ * a fresh `latestMessages` array — see {@link PluginHookFn}'s polymorphic
+ * return shape. The daemon threads the final `latestMessages` value into
+ * `agentLoop.run()` as the run-messages argument.
+ *
+ * `originalMessages` is the user's original message list, frozen for the
+ * hook. Plugins should treat it as a stable reference point if they need
+ * to recover from earlier transformations or compare against the pristine
+ * state.
+ *
+ * Multiple plugins' hooks chain in registration order — each plugin's
+ * hook sees the previous plugin's mutations (whether by reassignment or
+ * in-place mutation).
+ */
+export interface UserPromptSubmitContext {
+  /** Conversation ID the user prompt was submitted on. */
+  readonly conversationId: string;
+  /**
+   * The user's original message list, immutable for the hook. Plugins
+   * may snapshot or compare against this but MUST NOT mutate it.
+   */
+  readonly originalMessages: ReadonlyArray<Message>;
+  /**
+   * The working message list that flows into `agentLoop.run`. Plugins
+   * may mutate this in place or replace it by returning a new context.
+   */
+  latestMessages: Message[];
 }
