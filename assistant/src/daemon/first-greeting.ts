@@ -107,7 +107,12 @@ function buildPersonalizedGreeting(ctx: OnboardingGreetingContext): string {
   const assistant = ctx.assistantName?.trim();
   const tone = resolveTone(ctx.tone);
 
-  if (!name && !assistant && !VALID_TONES.has(ctx.tone)) {
+  if (
+    !name &&
+    !assistant &&
+    !VALID_TONES.has(ctx.tone) &&
+    !ctx.googleConnected
+  ) {
     return CANNED_FIRST_GREETING;
   }
 

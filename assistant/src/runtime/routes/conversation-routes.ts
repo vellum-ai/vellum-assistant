@@ -1183,6 +1183,7 @@ export async function handleSendMessage(
       userName?: string;
       assistantName?: string;
       googleConnected?: boolean;
+      googleScopes?: string[];
     };
   };
 
@@ -1576,6 +1577,7 @@ export async function handleSendMessage(
             tasks: body.onboarding!.tasks,
             tone: body.onboarding!.tone,
             googleConnected: body.onboarding!.googleConnected,
+            googleScopes: body.onboarding!.googleScopes,
           });
         } catch (err) {
           log.warn({ err }, "Failed to record onboarding telemetry event");
@@ -1629,6 +1631,7 @@ export async function handleSendMessage(
         tasks: body.onboarding!.tasks,
         tone: body.onboarding!.tone,
         googleConnected: body.onboarding!.googleConnected,
+        googleScopes: body.onboarding!.googleScopes,
       });
     } catch (err) {
       log.warn({ err }, "Failed to record onboarding telemetry event");
