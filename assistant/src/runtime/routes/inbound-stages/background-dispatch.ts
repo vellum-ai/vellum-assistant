@@ -69,6 +69,7 @@ export interface BackgroundProcessingParams {
   conversationId: string;
   eventId: string;
   content: string;
+  displayContent?: string;
   attachmentIds?: string[];
   sourceChannel: ChannelId;
   sourceInterface: InterfaceId;
@@ -106,6 +107,7 @@ export function processChannelMessageInBackground(
     conversationId,
     eventId,
     content,
+    displayContent,
     attachmentIds,
     sourceChannel,
     sourceInterface,
@@ -231,6 +233,7 @@ export function processChannelMessageInBackground(
           assistantId,
           trustContext: trustCtx,
           isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
+          ...(displayContent !== undefined ? { displayContent } : {}),
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
           ...(slackRuntimeContextNotice ? { slackRuntimeContextNotice } : {}),
           ...(slackInbound ? { slackInbound } : {}),

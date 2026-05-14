@@ -143,6 +143,11 @@ export interface ConversationCreateOptions {
   isInteractive?: boolean;
   /** Slack-only non-persisted notice injected into the active model turn. */
   slackRuntimeContextNotice?: string;
+  /**
+   * Persisted user-facing content. When present, storage/UI use this value
+   * while the model-facing turn continues to use `content`.
+   */
+  displayContent?: string;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
 
