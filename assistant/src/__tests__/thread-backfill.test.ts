@@ -845,7 +845,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(rendered).not.toContain("F-DRAFT");
   });
 
-  test("backfilled non-bot text is persisted wrapped in an external_content envelope", async () => {
+  test("backfilled non-guardian text is persisted wrapped in an external_content envelope", async () => {
     const conv = createTestConversation();
 
     backfillThreadMock.mockImplementation(async () => [
@@ -861,6 +861,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       conversationId: conv.id,
       channelId: SLACK_CHANNEL_ID,
       threadTs: "1234.0",
+      guardianExternalUserId: "U_GUARDIAN",
     });
 
     const [persisted] = readPersistedSlackRows(conv.id).filter(
@@ -875,6 +876,34 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(persisted.rawContent).toContain("</external_content>");
     // Inner text round-trips unchanged through the wrapper.
     expect(persisted.content).toBe("i can't find the credential field");
+  });
+
+  test("backfilled guardian-authored text is persisted unwrapped", async () => {
+    const conv = createTestConversation();
+
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.0",
+        text: "here is the trusted context",
+        threadId: undefined,
+        sender: { id: "U_GUARDIAN", name: "Guardian User" },
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+      guardianExternalUserId: "U_GUARDIAN",
+    });
+
+    const [persisted] = readPersistedSlackRows(conv.id).filter(
+      (p) => p.channelTs === "1234.0",
+    );
+    expect(persisted).toBeDefined();
+    expect(persisted.role).toBe("user");
+    expect(persisted.rawContent).toBe("here is the trusted context");
+    expect(persisted.rawContent).not.toContain("<external_content");
   });
 
   test("backfilled bot-authored text is persisted unwrapped (assistant role)", async () => {

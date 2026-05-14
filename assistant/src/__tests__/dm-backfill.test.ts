@@ -98,6 +98,18 @@ function seedActiveMember(): void {
   });
 }
 
+function seedSlackGuardian(): void {
+  upsertContactChannel({
+    sourceChannel: "slack",
+    externalUserId: SLACK_DM_USER_ID,
+    externalChatId: SLACK_DM_CHANNEL_ID,
+    status: "active",
+    policy: "allow",
+    displayName: SLACK_DM_DISPLAY_NAME,
+    role: "guardian",
+  });
+}
+
 let msgCounter = 0;
 
 function buildDmRequest(
@@ -258,6 +270,31 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     // has something to display.
     const texts = rows.map((r) => r.content).sort();
     expect(texts).toEqual(["older A", "older B", "older C"]);
+  });
+
+  test("guardian DM backfill persists guardian text without external_content wrapping", async () => {
+    resetState();
+    seedSlackGuardian();
+
+    backfillDmMock.mockImplementation(async () => [
+      makeBackfilledMessage({
+        id: "1700000000.000001",
+        text: "trusted older context",
+        sender: { id: SLACK_DM_USER_ID, name: "Guardian Sender" },
+      }),
+    ]);
+
+    await handleChannelInbound(
+      buildDmRequest("live guardian DM"),
+      noopProcessMessage,
+      TEST_BEARER_TOKEN,
+    );
+
+    const [row] = readPersistedSlackRows();
+    expect(row).toBeDefined();
+    expect(row.role).toBe("user");
+    expect(row.rawContent).toBe("trusted older context");
+    expect(row.rawContent).not.toContain("<external_content");
   });
 
   test("warm storage prevents re-trigger on subsequent DMs", async () => {

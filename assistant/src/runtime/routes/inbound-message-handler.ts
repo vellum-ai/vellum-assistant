@@ -1078,6 +1078,7 @@ export async function handleChannelInbound({
           conversationId: result.conversationId,
           channelId: conversationExternalId,
           account: slackAccount,
+          guardianExternalUserId: trustCtx.guardianExternalUserId,
           latestTs: boundingTs,
         });
       }
@@ -1100,6 +1101,7 @@ export async function handleChannelInbound({
           threadTs: slackThreadTs,
           excludeChannelTs: slackInbound?.channelTs,
           account: slackAccount,
+          guardianExternalUserId: trustCtx.guardianExternalUserId,
         });
         const lateJoinNotice = buildSlackLateJoinNotice(backfillResult);
         if (lateJoinNotice) slackRuntimeContextNotice = lateJoinNotice;
@@ -1453,6 +1455,7 @@ async function persistBackfilledSlackMessage(params: {
   channelId: string;
   message: ProviderMessage;
   account?: string;
+  guardianExternalUserId?: string;
 }): Promise<void> {
   const { message } = params;
   const slackFilesWithUrls = readSlackFilesWithUrlsFromProviderMetadata(
@@ -1476,15 +1479,19 @@ async function persistBackfilledSlackMessage(params: {
   };
 
   const isBot = message.metadata?.isBot === true;
+  const isGuardian = isBackfilledSlackGuardianMessage(
+    message,
+    params.guardianExternalUserId,
+  );
   const role = isBot ? "assistant" : "user";
 
-  // Non-bot backfilled messages enter the model context wrapped in
-  // `<external_content>` boundaries — same contract as the live inbound
-  // path (`inbound-message-handler.ts:~1105`). Bot/assistant turns are
-  // left unwrapped so they read as normal assistant history.
+  // Non-guardian, non-bot backfilled messages enter the model context wrapped
+  // in `<external_content>` boundaries — same contract as the live inbound
+  // path. Guardian-authored user turns and bot/assistant turns are left
+  // unwrapped so they read as normal trusted history.
   const rawText = message.text ?? "";
   const textForPersist =
-    !isBot && rawText.length > 0
+    !isBot && !isGuardian && rawText.length > 0
       ? wrapUntrustedContent(rawText, {
           source: "webhook",
           ...(message.sender?.name
@@ -1568,6 +1575,20 @@ async function persistBackfilledSlackMessage(params: {
   }
 }
 
+function isBackfilledSlackGuardianMessage(
+  message: ProviderMessage,
+  guardianExternalUserId: string | undefined,
+): boolean {
+  const rawSenderId = message.sender?.id?.trim();
+  if (!rawSenderId || !guardianExternalUserId) return false;
+  const canonicalSender =
+    canonicalizeInboundIdentity("slack", rawSenderId) ?? rawSenderId;
+  const canonicalGuardian =
+    canonicalizeInboundIdentity("slack", guardianExternalUserId) ??
+    guardianExternalUserId.trim();
+  return canonicalSender === canonicalGuardian;
+}
+
 /**
  * Transient view of `slackFiles` that preserves the download URLs added by
  * `mapSlackFiles` on the in-flight `ProviderMessage`. These URLs never reach
@@ -1638,6 +1659,7 @@ async function tryBackfillSlackDmIfCold(params: {
   conversationId: string;
   channelId: string;
   account?: string;
+  guardianExternalUserId?: string;
   latestTs?: string;
 }): Promise<void> {
   const existing = _dmBackfillInFlight.get(params.conversationId);
@@ -1656,6 +1678,7 @@ async function runBackfillSlackDmIfCold(params: {
   conversationId: string;
   channelId: string;
   account?: string;
+  guardianExternalUserId?: string;
   latestTs?: string;
 }): Promise<void> {
   try {
@@ -1697,6 +1720,9 @@ async function runBackfillSlackDmIfCold(params: {
           channelId: params.channelId,
           message,
           ...(params.account ? { account: params.account } : {}),
+          ...(params.guardianExternalUserId
+            ? { guardianExternalUserId: params.guardianExternalUserId }
+            : {}),
         });
         seen.add(message.id);
         written++;
@@ -2169,9 +2195,21 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
    * connection.
    */
   account?: string;
+  /**
+   * Canonical Slack user ID for the guardian, when a verified Slack guardian
+   * binding exists. Backfilled messages from this sender are trusted history
+   * and should not be wrapped as external content.
+   */
+  guardianExternalUserId?: string;
 }): Promise<SlackThreadBackfillResult> {
-  const { conversationId, channelId, threadTs, excludeChannelTs, account } =
-    params;
+  const {
+    conversationId,
+    channelId,
+    threadTs,
+    excludeChannelTs,
+    account,
+    guardianExternalUserId,
+  } = params;
 
   try {
     const upperBoundTs = parseSlackTimestamp(excludeChannelTs)
@@ -2257,6 +2295,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
           channelId,
           message,
           ...(account ? { account } : {}),
+          ...(guardianExternalUserId ? { guardianExternalUserId } : {}),
         });
         threadState.storedChannelTs.add(message.id);
         persisted++;
