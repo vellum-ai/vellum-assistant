@@ -506,6 +506,7 @@ export interface SurfaceConversationContext {
     currentPage?: string,
     options?: { isInteractive?: boolean },
     displayContent?: string,
+    metadata?: Record<string, unknown>,
   ): Promise<string>;
   /** Serialize operations on a given surface to prevent read-modify-write races. */
   withSurface<T>(surfaceId: string, fn: () => T | Promise<T>): Promise<T>;
@@ -1436,6 +1437,7 @@ export async function handleSurfaceAction(
         undefined,
         undefined,
         displayContent,
+        { automated: true },
       )
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
@@ -1714,6 +1716,7 @@ export async function handleSurfaceAction(
       undefined,
       undefined,
       displayContent,
+      { automated: true },
     )
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);

@@ -1326,6 +1326,7 @@ export class Conversation {
     currentPage?: string,
     options?: { isInteractive?: boolean; callSite?: LLMCallSite },
     displayContent?: string,
+    metadata?: Record<string, unknown>,
   ): Promise<string> {
     this.cacheWarmAbort?.abort();
     this.cacheWarmAbort = undefined;
@@ -1339,6 +1340,7 @@ export class Conversation {
       currentPage,
       options,
       displayContent,
+      metadata,
     );
   }
 

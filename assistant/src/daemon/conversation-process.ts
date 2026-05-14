@@ -1242,6 +1242,7 @@ export async function processMessage(
   currentPage?: string,
   options?: { isInteractive?: boolean; callSite?: LLMCallSite },
   displayContent?: string,
+  metadata?: Record<string, unknown>,
 ): Promise<string> {
   await conversation.ensureActorScopedHistory();
   // Snapshot persona context at turn start so later tool turns can't pick up
@@ -1573,7 +1574,7 @@ export async function processMessage(
       resolvedContent,
       attachments,
       requestId,
-      undefined,
+      metadata,
       displayContent,
     );
     publishConversationMessagesChanged(conversation.conversationId);
