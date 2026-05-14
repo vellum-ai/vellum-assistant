@@ -5,9 +5,10 @@
  * finding messages by source identifiers, and managing raw payload storage.
  */
 
-import { and, eq, isNotNull, like, or } from "drizzle-orm";
+import { and, asc, eq, isNotNull, like, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import {
   getConversationByKey,
@@ -29,6 +30,9 @@ export interface RecordInboundOptions {
   assistantId?: string;
   sourceThreadId?: string;
 }
+
+const SLACK_LEGACY_THREAD_EVIDENCE_BATCH_SIZE = 50;
+const SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN = 500;
 
 function buildScopedConversationKeyForAssistant(
   assistantId: string,
@@ -54,66 +58,6 @@ export function buildScopedConversationKey(
     externalChatId,
     sourceThreadId,
   );
-}
-
-function readSlackMetadataEvidence(
-  raw: string | null,
-): { channelId: string; threadTs?: string } | null {
-  if (!raw) {
-    return null;
-  }
-
-  const candidates: string[] = [raw];
-  try {
-    const envelope: unknown = JSON.parse(raw);
-    if (
-      envelope !== null &&
-      typeof envelope === "object" &&
-      !Array.isArray(envelope)
-    ) {
-      const slackMeta = (envelope as { slackMeta?: unknown }).slackMeta;
-      if (typeof slackMeta === "string") {
-        candidates.unshift(slackMeta);
-      }
-    }
-  } catch {
-    // Fall through to parsing the raw value as a flat Slack metadata blob.
-  }
-
-  for (const candidate of candidates) {
-    try {
-      const parsed: unknown = JSON.parse(candidate);
-      if (
-        parsed === null ||
-        typeof parsed !== "object" ||
-        Array.isArray(parsed)
-      ) {
-        continue;
-      }
-
-      const record = parsed as Record<string, unknown>;
-      const eventKind = record.eventKind;
-      if (
-        record.source !== "slack" ||
-        typeof record.channelId !== "string" ||
-        typeof record.channelTs !== "string" ||
-        (eventKind !== "message" && eventKind !== "reaction")
-      ) {
-        continue;
-      }
-
-      return {
-        channelId: record.channelId,
-        ...(typeof record.threadTs === "string"
-          ? { threadTs: record.threadTs }
-          : {}),
-      };
-    } catch {
-      // Try the next candidate.
-    }
-  }
-
-  return null;
 }
 
 function legacySlackConversationHasThreadEvidence(
@@ -142,28 +86,49 @@ function legacySlackConversationHasThreadEvidence(
     return true;
   }
 
-  const metadataRows = db
-    .select({ metadata: messages.metadata })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        isNotNull(messages.metadata),
-        or(
-          like(messages.metadata, '%"slackMeta"%'),
-          like(messages.metadata, '%"source":"slack"%'),
-        ),
-      ),
-    )
-    .all();
-
-  return metadataRows.some((row) => {
-    const slackMeta = readSlackMetadataEvidence(row.metadata);
-    return (
-      slackMeta?.channelId === externalChatId &&
-      slackMeta.threadTs === sourceThreadId
+  let offset = 0;
+  while (offset < SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN) {
+    const remaining = SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN - offset;
+    const batchLimit = Math.min(
+      SLACK_LEGACY_THREAD_EVIDENCE_BATCH_SIZE,
+      remaining,
     );
-  });
+    const metadataRows = db
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, conversationId),
+          isNotNull(messages.metadata),
+          or(
+            like(messages.metadata, '%"slackMeta"%'),
+            like(messages.metadata, '%"source":"slack"%'),
+          ),
+        ),
+      )
+      .orderBy(asc(messages.createdAt))
+      .limit(batchLimit)
+      .offset(offset)
+      .all();
+
+    if (metadataRows.length === 0) return false;
+    for (const row of metadataRows) {
+      const slackMeta = readSlackMetadataFromMessageMetadata(row.metadata, {
+        allowFlatLegacy: true,
+      });
+      if (
+        slackMeta?.channelId === externalChatId &&
+        slackMeta.threadTs === sourceThreadId
+      ) {
+        return true;
+      }
+    }
+
+    if (metadataRows.length < batchLimit) return false;
+    offset += metadataRows.length;
+  }
+
+  return false;
 }
 
 function resolveInboundConversation(
