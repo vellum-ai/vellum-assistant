@@ -1,0 +1,4 @@
+.env
+results/
+runs/
+*.local.json

@@ -1,0 +1,6 @@
+{
+  "id": "mem.single_turn.timeline_recall",
+  "shape": "single_turn",
+  "dimensions": ["memory"],
+  "objective": "Agent has a 5000-token conversation history. Sim user asks 'What date did I mention my partner's peanut allergy?' Agent must return the correct date AND cite the source turn. Verifiable pass with source-citation correctness. Fixture, simulator script, and scorer ship in PR-3."
+}
