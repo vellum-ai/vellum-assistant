@@ -14304,6 +14304,20 @@ paths:
                     type: string
                   objective:
                     type: string
+                  usage:
+                    type: object
+                    properties:
+                      inputTokens:
+                        type: number
+                      outputTokens:
+                        type: number
+                      estimatedCost:
+                        type: number
+                    required:
+                      - inputTokens
+                      - outputTokens
+                      - estimatedCost
+                    additionalProperties: false
                   events:
                     type: array
                     items: {}

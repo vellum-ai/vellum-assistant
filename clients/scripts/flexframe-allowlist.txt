@@ -219,3 +219,4 @@ clients/macos/vellum-assistant/Features/MainWindow/TopBarView.swift|.frame(maxWi
 clients/macos/vellum-assistant/Features/MainWindow/UpgradeProgressOverlay.swift|.frame(minWidth: 320)
 clients/macos/vellum-assistant/Features/MainWindow/UpgradeProgressOverlay.swift|.frame(minWidth: 320)
 clients/macos/vellum-assistant/Features/MainWindow/Panels/SubagentDetailPanel.swift|.frame(maxHeight: panelHeight > 0 ? panelHeight / 4 : nil)
+clients/macos/vellum-assistant/Features/MainWindow/Panels/SubagentDetailPanel.swift|.frame(maxHeight: .infinity)
