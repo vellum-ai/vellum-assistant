@@ -2533,10 +2533,7 @@ export async function runAgentLoopImpl(
             );
           }
           if (emergencyResult.compacted) {
-            await applySuccessfulCompaction(
-              emergencyResult,
-              ctx.messages,
-            );
+            await applySuccessfulCompaction(emergencyResult, ctx.messages);
             shouldInjectWorkspace = true;
           }
           // Clear the overflow flag and re-run the agent loop with
