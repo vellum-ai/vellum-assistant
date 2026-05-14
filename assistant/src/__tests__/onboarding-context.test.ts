@@ -92,4 +92,27 @@ describe("OnboardingContext googleConnected field", () => {
     ) as OnboardingContext;
     expect(decoded.googleConnected).toBe(false);
   });
+
+  test("googleScopes and abVariant round-trip through the sidecar", () => {
+    const ctx: OnboardingContext = {
+      tools: ["Gmail"],
+      tasks: ["Inbox triage"],
+      tone: "Friendly",
+      googleConnected: true,
+      googleScopes: ["gmail.readonly", "calendar.readonly"],
+      abVariant: "pre-chat-oauth",
+    };
+
+    writeOnboardingSidecar(ctx);
+
+    const path = getOnboardingSidecarPath();
+    const decoded = JSON.parse(
+      readFileSync(path, "utf-8"),
+    ) as OnboardingContext;
+    expect(decoded.googleScopes).toEqual([
+      "gmail.readonly",
+      "calendar.readonly",
+    ]);
+    expect(decoded.abVariant).toBe("pre-chat-oauth");
+  });
 });
