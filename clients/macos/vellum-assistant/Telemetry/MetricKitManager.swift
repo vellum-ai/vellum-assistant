@@ -56,6 +56,19 @@ import os
     nonisolated static let macosDSN: String =
         ProcessInfo.processInfo.environment["SENTRY_DSN_MACOS"] ?? ""
 
+    /// URL targets for Sentry's automatic HTTP client error capture.
+    ///
+    /// The default (`[".*"]`) captures every 5xx response, including health
+    /// check probes that legitimately return 502/500 when pods are sleeping.
+    /// This regex matches all URLs except `/health` and `/readyz` endpoints,
+    /// eliminating the noise while preserving error capture for real API calls.
+    ///
+    /// Ref: https://docs.sentry.io/platforms/apple/configuration/http-client-errors/
+    nonisolated static let sentryFailedRequestTargets: [Any] = [
+        // swiftlint:disable:next force_try
+        try! NSRegularExpression(pattern: #"^(?!.*/(?:health|readyz)(?:/|$|\?))"#),
+    ]
+
     /// Closes the Sentry SDK through `sentrySerialQueue` to prevent races with
     /// concurrent `captureSentryEvent` calls.
     /// Use this instead of calling `SentrySDK.close()` directly.
@@ -102,6 +115,7 @@ import os
             }
             options.sendDefaultPii = false
             options.maxAttachmentSize = sentryMaxAttachmentSize
+            options.failedRequestTargets = sentryFailedRequestTargets
         }
         SentryDeviceInfo.configureSentryScope()
     }

@@ -92,12 +92,16 @@ public final class GatewayConnectionManager {
     @ObservationIgnored private var healthCheckTask: Task<Void, Never>?
     @ObservationIgnored private let authFailureTracker = AuthFailureTracker()
     private let healthCheckInterval: TimeInterval = 15.0
+    private static let maxHealthCheckBackoffInterval: TimeInterval = 300.0
     @ObservationIgnored private var shouldReconnect = true
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var conversationKey: String?
     /// Number of consecutive successful health checks. Used to suppress
     /// repetitive "Health check passed" logs after the first three passes.
     @ObservationIgnored private var consecutiveHealthCheckSuccesses = 0
+    /// Number of consecutive health check failures in the periodic loop.
+    /// Drives exponential backoff: 15 s → 30 s → 60 s → 120 s → 240 s → 300 s cap.
+    @ObservationIgnored private var consecutiveHealthCheckFailures = 0
     func setUpdateInProgress(_ value: Bool) {
         let wasInProgress = _isUpdateInProgress
         if value != wasInProgress { isUpdateInProgress = value }
@@ -255,6 +259,7 @@ public final class GatewayConnectionManager {
         healthCheckTask?.cancel()
         healthCheckTask = nil
         consecutiveHealthCheckSuccesses = 0
+        consecutiveHealthCheckFailures = 0
         setConnected(false)
 
         // Reset auth-failed state on teardown. Every reconnect should start
@@ -463,6 +468,7 @@ public final class GatewayConnectionManager {
 
     private func startHealthCheckLoop() {
         healthCheckTask?.cancel()
+        consecutiveHealthCheckFailures = 0
 
         // The loop runs on a detached task at `.utility` priority so the
         // 15 s `Task.sleep` scheduling and between-check overhead do not
@@ -474,7 +480,10 @@ public final class GatewayConnectionManager {
             while !Task.isCancelled {
                 let interval: TimeInterval = await MainActor.run { [weak self] in
                     guard let self else { return 15.0 }
-                    return self.isUpdateInProgress ? 2.0 : self.healthCheckInterval
+                    if self.isUpdateInProgress { return 2.0 }
+                    let backoff = self.healthCheckInterval
+                        * pow(2.0, Double(min(self.consecutiveHealthCheckFailures, 5)))
+                    return min(backoff, Self.maxHealthCheckBackoffInterval)
                 }
                 do {
                     try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
@@ -489,8 +498,16 @@ public final class GatewayConnectionManager {
 
                 do {
                     try await self.performHealthCheck()
+                    await MainActor.run { [weak self] in
+                        self?.consecutiveHealthCheckFailures = 0
+                    }
                 } catch {
-                    log.warning("Periodic health check failed: \(error.localizedDescription, privacy: .public)")
+                    let failures = await MainActor.run { [weak self] () -> Int in
+                        guard let self else { return 0 }
+                        self.consecutiveHealthCheckFailures += 1
+                        return self.consecutiveHealthCheckFailures
+                    }
+                    log.warning("Periodic health check failed (attempt \(failures, privacy: .public)): \(error.localizedDescription, privacy: .public)")
                 }
 
                 await self.checkUpdateTimeoutIfNeeded()

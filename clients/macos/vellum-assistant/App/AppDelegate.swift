@@ -457,6 +457,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 options.sendDefaultPii = false
                 options.maxAttachmentSize = MetricKitManager.sentryMaxAttachmentSize
+                options.failedRequestTargets = MetricKitManager.sentryFailedRequestTargets
 
                 if !crashLogURLs.isEmpty {
                     options.onCrashedLastRun = { _ in crashedLastRun = true }
