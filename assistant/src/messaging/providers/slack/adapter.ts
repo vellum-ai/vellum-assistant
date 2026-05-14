@@ -100,6 +100,30 @@ function getWriteAuth(connection?: OAuthConnection): OAuthConnection | string {
 }
 
 /**
+ * Resolve the bot token (raw string) and pass it to `fn`. Returns the
+ * callback's result, or `null` when no Slack auth is available.
+ *
+ * Bridges the Socket Mode case (cached string token) and the OAuth case
+ * (`OAuthConnection.withToken`) for callers that need a raw token to hand
+ * to a non-Slack-client API call — currently `downloadSlackFile` for inline
+ * file/image fetches. Slack-client method calls should keep going through
+ * `getReadAuth` / `getWriteAuth` and pass the union through.
+ */
+export async function withSlackBotToken<T>(
+  account: string | undefined,
+  fn: (token: string) => Promise<T>,
+): Promise<T | null> {
+  // Resolve for this call's account even when the process cache is warm.
+  // Multi-workspace backfills can interleave, so use the returned connection
+  // directly instead of accepting any previously cached workspace token.
+  const resolvedAuth = await slackProvider.resolveConnection?.(account);
+  const auth = resolvedAuth ?? _cachedSlackWriteAuth;
+  if (!auth) return null;
+  if (typeof auth === "string") return fn(auth);
+  return auth.withToken(fn);
+}
+
+/**
  * Run a read-path Slack call, falling back to the bot token if the cached
  * user token is rejected with an auth error. On fallback, the read cache is
  * reset to the bot token so subsequent reads in this session don't re-pay
@@ -192,15 +216,31 @@ function mapConversation(conv: SlackConversation): Conversation {
   };
 }
 
-function mapSlackFiles(
-  files: SlackMessage["files"],
-): Array<{ id?: string; name: string; mimetype?: string }> | undefined {
+function mapSlackFiles(files: SlackMessage["files"]):
+  | Array<{
+      id?: string;
+      name: string;
+      mimetype?: string;
+      /**
+       * Transient — only present on the in-flight `ProviderMessage.metadata`.
+       * The persisted `slackFiles` shape carries `{ id, name, mimetype }` only
+       * (see `slackFileMetadataSchema`). Callers that hydrate image attachments
+       * during backfill rely on this URL; persistence strips it before write.
+       */
+      urlPrivateDownload?: string;
+      urlPrivate?: string;
+    }>
+  | undefined {
   if (!files || files.length === 0) return undefined;
   const mapped = files
     .map((file) => ({
       ...(file.id ? { id: file.id } : {}),
       name: file.name,
       ...(file.mimetype ? { mimetype: file.mimetype } : {}),
+      ...(file.url_private_download
+        ? { urlPrivateDownload: file.url_private_download }
+        : {}),
+      ...(file.url_private ? { urlPrivate: file.url_private } : {}),
     }))
     .filter((file) => file.name.length > 0);
   return mapped.length > 0 ? mapped : undefined;
@@ -419,8 +459,6 @@ export const slackProvider: MessagingProvider = {
       if (conv.type === "dm" && conv.metadata?.dmUserId) {
         const dmUserId = conv.metadata.dmUserId as string;
         conv.name = await resolveUserName(auth, dmUserId);
-
-
       }
     }
 

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
@@ -133,12 +133,17 @@ export function verifyAndRecordSkillHash(slug: string): void {
   }
 }
 
-interface ClawhubInstallResult {
-  success: boolean;
-  skillName?: string;
-  version?: string;
-  error?: string;
-}
+type ClawhubInstallResult =
+  | {
+      success: true;
+      skillId: string;
+      skillDir: string;
+      version?: string;
+    }
+  | {
+      success: false;
+      error: string;
+    };
 
 interface ClawhubSearchResultItem {
   name: string;
@@ -219,9 +224,50 @@ async function runClawhub(
   return { stdout, stderr, exitCode };
 }
 
+function getSkillNameFromSlug(slug: string): string {
+  return slug.includes("/") ? slug.split("/").pop()! : slug;
+}
+
+function getClawhubSkillsDir(projectRoot?: string): string {
+  return projectRoot ? join(projectRoot, "skills") : getManagedSkillsDir();
+}
+
+function hasRootSkillFile(skillDir: string): boolean {
+  return existsSync(join(skillDir, "SKILL.md"));
+}
+
+function findInstalledClawhubSkillDir(
+  slug: string,
+  projectRoot?: string,
+): { skillId: string; skillDir: string } | null {
+  const skillsDir = getClawhubSkillsDir(projectRoot);
+  const expectedSkillName = getSkillNameFromSlug(slug);
+  const candidates = [
+    join(skillsDir, slug),
+    join(skillsDir, expectedSkillName),
+  ];
+
+  for (const candidate of candidates) {
+    if (hasRootSkillFile(candidate)) {
+      return { skillId: expectedSkillName, skillDir: candidate };
+    }
+  }
+
+  if (!projectRoot || !existsSync(skillsDir)) return null;
+
+  const stagedSkills = readdirSync(skillsDir, { withFileTypes: true }).filter(
+    (entry) =>
+      entry.isDirectory() && hasRootSkillFile(join(skillsDir, entry.name)),
+  );
+  if (stagedSkills.length !== 1) return null;
+
+  const skillId = stagedSkills[0]!.name;
+  return { skillId, skillDir: join(skillsDir, skillId) };
+}
+
 export async function clawhubInstall(
   slug: string,
-  opts?: { version?: string; contactId?: string },
+  opts?: { version?: string; contactId?: string; projectRoot?: string },
 ): Promise<ClawhubInstallResult> {
   if (!validateSlug(slug)) {
     return { success: false, error: `Invalid skill slug: ${slug}` };
@@ -231,26 +277,37 @@ export async function clawhubInstall(
   const args = ["install", installSlug, "--force"]; // non-interactive
 
   try {
-    const result = await runClawhub(args);
+    const result = await runClawhub(args, { cwd: opts?.projectRoot });
     if (result.exitCode !== 0) {
       const error =
         result.stderr.trim() || result.stdout.trim() || "Unknown error";
       return { success: false, error };
     }
 
+    const installed = findInstalledClawhubSkillDir(slug, opts?.projectRoot);
+    if (!installed) {
+      return {
+        success: false,
+        error: `Installed skill "${slug}" is missing SKILL.md at the skill root`,
+      };
+    }
+
     // Write install-meta.json for the installed skill.
     // contentHash is included here, so there's no need to call
     // verifyAndRecordSkillHash() — it would just rewrite the same data.
-    const skillDir = join(getManagedSkillsDir(), slug);
-    writeInstallMeta(skillDir, {
+    writeInstallMeta(installed.skillDir, {
       origin: "clawhub",
       slug,
       installedAt: new Date().toISOString(),
       ...(opts?.contactId ? { installedBy: opts.contactId } : {}),
-      contentHash: computeSkillHash(skillDir) ?? undefined,
+      contentHash: computeSkillHash(installed.skillDir) ?? undefined,
     });
 
-    return { success: true, skillName: slug };
+    return {
+      success: true,
+      skillId: installed.skillId,
+      skillDir: installed.skillDir,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { success: false, error: message };

@@ -778,8 +778,15 @@ final class ChatActionHandler {
         // Per-message daemon cancel (e.g. queue eviction): the matching
         // `message_complete` will never arrive. Decrement here, above the
         // stale-event early-return below, which per-message cancels also hit.
-        if !wasCancelling && vm.messageManager.pendingUserTurnCount > 0 {
-            vm.messageManager.pendingUserTurnCount -= 1
+        // Stale echoes from a prior cancel batch (primed via
+        // `staleCancelEventsExpected`) must not decrement — they would
+        // consume counts belonging to sends started after that batch.
+        if !wasCancelling {
+            if vm.messageManager.staleCancelEventsExpected > 0 {
+                vm.messageManager.staleCancelEventsExpected -= 1
+            } else if vm.messageManager.pendingUserTurnCount > 0 {
+                vm.messageManager.pendingUserTurnCount -= 1
+            }
         }
         // Stale cancel event from a previous cancel cycle — the daemon
         // emits generation_cancelled for each queued entry during abort,
@@ -800,6 +807,12 @@ final class ChatActionHandler {
         vm.isThinking = false
         if wasCancelling {
             vm.isSending = false
+            // Prime the stale-echo budget before zeroing `pendingQueuedCount`.
+            // The in-flight cancel is the event we just handled; the daemon
+            // will emit one more for each still-queued entry, and a new
+            // send dispatched via `dispatchPendingSendDirect()` below must
+            // not have its turn count consumed by those trailing echoes.
+            vm.messageManager.staleCancelEventsExpected = vm.pendingQueuedCount
             vm.pendingQueuedCount = 0
             vm.pendingMessageIds = []
             vm.requestIdToMessageId = [:]

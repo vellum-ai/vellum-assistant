@@ -152,18 +152,18 @@ export async function injectMemoryV2Block(
   const priorState = await hydrate(database, conversationId);
 
   // Flag-gated router dispatch: when the LLM router is enabled, route the
-  // per-turn page selection through `runRouter` and reuse `finalizeInjection`
-  // for persistence, render, and telemetry. The activation pipeline below
+  // page selection through `runRouter` and reuse `finalizeInjection` for
+  // persistence, render, and telemetry. The activation pipeline below
   // remains the default (flag-off) behavior — every code path past this
   // branch only runs when the router is disabled.
   //
-  // Restricted to `mode === "per-turn"`: `context-load` (the full top-K
-  // bootstrap after compaction/reload) must always re-emit pages the user
-  // just lost. The router's abstention + `everInjected` dedupe is correct
-  // for per-turn delta injection but breaks context-restoration — pages
-  // already in `everInjected` from before compaction would be filtered out
-  // and never re-attached.
-  if (config.memory.v2.router.enabled && mode === "per-turn") {
+  // Runs on both `per-turn` and `context-load`. The `everInjected` dedupe
+  // concern from earlier doesn't apply post-compaction because
+  // `evictCompactedTurnsV2` in `ConversationGraphMemory.onCompacted`
+  // empties the list before this code runs. Router abstention on
+  // context-load means no v2 pages restored that turn, which is preferable
+  // to letting the activation graph pick something arbitrary.
+  if (config.memory.v2.router.enabled) {
     return injectViaRouter({
       workspaceDir,
       database,

@@ -88,6 +88,7 @@ export class FilingService {
   private compactionRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private activeRun: Promise<void> | null = null;
   private activeCompactionRun: Promise<void> | null = null;
+  private stopped = false;
   private _lastRunAt: number | null = null;
   private _nextRunAt: number | null = null;
   private _lastCompactionAt: number | null = null;
@@ -115,6 +116,7 @@ export class FilingService {
   }
 
   start(): void {
+    this.stopped = false;
     const fullConfig = getConfig();
     if (fullConfig.memory.v2.enabled) {
       log.info("Filing service disabled — memory v2 is active");
@@ -171,6 +173,7 @@ export class FilingService {
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -316,8 +319,10 @@ export class FilingService {
 
   private scheduleCompactionRetry(delayMs: number): void {
     this.clearCompactionRetry();
+    if (this.stopped) return;
     this.compactionRetryTimer = setTimeout(() => {
       this.compactionRetryTimer = null;
+      if (this.stopped) return;
       this.runCompactionOnce().catch((err) => {
         log.error({ err }, "Compaction retry failed");
       });

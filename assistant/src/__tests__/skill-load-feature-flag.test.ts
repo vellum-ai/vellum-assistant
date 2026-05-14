@@ -103,10 +103,6 @@ describe("skill_load feature flag enforcement", () => {
       "Toggle email channel behavior",
       "Use the feature.",
     );
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      `- ${DECLARED_SKILL_ID}\n`,
-    );
 
     _setOverridesForTesting({ [DECLARED_FLAG_KEY]: false });
 
@@ -124,10 +120,6 @@ describe("skill_load feature flag enforcement", () => {
       "Toggle email channel behavior",
       "Use the feature.",
     );
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      `- ${DECLARED_SKILL_ID}\n`,
-    );
 
     _setOverridesForTesting({ [DECLARED_FLAG_KEY]: true });
 
@@ -143,10 +135,6 @@ describe("skill_load feature flag enforcement", () => {
       "Email Channel",
       "Toggle email channel behavior",
       "Use the feature.",
-    );
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      `- ${DECLARED_SKILL_ID}\n`,
     );
 
     // No overrides — uses registry defaults

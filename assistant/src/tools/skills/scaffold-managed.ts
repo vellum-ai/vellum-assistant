@@ -1,3 +1,4 @@
+import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
 import { createManagedSkill } from "../../skills/managed-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -93,7 +94,6 @@ export async function executeScaffoldManagedSkill(
         ? sanitizeFrontmatterValue(input.emoji)
         : undefined,
     overwrite: input.overwrite === true,
-    addToIndex: input.add_to_index !== false,
     includes,
   });
 
@@ -101,12 +101,13 @@ export async function executeScaffoldManagedSkill(
     return { content: `Error: ${result.error}`, isError: true };
   }
 
+  refreshSkillCapabilityMemories();
+
   return {
     content: JSON.stringify({
       created: true,
       skill_id: skillId.trim(),
       path: result.path,
-      index_updated: result.indexUpdated,
     }),
     isError: false,
   };

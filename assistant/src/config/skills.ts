@@ -203,10 +203,6 @@ export function getBundledSkillsDir(): string {
   return join(dir, "bundled-skills");
 }
 
-function getSkillsIndexPath(skillsDir: string): string {
-  return join(skillsDir, "SKILLS.md");
-}
-
 // ─── Frontmatter parsing ─────────────────────────────────────────────────────
 
 interface ParsedFrontmatter {
@@ -618,94 +614,6 @@ function loadBundledSkills(): SkillSummary[] {
   return skills;
 }
 
-// ─── Index parsing ───────────────────────────────────────────────────────────
-
-function parseIndexEntry(line: string): string | null {
-  const bulletMatch = line.trim().match(/^[-*]\s+(.+)$/);
-  if (!bulletMatch) return null;
-
-  let entry = bulletMatch[1].trim();
-  const markdownLinkMatch = entry.match(/^\[[^\]]+\]\(([^)]+)\)$/);
-  if (markdownLinkMatch) {
-    entry = markdownLinkMatch[1].trim();
-  }
-
-  if (entry.startsWith("`") && entry.endsWith("`")) {
-    entry = entry.slice(1, -1).trim();
-  }
-
-  return entry.length > 0 ? entry : null;
-}
-
-function resolveIndexEntryToDirectory(
-  skillsDir: string,
-  entry: string,
-): string | null {
-  if (isAbsolute(entry)) {
-    log.warn(
-      { entry },
-      "Skipping SKILLS.md entry because absolute paths are not allowed",
-    );
-    return null;
-  }
-
-  const resolvedEntryPath = resolve(skillsDir, entry);
-  const resolvedDirectory =
-    basename(resolvedEntryPath).toLowerCase() === "skill.md"
-      ? dirname(resolvedEntryPath)
-      : resolvedEntryPath;
-
-  const relativePath = getRelativeToSkillsRoot(skillsDir, resolvedDirectory);
-  if (relativePath.length === 0) {
-    log.warn(
-      { entry },
-      "Skipping SKILLS.md entry that resolves to the skills root",
-    );
-    return null;
-  }
-  if (isOutsideSkillsRoot(skillsDir, resolvedDirectory)) {
-    log.warn(
-      { entry, resolvedDirectory: getCanonicalPath(resolvedDirectory) },
-      "Skipping SKILLS.md entry that resolves outside ~/.vellum/workspace/skills",
-    );
-    return null;
-  }
-
-  return resolvedDirectory;
-}
-
-function getIndexedSkillDirectories(skillsDir: string): string[] | null {
-  const indexPath = getSkillsIndexPath(skillsDir);
-  if (!existsSync(indexPath)) return null;
-
-  let rawIndex = "";
-  try {
-    rawIndex = readFileSync(indexPath, "utf-8");
-  } catch (err) {
-    log.warn(
-      { err, indexPath },
-      "Failed to read SKILLS.md; treating as empty catalog",
-    );
-    return [];
-  }
-
-  const directories: string[] = [];
-  const seen = new Set<string>();
-
-  for (const line of rawIndex.split(/\r?\n/)) {
-    const parsedEntry = parseIndexEntry(line);
-    if (!parsedEntry) continue;
-
-    const directory = resolveIndexEntryToDirectory(skillsDir, parsedEntry);
-    if (!directory || seen.has(directory)) continue;
-
-    seen.add(directory);
-    directories.push(directory);
-  }
-
-  return directories;
-}
-
 function discoverSkillDirectories(skillsDir: string): string[] {
   if (!existsSync(skillsDir)) return [];
 
@@ -713,7 +621,7 @@ function discoverSkillDirectories(skillsDir: string): string[] {
   try {
     const entries = readdirSync(skillsDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
       const directoryPath = join(skillsDir, entry.name);
       if (existsSync(join(directoryPath, "SKILL.md"))) {
         dirs.push(directoryPath);
@@ -867,8 +775,7 @@ export function loadSkillCatalog(
 
   // Load managed (user) skills, which take precedence over bundled skills with the same ID
   const skillsDir = getSkillsDir();
-  const indexedDirectories = getIndexedSkillDirectories(skillsDir);
-  const directories = indexedDirectories ?? discoverSkillDirectories(skillsDir);
+  const directories = discoverSkillDirectories(skillsDir);
 
   for (const directory of directories) {
     const skill = readSkillFromDirectory(directory, skillsDir, "managed");
@@ -1164,7 +1071,7 @@ export function resolveSkillSelector(
   const catalog = loadSkillCatalog(workspaceSkillsDir);
   if (catalog.length === 0) {
     return {
-      error: `No skills are available. Configure ${getWorkspaceDirDisplay()}/skills/SKILLS.md or add skill directories.`,
+      error: `No skills are available. Add skill directories under ${getWorkspaceDirDisplay()}/skills/.`,
       errorCode: "empty_catalog",
     };
   }

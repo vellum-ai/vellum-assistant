@@ -79,12 +79,12 @@ export async function runWorkspaceMigrations(
   workspaceDir: string,
   migrations: WorkspaceMigration[],
 ): Promise<void> {
-  const seen = new Set<string>();
+  const migrationsById = new Map<string, WorkspaceMigration>();
   for (const m of migrations) {
-    if (seen.has(m.id)) {
+    if (migrationsById.has(m.id)) {
       throw new Error(`Duplicate workspace migration id: "${m.id}"`);
     }
-    seen.add(m.id);
+    migrationsById.set(m.id, m);
   }
 
   // The checkpoint file is written *before* each migration's run() (to record
@@ -106,6 +106,14 @@ export async function runWorkspaceMigrations(
     if (entry.status === "started" || entry.status === "rolling_back") {
       log.warn(
         `Workspace migration "${id}" was interrupted during a previous run; will re-run`,
+      );
+      delete checkpoints.applied[id];
+    } else if (
+      entry.status === "failed" &&
+      migrationsById.get(id)?.retryFailedCheckpoint === true
+    ) {
+      log.warn(
+        `Workspace migration "${id}" failed during a previous run; will retry`,
       );
       delete checkpoints.applied[id];
     }

@@ -56,6 +56,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -118,6 +119,7 @@ import {
   buildToolDefinitions,
   createResolveToolsCallback,
   createToolExecutor,
+  resolveTrustClass,
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
 import { canonicalizeTimeZone } from "./date-context.js";
@@ -181,6 +183,17 @@ export class Conversation {
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
   /**
+   * Set true by `applyCompactionResult` when compaction strips runtime
+   * injections from the tail. The next agent loop turn reads this flag at
+   * entry, treats it as a `compactedThisTurn` trigger (re-injecting NOW.md,
+   * PKB, and the v2 essentials/threads/recent/buffer block), and clears it.
+   *
+   * Required because `/compact` runs outside the agent loop — without this
+   * signal, the next turn cannot tell that the static blocks were just
+   * stripped and never re-emits them.
+   */
+  /** @internal */ pendingPostCompactReinject = false;
+  /**
    * Tracks consecutive compaction failures (summary LLM call threw). In-memory
    * only — resets to 0 on process restart, which is the intended "one free
    * retry after restart" behavior. Reset to 0 on any successful compaction.
@@ -225,6 +238,7 @@ export class Conversation {
   /** @internal */ currentTurnOverrideProfile?: string;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
+  /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
   /** @internal */ slackRuntimeContextNotice?: string;
@@ -527,6 +541,10 @@ export class Conversation {
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: initialContextWindowConfig,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
+      conversationId: this.conversationId,
+      resolveTools: resolveTools
+        ? () => resolveTools(this.messages)
+        : undefined,
     });
   }
 
@@ -647,7 +665,21 @@ export class Conversation {
 
   async ensureActorScopedHistory(): Promise<void> {
     const currentTrustClass = this.trustContext?.trustClass;
-    if (this.loadedHistoryTrustClass === currentTrustClass) return;
+    // `loadFromDb` gates personal-memory rehydration on `sourceChannel` too
+    // (via `shouldExposePersonalMemory`), so a same-trust-class reuse from a
+    // different channel (e.g. internal `vellum` → remote channel) must also
+    // trigger a reload. Otherwise stale personal-memory blocks can leak to
+    // an untrusted remote turn, or be hidden when they should be present.
+    const currentPersonalMemoryAllowed = shouldExposePersonalMemory({
+      sourceChannel: this.trustContext?.sourceChannel,
+      isTrustedActor: resolveTrustClass(this.trustContext) === "guardian",
+    });
+    if (
+      this.loadedHistoryTrustClass === currentTrustClass &&
+      this.loadedHistoryPersonalMemoryAllowed === currentPersonalMemoryAllowed
+    ) {
+      return;
+    }
     await this.loadFromDb();
   }
 

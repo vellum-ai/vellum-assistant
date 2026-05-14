@@ -200,12 +200,11 @@ function parseUnifiedDiff(diff: string): AddedLine[] {
 // everything below it is dropped before the commit is recorded.
 const COMMIT_MSG_SCISSORS = "# ------------------------ >8 ------------------------";
 
-// `verbatim` and `whitespace` cleanup modes keep `#` lines (and content below
-// the scissors line) in the recorded commit message, so we cannot blindly skip
-// either — quoted real data in those regions would slip through the scan.
-// `default`/`strip`/`scissors` drop both, so skipping them avoids false
-// positives on git editor template text and on the `-v` diff body.
-const DROPS_HASH_LINES_AND_SCISSORS: ReadonlySet<string> = new Set([
+// `verbatim` and `whitespace` cleanup modes keep `#` lines in the recorded
+// commit message, so we cannot blindly skip them — quoted real data in `#`
+// comments would slip through the scan. `default`/`strip`/`scissors` drop
+// them, so skipping avoids false positives on git editor template text.
+const DROPS_HASH_LINES: ReadonlySet<string> = new Set([
   "default",
   "strip",
   "scissors",
@@ -230,17 +229,18 @@ function parseCommitMessage(
 ): AddedLine[] {
   const result: AddedLine[] = [];
   const lines = text.split("\n");
-  const dropsBelowScissors = DROPS_HASH_LINES_AND_SCISSORS.has(cleanupMode);
+  const dropsHashLines = DROPS_HASH_LINES.has(cleanupMode);
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
-    // Under `default`/`strip`/`scissors` cleanup (the modes used implicitly by
-    // `git commit -v`), everything from the scissors line down and all `#`
-    // comment lines are dropped before the commit is recorded. Under
-    // `verbatim`/`whitespace`, git keeps both, so we must scan them.
-    if (dropsBelowScissors) {
-      if (raw === COMMIT_MSG_SCISSORS) break;
-      if (raw.startsWith("#")) continue;
-    }
+    // The scissors line and everything below it are added by `git commit -v`
+    // and dropped before the commit is recorded regardless of cleanup mode —
+    // that region holds the verbose diff (passed to `commit-msg` but never
+    // part of the recorded message), so scanning it would produce false
+    // positives on staged code rather than commit text.
+    if (raw === COMMIT_MSG_SCISSORS) break;
+    // `#` comment lines are dropped under `default`/`strip`/`scissors` but
+    // kept verbatim under `verbatim`/`whitespace`, so gate skipping on mode.
+    if (dropsHashLines && raw.startsWith("#")) continue;
     // No previousContent tracking: prior-line suppression markers in commit
     // messages would survive into the recorded message (odd UX). Same-line
     // `generic-examples:ignore-line` still works via isSuppressed().
@@ -470,24 +470,24 @@ const COMMIT_MSG_TEST_CASES: CommitMsgTestCase[] = [
     expectPatterns: [],
   },
   {
-    name: "content below scissors line is scanned under verbatim cleanup",
+    name: "content below scissors line is ignored under verbatim cleanup (verbose diff is never recorded)",
     text:
       'fix: bug\n\n' +
       '# ------------------------ >8 ------------------------\n' +
       'diff --git a/file.ts b/file.ts\n' +
       '+const e = "alice@gmail.com";\n',
     cleanupMode: "verbatim",
-    expectPatterns: ["non-example-email"],
+    expectPatterns: [],
   },
   {
-    name: "content below scissors line is scanned under whitespace cleanup",
+    name: "content below scissors line is ignored under whitespace cleanup (verbose diff is never recorded)",
     text:
       'fix: bug\n\n' +
       '# ------------------------ >8 ------------------------\n' +
       'diff --git a/file.ts b/file.ts\n' +
       '+const e = "alice@gmail.com";\n',
     cleanupMode: "whitespace",
-    expectPatterns: ["non-example-email"],
+    expectPatterns: [],
   },
   {
     name: "Co-Authored-By trailer with angle-bracketed email is OK",

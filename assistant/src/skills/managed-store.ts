@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
-  readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -41,10 +40,6 @@ function getManagedSkillsDir(): string {
 
 function getManagedSkillDir(id: string): string {
   return join(getManagedSkillsDir(), id);
-}
-
-function getSkillsIndexPath(): string {
-  return join(getManagedSkillsDir(), "SKILLS.md");
 }
 
 // ─── SKILL.md generation ─────────────────────────────────────────────────────
@@ -106,89 +101,10 @@ function atomicWriteFile(filePath: string, content: string): void {
   renameSync(tmpPath, filePath);
 }
 
-// ─── SKILLS.md index management ──────────────────────────────────────────────
-
-function readIndexLines(): string[] {
-  const indexPath = getSkillsIndexPath();
-  if (!existsSync(indexPath)) return [];
-  return readFileSync(indexPath, "utf-8").split("\n");
-}
-
-function writeIndexLines(lines: string[]): void {
-  const content = lines.join("\n");
-  atomicWriteFile(
-    getSkillsIndexPath(),
-    content.endsWith("\n") ? content : content + "\n",
-  );
-}
-
-function indexEntryRegex(id: string): RegExp {
-  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // Match both - and * bullets, optional backticks, optional markdown link wrapping,
-  // and optional /SKILL.md suffix (inside or outside link parens)
-  return new RegExp(
-    `^[-*]\\s+(?:\`)?(?:\\[.*?\\]\\()?${escaped}(?:/SKILL\\.md)?(?:\\))?(?:\`)?\\s*$`,
-  );
-}
-
-export function upsertSkillsIndexEntry(id: string): void {
-  const lines = readIndexLines();
-  const pattern = indexEntryRegex(id);
-  if (lines.some((line) => pattern.test(line))) {
-    return; // already present
-  }
-  // Append new entry
-  const nonEmpty = lines.filter((l) => l.trim());
-  nonEmpty.push(`- ${id}`);
-  writeIndexLines(nonEmpty);
-  log.info({ id }, "Added managed skill to SKILLS.md index");
-}
-
-export function removeSkillsIndexEntry(id: string): void {
-  const lines = readIndexLines();
-  const pattern = indexEntryRegex(id);
-  const filtered = lines.filter((line) => !pattern.test(line));
-  if (filtered.length === lines.length) {
-    return; // not found
-  }
-  writeIndexLines(filtered.filter((l) => l.trim()));
-  log.info({ id }, "Removed managed skill from SKILLS.md index");
-}
-
 // ─── Version metadata ─────────────────────────────────────────────────────────
-
-interface SkillVersionMeta {
-  version: string;
-  installedAt: string;
-}
 
 function getVersionMetaPath(id: string): string {
   return join(getManagedSkillDir(id), "version.json");
-}
-
-export function readSkillVersion(id: string): string | null {
-  // Try install-meta.json first (new format)
-  const installMetaPath = join(getManagedSkillDir(id), "install-meta.json");
-  if (existsSync(installMetaPath)) {
-    try {
-      const raw = readFileSync(installMetaPath, "utf-8");
-      const meta = JSON.parse(raw) as { version?: string };
-      if (meta.version) return meta.version;
-    } catch {
-      // Fall through to legacy path
-    }
-  }
-
-  // Fall back to legacy version.json
-  const metaPath = getVersionMetaPath(id);
-  if (!existsSync(metaPath)) return null;
-  try {
-    const raw = readFileSync(metaPath, "utf-8");
-    const meta: SkillVersionMeta = JSON.parse(raw);
-    return meta.version ?? null;
-  } catch {
-    return null;
-  }
 }
 
 // ─── Create / Delete ─────────────────────────────────────────────────────────
@@ -200,7 +116,6 @@ interface CreateManagedSkillParams {
   bodyMarkdown: string;
   emoji?: string;
   overwrite?: boolean;
-  addToIndex?: boolean;
   includes?: string[];
   version?: string;
   contactId?: string;
@@ -209,7 +124,6 @@ interface CreateManagedSkillParams {
 interface CreateManagedSkillResult {
   created: boolean;
   path: string;
-  indexUpdated: boolean;
   error?: string;
 }
 
@@ -221,7 +135,6 @@ export function createManagedSkill(
     return {
       created: false,
       path: "",
-      indexUpdated: false,
       error: validationError,
     };
   }
@@ -230,7 +143,6 @@ export function createManagedSkill(
     return {
       created: false,
       path: "",
-      indexUpdated: false,
       error: "name is required",
     };
   }
@@ -238,7 +150,6 @@ export function createManagedSkill(
     return {
       created: false,
       path: "",
-      indexUpdated: false,
       error: "description is required",
     };
   }
@@ -250,7 +161,6 @@ export function createManagedSkill(
     return {
       created: false,
       path: skillFilePath,
-      indexUpdated: false,
       error: `Managed skill "${params.id}" already exists. Set overwrite=true to replace it.`,
     };
   }
@@ -285,35 +195,24 @@ export function createManagedSkill(
     "Created managed skill",
   );
 
-  let indexUpdated = false;
-  if (params.addToIndex !== false) {
-    upsertSkillsIndexEntry(params.id);
-    indexUpdated = true;
-  }
-
-  return { created: true, path: skillFilePath, indexUpdated };
+  return { created: true, path: skillFilePath };
 }
 
 interface DeleteManagedSkillResult {
   deleted: boolean;
-  indexUpdated: boolean;
   error?: string;
 }
 
-export function deleteManagedSkill(
-  id: string,
-  removeFromIndex = true,
-): DeleteManagedSkillResult {
+export function deleteManagedSkill(id: string): DeleteManagedSkillResult {
   const validationError = validateManagedSkillId(id);
   if (validationError) {
-    return { deleted: false, indexUpdated: false, error: validationError };
+    return { deleted: false, error: validationError };
   }
 
   const skillDir = getManagedSkillDir(id);
   if (!existsSync(skillDir)) {
     return {
       deleted: false,
-      indexUpdated: false,
       error: `Managed skill "${id}" not found`,
     };
   }
@@ -322,19 +221,5 @@ export function deleteManagedSkill(
   deleteSkillCapabilityNode(id);
   log.info({ id, path: skillDir }, "Deleted managed skill");
 
-  let indexUpdated = false;
-  if (removeFromIndex) {
-    try {
-      removeSkillsIndexEntry(id);
-      indexUpdated = true;
-    } catch (err) {
-      // Best-effort: skill dir is already gone, don't fail the whole delete
-      log.warn(
-        { id, err },
-        "Failed to update skills index after deleting managed skill",
-      );
-    }
-  }
-
-  return { deleted: true, indexUpdated };
+  return { deleted: true };
 }

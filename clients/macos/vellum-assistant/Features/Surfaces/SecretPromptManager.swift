@@ -218,6 +218,7 @@ struct SecretPromptView: View {
                     placeholder: placeholder,
                     text: $secretValue,
                     isSecure: true,
+                    onSubmit: { submitSave() },
                     font: VFont.bodyMediumDefault
                 )
                 .accessibilityIdentifier("secure-credential-input")
@@ -254,16 +255,7 @@ struct SecretPromptView: View {
                         .disabled(isSending)
                         .accessibilityLabel("Cancel")
                         VButton(label: isSending ? "Saving..." : "Save", style: .primary, accessibilityID: "secure-credential-save") {
-                            let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !trimmed.isEmpty else { return }
-                            isSending = true
-                            Task {
-                                let success = await onSave(trimmed)
-                                isSending = false
-                                if success {
-                                    withAnimation(VAnimation.standard) { saved = true }
-                                }
-                            }
+                            submitSave()
                         }
                         .disabled(isSending || secretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityLabel("Save")
@@ -300,6 +292,19 @@ struct SecretPromptView: View {
         .frame(maxHeight: 600)
         .vPanelBackground()
         .clipShape(RoundedRectangle(cornerRadius: VRadius.window))
+    }
+
+    private func submitSave() {
+        let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isSending else { return }
+        isSending = true
+        Task {
+            let success = await onSave(trimmed)
+            isSending = false
+            if success {
+                withAnimation(VAnimation.standard) { saved = true }
+            }
+        }
     }
 
     @ViewBuilder

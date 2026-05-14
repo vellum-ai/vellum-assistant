@@ -835,6 +835,17 @@ export interface TurnInjectionInputs {
    * knows no human is present to answer clarification questions.
    */
   readonly isNonInteractive?: boolean;
+  /**
+   * Active documents open in this conversation — surfaced by the
+   * `active-documents` injector so the assistant can target existing docs
+   * with `document_update` instead of creating duplicates.
+   */
+  readonly activeDocuments?: ReadonlyArray<{
+    surfaceId: string;
+    title: string;
+    wordCount: number;
+    updatedAt: number;
+  }> | null;
 }
 
 export interface DiskPressureInjectionContext {
@@ -1066,9 +1077,7 @@ export interface PluginSkillRegistration {
  * Unknown keys are populated by the loader for forward compatibility
  * but are not invoked by today's runtime.
  */
-export type PluginHookFn<TCtx = unknown> = (
-  ctx: TCtx,
-) => Promise<TCtx | void>;
+export type PluginHookFn<TCtx = unknown> = (ctx: TCtx) => Promise<TCtx | void>;
 
 /**
  * Map of lifecycle hooks contributed by a plugin. Keys match file

@@ -67,42 +67,62 @@ describe("skills catalog loading", () => {
       rmSync(skillsDir, { recursive: true, force: true });
   });
 
-  test("parses markdown list path entries from SKILLS.md", () => {
-    writeSkill("alpha", "Alpha Skill", "First skill");
-    writeSkill("beta", "Beta Skill", "Second skill");
+  test("discovers valid skill directories alphabetically", () => {
+    writeSkill("zeta", "Zeta Skill", "Zeta");
+    writeSkill("alpha", "Alpha Skill", "Alpha");
+
+    const catalog = loadUserSkillCatalog();
+    expect(catalog.map((skill) => skill.id)).toEqual(["alpha", "zeta"]);
+  });
+
+  test("ignores stale SKILLS.md while discovering valid skill directories", () => {
+    writeSkill("first", "First Skill", "First");
+    writeSkill("second", "Second Skill", "Second");
     writeFileSync(
       join(TEST_DIR, "skills", "SKILLS.md"),
-      "- alpha\n- beta/SKILL.md\n",
+      "- second\n- missing\n",
     );
 
     const catalog = loadUserSkillCatalog();
-    expect(catalog.map((skill) => skill.id)).toEqual(["alpha", "beta"]);
+    expect(catalog.map((skill) => skill.id)).toEqual(["first", "second"]);
   });
 
-  test("resolves markdown links from SKILLS.md", () => {
-    writeSkill("lint", "Lint Skill", "Runs lint checks");
-    writeSkill("test", "Test Skill", "Runs test checks");
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- [Lint](lint)\n- [Tests](test)\n",
+  test("managed skill overrides bundled skill with the same id", () => {
+    writeSkill(
+      "skill-management",
+      "Custom Skill Management",
+      "Managed override",
     );
 
-    const catalog = loadUserSkillCatalog();
-    expect(catalog.map((skill) => skill.id)).toEqual(["lint", "test"]);
+    const skill = loadSkillCatalog().find((s) => s.id === "skill-management");
+    expect(skill).toBeDefined();
+    expect(skill!.source).toBe("managed");
+    expect(skill!.name).toBe("Custom Skill Management");
+    expect(skill!.bundled).toBeUndefined();
   });
 
-  test("rejects SKILLS.md entries that resolve outside ~/.vellum/workspace/skills", () => {
-    writeSkill("safe", "Safe Skill", "Safe skill");
+  test("discovers symlinked skill directories that point inside ~/.vellum/workspace/skills", () => {
+    const internalSkillDir = join(
+      TEST_DIR,
+      "skills",
+      ".linked-targets",
+      "internal-skill",
+    );
+    mkdirSync(internalSkillDir, { recursive: true });
     writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- ../escape\n- /tmp/absolute\n- safe\n",
+      join(internalSkillDir, "SKILL.md"),
+      '---\nname: "Internal Linked Skill"\ndescription: "Inside skills root."\n---\n\nLoad me.\n',
     );
 
+    symlinkSync(internalSkillDir, join(TEST_DIR, "skills", "linked-skill"));
+
     const catalog = loadUserSkillCatalog();
-    expect(catalog.map((skill) => skill.id)).toEqual(["safe"]);
+    expect(catalog).toHaveLength(1);
+    expect(catalog[0].id).toBe("linked-skill");
+    expect(catalog[0].name).toBe("Internal Linked Skill");
   });
 
-  test("rejects symlinked SKILLS.md entries that point outside ~/.vellum/workspace/skills", () => {
+  test("does not discover symlinked skill directories that point outside ~/.vellum/workspace/skills", () => {
     const externalSkillDir = join(TEST_DIR, "outside", "external-skill");
     mkdirSync(externalSkillDir, { recursive: true });
     writeFileSync(
@@ -111,7 +131,6 @@ describe("skills catalog loading", () => {
     );
 
     symlinkSync(externalSkillDir, join(TEST_DIR, "skills", "linked-skill"));
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- linked-skill\n");
 
     const catalog = loadUserSkillCatalog();
     expect(catalog).toHaveLength(0);
@@ -130,35 +149,6 @@ describe("skills catalog loading", () => {
     );
 
     symlinkSync(externalSkillFile, join(linkedSkillDir, "SKILL.md"));
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- linked-file-skill\n",
-    );
-
-    const catalog = loadUserSkillCatalog();
-    expect(catalog).toHaveLength(0);
-  });
-
-  test("uses SKILLS.md ordering when index exists", () => {
-    writeSkill("first", "First Skill", "First");
-    writeSkill("second", "Second Skill", "Second");
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- second\n- first\n");
-
-    const catalog = loadUserSkillCatalog();
-    expect(catalog.map((skill) => skill.id)).toEqual(["second", "first"]);
-  });
-
-  test("falls back to auto-discovery when SKILLS.md is missing", () => {
-    writeSkill("zeta", "Zeta Skill", "Zeta");
-    writeSkill("alpha", "Alpha Skill", "Alpha");
-
-    const catalog = loadUserSkillCatalog();
-    expect(catalog.map((skill) => skill.id)).toEqual(["alpha", "zeta"]);
-  });
-
-  test("treats SKILLS.md as authoritative when present", () => {
-    writeSkill("available", "Available Skill", "Present on disk");
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- ../invalid-only\n");
 
     const catalog = loadUserSkillCatalog();
     expect(catalog).toHaveLength(0);
@@ -247,6 +237,18 @@ describe("workspace skills", () => {
     expect(result.skill!.id).toBe("ws-load");
     expect(result.skill!.body).toBe("Full workspace body here");
     expect(result.skill!.source).toBe("workspace");
+  });
+
+  test("workspace skill overrides managed skill with the same id", () => {
+    writeSkill("shared-id", "Managed Shared", "Managed version");
+    writeWorkspaceSkill("shared-id", "Workspace Shared", "Workspace version");
+
+    const skill = loadSkillCatalog(workspaceSkillsDir).find(
+      (s) => s.id === "shared-id",
+    );
+    expect(skill).toBeDefined();
+    expect(skill!.source).toBe("workspace");
+    expect(skill!.name).toBe("Workspace Shared");
   });
 });
 
@@ -449,7 +451,6 @@ describe("includes frontmatter parsing", () => {
 
   test("parses valid includes array", () => {
     writeSkillWithIncludes("parent", '["child-a", "child-b"]');
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- parent\n");
     const catalog = loadUserSkillCatalog();
     const skill = catalog.find((s) => s.id === "parent");
     expect(skill).toBeDefined();
@@ -458,7 +459,6 @@ describe("includes frontmatter parsing", () => {
 
   test("trims whitespace in includes entries", () => {
     writeSkillWithIncludes("parent", '["  child-a  ", " child-b "]');
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- parent\n");
     const catalog = loadUserSkillCatalog();
     const skill = catalog.find((s) => s.id === "parent");
     expect(skill!.includes).toEqual(["child-a", "child-b"]);
@@ -466,7 +466,6 @@ describe("includes frontmatter parsing", () => {
 
   test("removes empty strings from includes", () => {
     writeSkillWithIncludes("parent", '["child-a", "", "  ", "child-b"]');
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- parent\n");
     const catalog = loadUserSkillCatalog();
     const skill = catalog.find((s) => s.id === "parent");
     expect(skill!.includes).toEqual(["child-a", "child-b"]);
@@ -474,7 +473,6 @@ describe("includes frontmatter parsing", () => {
 
   test("deduplicates includes preserving first-seen order", () => {
     writeSkillWithIncludes("parent", '["child-a", "child-b", "child-a"]');
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- parent\n");
     const catalog = loadUserSkillCatalog();
     const skill = catalog.find((s) => s.id === "parent");
     expect(skill!.includes).toEqual(["child-a", "child-b"]);
@@ -482,7 +480,6 @@ describe("includes frontmatter parsing", () => {
 
   test("returns undefined for invalid JSON", () => {
     writeSkillWithIncludes("parent", "not-json");
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- parent\n");
     const catalog = loadUserSkillCatalog();
     const skill = catalog.find((s) => s.id === "parent");
     expect(skill!.includes).toBeUndefined();
@@ -490,7 +487,6 @@ describe("includes frontmatter parsing", () => {
 
   test("returns undefined for non-array JSON", () => {
     writeSkillWithIncludes("parent", '"just-a-string"');
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- parent\n");
     const catalog = loadUserSkillCatalog();
     const skill = catalog.find((s) => s.id === "parent");
     expect(skill!.includes).toBeUndefined();
@@ -498,7 +494,6 @@ describe("includes frontmatter parsing", () => {
 
   test("returns undefined for array with non-string elements", () => {
     writeSkillWithIncludes("parent", "[123, true]");
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- parent\n");
     const catalog = loadUserSkillCatalog();
     const skill = catalog.find((s) => s.id === "parent");
     expect(skill!.includes).toBeUndefined();
@@ -506,7 +501,6 @@ describe("includes frontmatter parsing", () => {
 
   test("returns undefined for empty array", () => {
     writeSkillWithIncludes("parent", "[]");
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- parent\n");
     const catalog = loadUserSkillCatalog();
     const skill = catalog.find((s) => s.id === "parent");
     expect(skill!.includes).toBeUndefined();
@@ -514,7 +508,6 @@ describe("includes frontmatter parsing", () => {
 
   test("skill without includes has undefined includes", () => {
     writeSkill("no-includes", "No Includes", "Test");
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- no-includes\n");
     const catalog = loadUserSkillCatalog();
     const skill = catalog.find((s) => s.id === "no-includes");
     expect(skill!.includes).toBeUndefined();

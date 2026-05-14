@@ -4,6 +4,7 @@
  * decision engine route contextually.
  */
 
+import type { ConversationCreateType } from "../memory/conversation-crud.js";
 import type { GuardianQuestionPayload } from "./guardian-question-mode.js";
 
 // ── Source channel registry ────────────────────────────────────────────
@@ -214,5 +215,6 @@ export interface NotificationSignal<TEventName extends string = string> {
     groupId?: string;
     scheduleJobId?: string;
     source?: string;
+    conversationType?: ConversationCreateType;
   };
 }

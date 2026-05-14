@@ -34,9 +34,6 @@ import {
   buildSkillMarkdown,
   createManagedSkill,
   deleteManagedSkill,
-  readSkillVersion,
-  removeSkillsIndexEntry,
-  upsertSkillsIndexEntry,
   validateManagedSkillId,
 } from "../skills/managed-store.js";
 
@@ -47,6 +44,22 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(join(TEST_DIR, "skills"), { recursive: true, force: true });
 });
+
+interface TestInstallMeta {
+  origin?: string;
+  version?: string;
+  installedAt?: string;
+  installedBy?: string;
+}
+
+function readInstallMetaFile(skillId: string): TestInstallMeta {
+  return JSON.parse(
+    readFileSync(
+      join(TEST_DIR, "skills", skillId, "install-meta.json"),
+      "utf-8",
+    ),
+  );
+}
 
 describe("validateManagedSkillId", () => {
   test("accepts valid slug IDs", () => {
@@ -142,7 +155,7 @@ describe("buildSkillMarkdown", () => {
     });
 
     // Load it back via loadSkillCatalog (which uses parseFrontmatter)
-    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    const catalog = loadSkillCatalog();
     const skill = catalog.find((s) => s.id === "roundtrip-test");
     expect(skill).toBeDefined();
     expect(skill!.name).toBe('Say "hello" & back\\slash');
@@ -159,7 +172,7 @@ describe("buildSkillMarkdown", () => {
       bodyMarkdown: "Body.",
     });
 
-    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    const catalog = loadSkillCatalog();
     const skill = catalog.find((s) => s.id === "backslash-n-test");
     expect(skill).toBeDefined();
     expect(skill!.name).toBe("path\\name");
@@ -205,7 +218,7 @@ describe("buildSkillMarkdown", () => {
       includes: ["child-x", "child-y"],
     });
 
-    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    const catalog = loadSkillCatalog();
     const skill = catalog.find((s) => s.id === "roundtrip-includes");
     expect(skill).toBeDefined();
     expect(skill!.includes).toEqual(["child-x", "child-y"]);
@@ -228,113 +241,6 @@ describe("buildSkillMarkdown", () => {
     // Backslashes should be preserved literally, not interpreted as escape sequences
     expect(skill!.name).toBe("path\\\\name");
     expect(skill!.description).toBe("has \\n in it");
-  });
-});
-
-describe("SKILLS.md index management", () => {
-  test("SKILLS.md is created when absent", () => {
-    upsertSkillsIndexEntry("my-skill");
-    const indexPath = join(TEST_DIR, "skills", "SKILLS.md");
-    expect(existsSync(indexPath)).toBe(true);
-    const content = readFileSync(indexPath, "utf-8");
-    expect(content).toContain("- my-skill");
-  });
-
-  test("index add is idempotent", () => {
-    upsertSkillsIndexEntry("my-skill");
-    upsertSkillsIndexEntry("my-skill");
-    const content = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    const matches = content.match(/- my-skill/g);
-    expect(matches?.length).toBe(1);
-  });
-
-  test("delete removes directory and index entry", () => {
-    // Set up a skill
-    const skillDir = join(TEST_DIR, "skills", "doomed");
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(join(skillDir, "SKILL.md"), "test");
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- doomed\n- survivor\n",
-    );
-
-    const result = deleteManagedSkill("doomed");
-    expect(result.deleted).toBe(true);
-    expect(result.indexUpdated).toBe(true);
-    expect(existsSync(skillDir)).toBe(false);
-
-    const content = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    expect(content).not.toContain("doomed");
-    expect(content).toContain("survivor");
-  });
-
-  test("upsert recognizes * bullet entries", () => {
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "* existing-skill\n");
-    upsertSkillsIndexEntry("existing-skill");
-    const content = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    const matches = content.match(/existing-skill/g);
-    expect(matches?.length).toBe(1);
-  });
-
-  test("remove handles * bullet entries", () => {
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "* doomed\n- survivor\n",
-    );
-    removeSkillsIndexEntry("doomed");
-    const content = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    expect(content).not.toContain("doomed");
-    expect(content).toContain("survivor");
-  });
-
-  test("remove handles markdown link entries", () => {
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- [My Skill](my-skill/SKILL.md)\n- survivor\n",
-    );
-    removeSkillsIndexEntry("my-skill");
-    const content = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    expect(content).not.toContain("my-skill");
-    expect(content).toContain("survivor");
-  });
-
-  test("upsert recognizes markdown link entries as existing", () => {
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- [My Skill](my-skill/SKILL.md)\n",
-    );
-    upsertSkillsIndexEntry("my-skill");
-    const content = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    const matches = content.match(/my-skill/g);
-    expect(matches?.length).toBe(1);
-  });
-
-  test("remove from index handles missing entry gracefully", () => {
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- other-skill\n");
-    removeSkillsIndexEntry("nonexistent");
-    const content = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    expect(content).toContain("other-skill");
   });
 });
 
@@ -429,35 +335,20 @@ describe("createManagedSkill", () => {
     expect(result.error).toContain("description is required");
   });
 
-  test("updates SKILLS.md index", () => {
+  test("does not create SKILLS.md and is discovered through SKILL.md directory", () => {
     createManagedSkill({
-      id: "indexed-skill",
-      name: "Indexed",
-      description: "Gets indexed",
+      id: "discovered-skill",
+      name: "Discovered",
+      description: "Found by directory discovery",
       bodyMarkdown: "Body.",
     });
 
-    const indexContent = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    expect(indexContent).toContain("- indexed-skill");
-  });
+    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
 
-  test("skips index when addToIndex=false", () => {
-    createManagedSkill({
-      id: "no-index",
-      name: "No Index",
-      description: "Not indexed",
-      bodyMarkdown: "Body.",
-      addToIndex: false,
-    });
-
-    const indexPath = join(TEST_DIR, "skills", "SKILLS.md");
-    if (existsSync(indexPath)) {
-      const content = readFileSync(indexPath, "utf-8");
-      expect(content).not.toContain("no-index");
-    }
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    const skill = catalog.find((s) => s.id === "discovered-skill");
+    expect(skill).toBeDefined();
+    expect(skill!.name).toBe("Discovered");
   });
 });
 
@@ -564,6 +455,9 @@ describe("deleteManagedSkill", () => {
     const result = deleteManagedSkill("to-delete");
     expect(result.deleted).toBe(true);
     expect(existsSync(join(TEST_DIR, "skills", "to-delete"))).toBe(false);
+
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    expect(catalog.find((s) => s.id === "to-delete")).toBeUndefined();
   });
 
   test("returns error for non-existent skill", () => {
@@ -578,75 +472,60 @@ describe("deleteManagedSkill", () => {
     expect(result.error).toContain("traversal");
   });
 
-  test("skips index removal when removeFromIndex=false", () => {
+  test("delete leaves a stale SKILLS.md index unchanged", () => {
     createManagedSkill({
       id: "keep-index",
       name: "Keep Index",
       description: "Index stays",
       bodyMarkdown: "Body.",
     });
+    writeFileSync(
+      join(TEST_DIR, "skills", "SKILLS.md"),
+      "- keep-index\n- survivor\n",
+    );
 
-    const result = deleteManagedSkill("keep-index", false);
+    const result = deleteManagedSkill("keep-index");
     expect(result.deleted).toBe(true);
-    expect(result.indexUpdated).toBe(false);
 
     const indexContent = readFileSync(
       join(TEST_DIR, "skills", "SKILLS.md"),
       "utf-8",
     );
     expect(indexContent).toContain("- keep-index");
+    expect(indexContent).toContain("- survivor");
+
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    expect(catalog.find((s) => s.id === "keep-index")).toBeUndefined();
   });
 
-  test("succeeds even when index cleanup throws", () => {
+  test("delete does not create or edit SKILLS.md", () => {
     createManagedSkill({
-      id: "index-fail",
-      name: "Index Fail",
-      description: "Index removal will throw",
+      id: "delete-no-index",
+      name: "Delete No Index",
+      description: "No index write",
       bodyMarkdown: "Body.",
     });
 
-    // Intercept the atomic write (.tmp- file) used by removeSkillsIndexEntry
     const skillsDir = join(TEST_DIR, "skills");
-    const originalWrite = fs.writeFileSync;
-    const spy = spyOn(fs, "writeFileSync").mockImplementation(((
-      path: fs.PathOrFileDescriptor,
-      data: string | NodeJS.ArrayBufferView,
-      options?: fs.WriteFileOptions,
-    ) => {
-      if (
-        typeof path === "string" &&
-        path.startsWith(skillsDir) &&
-        path.includes(".tmp-")
-      ) {
-        throw new Error("Simulated write failure");
-      }
-      return originalWrite(path, data, options);
-    }) as typeof fs.writeFileSync);
-
-    try {
-      const result = deleteManagedSkill("index-fail");
-      expect(result.deleted).toBe(true);
-      expect(result.indexUpdated).toBe(false);
-      expect(existsSync(join(skillsDir, "index-fail"))).toBe(false);
-    } finally {
-      spy.mockRestore();
-    }
+    const result = deleteManagedSkill("delete-no-index");
+    expect(result.deleted).toBe(true);
+    expect(existsSync(join(skillsDir, "delete-no-index"))).toBe(false);
+    expect(existsSync(join(skillsDir, "SKILLS.md"))).toBe(false);
   });
 });
 
 describe("version metadata", () => {
-  test("readSkillVersion returns null for non-existent skill", () => {
-    expect(readSkillVersion("nonexistent")).toBeNull();
-  });
-
-  test("readSkillVersion returns null when skill exists but has no version.json", () => {
+  test("createManagedSkill writes install-meta.json without version when version is omitted", () => {
     createManagedSkill({
       id: "no-version",
       name: "No Version",
       description: "Created without version",
       bodyMarkdown: "Body.",
     });
-    expect(readSkillVersion("no-version")).toBeNull();
+
+    const meta = readInstallMetaFile("no-version");
+    expect(meta.origin).toBe("custom");
+    expect(meta.version).toBeUndefined();
   });
 
   test("createManagedSkill writes install-meta.json when version is provided", () => {
@@ -658,8 +537,8 @@ describe("version metadata", () => {
       version: "v1:abc123",
     });
 
-    const version = readSkillVersion("versioned");
-    expect(version).toBe("v1:abc123");
+    const meta = readInstallMetaFile("versioned");
+    expect(meta.version).toBe("v1:abc123");
   });
 
   test("install-meta.json contains valid JSON with origin, version, and installedAt", () => {
@@ -678,10 +557,13 @@ describe("version metadata", () => {
       "install-meta.json",
     );
     expect(existsSync(metaPath)).toBe(true);
-    const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
+    const meta = readInstallMetaFile("version-meta");
     expect(meta.origin).toBe("custom");
     expect(meta.version).toBe("v1:deadbeef");
     expect(typeof meta.installedAt).toBe("string");
+    if (typeof meta.installedAt !== "string") {
+      throw new Error("installedAt must be a string");
+    }
     // installedAt should be a valid ISO date
     expect(new Date(meta.installedAt).toISOString()).toBe(meta.installedAt);
   });
@@ -702,7 +584,7 @@ describe("version metadata", () => {
       "install-meta.json",
     );
     expect(existsSync(metaPath)).toBe(true);
-    const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
+    const meta = readInstallMetaFile("with-contact");
     expect(meta.origin).toBe("custom");
     expect(meta.installedBy).toBe("contact-uuid-456");
   });
@@ -715,7 +597,8 @@ describe("version metadata", () => {
       bodyMarkdown: "Body.",
       version: "v1:first",
     });
-    expect(readSkillVersion("update-version")).toBe("v1:first");
+
+    expect(readInstallMetaFile("update-version").version).toBe("v1:first");
 
     createManagedSkill({
       id: "update-version",
@@ -725,28 +608,37 @@ describe("version metadata", () => {
       version: "v1:second",
       overwrite: true,
     });
-    expect(readSkillVersion("update-version")).toBe("v1:second");
+    expect(readInstallMetaFile("update-version").version).toBe("v1:second");
   });
 
-  test("readSkillVersion returns null for corrupted install-meta.json", () => {
+  test("overwrite removes legacy version.json", () => {
     createManagedSkill({
-      id: "corrupt-version",
-      name: "Corrupt",
-      description: "Will corrupt meta file",
+      id: "legacy-version",
+      name: "Legacy",
+      description: "Has legacy metadata",
       bodyMarkdown: "Body.",
-      version: "v1:valid",
+      version: "v1:first",
     });
 
-    // Corrupt the install-meta.json
-    const metaPath = join(
+    const legacyMetaPath = join(
       TEST_DIR,
       "skills",
-      "corrupt-version",
-      "install-meta.json",
+      "legacy-version",
+      "version.json",
     );
-    writeFileSync(metaPath, "{invalid json!!!", "utf-8");
+    writeFileSync(legacyMetaPath, '{"version":"legacy"}', "utf-8");
+    expect(existsSync(legacyMetaPath)).toBe(true);
 
-    expect(readSkillVersion("corrupt-version")).toBeNull();
+    createManagedSkill({
+      id: "legacy-version",
+      name: "Legacy Updated",
+      description: "Has current metadata",
+      bodyMarkdown: "Body.",
+      version: "v1:second",
+      overwrite: true,
+    });
+
+    expect(existsSync(legacyMetaPath)).toBe(false);
   });
 });
 

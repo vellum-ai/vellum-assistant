@@ -1,4 +1,3 @@
-import { execSync } from "node:child_process";
 import {
   existsSync,
   lstatSync,
@@ -8,7 +7,6 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { basename, join, relative, sep } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
@@ -19,12 +17,9 @@ import {
   saveRawConfig,
 } from "../../config/loader.js";
 import { resolveSkillStates, skillFlagKey } from "../../config/skill-state.js";
-import { loadSkillCatalog, type SkillSummary } from "../../config/skills.js";
-import {
-  deleteSkillCapabilityNode,
-  seedSkillGraphNodes,
-  seedUninstalledCatalogSkillMemories,
-} from "../../memory/graph/capability-seed.js";
+import type { SkillSummary } from "../../config/skills.js";
+import { loadSkillCatalog } from "../../config/skills.js";
+import { deleteSkillCapabilityNode } from "../../memory/graph/capability-seed.js";
 import {
   createTimeout,
   extractText,
@@ -37,57 +32,56 @@ import {
   MAX_INLINE_TEXT_SIZE,
 } from "../../runtime/routes/workspace-utils.js";
 import { getCatalog } from "../../skills/catalog-cache.js";
+import type { SkillFileEntry } from "../../skills/catalog-files.js";
 import {
   catalogSkillToSlim,
   createVellumCatalogProvider,
   hasHiddenOrSkippedSegment,
   sanitizeRelativePath,
-  type SkillFileEntry,
   SKIP_DIRS,
 } from "../../skills/catalog-files.js";
+import type { CatalogSkill } from "../../skills/catalog-install.js";
 import {
-  type CatalogSkill,
+  commitStagedSkillInstall,
+  createSkillInstallStagingDir,
+  installSkillDependenciesIfPresent,
   installSkillLocally,
-  upsertSkillsIndex,
 } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
 import { inferCategory } from "../../skills/category-inference.js";
+import type { ClawhubInspectResult } from "../../skills/clawhub.js";
 import {
   clawhubCheckUpdates,
   clawhubInspect,
-  type ClawhubInspectResult,
   clawhubInstall,
   clawhubSearch,
   clawhubUpdate,
 } from "../../skills/clawhub.js";
 import { createClawhubProvider } from "../../skills/clawhub-files.js";
-import {
-  readInstallMeta,
-  type SkillInstallMeta,
-} from "../../skills/install-meta.js";
+import type { SkillInstallMeta } from "../../skills/install-meta.js";
+import { readInstallMeta } from "../../skills/install-meta.js";
 import {
   createManagedSkill,
   deleteManagedSkill,
-  removeSkillsIndexEntry,
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
 import type { SkillFileProvider } from "../../skills/skill-file-provider.js";
 import { createSkillsShProvider } from "../../skills/skillssh-files.js";
+import type { SkillAuditData } from "../../skills/skillssh-registry.js";
 import {
   fetchSkillAudits,
   installExternalSkill,
   resolveSkillSource,
   searchSkillsRegistry,
-  type SkillAuditData,
 } from "../../skills/skillssh-registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import { getConfigWatcher } from "../config-watcher.js";
-import { maybeSeedMemoryV2Skills } from "../memory-v2-startup.js";
 import type {
   SkillDetailResponse,
   SkillFileContentResponse,
   SlimSkillResponse,
 } from "../message-types/skills.js";
+import { refreshSkillCapabilityMemories } from "../skill-memory-refresh.js";
 import { CONFIG_RELOAD_DEBOUNCE_MS, ensureSkillEntry, log } from "./shared.js";
 
 // ─── Provider chain for uninstalled skill file preview ───────────────────────
@@ -262,19 +256,17 @@ function saveConfigWithSuppression(raw: Record<string, unknown>): void {
  * in the daemon. Handles catalog reload, auto-enable, broadcast, and memory
  * seeding.
  *
- * SKILLS.md indexing and dependency installation are handled separately:
- * `installSkillLocally` and `installExternalSkill` handle them internally
- * (so both CLI and daemon callers get correct behavior), while the clawhub
- * path handles them inline in `installSkill()` since `clawhubInstall` only
- * runs the clawhub CLI and writes metadata.
+ * Dependency installation is handled by the install path: catalog and
+ * skills.sh installs handle it internally, while the clawhub path stages the
+ * CLI output, installs dependencies, and commits the staged directory before
+ * this runs.
+ *
+ * Discoverability verification is handled by the install path before this runs.
  *
  * NOT used for bundled skills — those have a simpler inline path in
  * `installSkill()` that only auto-enables, broadcasts, and seeds memories.
  */
-function postInstallSkill(skillId: string, _skillDir: string): void {
-  // Reload skill catalog so the newly installed skill is picked up
-  loadSkillCatalog();
-
+function postInstallSkill(skillId: string): void {
   // Auto-enable the skill in config
   try {
     const raw = loadRawConfig();
@@ -290,9 +282,7 @@ function postInstallSkill(skillId: string, _skillDir: string): void {
   }
 
   // Seed skill memories
-  seedSkillGraphNodes();
-  maybeSeedMemoryV2Skills(getConfig());
-  void seedUninstalledCatalogSkillMemories().catch(() => {});
+  refreshSkillCapabilityMemories(getConfig());
 }
 
 // ─── Kind / origin / status derivation ───────────────────────────────────────
@@ -635,7 +625,9 @@ export async function getSkill(
         (detail as { owner?: typeof data.owner }).owner = data.owner;
         (detail as { stats?: typeof data.stats }).stats = data.stats;
         (
-          detail as { latestVersion?: typeof data.latestVersion }
+          detail as {
+            latestVersion?: typeof data.latestVersion;
+          }
         ).latestVersion = data.latestVersion;
         (detail as { createdAt?: typeof data.createdAt }).createdAt =
           data.createdAt;
@@ -691,32 +683,44 @@ export async function getSkill(
   return { skill: detail };
 }
 
-export function getSkillLocalDetail(
-  skillId: string,
-): {
-  ok: true;
-  id: string;
-  name: string;
-  description: string;
-  emoji: string | null;
-  source: string;
-  state: string;
-  directoryPath: string;
-  featureFlag: string | null;
-  includes: string[] | null;
-  activationHints: string[] | null;
-  avoidWhen: string[] | null;
-  toolManifest: { valid: boolean; toolCount: number; toolNames: string[] } | null;
-  installMeta: Record<string, unknown> | null;
-  config: { enabled: boolean; envKeys: string[]; configKeys: string[] } | null;
-} | { ok: false; error: string; status: 404 | 500 } {
+export function getSkillLocalDetail(skillId: string):
+  | {
+      ok: true;
+      id: string;
+      name: string;
+      description: string;
+      emoji: string | null;
+      source: string;
+      state: string;
+      directoryPath: string;
+      featureFlag: string | null;
+      includes: string[] | null;
+      activationHints: string[] | null;
+      avoidWhen: string[] | null;
+      toolManifest: {
+        valid: boolean;
+        toolCount: number;
+        toolNames: string[];
+      } | null;
+      installMeta: Record<string, unknown> | null;
+      config: {
+        enabled: boolean;
+        envKeys: string[];
+        configKeys: string[];
+      } | null;
+    }
+  | { ok: false; error: string; status: 404 | 500 } {
   try {
     const catalog = loadSkillCatalog();
     const config = getConfig();
     const resolved = resolveSkillStates(catalog, config);
     const match = resolved.find((r) => r.summary.id === skillId);
     if (!match) {
-      return { ok: false, error: `Skill "${skillId}" not found. Run 'assistant skills list' to see available skills.`, status: 404 };
+      return {
+        ok: false,
+        error: `Skill "${skillId}" not found. Run 'assistant skills list' to see available skills.`,
+        status: 404,
+      };
     }
     const { summary, state, configEntry } = match;
     const installMeta = readInstallMeta(summary.directoryPath);
@@ -734,19 +738,31 @@ export function getSkillLocalDetail(
       activationHints: summary.activationHints ?? null,
       avoidWhen: summary.avoidWhen ?? null,
       toolManifest: summary.toolManifest
-        ? { valid: summary.toolManifest.valid, toolCount: summary.toolManifest.toolCount, toolNames: summary.toolManifest.toolNames }
+        ? {
+            valid: summary.toolManifest.valid,
+            toolCount: summary.toolManifest.toolCount,
+            toolNames: summary.toolManifest.toolNames,
+          }
         : null,
-      installMeta: installMeta ? (installMeta as unknown as Record<string, unknown>) : null,
+      installMeta: installMeta
+        ? (installMeta as unknown as Record<string, unknown>)
+        : null,
       config: configEntry
         ? {
             enabled: configEntry.enabled !== false,
             envKeys: configEntry.env ? Object.keys(configEntry.env) : [],
-            configKeys: configEntry.config ? Object.keys(configEntry.config) : [],
+            configKeys: configEntry.config
+              ? Object.keys(configEntry.config)
+              : [],
           }
         : null,
     };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err), status: 500 };
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      status: 500,
+    };
   }
 }
 
@@ -1007,9 +1023,7 @@ export function enableSkill(
       name: skillId,
       state: "enabled",
     });
-    seedSkillGraphNodes();
-    maybeSeedMemoryV2Skills(getConfig());
-    void seedUninstalledCatalogSkillMemories().catch(() => {});
+    refreshSkillCapabilityMemories(getConfig());
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1030,9 +1044,7 @@ export function disableSkill(
       name: skillId,
       state: "disabled",
     });
-    seedSkillGraphNodes();
-    maybeSeedMemoryV2Skills(getConfig());
-    void seedUninstalledCatalogSkillMemories().catch(() => {});
+    refreshSkillCapabilityMemories(getConfig());
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1105,10 +1117,9 @@ export async function installSkill(spec: {
     if (bundled) {
       // Intentional divergence from postInstallSkill(): bundled skills are
       // shipped with the assistant binary and are already on disk. They skip
-      // SKILLS.md indexing (they're discovered via the bundled catalog, not
-      // the workspace index), dependency installation (deps are pre-bundled),
-      // and catalog reload (the catalog already includes them). Only
-      // auto-enable, broadcast, and seed memories are needed.
+      // dependency installation (deps are pre-bundled) and catalog reload (the
+      // catalog already includes them). Only auto-enable, broadcast, and seed
+      // memories are needed.
       try {
         const raw = loadRawConfig();
         ensureSkillEntry(raw, spec.slug).enabled = true;
@@ -1124,9 +1135,7 @@ export async function installSkill(spec: {
           "Failed to auto-enable bundled skill",
         );
       }
-      seedSkillGraphNodes();
-      maybeSeedMemoryV2Skills(config);
-      void seedUninstalledCatalogSkillMemories().catch(() => {});
+      refreshSkillCapabilityMemories(config);
       return { success: true, skillId: spec.slug };
     }
 
@@ -1150,13 +1159,15 @@ export async function installSkill(spec: {
             spec.contactId,
           );
 
-          const skillDir = join(getWorkspaceSkillsDir(), spec.slug);
-          postInstallSkill(spec.slug, skillDir);
+          postInstallSkill(spec.slug);
           return { success: true, skillId: spec.slug };
         }
       } catch (err) {
         if (spec.catalogOnly) {
-          return { success: false, error: `Failed to install catalog skill "${spec.slug}"` };
+          return {
+            success: false,
+            error: `Failed to install catalog skill "${spec.slug}"`,
+          };
         }
         log.warn(
           { err, skillId: spec.slug },
@@ -1165,7 +1176,10 @@ export async function installSkill(spec: {
       }
 
     if (spec.catalogOnly) {
-      return { success: false, error: `Skill "${spec.slug}" not found in the Vellum catalog` };
+      return {
+        success: false,
+        error: `Skill "${spec.slug}" not found in the Vellum catalog`,
+      };
     }
 
     // skills.sh install path: route here when origin is explicitly "skillssh"
@@ -1187,36 +1201,32 @@ export async function installSkill(spec: {
         spec.contactId,
       );
 
-      const skillDir = join(getWorkspaceSkillsDir(), resolved.skillSlug);
-      postInstallSkill(resolved.skillSlug, skillDir);
+      postInstallSkill(resolved.skillSlug);
       return { success: true, skillId: resolved.skillSlug };
     }
 
     // Install from clawhub (community)
-    const result = await clawhubInstall(spec.slug, {
-      version: spec.version,
-      contactId: spec.contactId,
-    });
-    if (!result.success) {
-      return { success: false, error: result.error ?? "Unknown error" };
-    }
-    const rawId = result.skillName ?? spec.slug;
-    const skillId = rawId.includes("/") ? rawId.split("/").pop()! : rawId;
-
-    // clawhubInstall uses the clawhub CLI which doesn't handle bun install
-    // or SKILLS.md indexing, so we do those here before post-install.
-    const skillDir = join(getWorkspaceSkillsDir(), skillId);
-    if (existsSync(join(skillDir, "package.json"))) {
-      const bunPath = `${homedir()}/.bun/bin`;
-      execSync("bun install", {
-        cwd: skillDir,
-        stdio: "inherit",
-        env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+    let skillId = spec.slug;
+    const clawhubProjectRoot = createSkillInstallStagingDir();
+    try {
+      const result = await clawhubInstall(spec.slug, {
+        version: spec.version,
+        contactId: spec.contactId,
+        projectRoot: clawhubProjectRoot,
       });
-    }
-    upsertSkillsIndex(skillId);
+      if (!result.success) {
+        return { success: false, error: result.error ?? "Unknown error" };
+      }
+      skillId = result.skillId;
 
-    postInstallSkill(skillId, skillDir);
+      const stagedSkillDir = result.skillDir;
+      installSkillDependenciesIfPresent(stagedSkillDir);
+      commitStagedSkillInstall(skillId, stagedSkillDir);
+    } finally {
+      rmSync(clawhubProjectRoot, { recursive: true, force: true });
+    }
+
+    postInstallSkill(skillId);
     return { success: true, skillId };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1258,11 +1268,6 @@ export async function uninstallSkill(
         return { success: false, error: "Skill not found" };
       }
       rmSync(skillDir, { recursive: true });
-      try {
-        removeSkillsIndexEntry(skillId);
-      } catch {
-        /* best effort */
-      }
       // Best-effort cleanup of capability memory for uninstalled skill
       // (managed path handles this internally via deleteManagedSkill)
       deleteSkillCapabilityNode(skillId);
@@ -1283,9 +1288,7 @@ export async function uninstallSkill(
       state: "uninstalled",
     });
 
-    // Without this, an uninstalled skill remains queryable in v2 until the
-    // next incidental seed event (enable/disable/install).
-    maybeSeedMemoryV2Skills(getConfig());
+    refreshSkillCapabilityMemories(getConfig());
 
     return { success: true };
   } catch (err) {
@@ -1546,7 +1549,9 @@ export async function draftSkill(params: {
           try {
             const prompt = [
               "Given the following skill body text, generate metadata for a managed skill.",
-              `Return ONLY valid JSON with these fields: ${missing.join(", ")}.`,
+              `Return ONLY valid JSON with these fields: ${missing.join(
+                ", ",
+              )}.`,
               "Field descriptions:",
               "- skillId: a short kebab-case identifier (lowercase, alphanumeric + hyphens/dots/underscores, max 50 chars, must start with a letter or digit)",
               "- name: a human-readable name (max 100 chars)",
@@ -1709,9 +1714,7 @@ export async function createSkill(
       );
     }
 
-    seedSkillGraphNodes();
-    maybeSeedMemoryV2Skills(getConfig());
-    void seedUninstalledCatalogSkillMemories().catch(() => {});
+    refreshSkillCapabilityMemories(getConfig());
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

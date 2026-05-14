@@ -55,12 +55,15 @@ for arg in "$@"; do
   esac
 done
 
-# Scope: performance-sensitive chat + main window feature directories.
-# Conservative by design; expand in a follow-up if this proves valuable.
+# Scope: performance-sensitive feature directories + shared layout/modifier
+# code that wraps feature views (Layout components and Modifiers can sit in
+# the ancestor chain above LazyVStack cells and cause alignment cascades).
 SCAN_DIRS=(
   "clients/macos/vellum-assistant/Features/Chat/"
   "clients/macos/vellum-assistant/Features/Home/"
   "clients/macos/vellum-assistant/Features/MainWindow/"
+  "clients/shared/DesignSystem/Components/Layout/"
+  "clients/shared/DesignSystem/Modifiers/"
 )
 
 # Matches .frame(maxWidth: ...) / .frame(maxHeight: ...) / .frame(minWidth: ...)

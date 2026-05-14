@@ -20,14 +20,18 @@ public struct VSplitView<Main: View, Panel: View>: View {
 
     public var body: some View {
         HStack(spacing: 0) {
-            // Main content - styled as panel
+            // Main content - styled as panel.
+            // Avoid .frame(maxWidth/maxHeight: .infinity) — it creates
+            // _FlexFrameLayout which queries explicitAlignment on every
+            // descendant, causing multi-second hangs when the chat has
+            // many children. The HStack naturally gives remaining space
+            // to this child since the panel has a fixed width.
             main
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(mainBackground ?? VColor.surfaceBase)
                 .clipShape(RoundedRectangle(cornerRadius: mainCornerRadius ?? VRadius.lg))
                 .padding([.bottom, .leading], VSpacing.xs)
                 .padding(.trailing, showPanel ? 0 : VSpacing.xs)
-                .animation(nil, value: showPanel)  // Don't animate main pane resize
+                .animation(nil, value: showPanel)
 
             // Panel slides in from right, pushing content
             if showPanel, let panel = panel {
@@ -35,8 +39,8 @@ public struct VSplitView<Main: View, Panel: View>: View {
                 dragDivider(availableWidth: availableWidth)
 
                 panel
-                    .frame(width: panelWidth, alignment: .topLeading)
-                    .animation(nil, value: panelWidth)  // Disable animation on width changes
+                    .fixedWidth(panelWidth)
+                    .animation(nil, value: panelWidth)
                     .background(VColor.surfaceBase)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                     .padding([.bottom, .trailing], VSpacing.xs)

@@ -723,19 +723,14 @@ async function stripPromotionMarkerBlocks(workspaceDir: string): Promise<void> {
 }
 
 /**
- * Remove the migration-inserted block from `path` while preserving anything
- * the user or assistant appended after it. The block is identified by the
- * `[PROMOTION_MARKER_OPEN ... PROMOTION_MARKER_CLOSE]` envelope; everything
- * outside that envelope is left intact.
+ * Remove the migration-inserted block from `path` while preserving content
+ * outside it. The block is identified by the
+ * `PROMOTION_MARKER_OPEN ... PROMOTION_MARKER_CLOSE` envelope.
  *
- * Backwards-compat: a few PR-30044 force-reruns landed before the closing
- * sentinel existed, so files in the wild may contain an opening marker with
- * no matching close. In that case strip up to the next blank line (the
- * conventional separator between the migration block and user-appended
- * content) — or, failing that, to EOF, matching the previous behavior. The
- * blank-line fallback is the only case where pre-existing user content can
- * still be dropped, and only when the user appended without a blank-line
- * separator against the prior format.
+ * If an opening marker is present without a matching close, strip from the
+ * opening marker to the next blank line, or to EOF if none is found. Content
+ * appended after such an unclosed block without a blank-line separator can
+ * be dropped on that fallback path.
  */
 async function stripMarkerBlock(path: string): Promise<void> {
   let existing: string;

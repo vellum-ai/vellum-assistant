@@ -18,6 +18,10 @@ export interface WorkspaceMigration {
    *  it). Must be idempotent — safe to re-run if it was interrupted.
    *  Both synchronous and asynchronous migrations are supported. */
   run(workspaceDir: string, ctx?: MigrationRunContext): void | Promise<void>;
+  /** Retry a prior failed checkpoint on the next run.
+   *  Only set this for migrations whose run() is safe to retry after a
+   *  partially successful failed attempt. */
+  retryFailedCheckpoint?: boolean;
   /** Reverse the migration. Receives the workspace directory path.
    *  Must be idempotent — safe to re-run if it was interrupted.
    *  Both synchronous and asynchronous rollbacks are supported. */

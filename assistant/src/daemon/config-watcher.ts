@@ -4,6 +4,7 @@
  * for changes.
  */
 import {
+  type Dirent,
   existsSync,
   type FSWatcher,
   mkdirSync,
@@ -12,7 +13,7 @@ import {
   watch,
   watchFile,
 } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import type { MemoryCleanupConfig } from "../config/schemas/memory-lifecycle.js";
@@ -36,6 +37,25 @@ import {
 import { reloadMcpServers } from "./mcp-reload-service.js";
 
 const log = getLogger("config-watcher");
+
+const SKILL_WATCH_SKIPPED_DIRS = new Set([
+  "node_modules",
+  ".git",
+  "__pycache__",
+  ".install-staging",
+  ".cache",
+  ".next",
+  ".turbo",
+  ".venv",
+  "coverage",
+]);
+
+function isSkippedSkillWatchPath(relativePath: string): boolean {
+  if (relativePath === "(unknown)") return false;
+
+  const segments = relativePath.split(/[\\/]+/).filter(Boolean);
+  return segments.some((segment) => SKILL_WATCH_SKIPPED_DIRS.has(segment));
+}
 
 /**
  * Attach a resilient error handler to an FSWatcher so that async errors
@@ -158,6 +178,8 @@ export class ConfigWatcher {
    * Start all file watchers. `onConversationEvict` is called when watched
    * files change and conversations need to be evicted for reload.
    * `onIdentityChanged` is called when IDENTITY.md changes on disk.
+   * `onSkillsChanged` is called after skill directory changes evict
+   * conversations.
    */
   start(
     onConversationEvict: () => void,
@@ -165,6 +187,7 @@ export class ConfigWatcher {
     onSoundsConfigChanged?: () => void,
     onAvatarChanged?: () => void,
     onConfigChanged?: () => void,
+    onSkillsChanged?: () => void,
   ): void {
     // Reset the stopped flag so a stop()→start() cycle on the same
     // instance resumes hot-reload instead of silently bailing in every
@@ -220,7 +243,7 @@ export class ConfigWatcher {
 
     this.startSignalsWatcher();
     this.startUsersWatcher(onConversationEvict);
-    this.startSkillsWatchers(onConversationEvict);
+    this.startSkillsWatchers(onConversationEvict, onSkillsChanged);
   }
 
   stop(): void {
@@ -420,14 +443,20 @@ export class ConfigWatcher {
     }
   }
 
-  private startSkillsWatchers(onConversationEvict: () => void): void {
+  private startSkillsWatchers(
+    onConversationEvict: () => void,
+    onSkillsChanged?: () => void,
+  ): void {
     const skillsDir = getWorkspaceSkillsDir();
     if (!existsSync(skillsDir)) return;
 
     const scheduleSkillsReload = (file: string): void => {
-      this.debounceTimers.schedule(`skills:${file}`, () => {
+      if (isSkippedSkillWatchPath(file)) return;
+
+      this.debounceTimers.schedule("skills:catalog", () => {
         log.info({ file }, "Skill file changed, reloading");
         onConversationEvict();
+        onSkillsChanged?.();
       });
     };
 
@@ -476,43 +505,79 @@ export class ConfigWatcher {
       }
     };
 
+    const formatSkillChangeLabel = (
+      dirPath: string,
+      filename: string,
+    ): string => {
+      if (filename === "(unknown)") {
+        const relativeDir = relative(skillsDir, dirPath);
+        return relativeDir || "(unknown)";
+      }
+      const relativeFile = relative(skillsDir, join(dirPath, filename));
+      return relativeFile || filename;
+    };
+
+    const enumerateSkillSubdirectories = (
+      dirPath: string,
+      acc: Set<string>,
+    ): boolean => {
+      let entries: Dirent[];
+      try {
+        entries = readdirSync(dirPath, { withFileTypes: true });
+      } catch (err) {
+        log.warn({ err, dirPath }, "Failed to enumerate skill directories");
+        return dirPath !== skillsDir;
+      }
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (SKILL_WATCH_SKIPPED_DIRS.has(entry.name)) continue;
+        const childDir = join(dirPath, entry.name);
+        acc.add(childDir);
+        enumerateSkillSubdirectories(childDir, acc);
+      }
+      return true;
+    };
+
+    const closeChildWatcher = (dirPath: string, watcher: FSWatcher): void => {
+      watcher.close();
+      childWatchers.delete(dirPath);
+      removeWatcher(watcher);
+    };
+
     const refreshChildWatchers = (): void => {
       const nextChildDirs = new Set<string>();
-
-      try {
-        const entries = readdirSync(skillsDir, { withFileTypes: true });
-        for (const entry of entries) {
-          if (!entry.isDirectory()) continue;
-          const childDir = join(skillsDir, entry.name);
-          nextChildDirs.add(childDir);
-
-          if (childWatchers.has(childDir)) continue;
-
-          const watcher = watchDir(childDir, (filename) => {
-            const label =
-              filename === "(unknown)"
-                ? entry.name
-                : `${entry.name}/${filename}`;
-            scheduleSkillsReload(label);
-          });
-          if (watcher) {
-            childWatchers.set(childDir, watcher);
-          }
+      if (!enumerateSkillSubdirectories(skillsDir, nextChildDirs)) {
+        for (const [childDir, watcher] of childWatchers.entries()) {
+          closeChildWatcher(childDir, watcher);
         }
-      } catch (err) {
-        log.warn({ err, skillsDir }, "Failed to enumerate skill directories");
         return;
       }
 
       for (const [childDir, watcher] of childWatchers.entries()) {
         if (nextChildDirs.has(childDir)) continue;
-        watcher.close();
-        childWatchers.delete(childDir);
-        removeWatcher(watcher);
+        closeChildWatcher(childDir, watcher);
+      }
+
+      for (const childDir of nextChildDirs) {
+        if (childWatchers.has(childDir)) continue;
+
+        const watcher = watchDir(childDir, (filename) => {
+          const file = formatSkillChangeLabel(childDir, filename);
+          if (isSkippedSkillWatchPath(file)) return;
+
+          scheduleSkillsReload(file);
+          refreshChildWatchers();
+        });
+        if (watcher) {
+          childWatchers.set(childDir, watcher);
+        }
       }
     };
 
     const rootWatcher = watchDir(skillsDir, (filename) => {
+      if (isSkippedSkillWatchPath(filename)) return;
+
       scheduleSkillsReload(filename);
       refreshChildWatchers();
     });

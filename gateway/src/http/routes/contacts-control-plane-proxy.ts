@@ -421,6 +421,11 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
      * to the assistant DB so the daemon stays in sync during the
      * gateway-security-migration transition period.
      *
+     * Migration-window backfill: when the gateway DB has never seen the
+     * channel but the assistant DB has it, the channel (and its parent
+     * contact) is mirrored into the gateway before the verify write so the
+     * user-visible channel id from the assistant UI doesn't 404 here.
+     *
      * Idempotent: a row that's already active+verifiedVia=manual returns
      * the same shape (200 with channel) but no second write occurs.
      */

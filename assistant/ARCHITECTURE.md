@@ -1227,9 +1227,8 @@ graph TB
 
     subgraph "2. Persist (Filesystem)"
         SCAFFOLD["scaffold_managed_skill<br/>───────────────<br/>RiskLevel: High<br/>Requires user consent"]
-        MANAGED_STORE["managed-store.ts<br/>───────────────<br/>validateManagedSkillId()<br/>buildSkillMarkdown()<br/>createManagedSkill()<br/>upsertSkillsIndexEntry()"]
+        MANAGED_STORE["managed-store.ts<br/>───────────────<br/>validateManagedSkillId()<br/>buildSkillMarkdown()<br/>createManagedSkill()"]
         SKILL_DIR["~/.vellum/workspace/skills/&lt;id&gt;/<br/>SKILL.md (frontmatter + body)"]
-        INDEX["~/.vellum/workspace/skills/<br/>SKILLS.md (index)"]
     end
 
     subgraph "3. Load & Use"
@@ -1240,7 +1239,6 @@ graph TB
     subgraph "4. Delete"
         DELETE["delete_managed_skill<br/>───────────────<br/>RiskLevel: High<br/>Requires user consent"]
         RM_DIR["rmSync skill directory"]
-        RM_INDEX["removeSkillsIndexEntry()"]
     end
 
     subgraph "File Watcher"
@@ -1257,17 +1255,14 @@ graph TB
 
     SCAFFOLD --> MANAGED_STORE
     MANAGED_STORE --> SKILL_DIR
-    MANAGED_STORE --> INDEX
 
     SKILL_DIR --> WATCHER
-    INDEX --> WATCHER
     WATCHER --> EVICT
 
     SKILL_DIR --> SKILL_LOAD
     SKILL_LOAD --> SESSION
 
     DELETE --> RM_DIR
-    DELETE --> RM_INDEX
     RM_DIR --> WATCHER
 ```
 
@@ -1275,7 +1270,7 @@ graph TB
 
 - `evaluate_typescript_code` always forces `sandbox.enabled = true` regardless of global config.
 - Snippet contract: must export `default` or `run` with signature `(input: unknown) => unknown | Promise<unknown>`.
-- Managed-store writes are atomic (tmp file + rename) to prevent partial `SKILL.md` or `SKILLS.md` files.
+- Managed-store writes are atomic (tmp file + rename) to prevent partial `SKILL.md` files.
 - After persist or delete, the file watcher triggers conversation eviction; the next turn runs in a fresh conversation. The model's system prompt instructs it to continue normally.
 - macOS UI shows Inspect and Delete controls for managed skills only (source = "managed").
 - `skill_load` resolves the recursive include graph (via `include-graph.ts`) before emitting output. Missing children are listed as suggested skills without child `<loaded_skill>` markers; cycles still produce `isError: true` with no marker. Valid includes produce an "Included Skills (immediate)" metadata section showing child ID, name, description, and path.

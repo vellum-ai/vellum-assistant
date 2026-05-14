@@ -1,10 +1,13 @@
-import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
 import { getWorkspaceSkillsDir } from "../util/platform.js";
-import { upsertSkillsIndex } from "./catalog-install.js";
+import {
+  commitStagedSkillInstall,
+  createSkillInstallStagingDir,
+  installSkillDependenciesIfPresent,
+  writeSkillFilesToDir,
+} from "./catalog-install.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
 import type {
   AuditResponse,
@@ -421,10 +424,10 @@ export function validateSkillSlug(slug: string): void {
  *
  * 1. Validates the skill slug for path safety
  * 2. Fetches all files from `skills/<skillSlug>/` in the source repo
- * 3. Writes them to `<workspace>/skills/<skillSlug>/` with path traversal protection
+ * 3. Writes them to a non-discovered staging dir with path traversal protection
  * 4. Writes `install-meta.json` with origin metadata
  * 5. Installs npm dependencies (if package.json exists)
- * 6. Updates SKILLS.md index
+ * 6. Atomically swaps the staged skill into `<workspace>/skills/<skillSlug>/`
  *
  * Auto-enable and memory seeding are handled by the caller (e.g.
  * `postInstallSkill()` in the daemon, or left to the user for CLI installs).
@@ -451,47 +454,23 @@ export async function installExternalSkill(
 
   const files = await fetchSkillFromGitHub(owner, repo, skillSlug, ref);
 
-  // Clear existing directory on overwrite to remove stale files
-  if (overwrite && existsSync(skillDir)) {
-    rmSync(skillDir, { recursive: true, force: true });
-  }
-  mkdirSync(skillDir, { recursive: true });
+  const stagedDir = createSkillInstallStagingDir();
+  try {
+    writeSkillFilesToDir(files, stagedDir);
 
-  // Write files with path traversal protection (follows extractTarToDir pattern)
-  for (const [filename, content] of Object.entries(files)) {
-    const normalized = filename.replace(/\\/g, "/").replace(/^\.\/+/g, "");
-    if (!normalized || normalized.includes("..") || normalized.startsWith("/"))
-      continue;
-    const destPath = resolve(skillDir, normalized);
-    if (
-      !destPath.startsWith(resolve(skillDir) + sep) &&
-      destPath !== resolve(skillDir)
-    )
-      continue;
-    mkdirSync(dirname(destPath), { recursive: true });
-    writeFileSync(destPath, content, "utf-8");
-  }
-
-  // Write install metadata
-  writeInstallMeta(skillDir, {
-    origin: "skillssh",
-    slug: skillSlug,
-    sourceRepo: `${owner}/${repo}`,
-    installedAt: new Date().toISOString(),
-    ...(contactId ? { installedBy: contactId } : {}),
-    contentHash: computeSkillHash(skillDir) ?? undefined,
-  });
-
-  // Post-install: install dependencies first, then index the skill.
-  // Running bun install before upsertSkillsIndex ensures we don't index a
-  // skill whose dependencies failed to install.
-  if (existsSync(join(skillDir, "package.json"))) {
-    const bunPath = `${homedir()}/.bun/bin`;
-    execSync("bun install", {
-      cwd: skillDir,
-      stdio: "inherit",
-      env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+    writeInstallMeta(stagedDir, {
+      origin: "skillssh",
+      slug: skillSlug,
+      sourceRepo: `${owner}/${repo}`,
+      installedAt: new Date().toISOString(),
+      ...(contactId ? { installedBy: contactId } : {}),
+      contentHash: computeSkillHash(stagedDir) ?? undefined,
     });
+
+    installSkillDependenciesIfPresent(stagedDir);
+    commitStagedSkillInstall(skillSlug, stagedDir);
+  } catch (err) {
+    rmSync(stagedDir, { recursive: true, force: true });
+    throw err;
   }
-  upsertSkillsIndex(skillSlug);
 }

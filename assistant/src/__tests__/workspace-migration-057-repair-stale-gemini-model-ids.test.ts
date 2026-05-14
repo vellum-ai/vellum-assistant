@@ -229,9 +229,6 @@ describe("057-repair-stale-gemini-model-ids migration", () => {
             provider: "openrouter",
             model: "gemini-3-flash",
           },
-          recall: {
-            model: "gemini-3-flash",
-          },
         },
         profiles: {
           custom: {
@@ -246,6 +243,28 @@ describe("057-repair-stale-gemini-model-ids migration", () => {
     repairStaleGeminiModelIdsMigration.run(workspaceDir);
 
     expect(readFileSync(configPath(), "utf-8")).toBe(before);
+  });
+
+  test("rewrites call-site model when site fragment implies Gemini via stale model even when activeProfile is Ollama", () => {
+    writeConfig({
+      llm: {
+        default: { provider: "gemini", model: "gemini-3-flash-preview" },
+        activeProfile: "ollamaActive",
+        profiles: {
+          ollamaActive: { provider: "ollama", model: "llama-3.1" },
+        },
+        callSites: {
+          recall: { model: "gemini-3-flash" },
+        },
+      },
+    });
+
+    repairStaleGeminiModelIdsMigration.run(workspaceDir);
+
+    const config = readConfig() as {
+      llm: { callSites: { recall: { model: string } } };
+    };
+    expect(config.llm.callSites.recall.model).toBe("gemini-3-flash-preview");
   });
 
   test("rewrites call-site/profile blocks without local provider when default is Gemini", () => {

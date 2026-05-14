@@ -549,13 +549,15 @@ export async function runScheduleOnce(
           });
         },
       });
-      // Bootstrap-failure path returns `conversationId: ""`. Substitute a
-      // sentinel so the schedule-run DB row carries a recognizable marker
-      // instead of an empty string.
+      // Bootstrap-failure path returns `{ ok: false, conversationId: "" }`.
+      // Substitute a sentinel only for failures so the schedule-run DB row
+      // carries a recognizable marker. Successful skips (e.g.
+      // `pre_first_user_message`) also return `conversationId: ""` but with
+      // `ok: true` — keep the empty ID to preserve their skip contract.
       conversationId =
-        result.conversationId !== ""
-          ? result.conversationId
-          : `bootstrap-error:${job.id}`;
+        !result.ok && result.conversationId === ""
+          ? `bootstrap-error:${job.id}`
+          : result.conversationId;
       ok = result.ok;
       errorMsg = result.error?.message;
     }

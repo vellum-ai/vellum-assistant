@@ -1,3 +1,4 @@
+import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
 import { deleteManagedSkill } from "../../skills/managed-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -17,19 +18,18 @@ export async function executeDeleteManagedSkill(
     };
   }
 
-  const removeFromIndex = input.remove_from_index !== false;
-
-  const result = deleteManagedSkill(skillId.trim(), removeFromIndex);
+  const result = deleteManagedSkill(skillId.trim());
 
   if (!result.deleted) {
     return { content: `Error: ${result.error}`, isError: true };
   }
 
+  refreshSkillCapabilityMemories();
+
   return {
     content: JSON.stringify({
       deleted: true,
       skill_id: skillId.trim(),
-      index_updated: result.indexUpdated,
     }),
     isError: false,
   };

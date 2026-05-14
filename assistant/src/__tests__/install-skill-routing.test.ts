@@ -1,3 +1,5 @@
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
@@ -16,10 +18,13 @@ const mockCatalogSkills = mock(
 const mockClawhubInstall = mock(
   async (
     _slug: string,
-    _opts?: { version?: string },
-  ): Promise<{ success: boolean; error?: string; skillName?: string }> => ({
-    success: true,
-  }),
+    _opts?: { version?: string; projectRoot?: string },
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    skillId?: string;
+    skillDir?: string;
+  }> => ({ success: true }),
 );
 const mockInstallExternalSkill = mock(
   async (
@@ -38,13 +43,27 @@ const mockEnsureSkillEntry = mock(
     enabled: false,
   }),
 );
+const TEST_SKILLS_DIR = "/tmp/test-skills";
+const installedSkillIds = new Set<string>();
+const stagedSkillDirs = new Set<string>();
+let stagingCounter = 0;
 
 // ---------------------------------------------------------------------------
 // Mock modules — before importing module under test
 // ---------------------------------------------------------------------------
 
 mock.module("../config/skills.js", () => ({
-  loadSkillCatalog: mockCatalogSkills,
+  loadSkillCatalog: () => [
+    ...mockCatalogSkills(),
+    ...[...installedSkillIds].map((id) => ({
+      id,
+      displayName: id,
+      description: `Installed ${id}`,
+      source: "managed",
+      directoryPath: join(TEST_SKILLS_DIR, id),
+      skillFilePath: join(TEST_SKILLS_DIR, id, "SKILL.md"),
+    })),
+  ],
 }));
 
 mock.module("../skills/clawhub.js", () => ({
@@ -96,15 +115,30 @@ mock.module("../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => null,
   userMessage: () => ({}),
 }));
-mock.module("../runtime/routes/workspace-utils.js", () => ({
-  isTextMimeType: () => true,
-}));
 mock.module("../skills/catalog-cache.js", () => ({
   getCatalog: mockGetCatalog,
 }));
 mock.module("../skills/catalog-install.js", () => ({
+  commitStagedSkillInstall: (skillId: string, stagedDir: string) => {
+    if (!stagedSkillDirs.has(stagedDir)) {
+      throw new Error(
+        `Installed skill "${skillId}" is missing SKILL.md at the skill root`,
+      );
+    }
+    stagedSkillDirs.delete(stagedDir);
+    installedSkillIds.add(skillId);
+  },
+  createSkillInstallStagingDir: () => {
+    const stagingDir = join(
+      TEST_SKILLS_DIR,
+      ".install-staging",
+      `project-${stagingCounter++}`,
+    );
+    mkdirSync(join(stagingDir, "skills"), { recursive: true });
+    return stagingDir;
+  },
+  installSkillDependenciesIfPresent: () => {},
   installSkillLocally: mockInstallSkillLocally,
-  upsertSkillsIndex: () => {},
 }));
 mock.module("../skills/catalog-search.js", () => ({
   filterByQuery: () => [],
@@ -112,7 +146,6 @@ mock.module("../skills/catalog-search.js", () => ({
 mock.module("../skills/managed-store.js", () => ({
   createManagedSkill: () => ({ created: true }),
   deleteManagedSkill: () => ({ deleted: true }),
-  removeSkillsIndexEntry: () => {},
   validateManagedSkillId: () => null,
 }));
 mock.module("../memory/graph/capability-seed.js", () => ({
@@ -121,7 +154,7 @@ mock.module("../memory/graph/capability-seed.js", () => ({
   seedUninstalledCatalogSkillMemories: async () => {},
 }));
 mock.module("../util/platform.js", () => ({
-  getWorkspaceSkillsDir: () => "/tmp/test-skills",
+  getWorkspaceSkillsDir: () => TEST_SKILLS_DIR,
 }));
 mock.module("../daemon/handlers/shared.js", () => ({
   CONFIG_RELOAD_DEBOUNCE_MS: 100,
@@ -141,13 +174,17 @@ import { installSkill } from "../daemon/handlers/skills.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("installSkill routing", () => {
   beforeEach(() => {
+    rmSync(TEST_SKILLS_DIR, { recursive: true, force: true });
+    mkdirSync(TEST_SKILLS_DIR, { recursive: true });
+    installedSkillIds.clear();
+    stagedSkillDirs.clear();
+    stagingCounter = 0;
     mockCatalogSkills.mockReset();
     mockClawhubInstall.mockReset();
     mockInstallExternalSkill.mockReset();
@@ -158,7 +195,12 @@ describe("installSkill routing", () => {
 
     // Defaults
     mockCatalogSkills.mockReturnValue([]);
-    mockClawhubInstall.mockResolvedValue({ success: true });
+    mockClawhubInstall.mockImplementation(async (slug, opts) => {
+      const skillId = slug.includes("/") ? slug.split("/").pop()! : slug;
+      const projectRoot = opts?.projectRoot ?? TEST_SKILLS_DIR;
+      const skillDir = stageClawhubSkill(projectRoot, skillId);
+      return { success: true, skillId, skillDir };
+    });
     mockInstallExternalSkill.mockResolvedValue(undefined);
     mockGetCatalog.mockResolvedValue([]);
     mockInstallSkillLocally.mockResolvedValue(undefined);
@@ -166,13 +208,38 @@ describe("installSkill routing", () => {
     mockEnsureSkillEntry.mockReturnValue({ enabled: false });
   });
 
-  test("install with origin: 'skillssh' and multi-segment slug routes to installExternalSkill", async () => {
-    const result = await installSkill(
-      {
-        slug: "vercel-labs/agent-skills/react-best-practices",
-        origin: "skillssh",
-      },
+  function writeInstalledSkill(skillId: string): void {
+    const skillDir = join(TEST_SKILLS_DIR, skillId);
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      `---
+name: "${skillId}"
+description: "Installed test skill."
+---
+
+Body.
+`,
+      "utf-8",
     );
+    installedSkillIds.add(skillId);
+  }
+
+  function stageClawhubSkill(projectRoot: string, skillId: string): string {
+    const skillDir = join(projectRoot, "skills", skillId);
+    stagedSkillDirs.add(skillDir);
+    return skillDir;
+  }
+
+  test("install with origin: 'skillssh' and multi-segment slug routes to installExternalSkill", async () => {
+    mockInstallExternalSkill.mockImplementation(async () => {
+      writeInstalledSkill("react-best-practices");
+    });
+
+    const result = await installSkill({
+      slug: "vercel-labs/agent-skills/react-best-practices",
+      origin: "skillssh",
+    });
 
     expect(result.success).toBe(true);
     expect(mockInstallExternalSkill).toHaveBeenCalledTimes(1);
@@ -189,11 +256,21 @@ describe("installSkill routing", () => {
   });
 
   test("install without origin falls through to clawhub for simple slugs", async () => {
+    mockClawhubInstall.mockImplementation(async (slug: string) => {
+      const skillDir = stageClawhubSkill(
+        join(TEST_SKILLS_DIR, ".install-staging", "project-0"),
+        slug,
+      );
+      return { success: true, skillId: slug, skillDir };
+    });
+
     const result = await installSkill({ slug: "some-clawhub-skill" });
 
     expect(result.success).toBe(true);
     expect(mockClawhubInstall).toHaveBeenCalledTimes(1);
     expect(mockClawhubInstall).toHaveBeenCalledWith("some-clawhub-skill", {
+      contactId: undefined,
+      projectRoot: join(TEST_SKILLS_DIR, ".install-staging", "project-0"),
       version: undefined,
     });
     // Should not have called installExternalSkill
@@ -201,19 +278,51 @@ describe("installSkill routing", () => {
   });
 
   test("install with origin: 'clawhub' routes directly to clawhub without trying skills.sh", async () => {
-    const result = await installSkill(
-      { slug: "my-skill", origin: "clawhub" },
-    );
+    mockClawhubInstall.mockImplementation(async (slug: string) => {
+      const skillDir = stageClawhubSkill(
+        join(TEST_SKILLS_DIR, ".install-staging", "project-0"),
+        slug,
+      );
+      return { success: true, skillId: slug, skillDir };
+    });
+
+    const result = await installSkill({ slug: "my-skill", origin: "clawhub" });
 
     expect(result.success).toBe(true);
     expect(mockClawhubInstall).toHaveBeenCalledTimes(1);
     expect(mockInstallExternalSkill).not.toHaveBeenCalled();
   });
 
+  test("clawhub install fails when the installed skill root is not discoverable", async () => {
+    mockClawhubInstall.mockResolvedValue({
+      success: true,
+      skillId: "missing-root-skill",
+      skillDir: join(
+        TEST_SKILLS_DIR,
+        ".install-staging",
+        "project-0",
+        "skills",
+        "missing-root-skill",
+      ),
+    });
+
+    const result = await installSkill({
+      slug: "missing-root-skill",
+      origin: "clawhub",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toContain("missing SKILL.md");
+    }
+  });
+
   test("multi-segment slug without explicit origin auto-routes to skills.sh", async () => {
-    const result = await installSkill(
-      { slug: "owner/repo/my-skill" },
-    );
+    mockInstallExternalSkill.mockImplementation(async () => {
+      writeInstalledSkill("my-skill");
+    });
+
+    const result = await installSkill({ slug: "owner/repo/my-skill" });
 
     expect(result.success).toBe(true);
     expect(mockInstallExternalSkill).toHaveBeenCalledTimes(1);
@@ -229,11 +338,21 @@ describe("installSkill routing", () => {
   });
 
   test("multi-segment slug with origin: 'clawhub' skips skills.sh and routes to clawhub", async () => {
+    mockClawhubInstall.mockImplementation(async (slug: string) => {
+      const skillId = slug.split("/").pop()!;
+      const skillDir = stageClawhubSkill(
+        join(TEST_SKILLS_DIR, ".install-staging", "project-0"),
+        skillId,
+      );
+      return { success: true, skillId, skillDir };
+    });
+
     // Even though the slug looks like skills.sh format, explicit origin: "clawhub"
     // should override the auto-detection and go to clawhub
-    const result = await installSkill(
-      { slug: "owner/repo/my-skill", origin: "clawhub" },
-    );
+    const result = await installSkill({
+      slug: "owner/repo/my-skill",
+      origin: "clawhub",
+    });
 
     expect(result.success).toBe(true);
     expect(mockClawhubInstall).toHaveBeenCalledTimes(1);
@@ -251,9 +370,10 @@ describe("installSkill routing", () => {
       },
     ]);
 
-    const result = await installSkill(
-      { slug: "bundled-skill", origin: "skillssh" },
-    );
+    const result = await installSkill({
+      slug: "bundled-skill",
+      origin: "skillssh",
+    });
 
     expect(result.success).toBe(true);
     // Should have auto-enabled via ensureSkillEntry, not called external install
@@ -266,12 +386,10 @@ describe("installSkill routing", () => {
       new Error("Skill not found in repo"),
     );
 
-    const result = await installSkill(
-      {
-        slug: "owner/repo/nonexistent-skill",
-        origin: "skillssh",
-      },
-    );
+    const result = await installSkill({
+      slug: "owner/repo/nonexistent-skill",
+      origin: "skillssh",
+    });
 
     expect(result.success).toBe(false);
     if (!result.success) {

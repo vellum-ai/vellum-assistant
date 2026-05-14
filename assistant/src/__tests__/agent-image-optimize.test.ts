@@ -14,10 +14,18 @@ describe("shouldRescaleImage", () => {
     expect(shouldRescaleImage({ width: 1200, height: 800 }, 50_000)).toBe(
       false,
     );
-    // Even a large file is fine as long as dimensions are within limits —
-    // Anthropic's constraint is per-side pixels, not bytes.
+  });
+
+  it("rescales when raw bytes would inflate past Anthropic's 5 MB base64 cap", () => {
+    // Regression: an oversized image retained across compaction was rejected
+    // with "image.source.base64: image exceeds 5 MB maximum" even though
+    // dimensions were within the 1568 px cap. base64 inflates raw bytes by
+    // 4/3, so anything over ~3.5 MB raw risks crossing the 5 MB API limit.
     expect(shouldRescaleImage({ width: 1568, height: 1568 }, 5_000_000)).toBe(
-      false,
+      true,
+    );
+    expect(shouldRescaleImage({ width: 1200, height: 800 }, 4_000_000)).toBe(
+      true,
     );
   });
 

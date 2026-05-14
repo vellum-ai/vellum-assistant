@@ -48,6 +48,59 @@
       },
       "executor": "tools/document-update.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "document_read",
+      "description": "Read the current content of a document by its surface_id when it belongs to the current conversation, or when the current actor is the guardian/local user. Use this to verify document state before making edits.",
+      "category": "document",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The ID of the document to read"
+          }
+        },
+        "required": ["surface_id"]
+      },
+      "executor": "tools/document-read.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "document_list",
+      "description": "List documents. Without a query, lists documents in the current conversation. With a query, searches documents by title; guardian/local users can search across conversations, while other actors are scoped to the current conversation.",
+      "category": "document",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search documents by title. Omit to list only the current conversation's documents."
+          }
+        }
+      },
+      "executor": "tools/document-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "document_delete",
+      "description": "Delete a document by its surface_id.",
+      "category": "document",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The ID of the document to delete"
+          }
+        },
+        "required": ["surface_id"]
+      },
+      "executor": "tools/document-delete.ts",
+      "execution_target": "host"
     }
   ]
 }

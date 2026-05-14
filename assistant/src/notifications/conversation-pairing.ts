@@ -120,7 +120,8 @@ export async function pairDeliveryWithConversation(
     // Channels with continue_existing_conversation reuse bound external conversations
     // and mark them as background so they don't clutter the sidebar UI.
     const conversationType =
-      strategy === "start_new_conversation" ? "standard" : "background";
+      signal.conversationMetadata?.conversationType ??
+      (strategy === "start_new_conversation" ? "standard" : "background");
 
     // Prefer model-provided conversationSeedMessage when present and sane;
     // fall back to the runtime composer which adapts verbosity to the

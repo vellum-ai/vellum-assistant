@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let TEST_DIR = "";
+const seedUpsertSlugs: string[] = [];
 
 const mockConfig = {
   provider: "anthropic",
@@ -32,6 +33,10 @@ const mockConfig = {
     },
     "web-search": { mode: "your-own", provider: "inference-provider-native" },
   },
+  skills: {
+    entries: {},
+    allowBundled: [],
+  },
 };
 
 mock.module("../util/logger.js", () => ({
@@ -51,7 +56,36 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
+mock.module("../skills/catalog-cache.js", () => ({
+  getCatalog: async () => [],
+}));
+
+mock.module("../memory/embedding-backend.js", () => ({
+  embedWithBackend: async (_config: unknown, inputs: unknown[]) => ({
+    provider: "local",
+    model: "test-model",
+    vectors: inputs.map(() => [0.1, 0.2, 0.3]),
+  }),
+  generateSparseEmbedding: () => ({ indices: [1], values: [1] }),
+}));
+
+mock.module("../memory/v2/qdrant.js", () => ({
+  upsertConceptPageEmbedding: async (params: { slug: string }) => {
+    seedUpsertSlugs.push(params.slug);
+  },
+  pruneSlugsWithPrefixExcept: async () => {},
+}));
+
+mock.module("../daemon/skill-memory-refresh.js", () => ({
+  refreshSkillCapabilityMemories: mock(() => {}),
+}));
+
 import { loadSkillCatalog } from "../config/skills.js";
+import {
+  _resetSkillStoreForTests,
+  getSkillCapability,
+  seedV2SkillEntries,
+} from "../memory/v2/skill-store.js";
 import { executeDeleteManagedSkill } from "../tools/skills/delete-managed.js";
 import { SkillLoadTool } from "../tools/skills/load.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
@@ -68,9 +102,69 @@ function makeContext(): ToolContext {
 beforeEach(() => {
   TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+  seedUpsertSlugs.length = 0;
+  _resetSkillStoreForTests();
 });
 
 describe("managed skill lifecycle: scaffold → catalog → prompt → delete", () => {
+  test("valid managed skill without SKILLS.md works across catalog, skill_load, and Memory V2 seeding", async () => {
+    const skillId = "e2e-custom-skill";
+    const skillSlug = `skills/${skillId}`;
+    const skillDir = join(TEST_DIR, "skills", skillId);
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      `---
+name: "E2E Custom Skill"
+description: "Exercises custom managed skill loading."
+metadata:
+  vellum:
+    activation-hints:
+      - user asks for custom lifecycle verification
+---
+
+Run the custom lifecycle verification procedure.
+`,
+      "utf-8",
+    );
+
+    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
+
+    const catalog = loadSkillCatalog();
+    const catalogSkill = catalog.find((s) => s.id === skillId);
+    expect(catalogSkill).toBeDefined();
+    expect(catalogSkill!.source).toBe("managed");
+    expect(catalogSkill!.displayName).toBe("E2E Custom Skill");
+
+    const skillLoadTool = new (SkillLoadTool as any)() as InstanceType<
+      typeof SkillLoadTool
+    >;
+    const loadResult = await skillLoadTool.execute(
+      { skill: skillId },
+      makeContext(),
+    );
+    expect(loadResult.isError).not.toBe(true);
+    expect(loadResult.content as string).toContain("Skill: E2E Custom Skill");
+    expect(loadResult.content as string).toContain("ID: e2e-custom-skill");
+    expect(loadResult.content as string).toContain(
+      "Run the custom lifecycle verification procedure.",
+    );
+
+    await seedV2SkillEntries();
+
+    expect(seedUpsertSlugs).toContain(skillSlug);
+    const capability = getSkillCapability(skillSlug);
+    expect(capability).not.toBeNull();
+    expect(capability!.id).toBe("e2e-custom-skill");
+    expect(capability!.content).toContain('The "E2E Custom Skill" skill');
+    expect(capability!.content).toContain(
+      "Exercises custom managed skill loading.",
+    );
+    expect(capability!.content).toContain(
+      "Use when: user asks for custom lifecycle verification.",
+    );
+  }, 15_000);
+
   test("full lifecycle: create skill, verify in catalog and prompt, then delete", async () => {
     // Step 1: Scaffold a managed skill
     const scaffoldResult = await executeScaffoldManagedSkill(
@@ -87,9 +181,11 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(scaffoldResult.isError).not.toBe(true);
     const scaffoldData = JSON.parse(scaffoldResult.content as string);
     expect(scaffoldData.created).toBe(true);
+    expect(scaffoldData).not.toHaveProperty("index_updated");
 
     // Step 2: Verify SKILL.md was written
-    const skillMdPath = join(TEST_DIR, "skills", "lifecycle-test", "SKILL.md");
+    const skillDir = join(TEST_DIR, "skills", "lifecycle-test");
+    const skillMdPath = join(skillDir, "SKILL.md");
     expect(existsSync(skillMdPath)).toBe(true);
     const skillContent = readFileSync(skillMdPath, "utf-8");
     expect(skillContent).toContain('name: "Lifecycle Test"');
@@ -102,6 +198,7 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(found).toBeDefined();
     expect(found!.name).toBe("Lifecycle Test");
     expect(found!.description).toBe("Integration test skill.");
+    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
 
     // Step 4: Delete the skill
     const deleteResult = await executeDeleteManagedSkill(
@@ -114,20 +211,15 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(deleteResult.isError).not.toBe(true);
     const deleteData = JSON.parse(deleteResult.content as string);
     expect(deleteData.deleted).toBe(true);
+    expect(deleteData).not.toHaveProperty("index_updated");
 
-    // Step 5: Verify skill is gone from filesystem
-    expect(existsSync(skillMdPath)).toBe(false);
+    // Step 5: Verify skill directory is gone from filesystem
+    expect(existsSync(skillDir)).toBe(false);
 
     // Step 6: Verify skill no longer in catalog
     const catalogAfter = loadSkillCatalog();
     expect(catalogAfter.find((s) => s.id === "lifecycle-test")).toBeUndefined();
-
-    // Step 7: Verify SKILLS.md index no longer has the entry
-    const indexPath = join(TEST_DIR, "skills", "SKILLS.md");
-    if (existsSync(indexPath)) {
-      const indexContent = readFileSync(indexPath, "utf-8");
-      expect(indexContent).not.toContain("lifecycle-test");
-    }
+    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
   });
 
   test("scaffold with overwrite replaces existing skill", async () => {
@@ -166,13 +258,12 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(skillContent).toContain("Updated body.");
     expect(skillContent).not.toContain("Original body.");
 
-    // Index should still have exactly one entry
-    const indexContent = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    const matches = indexContent.match(/overwrite-test/g);
-    expect(matches?.length).toBe(1);
+    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
+
+    const catalog = loadSkillCatalog();
+    const skill = catalog.find((s) => s.id === "overwrite-test");
+    expect(skill).toBeDefined();
+    expect(skill!.name).toBe("V2");
   });
 
   test("delete non-existent skill returns error", async () => {

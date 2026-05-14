@@ -605,4 +605,64 @@ describe("loadFromDb metadata injection rehydration", () => {
     // suppresses the personal-memory block.
     expect(messages[0].content).toEqual([{ type: "text", text: "First" }]);
   });
+
+  test("ensureActorScopedHistory reloads when sourceChannel changes within the same trust class", async () => {
+    // Regression: cache invalidation previously keyed only on trust class.
+    // `loadFromDb` gates `memoryV2StaticBlock` rehydration on `sourceChannel`
+    // via `shouldExposePersonalMemory`, so a same-trust-class reuse from a
+    // different channel (e.g. internal `vellum` → remote channel) must
+    // re-run `loadFromDb` or stale personal-memory exposure persists.
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First" }]),
+        metadata: JSON.stringify({
+          provenanceTrustClass: "trusted_contact",
+          memoryV2StaticBlock:
+            "<memory>\n## Essentials\n\nprivate memory\n</memory>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    // First load: internal channel, trusted_contact actor → personal memory
+    // exposed via `shouldExposePersonalMemory({sourceChannel: "vellum", ...})`.
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "vellum",
+    });
+    await conversation.ensureActorScopedHistory();
+    expect(conversation.getMessages()[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\n## Essentials\n\nprivate memory\n</memory>",
+      },
+      { type: "text", text: "First" },
+    ]);
+
+    // Reuse with the same trust class but a remote channel. The cache must
+    // invalidate and trigger a reload that strips the personal-memory block.
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "telegram",
+    });
+    await conversation.ensureActorScopedHistory();
+    expect(conversation.getMessages()[0].content).toEqual([
+      { type: "text", text: "First" },
+    ]);
+  });
 });

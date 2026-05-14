@@ -253,6 +253,37 @@ interface GroupRow {
 }
 
 /**
+ * Return aggregate usage for a single conversation (e.g. a subagent).
+ */
+export function getConversationUsageTotals(conversationId: string): {
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+} {
+  const rows = rawAll<{
+    total_input: number;
+    total_output: number;
+    total_cost: number | null;
+  }>(
+    /*sql*/ `
+    SELECT
+      COALESCE(SUM(input_tokens + COALESCE(cache_creation_input_tokens, 0) + COALESCE(cache_read_input_tokens, 0)), 0) AS total_input,
+      COALESCE(SUM(output_tokens), 0) AS total_output,
+      COALESCE(SUM(estimated_cost_usd), 0) AS total_cost
+    FROM llm_usage_events
+    WHERE conversation_id = ?1
+    `,
+    conversationId,
+  );
+  const row = rows[0];
+  return {
+    inputTokens: row.total_input,
+    outputTokens: row.total_output,
+    estimatedCost: row.total_cost ?? 0,
+  };
+}
+
+/**
  * Return aggregate totals for all usage events within the given time range.
  */
 export function getUsageTotals(range: UsageTimeRange): UsageTotals {

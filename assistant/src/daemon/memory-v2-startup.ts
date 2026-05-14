@@ -47,9 +47,11 @@ export function maybeSeedMemoryV2Skills(config: AssistantConfig): void {
  * callers issue (see `simBatch`, `activation.selectCandidates`). Reseeding
  * here closes that gap without operator intervention.
  *
- * Fire-and-forget by design — startup must not block on either step. Errors
- * are logged and swallowed independently for each step so a corpus-stats
- * failure does not mask a reseed failure (and vice versa).
+ * Fire-and-forget by design — startup must not block on either step. The
+ * reseed depends on the corpus-stats build, so a corpus-stats failure
+ * short-circuits and skips the reseed (the BM25 vectors it would produce
+ * would be wrong without fresh stats). Both steps log and swallow their own
+ * errors so neither blocks startup.
  */
 export async function rebuildBm25CorpusStatsAndReseedSkills(
   config: AssistantConfig,
@@ -70,7 +72,7 @@ export async function rebuildBm25CorpusStatsAndReseedSkills(
   if (!config.memory.v2.enabled) return;
   try {
     const { seedV2SkillEntries } = await import("../memory/v2/skill-store.js");
-    await seedV2SkillEntries();
+    await seedV2SkillEntries({ throwOnError: true });
     log.info(
       "Memory v2 skill embeddings re-seeded with BM25 vectors after corpus-stats build",
     );

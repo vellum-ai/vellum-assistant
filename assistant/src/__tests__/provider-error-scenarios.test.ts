@@ -753,6 +753,117 @@ describe("RetryProvider — streaming response handling", () => {
     expect(callCount).toBe(2);
   });
 
+  test("retries transport-aborted stream (Anthropic 'Request was aborted' with no abortReason)", async () => {
+    let callCount = 0;
+    const inner: Provider = {
+      name: "retry-transport-abort",
+      async sendMessage() {
+        callCount++;
+        if (callCount <= 1) {
+          // Mirrors the ProviderError shape produced by the catch-site in
+          // providers/anthropic/client.ts when the SDK reports
+          // ``Anthropic.APIError(status === undefined, message: "Request
+          // was aborted.")`` and the daemon's AbortController was NOT the
+          // cause (i.e. abortReason is undefined). Empirically the #1
+          // daemon error by a factor of 5x — 1,344 events in 4d on the
+          // SSE chat path, all of which used to surface as a 45s blank
+          // screen on the web client via LUM-1431.
+          throw new ProviderError(
+            "Anthropic API error: Request was aborted.",
+            "anthropic",
+            undefined,
+          );
+        }
+        return successResponse();
+      },
+    };
+    const provider = new RetryProvider(inner);
+    await provider.sendMessage(MESSAGES);
+    expect(callCount).toBe(2);
+  });
+
+  test("does NOT retry caller-aborted stream (abortReason set short-circuits retry)", async () => {
+    let callCount = 0;
+    const abortError = new ProviderError(
+      "Anthropic API error: Request was aborted.",
+      "anthropic",
+      undefined,
+      // Tagging abortReason exactly matches what the catch-site does when
+      // signal.aborted was true at the moment of failure — i.e. the
+      // daemon (or the user) cancelled the request, not the transport.
+      // The retry layer must respect this and surface the error
+      // immediately without consuming retry budget.
+      { abortReason: "user-cancelled" },
+    );
+    const inner: Provider = {
+      name: "caller-abort",
+      async sendMessage() {
+        callCount++;
+        throw abortError;
+      },
+    };
+    const provider = new RetryProvider(inner);
+    await expect(provider.sendMessage(MESSAGES)).rejects.toBe(abortError);
+    expect(callCount).toBe(1);
+  });
+
+  test("does NOT retry inner-timeout stream (deterministic 30min deadline failure)", async () => {
+    let callCount = 0;
+    // When the inner streamTimeoutMs fires, the catch-site rewrites the
+    // message to "Anthropic stream timed out after Xs (inner
+    // streamTimeoutMs)" instead of "Request was aborted." That rewrite is
+    // what allows this branch to bypass the transport-abort retry —
+    // retrying a 30min-deadline failure would almost certainly hit the
+    // same deadline on the next attempt and waste retry budget.
+    const innerTimeoutError = new ProviderError(
+      "Anthropic API error: Anthropic stream timed out after 1800s (inner streamTimeoutMs)",
+      "anthropic",
+      undefined,
+    );
+    const inner: Provider = {
+      name: "inner-timeout",
+      async sendMessage() {
+        callCount++;
+        throw innerTimeoutError;
+      },
+    };
+    const provider = new RetryProvider(inner);
+    await expect(provider.sendMessage(MESSAGES)).rejects.toBe(
+      innerTimeoutError,
+    );
+    expect(callCount).toBe(1);
+  });
+
+  test("does NOT retry OpenAI/Gemini-shaped 'Request was aborted' (no inner-timeout rewrite at those catch-sites)", async () => {
+    // The OpenAI chat-completions, OpenAI responses, and Gemini catch-sites
+    // format their errors as `"<Provider> API error (undefined): Request
+    // was aborted."` (note the `(undefined)` parenthetical that the
+    // Anthropic catch-site intentionally omits) and — unlike the Anthropic
+    // catch-site — they do NOT rewrite their inner-streamTimeoutMs
+    // deadline failures. A provider-agnostic transport-abort predicate
+    // would burn three retries on what is by construction a deterministic
+    // 30-minute deadline failure that will fire again on every attempt.
+    // Scoping the predicate to the Anthropic message prefix avoids that
+    // wasted retry budget for non-Anthropic providers until their
+    // catch-sites grow the same `innerTimeoutFired` distinction.
+    const openaiAbortError = new ProviderError(
+      "OpenAI API error (undefined): Request was aborted.",
+      "openai",
+      undefined,
+    );
+    let callCount = 0;
+    const inner: Provider = {
+      name: "openai-aborted-stream",
+      async sendMessage() {
+        callCount++;
+        throw openaiAbortError;
+      },
+    };
+    const provider = new RetryProvider(inner);
+    await expect(provider.sendMessage(MESSAGES)).rejects.toBe(openaiAbortError);
+    expect(callCount).toBe(1);
+  });
+
   test("events accumulate across retries (each attempt delivers events independently)", async () => {
     let callCount = 0;
     const inner: Provider = {

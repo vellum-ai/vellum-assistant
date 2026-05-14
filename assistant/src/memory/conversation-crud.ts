@@ -87,6 +87,7 @@ const subagentNotificationSchema = z.object({
   status: z.enum(["running", "completed", "failed", "aborted"]),
   error: z.string().optional(),
   conversationId: z.string().optional(),
+  objective: z.string().optional(),
 });
 
 export const messageMetadataSchema = z
@@ -1152,11 +1153,14 @@ export function getMessagesAfter(
 ): MessageRow[] {
   const db = getDb();
   if (afterMessageId === null || afterMessageId === "") {
+    // Secondary `asc(messages.id)` matches the non-null path's cursor
+    // ordering, so callers tracking `cutoffMessageId` across runs see a
+    // consistent ordering when multiple rows share a millisecond timestamp.
     return db
       .select()
       .from(messages)
       .where(eq(messages.conversationId, conversationId))
-      .orderBy(asc(messages.createdAt))
+      .orderBy(asc(messages.createdAt), asc(messages.id))
       .all()
       .map(parseMessage);
   }

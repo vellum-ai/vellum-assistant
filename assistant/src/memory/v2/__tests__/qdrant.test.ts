@@ -278,9 +278,10 @@ describe("memory v2 qdrant — collection lifecycle", () => {
     });
     expect(params.on_disk_payload).toBe(true);
 
-    // Slug payload index is created up front.
+    // Slug + kind payload indexes are created up front.
     expect(state.createIndexCalls).toEqual([
       { field_name: "slug", field_schema: "keyword" },
+      { field_name: "kind", field_schema: "keyword" },
     ]);
   });
 
@@ -295,9 +296,14 @@ describe("memory v2 qdrant — collection lifecycle", () => {
     await ensureConceptPageCollection();
 
     // Existence check fired exactly once thanks to the in-memory readiness
-    // cache; createCollection / createPayloadIndex never ran.
+    // cache; createCollection never ran. Payload indexes are (idempotently)
+    // ensured on the existing-collection path to backfill long-lived installs
+    // that predate the `kind` index.
     expect(state.createCollectionCalls).toBe(0);
-    expect(state.createIndexCalls).toEqual([]);
+    expect(state.createIndexCalls).toEqual([
+      { field_name: "slug", field_schema: "keyword" },
+      { field_name: "kind", field_schema: "keyword" },
+    ]);
     expect(state.collectionExistsCalls).toBe(1);
   });
 
@@ -314,6 +320,7 @@ describe("memory v2 qdrant — collection lifecycle", () => {
     expect(state.createCollectionCalls).toBe(1);
     expect(state.createIndexCalls).toEqual([
       { field_name: "slug", field_schema: "keyword" },
+      { field_name: "kind", field_schema: "keyword" },
     ]);
   });
 

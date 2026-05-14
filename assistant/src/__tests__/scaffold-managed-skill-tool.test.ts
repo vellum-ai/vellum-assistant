@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
+const mockRefreshSkillCapabilityMemories = mock(() => {});
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -11,6 +12,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+mock.module("../daemon/skill-memory-refresh.js", () => ({
+  refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
+}));
+
+import { loadSkillCatalog } from "../config/skills.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -24,6 +30,7 @@ function makeContext(): ToolContext {
 
 beforeEach(() => {
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+  mockRefreshSkillCapabilityMemories.mockClear();
 });
 
 afterEach(() => {
@@ -31,7 +38,29 @@ afterEach(() => {
 });
 
 describe("scaffold_managed_skill tool", () => {
-  test("creates a valid skill and index entry", async () => {
+  test("keeps legacy index control as a deprecated no-op schema field", () => {
+    const tools = JSON.parse(
+      readFileSync(
+        join(
+          import.meta.dirname,
+          "../config/bundled-skills/skill-management/TOOLS.json",
+        ),
+        "utf-8",
+      ),
+    );
+    const scaffoldTool = tools.tools.find(
+      (tool: { name: string }) => tool.name === "scaffold_managed_skill",
+    );
+
+    expect(scaffoldTool).toBeDefined();
+    expect(scaffoldTool.input_schema.properties.add_to_index).toEqual({
+      type: "boolean",
+      description:
+        "Deprecated no-op compatibility field. Skills are discovered from top-level SKILL.md files.",
+    });
+  });
+
+  test("creates a valid skill discovered from its SKILL.md directory", async () => {
     const result = await executeScaffoldManagedSkill(
       {
         skill_id: "test-skill",
@@ -46,18 +75,40 @@ describe("scaffold_managed_skill tool", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.created).toBe(true);
     expect(parsed.skill_id).toBe("test-skill");
-    expect(parsed.index_updated).toBe(true);
+    expect(parsed).not.toHaveProperty("index_updated");
 
     const skillFile = join(TEST_DIR, "skills", "test-skill", "SKILL.md");
     expect(existsSync(skillFile)).toBe(true);
     const content = readFileSync(skillFile, "utf-8");
     expect(content).toContain('name: "Test Skill"');
 
-    const indexContent = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
+    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
+
+    const catalog = loadSkillCatalog();
+    const skill = catalog.find((s) => s.id === "test-skill");
+    expect(skill).toBeDefined();
+    expect(skill!.name).toBe("Test Skill");
+    expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
+  });
+
+  test("accepts legacy add_to_index input without returning index metadata", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "legacy-input",
+        name: "Legacy Input",
+        description: "A test skill",
+        body_markdown: "Do the thing.",
+        add_to_index: true,
+      },
+      makeContext(),
     );
-    expect(indexContent).toContain("- test-skill");
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.created).toBe(true);
+    expect(parsed).not.toHaveProperty("index_updated");
+    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
+    expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
   });
 
   test("rejects duplicate unless overwrite=true", async () => {
@@ -258,7 +309,7 @@ describe("scaffold_managed_skill tool", () => {
     expect(result.content).toContain("traversal");
   });
 
-  test("e2e: scaffold child then parent with includes, verify files and index", async () => {
+  test("e2e: scaffold child then parent with includes, verify file discovery", async () => {
     const childResult = await executeScaffoldManagedSkill(
       {
         skill_id: "e2e-child",
@@ -288,11 +339,12 @@ describe("scaffold_managed_skill tool", () => {
     expect(parentContent).toContain("    includes:");
     expect(parentContent).toContain("      - e2e-child");
 
-    const indexContent = readFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "utf-8",
-    );
-    expect(indexContent).toContain("- e2e-child");
-    expect(indexContent).toContain("- e2e-parent");
+    expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
+
+    const catalog = loadSkillCatalog();
+    expect(catalog.find((s) => s.id === "e2e-child")).toBeDefined();
+    const parent = catalog.find((s) => s.id === "e2e-parent");
+    expect(parent).toBeDefined();
+    expect(parent!.includes).toEqual(["e2e-child"]);
   });
 });

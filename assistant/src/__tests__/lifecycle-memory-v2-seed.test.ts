@@ -23,6 +23,7 @@ import type { AssistantConfig } from "../config/schema.js";
 
 interface TestState {
   seedCallCount: number;
+  seedCallOpts: Array<{ throwOnError?: boolean } | undefined>;
   seedShouldReject: Error | null;
   warnCalls: Array<{ obj: unknown; msg: unknown }>;
   infoCalls: Array<{ obj: unknown; msg: unknown }>;
@@ -41,6 +42,7 @@ interface TestState {
 
 const state: TestState = {
   seedCallCount: 0,
+  seedCallOpts: [],
   seedShouldReject: null,
   warnCalls: [],
   infoCalls: [],
@@ -60,8 +62,11 @@ const state: TestState = {
 // ---------------------------------------------------------------------------
 
 mock.module("../memory/v2/skill-store.js", () => ({
-  seedV2SkillEntries: async (): Promise<void> => {
+  seedV2SkillEntries: async (opts?: {
+    throwOnError?: boolean;
+  }): Promise<void> => {
     state.seedCallCount += 1;
+    state.seedCallOpts.push(opts);
     if (state.seedShouldReject) throw state.seedShouldReject;
   },
 }));
@@ -164,6 +169,7 @@ async function flushMicrotasks(): Promise<void> {
 
 function resetState(): void {
   state.seedCallCount = 0;
+  state.seedCallOpts = [];
   state.seedShouldReject = null;
   state.warnCalls = [];
   state.infoCalls = [];
@@ -300,6 +306,9 @@ describe("rebuildBm25CorpusStatsAndReseedSkills", () => {
 
     expect(state.corpusStatsBuildCount).toBe(1);
     expect(state.seedCallCount).toBe(1);
+    // Must pass throwOnError: true so a swallowed internal seed failure
+    // cannot trip the unconditional success log in the caller.
+    expect(state.seedCallOpts[0]).toEqual({ throwOnError: true });
     expect(state.warnCalls).toHaveLength(0);
   });
 

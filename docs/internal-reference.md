@@ -232,17 +232,19 @@ The assistant can create, test, and persist new skills at runtime. This is usefu
 #### Workflow
 
 1. **Evaluate**: The assistant drafts a TypeScript snippet and tests it in a sandbox via `evaluate_typescript_code`. Iterates until it passes.
-2. **Persist**: After successful evaluation and explicit user consent, the assistant calls `scaffold_managed_skill` to write the skill to `~/.vellum/workspace/skills/<id>/`.
+2. **Persist**: After successful evaluation and explicit user consent, the assistant calls `scaffold_managed_skill` to write the skill to `~/.vellum/workspace/skills/<id>/SKILL.md`.
 3. **Load**: The assistant calls `skill_load` with the new skill ID to load its instructions.
 4. **Delete**: To remove a managed skill, use `delete_managed_skill`.
+
+Installed managed skills are discovered from valid directories under `~/.vellum/workspace/skills/<id>/` that contain a top-level `SKILL.md` with standardized frontmatter. On startup and skill directory changes, the assistant parses that frontmatter and seeds Memory V2 entries under `skills/<id>`; those memory entries represent available skills to the assistant. The legacy `SKILLS.md` index is removed by workspace migration and is no longer created by current install or scaffold paths.
 
 #### Tools
 
 | Tool | Risk Level | Description |
 |------|-----------|-------------|
 | `evaluate_typescript_code` | High | Run a TypeScript snippet in a sandbox. Returns structured JSON with `ok`, `exitCode`, `result`, `stdout`, `stderr`. |
-| `scaffold_managed_skill` | High | Write a managed skill to `~/.vellum/workspace/skills/<id>/`. Creates `SKILL.md` with frontmatter (including optional `includes` for child skills) and updates `SKILLS.md` index. |
-| `delete_managed_skill` | High | Remove a managed skill directory and its index entry. |
+| `scaffold_managed_skill` | High | Write a managed skill to `~/.vellum/workspace/skills/<id>/`. Creates `SKILL.md` with frontmatter, including optional `includes` for child skills. |
+| `delete_managed_skill` | High | Remove a managed skill directory. |
 
 All three tools require explicit user approval before execution (Risk Level = High).
 

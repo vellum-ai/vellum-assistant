@@ -247,6 +247,33 @@ describe("runWorkspaceMigrations", () => {
     expect(m1.run).not.toHaveBeenCalled();
   });
 
+  test("skips failed migrations by default", async () => {
+    mockCheckpointContents = JSON.stringify({
+      applied: {
+        "001": { appliedAt: "2025-01-01T00:00:00.000Z", status: "failed" },
+      },
+    });
+
+    const m1 = makeMigration("001");
+    await runWorkspaceMigrations(WORKSPACE_DIR, [m1]);
+
+    expect(m1.run).not.toHaveBeenCalled();
+  });
+
+  test("retries failed migrations that opt in", async () => {
+    mockCheckpointContents = JSON.stringify({
+      applied: {
+        "001": { appliedAt: "2025-01-01T00:00:00.000Z", status: "failed" },
+      },
+    });
+
+    const m1 = makeMigration("001");
+    m1.retryFailedCheckpoint = true;
+    await runWorkspaceMigrations(WORKSPACE_DIR, [m1]);
+
+    expect(m1.run).toHaveBeenCalledTimes(1);
+  });
+
   test("supports async migrations", async () => {
     const asyncMigration: WorkspaceMigration = {
       id: "001",

@@ -1,10 +1,11 @@
 import { execSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import {
   cpSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -14,6 +15,7 @@ import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { getPlatformBaseUrl } from "../config/env.js";
+import { loadSkillCatalog } from "../config/skills.js";
 import { deleteSkillCapabilityNode } from "../memory/graph/capability-seed.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
@@ -45,12 +47,6 @@ export interface CatalogSkill {
 export interface CatalogManifest {
   version: number;
   skills: CatalogSkill[];
-}
-
-// ─── Path helpers ────────────────────────────────────────────────────────────
-
-function getSkillsIndexPath(): string {
-  return join(getWorkspaceSkillsDir(), "SKILLS.md");
 }
 
 /**
@@ -131,9 +127,63 @@ export function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
 
 // ─── Tar extraction ──────────────────────────────────────────────────────────
 
+interface SafeSkillInstallPath {
+  normalizedPath: string;
+  destPath: string;
+}
+
+function safeResolveSkillInstallPath(
+  destRoot: string,
+  relativePath: string,
+): SafeSkillInstallPath | null {
+  const normalizedName = relativePath.replace(/\\/g, "/").replace(/^\.\/+/, "");
+  const normalizedPath = posix.normalize(normalizedName);
+  const hasWindowsDrivePrefix = /^[a-zA-Z]:\//.test(normalizedPath);
+  const isTraversal =
+    normalizedPath === ".." || normalizedPath.startsWith("../");
+
+  if (
+    !normalizedPath ||
+    normalizedPath === "." ||
+    normalizedPath.startsWith("/") ||
+    hasWindowsDrivePrefix ||
+    isTraversal
+  ) {
+    return null;
+  }
+
+  const resolvedDestRoot = resolve(destRoot);
+  const destPath = resolve(resolvedDestRoot, normalizedPath);
+  const insideDestination =
+    destPath === resolvedDestRoot ||
+    destPath.startsWith(resolvedDestRoot + sep);
+  if (!insideDestination) return null;
+
+  return { normalizedPath, destPath };
+}
+
+export function writeSkillFilesToDir(
+  files: Record<string, string | Buffer>,
+  destDir: string,
+): boolean {
+  let foundSkillMd = false;
+  for (const [relativePath, content] of Object.entries(files)) {
+    const resolved = safeResolveSkillInstallPath(destDir, relativePath);
+    if (!resolved) continue;
+
+    mkdirSync(dirname(resolved.destPath), { recursive: true });
+    writeFileSync(resolved.destPath, content);
+
+    if (resolved.normalizedPath === "SKILL.md") {
+      foundSkillMd = true;
+    }
+  }
+  return foundSkillMd;
+}
+
 /**
  * Extract all files from a tar archive (uncompressed) into a directory.
- * Returns true if a SKILL.md was found in the archive.
+ * Returns true if a top-level SKILL.md was found in the archive.
  */
 export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
   let foundSkillMd = false;
@@ -161,38 +211,15 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
 
     // Skip directories and empty names
     if (name && typeFlag !== 53 /* '5' */) {
-      // Prevent path traversal and absolute path writes
-      const normalizedName = name.replace(/\\/g, "/").replace(/^\.\/+/, "");
-      const normalizedPath = posix.normalize(normalizedName);
-      const hasWindowsDrivePrefix = /^[a-zA-Z]:\//.test(normalizedPath);
-      const isTraversal =
-        normalizedPath === ".." || normalizedPath.startsWith("../");
+      const resolved = safeResolveSkillInstallPath(destDir, name);
+      if (resolved) {
+        mkdirSync(dirname(resolved.destPath), { recursive: true });
+        writeFileSync(
+          resolved.destPath,
+          tarBuffer.subarray(offset, offset + size),
+        );
 
-      if (
-        normalizedPath &&
-        normalizedPath !== "." &&
-        !normalizedPath.startsWith("/") &&
-        !hasWindowsDrivePrefix &&
-        !isTraversal
-      ) {
-        const destRoot = resolve(destDir);
-        const destPath = resolve(destRoot, normalizedPath);
-        const insideDestination =
-          destPath === destRoot || destPath.startsWith(destRoot + sep);
-        if (!insideDestination) {
-          offset += Math.ceil(size / 512) * 512;
-          continue;
-        }
-
-        mkdirSync(dirname(destPath), { recursive: true });
-        writeFileSync(destPath, tarBuffer.subarray(offset, offset + size));
-
-        if (
-          normalizedPath === "SKILL.md" ||
-          normalizedPath.endsWith("/SKILL.md")
-        ) {
-          foundSkillMd = true;
-        }
+        if (resolved.normalizedPath === "SKILL.md") foundSkillMd = true;
       }
     }
 
@@ -227,49 +254,6 @@ async function fetchAndExtractSkill(
   }
 }
 
-// ─── SKILLS.md index management ──────────────────────────────────────────────
-
-function atomicWriteFile(filePath: string, content: string): void {
-  const dir = dirname(filePath);
-  mkdirSync(dir, { recursive: true });
-  const tmpPath = join(dir, `.tmp-${randomUUID()}`);
-  writeFileSync(tmpPath, content, "utf-8");
-  renameSync(tmpPath, filePath);
-}
-
-export function upsertSkillsIndex(id: string): void {
-  const indexPath = getSkillsIndexPath();
-  let lines: string[] = [];
-  if (existsSync(indexPath)) {
-    lines = readFileSync(indexPath, "utf-8").split("\n");
-  }
-
-  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`^[-*]\\s+(?:\`)?${escaped}(?:\`)?\\s*$`);
-  if (lines.some((line) => pattern.test(line))) return;
-
-  const nonEmpty = lines.filter((l) => l.trim());
-  nonEmpty.push(`- ${id}`);
-  const content = nonEmpty.join("\n");
-  atomicWriteFile(indexPath, content.endsWith("\n") ? content : content + "\n");
-}
-
-function removeSkillsIndexEntry(id: string): void {
-  const indexPath = getSkillsIndexPath();
-  if (!existsSync(indexPath)) return;
-
-  const lines = readFileSync(indexPath, "utf-8").split("\n");
-  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`^[-*]\\s+(?:\`)?${escaped}(?:\`)?\\s*$`);
-  const filtered = lines.filter((line) => !pattern.test(line));
-
-  // If nothing changed, skip the write
-  if (filtered.length === lines.length) return;
-
-  const content = filtered.join("\n");
-  atomicWriteFile(indexPath, content.endsWith("\n") ? content : content + "\n");
-}
-
 // ─── Install / uninstall ─────────────────────────────────────────────────────
 
 export function uninstallSkillLocally(skillId: string): void {
@@ -280,8 +264,137 @@ export function uninstallSkillLocally(skillId: string): void {
   }
 
   rmSync(skillDir, { recursive: true, force: true });
-  removeSkillsIndexEntry(skillId);
   deleteSkillCapabilityNode(skillId);
+}
+
+function assertInstalledSkillDiscoverable(
+  skillId: string,
+  skillDir = join(getWorkspaceSkillsDir(), skillId),
+): void {
+  const skillFilePath = join(skillDir, "SKILL.md");
+  if (!existsSync(skillFilePath)) {
+    throw new Error(
+      `Installed skill "${skillId}" is missing SKILL.md at the skill root`,
+    );
+  }
+
+  const discovered = loadSkillCatalog().some((skill) => {
+    if (skill.id !== skillId) return false;
+    try {
+      return realpathSync(skill.directoryPath) === realpathSync(skillDir);
+    } catch {
+      return skill.directoryPath === skillDir;
+    }
+  });
+  if (!discovered) {
+    throw new Error(
+      `Installed skill "${skillId}" was not discovered by the skill catalog`,
+    );
+  }
+}
+
+function getInstallStagingRoot(): string {
+  return join(getWorkspaceSkillsDir(), ".install-staging");
+}
+
+export function createSkillInstallStagingDir(): string {
+  const stagingRoot = getInstallStagingRoot();
+  mkdirSync(stagingRoot, { recursive: true });
+  return mkdtempSync(join(stagingRoot, "skill-"));
+}
+
+function createSkillInstallBackupPath(): string {
+  const stagingRoot = getInstallStagingRoot();
+  mkdirSync(stagingRoot, { recursive: true });
+  return join(
+    stagingRoot,
+    `backup-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+}
+
+function assertStagedSkillRoot(skillId: string, stagedDir: string): void {
+  if (!existsSync(join(stagedDir, "SKILL.md"))) {
+    throw new Error(
+      `Installed skill "${skillId}" is missing SKILL.md at the skill root`,
+    );
+  }
+}
+
+export function installSkillDependenciesIfPresent(skillDir: string): void {
+  if (existsSync(join(skillDir, "package.json"))) {
+    const bunPath = `${homedir()}/.bun/bin`;
+    execSync("bun install", {
+      cwd: skillDir,
+      stdio: "inherit",
+      env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+    });
+  }
+}
+
+function restoreOrRemoveFailedSkillInstall(
+  skillId: string,
+  backupDir: string | null,
+): void {
+  const skillDir = join(getWorkspaceSkillsDir(), skillId);
+  rmSync(skillDir, { recursive: true, force: true });
+  if (backupDir) {
+    renameSync(backupDir, skillDir);
+  }
+}
+
+function discardSkillInstallBackup(backupDir: string | null): void {
+  if (backupDir) {
+    rmSync(backupDir, { recursive: true, force: true });
+  }
+}
+
+function snapshotExistingSkillDir(skillId: string): string | null {
+  const skillDir = join(getWorkspaceSkillsDir(), skillId);
+  if (!existsSync(skillDir)) return null;
+
+  const backupDir = createSkillInstallBackupPath();
+  renameSync(skillDir, backupDir);
+  return backupDir;
+}
+
+export function commitStagedSkillInstall(
+  skillId: string,
+  stagedDir: string,
+): void {
+  assertStagedSkillRoot(skillId, stagedDir);
+
+  const skillDir = join(getWorkspaceSkillsDir(), skillId);
+  let backupDir: string | null = null;
+  let stagedMovedToFinal = false;
+
+  try {
+    backupDir = snapshotExistingSkillDir(skillId);
+    renameSync(stagedDir, skillDir);
+    stagedMovedToFinal = true;
+    assertInstalledSkillDiscoverable(skillId, skillDir);
+    discardSkillInstallBackup(backupDir);
+  } catch (err) {
+    const originalMessage = err instanceof Error ? err.message : String(err);
+    let restoreError: unknown;
+    if (backupDir || stagedMovedToFinal) {
+      try {
+        restoreOrRemoveFailedSkillInstall(skillId, backupDir);
+      } catch (restoreErr) {
+        restoreError = restoreErr;
+      }
+    }
+    rmSync(stagedDir, { recursive: true, force: true });
+    if (restoreError) {
+      const restoreMessage =
+        restoreError instanceof Error
+          ? restoreError.message
+          : String(restoreError);
+      throw new Error(
+        `${originalMessage}; failed to restore previous skill: ${restoreMessage}`,
+      );
+    }
+    throw err;
+  }
 }
 
 export async function installSkillLocally(
@@ -299,7 +412,7 @@ export async function installSkillLocally(
     );
   }
 
-  mkdirSync(skillDir, { recursive: true });
+  const stagedDir = createSkillInstallStagingDir();
 
   // In dev mode, install from the local repo skills directory if available
   const repoSkillsDir = getRepoSkillsDir();
@@ -308,40 +421,37 @@ export async function installSkillLocally(
     : undefined;
 
   let installSource: "repo" | "platform";
-  if (repoSkillSource && existsSync(join(repoSkillSource, "SKILL.md"))) {
-    installSource = "repo";
-    cpSync(repoSkillSource, skillDir, { recursive: true });
-  } else {
-    installSource = "platform";
-    await fetchAndExtractSkill(skillId, skillDir);
-  }
-  log.info(
-    { skillId, source: installSource },
-    "Installed skill from %s",
-    installSource,
-  );
+  try {
+    if (repoSkillSource && existsSync(join(repoSkillSource, "SKILL.md"))) {
+      installSource = "repo";
+      cpSync(repoSkillSource, stagedDir, { recursive: true });
+    } else {
+      installSource = "platform";
+      await fetchAndExtractSkill(skillId, stagedDir);
+    }
 
-  // Write install metadata
-  writeInstallMeta(skillDir, {
-    origin: "vellum",
-    installedAt: new Date().toISOString(),
-    ...(catalogEntry.version ? { version: catalogEntry.version } : {}),
-    ...(contactId ? { installedBy: contactId } : {}),
-    contentHash: computeSkillHash(skillDir) ?? undefined,
-  });
+    assertStagedSkillRoot(skillId, stagedDir);
 
-  // Post-install: install dependencies first, then index the skill.
-  // Running bun install before upsertSkillsIndex ensures we don't index a
-  // skill whose dependencies failed to install.
-  if (existsSync(join(skillDir, "package.json"))) {
-    const bunPath = `${homedir()}/.bun/bin`;
-    execSync("bun install", {
-      cwd: skillDir,
-      stdio: "inherit",
-      env: { ...process.env, PATH: `${bunPath}:${process.env.PATH}` },
+    writeInstallMeta(stagedDir, {
+      origin: "vellum",
+      installedAt: new Date().toISOString(),
+      ...(catalogEntry.version ? { version: catalogEntry.version } : {}),
+      ...(contactId ? { installedBy: contactId } : {}),
+      contentHash: computeSkillHash(stagedDir) ?? undefined,
     });
+
+    installSkillDependenciesIfPresent(stagedDir);
+    commitStagedSkillInstall(skillId, stagedDir);
+
+    log.info(
+      { skillId, source: installSource },
+      "Installed skill from %s",
+      installSource,
+    );
+  } catch (err) {
+    rmSync(stagedDir, { recursive: true, force: true });
+    throw err;
   }
-  upsertSkillsIndex(skillId);
 }
 
 // ─── Auto-install (for skill_load) ──────────────────────────────────────────
@@ -439,19 +549,14 @@ export async function autoInstallFromCatalog(
     return false;
   }
 
-  // If the skill already exists on disk (stale index), re-index it instead
-  // of attempting a fresh install that would fail.
+  // If the skill already exists on disk, reuse it instead of attempting a
+  // fresh install that would fail.
   const skillDir = join(getWorkspaceSkillsDir(), skillId);
   if (existsSync(join(skillDir, "SKILL.md"))) {
-    log.info(
-      { skillId, source: "disk-reindex" },
-      "Skill already on disk, re-indexing",
-    );
-    upsertSkillsIndex(skillId);
+    log.info({ skillId, source: "disk" }, "Skill already on disk");
     return true;
   }
 
-  // installSkillLocally handles dependency installation and SKILLS.md indexing.
   await installSkillLocally(skillId, entry, false);
 
   return true;

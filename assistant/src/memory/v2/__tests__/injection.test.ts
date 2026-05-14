@@ -879,17 +879,17 @@ describe("injectMemoryV2Block", () => {
   // Unified pool — skills as `skills/<id>` slugs
   // ---------------------------------------------------------------------------
 
-  test("renders a skill-only block via the skills/ slug prefix", async () => {
+  test("renders a retrieved skills/<id> slug under Skills You Can Use", async () => {
     // No concept-page candidates this turn — the only ANN hit is a skill
     // slug. The render path branches on `skills/` prefix: it pulls the
     // entry from the skill-store cache (mocked) and emits the bullet under
     // the `### Skills You Can Use` subsection.
-    stageTurn([{ slug: "skills/example-skill-a", denseScore: 0.9 }]);
+    stageTurn([{ slug: "skills/retrieved-skill", denseScore: 0.9 }]);
     stageSkills([
       {
-        id: "example-skill-a",
+        id: "retrieved-skill",
         content:
-          'The "Example Skill A" skill (example-skill-a) is available. Helps with examples.',
+          'The "Retrieved Skill" skill (retrieved-skill) is available. Helps with retrieved skills.',
       },
     ]);
 
@@ -904,16 +904,18 @@ describe("injectMemoryV2Block", () => {
       config: makeConfig(),
     });
 
-    expect(result.toInject).toEqual(["skills/example-skill-a"]);
+    expect(result.toInject).toEqual(["skills/retrieved-skill"]);
     expect(result.block).not.toBeNull();
     expect(result.block).not.toContain("<memory>");
     expect(result.block).not.toContain("</memory>");
     expect(result.block).not.toContain("## What I Remember Right Now");
     expect(result.block).not.toContain("# memory/concepts/alice-vscode.md");
-    expect(result.block).toContain("### Skills You Can Use");
-    expect(result.block).toContain(
-      '- The "Example Skill A" skill (example-skill-a) is available. Helps with examples. → use skill_load to activate',
+    const headerIdx = result.block!.indexOf("### Skills You Can Use");
+    const skillIdx = result.block!.indexOf(
+      '- The "Retrieved Skill" skill (retrieved-skill) is available. Helps with retrieved skills. → use skill_load to activate',
     );
+    expect(headerIdx).toBeGreaterThan(-1);
+    expect(skillIdx).toBeGreaterThan(headerIdx);
   });
 
   test("renders concept-page sections before the skills subsection in mixed blocks", async () => {
@@ -1955,16 +1957,16 @@ describe("injectMemoryV2Block", () => {
       expect(row.mode).toBe("per-turn");
     });
 
-    test("flag-on + mode='context-load': activation pipeline runs (not the router) so post-compaction bootstrap can re-emit pages already in everInjected", async () => {
+    test("flag-on + mode='context-load': router runs (everInjected was cleared by onCompacted so dedupe is a no-op; abstention is accepted as the trade-off)", async () => {
       // Context-load is the full top-K bootstrap fired after compaction or
-      // a fresh conversation reload. The router's `everInjected` dedupe is
-      // correct for per-turn deltas but wrong here — pages the user just
-      // lost from compaction live in `everInjected` and would be filtered
-      // out, so context-load must always bypass the router and re-run the
-      // activation pipeline against the full top-K.
-      stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+      // a fresh conversation reload. The earlier worry about the router's
+      // `everInjected` dedupe filtering out post-compaction restorations
+      // doesn't apply: `ConversationGraphMemory.onCompacted` calls
+      // `evictCompactedTurnsV2` which empties the list before this code
+      // runs. Router abstention here means no v2 pages this turn — that's
+      // preferable to letting the activation graph pick something arbitrary.
       routerState.nextResult = {
-        selectedSlugs: ["should-not-be-used"],
+        selectedSlugs: ["alice-vscode"],
         failureReason: null,
       };
 
@@ -1980,18 +1982,17 @@ describe("injectMemoryV2Block", () => {
         config: makeConfig({ router: { enabled: true } }),
       });
 
-      // Router must not be called — context-load bypasses the gate even
-      // when the flag is on.
-      expect(routerState.callCount).toBe(0);
+      // Router was called on context-load too.
+      expect(routerState.callCount).toBe(1);
 
-      // Activation pipeline produced the normal context-load result.
+      // Router's picks were rendered.
       expect(result.toInject).toEqual(["alice-vscode"]);
       expect(result.block).toContain("# memory/concepts/alice-vscode.md");
 
-      // Telemetry row reflects the activation mode, not router.
+      // Telemetry row reflects the router mode, not the activation mode.
       expect(telemetryState.recordCalls.length).toBe(1);
       const row = telemetryState.recordCalls[0] as { mode: string };
-      expect(row.mode).toBe("context-load");
+      expect(row.mode).toBe("router");
     });
   });
 });

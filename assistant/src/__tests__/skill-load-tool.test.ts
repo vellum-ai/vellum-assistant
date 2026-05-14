@@ -19,6 +19,7 @@ mock.module("../util/logger.js", () => ({
 const mockAutoInstall = mock((_skillId: string) => Promise.resolve(false));
 mock.module("../skills/catalog-install.js", () => ({
   autoInstallFromCatalog: (skillId: string) => mockAutoInstall(skillId),
+  getRepoSkillsDir: () => undefined,
   resolveCatalog: (_skillId?: string) => Promise.resolve([]),
 }));
 
@@ -115,10 +116,6 @@ describe("skill_load tool", () => {
       "Runs release checks",
       "1. Run tests",
     );
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- release-checklist\n",
-    );
 
     const result = await executeSkillLoad({ skill: "release-checklist" });
     expect(result.isError).toBe(false);
@@ -140,7 +137,6 @@ describe("skill_load tool", () => {
       "Handles incidents",
       "Page primary responder",
     );
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- oncall\n");
 
     const result = await executeSkillLoad({ skill: "oncall runbook" });
     expect(result.isError).toBe(false);
@@ -165,10 +161,6 @@ describe("skill_load tool", () => {
       "Release flow",
       "Run release checklist",
     );
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- incident-response\n- release-checklist\n",
-    );
 
     const result = await executeSkillLoad({ skill: "incident" });
     expect(result.isError).toBe(false);
@@ -182,10 +174,6 @@ describe("skill_load tool", () => {
   test("returns an error when name resolution is ambiguous", async () => {
     writeSkill("skill-a", "Shared Name", "First", "Body A");
     writeSkill("skill-b", "Shared Name", "Second", "Body B");
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- skill-a\n- skill-b\n",
-    );
 
     const result = await executeSkillLoad({ skill: "Shared Name" });
     expect(result.isError).toBe(true);
@@ -200,7 +188,6 @@ describe("skill_load tool", () => {
       "Test versioning",
       "Original body",
     );
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- versioned\n");
 
     const result1 = await executeSkillLoad({ skill: "versioned" });
     const match1 = result1.content.match(
@@ -229,12 +216,37 @@ describe("skill_load tool", () => {
 
   test("returns an error when skill is missing", async () => {
     writeSkill("existing", "Existing Skill", "Exists", "Body");
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- existing\n");
 
     const result = await executeSkillLoad({ skill: "does-not-exist" });
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No skill matched");
     expect(result.content).not.toContain("<loaded_skill");
+  });
+
+  test("loads a valid disk-discovered skill omitted from stale SKILLS.md", async () => {
+    writeSkill("existing", "Existing Skill", "Exists", "Existing body");
+    writeSkill(
+      "geo-article-writer",
+      "Geo Article Writer",
+      "Writes local geo articles",
+      "Draft the article.",
+    );
+    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- existing\n");
+
+    const result = await executeSkillLoad({ skill: "geo-article-writer" });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("ID: geo-article-writer");
+    const markers = result.content.match(/<loaded_skill/g) || [];
+    expect(markers.length).toBe(1);
+    expect(result.content).toMatch(
+      /<loaded_skill id="geo-article-writer" version="v1:[a-f0-9]{64}" \/>/,
+    );
+
+    const missing = await executeSkillLoad({ skill: "does-not-exist" });
+    expect(missing.isError).toBe(true);
+    expect(missing.content).toContain("No skill matched");
+    expect(missing.content).not.toContain("<loaded_skill");
   });
 
   test('successful skill_load output shows "none" for skills without includes', async () => {
@@ -244,7 +256,6 @@ describe("skill_load tool", () => {
       "A skill with no children",
       "Do the thing",
     );
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- standalone\n");
 
     const result = await executeSkillLoad({ skill: "standalone" });
     expect(result.isError).toBe(false);
@@ -258,7 +269,6 @@ describe("skill_load tool", () => {
       "Should have one marker",
       "Step 1",
     );
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- single-marker\n");
 
     const result = await executeSkillLoad({ skill: "single-marker" });
     expect(result.isError).toBe(false);
@@ -270,7 +280,6 @@ describe("skill_load tool", () => {
     writeSkillWithIncludes("parent", "Parent", "Has missing child", "Body", [
       "missing-child",
     ]);
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- parent\n");
 
     const result = await executeSkillLoad({ skill: "parent" });
     expect(result.isError).toBe(false);
@@ -288,10 +297,6 @@ describe("skill_load tool", () => {
     writeSkillWithIncludes("skill-b", "Skill B", "Cycles", "Body B", [
       "skill-a",
     ]);
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- skill-a\n- skill-b\n",
-    );
 
     const result = await executeSkillLoad({ skill: "skill-a" });
     expect(result.isError).toBe(true);
@@ -308,10 +313,6 @@ describe("skill_load tool", () => {
       ["valid-child"],
     );
     writeSkill("valid-child", "Valid Child", "A child", "Child body");
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- valid-parent\n- valid-child\n",
-    );
 
     const result = await executeSkillLoad({ skill: "valid-parent" });
     expect(result.isError).toBe(false);
@@ -326,7 +327,6 @@ describe("skill_load tool", () => {
       join(skillDir, "SKILL.md"),
       '---\nname: "Marker Missing"\ndescription: "test"\nmetadata: {"vellum":{"includes":["nonexistent"]}}\n---\n\nBody.\n',
     );
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- marker-missing\n");
 
     const result = await executeSkillLoad({ skill: "marker-missing" });
     expect(result.isError).toBe(false);
@@ -351,10 +351,6 @@ describe("skill_load tool", () => {
       join(dirB, "SKILL.md"),
       '---\nname: "Cycle B"\ndescription: "test"\nmetadata: {"vellum":{"includes":["cycle-a"]}}\n---\n\nBody B.\n',
     );
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- cycle-a\n- cycle-b\n",
-    );
 
     const result = await executeSkillLoad({ skill: "cycle-a" });
     expect(result.isError).toBe(true);
@@ -364,7 +360,6 @@ describe("skill_load tool", () => {
 
   test("succeeds when skill has no includes", async () => {
     writeSkill("no-includes", "No Includes", "Plain skill", "Body");
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- no-includes\n");
 
     const result = await executeSkillLoad({ skill: "no-includes" });
     expect(result.isError).toBe(false);
@@ -399,10 +394,6 @@ describe("skill_load tool", () => {
       join(parentDir, "SKILL.md"),
       '---\nname: "Parent"\ndescription: "Has children"\nmetadata: {"vellum":{"includes":["child-skill"]}}\n---\n\nParent body.\n',
     );
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- parent-with-children\n- child-skill\n",
-    );
 
     const result = await executeSkillLoad({ skill: "parent-with-children" });
     expect(result.isError).toBe(false);
@@ -413,7 +404,6 @@ describe("skill_load tool", () => {
 
   test('skill_load output shows "none" when no includes', async () => {
     writeSkill("solo-skill", "Solo", "No children", "Body");
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- solo-skill\n");
 
     const result = await executeSkillLoad({ skill: "solo-skill" });
     expect(result.isError).toBe(false);
@@ -434,10 +424,6 @@ describe("skill_load tool", () => {
       "Parent with includes",
       "Parent instructions.",
       ["e2e-child"],
-    );
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- e2e-parent\n- e2e-child\n",
     );
 
     // Load the parent
@@ -478,10 +464,6 @@ describe("skill_load tool", () => {
       "Top-level",
       "Grandparent body",
       ["child"],
-    );
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- grandparent\n- child\n- grandchild\n",
     );
 
     const result = await executeSkillLoad({ skill: "grandparent" });
@@ -534,10 +516,6 @@ describe("skill_load tool", () => {
       "Root body",
       ["branch-a", "branch-b"],
     );
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- diamond-root\n- branch-a\n- branch-b\n- shared-leaf\n",
-    );
 
     const result = await executeSkillLoad({ skill: "diamond-root" });
     expect(result.isError).toBe(false);
@@ -576,7 +554,6 @@ describe("skill_load tool", () => {
       "Body",
       ["self-ref"],
     );
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- self-ref\n");
 
     const result = await executeSkillLoad({ skill: "self-ref" });
     expect(result.isError).toBe(true);
@@ -601,7 +578,6 @@ describe("skill_load tool", () => {
       join(skillDir, "references", "TROUBLESHOOTING.md"),
       "# Troubleshooting\n\nFix things here.",
     );
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- with-refs\n");
 
     const result = await executeSkillLoad({ skill: "with-refs" });
     expect(result.isError).toBe(false);
@@ -624,7 +600,6 @@ describe("skill_load tool", () => {
 
   test("skill without references/ directory loads normally", async () => {
     writeSkill("no-refs", "No Refs", "No references dir", "Just body.");
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- no-refs\n");
 
     const result = await executeSkillLoad({ skill: "no-refs" });
     expect(result.isError).toBe(false);
@@ -650,8 +625,6 @@ describe("skill_load tool", () => {
     writeFileSync(outsideSecretPath, "TOP_SECRET_DO_NOT_LOAD");
     symlinkSync(outsideSecretPath, join(skillDir, "references", "secret.md"));
 
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- refs-symlink\n");
-
     const result = await executeSkillLoad({ skill: "refs-symlink" });
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Body.");
@@ -675,7 +648,6 @@ describe("skill_load tool", () => {
       join(skillDir, "references", "data.json"),
       '{"key": "value"}',
     );
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- refs-filter\n");
 
     const result = await executeSkillLoad({ skill: "refs-filter" });
     expect(result.isError).toBe(false);
@@ -695,7 +667,6 @@ describe("skill_load tool", () => {
       join(skillDir, "SKILL.md"),
       '---\nname: "Empty Includes"\ndescription: "Has empty array"\nmetadata: {"vellum":{"includes":[]}}\n---\n\nBody.\n',
     );
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- empty-includes\n");
 
     const result = await executeSkillLoad({ skill: "empty-includes" });
     expect(result.isError).toBe(false);
@@ -746,11 +717,6 @@ describe("skill_load tool", () => {
         },
       },
     ]);
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- skill-with-tools\n",
-    );
-
     const result = await executeSkillLoad({ skill: "skill-with-tools" });
     expect(result.isError).toBe(false);
 
@@ -784,7 +750,6 @@ describe("skill_load tool", () => {
 
   test("skill without TOOLS.json does not include tool schemas section", async () => {
     writeSkill("no-tools", "No Tools", "No tools manifest", "Body.");
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- no-tools\n");
 
     const result = await executeSkillLoad({ skill: "no-tools" });
     expect(result.isError).toBe(false);
@@ -817,10 +782,6 @@ describe("skill_load tool", () => {
         },
       },
     ]);
-    writeFileSync(
-      join(TEST_DIR, "skills", "SKILLS.md"),
-      "- parent-tools\n- child-tools\n",
-    );
 
     const result = await executeSkillLoad({ skill: "parent-tools" });
     expect(result.isError).toBe(false);
@@ -845,17 +806,11 @@ describe("skill_load tool", () => {
       "Parent body",
       ["dep-a"],
     );
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- auto-parent\n");
 
     // Mock autoInstallFromCatalog to succeed and write the skill to disk
     mockAutoInstall.mockImplementation((skillId: string) => {
       if (skillId === "dep-a") {
         writeSkill("dep-a", "Dep A", "A dependency", "Dep A body");
-        // Add to SKILLS.md so catalog reload finds it
-        writeFileSync(
-          join(TEST_DIR, "skills", "SKILLS.md"),
-          "- auto-parent\n- dep-a\n",
-        );
         return Promise.resolve(true);
       }
       return Promise.resolve(false);
@@ -873,7 +828,6 @@ describe("skill_load tool", () => {
     writeSkillWithIncludes("trans-a", "Trans A", "Top level", "Body A", [
       "trans-b",
     ]);
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- trans-a\n");
 
     let round = 0;
     mockAutoInstall.mockImplementation((skillId: string) => {
@@ -882,20 +836,12 @@ describe("skill_load tool", () => {
         writeSkillWithIncludes("trans-b", "Trans B", "Mid level", "Body B", [
           "trans-c",
         ]);
-        writeFileSync(
-          join(TEST_DIR, "skills", "SKILLS.md"),
-          "- trans-a\n- trans-b\n",
-        );
         round++;
         return Promise.resolve(true);
       }
       if (skillId === "trans-c") {
         // Second round: install C
         writeSkill("trans-c", "Trans C", "Leaf", "Body C");
-        writeFileSync(
-          join(TEST_DIR, "skills", "SKILLS.md"),
-          "- trans-a\n- trans-b\n- trans-c\n",
-        );
         return Promise.resolve(true);
       }
       return Promise.resolve(false);
@@ -917,7 +863,6 @@ describe("skill_load tool", () => {
       "Body",
       ["dep-x"],
     );
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- fail-parent\n");
 
     // autoInstallFromCatalog throws an error
     mockAutoInstall.mockImplementation((skillId: string) => {
@@ -941,7 +886,6 @@ describe("skill_load tool", () => {
     writeSkillWithIncludes("loop-root", "Loop Root", "Infinite deps", "Body", [
       "loop-dep-0",
     ]);
-    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- loop-root\n");
 
     let installCount = 0;
     mockAutoInstall.mockImplementation((skillId: string) => {
@@ -957,12 +901,6 @@ describe("skill_load tool", () => {
           "Body",
           [nextDepId],
         );
-        // Update SKILLS.md to include all installed deps so far
-        const entries = ["- loop-root\n"];
-        for (let i = 0; i < installCount; i++) {
-          entries.push(`- loop-dep-${i}\n`);
-        }
-        writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), entries.join(""));
         return Promise.resolve(true);
       }
       return Promise.resolve(false);

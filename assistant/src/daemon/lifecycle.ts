@@ -115,7 +115,6 @@ import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel
 import { installAssistantSymlink } from "./install-symlink.js";
 import {
   maybeRebuildMemoryV2Concepts,
-  maybeSeedMemoryV2Skills,
   rebuildBm25CorpusStatsAndReseedSkills,
 } from "./memory-v2-startup.js";
 import { processMessage } from "./process-message.js";
@@ -128,6 +127,7 @@ import {
 import { seedInterfaceFiles } from "./seed-files.js";
 import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
+import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
 
 const log = getLogger("lifecycle");
 let diskPressureStartupSampleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -872,20 +872,10 @@ export async function runDaemon(): Promise<void> {
 
       // Seed capability graph nodes (new memory graph system)
       try {
-        const {
-          seedSkillGraphNodes,
-          seedCliGraphNodes,
-          seedUninstalledCatalogSkillMemories,
-        } = await import("../memory/graph/capability-seed.js");
-        seedSkillGraphNodes();
-        maybeSeedMemoryV2Skills(config);
+        const { seedCliGraphNodes } =
+          await import("../memory/graph/capability-seed.js");
+        refreshSkillCapabilityMemories(config);
         await seedCliGraphNodes();
-        void seedUninstalledCatalogSkillMemories().catch((err) =>
-          log.warn(
-            { err },
-            "Uninstalled catalog skill memory seeding failed — continuing",
-          ),
-        );
       } catch (err) {
         log.warn({ err }, "Graph capability seeding failed — continuing");
       }
