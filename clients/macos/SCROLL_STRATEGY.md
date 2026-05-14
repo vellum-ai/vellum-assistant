@@ -40,7 +40,7 @@ The ScrollView gets `.flipped()`, and each row inside also gets `.flipped()`. Th
 
 1. **No scroll-to-bottom management.** In a normal ScrollView, new content added at the bottom pushes the viewport up — you need imperative `scrollTo(.bottom)` to follow. In an inverted ScrollView, new content is added at the coordinate "top" (visual bottom), which is where the viewport already sits. The viewport stays put naturally.
 
-2. **No LazyVStack materialization hang.** With a normal bottom-anchored ScrollView, SwiftUI had to materialize all items to compute content height before it could position at the bottom. With inverted scroll, the "top" (visual bottom) is the natural starting position — SwiftUI only materializes visible items.
+2. **No bottom-anchoring materialization hang.** With a normal bottom-anchored ScrollView, SwiftUI had to materialize all items to compute content height before it could position at the bottom. With inverted scroll, the "top" (visual bottom) is the natural starting position — SwiftUI only materializes visible items. The transcript uses a `LazyVStack` (`MessageTranscriptStack`) so only visible rows are measured per layout pass. The `.transaction { $0.animation = nil }` modifier on the stack is critical — without it, animated insertions trigger `motionVectors`, an O(n) `sizeThatFits` sweep that defeats lazy loading. See [WWDC23: Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/).
 
 3. **No multi-stage scroll restore.** The old architecture needed `switchRestoreTask`, `isScrollRestored` opacity fade, and deferred scroll calls to restore position on conversation switch. With inverted scroll, `.id(conversationId)` recreates the ScrollView and it naturally opens at visual bottom (coordinate top).
 
@@ -244,6 +244,7 @@ These were removed for a reason. Do not re-introduce:
 | `.defaultScrollAnchor(.bottom)` | Was needed to start at bottom in normal scroll; inverted scroll starts at visual bottom naturally |
 | `turnMinHeight` / minHeight wrapper | Filled viewport below user message on send; inverted scroll keeps user message visible without it |
 | `containerHeight` property | Drove the minHeight calculation; removed along with minHeight wrapper |
+| Plain `VStack` transcript | Eagerly measures ALL rows per layout pass — O(N) cost causing ≥ 2 s hangs on conversation switch, resize, and typography changes. `LazyVStack` measures only visible rows. Trade-off: minor scroll-position drift on first scroll through unmeasured history (progressive, self-correcting). |
 
 ---
 
@@ -256,7 +257,8 @@ These were removed for a reason. Do not re-introduce:
 | `MessageListView.swift` | ScrollView setup — `.flipped()`, position binding, indicators, overlay |
 | `MessageListView+ScrollHandling.swift` | Geometry handler — updates state, triggers pagination using `distanceFromTop` |
 | `MessageListView+Lifecycle.swift` | Send detection, conversation switch, anchor resolution |
-| `MessageListContentView.swift` | History rendering, pinned latest-turn section, spacer math, thinking placeholder |
+| `MessageListContentView.swift` | History rendering, pinned latest-turn section, spacer math, thinking placeholder, `.transaction { $0.animation = nil }` suppressor |
+| `MessageHeightCache.swift` | `MessageTranscriptStack` (`LazyVStack` container), `CachedHeightRow` (height recording), `MessageHeightCache` (diagnostic cache) |
 | `MessageListHelperViews.swift` | ScrollToLatestOverlayView — CTA button |
 | `TranscriptProjector.swift` | Thinking placeholder row injection |
 | `TranscriptRenderModel.swift` | `isThinkingPlaceholder` flag on row model |
