@@ -460,6 +460,15 @@ export interface AgentLoopConversationContext {
   readonly contextWindowManager: ContextWindowManager;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
+  /**
+   * Set by `applyCompactionResult` when compaction strips runtime injections
+   * from the preserved tail. The next agent loop turn promotes this into a
+   * `compactedThisTurn` signal so NOW.md, PKB, and the v2 static block are
+   * re-injected on the first turn following `/compact` (which runs outside
+   * the agent loop and so has no other way to surface that compaction
+   * happened just before this turn).
+   */
+  pendingPostCompactReinject: boolean;
   /** Tracks consecutive compaction failures (summary LLM call threw). */
   consecutiveCompactionFailures: number;
   /** Timestamp (ms since epoch) until which the circuit breaker is open. */
@@ -916,8 +925,14 @@ export async function runAgentLoopImpl(
     }
 
     const isFirstMessage = ctx.messages.length === 1;
-    let shouldInjectWorkspace = isFirstMessage;
-    let compactedThisTurn = false;
+    // Promote a pending post-compaction re-inject signal (e.g. from `/compact`)
+    // into `compactedThisTurn` so NOW.md / PKB / v2 static blocks land on this
+    // turn even when no mid-turn compaction fires. Clear the flag immediately
+    // so this fires exactly once per `/compact` event.
+    const consumedPostCompactReinject = ctx.pendingPostCompactReinject;
+    ctx.pendingPostCompactReinject = false;
+    let shouldInjectWorkspace = isFirstMessage || consumedPostCompactReinject;
+    let compactedThisTurn = consumedPostCompactReinject;
     let slackCompactedThisTurn = false;
     const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
     let currentSlackContextSummary =
@@ -3273,6 +3288,7 @@ export interface CompactionApplyContext {
   messages: Message[];
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
+  pendingPostCompactReinject: boolean;
   readonly graphMemory: ConversationGraphMemory;
   readonly provider: Provider;
   usageStats: UsageStats;
@@ -3322,6 +3338,10 @@ export async function applyCompactionResult(
   ctx.contextCompactedMessageCount += result.compactedPersistedMessages;
   const compactedAt = Date.now();
   ctx.contextCompactedAt = compactedAt;
+  // Signal to the next agent loop turn that NOW.md / PKB / v2 static blocks
+  // were stripped from the tail and need fresh re-injection. Consumed and
+  // cleared at the top of the next `runAgentLoopImpl` run.
+  ctx.pendingPostCompactReinject = true;
   await ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
   updateConversationContextWindow(
     ctx.conversationId,
