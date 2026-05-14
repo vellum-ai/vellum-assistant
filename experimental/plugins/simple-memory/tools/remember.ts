@@ -4,16 +4,9 @@
  * Convention: default export is the tool object the harness registers.
  */
 
+import type { ToolContext, ToolExecutionResult } from "@vellumai/plugin-api";
+
 import { appendEntry, type MemoryEntry, newEntryId } from "../src/state.js";
-
-interface ToolContext {
-  conversationId: string;
-}
-
-interface ToolExecutionResult {
-  content: string;
-  isError: boolean;
-}
 
 export default {
   name: "simple_memory_remember",
@@ -31,7 +24,8 @@ export default {
         properties: {
           text: {
             type: "string",
-            description: "The note to remember. One sentence, written naturally.",
+            description:
+              "The note to remember. One sentence, written naturally.",
           },
         },
         required: ["text"],

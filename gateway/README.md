@@ -212,7 +212,7 @@ The assistant runtime uses this URL to construct all webhook and OAuth callback 
 
 ### Velay for Twilio Testing
 
-Velay is a managed ingress transport for assistant-hosted HTTP and WebSocket traffic. When Velay registration succeeds, the gateway writes the registered public assistant URL to `ingress.publicBaseUrl` and marks it with `ingress.publicBaseUrlManagedBy: "velay"`. Twilio URL builders use that public base URL for voice, status, relay, and media-stream endpoints.
+Velay is a managed ingress transport for assistant-hosted HTTP and WebSocket traffic. The gateway starts the Velay tunnel only after Twilio setup has been started in the workspace, or when existing Twilio config shows it was set up before. When Velay registration succeeds, the gateway writes the registered public assistant URL to `ingress.publicBaseUrl` and marks it with `ingress.publicBaseUrlManagedBy: "velay"`. Twilio URL builders use that public base URL for voice, status, relay, and media-stream endpoints.
 
 Use Velay when testing Twilio voice webhooks or Twilio WebSocket upgrades through the platform-managed tunnel:
 
@@ -230,8 +230,9 @@ Use Velay when testing Twilio voice webhooks or Twilio WebSocket upgrades throug
 
    Hosted environments should use their environment's deployed Velay URL instead.
 
-3. Re-hatch or restart the assistant so the gateway process receives `VELAY_BASE_URL`.
-4. Confirm the gateway logs include `Velay tunnel connected` followed by `Velay tunnel registered`. Registration publishes the returned Velay URL to `ingress.publicBaseUrl`.
+3. Start or complete Twilio setup in the workspace so the gateway is allowed to connect the tunnel.
+4. Re-hatch or restart the assistant so the gateway process receives `VELAY_BASE_URL`.
+5. Confirm the gateway logs include `Velay tunnel connected` followed by `Velay tunnel registered`. Registration publishes the returned Velay URL to `ingress.publicBaseUrl`.
 
 For an HTTP bridge smoke test, send a request to the registered Velay public URL and confirm it reaches the loopback gateway, for example:
 

@@ -454,6 +454,7 @@ The `message` field is the `ServerMessage` payload. All delta semantics are pres
 | `confirmation_request` | User approval needed before an action executes |
 | `generation_handoff` | Model handed off to a sub-agent |
 | `generation_cancelled` | Run was cancelled |
+| `sync_changed` | Persisted resource invalidation; clients inspect `tags` and refetch existing endpoints |
 
 #### Connection Management
 

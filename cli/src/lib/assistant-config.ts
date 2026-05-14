@@ -67,6 +67,10 @@ export interface ContainerInfo {
 
 export interface AssistantEntry {
   assistantId: string;
+  /** Platform-provided display name, when available. */
+  name?: string;
+  /** Older lockfile key for the display name, if present. */
+  assistantName?: string;
   runtimeUrl: string;
   /** Loopback URL for same-machine health checks (e.g. `http://127.0.0.1:7831`).
    *  Avoids mDNS resolution issues when the machine checks its own gateway. */
@@ -572,5 +576,3 @@ export function getLockfilePlatformBaseUrl(): string | undefined {
   if (typeof url === "string" && url.trim()) return url.trim();
   return undefined;
 }
-
-

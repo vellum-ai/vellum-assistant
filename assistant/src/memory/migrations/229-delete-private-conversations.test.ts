@@ -1133,7 +1133,7 @@ describe("migrateDeletePrivateConversations", () => {
         1,
         'text',
         'eA==',
-        ${now}
+        ${now - 60_000}
       );
     `);
 
@@ -1149,6 +1149,43 @@ describe("migrateDeletePrivateConversations", () => {
     expect(
       countWhere(raw, "attachments", `id = 'orphan-private-attachment'`),
     ).toBe(0);
+    expect(
+      countWhere(raw, "attachments", `id = 'conv-standard-attachment'`),
+    ).toBe(1);
+  });
+
+  test("preserves pre-staged uploads (unlinked attachments) created after migration starts", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    const now = Date.now();
+
+    bootstrapTables(raw);
+    seedConversation(raw, "conv-standard", "standard");
+    // created_at in the future ensures it lands after the migration's start
+    // snapshot regardless of clock resolution / test-runner scheduling.
+    raw.exec(/*sql*/ `
+      INSERT INTO attachments (
+        id,
+        original_filename,
+        mime_type,
+        size_bytes,
+        kind,
+        data_base64,
+        created_at
+      ) VALUES (
+        'pre-staged-upload',
+        'pending.txt',
+        'text/plain',
+        1,
+        'text',
+        'eA==',
+        ${now + 60_000}
+      );
+    `);
+
+    migrateDeletePrivateConversations(db);
+
+    expect(countWhere(raw, "attachments", `id = 'pre-staged-upload'`)).toBe(1);
     expect(
       countWhere(raw, "attachments", `id = 'conv-standard-attachment'`),
     ).toBe(1);

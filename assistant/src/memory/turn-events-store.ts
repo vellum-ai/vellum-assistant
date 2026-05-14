@@ -1,16 +1,28 @@
 import { and, asc, eq, gt, or, sql } from "drizzle-orm";
 
 import { getDb } from "./db-connection.js";
-import { messages } from "./schema.js";
+import { conversations, messages } from "./schema.js";
 
 export interface TurnEvent {
   id: string;
   createdAt: number;
+  /**
+   * Conversation type of the parent conversation. Used downstream to
+   * distinguish user-initiated turns (`"standard"`) from system-generated
+   * prompts in `"background"` / `"scheduled"` conversations so analytics
+   * (e.g. DAU) can exclude the latter.
+   */
+  conversationType: string;
 }
 
 /**
  * Query user messages (turns) that haven't been reported to telemetry yet.
  * Uses a compound cursor (createdAt + id) for reliable watermarking.
+ *
+ * Joins to `conversations` so each turn carries its `conversationType`.
+ * The inner join is safe because `messages.conversationId` has a
+ * not-null FK to `conversations.id` (cascade on delete): every message
+ * row has a matching conversation row.
  */
 export function queryUnreportedTurnEvents(
   afterCreatedAt: number,
@@ -19,8 +31,13 @@ export function queryUnreportedTurnEvents(
 ): TurnEvent[] {
   const db = getDb();
   const rows = db
-    .select({ id: messages.id, createdAt: messages.createdAt })
+    .select({
+      id: messages.id,
+      createdAt: messages.createdAt,
+      conversationType: conversations.conversationType,
+    })
     .from(messages)
+    .innerJoin(conversations, eq(messages.conversationId, conversations.id))
     .where(
       and(
         eq(messages.role, "user"),

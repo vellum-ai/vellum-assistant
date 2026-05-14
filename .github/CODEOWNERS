@@ -7,6 +7,13 @@
 
 # --- Broad directory catch-alls (DRI defaults) ---
 
+# Web app scaffold landing zone (Ashlee).
+# `apps/web/` is the future open-source home for the Vellum web app;
+# no application code lives here yet. Code-owner review keeps
+# unrelated feature work from landing in the scaffold before the
+# migration completes. See apps/web/README.md.
+apps/web/ @ashleeradka
+
 # Memory system (Sidd)
 assistant/src/memory/ @siddseethepalli
 

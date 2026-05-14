@@ -72,6 +72,40 @@ const RETRYABLE_STREAM_PATTERNS = [
  */
 const RETRYABLE_PROVIDER_MESSAGE_PATTERNS = [/overloaded/i];
 
+/**
+ * Patterns that indicate the Anthropic provider SDK reported a transport-level
+ * abort (TCP close mid-stream, edge LB idle cutoff, Bun fetch deadline) rather
+ * than a caller-initiated cancellation or inner-timeout deadline. The SDK
+ * surfaces all three cases as ``Request was aborted`` with ``error.status ===
+ * undefined``; the catch-site in ``providers/anthropic/client.ts`` separates
+ * them by:
+ *   - tagging caller cancellations with ``abortReason`` (short-circuits in
+ *     {@link isRetryableError} before reaching this predicate)
+ *   - rewriting the inner-timeout message to ``"Anthropic stream timed out
+ *     after Xs (inner streamTimeoutMs)"`` (doesn't start with ``Anthropic API
+ *     error:`` so it falls through to network-error classification)
+ *   - leaving the transport-abort message verbatim as
+ *     ``"Anthropic API error: Request was aborted."``
+ *
+ * Pattern is intentionally anchored to the Anthropic-specific message prefix.
+ * The OpenAI / Gemini / OpenRouter catch-sites format their errors as
+ * ``"<Provider> API error (undefined): Request was aborted."`` (note the
+ * ``(undefined)`` parenthetical) and — crucially — do **not** rewrite
+ * inner-timeout failures, so a provider-agnostic ``/request was aborted/i``
+ * predicate would erroneously retry their 30-minute deadline failures three
+ * additional times. Once those catch-sites grow the same
+ * ``innerTimeoutFired`` distinction the Anthropic one has, the pattern set
+ * here can be expanded to cover them too.
+ *
+ * This is the daemon-side counterpart to the vembda graceful-close behavior
+ * for upstream disconnects (LUM-1536) — together they collapse the 45 s
+ * silent-stall window the web client used to observe whenever Anthropic's
+ * stream was cut mid-token.
+ */
+const RETRYABLE_TRANSPORT_ABORT_PATTERNS = [
+  /^anthropic api error:\s*request was aborted/i,
+];
+
 function isRetryableStreamError(error: unknown): boolean {
   if (!(error instanceof ProviderError)) return false;
   if (error.statusCode !== undefined) return false; // has a real HTTP status — not a stream error
@@ -82,6 +116,15 @@ function isRetryableProviderMessage(error: unknown): boolean {
   if (!(error instanceof ProviderError)) return false;
   if (error.statusCode !== undefined) return false; // has a real HTTP status — handled by status check
   return RETRYABLE_PROVIDER_MESSAGE_PATTERNS.some((p) => p.test(error.message));
+}
+
+function isRetryableTransportAbort(error: unknown): boolean {
+  if (!(error instanceof ProviderError)) return false;
+  // Transport aborts surface with ``status === undefined`` (the SDK never
+  // saw an HTTP response). A real HTTP status here means a server error,
+  // which is handled by the status check.
+  if (error.statusCode !== undefined) return false;
+  return RETRYABLE_TRANSPORT_ABORT_PATTERNS.some((p) => p.test(error.message));
 }
 
 function isRetryableError(error: unknown): boolean {
@@ -103,6 +146,7 @@ function isRetryableError(error: unknown): boolean {
   }
   if (isRetryableProviderMessage(error)) return true;
   if (isRetryableStreamError(error)) return true;
+  if (isRetryableTransportAbort(error)) return true;
   return isRetryableNetworkError(error);
 }
 
@@ -482,7 +526,9 @@ export class RetryProvider implements Provider {
                   ? "provider_overloaded"
                   : isRetryableStreamError(error)
                     ? "stream_corruption"
-                    : "network_error";
+                    : isRetryableTransportAbort(error)
+                      ? "transport_abort"
+                      : "network_error";
           log.warn(
             {
               attempt: attempt + 1,

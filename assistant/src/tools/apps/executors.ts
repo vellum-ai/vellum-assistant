@@ -176,12 +176,25 @@ render(<App />, document.getElementById('app')!);
   // The LLM may have written custom source files via file_write before
   // calling app_create, and overwriting them would destroy the real app
   // content, leaving only the scaffold placeholder.
+  const mainTsxScaffolded = !store.appFileExists(app.id, "src/main.tsx");
   if (!store.appFileExists(app.id, "src/index.html")) {
     store.writeAppFile(app.id, "src/index.html", indexHtml);
   }
-  if (!store.appFileExists(app.id, "src/main.tsx")) {
+  if (mainTsxScaffolded) {
     store.writeAppFile(app.id, "src/main.tsx", mainTsx);
   }
+
+  // When the placeholder main.tsx was actually scaffolded, the tool result
+  // must steer the agent toward writing the real source files instead of
+  // treating success + inline AppCard as task-done. When the agent pre-wrote
+  // src/main.tsx before calling app_create, this directive would be false
+  // and risks prompting a destructive rewrite, so omit it in that case.
+  const nextStepsField = mainTsxScaffolded
+    ? {
+        next_steps:
+          "Scaffold created with a placeholder src/main.tsx only. The app is NOT built yet. You MUST now (1) write the real src/main.tsx, components under src/components/, and src/styles.css with file_write, then (2) call app_refresh once. Stopping here leaves the user with an empty Hello-world placeholder.",
+      }
+    : {};
 
   // Compile src/ → dist/
   const appDir = getAppDirPath(app.id);
@@ -193,6 +206,7 @@ render(<App />, document.getElementById('app')!);
         compile_errors: compileResult.errors,
         compile_warnings: compileResult.warnings,
         compile_duration_ms: compileResult.durationMs,
+        ...nextStepsField,
       }),
       isError: false,
     };
@@ -217,6 +231,7 @@ render(<App />, document.getElementById('app')!);
             ...app,
             auto_opened: false,
             auto_open_error: openResult.content,
+            ...nextStepsField,
           }),
           isError: false,
         };
@@ -226,6 +241,7 @@ render(<App />, document.getElementById('app')!);
           ...app,
           auto_opened: true,
           open_result: openResult.content,
+          ...nextStepsField,
         }),
         isError: false,
       };
@@ -237,13 +253,20 @@ render(<App />, document.getElementById('app')!);
           auto_opened: false,
           auto_open_error:
             "Failed to auto-open app. Use app_open to open it manually.",
+          ...nextStepsField,
         }),
         isError: false,
       };
     }
   }
 
-  return { content: JSON.stringify(app), isError: false };
+  return {
+    content: JSON.stringify({
+      ...app,
+      ...nextStepsField,
+    }),
+    isError: false,
+  };
 }
 
 // ---------------------------------------------------------------------------

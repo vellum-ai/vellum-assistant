@@ -392,7 +392,8 @@ const CROSS_CLIENT_EXPOSED_CAPABILITIES = new Set<HostProxyCapability>([
   "host_file",
   "host_browser",
 ]);
-const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open"]);
+// Tools that require a connected client but no specific host proxy capability.
+const CLIENT_CAPABILITY_TOOL_NAMES = new Set(["app_open", "ask_question"]);
 const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
 
 /**
@@ -406,16 +407,34 @@ export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
 ]);
 
 /**
- * Determine whether a tool should be included in the LLM tool definitions
- * for the current turn based on conversation context. Tools not active for the
- * current context are omitted from the definitions sent to the provider,
- * reducing noise and preventing the model from attempting calls that would
- * fail.
+ * Determine whether a tool is part of the final exposed tool set for the
+ * current turn. This helper mirrors the filtering applied by
+ * `createResolveToolsCallback` — including the subagent allowlist,
+ * `toolsDisabledDepth`, and disk-pressure cleanup restrictions.
  */
 export function isToolActiveForContext(
   name: string,
   ctx: SkillProjectionContext,
 ): boolean {
+  // When the conversation is acting as a subagent, the parent orchestrator
+  // restricts the tool list. A tool that isn't on the allowlist is not
+  // available for this turn, so short-circuit before any capability checks.
+  if (ctx.subagentAllowedTools && !ctx.subagentAllowedTools.has(name)) {
+    return false;
+  }
+  // `createResolveToolsCallback` returns an empty tool list when tools are
+  // disabled (e.g. pointer-generation turns) and restricts to cleanup-safe
+  // tools under disk pressure. Mirror both here so this helper reports the
+  // same final tool set the LLM receives.
+  if (ctx.toolsDisabledDepth > 0) {
+    return false;
+  }
+  if (
+    ctx.diskPressureCleanupModeActive === true &&
+    !isDiskPressureCleanupToolName(name)
+  ) {
+    return false;
+  }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     return ctx.channelCapabilities?.supportsDynamicUi ?? !ctx.hasNoClient;
   }
@@ -463,6 +482,14 @@ export function isToolActiveForContext(
     return !ctx.hasNoClient;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
+    if (
+      name === "ask_question" &&
+      ctx.channelCapabilities?.clientOS === "macos"
+    ) {
+      // macOS has no UI handler for question_request yet; hiding the tool
+      // avoids a 5-minute prompter timeout when the LLM would otherwise call it.
+      return false;
+    }
     return !ctx.hasNoClient;
   }
   if (PLATFORM_TOOL_NAMES.has(name)) {

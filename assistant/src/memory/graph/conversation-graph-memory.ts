@@ -438,8 +438,10 @@ export class ConversationGraphMemory {
       // turns. v1's `loadContextMemory` produced these as a side effect of
       // hybrid retrieval; the v2 path skips that retrieval, so embed
       // explicitly here.
+      const userQueryText = rawUserText ?? userQuery ?? "";
       const userQueryEmbed = await this.computeQueryVectors(
-        rawUserText ?? userQuery ?? "",
+        userQueryText,
+        userQueryText,
         config,
         signal,
       );
@@ -598,8 +600,16 @@ export class ConversationGraphMemory {
     if (v2.routed) {
       // Surface a per-turn query embedding so PKB hint search still runs
       // on v2 turns. v1's `retrieveForTurn` produced these as a side effect;
-      // the v2 path skips that retrieval, so embed explicitly here.
+      // the v2 path skips that retrieval, so embed explicitly here. Match
+      // v1's split: dense embeds the combined assistant+user text (short
+      // referential follow-ups like "do that one" need the assistant turn
+      // for semantic grounding), while sparse uses the user message alone
+      // to keep lexical signal focused on what the user actually said.
+      const denseQueryText = [assistantLast, userLast]
+        .filter((m) => m.length > 0)
+        .join("\n\n");
       const perTurnEmbed = await this.computeQueryVectors(
+        denseQueryText,
         userLast,
         config,
         signal,
@@ -697,24 +707,30 @@ export class ConversationGraphMemory {
    * static fallback rather than blocking the turn.
    */
   private async computeQueryVectors(
-    text: string,
+    denseText: string,
+    sparseText: string,
     config: AssistantConfig,
     signal: AbortSignal,
   ): Promise<{ dense?: number[]; sparse?: QdrantSparseVector }> {
-    const trimmed = text.trim();
-    if (trimmed.length === 0) return {};
+    const trimmedDense = denseText.trim();
+    const trimmedSparse = sparseText.trim();
     let dense: number[] | undefined;
-    try {
-      const result = await embedWithRetry(config, [trimmed], { signal });
-      dense = result.vectors[0];
-    } catch (err) {
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        "Failed to embed query for PKB hints on v2 path",
-      );
+    if (trimmedDense.length > 0) {
+      try {
+        const result = await embedWithRetry(config, [trimmedDense], { signal });
+        dense = result.vectors[0];
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          "Failed to embed query for PKB hints on v2 path",
+        );
+      }
     }
-    const sparseRaw = generateSparseEmbedding(trimmed);
-    const sparse = sparseRaw.indices.length > 0 ? sparseRaw : undefined;
+    let sparse: QdrantSparseVector | undefined;
+    if (trimmedSparse.length > 0) {
+      const sparseRaw = generateSparseEmbedding(trimmedSparse);
+      sparse = sparseRaw.indices.length > 0 ? sparseRaw : undefined;
+    }
     return { dense, sparse };
   }
 

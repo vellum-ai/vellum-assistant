@@ -1679,6 +1679,56 @@ describe("injectMemoryV2Block", () => {
       expect(row.concepts).toEqual([]);
     });
 
+    test("flag-on: router-failure path swallows a save() error and returns block:null instead of throwing", async () => {
+      // PR 30176 refactored router-failure handling to delegate to
+      // `finalizeInjection`. That regressed the prior inline log-and-continue
+      // semantics on the router-failure path: a transient SQLite write
+      // throwing during the stub-state save now aborted the whole turn
+      // because `finalizeInjection`'s try/catch re-threw caughtErr at the end.
+      //
+      // This test stages exactly that scenario — router returns
+      // `failureReason: api_error` AND `save()` throws — and asserts the
+      // turn completes with `{ block: null, toInject: [] }` rather than
+      // propagating the SQLite error to `prepareMemory`.
+      routerState.nextResult = {
+        selectedSlugs: [],
+        failureReason: "api_error",
+      };
+      activationStoreState.saveShouldThrow = true;
+
+      let threw: unknown = undefined;
+      let result: Awaited<ReturnType<typeof injectMemoryV2Block>> | undefined;
+      try {
+        result = await injectMemoryV2Block({
+          database: db,
+          conversationId: "conv-router-fail-save-throws",
+          currentTurn: 5,
+          userMessage: "anything",
+          assistantMessage: "ok",
+          nowText: "Now",
+          messageId: "msg-fail-save",
+          config: makeConfig({ router: { enabled: true } }),
+        });
+      } catch (err) {
+        threw = err;
+      }
+
+      expect(threw).toBeUndefined();
+      expect(result).toBeDefined();
+      expect(result!.block).toBeNull();
+      expect(result!.toInject).toEqual([]);
+
+      // Telemetry still flushes with `mode: "errored"` so the failure stays
+      // observable — the same row the inline pre-refactor path emitted.
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as {
+        mode: string;
+        concepts: unknown[];
+      };
+      expect(row.mode).toBe("errored");
+      expect(row.concepts).toEqual([]);
+    });
+
     test("flag-on: router abstention (empty selectedSlugs, no failure) writes mode:`router` row with no injected pages", async () => {
       routerState.nextResult = {
         selectedSlugs: [],
@@ -1903,6 +1953,45 @@ describe("injectMemoryV2Block", () => {
       expect(telemetryState.recordCalls.length).toBe(1);
       const row = telemetryState.recordCalls[0] as { mode: string };
       expect(row.mode).toBe("per-turn");
+    });
+
+    test("flag-on + mode='context-load': activation pipeline runs (not the router) so post-compaction bootstrap can re-emit pages already in everInjected", async () => {
+      // Context-load is the full top-K bootstrap fired after compaction or
+      // a fresh conversation reload. The router's `everInjected` dedupe is
+      // correct for per-turn deltas but wrong here — pages the user just
+      // lost from compaction live in `everInjected` and would be filtered
+      // out, so context-load must always bypass the router and re-run the
+      // activation pipeline against the full top-K.
+      stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+      routerState.nextResult = {
+        selectedSlugs: ["should-not-be-used"],
+        failureReason: null,
+      };
+
+      const result = await injectMemoryV2Block({
+        database: db,
+        conversationId: "conv-context-load-router-on",
+        currentTurn: 1,
+        userMessage: "Tell me about Alice",
+        assistantMessage: "",
+        nowText: "Now",
+        messageId: "msg-1",
+        mode: "context-load",
+        config: makeConfig({ router: { enabled: true } }),
+      });
+
+      // Router must not be called — context-load bypasses the gate even
+      // when the flag is on.
+      expect(routerState.callCount).toBe(0);
+
+      // Activation pipeline produced the normal context-load result.
+      expect(result.toInject).toEqual(["alice-vscode"]);
+      expect(result.block).toContain("# memory/concepts/alice-vscode.md");
+
+      // Telemetry row reflects the activation mode, not router.
+      expect(telemetryState.recordCalls.length).toBe(1);
+      const row = telemetryState.recordCalls[0] as { mode: string };
+      expect(row.mode).toBe("context-load");
     });
   });
 });

@@ -34,7 +34,7 @@ mock.module("../memory/llm-usage-store.js", () => ({
 }));
 
 const mockQueryUnreportedTurnEvents = mock(
-  () => [] as { id: string; createdAt: number }[],
+  () => [] as { id: string; createdAt: number; conversationType: string }[],
 );
 
 mock.module("../memory/turn-events-store.js", () => ({
@@ -501,7 +501,11 @@ describe("UsageTelemetryReporter", () => {
     const usageEvent = makeUsageEvent({ id: "evt-mixed-usage" });
     mockQueryUnreportedUsageEvents.mockReturnValue([usageEvent]);
     mockQueryUnreportedTurnEvents.mockReturnValue([
-      { id: "evt-mixed-turn", createdAt: 1700000050000 },
+      {
+        id: "evt-mixed-turn",
+        createdAt: 1700000050000,
+        conversationType: "standard",
+      },
     ]);
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
@@ -532,6 +536,51 @@ describe("UsageTelemetryReporter", () => {
     expect(turnEvent).toBeDefined();
     expect(turnEvent.daemon_event_id).toBe("evt-mixed-turn");
     expect(turnEvent.recorded_at).toBe(1700000050000);
+    expect(turnEvent.conversation_type).toBe("standard");
+  });
+
+  test("turn events carry conversation_type for background/scheduled conversations", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      {
+        id: "evt-turn-standard",
+        createdAt: 1700000100000,
+        conversationType: "standard",
+      },
+      {
+        id: "evt-turn-background",
+        createdAt: 1700000200000,
+        conversationType: "background",
+      },
+      {
+        id: "evt-turn-scheduled",
+        createdAt: 1700000300000,
+        conversationType: "scheduled",
+      },
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":3}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+
+    const byId: Record<string, { conversation_type: string }> = {};
+    for (const e of body.events as Array<{
+      daemon_event_id: string;
+      conversation_type: string;
+    }>) {
+      byId[e.daemon_event_id] = e;
+    }
+
+    expect(byId["evt-turn-standard"].conversation_type).toBe("standard");
+    expect(byId["evt-turn-background"].conversation_type).toBe("background");
+    expect(byId["evt-turn-scheduled"].conversation_type).toBe("scheduled");
   });
 
   test("flush is skipped and watermarks advanced when collectUsageData is false", async () => {

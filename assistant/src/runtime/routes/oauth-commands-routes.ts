@@ -7,7 +7,12 @@
 
 import { readFileSync } from "node:fs";
 
-import { getConfig, loadRawConfig, saveRawConfig, setNestedValue } from "../../config/loader.js";
+import {
+  getConfig,
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../../config/loader.js";
 import {
   getServiceMode,
   type Services,
@@ -26,9 +31,11 @@ import {
   getProvider,
   listActiveConnectionsByProvider,
   listConnections,
+  type OAuthProviderRow,
 } from "../../oauth/oauth-store.js";
 import { VellumPlatformClient } from "../../platform/client.js";
 import { withValidToken } from "../../security/token-manager.js";
+import { matchHostPattern } from "../../tools/credentials/host-pattern-match.js";
 import { getLogger } from "../../util/logger.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -121,6 +128,82 @@ async function countManagedConnections(provider: string): Promise<number> {
   }
 }
 
+function parseUrl(value: string | null | undefined): URL | undefined {
+  if (!value) return undefined;
+  try {
+    return new URL(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function getAllowedRequestHostPatterns(
+  providerRow: OAuthProviderRow,
+): string[] {
+  const patterns: string[] = [];
+
+  if (providerRow.injectionTemplates) {
+    try {
+      const parsed = JSON.parse(providerRow.injectionTemplates) as unknown;
+      if (Array.isArray(parsed)) {
+        for (const entry of parsed) {
+          if (
+            entry &&
+            typeof entry === "object" &&
+            typeof (entry as { hostPattern?: unknown }).hostPattern === "string"
+          ) {
+            const hostPattern = (
+              entry as { hostPattern: string }
+            ).hostPattern.trim();
+            if (hostPattern) patterns.push(hostPattern);
+          }
+        }
+      }
+    } catch {
+      // Fall back to the provider's base URL host below.
+    }
+  }
+
+  if (patterns.length === 0) {
+    const baseUrl = parseUrl(providerRow.baseUrl);
+    if (baseUrl) patterns.push(baseUrl.hostname);
+  }
+
+  return [...new Set(patterns)];
+}
+
+function assertOAuthRequestUrlAllowed(
+  providerRow: OAuthProviderRow,
+  parsedUrl: URL,
+): void {
+  const providerBaseUrl = parseUrl(providerRow.baseUrl);
+  const allowedProtocol = providerBaseUrl?.protocol ?? "https:";
+  if (parsedUrl.protocol !== allowedProtocol) {
+    throw new BadRequestError(
+      `OAuth request URL for "${providerRow.provider}" must use ${allowedProtocol.replace(/:$/, "")}.`,
+    );
+  }
+
+  const allowedHostPatterns = getAllowedRequestHostPatterns(providerRow);
+  if (allowedHostPatterns.length === 0) {
+    throw new BadRequestError(
+      `OAuth provider "${providerRow.provider}" does not define an allowed request host.`,
+    );
+  }
+
+  const allowed = allowedHostPatterns.some(
+    (pattern) =>
+      matchHostPattern(parsedUrl.hostname, pattern, {
+        includeApexForWildcard: true,
+      }) !== "none",
+  );
+  if (!allowed) {
+    throw new BadRequestError(
+      `OAuth request URL host "${parsedUrl.hostname}" is not allowed for "${providerRow.provider}". Allowed hosts: ${allowedHostPatterns.join(", ")}.`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Disconnect handler
 // ---------------------------------------------------------------------------
@@ -176,7 +259,9 @@ async function handleDisconnect({ body = {} }: RouteHandlerArgs) {
       accountLabel = match.account_label;
     } else {
       if (entries.length === 0) {
-        throw new NotFoundError(`No active connections found for "${b.provider}".`);
+        throw new NotFoundError(
+          `No active connections found for "${b.provider}".`,
+        );
       }
       if (entries.length > 1) {
         throw new BadRequestError(
@@ -235,7 +320,9 @@ async function handleDisconnect({ body = {} }: RouteHandlerArgs) {
   } else {
     const active = listActiveConnectionsByProvider(b.provider);
     if (active.length === 0) {
-      throw new NotFoundError(`No active connections found for "${b.provider}".`);
+      throw new NotFoundError(
+        `No active connections found for "${b.provider}".`,
+      );
     }
     if (active.length > 1) {
       throw new BadRequestError(
@@ -582,11 +669,7 @@ async function handleToken({ body = {} }: RouteHandlerArgs) {
     tokenOpts = { connectionId: conn.id };
   }
 
-  const token = await withValidToken(
-    b.provider,
-    async (t) => t,
-    tokenOpts,
-  );
+  const token = await withValidToken(b.provider, async (t) => t, tokenOpts);
 
   return { ok: true, token };
 }
@@ -666,6 +749,7 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
 
   if (b.url.startsWith("http://") || b.url.startsWith("https://")) {
     const parsed = new URL(b.url);
+    assertOAuthRequestUrlAllowed(providerRow, parsed);
     baseUrl = `${parsed.protocol}//${parsed.host}`;
     requestPath = parsed.pathname;
     for (const [key, value] of parsed.searchParams.entries()) {
@@ -717,7 +801,12 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
   const query: Record<string, string | string[]> = { ...queryFromUrl };
 
   // Use pre-parsed data from CLI, or fall back to raw data string for direct API callers
-  const resolvedData = b.parsed_data !== undefined ? b.parsed_data : b.data !== undefined ? readBodyData(b.data) : undefined;
+  const resolvedData =
+    b.parsed_data !== undefined
+      ? b.parsed_data
+      : b.data !== undefined
+        ? readBodyData(b.data)
+        : undefined;
 
   if (resolvedData !== undefined) {
     const rawBody = resolvedData;
@@ -855,7 +944,9 @@ async function handleManagedConnect({ body = {} }: RouteHandlerArgs) {
   return { ok: true, connect_url: result.connect_url };
 }
 
-async function handleManagedConnectPoll({ queryParams = {} }: RouteHandlerArgs) {
+async function handleManagedConnectPoll({
+  queryParams = {},
+}: RouteHandlerArgs) {
   const provider = queryParams.provider;
   if (!provider) throw new BadRequestError("provider query param is required");
 
@@ -894,7 +985,8 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "oauth/mode",
     method: "GET",
     summary: "Get OAuth mode",
-    description: "Get the current OAuth mode (managed or your-own) for a provider.",
+    description:
+      "Get the current OAuth mode (managed or your-own) for a provider.",
     tags: ["oauth"],
     requirePolicyEnforcement: true,
     queryParams: [
@@ -913,8 +1005,7 @@ export const ROUTES: RouteDefinition[] = [
     method: "POST",
     policyKey: "oauth/mode.set",
     summary: "Set OAuth mode",
-    description:
-      "Set the OAuth mode (managed or your-own) for a provider.",
+    description: "Set the OAuth mode (managed or your-own) for a provider.",
     tags: ["oauth"],
     requirePolicyEnforcement: true,
     handler: handleModeSet,
@@ -955,8 +1046,7 @@ export const ROUTES: RouteDefinition[] = [
     method: "POST",
     policyKey: "oauth/token",
     summary: "Get OAuth token",
-    description:
-      "Retrieve a valid OAuth access token for a BYO-mode provider.",
+    description: "Retrieve a valid OAuth access token for a BYO-mode provider.",
     tags: ["oauth"],
     requirePolicyEnforcement: true,
     handler: handleToken,

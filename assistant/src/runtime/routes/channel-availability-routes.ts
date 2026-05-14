@@ -2,11 +2,13 @@
  * Route handler for channel availability.
  *
  * GET /v1/channels/available — return the channels this assistant can
- * surface to clients (Contacts / GuardianChannels views, etc.). Today
- * this is a fixed base list plus `email` when an inbox is registered.
- * Eventually the list will be driven by plugins/skills the assistant has
- * loaded; clients should treat the response as authoritative and stop
- * carrying their own hardcoded list.
+ * surface to clients (Contacts / GuardianChannels views, etc.) along with
+ * their display metadata (label, subtitle, icon, verification capability,
+ * setup-message copy). Today this is a fixed base list plus `email` when
+ * an inbox is registered; eventually the list will be driven by
+ * plugins/skills the assistant has loaded. Clients should treat the
+ * response as authoritative and stop carrying their own per-channel
+ * switches.
  *
  * Distinct from `/v1/channels/readiness` (which answers "is this channel
  * configured and working?"). Availability answers "could this channel be
@@ -15,7 +17,12 @@
 
 import { z } from "zod";
 
-import { CHANNEL_IDS, type ChannelId } from "../../channels/types.js";
+import {
+  CHANNEL_IDS,
+  CHANNEL_METADATA,
+  type ChannelId,
+  type ChannelInfo,
+} from "../../channels/types.js";
 import { VellumPlatformClient } from "../../platform/client.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -61,13 +68,35 @@ async function hasRegisteredInbox(): Promise<boolean> {
   }
 }
 
-async function handleGetChannelAvailability(_args: RouteHandlerArgs) {
-  const channels: ChannelId[] = [...BASE_AVAILABLE_CHANNELS];
+async function handleGetChannelAvailability(
+  _args: RouteHandlerArgs,
+): Promise<{ channels: ChannelInfo[] }> {
+  const ids: ChannelId[] = [...BASE_AVAILABLE_CHANNELS];
   if (await hasRegisteredInbox()) {
-    channels.push("email");
+    ids.push("email");
   }
-  return { success: true, channels };
+  // CHANNEL_METADATA is `Partial<Record<ChannelId, ChannelInfo>>` because
+  // unsurfaced channels deliberately have no metadata. `ids` only ever
+  // contains channels that BASE_AVAILABLE_CHANNELS / the email branch
+  // explicitly chose, so the lookup is always defined — filter to satisfy
+  // the type system without a non-null assertion.
+  const channels = ids
+    .map((id) => CHANNEL_METADATA[id])
+    .filter((info): info is ChannelInfo => info !== undefined);
+  return { channels };
 }
+
+const channelInfoSchema = z.object({
+  id: z.enum(CHANNEL_IDS),
+  label: z.string(),
+  subtitle: z.string(),
+  icon: z.string(),
+  supportsVerification: z.boolean(),
+  setupMessages: z.object({
+    guardian: z.string(),
+    contact: z.string(),
+  }),
+});
 
 export const ROUTES: RouteDefinition[] = [
   {
@@ -76,17 +105,17 @@ export const ROUTES: RouteDefinition[] = [
     method: "GET",
     summary: "Get available channels",
     description:
-      "Return the channel ids this assistant can surface to clients. " +
-      "Today this is a fixed base list plus `email` when an inbox is " +
-      "registered; will become plugin/skill-driven in future.",
+      "Return the channels this assistant can surface to clients, with " +
+      "display metadata (label, icon, verification capability, setup " +
+      "copy). Today this is a fixed base list plus `email` when an inbox " +
+      "is registered; will become plugin/skill-driven in future.",
     tags: ["channels"],
     requirePolicyEnforcement: true,
     handler: handleGetChannelAvailability,
     responseBody: z.object({
-      success: z.boolean(),
       channels: z
-        .array(z.enum(CHANNEL_IDS))
-        .describe("Channel ids in display order"),
+        .array(channelInfoSchema)
+        .describe("Available channels in display order"),
     }),
   },
 ];

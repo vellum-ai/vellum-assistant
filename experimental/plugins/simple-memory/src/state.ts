@@ -39,13 +39,33 @@ export function clearState(): void {
 
 export function requireState(): PluginState {
   if (state === null) {
-    throw new Error("simple-memory: state not initialized — was init() called?");
+    throw new Error(
+      "simple-memory: state not initialized — was init() called?",
+    );
   }
   return state;
 }
 
-export function entriesFor(conversationId: string): MemoryEntry[] {
-  return requireState().entries.filter((e) => e.conversationId === conversationId);
+/**
+ * Regex search across every entry, regardless of conversation. The
+ * pattern is applied with `RegExp.test` against each entry's text;
+ * callers compile and case-flag it. Results are returned newest-first
+ * (descending `createdAt`) and capped at `limit`.
+ */
+export function searchEntries(pattern: RegExp, limit: number): MemoryEntry[] {
+  const all = requireState().entries;
+  const matches: MemoryEntry[] = [];
+  for (const entry of all) {
+    // `test()` advances `lastIndex` on global/sticky regexes; the tool
+    // never compiles with those flags, but reset defensively in case a
+    // future caller does.
+    pattern.lastIndex = 0;
+    if (pattern.test(entry.text)) {
+      matches.push(entry);
+    }
+  }
+  matches.sort((a, b) => b.createdAt - a.createdAt);
+  return matches.slice(0, limit);
 }
 
 export function appendEntry(entry: MemoryEntry): void {

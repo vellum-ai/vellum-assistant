@@ -254,8 +254,12 @@ struct ChatBubble: View, Equatable {
         showInspectButton && !isUser && message.daemonMessageId != nil
     }
 
+    var canBookmarkMessage: Bool {
+        onToggleBookmark != nil && bookmarkStore != nil && message.daemonMessageId != nil && bookmarkConversationId != nil && !message.isStreaming && MacOSClientFeatureFlagManager.shared.isEnabled("bookmarks")
+    }
+
     var supportsOverflowHover: Bool {
-        !message.isStreaming && (hasCopyableText || canInspectMessage || canForkFromMessage)
+        !message.isStreaming && (hasCopyableText || canInspectMessage || canForkFromMessage || canBookmarkMessage)
     }
 
     /// Composite identity for the `.task` modifier so it re-runs when either

@@ -150,7 +150,6 @@ mock.module("../skills/catalog-install.js", () => ({
   installSkillLocally: async () => {},
   upsertSkillsIndex: () => {},
   getRepoSkillsDir: () => undefined,
-  importSkillFromFile: async () => ({ success: true, skillId: "test-skill" }),
 }));
 
 mock.module("../skills/catalog-search.js", () => ({

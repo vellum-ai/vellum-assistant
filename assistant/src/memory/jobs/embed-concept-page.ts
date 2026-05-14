@@ -34,6 +34,7 @@ import {
 import { embeddingInputContentHash } from "../embedding-types.js";
 import { asString, blobToVector, vectorToBlob } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
+import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
 import { memoryEmbeddings } from "../schema.js";
 import { readPage } from "../v2/page-store.js";
 import {
@@ -81,7 +82,10 @@ export async function embedConceptPageJob(
   if (!page) {
     // Page was deleted out from under us — clean up the prior embedding so
     // retrieval no longer surfaces a slug whose disk-side prose is gone.
-    await deleteConceptPageEmbedding(slug);
+    // Route through the Qdrant breaker so success on the half-open probe
+    // slot transitions the breaker back to closed and unthrottles embed
+    // catch-up.
+    await withQdrantBreaker(() => deleteConceptPageEmbedding(slug));
     return;
   }
 
@@ -280,16 +284,21 @@ export async function embedConceptPageJob(
     ? await applyCorrectionIfCalibrated(summaryDense, writeProvider, writeModel)
     : undefined;
 
-  await upsertConceptPageEmbedding({
-    slug,
-    dense: correctedDense,
-    sparse,
-    summary:
-      correctedSummaryDense && summarySparse
-        ? { dense: correctedSummaryDense, sparse: summarySparse }
-        : undefined,
-    updatedAt: now,
-  });
+  // Route through the Qdrant breaker so a probe-slot success transitions the
+  // breaker back to closed; without this wrapper the embed lane stays
+  // throttled at one job per tick indefinitely after a half-open success.
+  await withQdrantBreaker(() =>
+    upsertConceptPageEmbedding({
+      slug,
+      dense: correctedDense,
+      sparse,
+      summary:
+        correctedSummaryDense && summarySparse
+          ? { dense: correctedSummaryDense, sparse: summarySparse }
+          : undefined,
+      updatedAt: now,
+    }),
+  );
 }
 
 /** SQLite cache row shape returned by `readEmbeddingCache`. */

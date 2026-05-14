@@ -4,6 +4,7 @@
 
 Bun + TypeScript monorepo with multiple packages:
 
+- `apps/` — End-user app surfaces (web, iOS, macOS/Electron, Chrome extension). Scaffolding-only today; surfaces will move here in follow-up PRs. See `apps/AGENTS.md`.
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
 - `clients/` — Client apps (macOS, browser extension, etc). See `clients/AGENTS.md` and platform docs like `clients/macos/AGENTS.md`.
@@ -92,17 +93,15 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 
 ## PR Workflow
 
-- **Linear tickets**: When a Linear ticket is provided anywhere in context (user message, TODO, plan), use the issue identifier (e.g. `JARVIS-123`) throughout:
-  - **Branch name**: Include the identifier, e.g. `do/jarvis-123-fix-stale-approvals`. Linear auto-links branches that contain the issue ID.
-  - **Single-PR workflows** (`/do`, `/work`, standalone PRs):
-    - **Commit message**: Include `Closes JARVIS-123` (or `Fixes`, `Resolves`) in the commit body so Linear auto-closes the issue when the PR merges.
-    - **PR description**: Mention `Closes JARVIS-123` in the PR body for redundancy.
-  - **Multi-PR plans** (`/run-plan`, `/blitz`, `/safe-blitz`):
-    - **Intermediate PRs**: Use `Part of JARVIS-123` in commit messages and PR bodies. This links the PR to the issue without triggering Linear's auto-close automation.
-    - **Final PR only**: Use `Closes JARVIS-123` to trigger the auto-close.
-  - **Status sync**: Set In Progress when starting work. For single-PR workflows, move to In Review when the PR is opened. For multi-PR plans, do not toggle status between PRs — let the final PR's `Closes` keyword handle the Done transition.
-- **Track merged PRs**: Append PR URL to `.private/UNREVIEWED_PRS.md` so `/check-reviews` can triage.
+- **Every PR closes a GitHub issue.** Each PR uses `Closes #N` (or `Fixes` / `Resolves`) in its body and commit message so GitHub auto-closes the issue on merge. See GitHub's [linking a pull request to an issue](https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue) for the full list of closing keywords. If no issue exists yet, [open one](https://github.com/vellum-ai/vellum-assistant/issues/new/choose) before submitting the PR — retroactive issues are fine — so the work is traceable.
+- **One PR = one issue.** Each PR is a distinct, mergeable unit of work. The resulting timeline reads as one issue → one merged change, which keeps review history easy to follow.
+- **Multi-step efforts.** Break the work into either [sub-issues under a parent](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues) (one coherent effort with phased steps) or sibling issues (independent efforts sharing a goal). Each PR still closes its own issue. To link a PR to a related issue without auto-closing it, use plain prose: `Part of #N` or `Related to #N` — GitHub renders the link but won't auto-close.
+- **Branch name**: include the issue number, e.g. `123-fix-stale-approvals`.
 - **Human attention comments**: After creating a PR with non-routine changes (architectural decisions, security, complex logic, deletions, low confidence), leave a `gh pr comment` highlighting where to focus review and the risk level. Skip for routine changes.
+
+### Notes for Vellum team members
+
+When a Vellum [Linear](https://linear.app/) ticket also exists for the work, link it in the PR body and include the identifier in the branch name (e.g. `lum-nnn-fix-foo`). Linear's [GitHub integration](https://linear.app/docs/github#link-using-magic-words) recognizes the same closing keywords plus non-closing words like `Part of` and `Related to` — see the linked docs for the full magic-word list and status-sync behavior. Internal slash-command and tracking-file conventions live in [`.claude/`](./.claude/) docs, not here.
 
 ## Keep Docs Up to Date
 
@@ -149,6 +148,20 @@ We have real users — maintain backwards compatibility for all interfaces, pers
 | Database schema or data (columns, indexes, backfills) | DB migration | `assistant/src/memory/migrations/` — add function and register in `db-init.ts` |
 
 Migrations must be **idempotent** (safe to re-run if interrupted) and **append-only** (never reorder or remove existing entries). Test migrations — see `assistant/src/__tests__/workspace-migration-*.test.ts` and `assistant/src/__tests__/db-*.test.ts` for patterns. Flag breaking changes in PR descriptions. If a migration is infeasible, call it out explicitly for human review.
+
+## Multi-Client Assistant State Sync
+
+Persisted assistant state that must converge across macOS, web/Capacitor iOS, and CLI should use the generic `sync_changed` invalidation contract instead of adding a new bespoke server message for each resource. The event payload is `{ type: "sync_changed", tags: [...] }`; tags describe which cached resource is stale, not the new value.
+
+When adding a synced resource:
+
+- Add or reuse a stable tag in `assistant/src/daemon/message-types/sync.ts`.
+- Emit the invalidation after the canonical state write succeeds, using `publishSyncInvalidation()` or the existing serialized `broadcastMessage()` path so clients observe invalidations in send order.
+- Route tags in native and CLI clients by refetching their existing endpoints; broad reconnect/resume catch-up should perform resource refetches instead of depending on a durable sync ledger.
+- Keep live turn and streaming events domain-specific. `sync_changed` is for persisted resource invalidation.
+- Keep legacy bespoke events during native rollout and remove them only after adoption is verified. Do not add durable `sync_changes` tables, cursors, or `/sync/changes` endpoints for v1 unless the design is reopened.
+
+See the platform repo's `docs/multi-client-sync.md` for the tag registry and client-routing examples.
 
 ## Assistant-Driven Judgement
 
@@ -199,6 +212,8 @@ Adding content to the system prompt is a **last resort**. The system prompt is t
 1. **Skills** — Encode behavior in a SKILL.md that the assistant loads on demand.
 2. **Config / feature flags** — Use runtime configuration instead of prompt-level instructions.
 3. **Code** — If a behavior can be enforced programmatically, enforce it in code.
+
+Tool routing and tool usage guidance belong in the relevant tool description, input schema, or SKILL.md — not in the system prompt. Only put this guidance in the system prompt when it must apply across tools and cannot be localized.
 
 Only add to the system prompt when the behavior cannot be achieved any other way. When you must, keep additions minimal and look for existing content to condense or remove to offset the addition.
 
@@ -338,10 +353,11 @@ The IPC protocol is newline-delimited JSON over the Unix domain socket:
 - Request:  `{ "id": string, "method": string, "params"?: object }`
 - Response: `{ "id": string, "result"?: unknown, "error"?: string }`
 
-When you need to publish events to connected clients (e.g. `open_url`,
-`avatar_updated`) from code running inside the daemon process, import and
-call the `assistantEventHub` singleton directly rather than adding a new
-HTTP endpoint.
+When you need to publish domain/live events to connected clients (e.g.
+`open_url`) from code running inside the daemon process, import and call the
+`assistantEventHub` singleton directly rather than adding a new HTTP endpoint.
+For persisted multi-client state invalidation, use `sync_changed` via
+`publishSyncInvalidation()` instead.
 
 ## See Also
 

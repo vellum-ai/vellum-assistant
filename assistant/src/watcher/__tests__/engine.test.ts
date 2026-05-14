@@ -250,6 +250,28 @@ describe("runWatchersOnce — Phase 2 runBackgroundJob integration", () => {
     expect(dispositionCalls[0].reason).toBe("model exploded");
   });
 
+  test("on bootstrap failure (conversationId: ''): does not overwrite prior conversation id", async () => {
+    fakeWatchers = [makeWatcher()];
+    fakePending = [makeEvent()];
+    // bootstrap failure shape from runBackgroundJob — empty conversationId
+    // signals that conversation creation failed before assignment.
+    runJobImpl = async () => ({
+      conversationId: "",
+      ok: false,
+      error: new Error("bootstrap exploded"),
+      errorKind: "exception",
+    });
+
+    await runWatchersOnce(() => {});
+
+    // Critical: we must NOT have called setWatcherConversationId with "",
+    // which would clobber a valid prior conversation id in the DB.
+    expect(setConvCalls).toEqual([]);
+    // Failure path still updates event dispositions.
+    expect(dispositionCalls).toHaveLength(1);
+    expect(dispositionCalls[0].disposition).toBe("error");
+  });
+
   test("skips runBackgroundJob entirely when no pending events", async () => {
     fakeWatchers = [makeWatcher()];
     fakePending = [];

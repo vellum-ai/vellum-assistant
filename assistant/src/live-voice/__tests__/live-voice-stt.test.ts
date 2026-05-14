@@ -229,6 +229,63 @@ describe("LiveVoiceSession STT", () => {
     ]);
   });
 
+  test("retains transcriber handle when stop() throws so close() can clean up", async () => {
+    class ThrowingStopTranscriber extends MockStreamingTranscriber {
+      stopCalls = 0;
+      override stop(): void {
+        this.stopCalls += 1;
+        if (this.stopCalls === 1) {
+          throw new Error("stop failed");
+        }
+      }
+    }
+
+    const transcriber = new ThrowingStopTranscriber();
+    const { frames, session } = createSessionWithTranscriber(transcriber);
+
+    await session.start();
+    await session.handleClientFrame({ type: "ptt_release" });
+
+    expect(transcriber.stopCalls).toBe(1);
+    expect(
+      frames.some(
+        (frame) =>
+          frame.type === "error" &&
+          frame.message.includes(
+            "Live voice transcription could not be stopped",
+          ),
+      ),
+    ).toBe(true);
+
+    await session.close("websocket_close");
+
+    expect(transcriber.stopCalls).toBe(2);
+  });
+
+  test("retains transcriber handle when stop() throws so interrupt() can clean up", async () => {
+    class ThrowingStopTranscriber extends MockStreamingTranscriber {
+      stopCalls = 0;
+      override stop(): void {
+        this.stopCalls += 1;
+        if (this.stopCalls === 1) {
+          throw new Error("stop failed");
+        }
+      }
+    }
+
+    const transcriber = new ThrowingStopTranscriber();
+    const { session } = createSessionWithTranscriber(transcriber);
+
+    await session.start();
+    await session.handleClientFrame({ type: "ptt_release" });
+
+    expect(transcriber.stopCalls).toBe(1);
+
+    await session.handleClientFrame({ type: "interrupt" });
+
+    expect(transcriber.stopCalls).toBe(2);
+  });
+
   test("uses the production streaming transcriber resolver by default", () => {
     const source = readFileSync(
       new URL("../live-voice-session.ts", import.meta.url),

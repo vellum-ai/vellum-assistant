@@ -729,12 +729,44 @@ export class ContextWindowManager {
     const retainedThreadRefs = collectRetainedThreadReferences(
       messages.slice(keepPlan.keepFromIndex),
     );
+    // Force-rescue path: the kept region may begin with a `tool_result`
+    // whose matching `tool_use` lives in the (now-compacted) prefix. We
+    // must remove those orphan blocks before sending to the LLM (which
+    // would reject them), but their content was never visible to the
+    // summarizer either — `compactableMessages` ends before the boundary.
+    // Split them out here so they can (a) be fed into the summarizer as
+    // part of the compacted transcript, and (b) be stripped from the
+    // kept region below. Without this routing the orphan tool_result
+    // content is silently lost.
+    const { messages: truncatedKeptMessages } =
+      truncateToolResultsAcrossHistory(
+        messages.slice(keepPlan.keepFromIndex),
+        COMPACTION_TOOL_RESULT_MAX_CHARS,
+      );
+    const { orphans: boundaryOrphanToolResults, stripped: keptMessages } =
+      forceRescueApplied
+        ? splitOrphanToolResults(truncatedKeptMessages)
+        : {
+            orphans: [] as ContentBlock[],
+            stripped: truncatedKeptMessages,
+          };
+    const summaryInputMessages =
+      boundaryOrphanToolResults.length > 0
+        ? [
+            ...compactableMessages,
+            {
+              role: "user" as const,
+              content: boundaryOrphanToolResults,
+            },
+          ]
+        : compactableMessages;
     // Strip runtime injections (memory, turn context, workspace hints, etc.)
     // from the messages fed to the summarizer. These blocks are system
     // metadata; leaving them in causes the summary to echo rotating memory
     // content instead of the actual conversation. The caller's live message
     // array is untouched so prefix caching stays intact.
-    const transcriptSource = stripCompactionOnlyInjections(compactableMessages);
+    const transcriptSource =
+      stripCompactionOnlyInjections(summaryInputMessages);
     const transcriptBlocks = this.capTranscriptBlocksToTokenBudget(
       serializeMessagesToContentBlocks(transcriptSource),
       existingSummary ?? "No previous summary.",
@@ -782,18 +814,6 @@ export class ContextWindowManager {
     // describe their visual content in the summary text.
     const summaryMessage = createContextSummaryMessage(summary);
 
-    const { messages: truncatedKeptMessages } =
-      truncateToolResultsAcrossHistory(
-        messages.slice(keepPlan.keepFromIndex),
-        COMPACTION_TOOL_RESULT_MAX_CHARS,
-      );
-    // The force-rescue boundary bypasses `adjustForToolPairs`, so the
-    // kept region may contain `tool_result` blocks whose matching
-    // `tool_use` is in the (now-compacted) prefix. Strip those orphans
-    // so the next agent turn does not fail with an LLM API error.
-    const keptMessages = forceRescueApplied
-      ? stripOrphanToolResults(truncatedKeptMessages)
-      : truncatedKeptMessages;
     const compactedMessages = [summaryMessage, ...keptMessages];
     const estimatedInputTokens = estimatePromptTokens(
       compactedMessages,
@@ -1330,16 +1350,22 @@ function adjustForToolPairs(
 }
 
 /**
- * Strip `tool_result` blocks whose matching `tool_use` is not present in
+ * Split `tool_result` blocks whose matching `tool_use` is not present in
  * the message array. Used by the force-rescue path in `_maybeCompact`
  * which bypasses `adjustForToolPairs` to honor user-explicit `/compact`
  * commands — the kept region's first user message can otherwise contain
  * an orphan `tool_result`, which the LLM API rejects.
  *
- * A user message that contains only orphan `tool_result` blocks is
- * dropped entirely; partial messages keep the surviving content blocks.
+ * Returns the orphan blocks alongside the stripped message array so the
+ * caller can route their content into the summarizer rather than
+ * dropping it silently. A user message that contains only orphan
+ * `tool_result` blocks is dropped entirely; partial messages keep the
+ * surviving content blocks.
  */
-function stripOrphanToolResults(messages: Message[]): Message[] {
+function splitOrphanToolResults(messages: Message[]): {
+  orphans: ContentBlock[];
+  stripped: Message[];
+} {
   const knownToolUseIds = new Set<string>();
   for (const msg of messages) {
     if (msg.role !== "assistant") continue;
@@ -1353,9 +1379,10 @@ function stripOrphanToolResults(messages: Message[]): Message[] {
     }
   }
 
-  return messages.flatMap((msg) => {
+  const orphans: ContentBlock[] = [];
+  const stripped = messages.flatMap((msg) => {
     if (msg.role !== "user") return [msg];
-    let stripped = false;
+    let changed = false;
     const filtered = msg.content.filter((block) => {
       if (
         (block.type === "tool_result" ||
@@ -1364,16 +1391,18 @@ function stripOrphanToolResults(messages: Message[]): Message[] {
       ) {
         const id = (block as { tool_use_id: string }).tool_use_id;
         if (!knownToolUseIds.has(id)) {
-          stripped = true;
+          orphans.push(block);
+          changed = true;
           return false;
         }
       }
       return true;
     });
-    if (!stripped) return [msg];
+    if (!changed) return [msg];
     if (filtered.length === 0) return [];
     return [{ ...msg, content: filtered }];
   });
+  return { orphans, stripped };
 }
 
 export function getSummaryFromContextMessage(

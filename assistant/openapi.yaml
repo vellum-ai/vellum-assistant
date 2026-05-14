@@ -3080,8 +3080,9 @@ paths:
       operationId: channels_available_get
       summary: Get available channels
       description:
-        Return the channel ids this assistant can surface to clients. Today this is a fixed base list plus `email`
-        when an inbox is registered; will become plugin/skill-driven in future.
+        Return the channels this assistant can surface to clients, with display metadata (label, icon, verification
+        capability, setup copy). Today this is a fixed base list plus `email` when an inbox is registered; will become
+        plugin/skill-driven in future.
       tags:
         - channels
       responses:
@@ -3092,23 +3093,50 @@ paths:
               schema:
                 type: object
                 properties:
-                  success:
-                    type: boolean
                   channels:
                     type: array
                     items:
-                      type: string
-                      enum:
-                        - telegram
-                        - phone
-                        - vellum
-                        - whatsapp
-                        - slack
-                        - email
-                        - platform
-                    description: Channel ids in display order
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          enum:
+                            - telegram
+                            - phone
+                            - vellum
+                            - whatsapp
+                            - slack
+                            - email
+                            - platform
+                        label:
+                          type: string
+                        subtitle:
+                          type: string
+                        icon:
+                          type: string
+                        supportsVerification:
+                          type: boolean
+                        setupMessages:
+                          type: object
+                          properties:
+                            guardian:
+                              type: string
+                            contact:
+                              type: string
+                          required:
+                            - guardian
+                            - contact
+                          additionalProperties: false
+                      required:
+                        - id
+                        - label
+                        - subtitle
+                        - icon
+                        - supportsVerification
+                        - setupMessages
+                      additionalProperties: false
+                    description: Available channels in display order
                 required:
-                  - success
                   - channels
                 additionalProperties: false
   /v1/channels/conversation:
@@ -11824,6 +11852,129 @@ paths:
                       - name
                       - status
                     additionalProperties: false
+  /v1/question-response:
+    post:
+      operationId: questionresponse_post
+      summary: Resolve a pending ask-question prompt
+      description:
+        Submit the user's batched response (or close the card) for a pending question prompt by requestId. Legacy
+        single-question payloads remain accepted as syntactic sugar for a one-element batch.
+      tags:
+        - approvals
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  properties:
+                    requestId:
+                      type: string
+                    kind:
+                      type: string
+                      const: submit
+                    responses:
+                      minItems: 1
+                      type: array
+                      items:
+                        oneOf:
+                          - type: object
+                            properties:
+                              questionId:
+                                type: string
+                              kind:
+                                type: string
+                                const: option
+                              optionId:
+                                type: string
+                            required:
+                              - questionId
+                              - kind
+                              - optionId
+                            additionalProperties: false
+                          - type: object
+                            properties:
+                              questionId:
+                                type: string
+                              kind:
+                                type: string
+                                const: free_text
+                              text:
+                                type: string
+                            required:
+                              - questionId
+                              - kind
+                              - text
+                            additionalProperties: false
+                          - type: object
+                            properties:
+                              questionId:
+                                type: string
+                              kind:
+                                type: string
+                                const: skip
+                            required:
+                              - questionId
+                              - kind
+                            additionalProperties: false
+                  required:
+                    - requestId
+                    - kind
+                    - responses
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    requestId:
+                      type: string
+                    kind:
+                      type: string
+                      const: close
+                  required:
+                    - requestId
+                    - kind
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    requestId:
+                      type: string
+                    kind:
+                      type: string
+                      const: option
+                    optionId:
+                      type: string
+                  required:
+                    - requestId
+                    - kind
+                    - optionId
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    requestId:
+                      type: string
+                    kind:
+                      type: string
+                      const: free_text
+                    text:
+                      type: string
+                  required:
+                    - requestId
+                    - kind
+                    - text
+                  additionalProperties: false
   /v1/recordings/pause:
     post:
       operationId: recordings_pause_post
@@ -13729,44 +13880,6 @@ paths:
               required:
                 - sourceText
               additionalProperties: false
-  /v1/skills/import:
-    post:
-      operationId: skills_import_post
-      summary: Import skill from file
-      description: Import a custom skill by uploading a ZIP or tar.gz archive containing a SKILL.md file.
-      tags:
-        - skills
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  skillId:
-                    type: string
-                required:
-                  - ok
-                  - skillId
-                additionalProperties: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                fileName:
-                  type: string
-                fileContent:
-                  type: string
-              required:
-                - fileName
-                - fileContent
-              additionalProperties: false
   /v1/skills/install:
     post:
       operationId: skills_install_post
@@ -14218,6 +14331,20 @@ paths:
                     type: string
                   objective:
                     type: string
+                  usage:
+                    type: object
+                    properties:
+                      inputTokens:
+                        type: number
+                      outputTokens:
+                        type: number
+                      estimatedCost:
+                        type: number
+                    required:
+                      - inputTokens
+                      - outputTokens
+                      - estimatedCost
+                    additionalProperties: false
                   events:
                     type: array
                     items: {}

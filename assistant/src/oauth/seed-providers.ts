@@ -77,7 +77,7 @@ export const PROVIDER_SEED_DATA: Record<
     pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
     baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
     displayLabel: "Google",
-    description: "Gmail, Calendar, and Contacts",
+    description: "Gmail, Calendar, Drive, and Contacts",
     dashboardUrl: "https://console.cloud.google.com/apis/credentials",
     clientIdPlaceholder: "123456789.apps.googleusercontent.com",
     logoUrl: "https://cdn.simpleicons.org/google",
@@ -88,6 +88,7 @@ export const PROVIDER_SEED_DATA: Record<
       "https://www.googleapis.com/auth/gmail.settings.basic",
       "https://www.googleapis.com/auth/calendar.readonly",
       "https://www.googleapis.com/auth/calendar.events",
+      "https://www.googleapis.com/auth/drive",
       "https://www.googleapis.com/auth/userinfo.email",
       "https://www.googleapis.com/auth/contacts.readonly",
     ],
@@ -722,6 +723,14 @@ export const PROVIDER_SEED_DATA: Record<
     requiresClientSecret: false,
     logoUrl: "https://cdn.simpleicons.org/slack",
     defaultScopes: [],
+    injectionTemplates: [
+      {
+        hostPattern: "slack.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
   },
 
   telegram: {

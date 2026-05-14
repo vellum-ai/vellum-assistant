@@ -184,6 +184,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// cancelled before creating a new subscription (e.g. on reconnection or
     /// assistant switch), preventing duplicate event processing.
     var eventSubscriptionTask: Task<Void, Never>?
+    var syncAppActivationObserver: NSObjectProtocol?
+    var syncEventStreamReconnectObserver: NSObjectProtocol?
+    var syncBroadRefreshTask: Task<Void, Never>?
     /// In-flight managed-assistant switch task. Cancelled when a new switch
     /// begins so a stale bootstrap cannot reconnect the wrong assistant.
     var managedSwitchTask: Task<Void, Never>?
@@ -831,6 +834,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let observer = appMenuActivationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let observer = syncAppActivationObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = syncEventStreamReconnectObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
         tearDownSleepWakeHandlers()
         NSApp.dockTile.badgeLabel = nil
         connectionStatusTask?.cancel()
@@ -850,6 +859,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         recordingHUDWindow?.dismiss()
         e2eStatusOverlayWindow?.dismiss()
         eventSubscriptionTask?.cancel()
+        syncBroadRefreshTask?.cancel()
         debugStateWriter.stop()
         RandomSoundTimer.shared.stop()
     }

@@ -104,7 +104,7 @@ final class VellumCli: AssistantManagementClient {
         "VELLUM_WORKSPACE_DIR",
         "ASSISTANT_GIT_USER_NAME", "ASSISTANT_GIT_USER_EMAIL",
         "CLI_GIT_USER_NAME", "CLI_GIT_USER_EMAIL",
-        "PROXY_ALLOWED_HOSTS", "HTTP_USER_AGENT", "DOCTOR_SERVICE_URL",
+        "PROXY_ALLOWED_HOSTS", "HTTP_USER_AGENT",
         "SENTRY_DSN_MACOS", "SENTRY_DSN_ASSISTANT", "TMPDIR", "USER", "LANG",
         // Cloud provider auth — needed by hatch and retire flows.
         "CLOUDSDK_CONFIG", "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",

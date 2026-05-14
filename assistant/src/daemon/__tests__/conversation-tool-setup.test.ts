@@ -463,6 +463,80 @@ describe("isToolActiveForContext — cross-client exposure for host_browser", ()
   });
 });
 
+describe("isToolActiveForContext — ask_question macOS gating", () => {
+  test("ask_question is active for web client with a connected client", () => {
+    expect(
+      isToolActiveForContext(
+        "ask_question",
+        makeCtx({
+          hasNoClient: false,
+          channelCapabilities: {
+            channel: "web",
+            supportsDynamicUi: true,
+            clientOS: "web",
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("ask_question is NOT active when clientOS is macos", () => {
+    // The macOS client has no UI handler for question_request yet; the tool
+    // is hidden to avoid a 5-minute prompter timeout.
+    expect(
+      isToolActiveForContext(
+        "ask_question",
+        makeCtx({
+          hasNoClient: false,
+          channelCapabilities: {
+            channel: "macos",
+            supportsDynamicUi: true,
+            clientOS: "macos",
+          },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("ask_question is active when channelCapabilities is undefined (backwards-compat)", () => {
+    expect(
+      isToolActiveForContext("ask_question", makeCtx({ hasNoClient: false })),
+    ).toBe(true);
+  });
+
+  test("ask_question is NOT active when hasNoClient is true regardless of clientOS", () => {
+    expect(
+      isToolActiveForContext(
+        "ask_question",
+        makeCtx({
+          hasNoClient: true,
+          channelCapabilities: {
+            channel: "web",
+            supportsDynamicUi: true,
+            clientOS: "web",
+          },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("other client-capability tools (app_open) are NOT affected by the macos gate", () => {
+    expect(
+      isToolActiveForContext(
+        "app_open",
+        makeCtx({
+          hasNoClient: false,
+          channelCapabilities: {
+            channel: "macos",
+            supportsDynamicUi: true,
+            clientOS: "macos",
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("HOST_TOOL_NAMES derivation", () => {
   test("HOST_TOOL_NAMES is derived from HOST_TOOL_TO_CAPABILITY", () => {
     // Sanity check: every tool in the names set has a capability mapping.

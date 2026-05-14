@@ -180,19 +180,37 @@ public enum UsageFormatting {
         formatCostWithPrecision(usd, fractionDigits: 2)
     }
 
+    private static let costFormatter2: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.currencyCode = "USD"
+        f.minimumFractionDigits = 2
+        f.maximumFractionDigits = 2
+        return f
+    }()
+
+    private static let costFormatter4: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.currencyCode = "USD"
+        f.minimumFractionDigits = 4
+        f.maximumFractionDigits = 4
+        return f
+    }()
+
+    private static let countFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        return f
+    }()
+
     private static func formatCostWithPrecision(_ usd: Double, fractionDigits: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
-        formatter.minimumFractionDigits = fractionDigits
-        formatter.maximumFractionDigits = fractionDigits
+        let formatter = fractionDigits == 4 ? costFormatter4 : costFormatter2
         return formatter.string(from: NSNumber(value: usd)) ?? "\(usd)"
     }
 
     public static func formatCount(_ n: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: n)) ?? "\(n)"
+        countFormatter.string(from: NSNumber(value: n)) ?? "\(n)"
     }
 
     public static func formatBreakdownSummary(_ entry: UsageGroupBreakdownEntry) -> String {

@@ -112,6 +112,7 @@ export interface SubagentNotificationInfo {
   status: "running" | "completed" | "failed" | "aborted";
   error?: string;
   conversationId?: string;
+  objective?: string;
 }
 
 export class SubagentManager {
@@ -950,6 +951,7 @@ export class SubagentManager {
       label: config.label,
       status: outcome,
       conversationId: managed.state.conversationId,
+      objective: config.objective,
       ...(outcome === "failed"
         ? { error: managed.state.error ?? "Unknown error" }
         : {}),

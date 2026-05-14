@@ -298,7 +298,7 @@ The assistant runtime reads this URL via the centralized `public-ingress-urls.ts
 
 Velay is a platform-managed tunnel for assistant-hosted HTTP and WebSocket traffic. When it is active, Velay publishes the registered public assistant URL to `ingress.publicBaseUrl` and marks it with `ingress.publicBaseUrlManagedBy: "velay"`.
 
-When `VELAY_BASE_URL` is present in the gateway environment, the gateway starts `VelayTunnelClient`. The client registers with Velay over `GET /v1/register` using the assistant API key, then receives a `registered` frame containing a public assistant URL such as `https://velay.vellum.ai/<assistant-id>`. The gateway writes that URL to `ingress.publicBaseUrl`. When the tunnel disconnects, it clears that value only if the Velay ownership marker is still present and the URL still matches what the tunnel published, leaving manual URLs intact.
+When `VELAY_BASE_URL` is present in the gateway environment, the gateway creates `VelayTunnelClient` but starts it only after Twilio setup has been started in the workspace. On boot, existing Twilio credentials or existing `twilio.accountSid` / `twilio.phoneNumber` config count as prior setup, and successful credential setup persists `twilio.setupStarted: true` for future boots. Before credential-backed startup side effects run, the gateway clears any stale Velay-managed `ingress.publicBaseUrl`; if setup has not started, it does this without opening a tunnel. The client registers with Velay over `GET /v1/register` using the assistant API key, then receives a `registered` frame containing a public assistant URL such as `https://velay.vellum.ai/<assistant-id>`. The gateway writes that URL to `ingress.publicBaseUrl`. When the tunnel disconnects, it clears that value only if the Velay ownership marker is still present and the URL still matches what the tunnel published, leaving manual URLs intact.
 
 Velay forwards both HTTP request frames and WebSocket frames into the local gateway loopback listener:
 
@@ -316,10 +316,11 @@ Local platform smoke-test flow:
 
 1. In `vellum-assistant-platform`, run `vel up velay`.
 2. Ensure vembda passes the environment-appropriate `VELAY_BASE_URL` into assistant gateway containers.
-3. Re-hatch or restart the assistant so the gateway receives the new environment.
-4. Confirm gateway logs show `Velay tunnel connected` and `Velay tunnel registered`.
-5. Verify HTTP forwarding by requesting `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/healthz` and `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/schema`. When validating a JSON webhook route under active development, POST a small JSON body through the same Velay public URL and confirm it reaches the loopback gateway.
-6. Verify Twilio WebSocket forwarding with a synthetic local WebSocket client against `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/webhooks/twilio/relay?callSessionId=...&token=...`, then with a real Twilio call after the gateway has registered with Velay.
+3. Start or complete Twilio setup in the workspace so the gateway is allowed to connect the tunnel.
+4. Re-hatch or restart the assistant so the gateway receives the new environment.
+5. Confirm gateway logs show `Velay tunnel connected` and `Velay tunnel registered`.
+6. Verify HTTP forwarding by requesting `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/healthz` and `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/schema`. When validating a JSON webhook route under active development, POST a small JSON body through the same Velay public URL and confirm it reaches the loopback gateway.
+7. Verify Twilio WebSocket forwarding with a synthetic local WebSocket client against `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/webhooks/twilio/relay?callSessionId=...&token=...`, then with a real Twilio call after the gateway has registered with Velay.
 
 ### URL Builders
 

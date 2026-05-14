@@ -27,6 +27,114 @@ export interface TurnChannelContext {
   assistantMessageChannel: ChannelId;
 }
 
+/**
+ * Display metadata for a channel, returned alongside the channel id from
+ * `/v1/channels/available`. Owning this in the gateway (rather than letting
+ * each client carry its own icon/label/copy switch) keeps the Contacts /
+ * Channels UI consistent across macOS, web, and any future surface, and
+ * lets us add or rename a channel without shipping new client builds.
+ */
+export interface ChannelInfo {
+  id: ChannelId;
+  /** Title shown on the channel card, e.g. "Slack". */
+  label: string;
+  /** One-line description shown under the title. */
+  subtitle: string;
+  /**
+   * Lucide icon name without the `lucide-` prefix, e.g. `"mail"` or
+   * `"hash"`. macOS clients resolve to `VIcon(rawValue: "lucide-\(icon)")`;
+   * web clients import the matching component from `lucide-react`.
+   */
+  icon: string;
+  /**
+   * Whether this channel has a client-side verification flow (the
+   * `ChannelVerificationFlowView` on macOS, equivalent on web). When
+   * `false`, clients skip pre-warming verification status and render the
+   * card in display-only mode.
+   */
+  supportsVerification: boolean;
+  /** Suggested first-turn user messages that open the conversation that drives setup. */
+  setupMessages: {
+    guardian: string;
+    contact: string;
+  };
+}
+
+/**
+ * Per-channel display metadata for the channels the gateway can currently
+ * surface to clients. Add an entry here when surfacing a new channel via
+ * `/v1/channels/available`. `Partial` because unsurfaced channels (e.g.
+ * `vellum`, `platform`) deliberately have no metadata — keep this map
+ * minimal until there's a real surface to feed.
+ */
+export const CHANNEL_METADATA: Partial<Record<ChannelId, ChannelInfo>> = {
+  slack: {
+    id: "slack",
+    label: "Slack",
+    subtitle: "Message your assistant from Slack",
+    icon: "hash",
+    supportsVerification: true,
+    setupMessages: {
+      guardian:
+        "I'd like to verify my identity as your guardian on Slack. Can you help me set that up?",
+      contact:
+        "I'd like to verify a contact's Slack identity. Can you walk me through it?",
+    },
+  },
+  telegram: {
+    id: "telegram",
+    label: "Telegram",
+    subtitle: "Message your assistant from Telegram",
+    icon: "send",
+    supportsVerification: true,
+    setupMessages: {
+      guardian:
+        "I'd like to verify my identity as your guardian on Telegram. Can you help me set that up?",
+      contact:
+        "I'd like to verify a contact's Telegram identity. Can you walk me through it?",
+    },
+  },
+  phone: {
+    id: "phone",
+    label: "Phone Calling",
+    subtitle: "Call or text your assistant via phone",
+    icon: "phone",
+    supportsVerification: true,
+    setupMessages: {
+      guardian:
+        "I'd like to verify my identity as your guardian for phone calls. Can you help me set that up?",
+      contact:
+        "I'd like to verify a contact's phone number. Can you help me set that up?",
+    },
+  },
+  email: {
+    id: "email",
+    label: "Email",
+    subtitle: "Reach your assistant by email",
+    icon: "mail",
+    supportsVerification: false,
+    setupMessages: {
+      guardian:
+        "I'd like to set up email as a way for me to reach you. Can you walk me through it?",
+      contact:
+        "I'd like to set up email as a way to reach this contact. Can you walk me through it?",
+    },
+  },
+  whatsapp: {
+    id: "whatsapp",
+    label: "WhatsApp",
+    subtitle: "Message your assistant on WhatsApp",
+    icon: "message-square",
+    supportsVerification: false,
+    setupMessages: {
+      guardian:
+        "I'd like to verify my identity as your guardian on WhatsApp. Can you help me set that up?",
+      contact:
+        "I'd like to verify a contact's WhatsApp identity. Can you walk me through it?",
+    },
+  },
+};
+
 export const INTERFACE_IDS = [
   "macos",
   "ios",

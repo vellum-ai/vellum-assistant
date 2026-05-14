@@ -86,23 +86,13 @@ private struct BenefitRow: View {
 // MARK: - Feature Card
 
 private struct FeatureCardContainer<Content: View>: View {
-    let accentColor: Color
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            accentColor
-                .frame(height: 3)
-                .clipShape(UnevenRoundedRectangle(
-                    topLeadingRadius: VRadius.lg,
-                    topTrailingRadius: VRadius.lg
-                ))
-
-            VStack(alignment: .leading, spacing: VSpacing.lg) {
-                content()
-            }
-            .padding(VSpacing.xl)
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            content()
         }
+        .padding(VSpacing.xl)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard()
     }
@@ -139,7 +129,7 @@ private struct OpenSourceFeatureCard: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        FeatureCardContainer(accentColor: VColor.contentEmphasized) {
+        FeatureCardContainer {
             FeatureCardHeader(
                 icon: .github,
                 iconBg: VColor.contentEmphasized,
@@ -191,7 +181,7 @@ private struct DiscordFeatureCard: View {
     private static let discordBlue = Color(red: 88 / 255, green: 101 / 255, blue: 242 / 255)
 
     var body: some View {
-        FeatureCardContainer(accentColor: Self.discordBlue) {
+        FeatureCardContainer {
             FeatureCardHeader(
                 icon: .discord,
                 iconBg: Self.discordBlue,

@@ -18,7 +18,6 @@ import {
   getSkillFileContent,
   getSkillFiles,
   getSkillLocalDetail,
-  importSkill,
   inspectSkill,
   installSkill,
   listSkills,
@@ -29,6 +28,7 @@ import {
 } from "../../daemon/handlers/skills.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
 
 const partnerAuditSchema = z.object({
   risk: z.enum(["safe", "low", "medium", "high", "critical", "unknown"]),
@@ -190,13 +190,15 @@ export const ROUTES: RouteDefinition[] = [
       const hasFilter = !!(origin || kind || q || category);
 
       if (hasFilter || include === "catalog") {
-        const result = await listSkillsFiltered({
-          ...(origin ? { origin } : {}),
-          ...(kind ? { kind } : {}),
-          ...(q ? { q } : {}),
-          ...(category ? { category } : {}),
-          includeCatalog: include === "catalog",
-        });
+        const result = await listSkillsFiltered(
+          {
+            ...(origin ? { origin } : {}),
+            ...(kind ? { kind } : {}),
+            ...(q ? { q } : {}),
+            ...(category ? { category } : {}),
+            includeCatalog: include === "catalog",
+          },
+        );
         return {
           skills: result.skills,
           categoryCounts: result.categoryCounts,
@@ -314,11 +316,14 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({ ok: z.boolean() }),
     handler: ({ pathParams, body = {} }: RouteHandlerArgs) => {
-      const result = configureSkill(pathParams!.id, {
-        env: body.env as Record<string, string> | undefined,
-        apiKey: body.apiKey as string | undefined,
-        config: body.config as Record<string, unknown> | undefined,
-      });
+      const result = configureSkill(
+        pathParams!.id,
+        {
+          env: body.env as Record<string, string> | undefined,
+          apiKey: body.apiKey as string | undefined,
+          config: body.config as Record<string, unknown> | undefined,
+        },
+      );
       if (!result.success) throw new InternalError(result.error);
       return { ok: true };
     },
@@ -510,17 +515,21 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: async ({ body = {} }: RouteHandlerArgs) => {
       const slug =
-        (body.slug as string) ?? (body.url as string) ?? (body.spec as string);
+        (body.slug as string) ??
+        (body.url as string) ??
+        (body.spec as string);
       if (!slug || typeof slug !== "string") {
         throw new BadRequestError("slug, url, or spec is required");
       }
-      const result = await installSkill({
-        slug,
-        version: body.version as string | undefined,
-        origin: body.origin as "clawhub" | "skillssh" | undefined,
-        catalogOnly: body.catalogOnly as boolean | undefined,
-        overwrite: body.overwrite as boolean | undefined,
-      });
+      const result = await installSkill(
+        {
+          slug,
+          version: body.version as string | undefined,
+          origin: body.origin as "clawhub" | "skillssh" | undefined,
+          catalogOnly: body.catalogOnly as boolean | undefined,
+          overwrite: body.overwrite as boolean | undefined,
+        },
+      );
       if (!result.success) throw new InternalError(result.error);
       return { ok: true, skillId: result.skillId };
     },
@@ -552,39 +561,11 @@ export const ROUTES: RouteDefinition[] = [
           "skillId, name, description, and bodyMarkdown are required",
         );
       }
-      const result = await createSkill({
-        skillId,
-        name,
-        description,
-        bodyMarkdown,
-      });
+      const result = await createSkill(
+        { skillId, name, description, bodyMarkdown },
+      );
       if (!result.success) throw new InternalError(result.error);
       return { ok: true };
-    },
-  },
-  {
-    operationId: "importSkill",
-    endpoint: "skills/import",
-    method: "POST",
-    policyKey: "skills",
-    requirePolicyEnforcement: true,
-    summary: "Import skill from file",
-    description:
-      "Import a custom skill by uploading a ZIP or tar.gz archive containing a SKILL.md file.",
-    tags: ["skills"],
-    requestBody: z.object({
-      fileName: z.string(),
-      fileContent: z.string(),
-    }),
-    responseBody: z.object({ ok: z.boolean(), skillId: z.string() }),
-    handler: async ({ body = {} }: RouteHandlerArgs) => {
-      const { fileName, fileContent } = body as Record<string, string>;
-      if (!fileName || !fileContent) {
-        throw new BadRequestError("fileName and fileContent are required");
-      }
-      const result = await importSkill({ fileName, fileContent });
-      if (!result.success) throw new InternalError(result.error);
-      return { ok: true, skillId: result.skillId };
     },
   },
   {

@@ -216,6 +216,13 @@ public final class ChatMessageManager {
     /// turns (subagents, schedulers, watchers, opportunity wakes) never touch
     /// this counter, so they cannot trigger the `task_complete` chime.
     public var pendingUserTurnCount: Int = 0
+    /// Trailing `generation_cancelled` echoes still expected from the
+    /// in-flight cancel batch. Primed by the `wasCancelling=true` branch
+    /// in `handleGenerationCancelled` so later `wasCancelling=false`
+    /// echoes skip the per-message decrement and don't consume
+    /// `pendingUserTurnCount` belonging to sends started after the batch.
+    /// Internal cancel-protocol bookkeeping — not surfaced to views.
+    @ObservationIgnored public var staleCancelEventsExpected: Int = 0
     /// Monotonic counter that bumps only when a `message_complete` matches a
     /// pending user-typed send from this client. Observed by
     /// `ConversationActivityStore` to gate the `task_complete` chime to

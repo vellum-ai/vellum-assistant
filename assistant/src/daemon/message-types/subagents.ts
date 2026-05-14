@@ -26,6 +26,7 @@ export interface SubagentDetailResponse {
   type: "subagent_detail_response";
   subagentId: string;
   objective?: string;
+  usage?: UsageStats;
   events: Array<{
     type: string;
     content: string;

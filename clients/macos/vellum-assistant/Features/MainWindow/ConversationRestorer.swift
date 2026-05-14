@@ -75,7 +75,7 @@ final class ConversationRestorer {
 
     private let connectionManager: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
-    private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
+    private let conversationListClient: any ConversationListClientProtocol
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
     private var disconnectObservationTask: Task<Void, Never>?
     private var fetchConversationListTask: Task<Void, Never>?
@@ -100,10 +100,16 @@ final class ConversationRestorer {
 
     weak var delegate: ConversationRestorerDelegate?
 
-    init(connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient()) {
+    init(
+        connectionManager: GatewayConnectionManager,
+        eventStreamClient: EventStreamClient,
+        conversationHistoryClient: any ConversationHistoryClientProtocol = ConversationHistoryClient(),
+        conversationListClient: any ConversationListClientProtocol = ConversationListClient()
+    ) {
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.conversationHistoryClient = conversationHistoryClient
+        self.conversationListClient = conversationListClient
     }
 
     deinit {
@@ -280,6 +286,36 @@ final class ConversationRestorer {
         guard !reconnectHistoryQueue.contains(conversationId) else { return }
         reconnectHistoryQueue.append(conversationId)
         drainReconnectHistoryQueue()
+    }
+
+    func handleSyncRoutes(_ routes: [SyncTagRoute], activeConversationId: String?) {
+        var shouldRefetchConversationList = false
+
+        for route in routes {
+            switch route {
+            case .conversationList:
+                shouldRefetchConversationList = true
+            case .conversationMetadata:
+                shouldRefetchConversationList = true
+            case .conversationMessages(let conversationId):
+                shouldRefetchConversationList = true
+                guard activeConversationId == conversationId else { continue }
+                requestReconnectHistory(conversationId: conversationId)
+            case .assistantAvatar, .assistantIdentity, .assistantConfig, .assistantSounds:
+                continue
+            }
+        }
+
+        if shouldRefetchConversationList {
+            scheduleInvalidationRefetch()
+        }
+    }
+
+    func handleBroadSyncRefresh(activeConversationId: String?) {
+        handleSyncRoutes(
+            SyncTagRouter.broadRefreshRoutes(activeConversationId: activeConversationId),
+            activeConversationId: activeConversationId
+        )
     }
 
     /// Process queued reconnect history requests one at a time. Yields between

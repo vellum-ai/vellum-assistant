@@ -19,6 +19,7 @@
  * | `pkb-reminder`           | 35    | after-memory-prefix     |
  * | `memory-v2-static`       | 38    | after-memory-prefix     |
  * | `now-md`                 | 40    | after-memory-prefix     |
+ * | `active-documents`       | 45    | prepend-user-tail       |
  * | `subagent-status`        | 50    | append-user-tail        |
  * | `slack-messages`         | 60    | replace-run-messages    |
  * | `thread-focus`           | 70    | append-user-tail        |
@@ -91,6 +92,7 @@ export const DEFAULT_INJECTOR_ORDER = {
   pkbReminder: 35,
   memoryV2Static: 38,
   nowMd: 40,
+  activeDocuments: 45,
   subagentStatus: 50,
   slackMessages: 60,
   threadFocus: 70,
@@ -439,6 +441,39 @@ const nowMdInjector: Injector = {
 };
 
 /**
+ * `active-documents` injector — order 45, prepend-user-tail.
+ *
+ * Injects an `<active_documents>` block listing open documents in the
+ * conversation so the assistant can target them with `document_update`
+ * instead of creating duplicates via `document_create`.
+ *
+ * Gating:
+ *  - `mode === "full"`.
+ *  - `activeDocuments` has at least one entry.
+ */
+const activeDocumentsInjector: Injector = {
+  name: "active-documents",
+  order: DEFAULT_INJECTOR_ORDER.activeDocuments,
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+    const inputs = readInjectionInputs(ctx);
+    const mode = inputs.mode ?? "full";
+    if (mode !== "full") return null;
+    const docs = inputs.activeDocuments;
+    if (!docs || docs.length === 0) return null;
+    const lines = docs.map(
+      (d) =>
+        `- surface_id: "${d.surfaceId}", title: "${d.title}", words: ${d.wordCount}`,
+    );
+    const text = `<active_documents>\nThe following documents are open in this conversation. Use document_update with the surface_id to edit them — do NOT call document_create for documents that already exist.\n${lines.join("\n")}\n</active_documents>`;
+    return {
+      id: "active-documents",
+      text,
+      placement: "prepend-user-tail",
+    };
+  },
+};
+
+/**
  * `subagent-status` injector — order 50, append-user-tail.
  *
  * Appends a pre-built `<active_subagents>` block to the tail user message
@@ -571,6 +606,7 @@ export const defaultInjectorsPlugin: Plugin = {
     pkbReminderInjector,
     memoryV2StaticInjector,
     nowMdInjector,
+    activeDocumentsInjector,
     subagentStatusInjector,
     slackMessagesInjector,
     threadFocusInjector,

@@ -175,7 +175,13 @@ struct SidebarView: View {
                 showMarkAllReadToast(markedIds.count, markedIds)
             },
             onArchiveAll: {
-                let archivableIds = conversations.filter { !$0.isChannelConversation }.map(\.id)
+                // Channel conversations (Slack/Telegram/voice) are included.
+                // Archive is organizational only — it does not write back to
+                // the source channel — so a group's "Archive All" should
+                // archive every conversation in the section regardless of
+                // origin. Parity with the per-row Archive item in
+                // `SidebarConversationItem.contextMenuContent`.
+                let archivableIds = conversations.map(\.id)
                 guard !archivableIds.isEmpty else { return }
                 archiveAllPending = ArchiveAllTarget(
                     displayName: group.name,

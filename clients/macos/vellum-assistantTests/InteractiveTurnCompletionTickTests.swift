@@ -163,4 +163,52 @@ final class InteractiveTurnCompletionTickTests: XCTestCase {
         XCTAssertEqual(viewModel.messageManager.pendingUserTurnCount, 1,
                        "Per-message daemon cancel should consume one pending interactive turn")
     }
+
+    func testStaleCancelEchoDoesNotConsumeNewSendTurnCount() {
+        // Repro for the regression: after a user cancel-batch, the daemon
+        // emits one `generation_cancelled` per cancelled queue entry. The
+        // first arrives with `isCancelling = true`; subsequent echoes
+        // arrive with `isCancelling = false`. If a new user send is
+        // dispatched after the batch (e.g. via `dispatchPendingSendDirect`),
+        // those late echoes must not consume the new turn's count — the
+        // matching `message_complete` for the new send must still bump
+        // `interactiveTurnCompletionTick`.
+        viewModel.inputText = "First"
+        viewModel.sendMessage()
+        // Simulate the daemon having queued 2 items behind the in-flight.
+        // `pendingQueuedCount` reflects only still-queued entries (the
+        // in-flight already triggered `message_dequeued`), so the cancel
+        // batch emits 3 events total — 1 for the in-flight (handled by the
+        // first event) and 2 trailing echoes for the queued items.
+        viewModel.pendingQueuedCount = 2
+
+        // User cancels; daemon emits 3 `generation_cancelled` events. The
+        // first carries `isCancelling = true` and runs the batch reset.
+        viewModel.isCancelling = true
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: "test-conversation")))
+        XCTAssertEqual(viewModel.messageManager.pendingUserTurnCount, 0)
+        XCTAssertEqual(viewModel.messageManager.staleCancelEventsExpected, 2,
+                       "Two trailing echoes should be expected after the batch reset")
+
+        // User starts a new send before the stale echoes arrive.
+        viewModel.inputText = "Second"
+        viewModel.sendMessage()
+        XCTAssertEqual(viewModel.messageManager.pendingUserTurnCount, 1)
+
+        // Two stale echoes arrive with `isCancelling = false`. Neither
+        // should decrement the new send's pending turn count.
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: "test-conversation")))
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: "test-conversation")))
+
+        XCTAssertEqual(viewModel.messageManager.pendingUserTurnCount, 1,
+                       "Stale cancel echoes from a prior batch must not consume the new send's count")
+        XCTAssertEqual(viewModel.messageManager.staleCancelEventsExpected, 0,
+                       "Stale-echo budget should drain to zero after both echoes")
+
+        // `message_complete` for the new send should still bump the tick.
+        let beforeTick = viewModel.messageManager.interactiveTurnCompletionTick
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        XCTAssertEqual(viewModel.messageManager.interactiveTurnCompletionTick, beforeTick &+ 1,
+                       "New send's completion must still bump the interactive tick")
+    }
 }

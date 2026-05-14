@@ -6,6 +6,7 @@ import {
   findAssistantByName,
   getActiveAssistant,
   resolveAssistant,
+  saveAssistantEntry,
 } from "../lib/assistant-config";
 import {
   DAEMON_INTERNAL_ASSISTANT_ID,
@@ -21,6 +22,7 @@ import {
 } from "../lib/client-identity";
 import {
   fetchOrganizationId,
+  fetchPlatformAssistants,
   readPlatformToken,
 } from "../lib/platform-client";
 import { tuiLog } from "../lib/tui-log";
@@ -39,6 +41,7 @@ const FALLBACK_RUNTIME_URL = `http://127.0.0.1:${GATEWAY_PORT}`;
 interface ParsedArgs {
   runtimeUrl: string;
   assistantId: string;
+  assistantName?: string;
   species: Species;
   /** "vellum" for platform-hosted assistants, undefined for local. */
   cloud?: string;
@@ -50,6 +53,15 @@ interface ParsedArgs {
   interfaceId: SupportedInterface;
   project?: string;
   zone?: string;
+}
+
+function readAssistantName(
+  entry: ReturnType<typeof findAssistantByName>,
+): string | undefined {
+  const rawName = entry?.name ?? entry?.assistantName;
+  return typeof rawName === "string" && rawName.trim()
+    ? rawName.trim()
+    : undefined;
 }
 
 function parseArgs(): ParsedArgs {
@@ -112,6 +124,7 @@ function parseArgs(): ParsedArgs {
 
   let runtimeUrl = entry?.localUrl || entry?.runtimeUrl || FALLBACK_RUNTIME_URL;
   let assistantId = entry?.assistantId || DAEMON_INTERNAL_ASSISTANT_ID;
+  let assistantName = readAssistantName(entry);
   const cloud = entry?.cloud;
   const species: Species = (entry?.species as Species) ?? "vellum";
 
@@ -134,6 +147,7 @@ function parseArgs(): ParsedArgs {
       flagArgs[i + 1]
     ) {
       assistantId = flagArgs[++i];
+      assistantName = undefined;
     } else if ((flag === "--interface" || flag === "-i") && flagArgs[i + 1]) {
       const value = flagArgs[++i];
       if (!(SUPPORTED_INTERFACES as readonly string[]).includes(value)) {
@@ -149,6 +163,7 @@ function parseArgs(): ParsedArgs {
   return {
     runtimeUrl: maybeSwapToLocalhost(runtimeUrl.replace(/\/+$/, "")),
     assistantId,
+    assistantName,
     species,
     cloud,
     platformToken,
@@ -225,6 +240,39 @@ ${ANSI.bold}EXAMPLES:${ANSI.reset}
 `);
 }
 
+async function maybeHydratePlatformAssistantName(
+  assistantId: string,
+  assistantName: string | undefined,
+  cloud: string | undefined,
+  platformToken: string | undefined,
+): Promise<string | undefined> {
+  if (cloud !== "vellum" || assistantName || !platformToken) {
+    return assistantName;
+  }
+
+  try {
+    const matchedAssistant = (
+      await fetchPlatformAssistants(platformToken)
+    ).find((assistant) => assistant.id === assistantId);
+    const hydratedName = matchedAssistant?.name.trim();
+    if (!hydratedName) {
+      return assistantName;
+    }
+
+    const entry = findAssistantByName(assistantId);
+    if (entry && entry.name !== hydratedName) {
+      saveAssistantEntry({
+        ...entry,
+        name: hydratedName,
+      });
+    }
+
+    return hydratedName;
+  } catch {
+    return assistantName;
+  }
+}
+
 /**
  * Walk up from this file's location to find a sibling `clients/web` package.
  *
@@ -289,6 +337,7 @@ export async function client(): Promise<void> {
   const {
     runtimeUrl,
     assistantId,
+    assistantName: parsedAssistantName,
     species,
     cloud,
     platformToken,
@@ -311,6 +360,13 @@ export async function client(): Promise<void> {
     cloud,
     interfaceId,
   });
+
+  const assistantName = await maybeHydratePlatformAssistantName(
+    assistantId,
+    parsedAssistantName,
+    cloud,
+    platformToken,
+  );
 
   // Build pre-constructed request headers merged from auth + client registration.
   // Spreading into every fetch site ensures consistency across REST and SSE endpoints.
@@ -348,6 +404,6 @@ export async function client(): Promise<void> {
       console.log(`${ANSI.dim}Disconnected.${ANSI.reset}`);
       process.exit(0);
     },
-    { auth, project, zone },
+    { auth, project, zone, assistantName },
   );
 }

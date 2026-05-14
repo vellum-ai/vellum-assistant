@@ -235,6 +235,66 @@ export interface SecretRequest {
   allowOneTimeSend?: boolean;
 }
 
+export interface QuestionOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+/**
+ * One entry in a batched ask-question request.
+ *
+ * `id` is daemon-assigned (e.g. `q1`, `q2`...) — the LLM neither sees nor
+ * supplies it. It exists so the client has a stable handle to post the
+ * user's answer back against. See `QuestionRequest` for the batching
+ * contract.
+ */
+export interface QuestionEntry {
+  id: string;
+  question: string;
+  description?: string;
+  /** LLM-supplied options, capped at 4. The client always renders a fixed
+   *  5th "Type something else" slot wired to a free-text response — so this
+   *  array never represents the full choice set the user sees. */
+  options: QuestionOption[];
+  /** Optional placeholder shown in the free-text input. */
+  freeTextPlaceholder?: string;
+}
+
+/**
+ * A single broadcast that carries either one or a small batch (≤5) of
+ * clarifying questions. The whole batch is one card lifecycle on the client:
+ * one render, one state machine, one response submission.
+ *
+ * Wire-compat plan: both shapes are populated on every broadcast.
+ *  - `questions[]` is the canonical shape new clients should consume.
+ *  - The flat `question` / `description` / `options` / `freeTextPlaceholder`
+ *    fields mirror `questions[0]` for backwards compat with the existing
+ *    web client, which keys off the flat fields. Once that client adopts
+ *    `questions[]`, the flat fields can be dropped (separate cleanup).
+ *
+ * Daemon callers that don't supply a batch get a one-element `questions`
+ * array synthesized from the flat fields.
+ */
+export interface QuestionRequest {
+  type: "question_request";
+  requestId: string;
+  /** Batched-question payload. Always populated (single questions are sent
+   *  as a one-element array). Each entry's `id` is daemon-assigned. */
+  questions: QuestionEntry[];
+  /** Legacy: mirrors `questions[0].question`. Kept populated for clients
+   *  that haven't adopted the batched `questions[]` shape yet. */
+  question: string;
+  /** Legacy: mirrors `questions[0].description`. */
+  description?: string;
+  /** Legacy: mirrors `questions[0].options`. */
+  options: QuestionOption[];
+  /** Legacy: mirrors `questions[0].freeTextPlaceholder`. */
+  freeTextPlaceholder?: string;
+  conversationId?: string;
+  toolUseId?: string;
+}
+
 export interface MessageComplete {
   type: "message_complete";
   conversationId?: string;
@@ -430,6 +490,7 @@ export type _MessagesServerMessages =
   | ToolResult
   | ConfirmationRequest
   | SecretRequest
+  | QuestionRequest
   | MessageComplete
   | ErrorMessage
   | MessageQueued

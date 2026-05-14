@@ -48,6 +48,12 @@ interface PruneCall {
   options?: { kind?: string };
 }
 
+interface BackfillCall {
+  prefix: string;
+  kind: string;
+  allowedSuffixes: ReadonlySet<string>;
+}
+
 interface TestState {
   catalog: SkillSummary[];
   resolved: ResolvedSkill[];
@@ -60,6 +66,10 @@ interface TestState {
   upsertCalls: UpsertCall[];
   pruneCalls: PruneCall[];
   upsertThrows: Error | null;
+  backfillCalls: BackfillCall[];
+  backfillReturn: number;
+  backfillThrows: Error | null;
+  callSequence: Array<"upsert" | "prune" | "backfill">;
 }
 
 const state: TestState = {
@@ -74,6 +84,10 @@ const state: TestState = {
   upsertCalls: [],
   pruneCalls: [],
   upsertThrows: null,
+  backfillCalls: [],
+  backfillReturn: 0,
+  backfillThrows: null,
+  callSequence: [],
 };
 
 // Stub config so resolveSkillStates / mcp augmentation have something to read.
@@ -115,6 +129,7 @@ mock.module("../../embedding-backend.js", () => ({
 mock.module("../qdrant.js", () => ({
   upsertConceptPageEmbedding: async (params: UpsertCall) => {
     if (state.upsertThrows) throw state.upsertThrows;
+    state.callSequence.push("upsert");
     state.upsertCalls.push(params);
   },
   pruneSlugsWithPrefixExcept: async (
@@ -122,7 +137,18 @@ mock.module("../qdrant.js", () => ({
     activeSuffixes: readonly string[],
     options?: { kind?: string },
   ) => {
+    state.callSequence.push("prune");
     state.pruneCalls.push({ prefix, activeSuffixes, options });
+  },
+  backfillKindOnPointsWithPrefix: async (
+    prefix: string,
+    kind: string,
+    allowedSuffixes: ReadonlySet<string>,
+  ) => {
+    if (state.backfillThrows) throw state.backfillThrows;
+    state.callSequence.push("backfill");
+    state.backfillCalls.push({ prefix, kind, allowedSuffixes });
+    return state.backfillReturn;
   },
 }));
 
@@ -170,6 +196,10 @@ function resetState(): void {
   state.upsertCalls.length = 0;
   state.pruneCalls.length = 0;
   state.upsertThrows = null;
+  state.backfillCalls.length = 0;
+  state.backfillReturn = 0;
+  state.backfillThrows = null;
+  state.callSequence.length = 0;
   _resetSkillStoreForTests();
 }
 
@@ -444,6 +474,118 @@ describe("seedV2SkillEntries", () => {
     expect([...state.pruneCalls[0].activeSuffixes]).toEqual(["remote-only"]);
   });
 
+  test("passes kind: 'skill' to upsert and prune so legacy skill rows stay scoped to the skill kind", async () => {
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.fullCatalog = [
+      { id: "example-skill-a", name: "example-skill-a", description: "A" },
+    ];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    await seedV2SkillEntries();
+
+    expect(state.upsertCalls).toHaveLength(1);
+    expect(state.upsertCalls[0].kind).toBe("skill");
+    expect(state.pruneCalls).toHaveLength(1);
+    expect(state.pruneCalls[0].options).toEqual({ kind: "skill" });
+  });
+
+  test("runs the legacy kind backfill before pruning so kindless skill points become prunable", async () => {
+    // Simulates an install carrying legacy skill points written before the
+    // kind discriminator existed: the backfill must run before prune so the
+    // kind-scoped prune can see and delete the orphans.
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.fullCatalog = [
+      { id: "example-skill-a", name: "example-skill-a", description: "A" },
+    ];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+    state.backfillReturn = 3;
+
+    await seedV2SkillEntries();
+
+    expect(state.backfillCalls).toHaveLength(1);
+    expect(state.backfillCalls[0].prefix).toBe("skills/");
+    expect(state.backfillCalls[0].kind).toBe("skill");
+    expect([...state.backfillCalls[0].allowedSuffixes].sort()).toEqual([
+      "example-skill-a",
+    ]);
+    expect(state.pruneCalls).toHaveLength(1);
+    expect(state.pruneCalls[0].options).toEqual({ kind: "skill" });
+    expect(state.callSequence.filter((s) => s !== "upsert")).toEqual([
+      "backfill",
+      "prune",
+    ]);
+  });
+
+  test("backfill only runs once per process across repeated seed runs", async () => {
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.fullCatalog = [
+      { id: "example-skill-a", name: "example-skill-a", description: "A" },
+    ];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    await seedV2SkillEntries();
+    expect(state.backfillCalls).toHaveLength(1);
+
+    // A second seed should not re-scan: new upserts already carry kind, so
+    // there's nothing for the backfill to do.
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+    await seedV2SkillEntries();
+    expect(state.backfillCalls).toHaveLength(1);
+    expect(state.pruneCalls).toHaveLength(2);
+  });
+
+  test("backfill failure is non-fatal — prune still runs and lastSeedError stays clean", async () => {
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.fullCatalog = [
+      { id: "example-skill-a", name: "example-skill-a", description: "A" },
+    ];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+    state.backfillThrows = new Error("qdrant scroll exploded");
+
+    await expect(
+      seedV2SkillEntries({ throwOnError: true }),
+    ).resolves.toBeUndefined();
+
+    // Prune still ran despite the backfill failure — we don't want to block
+    // the steady-state prune when the legacy scan trips.
+    expect(state.pruneCalls).toHaveLength(1);
+  });
+
+  test("backfill allowlist spans installed + remote catalog ids so user-authored skills/* pages stay untagged", async () => {
+    // Regression: backfilling kind on every `skills/*` point would also tag
+    // user-authored concept pages slugged like `skills/my-notes` — those
+    // would then be pruned as stale skills. The allowlist must contain
+    // every legitimate skill id we know about (installed + remote catalog)
+    // and nothing else.
+    const installed = makeSummary({ id: "installed-skill" });
+    state.catalog = [installed];
+    state.resolved = [{ summary: installed, state: "enabled" }];
+    state.fullCatalog = [
+      { id: "installed-skill", name: "installed-skill", description: "X" },
+      { id: "remote-only-skill", name: "remote-only-skill", description: "Y" },
+    ];
+    state.embedReturn = [
+      [0.1, 0.2, 0.3],
+      [0.4, 0.5, 0.6],
+    ];
+
+    await seedV2SkillEntries();
+
+    expect(state.backfillCalls).toHaveLength(1);
+    expect([...state.backfillCalls[0].allowedSuffixes].sort()).toEqual([
+      "installed-skill",
+      "remote-only-skill",
+    ]);
+  });
+
   test("skips pruning when catalog fetch returns empty (network failure guard)", async () => {
     const skillA = makeSummary({ id: "example-skill-a" });
     state.catalog = [skillA];
@@ -472,6 +614,38 @@ describe("getSkillCapability", () => {
     await seedV2SkillEntries();
 
     expect(getSkillCapability("does-not-exist")).toBeNull();
+  });
+
+  test("mutating the returned entry does not corrupt the cache", async () => {
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    await seedV2SkillEntries();
+
+    const first = getSkillCapability("example-skill-a");
+    expect(first).not.toBeNull();
+    const originalContent = first!.content;
+
+    // Frozen entries throw in strict mode when mutated; suppress so we can
+    // prove cache invariance even if a future refactor swaps freeze for a
+    // plain clone.
+    try {
+      (first as unknown as { id: string }).id = "tampered";
+      (first as unknown as { content: string }).content = "tampered";
+    } catch {
+      // expected under Object.freeze
+    }
+
+    const second = getSkillCapability("example-skill-a");
+    expect(second?.id).toBe("example-skill-a");
+    expect(second?.content).toBe(originalContent);
+
+    // listSkillEntries path also unaffected.
+    const viaList = listSkillEntries();
+    expect(viaList[0].id).toBe("example-skill-a");
+    expect(viaList[0].content).toBe(originalContent);
   });
 });
 
@@ -520,5 +694,36 @@ describe("listSkillEntries", () => {
     const second = listSkillEntries();
     expect(second).toHaveLength(1);
     expect(second[0].id).toBe("example-skill-a");
+  });
+
+  test("mutating a returned entry does not corrupt the cache", async () => {
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    await seedV2SkillEntries();
+
+    const first = listSkillEntries();
+    expect(first).toHaveLength(1);
+    const originalContent = first[0].content;
+
+    // Frozen entries throw in strict mode (ESM tests are strict) when
+    // mutated; suppress so we can prove cache invariance even if a future
+    // refactor swaps freeze for a plain clone.
+    try {
+      (first[0] as { id: string }).id = "tampered";
+      (first[0] as { content: string }).content = "tampered";
+    } catch {
+      // expected under Object.freeze
+    }
+
+    const second = listSkillEntries();
+    expect(second[0].id).toBe("example-skill-a");
+    expect(second[0].content).toBe(originalContent);
+
+    // Lookup-by-id path also unaffected.
+    const viaLookup = getSkillCapability("example-skill-a");
+    expect(viaLookup?.content).toBe(originalContent);
   });
 });

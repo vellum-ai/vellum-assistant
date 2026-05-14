@@ -1,22 +1,43 @@
 /**
  * Public plugin-API types.
  *
- * This module is the source-of-truth for types that plugin authors depend on.
- * The rest of the assistant imports from here via relative paths
- * (`../plugin-api/types.js`). At publish time, this file's contents are
- * bundled into the `@vellumai/plugin-api` npm package; at runtime in the
- * assistant binary, the same source is reachable to user plugins via a
- * boot-time shim that re-exports from the embedded bundle.
+ * This module is the entry point plugin authors land on when they import
+ * from `@vellumai/plugin-api`. The shapes here are the canonical public
+ * contract — anything exported is part of the surface that semver gates.
  *
- * Today this module is intentionally narrow — `PluginInitContext`,
- * `PluginShutdownContext`, and the `PluginLogger` shape they reference.
- * Additional public types migrate over in follow-up PRs as the surface
- * stabilizes.
+ * ## Tool-execution types
  *
- * Internal-only types (pipeline shapes, middleware, manifest validation,
- * etc.) stay in `assistant/src/plugins/types.ts` until they're ready to
- * become public.
+ * `ToolContext` and `ToolExecutionResult` are re-exports of the narrow,
+ * stable bases defined alongside their daemon-internal counterparts in
+ * `assistant/src/tools/types.ts`. The daemon-internal `ToolContext` /
+ * `ToolExecutionResult` (with CES, trust classification, lifecycle
+ * events, sensitive-output bindings, risk metadata, etc.) `extends`
+ * the public bases, so the runtime can hand plugins the full value
+ * without a manual cast and tsc enforces the structural relationship.
+ * Plugin tools see the narrow surface only — they MUST NOT set fields
+ * that belong to the daemon-internal extension.
+ *
+ * ## Hook contexts
+ *
+ * The init / shutdown hook contexts are owned by this module directly.
+ * They have no daemon-internal extension today (the daemon constructs
+ * and hands them straight through), so there's nothing to inherit from.
+ *
+ * ## Compatibility
+ *
+ * Adding fields to any public shape is non-breaking. Renaming or
+ * removing fields is breaking and gated on a major bump of
+ * `@vellumai/plugin-api`.
  */
+
+import type { Message } from "../providers/types.js";
+
+// ─── Tool-execution types (re-exported from daemon source-of-truth) ──────────
+
+export type {
+  PluginToolContext as ToolContext,
+  PluginToolExecutionResult as ToolExecutionResult,
+} from "../tools/types.js";
 
 // ─── Logger ──────────────────────────────────────────────────────────────────
 
@@ -81,4 +102,43 @@ export interface PluginInitContext {
 export interface PluginShutdownContext {
   /** Assistant semver for compatibility checks inside the plugin. */
   assistantVersion: string;
+}
+
+// ─── User-prompt-submit hook context ─────────────────────────────────────────
+
+/**
+ * Context passed to the `user-prompt-submit` hook. Fires once per user
+ * turn, after the agent loop has prepared the message list (PKB / NOW /
+ * memory-graph injections, history repair, overflow reduction all already
+ * applied) and immediately before the messages are handed to the agent
+ * loop's tool/LLM iteration.
+ *
+ * The hook may transform `latestMessages` either by mutating it in place
+ * (`push` / `splice` / `length = 0`) or by returning a new context with
+ * a fresh `latestMessages` array — see {@link PluginHookFn}'s polymorphic
+ * return shape. The daemon threads the final `latestMessages` value into
+ * `agentLoop.run()` as the run-messages argument.
+ *
+ * `originalMessages` is the user's original message list, frozen for the
+ * hook. Plugins should treat it as a stable reference point if they need
+ * to recover from earlier transformations or compare against the pristine
+ * state.
+ *
+ * Multiple plugins' hooks chain in registration order — each plugin's
+ * hook sees the previous plugin's mutations (whether by reassignment or
+ * in-place mutation).
+ */
+export interface UserPromptSubmitContext {
+  /** Conversation ID the user prompt was submitted on. */
+  readonly conversationId: string;
+  /**
+   * The user's original message list, immutable for the hook. Plugins
+   * may snapshot or compare against this but MUST NOT mutate it.
+   */
+  readonly originalMessages: ReadonlyArray<Message>;
+  /**
+   * The working message list that flows into `agentLoop.run`. Plugins
+   * may mutate this in place or replace it by returning a new context.
+   */
+  latestMessages: Message[];
 }

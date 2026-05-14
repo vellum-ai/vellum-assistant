@@ -18,6 +18,7 @@ import { basename, dirname, join } from "node:path";
 import { z } from "zod";
 
 import { getWorkspaceDir } from "../../util/platform.js";
+import { publishSoundsConfigUpdated } from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   ConflictError,
@@ -39,6 +40,29 @@ interface TreeEntry {
   size: number | null;
   mimeType: string | null;
   modifiedAt: string;
+}
+
+const SOUNDS_WORKSPACE_PATH = "data/sounds";
+
+function normaliseWorkspacePathForSync(path: string): string {
+  return path
+    .split(/[\\/]+/)
+    .filter((part) => part.length > 0)
+    .join("/");
+}
+
+function isSoundsWorkspacePath(path: string): boolean {
+  const normalized = normaliseWorkspacePathForSync(path);
+  return (
+    normalized === SOUNDS_WORKSPACE_PATH ||
+    normalized.startsWith(`${SOUNDS_WORKSPACE_PATH}/`)
+  );
+}
+
+function publishSoundsConfigUpdatedForPaths(paths: string[]): void {
+  if (paths.some(isSoundsWorkspacePath)) {
+    publishSoundsConfigUpdated();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +292,7 @@ function handleWorkspaceWrite({ body }: RouteHandlerArgs) {
 
   mkdirSync(dirname(resolved), { recursive: true });
   writeFileSync(resolved, buffer);
+  publishSoundsConfigUpdatedForPaths([path]);
 
   return { path, size: buffer.byteLength };
 }
@@ -295,6 +320,7 @@ function handleWorkspaceMkdir({ body }: RouteHandlerArgs) {
   }
 
   mkdirSync(resolved, { recursive: true });
+  publishSoundsConfigUpdatedForPaths([path]);
   return { path };
 }
 
@@ -334,6 +360,7 @@ function handleWorkspaceRename({ body }: RouteHandlerArgs) {
 
   mkdirSync(dirname(resolvedNew), { recursive: true });
   renameSync(resolvedOld, resolvedNew);
+  publishSoundsConfigUpdatedForPaths([oldPath, newPath]);
   return { oldPath, newPath };
 }
 
@@ -361,6 +388,7 @@ function handleWorkspaceDelete({ body }: RouteHandlerArgs) {
   }
 
   rmSync(resolved, { recursive: true, force: true });
+  publishSoundsConfigUpdatedForPaths([path]);
   return { success: true };
 }
 

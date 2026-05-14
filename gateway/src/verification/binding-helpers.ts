@@ -42,6 +42,37 @@ export async function getExistingGuardianBinding(
 }
 
 /**
+ * Return the most recent `contact_channels.updated_at` across any guardian
+ * binding for a channel — active OR revoked. Returns `null` when no binding
+ * has ever existed.
+ *
+ * Used as a recency backstop by sync pollers that may otherwise replay a
+ * stale consumed session and reactivate a binding the guardian has since
+ * revoked (or displace one bound by a sibling code path). A consumed
+ * session whose own `updated_at` is older than the most recent binding
+ * event for the same channel is, by definition, obsolete.
+ *
+ * Filters to `active` and `revoked` rows specifically. Sibling flows
+ * (e.g. `contact-prompt`) can create `unverified` guardian phone rows
+ * that are not bindings — including them would let a newer unverified
+ * row falsely mark a legitimate fresh verification session as stale.
+ */
+export async function getMostRecentChannelGuardianTimestamp(
+  channel: string,
+): Promise<number | null> {
+  const rows = await assistantDbQuery<{ maxUpdatedAt: number | null }>(
+    `SELECT MAX(COALESCE(cc.updated_at, cc.created_at)) AS maxUpdatedAt
+     FROM contacts c
+     JOIN contact_channels cc ON cc.contact_id = c.id
+     WHERE c.role = 'guardian'
+       AND cc.type = ?
+       AND cc.status IN ('active', 'revoked')`,
+    [channel],
+  );
+  return rows[0]?.maxUpdatedAt ?? null;
+}
+
+/**
  * Resolve the canonical principal ID for the guardian.
  * Looks up the vellum channel binding's principal; falls back to the provided ID.
  */

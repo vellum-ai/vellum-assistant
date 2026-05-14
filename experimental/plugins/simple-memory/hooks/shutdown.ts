@@ -21,7 +21,9 @@ export default async function onShutdown(): Promise<void> {
   }
   const { storePath, entries, logger } = snapshot;
   const serialized =
-    entries.length === 0 ? "" : `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`;
+    entries.length === 0
+      ? ""
+      : `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`;
   await fs.writeFile(storePath, serialized, "utf8");
   logger.info(
     { plugin: "simple-memory", storePath, flushedEntries: entries.length },

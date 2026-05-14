@@ -294,7 +294,15 @@
       "scope": "assistant",
       "key": "pro-plan-adjust",
       "label": "Pro Plan Adjust",
-      "description": "Show the rich Plan card (current plan, features, Manage/Upgrade CTA) at the top of the macOS Settings → Billing tab.",
+      "description": "Show the rich Plan card (current plan, features, Manage/Upgrade CTA) at the top of the macOS Settings \u2192 Billing tab.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "external-plugins",
+      "scope": "assistant",
+      "key": "external-plugins",
+      "label": "External Plugins",
+      "description": "Enable the external-plugin install path: the `assistant plugins` CLI subcommand and the declarative external-plugin loader convention (`<workspaceDir>/plugins/<name>/` directories containing `package.json` plus interface dirs). Gates an unstable surface that may change shape before stabilizing.",
       "defaultEnabled": false
     }
   ]

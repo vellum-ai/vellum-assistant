@@ -411,6 +411,7 @@ export interface HistoryResponse {
       status: "running" | "completed" | "failed" | "aborted";
       error?: string;
       conversationId?: string;
+      objective?: string;
     };
     /** True when text or tool result content was truncated due to maxTextChars/maxToolResultChars. */
     wasTruncated?: boolean;

@@ -247,6 +247,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.discardStreamingBuffer()
                     self.discardPartialOutputBuffer()
                     self.messageManager.isSending = false
+                    self.messageManager.pendingUserTurnCount = 0
+                    self.messageManager.staleCancelEventsExpected = 0
                     self.sendingWatchdogTask?.cancel()
                     self.sendingWatchdogTask = nil
                     self.thinkingWatchdogTask = nil
@@ -383,6 +385,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.requestIdToMessageId.removeAll()
                     self.activeRequestIdToMessageId.removeAll()
                     self.pendingLocalDeletions.removeAll()
+                    self.messageManager.pendingUserTurnCount = 0
+                    self.messageManager.staleCancelEventsExpected = 0
                     // Cancel stale cancel-timeout task
                     self.cancelTimeoutTask?.cancel()
                     self.cancelTimeoutTask = nil
@@ -827,7 +831,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     @ObservationIgnored var secretBlockedCurrentPage: String?
     /// Nonce sent with `conversation_create` and echoed back in `conversation_info`.
     /// Used to ensure this ChatViewModel only claims its own conversation.
-    @ObservationIgnored var bootstrapCorrelationId: String?
+    /// Observed (not `@ObservationIgnored`) so that the computed `isBootstrapping`
+    /// propagates changes to `observationStream` consumers — e.g. the voice-mode
+    /// bootstrap wait in `ConversationManager.prepareActiveConversationForVoiceMode`.
+    var bootstrapCorrelationId: String?
     /// Conversation type sent with `conversation_create` (e.g. "background" or "scheduled").
     /// Set by `createConversationIfNeeded(conversationType:)` and included in the
     /// message so the daemon can persist the correct conversation kind.
@@ -1506,6 +1513,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 self?.isThinking = false
                 self?.isSending = false
                 self?.isCancelling = false
+                // Stream dropped mid-turn — `message_complete` won't arrive,
+                // so clear pending turns to avoid bumping
+                // `interactiveTurnCompletionTick` on the next turn.
+                self?.messageManager.pendingUserTurnCount = 0
+                self?.messageManager.staleCancelEventsExpected = 0
                 if let existingId = self?.currentAssistantMessageId {
                     self?.messages.finalizeStreamingMessage(id: existingId, completeToolCalls: .none)
                 }
@@ -2188,6 +2200,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 }
             } else {
                 activeSubagents.append(info)
+            }
+            if let objective = info.objective {
+                subagentDetailStore.recordSpawned(subagentId: info.id, objective: objective)
             }
         }
 

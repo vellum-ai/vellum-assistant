@@ -318,9 +318,36 @@ function downgradeResult(tr: {
   content?: unknown;
 }): ContentBlock {
   const content =
-    tr.type === "tool_result" ? tr.content : "[web search result]"; // guard:allow-tool-result-only — distinguishes content format between the two types
+    tr.type === "tool_result" ? tr.content : formatWebSearchContent(tr.content); // guard:allow-tool-result-only — distinguishes content format between the two types
   return {
     type: "text",
     text: `[orphaned ${tr.type} for ${tr.tool_use_id}]: ${content}`,
   };
+}
+
+function formatWebSearchContent(content: unknown): string {
+  if (Array.isArray(content)) {
+    const entries: string[] = [];
+    for (const r of content) {
+      if (
+        typeof r !== "object" ||
+        r == null ||
+        (r as { type?: string }).type !== "web_search_result"
+      ) {
+        continue;
+      }
+      const title =
+        typeof (r as { title?: unknown }).title === "string"
+          ? (r as { title: string }).title
+          : "(untitled)";
+      const url =
+        typeof (r as { url?: unknown }).url === "string"
+          ? (r as { url: string }).url
+          : "";
+      const idx = entries.length + 1;
+      entries.push(url ? `${idx}. ${title}\n   ${url}` : `${idx}. ${title}`);
+    }
+    if (entries.length > 0) return entries.join("\n");
+  }
+  return "results unavailable";
 }

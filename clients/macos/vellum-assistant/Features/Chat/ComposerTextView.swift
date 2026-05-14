@@ -5,6 +5,7 @@ import AppKit
 ///
 /// Handles placeholder drawing, Return/Tab/Arrow/Escape key routing
 /// (via ``ComposerReturnKeyRouting``), Cmd+V image-paste interception,
+/// markdown formatting shortcuts (via ``MarkdownFormatting``),
 /// and focus-change callbacks.
 ///
 /// Ref: https://developer.apple.com/documentation/appkit/nstextview
@@ -117,6 +118,8 @@ final class ComposerTextView: NSTextView {
             return super.performKeyEquivalent(with: event)
         }
         let modifiers = event.modifierFlags.intersection([.shift, .command, .control, .option])
+
+        // Cmd+V image paste interception.
         if modifiers == [.command],
            event.charactersIgnoringModifiers?.lowercased() == "v",
            Self.pasteboardHasImageContent(),
@@ -124,7 +127,36 @@ final class ComposerTextView: NSTextView {
             onPasteImage()
             return true
         }
+
+        // Markdown formatting shortcuts (Cmd+B, Cmd+I, Cmd+Shift+X, Cmd+Shift+C).
+        if let key = event.charactersIgnoringModifiers,
+           let marker = MarkdownFormatting.matchShortcut(modifiers: modifiers, key: key) {
+            applyMarkdownFormatting(marker: marker)
+            return true
+        }
+
         return super.performKeyEquivalent(with: event)
+    }
+
+    // MARK: - Markdown Formatting
+
+    private func applyMarkdownFormatting(marker: String) {
+        let sel = selectedRange()
+        let result = MarkdownFormatting.apply(
+            text: string,
+            selectionStart: sel.location,
+            selectionEnd: sel.location + sel.length,
+            marker: marker
+        )
+        // Replace the entire text content via insertText so the change
+        // participates in the undo stack.
+        let fullRange = NSRange(location: 0, length: (string as NSString).length)
+        insertText(result.text, replacementRange: fullRange)
+        let newRange = NSRange(
+            location: result.selectionStart,
+            length: result.selectionEnd - result.selectionStart
+        )
+        setSelectedRange(newRange)
     }
 
     static func pasteboardHasImageContent() -> Bool {

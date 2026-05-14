@@ -106,6 +106,56 @@ describe("072-seed-reply-suggestion-callsite migration", () => {
     });
   });
 
+  test("carries forward customized conversationStarters override", () => {
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        callSites: {
+          conversationStarters: {
+            model: "claude-opus-4-7",
+            effort: "high",
+            thinking: { enabled: true },
+          },
+        },
+      },
+    });
+
+    seedReplySuggestionCallsiteMigration.run(workspaceDir);
+
+    const config = readConfig() as {
+      llm: { callSites: Record<string, Record<string, unknown>> };
+    };
+    expect(config.llm.callSites.replySuggestion).toEqual({
+      model: "claude-opus-4-7",
+      effort: "high",
+      thinking: { enabled: true },
+    });
+  });
+
+  test("carries forward conversationStarters even on non-Anthropic provider", () => {
+    writeConfig({
+      llm: {
+        default: { provider: "openai", model: "gpt-5.4" },
+        callSites: {
+          conversationStarters: {
+            model: "gpt-5.4-mini",
+            effort: "low",
+          },
+        },
+      },
+    });
+
+    seedReplySuggestionCallsiteMigration.run(workspaceDir);
+
+    const config = readConfig() as {
+      llm: { callSites: Record<string, Record<string, unknown>> };
+    };
+    expect(config.llm.callSites.replySuggestion).toEqual({
+      model: "gpt-5.4-mini",
+      effort: "low",
+    });
+  });
+
   test("skips when replySuggestion already has an explicit override", () => {
     writeConfig({
       llm: {

@@ -203,6 +203,7 @@ export class UsageTelemetryReporter {
             type: "turn",
             daemon_event_id: e.id,
             recorded_at: e.createdAt,
+            conversation_type: e.conversationType,
           }),
         ),
         ...lifecycleEvents.map(

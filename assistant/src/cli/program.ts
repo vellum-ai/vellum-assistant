@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { getConfigReadOnly } from "../config/loader.js";
 import { isEmailEnabled } from "../email/feature-gate.js";
+import { isExternalPluginsEnabled } from "../plugins/feature-gate.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 import { registerAttachmentCommand } from "./commands/attachment.js";
@@ -37,6 +38,7 @@ import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPendingCommand } from "./commands/pending.js";
 import { registerPlatformCommand } from "./commands/platform/index.js";
+import { registerPluginsCommand } from "./commands/plugins.js";
 import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerSkillsCommand } from "./commands/skills.js";
@@ -49,6 +51,7 @@ import { registerUiCommand } from "./commands/ui.js";
 import { registerUsageCommand } from "./commands/usage.js";
 import { registerWatchersCommand } from "./commands/watchers.js";
 import { registerWebhooksCommand } from "./commands/webhooks.js";
+import { red } from "./lib/cli-colors.js";
 import { log } from "./logger.js";
 
 /**
@@ -64,6 +67,13 @@ export async function buildCliProgram(): Promise<Command> {
     .description("Local AI assistant")
     .version(APP_VERSION)
     .allowExcessArguments(true);
+
+  // Color Commander-emitted error output red (unknown options, missing args,
+  // cmd.error() calls). Plain success output and --help text are untouched.
+  // The `red` helper is a no-op when stderr isn't a TTY or NO_COLOR is set.
+  program.configureOutput({
+    outputError: (str, write) => write(red(str)),
+  });
 
   program.addHelpText(
     "after",
@@ -107,6 +117,9 @@ Examples:
   registerOAuthCommand(program);
   registerPendingCommand(program);
   registerPlatformCommand(program);
+  if (isExternalPluginsEnabled(getConfigReadOnly())) {
+    registerPluginsCommand(program);
+  }
   registerRoutesCommand(program);
   registerSequenceCommand(program);
   registerStatusCommand(program);
