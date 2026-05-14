@@ -438,20 +438,57 @@ References:
 ### React Query for server state
 
 Use [TanStack React Query](https://tanstack.com/query/latest) for
-server-derived data. When multiple components need the same data, use a
-shared hook with a stable query key — not independent `useState` +
+server-derived data (API calls, caching, background refetching,
+mutations). When multiple components need the same data, use a shared
+hook with a stable query key — not independent `useState` +
 `useEffect` fetch cycles in each consumer.
 
-Reference: [React Query — Query Invalidation](https://tanstack.com/query/latest/docs/framework/react/guides/query-invalidation)
+React Query handles **server state**. Zustand handles **client state**
+(UI interactions, streaming state, conversation selections). They do not
+overlap.
 
-### Generated API clients
+Why React Query over alternatives:
+- [HeyAPI `@tanstack/react-query` plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query)
+  auto-generates type-safe query/mutation hooks from the OpenAPI spec.
+  No equivalent plugin exists for SWR (still in proposal stage) or other
+  libraries.
+- First-class mutation support, optimistic updates, and DevTools.
+- 12M+ weekly downloads (2026), most feature-complete option.
 
-For backend API routes, prefer generated clients (e.g. HeyAPI
-`*Options()` helpers with `useQuery` / `useMutation`) over hand-written
-`fetch` wrappers. Do not create new direct `fetch()` calls with
-hardcoded backend prefixes unless the generated client cannot support the
-use case (e.g. SSE/streaming). If bypassing, add a comment explaining
-why.
+References:
+- [React Query — Overview](https://tanstack.com/query/latest/docs/framework/react/overview)
+- [React Query — Comparison](https://tanstack.com/query/latest/docs/framework/react/comparison)
+
+### HeyAPI for OpenAPI client generation
+
+The API client is generated from the platform's OpenAPI spec using
+[HeyAPI (`@hey-api/openapi-ts`)](https://heyapi.dev/). Codegen runs in
+this repo — the platform publishes the spec, we generate the client
+locally.
+
+Plugins:
+- `@tanstack/react-query` — generates `*Options()` helpers for
+  `useQuery` / `useMutation` / `useInfiniteQuery`
+- `@hey-api/client-fetch` — Fetch-based HTTP client (no Axios/Node
+  dependency)
+- `@hey-api/typescript` — generates TypeScript types from schemas
+
+Generated output lives in `src/generated/heyapi/`. This directory is
+fully auto-generated — do not hand-edit files in it. Run
+`bun run openapi-ts` to regenerate.
+
+References:
+- [HeyAPI — Configuration](https://heyapi.dev/openapi-ts/configuration)
+- [HeyAPI — TanStack Query plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query)
+
+### Prefer generated clients over hand-written fetch
+
+For backend API routes, use the generated HeyAPI hooks (`*Options()`
+helpers with `useQuery` / `useMutation`) over hand-written `fetch`
+wrappers. Do not create new direct `fetch()` calls with hardcoded
+backend prefixes unless the generated client cannot support the use case
+(e.g. SSE/streaming endpoints that need custom `EventSource` handling).
+If bypassing, add a comment explaining why.
 
 ---
 
