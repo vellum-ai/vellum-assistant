@@ -20,7 +20,19 @@ const testDir = mkdtempSync(join(tmpdir(), "cli-teleport-test-"));
 process.env.VELLUM_LOCKFILE_DIR = testDir;
 
 // ---------------------------------------------------------------------------
-// Mocks — must be set up before importing the module under test
+// Mocks — must be set up before importing the module under test.
+//
+// We use Bun's `mock.module()` API (rather than `spyOn` on the imported
+// module namespace). `spyOn` mutates the shared module namespace, and
+// `mockRestore()` in `afterAll` was not reliably restoring on CI — the
+// mutations leaked into sibling test files (notably `guardian-token.test.ts`)
+// and caused flaky failures when the runtime function for that file returned
+// teleport's mock value instead of the real implementation.
+//
+// `mock.module()` registers a per-module factory in Bun's loader. To prevent
+// the mock from leaking across files in the same `bun test` run, we capture
+// the real exports up front and re-register them in `afterAll` to restore
+// the original module bindings.
 // ---------------------------------------------------------------------------
 
 import * as assistantConfig from "../lib/assistant-config.js";
@@ -28,83 +40,95 @@ import * as guardianToken from "../lib/guardian-token.js";
 import * as platformClient from "../lib/platform-client.js";
 import * as localRuntimeClient from "../lib/local-runtime-client.js";
 
-const findAssistantByNameMock = spyOn(
-  assistantConfig,
-  "findAssistantByName",
-).mockReturnValue(null);
+// Snapshot the real exports before any `mock.module()` call so we can
+// reliably restore them after this file's tests complete, regardless of
+// how Bun's loader treats namespace bindings post-mock.
+const realAssistantConfig = { ...assistantConfig };
+const realGuardianToken = { ...guardianToken };
+const realPlatformClient = { ...platformClient };
+const realLocalRuntimeClient = { ...localRuntimeClient };
 
-const saveAssistantEntryMock = spyOn(
-  assistantConfig,
-  "saveAssistantEntry",
-).mockImplementation(() => {});
+const findAssistantByNameMock = mock<
+  typeof assistantConfig.findAssistantByName
+>(() => null);
+const saveAssistantEntryMock = mock<typeof assistantConfig.saveAssistantEntry>(
+  () => {},
+);
+const loadAllAssistantsMock = mock<typeof assistantConfig.loadAllAssistants>(
+  () => [],
+);
+const removeAssistantEntryMock = mock<
+  typeof assistantConfig.removeAssistantEntry
+>(() => {});
 
-const loadAllAssistantsMock = spyOn(
-  assistantConfig,
-  "loadAllAssistants",
-).mockReturnValue([]);
+mock.module("../lib/assistant-config.js", () => ({
+  ...realAssistantConfig,
+  findAssistantByName: findAssistantByNameMock,
+  saveAssistantEntry: saveAssistantEntryMock,
+  loadAllAssistants: loadAllAssistantsMock,
+  removeAssistantEntry: removeAssistantEntryMock,
+}));
 
-const removeAssistantEntryMock = spyOn(
-  assistantConfig,
-  "removeAssistantEntry",
-).mockImplementation(() => {});
+const loadGuardianTokenMock = mock<typeof guardianToken.loadGuardianToken>(
+  () =>
+    ({
+      accessToken: "local-token",
+      accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }) as unknown as ReturnType<typeof guardianToken.loadGuardianToken>,
+);
 
-const loadGuardianTokenMock = spyOn(
-  guardianToken,
-  "loadGuardianToken",
-).mockReturnValue({
-  accessToken: "local-token",
-  accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
-} as unknown as ReturnType<typeof guardianToken.loadGuardianToken>);
+const leaseGuardianTokenMock = mock<typeof guardianToken.leaseGuardianToken>(
+  async () =>
+    ({
+      accessToken: "leased-token",
+      accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }) as unknown as Awaited<
+      ReturnType<typeof guardianToken.leaseGuardianToken>
+    >,
+);
 
-const leaseGuardianTokenMock = spyOn(
-  guardianToken,
-  "leaseGuardianToken",
-).mockResolvedValue({
-  accessToken: "leased-token",
-  accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
-} as unknown as Awaited<ReturnType<typeof guardianToken.leaseGuardianToken>>);
+const computeDeviceIdMock = mock<typeof guardianToken.computeDeviceId>(
+  () => "device-id-123",
+);
 
-const computeDeviceIdMock = spyOn(
-  guardianToken,
-  "computeDeviceId",
-).mockReturnValue("device-id-123");
+mock.module("../lib/guardian-token.js", () => ({
+  ...realGuardianToken,
+  loadGuardianToken: loadGuardianTokenMock,
+  leaseGuardianToken: leaseGuardianTokenMock,
+  computeDeviceId: computeDeviceIdMock,
+}));
 
-const readPlatformTokenMock = spyOn(
-  platformClient,
-  "readPlatformToken",
-).mockReturnValue("platform-token");
+const readPlatformTokenMock = mock<typeof platformClient.readPlatformToken>(
+  () => "platform-token",
+);
 
-const getPlatformUrlMock = spyOn(
-  platformClient,
-  "getPlatformUrl",
-).mockReturnValue("https://platform.vellum.ai");
+const getPlatformUrlMock = mock<typeof platformClient.getPlatformUrl>(
+  () => "https://platform.vellum.ai",
+);
 
-const hatchAssistantMock = spyOn(
-  platformClient,
-  "hatchAssistant",
-).mockResolvedValue({
-  assistant: {
-    id: "platform-new-id",
-    name: "platform-new",
-    status: "active",
-  },
-  reusedExisting: false,
-});
+const hatchAssistantMock = mock<typeof platformClient.hatchAssistant>(
+  async () => ({
+    assistant: {
+      id: "platform-new-id",
+      name: "platform-new",
+      status: "active",
+    },
+    reusedExisting: false,
+  }),
+);
 
-const platformPollJobStatusMock = spyOn(
-  platformClient,
-  "platformPollJobStatus",
-).mockResolvedValue({
+const platformPollJobStatusMock = mock<
+  typeof platformClient.platformPollJobStatus
+>(async () => ({
   jobId: "platform-job-1",
   type: "export",
   status: "complete",
   bundleKey: "platform-bundle-key-abc",
-});
+}));
 
-const platformRequestSignedUrlMock = spyOn(
-  platformClient,
-  "platformRequestSignedUrl",
-).mockImplementation(async (params) => ({
+const platformRequestSignedUrlMock = mock<
+  typeof platformClient.platformRequestSignedUrl
+>(async (params) => ({
   url:
     params.operation === "upload"
       ? "https://storage.googleapis.com/bucket/signed-upload"
@@ -113,10 +137,9 @@ const platformRequestSignedUrlMock = spyOn(
   expiresAt: new Date(Date.now() + 3600_000).toISOString(),
 }));
 
-const platformImportBundleFromGcsMock = spyOn(
-  platformClient,
-  "platformImportBundleFromGcs",
-).mockResolvedValue({
+const platformImportBundleFromGcsMock = mock<
+  typeof platformClient.platformImportBundleFromGcs
+>(async () => ({
   statusCode: 200,
   body: {
     success: true,
@@ -128,12 +151,11 @@ const platformImportBundleFromGcsMock = spyOn(
       backups_created: 1,
     },
   } as Record<string, unknown>,
-});
+}));
 
-const platformImportPreflightFromGcsMock = spyOn(
-  platformClient,
-  "platformImportPreflightFromGcs",
-).mockResolvedValue({
+const platformImportPreflightFromGcsMock = mock<
+  typeof platformClient.platformImportPreflightFromGcs
+>(async () => ({
   statusCode: 200,
   body: {
     can_import: true,
@@ -144,71 +166,84 @@ const platformImportPreflightFromGcsMock = spyOn(
       total_files: 3,
     },
   } as Record<string, unknown>,
-});
+}));
 
-const checkExistingPlatformAssistantMock = spyOn(
-  platformClient,
-  "checkExistingPlatformAssistant",
-).mockResolvedValue(null);
+const checkExistingPlatformAssistantMock = mock<
+  typeof platformClient.checkExistingPlatformAssistant
+>(async () => null);
 
-const ensureSelfHostedLocalRegistrationMock = spyOn(
-  platformClient,
-  "ensureSelfHostedLocalRegistration",
-).mockResolvedValue({
-  assistant: { id: "platform-assistant-1", name: "my-assistant" },
-  registration: {
-    client_installation_id: "device-id-123",
-    runtime_assistant_id: "target-local",
-    client_platform: "cli",
-  },
-  assistant_api_key: "api-key-123",
-  webhook_secret: "webhook-secret-123",
-} as unknown as Awaited<
-  ReturnType<typeof platformClient.ensureSelfHostedLocalRegistration>
->);
+const ensureSelfHostedLocalRegistrationMock = mock<
+  typeof platformClient.ensureSelfHostedLocalRegistration
+>(
+  async () =>
+    ({
+      assistant: { id: "platform-assistant-1", name: "my-assistant" },
+      registration: {
+        client_installation_id: "device-id-123",
+        runtime_assistant_id: "target-local",
+        client_platform: "cli",
+      },
+      assistant_api_key: "api-key-123",
+      webhook_secret: "webhook-secret-123",
+    }) as unknown as Awaited<
+      ReturnType<typeof platformClient.ensureSelfHostedLocalRegistration>
+    >,
+);
 
-const injectCredentialsIntoAssistantMock = spyOn(
-  platformClient,
-  "injectCredentialsIntoAssistant",
-).mockResolvedValue(true);
+const injectCredentialsIntoAssistantMock = mock<
+  typeof platformClient.injectCredentialsIntoAssistant
+>(async () => true);
 
-const fetchCurrentUserMock = spyOn(
-  platformClient,
-  "fetchCurrentUser",
-).mockResolvedValue({
-  id: "user-1",
-  email: "test@example.com",
-  display: "Test",
-} as unknown as Awaited<ReturnType<typeof platformClient.fetchCurrentUser>>);
+const fetchCurrentUserMock = mock<typeof platformClient.fetchCurrentUser>(
+  async () =>
+    ({
+      id: "user-1",
+      email: "test@example.com",
+      display: "Test",
+    }) as unknown as Awaited<
+      ReturnType<typeof platformClient.fetchCurrentUser>
+    >,
+);
 
-const fetchOrganizationIdMock = spyOn(
-  platformClient,
-  "fetchOrganizationId",
-).mockResolvedValue("org-1");
+const fetchOrganizationIdMock = mock<typeof platformClient.fetchOrganizationId>(
+  async () => "org-1",
+);
 
-const localRuntimeExportToGcsMock = spyOn(
-  localRuntimeClient,
-  "localRuntimeExportToGcs",
-).mockResolvedValue({ jobId: "local-export-job-1" });
+mock.module("../lib/platform-client.js", () => ({
+  ...realPlatformClient,
+  readPlatformToken: readPlatformTokenMock,
+  getPlatformUrl: getPlatformUrlMock,
+  hatchAssistant: hatchAssistantMock,
+  platformPollJobStatus: platformPollJobStatusMock,
+  platformRequestSignedUrl: platformRequestSignedUrlMock,
+  platformImportBundleFromGcs: platformImportBundleFromGcsMock,
+  platformImportPreflightFromGcs: platformImportPreflightFromGcsMock,
+  checkExistingPlatformAssistant: checkExistingPlatformAssistantMock,
+  ensureSelfHostedLocalRegistration: ensureSelfHostedLocalRegistrationMock,
+  injectCredentialsIntoAssistant: injectCredentialsIntoAssistantMock,
+  fetchCurrentUser: fetchCurrentUserMock,
+  fetchOrganizationId: fetchOrganizationIdMock,
+}));
 
-const localRuntimeImportFromGcsMock = spyOn(
-  localRuntimeClient,
-  "localRuntimeImportFromGcs",
-).mockResolvedValue({ jobId: "local-import-job-1" });
+const localRuntimeExportToGcsMock = mock<
+  typeof localRuntimeClient.localRuntimeExportToGcs
+>(async () => ({ jobId: "local-export-job-1" }));
+
+const localRuntimeImportFromGcsMock = mock<
+  typeof localRuntimeClient.localRuntimeImportFromGcs
+>(async () => ({ jobId: "local-import-job-1" }));
 
 // Default to a fixed version string. Tests that exercise the version-gate
 // surface override this mock per-case to assert the value flows from the
 // target runtime's `/v1/identity` (NOT from `cliPkg.version`) into the
 // download signed-URL request.
-const localRuntimeIdentityMock = spyOn(
-  localRuntimeClient,
-  "localRuntimeIdentity",
-).mockResolvedValue({ version: "0.6.5" });
+const localRuntimeIdentityMock = mock<
+  typeof localRuntimeClient.localRuntimeIdentity
+>(async () => ({ version: "0.6.5" }));
 
-const localRuntimePollJobStatusMock = spyOn(
-  localRuntimeClient,
-  "localRuntimePollJobStatus",
-).mockImplementation(async (_runtimeUrl, _token, jobId) => ({
+const localRuntimePollJobStatusMock = mock<
+  typeof localRuntimeClient.localRuntimePollJobStatus
+>(async (_runtimeUrl, _token, jobId) => ({
   jobId,
   type: jobId.includes("import") ? "import" : "export",
   status: "complete",
@@ -222,6 +257,14 @@ const localRuntimePollJobStatusMock = spyOn(
       backups_created: 1,
     },
   },
+}));
+
+mock.module("../lib/local-runtime-client.js", () => ({
+  ...realLocalRuntimeClient,
+  localRuntimeExportToGcs: localRuntimeExportToGcsMock,
+  localRuntimeImportFromGcs: localRuntimeImportFromGcsMock,
+  localRuntimeIdentity: localRuntimeIdentityMock,
+  localRuntimePollJobStatus: localRuntimePollJobStatusMock,
 }));
 
 const hatchLocalMock = mock(async () => {});
@@ -285,29 +328,13 @@ import type { AssistantEntry } from "../lib/assistant-config.js";
 // ---------------------------------------------------------------------------
 
 afterAll(() => {
-  findAssistantByNameMock.mockRestore();
-  saveAssistantEntryMock.mockRestore();
-  loadAllAssistantsMock.mockRestore();
-  removeAssistantEntryMock.mockRestore();
-  loadGuardianTokenMock.mockRestore();
-  leaseGuardianTokenMock.mockRestore();
-  readPlatformTokenMock.mockRestore();
-  getPlatformUrlMock.mockRestore();
-  hatchAssistantMock.mockRestore();
-  checkExistingPlatformAssistantMock.mockRestore();
-  platformPollJobStatusMock.mockRestore();
-  platformRequestSignedUrlMock.mockRestore();
-  platformImportBundleFromGcsMock.mockRestore();
-  platformImportPreflightFromGcsMock.mockRestore();
-  ensureSelfHostedLocalRegistrationMock.mockRestore();
-  injectCredentialsIntoAssistantMock.mockRestore();
-  fetchCurrentUserMock.mockRestore();
-  fetchOrganizationIdMock.mockRestore();
-  computeDeviceIdMock.mockRestore();
-  localRuntimeExportToGcsMock.mockRestore();
-  localRuntimeImportFromGcsMock.mockRestore();
-  localRuntimeIdentityMock.mockRestore();
-  localRuntimePollJobStatusMock.mockRestore();
+  // Restore the real module exports so the mocks do not leak into sibling
+  // test files (e.g. guardian-token.test.ts, platform-client tests) that
+  // run in the same `bun test` invocation.
+  mock.module("../lib/assistant-config.js", () => realAssistantConfig);
+  mock.module("../lib/guardian-token.js", () => realGuardianToken);
+  mock.module("../lib/platform-client.js", () => realPlatformClient);
+  mock.module("../lib/local-runtime-client.js", () => realLocalRuntimeClient);
   rmSync(testDir, { recursive: true, force: true });
   delete process.env.VELLUM_LOCKFILE_DIR;
 });
