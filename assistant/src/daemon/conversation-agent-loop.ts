@@ -42,6 +42,7 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
+import { getDocumentsForConversation } from "../documents/document-store.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import {
@@ -1350,6 +1351,20 @@ export async function runAgentLoopImpl(
       }
     }
 
+    // Query active documents for this conversation so the injector chain
+    // can surface them to the assistant (prevents duplicate document_create
+    // calls when existing documents should be targeted with document_update).
+    const conversationDocs = getDocumentsForConversation(ctx.conversationId);
+    const activeDocuments =
+      conversationDocs.length > 0
+        ? conversationDocs.map((d) => ({
+            surfaceId: d.surfaceId,
+            title: d.title,
+            wordCount: d.wordCount,
+            updatedAt: d.updatedAt,
+          }))
+        : null;
+
     ctx.refreshWorkspaceTopLevelContextIfNeeded();
 
     // Compute fresh turn timestamp for date grounding.
@@ -1561,6 +1576,7 @@ export async function runAgentLoopImpl(
     const injectionOpts = {
       diskPressureContext,
       activeSurface,
+      activeDocuments,
       workspaceTopLevelContext: shouldInjectWorkspace
         ? ctx.workspaceTopLevelContext
         : null,
