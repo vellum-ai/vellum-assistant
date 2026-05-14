@@ -48,6 +48,24 @@
       },
       "executor": "tools/document-update.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "document_read",
+      "description": "Read the current content of an open document by its surface_id. Use this to verify document state before making edits.",
+      "category": "document",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The ID of the document to read"
+          }
+        },
+        "required": ["surface_id"]
+      },
+      "executor": "tools/document-read.ts",
+      "execution_target": "host"
     }
   ]
 }
