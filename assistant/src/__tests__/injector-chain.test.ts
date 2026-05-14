@@ -126,6 +126,9 @@ describe("injector chain", () => {
       DEFAULT_INJECTOR_ORDER.memoryV2Static,
     );
     expect(byName.get("now-md")).toBe(DEFAULT_INJECTOR_ORDER.nowMd);
+    expect(byName.get("active-documents")).toBe(
+      DEFAULT_INJECTOR_ORDER.activeDocuments,
+    );
     expect(byName.get("subagent-status")).toBe(
       DEFAULT_INJECTOR_ORDER.subagentStatus,
     );
