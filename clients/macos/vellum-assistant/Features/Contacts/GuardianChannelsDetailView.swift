@@ -410,7 +410,7 @@ struct GuardianChannelsDetailView: View {
     // MARK: - Channel Actions
 
     /// Runs an async channel action with shared loading/error/refresh handling.
-    private func performChannelAction(channelId: String, type: String, errorLabel: String, action: () async throws -> Void) {
+    private func performChannelAction(channelId: String, type: String, errorLabel: String, action: @escaping () async throws -> Void) {
         guard actionInProgress == nil else { return }
         actionInProgress = channelId
         errorMessage = nil
