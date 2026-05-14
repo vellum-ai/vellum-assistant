@@ -1,23 +1,17 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// A single filter pill rendered inside `HomeFeedFilterBar`. Displays a
-/// capitalized category label in either a filled (selected) or ghost/outlined
-/// (unselected) style, following the capsule pill pattern established by
-/// `HomeSuggestionPill`.
 private struct HomeFeedFilterPill: View {
-    let label: String
+    let icon: VIcon
     let isSelected: Bool
+    let accessibilityLabel: String
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            Text(label)
-                .font(VFont.bodySmallEmphasised)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+            VIconView(icon, size: 16)
                 .foregroundStyle(isSelected ? VColor.contentInset : VColor.contentSecondary)
-                .padding(.horizontal, VSpacing.md)
+                .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xs)
                 .background(
                     Capsule()
@@ -30,6 +24,7 @@ private struct HomeFeedFilterPill: View {
         }
         .buttonStyle(.plain)
         .pointerCursor()
+        .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
@@ -37,9 +32,7 @@ private struct HomeFeedFilterPill: View {
 /// Horizontal pill/chip bar that filters the home feed by `FeedItemCategory`.
 ///
 /// Data-driven: only renders pills for categories that have at least one item
-/// in the current feed. The "All" pill always appears. If only one category
-/// (or none) is present, the bar hides entirely since filtering would be
-/// meaningless.
+/// in the current feed. Each pill shows the category's icon instead of text.
 struct HomeFeedFilterBar: View {
     let activeFilter: FeedItemCategory?
     let presentCategories: Set<FeedItemCategory>
@@ -50,15 +43,17 @@ struct HomeFeedFilterBar: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: VSpacing.sm) {
                     HomeFeedFilterPill(
-                        label: "All",
+                        icon: .list,
                         isSelected: activeFilter == nil,
+                        accessibilityLabel: "All",
                         onTap: { onFilterChanged(nil) }
                     )
 
                     ForEach(sortedCategories, id: \.self) { category in
                         HomeFeedFilterPill(
-                            label: category.rawValue.capitalized,
+                            icon: icon(for: category),
                             isSelected: activeFilter == category,
+                            accessibilityLabel: category.rawValue.capitalized,
                             onTap: { onFilterChanged(category) }
                         )
                     }
@@ -67,8 +62,17 @@ struct HomeFeedFilterBar: View {
         }
     }
 
-    /// Stable ordering so pills don't jump around as items arrive.
     private var sortedCategories: [FeedItemCategory] {
         FeedItemCategory.allCases.filter { presentCategories.contains($0) }
+    }
+
+    private func icon(for category: FeedItemCategory) -> VIcon {
+        switch category {
+        case .security:   return .shieldCheck
+        case .email:      return .mail
+        case .scheduling: return .clock
+        case .background: return .settings
+        case .system:     return .bell
+        }
     }
 }
