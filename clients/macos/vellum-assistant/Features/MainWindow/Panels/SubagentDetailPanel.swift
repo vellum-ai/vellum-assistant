@@ -66,7 +66,16 @@ struct SubagentDetailPanel: View {
                     panelContentWidth = newWidth
                 }
 
-            if events.isEmpty {
+            if events.isEmpty, !isRunning {
+                VStack(spacing: VSpacing.md) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading events…")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+                .frame(height: 120)
+            } else if events.isEmpty {
                 VEmptyState(
                     title: "No events yet",
                     subtitle: "Events will appear as the subagent runs",
