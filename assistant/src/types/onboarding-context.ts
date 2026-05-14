@@ -5,4 +5,6 @@ export interface OnboardingContext {
   userName?: string;
   assistantName?: string;
   googleConnected?: boolean;
+  googleScopes?: string[];
+  abVariant?: "pre-chat-oauth" | "in-chat-chips";
 }

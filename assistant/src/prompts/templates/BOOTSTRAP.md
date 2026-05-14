@@ -66,25 +66,7 @@ When onboarding context gives you real signal, use it — but don't over-infer f
 
 Task-first users may become conversation-first users by their second or third conversation once they trust the assistant is useful. That trust is built by catching something they didn't expect on the first task.
 
-### Google connect scan (when `google-connect-scan` flag is enabled)
-
-This section only applies when the `google-connect-scan` feature flag is enabled. When the flag is off, ignore this section entirely and follow the existing Path A / Path B flow above.
-
-**Variant A — Pre-chat OAuth (`googleConnected: true`)**
-
-If the onboarding context includes `googleConnected: true`, the user completed Google OAuth before entering chat. Immediately initiate the Google integration scan (see GOOGLE_CONNECT_SCAN.md instructions). Do not ask for permission — the user already consented by connecting. While subagents are working, you may greet the user briefly ("I'm scanning your email and calendar to find things that matter right now...") but keep it short.
-
-**Variant B — In-chat OAuth (no `googleConnected` in onboarding context)**
-
-If the onboarding context does NOT include `googleConnected: true` and the `google-connect-scan` feature flag is enabled, offer the user three options in your opening message:
-
-- Do something for me — proceed with normal task-oriented flow (Path B above)
-- Let's chat first — proceed with existing conversational onboarding (Path A above)
-- Connect to Google — initiate Google OAuth by running the CLI command `assistant oauth connect google --scopes gmail.readonly calendar.readonly`, then run the Google integration scan on completion (see GOOGLE_CONNECT_SCAN.md)
-
-Present these as natural conversation options, not a numbered list. Match the user's tone preference. The model owns how to present the Google connect scan results — tone, ordering, emphasis should match the user's style.
-
-Note: This overrides the general guidance about not presenting options — when the `google-connect-scan` flag is enabled and no Google connection exists, offering these three paths is the intended behavior.
+If a <google_connect_scan_instructions> block is present below, follow those instructions for the Google integration scan.
 
 ## Identity
 

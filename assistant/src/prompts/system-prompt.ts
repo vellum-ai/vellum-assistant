@@ -342,6 +342,17 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
       if (n.tone) lines.push(`- Preferred initial voice: ${n.tone}`);
       if (options.onboardingContext.googleConnected)
         lines.push("- Google connected: yes");
+      if (
+        options.onboardingContext.googleScopes &&
+        options.onboardingContext.googleScopes.length > 0
+      )
+        lines.push(
+          `- Google scopes: ${options.onboardingContext.googleScopes.join(", ")}`,
+        );
+      if (options.onboardingContext.abVariant)
+        lines.push(
+          `- Onboarding variant: ${options.onboardingContext.abVariant}`,
+        );
       lines.push(
         "",
         "Apply this context quietly. Do not recap it as a list unless the user asks.",

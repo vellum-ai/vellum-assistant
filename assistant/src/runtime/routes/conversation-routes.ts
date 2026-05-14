@@ -1047,6 +1047,8 @@ export function persistOnboardingArtifacts(onboarding: {
   userName?: string;
   assistantName?: string;
   googleConnected?: boolean;
+  googleScopes?: string[];
+  abVariant?: "pre-chat-oauth" | "in-chat-chips";
 }): void {
   writeOnboardingSidecar(onboarding);
 
@@ -1123,6 +1125,8 @@ export async function handleSendMessage(
       userName?: string;
       assistantName?: string;
       googleConnected?: boolean;
+      googleScopes?: string[];
+      abVariant?: "pre-chat-oauth" | "in-chat-chips";
     };
   };
 

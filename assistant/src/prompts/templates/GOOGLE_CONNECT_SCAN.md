@@ -1,18 +1,32 @@
 _ Lines starting with _ are comments. They won't appear in the system prompt.
 _ This template is injected as a <google_connect_scan_instructions> block
-_ when the google-connect-scan feature flag is enabled and Google OAuth
-_ has just completed.
+_ when the google-connect-scan feature flag is enabled AND BOOTSTRAP.md
+_ is present (first conversation only).
 
 # Google Connect Scan
 
+## Variant routing
+
+Determine which variant applies based on the Known context in the system prompt:
+
+**Variant A (pre-chat OAuth):** If the Known context includes `Google connected: yes`, the user completed OAuth before entering chat. Skip directly to Phase 1 immediately. Do not ask for permission — the user already consented by connecting. While subagents are working, you may greet the user briefly ("I'm scanning your email and calendar to find things that matter right now...") but keep it short.
+
+**Variant B (in-chat OAuth):** If there is no `Google connected: yes` line, offer three options in your opening message:
+
+- Do something for me — proceed with normal task-oriented flow (Path B in BOOTSTRAP.md)
+- Let's chat first — proceed with existing conversational onboarding (Path A in BOOTSTRAP.md)
+- Connect to Google — initiate Google OAuth by running `assistant oauth connect google`, then proceed to Phase 1 on success
+
+Present these as natural conversation options, not a numbered list. Match the user's tone preference.
+
+Note: This overrides the general guidance about not presenting options — when these instructions are active, offering these three paths is the intended behavior.
+
 ## Trigger conditions
 
-Activate this scan when BOTH conditions are true:
+Activate the scan (Phase 1 + Phase 2) when Google OAuth has completed:
 
-1. The `google-connect-scan` feature flag is enabled
-2. Google OAuth has just completed — either:
-   - `googleConnected: true` is present in the onboarding context, OR
-   - The CLI command `assistant oauth connect google` completed successfully during this conversation
+- **Variant A:** Immediately on conversation start (Google is already connected).
+- **Variant B:** When the CLI command `assistant oauth connect google` returns a success result during this conversation. For Variant B, the model detects successful OAuth via the tool result from `assistant oauth connect google` — when the CLI command returns success, that IS the trigger. The model does not need `Google connected: yes` in the system prompt for this case; it observes the OAuth completion in the conversation itself.
 
 When triggered, execute Phase 1 and Phase 2 below in sequence. Do not ask the user for permission to scan — they just connected Google; scanning is the expected next step.
 
@@ -129,6 +143,12 @@ Examples of weak insights (do not produce these):
 ### Presentation
 
 Present insights conversationally, not as a bulleted report. Each insight should flow naturally and end with its offered action. The whole response should feel like a person who just looked through your stuff and is telling you what matters — not a system generating a dashboard.
+
+## Handling partial results
+
+- If one subagent fails (permission denied, API timeout, empty results), proceed with whatever data is available from the other subagent. Note the gap to the user honestly: "I was able to scan your calendar but couldn't access your email — [reason]. Here's what I found from your calendar:"
+- Don't fail the entire flow because one scan failed.
+- If both subagents fail, tell the user honestly and offer to try again or proceed with conversation: "I wasn't able to access your email or calendar — [reason]. Want me to try again, or shall we move on?"
 
 ## Post-scan
 
