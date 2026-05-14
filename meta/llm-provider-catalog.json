@@ -897,7 +897,7 @@
           "maxOutputTokens": 16384,
           "defaultContextWindowTokens": 200000,
           "longContextMode": "unsupported",
-          "supportsThinking": false,
+          "supportsThinking": true,
           "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true
