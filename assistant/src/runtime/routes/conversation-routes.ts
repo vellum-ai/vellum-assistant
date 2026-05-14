@@ -90,6 +90,7 @@ import {
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
+import { recordOnboardingEvent } from "../../memory/onboarding-events-store.js";
 import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
 import {
   readSlackMetadata,
@@ -1181,6 +1182,7 @@ export async function handleSendMessage(
       tone: string;
       userName?: string;
       assistantName?: string;
+      googleConnected?: boolean;
     };
   };
 
@@ -1405,6 +1407,13 @@ export async function handleSendMessage(
     !!body.onboarding && conversation.messages.length === 0;
   if (isFirstOnboarding) {
     conversation.setOnboardingContext(body.onboarding!);
+    recordOnboardingEvent({
+      screen: "complete",
+      tools: body.onboarding!.tools,
+      tasks: body.onboarding!.tasks,
+      tone: body.onboarding!.tone,
+      googleConnected: body.onboarding!.googleConnected,
+    });
   }
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.

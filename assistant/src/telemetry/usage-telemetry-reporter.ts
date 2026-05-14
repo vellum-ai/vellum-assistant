@@ -21,6 +21,7 @@ import {
 } from "../memory/checkpoints.js";
 import { queryUnreportedLifecycleEvents } from "../memory/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
+import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
 import { getDeviceId } from "../util/device-id.js";
@@ -42,6 +43,10 @@ const CHECKPOINT_KEY_LIFECYCLE_WATERMARK =
   "telemetry:lifecycle:last_reported_at";
 const CHECKPOINT_KEY_LIFECYCLE_WATERMARK_ID =
   "telemetry:lifecycle:last_reported_id";
+const CHECKPOINT_KEY_ONBOARDING_WATERMARK =
+  "telemetry:onboarding:last_reported_at";
+const CHECKPOINT_KEY_ONBOARDING_WATERMARK_ID =
+  "telemetry:onboarding:last_reported_id";
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const INITIAL_FLUSH_DELAY_MS = 30_000; // Delay first flush to let CES handshake complete
 const BATCH_SIZE = 500;
@@ -133,6 +138,7 @@ export class UsageTelemetryReporter {
         setMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK, now);
         setMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK, now);
         setMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK, now);
+        setMemoryCheckpoint(CHECKPOINT_KEY_ONBOARDING_WATERMARK, now);
         return;
       }
 
@@ -157,6 +163,14 @@ export class UsageTelemetryReporter {
       const lifecycleWatermarkId =
         getMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK_ID) ?? undefined;
 
+      // Read onboarding watermark (compound cursor: createdAt + id)
+      const onboardingWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_ONBOARDING_WATERMARK) ?? "0",
+      );
+      const onboardingWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_ONBOARDING_WATERMARK_ID) ??
+        undefined;
+
       // Query unreported events
       const events = queryUnreportedUsageEvents(
         watermark,
@@ -173,11 +187,17 @@ export class UsageTelemetryReporter {
         lifecycleWatermarkId,
         BATCH_SIZE,
       );
+      const onboardingEvents = queryUnreportedOnboardingEvents(
+        onboardingWatermark,
+        onboardingWatermarkId,
+        BATCH_SIZE,
+      );
 
       if (
         events.length === 0 &&
         turnEvents.length === 0 &&
-        lifecycleEvents.length === 0
+        lifecycleEvents.length === 0 &&
+        onboardingEvents.length === 0
       )
         return;
 
@@ -190,6 +210,7 @@ export class UsageTelemetryReporter {
           usageCount: events.length,
           turnCount: turnEvents.length,
           lifecycleCount: lifecycleEvents.length,
+          onboardingCount: onboardingEvents.length,
         },
         "Telemetry flush: resolved auth context",
       );
@@ -228,6 +249,24 @@ export class UsageTelemetryReporter {
             daemon_event_id: e.id,
             event_name: e.eventName,
             recorded_at: e.createdAt,
+          }),
+        ),
+        ...onboardingEvents.map(
+          (e): TelemetryEvent => ({
+            type: "onboarding",
+            daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+            screen: e.screen,
+            ...(e.toolsJson ? { tools: JSON.parse(e.toolsJson) } : {}),
+            ...(e.tasksJson ? { tasks: JSON.parse(e.tasksJson) } : {}),
+            ...(e.tone ? { tone: e.tone } : {}),
+            ...(e.googleConnected != null
+              ? { google_connected: e.googleConnected }
+              : {}),
+            ...(e.googleScopesJson
+              ? { google_scopes: JSON.parse(e.googleScopesJson) }
+              : {}),
+            ...(e.abVariant ? { ab_variant: e.abVariant } : {}),
           }),
         ),
       ];
@@ -302,11 +341,25 @@ export class UsageTelemetryReporter {
         );
       }
 
+      // Advance onboarding watermark (compound cursor)
+      if (onboardingEvents.length > 0) {
+        const lastOnboarding = onboardingEvents[onboardingEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_ONBOARDING_WATERMARK,
+          String(lastOnboarding.createdAt),
+        );
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_ONBOARDING_WATERMARK_ID,
+          lastOnboarding.id,
+        );
+      }
+
       // If we got a full batch of any type, there may be more — recurse
       if (
         events.length === BATCH_SIZE ||
         turnEvents.length === BATCH_SIZE ||
-        lifecycleEvents.length === BATCH_SIZE
+        lifecycleEvents.length === BATCH_SIZE ||
+        onboardingEvents.length === BATCH_SIZE
       ) {
         await this._doFlush(batchCount + 1);
       }
