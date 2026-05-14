@@ -17,7 +17,9 @@ struct HomeUpdatesListDetailCard: View {
     // MARK: - Metadata accessors
 
     private var updates: [[String: Any]]? {
-        item.metadata?["updates"]?.value as? [[String: Any]]
+        guard let raw = item.metadata?["updates"]?.value as? [Any?] else { return nil }
+        let dicts = raw.compactMap { ($0 as? [String: Any?])?.compactMapValues { $0 } }
+        return dicts.isEmpty ? nil : dicts
     }
 
     // MARK: - Body

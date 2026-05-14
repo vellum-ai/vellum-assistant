@@ -33,7 +33,9 @@ struct HomePermissionDetailCard: View {
     }
 
     private var missingScopes: [String]? {
-        item.metadata?["missingScopes"]?.value as? [String]
+        guard let raw = item.metadata?["missingScopes"]?.value as? [Any?] else { return nil }
+        let strings = raw.compactMap { $0 as? String }
+        return strings.isEmpty ? nil : strings
     }
 
     /// Whether the metadata contains enough data to render the rich layout.
