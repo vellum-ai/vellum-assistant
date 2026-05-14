@@ -12,7 +12,7 @@ Activate this scan when BOTH conditions are true:
 1. The `google-connect-scan` feature flag is enabled
 2. Google OAuth has just completed — either:
    - `googleConnected: true` is present in the onboarding context, OR
-   - A `connect_oauth` call for Google returned success during this conversation
+   - The CLI command `assistant oauth connect google` completed successfully during this conversation
 
 When triggered, execute Phase 1 and Phase 2 below in sequence. Do not ask the user for permission to scan — they just connected Google; scanning is the expected next step.
 

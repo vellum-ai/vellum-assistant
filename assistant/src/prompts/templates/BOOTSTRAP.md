@@ -80,9 +80,11 @@ If the onboarding context does NOT include `googleConnected: true` and the `goog
 
 - Do something for me — proceed with normal task-oriented flow (Path B above)
 - Let's chat first — proceed with existing conversational onboarding (Path A above)
-- Connect to Google — initiate Google OAuth via `connect_oauth` for the Google provider, then run the Google integration scan on completion (see GOOGLE_CONNECT_SCAN.md)
+- Connect to Google — initiate Google OAuth by running the CLI command `assistant oauth connect google --scopes gmail.readonly calendar.readonly`, then run the Google integration scan on completion (see GOOGLE_CONNECT_SCAN.md)
 
 Present these as natural conversation options, not a numbered list. Match the user's tone preference. The model owns how to present the Google connect scan results — tone, ordering, emphasis should match the user's style.
+
+Note: This overrides the general guidance about not presenting options — when the `google-connect-scan` flag is enabled and no Google connection exists, offering these three paths is the intended behavior.
 
 ## Identity
 
