@@ -20,11 +20,7 @@ private struct HomeFeedFilterPill: View {
                     .foregroundStyle(iconForeground)
             }
             .frame(width: 26, height: 26)
-            .overlay(
-                Circle()
-                    .stroke(isSelected ? VColor.primaryBase : Color.clear, lineWidth: 2)
-                    .padding(-2)
-            )
+            .opacity(isSelected ? 1.0 : 0.5)
         }
         .buttonStyle(.plain)
         .pointerCursor()

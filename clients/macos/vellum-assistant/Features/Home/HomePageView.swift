@@ -215,7 +215,7 @@ struct HomePageView: View {
         for item in feedStore.items {
             guard item.status != .dismissed else { continue }
             if item.urgency == .high || item.urgency == .critical { continue }
-            if let cat = item.category { cats.insert(cat) }
+            cats.insert(item.category ?? .system)
         }
         return cats
     }
@@ -237,11 +237,8 @@ struct HomePageView: View {
             // High/critical urgency items are surfaced as macOS system
             // notifications instead of appearing in the feed.
             if item.urgency == .high || item.urgency == .critical { return false }
-            // When a category filter is active, include items that match the
-            // filter OR items with no category (backward compat — legacy items
-            // that predate the category field should always remain visible).
             if let active = activeFilter {
-                return item.category == active || item.category == nil
+                return (item.category ?? .system) == active
             }
             return true
         }
