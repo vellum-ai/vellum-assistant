@@ -80,6 +80,7 @@ import {
   shouldExposePersonalMemory,
 } from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
+import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
 import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
@@ -92,8 +93,8 @@ import {
 import { defaultPersistenceTerminal } from "../plugins/defaults/persistence.js";
 import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate.js";
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate.js";
-import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
-import { getHooksFor, getMiddlewaresFor } from "../plugins/registry.js";
+import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CircuitBreakerArgs,
   CircuitBreakerResult,
@@ -2078,23 +2079,18 @@ export async function runAgentLoopImpl(
     // the primary `agentLoop.run` only — the re-entry / retry calls
     // further down in this function do not refire it (they're not new
     // user submissions). Plugins may mutate `ctx.latestMessages` in place
-    // OR return a new context with a fresh array; the runtime forwards
+    // OR return a new context with a fresh array; `runHook` forwards
     // whichever the chain settles on. Order is plugin registration order.
     const userPromptCtx: UserPromptSubmitContext = {
       conversationId: ctx.conversationId,
-      messages: ctx.messages,
+      originalMessages: ctx.messages,
       latestMessages: runMessages,
     };
-    let activeUserPromptCtx = userPromptCtx;
-    for (const hook of getHooksFor<UserPromptSubmitContext>(
-      "user-prompt-submit",
-    )) {
-      const result = await hook(activeUserPromptCtx);
-      if (result !== undefined) {
-        activeUserPromptCtx = result;
-      }
-    }
-    runMessages = activeUserPromptCtx.latestMessages;
+    const finalUserPromptCtx = await runHook(
+      HOOKS.USER_PROMPT_SUBMIT,
+      userPromptCtx,
+    );
+    runMessages = finalUserPromptCtx.latestMessages;
 
     let updatedHistory = await ctx.agentLoop.run(
       runMessages,

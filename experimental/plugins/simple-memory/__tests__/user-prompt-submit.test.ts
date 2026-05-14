@@ -27,7 +27,7 @@ function msg(tag: string): FakeMessage {
 }
 
 function makeCtx(
-  messages: FakeMessage[],
+  originalMessages: FakeMessage[],
   latestMessages: FakeMessage[],
   conversationId = "conv-A",
 ) {
@@ -36,7 +36,7 @@ function makeCtx(
     // Cast through `unknown` since the test uses a stand-in Message
     // shape — runtime semantics are identical and the hook never reads
     // any Message field.
-    messages: messages as unknown as ReadonlyArray<never>,
+    originalMessages: originalMessages as unknown as ReadonlyArray<never>,
     latestMessages: latestMessages as unknown as never[],
   };
 }

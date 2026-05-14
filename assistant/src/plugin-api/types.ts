@@ -119,9 +119,9 @@ export interface PluginShutdownContext {
  * return shape. The daemon threads the final `latestMessages` value into
  * `agentLoop.run()` as the run-messages argument.
  *
- * `messages` is the user's original message list, frozen for the hook.
- * Plugins should treat it as a stable reference point if they need to
- * recover from earlier transformations or compare against the pristine
+ * `originalMessages` is the user's original message list, frozen for the
+ * hook. Plugins should treat it as a stable reference point if they need
+ * to recover from earlier transformations or compare against the pristine
  * state.
  *
  * Multiple plugins' hooks chain in registration order — each plugin's
@@ -135,7 +135,7 @@ export interface UserPromptSubmitContext {
    * The user's original message list, immutable for the hook. Plugins
    * may snapshot or compare against this but MUST NOT mutate it.
    */
-  readonly messages: ReadonlyArray<Message>;
+  readonly originalMessages: ReadonlyArray<Message>;
   /**
    * The working message list that flows into `agentLoop.run`. Plugins
    * may mutate this in place or replace it by returning a new context.

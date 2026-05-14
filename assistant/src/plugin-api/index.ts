@@ -34,6 +34,8 @@
  * per-pipeline schemas stabilize.
  */
 
+export type { HookName } from "./constants.js";
+export { HOOKS } from "./constants.js";
 export type {
   PluginInitContext,
   PluginLogger,
