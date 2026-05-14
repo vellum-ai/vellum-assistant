@@ -66,6 +66,36 @@
       },
       "executor": "tools/document-read.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "document_list",
+      "description": "List all documents in the current conversation.",
+      "category": "document",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "executor": "tools/document-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "document_delete",
+      "description": "Delete a document by its surface_id.",
+      "category": "document",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The ID of the document to delete"
+          }
+        },
+        "required": ["surface_id"]
+      },
+      "executor": "tools/document-delete.ts",
+      "execution_target": "host"
     }
   ]
 }
