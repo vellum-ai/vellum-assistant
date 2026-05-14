@@ -7,6 +7,13 @@
 
 # --- Broad directory catch-alls (DRI defaults) ---
 
+# Web app repo move landing zone (Ashlee).
+# `apps/web/` is scaffolding for an in-progress move from
+# vellum-ai/vellum-assistant-platform/web/ — no application code lives
+# here yet. Code-owner review keeps unrelated feature work from landing
+# in the scaffold before the move is ready. See apps/web/README.md.
+apps/web/ @ashleeradka
+
 # Memory system (Sidd)
 assistant/src/memory/ @siddseethepalli
 

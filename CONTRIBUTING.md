@@ -79,6 +79,19 @@ bun run typecheck
 
 For deeper architectural context, see [ARCHITECTURE.md](ARCHITECTURE.md) and the domain-specific docs linked from it.
 
+## Active migrations
+
+Some directories in this repo are landing zones for in-progress moves
+from other repos. They build green but are not the live source of
+truth for the corresponding product yet. Please avoid landing feature
+work in these directories until the move is complete — target the
+live source instead.
+
+| Directory | Status | Live source |
+|---|---|---|
+| `apps/web/` | Scaffold only — Vite + React Router v7 toolchain landed, no app code yet | [`vellum-ai/vellum-assistant-platform/web`](https://github.com/vellum-ai/vellum-assistant-platform/tree/main/web) |
+| `apps/chrome-extension/` | Move in progress | [`vellum-ai/vellum-assistant/clients/chrome-extension`](https://github.com/vellum-ai/vellum-assistant/tree/main/clients/chrome-extension) |
+
 ## Submitting a pull request
 
 1. Fork the repo and create a branch from `main`.

@@ -1,5 +1,21 @@
 # apps/web
 
+> ## Status: scaffold in progress
+>
+> This directory is the landing zone for a planned move of the web app
+> from
+> [`vellum-ai/vellum-assistant-platform`](https://github.com/vellum-ai/vellum-assistant-platform/tree/main/web)
+> into this repo. **No application code lives here yet** — only the
+> Vite + React Router v7 toolchain, an empty shell, and placeholder
+> routes that exist to validate the build.
+>
+> The live web app is still served from
+> [`vellum-assistant-platform/web/`](https://github.com/vellum-ai/vellum-assistant-platform/tree/main/web).
+> Feature work, bug fixes, and other contributions for the web app
+> should target that repo until the move is complete. PRs against
+> `apps/web/` that add product features or non-scaffold code will be
+> redirected.
+
 Vite + [React Router v7](https://reactrouter.com/) SPA for the
 vellum-assistant web app surfaces (assistant + docs).
 
