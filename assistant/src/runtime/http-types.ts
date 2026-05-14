@@ -229,4 +229,17 @@ export interface RuntimeMessagePayload {
     conversationId?: string;
     objective?: string;
   };
+  slackMessage?: {
+    channelId: string;
+    channelTs: string;
+    threadTs?: string;
+    messageLink?: {
+      appUrl?: string;
+      webUrl?: string;
+    };
+    threadLink?: {
+      appUrl?: string;
+      webUrl?: string;
+    };
+  };
 }

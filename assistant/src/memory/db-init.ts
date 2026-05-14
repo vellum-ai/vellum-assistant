@@ -94,6 +94,7 @@ import {
   migrateDropSetupSkillIdColumn,
   migrateDropSimplifiedMemory,
   migrateDropUsageCompositeIndexes,
+  migrateExternalConversationBindingThreadId,
   migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
   migrateGuardianActionSupersession,
@@ -424,6 +425,7 @@ export function initializeDb(): void {
     migrateProviderConnectionStatusLabel,
     migrateMemoryRetrospectiveState,
     migrateBackfillProviderConnectionLabel,
+    migrateExternalConversationBindingThreadId,
   ];
 
   // Run each migration step, catching and logging individual failures so one

@@ -90,6 +90,11 @@ import {
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
+import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
+import {
+  readSlackMetadata,
+  type SlackMessageMetadata,
+} from "../../messaging/providers/slack/message-metadata.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
 import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
@@ -139,6 +144,52 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
     typeof value === "string" &&
     VALID_RISK_THRESHOLDS.includes(value as RiskThreshold)
   );
+}
+
+function readSlackMetadataFromEnvelope(
+  metadata: string | null | undefined,
+): SlackMessageMetadata | null {
+  if (!metadata) return null;
+  try {
+    const parsed = JSON.parse(metadata) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const slackMeta = (parsed as Record<string, unknown>).slackMeta;
+    return typeof slackMeta === "string" ? readSlackMetadata(slackMeta) : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildSlackHistoryMessage(
+  slackMeta: SlackMessageMetadata | null,
+): RuntimeMessagePayload["slackMessage"] | undefined {
+  if (!slackMeta) return undefined;
+
+  const slackConfig = getConfig().slack;
+  const messageLink = buildSlackMessageDeepLinks({
+    teamId: slackConfig?.teamId,
+    teamUrl: slackConfig?.teamUrl,
+    channelId: slackMeta.channelId,
+    messageTs: slackMeta.channelTs,
+  });
+  const threadLink = slackMeta.threadTs
+    ? buildSlackMessageDeepLinks({
+        teamId: slackConfig?.teamId,
+        teamUrl: slackConfig?.teamUrl,
+        channelId: slackMeta.channelId,
+        messageTs: slackMeta.threadTs,
+      })
+    : undefined;
+
+  return {
+    channelId: slackMeta.channelId,
+    channelTs: slackMeta.channelTs,
+    ...(slackMeta.threadTs ? { threadTs: slackMeta.threadTs } : {}),
+    ...(messageLink ? { messageLink } : {}),
+    ...(threadLink ? { threadLink } : {}),
+  };
 }
 
 function collectCanonicalGuardianRequestHintIds(
@@ -520,6 +571,9 @@ export function handleListMessages(
         // Ignore malformed metadata
       }
     }
+    const slackMessage = buildSlackHistoryMessage(
+      readSlackMetadataFromEnvelope(msg.metadata),
+    );
 
     // Strip <no_response/> markers from assistant messages so web/API
     // clients never see the raw sentinel. Only assistant messages produce
@@ -559,6 +613,7 @@ export function handleListMessages(
         textSegments: filteredSegments,
         contentOrder: filteredContentOrder,
         surfaces: rendered.surfaces,
+        slackMessage,
         ...(rendered.thinkingSegments.length > 0
           ? { thinkingSegments: rendered.thinkingSegments }
           : {}),
@@ -577,6 +632,7 @@ export function handleListMessages(
       textSegments: rendered.textSegments,
       contentOrder: rendered.contentOrder,
       surfaces: rendered.surfaces,
+      slackMessage,
       ...(rendered.thinkingSegments.length > 0
         ? { thinkingSegments: rendered.thinkingSegments }
         : {}),
@@ -685,6 +741,7 @@ export function handleListMessages(
       ...(m.subagentNotification
         ? { subagentNotification: m.subagentNotification }
         : {}),
+      ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
     };
   });
 

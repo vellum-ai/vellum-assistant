@@ -7,7 +7,7 @@
  * list APIs.
  */
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import { getDb } from "./db-connection.js";
 import { externalConversationBindings } from "./schema.js";
@@ -16,6 +16,7 @@ export interface ExternalConversationBinding {
   conversationId: string;
   sourceChannel: string;
   externalChatId: string;
+  externalThreadId?: string | null;
   externalUserId?: string | null;
   displayName?: string | null;
   username?: string | null;
@@ -29,9 +30,17 @@ export interface UpsertBindingInput {
   conversationId: string;
   sourceChannel: string;
   externalChatId: string;
+  externalThreadId?: string | null;
   externalUserId?: string | null;
   displayName?: string | null;
   username?: string | null;
+}
+
+function normalizeExternalThreadId(
+  externalThreadId?: string | null,
+): string | null {
+  const trimmed = externalThreadId?.trim();
+  return trimmed ? trimmed : null;
 }
 
 /**
@@ -41,12 +50,14 @@ export interface UpsertBindingInput {
 export function upsertBinding(input: UpsertBindingInput): void {
   const db = getDb();
   const now = Date.now();
+  const externalThreadId = normalizeExternalThreadId(input.externalThreadId);
 
-  // If a stale binding exists for this (sourceChannel, externalChatId) under a
+  // If a stale binding exists for this channel/chat/thread tuple under a
   // different conversationId, remove it first so the unique index is not violated.
-  const existing = getBindingByChannelChat(
+  const existing = getBindingByChannelChatThread(
     input.sourceChannel,
     input.externalChatId,
+    externalThreadId,
   );
   if (existing && existing.conversationId !== input.conversationId) {
     db.delete(externalConversationBindings)
@@ -64,6 +75,7 @@ export function upsertBinding(input: UpsertBindingInput): void {
       conversationId: input.conversationId,
       sourceChannel: input.sourceChannel,
       externalChatId: input.externalChatId,
+      externalThreadId,
       externalUserId: input.externalUserId ?? null,
       displayName: input.displayName ?? null,
       username: input.username ?? null,
@@ -76,6 +88,7 @@ export function upsertBinding(input: UpsertBindingInput): void {
       set: {
         sourceChannel: input.sourceChannel,
         externalChatId: input.externalChatId,
+        externalThreadId,
         externalUserId: input.externalUserId ?? null,
         displayName: input.displayName ?? null,
         username: input.username ?? null,
@@ -95,15 +108,18 @@ export function upsertOutboundBinding(input: {
   conversationId: string;
   sourceChannel: string;
   externalChatId: string;
+  externalThreadId?: string | null;
 }): void {
   const db = getDb();
   const now = Date.now();
+  const externalThreadId = normalizeExternalThreadId(input.externalThreadId);
 
-  // If a stale binding exists for this (sourceChannel, externalChatId) under a
+  // If a stale binding exists for this channel/chat/thread tuple under a
   // different conversationId, remove it first so the unique index is not violated.
-  const existing = getBindingByChannelChat(
+  const existing = getBindingByChannelChatThread(
     input.sourceChannel,
     input.externalChatId,
+    externalThreadId,
   );
   if (existing && existing.conversationId !== input.conversationId) {
     db.delete(externalConversationBindings)
@@ -121,6 +137,7 @@ export function upsertOutboundBinding(input: {
       conversationId: input.conversationId,
       sourceChannel: input.sourceChannel,
       externalChatId: input.externalChatId,
+      externalThreadId,
       externalUserId: null,
       displayName: null,
       username: null,
@@ -133,6 +150,7 @@ export function upsertOutboundBinding(input: {
       set: {
         sourceChannel: input.sourceChannel,
         externalChatId: input.externalChatId,
+        externalThreadId,
         updatedAt: now,
         lastOutboundAt: now,
       },
@@ -162,7 +180,19 @@ export function getBindingByChannelChat(
   sourceChannel: string,
   externalChatId: string,
 ): ExternalConversationBinding | null {
+  return getBindingByChannelChatThread(sourceChannel, externalChatId, null);
+}
+
+/**
+ * Look up an external binding by channel + external chat ID + optional thread ID.
+ */
+export function getBindingByChannelChatThread(
+  sourceChannel: string,
+  externalChatId: string,
+  externalThreadId?: string | null,
+): ExternalConversationBinding | null {
   const db = getDb();
+  const normalizedThreadId = normalizeExternalThreadId(externalThreadId);
   const row = db
     .select()
     .from(externalConversationBindings)
@@ -170,6 +200,12 @@ export function getBindingByChannelChat(
       and(
         eq(externalConversationBindings.sourceChannel, sourceChannel),
         eq(externalConversationBindings.externalChatId, externalChatId),
+        normalizedThreadId
+          ? eq(
+              externalConversationBindings.externalThreadId,
+              normalizedThreadId,
+            )
+          : isNull(externalConversationBindings.externalThreadId),
       ),
     )
     .get();
@@ -190,6 +226,31 @@ export function deleteBindingByChannelChat(
       and(
         eq(externalConversationBindings.sourceChannel, sourceChannel),
         eq(externalConversationBindings.externalChatId, externalChatId),
+      ),
+    )
+    .run();
+}
+
+/**
+ * Remove an external binding by channel + external chat ID + thread ID.
+ */
+export function deleteBindingByChannelChatThread(
+  sourceChannel: string,
+  externalChatId: string,
+  externalThreadId: string,
+): void {
+  const db = getDb();
+  const normalizedThreadId = normalizeExternalThreadId(externalThreadId);
+  if (!normalizedThreadId) {
+    deleteBindingByChannelChat(sourceChannel, externalChatId);
+    return;
+  }
+  db.delete(externalConversationBindings)
+    .where(
+      and(
+        eq(externalConversationBindings.sourceChannel, sourceChannel),
+        eq(externalConversationBindings.externalChatId, externalChatId),
+        eq(externalConversationBindings.externalThreadId, normalizedThreadId),
       ),
     )
     .run();

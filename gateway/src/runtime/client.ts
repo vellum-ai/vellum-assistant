@@ -322,6 +322,7 @@ export async function resetConversation(
   config: GatewayConfig,
   sourceChannel: ChannelId,
   conversationExternalId: string,
+  sourceThreadId?: string,
 ): Promise<void> {
   cbBeforeRequest();
 
@@ -337,7 +338,11 @@ export async function resetConversation(
       {
         method: "DELETE",
         headers: serviceHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ sourceChannel, conversationExternalId }),
+        body: JSON.stringify({
+          sourceChannel,
+          conversationExternalId,
+          ...(sourceThreadId ? { sourceThreadId } : {}),
+        }),
       },
       config.runtimeTimeoutMs,
     );

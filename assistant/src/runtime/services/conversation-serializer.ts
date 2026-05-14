@@ -8,6 +8,7 @@
  */
 
 import { parseChannelId } from "../../channels/types.js";
+import { getConfig } from "../../config/loader.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import {
   type AttentionState,
@@ -22,6 +23,7 @@ import {
 } from "../../memory/conversation-crud.js";
 import type { ExternalConversationBinding } from "../../memory/external-conversation-store.js";
 import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
+import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -88,6 +90,42 @@ function buildForkParent(
   };
 }
 
+function buildChannelBinding(binding: ExternalConversationBinding) {
+  const slackConfig =
+    binding.sourceChannel === "slack" && binding.externalThreadId
+      ? getConfig().slack
+      : undefined;
+  const slackThreadLink =
+    slackConfig && binding.externalThreadId
+      ? buildSlackMessageDeepLinks({
+          teamId: slackConfig.teamId,
+          teamUrl: slackConfig.teamUrl,
+          channelId: binding.externalChatId,
+          messageTs: binding.externalThreadId,
+        })
+      : undefined;
+  const slackThread =
+    binding.sourceChannel === "slack" && binding.externalThreadId
+      ? {
+          channelId: binding.externalChatId,
+          threadTs: binding.externalThreadId,
+          ...(slackThreadLink ? { link: slackThreadLink } : {}),
+        }
+      : undefined;
+
+  return {
+    sourceChannel: binding.sourceChannel,
+    externalChatId: binding.externalChatId,
+    ...(binding.externalThreadId
+      ? { externalThreadId: binding.externalThreadId }
+      : {}),
+    externalUserId: binding.externalUserId,
+    displayName: binding.displayName,
+    username: binding.username,
+    ...(slackThread ? { slackThread } : {}),
+  };
+}
+
 export function serializeConversationSummary(params: {
   conversation: ConversationRow;
   binding?: ExternalConversationBinding | null;
@@ -118,13 +156,7 @@ export function serializeConversationSummary(params: {
       : {}),
     ...(binding
       ? {
-          channelBinding: {
-            sourceChannel: binding.sourceChannel,
-            externalChatId: binding.externalChatId,
-            externalUserId: binding.externalUserId,
-            displayName: binding.displayName,
-            username: binding.username,
-          },
+          channelBinding: buildChannelBinding(binding),
         }
       : {}),
     ...(originChannel ? { conversationOriginChannel: originChannel } : {}),

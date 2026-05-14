@@ -1,8 +1,7 @@
 import type { DrizzleDb } from "../db-connection.js";
-import { migrateExtConvBindingsChannelChatUnique } from "./010-ext-conv-bindings-channel-chat-unique.js";
 
 /**
- * External conversation bindings table with indexes and unique constraint migration.
+ * External conversation bindings table with indexes.
  */
 export function createExternalConversationBindingsTables(
   database: DrizzleDb,
@@ -12,6 +11,7 @@ export function createExternalConversationBindingsTables(
       conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
       source_channel TEXT NOT NULL,
       external_chat_id TEXT NOT NULL,
+      external_thread_id TEXT,
       external_user_id TEXT,
       display_name TEXT,
       username TEXT,
@@ -26,8 +26,19 @@ export function createExternalConversationBindingsTables(
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_ext_conv_bindings_channel_chat ON external_conversation_bindings(source_channel, external_chat_id)`,
   );
   database.run(
+    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_ext_conv_bindings_channel_chat_thread ON external_conversation_bindings(source_channel, external_chat_id, external_thread_id)`,
+  );
+  database.run(
     /*sql*/ `CREATE INDEX IF NOT EXISTS idx_ext_conv_bindings_channel ON external_conversation_bindings(source_channel)`,
   );
-
-  migrateExtConvBindingsChannelChatUnique(database);
+  database.run(/*sql*/ `
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ext_conv_bindings_channel_chat_no_thread_unique
+    ON external_conversation_bindings(source_channel, external_chat_id)
+    WHERE external_thread_id IS NULL
+  `);
+  database.run(/*sql*/ `
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ext_conv_bindings_channel_chat_thread_unique
+    ON external_conversation_bindings(source_channel, external_chat_id, external_thread_id)
+    WHERE external_thread_id IS NOT NULL
+  `);
 }

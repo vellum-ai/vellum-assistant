@@ -208,6 +208,7 @@ export { migrateCreateProviderConnections } from "./243-provider-connections.js"
 export { migrateProviderConnectionStatusLabel } from "./244-provider-connection-status-label.js";
 export { migrateMemoryRetrospectiveState } from "./245-memory-retrospective-state.js";
 export { migrateBackfillProviderConnectionLabel } from "./246-backfill-provider-connection-label.js";
+export { migrateExternalConversationBindingThreadId } from "./247-external-conversation-binding-thread-id.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

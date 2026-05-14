@@ -25,6 +25,10 @@ mock.module("../config/loader.js", () => ({
     provider: "test",
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0 },
+    slack: {
+      teamId: "T123",
+      teamUrl: "https://example.slack.com/",
+    },
   }),
 }));
 
@@ -32,6 +36,7 @@ import { createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { messages } from "../memory/schema.js";
+import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 import { BadRequestError } from "../runtime/routes/errors.js";
 
@@ -82,6 +87,13 @@ interface MessagePayload {
   role: string;
   content: string;
   timestamp: string;
+  slackMessage?: {
+    channelId: string;
+    channelTs: string;
+    threadTs?: string;
+    messageLink?: { appUrl?: string; webUrl?: string };
+    threadLink?: { appUrl?: string; webUrl?: string };
+  };
 }
 
 interface ListResponse {
@@ -192,6 +204,49 @@ describe("handleListMessages page=latest", () => {
     expect(body.hasMore).toBe(false);
     expect(body.oldestTimestamp).toBeNull();
     expect(body.oldestMessageId).toBeNull();
+  });
+
+  test("messages expose Slack message and thread links from slackMeta", () => {
+    const conv = createConversation();
+    const db = getDb();
+    db.insert(messages)
+      .values({
+        id: "msg-slack",
+        conversationId: conv.id,
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Slack reply" }]),
+        metadata: JSON.stringify({
+          slackMeta: writeSlackMetadata({
+            source: "slack",
+            channelId: "C123ABCDEF",
+            channelTs: "1710000000.000200",
+            threadTs: "1710000000.000100",
+            eventKind: "message",
+          }),
+        }),
+        createdAt: 1,
+      })
+      .run();
+
+    const body = callList({ conversationId: conv.id, page: "latest" });
+
+    expect(body.messages[0].slackMessage).toEqual({
+      channelId: "C123ABCDEF",
+      channelTs: "1710000000.000200",
+      threadTs: "1710000000.000100",
+      messageLink: {
+        appUrl:
+          "slack://channel?team=T123&id=C123ABCDEF&message=1710000000.000200",
+        webUrl:
+          "https://example.slack.com/archives/C123ABCDEF/p1710000000000200",
+      },
+      threadLink: {
+        appUrl:
+          "slack://channel?team=T123&id=C123ABCDEF&message=1710000000.000100",
+        webUrl:
+          "https://example.slack.com/archives/C123ABCDEF/p1710000000000100",
+      },
+    });
   });
 
   test("page=latest on unresolved conversationKey returns null metadata contract", () => {

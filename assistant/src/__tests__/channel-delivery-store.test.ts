@@ -30,6 +30,11 @@ import {
   recordProcessingFailure,
   replayDeadLetters,
 } from "../memory/delivery-status.js";
+import {
+  getBindingByChannelChat,
+  getBindingByChannelChatThread,
+  upsertBinding,
+} from "../memory/external-conversation-store.js";
 import { RETRY_MAX_ATTEMPTS } from "../memory/job-utils.js";
 import {
   channelInboundEvents,
@@ -37,6 +42,7 @@ import {
   externalConversationBindings,
   messages,
 } from "../memory/schema.js";
+import { buildConversationDetailResponse } from "../runtime/services/conversation-serializer.js";
 import { handleDeleteConversation } from "./helpers/channel-test-adapter.js";
 
 initializeDb();
@@ -116,6 +122,28 @@ describe("channel-delivery-store", () => {
     expect(r1.conversationId).toBe(r2.conversationId);
   });
 
+  test("same Slack channel and thread reuses the same conversation", () => {
+    const r1 = recordInbound("slack", "C0123ABCDEF", "msg-1", {
+      sourceThreadId: "1710000000.000100",
+    });
+    const r2 = recordInbound("slack", "C0123ABCDEF", "msg-2", {
+      sourceThreadId: "1710000000.000100",
+    });
+
+    expect(r1.conversationId).toBe(r2.conversationId);
+  });
+
+  test("different Slack threads in one channel get different conversations", () => {
+    const r1 = recordInbound("slack", "C0123ABCDEF", "msg-1", {
+      sourceThreadId: "1710000000.000100",
+    });
+    const r2 = recordInbound("slack", "C0123ABCDEF", "msg-2", {
+      sourceThreadId: "1710000000.000200",
+    });
+
+    expect(r1.conversationId).not.toBe(r2.conversationId);
+  });
+
   test("different chats get different conversations", () => {
     const r1 = recordInbound("telegram", "chat-1", "msg-1");
     const r2 = recordInbound("telegram", "chat-2", "msg-1");
@@ -147,6 +175,63 @@ describe("channel-delivery-store", () => {
       assistantId: "self",
     });
     expect(r1.conversationId).toBe(r2.conversationId);
+  });
+
+  test("external bindings allow multiple Slack thread anchors per channel", () => {
+    const r1 = recordInbound("slack", "C0123ABCDEF", "msg-1", {
+      sourceThreadId: "1710000000.000100",
+    });
+    const r2 = recordInbound("slack", "C0123ABCDEF", "msg-2", {
+      sourceThreadId: "1710000000.000200",
+    });
+
+    upsertBinding({
+      conversationId: r1.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalThreadId: "1710000000.000100",
+    });
+    upsertBinding({
+      conversationId: r2.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalThreadId: "1710000000.000200",
+    });
+
+    expect(
+      getBindingByChannelChatThread("slack", "C0123ABCDEF", "1710000000.000100")
+        ?.conversationId,
+    ).toBe(r1.conversationId);
+    expect(
+      getBindingByChannelChatThread("slack", "C0123ABCDEF", "1710000000.000200")
+        ?.conversationId,
+    ).toBe(r2.conversationId);
+    expect(getBindingByChannelChat("slack", "C0123ABCDEF")).toBeNull();
+  });
+
+  test("conversation detail exposes Slack thread anchor from binding", () => {
+    const result = recordInbound("slack", "C0123ABCDEF", "msg-1", {
+      sourceThreadId: "1710000000.000100",
+    });
+
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalThreadId: "1710000000.000100",
+    });
+
+    const detail = buildConversationDetailResponse(result.conversationId);
+
+    expect(detail?.conversation.channelBinding).toMatchObject({
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalThreadId: "1710000000.000100",
+      slackThread: {
+        channelId: "C0123ABCDEF",
+        threadTs: "1710000000.000100",
+      },
+    });
   });
 
   // ── Deduplication ─────────────────────────────────────────────────

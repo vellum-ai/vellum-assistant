@@ -1793,10 +1793,14 @@ async function main() {
         const origMessageTs = normalized.event.source.messageId;
         if (!threadTs && origMessageTs) params.set("messageTs", origMessageTs);
         const replyCallbackUrl = `${config.gatewayInternalBaseUrl}/deliver/slack?${params}`;
-        const slackSourceMetadata =
-          normalized.event.raw.type === "app_mention"
+        const slackSourceMetadata = {
+          ...(normalized.event.raw.type === "app_mention"
             ? { slackBotMentioned: true }
-            : undefined;
+            : {}),
+          ...(threadTs && !normalized.event.source.threadId
+            ? { threadId: threadTs }
+            : {}),
+        };
 
         // Whether this event represents an edit or callback action — these
         // never carry attachments to upload.
@@ -1824,6 +1828,7 @@ async function main() {
               });
             },
             log,
+            threadTs,
           );
           return;
         }
@@ -1972,7 +1977,7 @@ async function main() {
             handleInbound(config, normalized.event, {
               replyCallbackUrl,
               routingOverride: normalized.routing,
-              ...(slackSourceMetadata
+              ...(Object.keys(slackSourceMetadata).length > 0
                 ? { sourceMetadata: slackSourceMetadata }
                 : {}),
               ...(attachmentIds && attachmentIds.length > 0
@@ -1992,7 +1997,7 @@ async function main() {
             handleInbound(config, normalized.event, {
               replyCallbackUrl,
               routingOverride: normalized.routing,
-              ...(slackSourceMetadata
+              ...(Object.keys(slackSourceMetadata).length > 0
                 ? { sourceMetadata: slackSourceMetadata }
                 : {}),
             }).catch((fwdErr) => {

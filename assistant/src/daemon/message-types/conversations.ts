@@ -224,9 +224,18 @@ export interface ConversationTitleUpdated {
 interface ChannelBinding {
   sourceChannel: ChannelId;
   externalChatId: string;
+  externalThreadId?: string | null;
   externalUserId?: string | null;
   displayName?: string | null;
   username?: string | null;
+  slackThread?: {
+    channelId: string;
+    threadTs: string;
+    link?: {
+      appUrl?: string;
+      webUrl?: string;
+    };
+  };
 }
 
 /** Attention state metadata for a conversation's latest assistant message. */

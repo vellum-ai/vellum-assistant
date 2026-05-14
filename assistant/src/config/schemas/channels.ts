@@ -115,6 +115,10 @@ export const SlackConfigSchema = z
       .string({ error: "slack.teamName must be a string" })
       .default("")
       .describe("Slack workspace team name"),
+    teamUrl: z
+      .string({ error: "slack.teamUrl must be a string" })
+      .default("")
+      .describe("Slack workspace URL"),
     botUserId: z
       .string({ error: "slack.botUserId must be a string" })
       .default("")

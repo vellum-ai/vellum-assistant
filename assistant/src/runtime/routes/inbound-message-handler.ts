@@ -467,6 +467,12 @@ export async function handleChannelInbound({
     typeof sourceMetadata?.messageId === "string"
       ? sourceMetadata.messageId
       : undefined;
+  const slackThreadTs =
+    sourceChannel === "slack" &&
+    typeof sourceMetadata?.threadId === "string" &&
+    sourceMetadata.threadId.trim().length > 0
+      ? sourceMetadata.threadId.trim()
+      : undefined;
 
   if (isEdit && !sourceMessageId) {
     throw new BadRequestError("sourceMetadata.messageId is required for edits");
@@ -491,7 +497,11 @@ export async function handleChannelInbound({
     sourceChannel,
     conversationExternalId,
     externalMessageId,
-    { sourceMessageId, assistantId: canonicalAssistantId },
+    {
+      sourceMessageId,
+      assistantId: canonicalAssistantId,
+      sourceThreadId: slackThreadTs,
+    },
   );
 
   const replyCallbackUrl = body.replyCallbackUrl;
@@ -536,6 +546,7 @@ export async function handleChannelInbound({
       conversationId: result.conversationId,
       sourceChannel,
       externalChatId: conversationExternalId,
+      externalThreadId: slackThreadTs ?? null,
       externalUserId: canonicalSenderId ?? rawSenderId ?? null,
       displayName: body.actorDisplayName ?? null,
       username: body.actorUsername ?? null,
@@ -1031,11 +1042,6 @@ export async function handleChannelInbound({
       // this into a `slackMeta` sub-object in the row's metadata column so
       // the chronological renderer can reconstruct thread structure without
       // re-fetching from Slack.
-      const slackThreadTs =
-        sourceChannel === "slack" &&
-        typeof sourceMetadata?.threadId === "string"
-          ? sourceMetadata.threadId
-          : undefined;
       const slackInbound =
         sourceChannel === "slack"
           ? {

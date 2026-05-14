@@ -78,6 +78,7 @@ export const externalConversationBindings = sqliteTable(
       .references(() => conversations.id, { onDelete: "cascade" }),
     sourceChannel: text("source_channel").notNull(),
     externalChatId: text("external_chat_id").notNull(),
+    externalThreadId: text("external_thread_id"),
     externalUserId: text("external_user_id"),
     displayName: text("display_name"),
     username: text("username"),

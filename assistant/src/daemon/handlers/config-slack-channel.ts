@@ -34,6 +34,7 @@ export interface SlackChannelConfigResult {
   connected: boolean;
   teamId?: string;
   teamName?: string;
+  teamUrl?: string;
   botUserId?: string;
   botUsername?: string;
   error?: string;
@@ -93,7 +94,8 @@ export function backfillSlackInjectionTemplates(): void {
 // -- Business logic --
 
 export async function getSlackChannelConfig(): Promise<SlackChannelConfigResult> {
-  const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
+  const { teamId, teamName, teamUrl, botUserId, botUsername } =
+    getConfig().slack;
   const accountInfo = teamName
     ? `${teamName}${botUsername ? ` (@${botUsername})` : ""}`
     : undefined;
@@ -129,6 +131,7 @@ export async function getSlackChannelConfig(): Promise<SlackChannelConfigResult>
     connected,
     ...(teamId ? { teamId } : {}),
     ...(teamName ? { teamName } : {}),
+    ...(teamUrl ? { teamUrl } : {}),
     ...(botUserId ? { botUserId } : {}),
     ...(botUsername ? { botUsername } : {}),
   };
@@ -169,6 +172,7 @@ export async function setSlackChannelConfig(
   let metadata: {
     teamId?: string;
     teamName?: string;
+    teamUrl?: string;
     botUserId?: string;
     botUsername?: string;
   } = {};
@@ -187,6 +191,7 @@ export async function setSlackChannelConfig(
         error?: string;
         team_id?: string;
         team?: string;
+        url?: string;
         user_id?: string;
         user?: string;
       };
@@ -198,6 +203,7 @@ export async function setSlackChannelConfig(
       metadata = {
         teamId: data.team_id,
         teamName: data.team,
+        teamUrl: data.url,
         botUserId: data.user_id,
         botUsername: data.user,
       };
@@ -221,6 +227,7 @@ export async function setSlackChannelConfig(
     const raw = loadRawConfig();
     setNestedValue(raw, "slack.teamId", metadata.teamId ?? "");
     setNestedValue(raw, "slack.teamName", metadata.teamName ?? "");
+    setNestedValue(raw, "slack.teamUrl", metadata.teamUrl ?? "");
     setNestedValue(raw, "slack.botUserId", metadata.botUserId ?? "");
     setNestedValue(raw, "slack.botUsername", metadata.botUsername ?? "");
     saveRawConfig(raw);
@@ -293,10 +300,12 @@ export async function setSlackChannelConfig(
     }
   } else {
     // Use existing metadata from config if no new bot token provided
-    const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
+    const { teamId, teamName, teamUrl, botUserId, botUsername } =
+      getConfig().slack;
     metadata = {
       ...(teamId ? { teamId } : {}),
       ...(teamName ? { teamName } : {}),
+      ...(teamUrl ? { teamUrl } : {}),
       ...(botUserId ? { botUserId } : {}),
       ...(botUsername ? { botUsername } : {}),
     };
@@ -468,7 +477,8 @@ export async function clearSlackUserToken(): Promise<SlackChannelConfigResult> {
     credentialKey("slack_channel", "app_token"),
   ));
   const conn = getConnectionByProvider("slack_channel");
-  const { teamId, teamName, botUserId, botUsername } = getConfig().slack;
+  const { teamId, teamName, teamUrl, botUserId, botUsername } =
+    getConfig().slack;
 
   return {
     success: true,
@@ -479,6 +489,7 @@ export async function clearSlackUserToken(): Promise<SlackChannelConfigResult> {
       !!(conn && conn.status === "active") && hasBotToken && hasAppToken,
     ...(teamId ? { teamId } : {}),
     ...(teamName ? { teamName } : {}),
+    ...(teamUrl ? { teamUrl } : {}),
     ...(botUserId ? { botUserId } : {}),
     ...(botUsername ? { botUsername } : {}),
   };
@@ -528,6 +539,7 @@ export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResul
   const raw = loadRawConfig();
   setNestedValue(raw, "slack.teamId", "");
   setNestedValue(raw, "slack.teamName", "");
+  setNestedValue(raw, "slack.teamUrl", "");
   setNestedValue(raw, "slack.botUserId", "");
   setNestedValue(raw, "slack.botUsername", "");
   saveRawConfig(raw);

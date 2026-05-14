@@ -48,6 +48,9 @@ mock.module("../config/loader.js", () => ({
       teamName:
         ((configStore.slack as Record<string, unknown>)?.teamName as string) ??
         "",
+      teamUrl:
+        ((configStore.slack as Record<string, unknown>)?.teamUrl as string) ??
+        "",
       botUserId:
         ((configStore.slack as Record<string, unknown>)?.botUserId as string) ??
         "",
@@ -277,6 +280,7 @@ describe("Slack channel config handler", () => {
       slack: {
         teamId: "T123",
         teamName: "TestTeam",
+        teamUrl: "https://example.slack.com/",
         botUserId: "U_BOT",
         botUsername: "testbot",
       },
@@ -285,6 +289,7 @@ describe("Slack channel config handler", () => {
     const result = await getSlackChannelConfig();
     expect(result.teamId).toBe("T123");
     expect(result.teamName).toBe("TestTeam");
+    expect(result.teamUrl).toBe("https://example.slack.com/");
     expect(result.botUserId).toBe("U_BOT");
     expect(result.botUsername).toBe("testbot");
   });
@@ -314,6 +319,7 @@ describe("Slack channel config handler", () => {
           ok: true,
           team_id: "T_TEAM",
           team: "MyTeam",
+          url: "https://myteam.slack.com/",
           user_id: "U_BOT",
           user: "mybot",
         }),
@@ -329,11 +335,13 @@ describe("Slack channel config handler", () => {
     expect(result.hasBotToken).toBe(true);
     expect(result.teamId).toBe("T_TEAM");
     expect(result.teamName).toBe("MyTeam");
+    expect(result.teamUrl).toBe("https://myteam.slack.com/");
 
     // Assert metadata was written to config (not credential metadata)
     const slack = configStore.slack as Record<string, unknown>;
     expect(slack.teamId).toBe("T_TEAM");
     expect(slack.teamName).toBe("MyTeam");
+    expect(slack.teamUrl).toBe("https://myteam.slack.com/");
     expect(slack.botUserId).toBe("U_BOT");
     expect(slack.botUsername).toBe("mybot");
   });
@@ -397,6 +405,7 @@ describe("Slack channel config handler", () => {
     const slack = configStore.slack as Record<string, unknown>;
     expect(slack.teamId).toBe("");
     expect(slack.teamName).toBe("");
+    expect(slack.teamUrl).toBe("");
     expect(slack.botUserId).toBe("");
     expect(slack.botUsername).toBe("");
   });
