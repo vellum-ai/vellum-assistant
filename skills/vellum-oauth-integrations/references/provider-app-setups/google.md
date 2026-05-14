@@ -171,7 +171,7 @@ https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/g
 > - `gmail.modify`
 > - `gmail.readonly`
 >
-> **Note:** GCP may categorize these scopes differently than you'd expect — that's fine, as long as all 7 are present.
+> **Note:** GCP may categorize these scopes differently than you'd expect — that's fine, as long as all 8 are present.
 >
 > **Quick note on email safety:** The `gmail.modify` and `gmail.send` scopes let me create drafts and, when you explicitly ask, send them. By default I only create drafts — nothing leaves your outbox without your approval. If you'd rather I only have read access to your email for now, you can uncheck those two - everything else will still work fine, and you can always come back and add them later.
 
