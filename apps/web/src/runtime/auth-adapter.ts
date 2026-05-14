@@ -1,4 +1,4 @@
-export type RuntimeAuthMode = 'hosted' | 'local' | 'self-hosted' | 'none';
+export type RuntimeAuthMode = "hosted" | "local" | "self-hosted" | "none";
 
 /**
  * Adapter that lets apps/web run under different auth/runtime configurations

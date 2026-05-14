@@ -1,10 +1,10 @@
-import { defineConfig } from '@hey-api/openapi-ts';
+import { defineConfig } from "@hey-api/openapi-ts";
 
 export default defineConfig({
-  input: './openapi-schemas/schema_v1.yaml',
-  output: 'src/generated/heyapi',
+  input: "./openapi-schemas/schema_v1.yaml",
+  output: "src/generated/heyapi",
   plugins: [
-    '@hey-api/client-fetch',
-    '@tanstack/react-query',
+    "@hey-api/client-fetch",
+    "@tanstack/react-query",
   ],
 });
