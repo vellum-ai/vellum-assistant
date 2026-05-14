@@ -1054,6 +1054,116 @@ describe("buildSystemPrompt", () => {
       });
     });
 
+    describe("external-content section (slot 07)", () => {
+      const EXTERNAL_FILE = join(
+        SYSTEM_PROMPTS_DIR,
+        "07-external-content.md",
+      );
+
+      test("workspace external-content file is rendered into the static block", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          EXTERNAL_FILE,
+          "## External Content\n\nWorkspace override marker NEBULA_9X.\n",
+        );
+        const result = buildSystemPrompt();
+        expect(result).toContain("## External Content");
+        expect(result).toContain("Workspace override marker NEBULA_9X.");
+        // Section lives in the static (cached) block.
+        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+        expect(boundaryIdx).toBeGreaterThan(-1);
+        const staticBlock = result.slice(0, boundaryIdx);
+        expect(staticBlock).toContain("## External Content");
+      });
+
+      test("bundled external-content default renders when no workspace override", () => {
+        // Bundled `07-external-content` registry entry is the source of
+        // default truth; no workspace override → renderer falls through to
+        // bundled body.
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        const result = buildSystemPrompt();
+        expect(result).toContain("## External Content");
+        expect(result).toContain("third-party data");
+        expect(result).toContain("`<external_content>`");
+      });
+
+      test("renders after the credential-security section to preserve original order", () => {
+        // Static-block order from the pre-registry inline build was
+        // credential-security → external-content.  The numeric prefix on
+        // the registry id (`07-` > `06-`) preserves that order.
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        const result = buildSystemPrompt();
+        const credentialIdx = result.indexOf("## Credential Security");
+        const externalIdx = result.indexOf("## External Content");
+        expect(credentialIdx).toBeGreaterThan(-1);
+        expect(externalIdx).toBeGreaterThan(-1);
+        expect(credentialIdx).toBeLessThan(externalIdx);
+      });
+    });
+
+    describe("background-conversation section (slot 08)", () => {
+      const BACKGROUND_FILE = join(
+        SYSTEM_PROMPTS_DIR,
+        "08-background-conversation.md",
+      );
+
+      test("bundled default renders when isBackgroundConversation is true", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        const result = buildSystemPrompt({ isBackgroundConversation: true });
+        expect(result).toContain("## Background Conversation");
+        expect(result).toContain("non-interactive background job");
+        expect(result).toContain("`notifications` skill");
+      });
+
+      test("bundled default is gated out when isBackgroundConversation is false", () => {
+        // Mustache `{{#isBackgroundConversation}}...{{/isBackgroundConversation}}`
+        // wraps the entire heading + body so the slot interpolates to empty
+        // in foreground conversations and the renderer drops it.
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        const result = buildSystemPrompt({ isBackgroundConversation: false });
+        expect(result).not.toContain("## Background Conversation");
+      });
+
+      test("bundled default is gated out when isBackgroundConversation is omitted", () => {
+        // `ctx.isBackgroundConversation` is normalized to `false` when the
+        // caller omits the flag, so the gated section drops out cleanly.
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        const result = buildSystemPrompt();
+        expect(result).not.toContain("## Background Conversation");
+      });
+
+      test("workspace override is also gated by isBackgroundConversation", () => {
+        // Workspace overrides flow through the same mustache interpolation,
+        // so authors can rely on the same `{{#isBackgroundConversation}}`
+        // gate in their custom body.
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          BACKGROUND_FILE,
+          "{{#isBackgroundConversation}}## Background Conversation\n\nWorkspace override marker COMET_3K.\n{{/isBackgroundConversation}}\n",
+        );
+
+        const offResult = buildSystemPrompt({ isBackgroundConversation: false });
+        expect(offResult).not.toContain("## Background Conversation");
+        expect(offResult).not.toContain("Workspace override marker COMET_3K.");
+
+        const onResult = buildSystemPrompt({ isBackgroundConversation: true });
+        expect(onResult).toContain("## Background Conversation");
+        expect(onResult).toContain("Workspace override marker COMET_3K.");
+      });
+
+      test("renders after the external-content section when both render", () => {
+        // Numeric prefix `08-` > `07-` so the background-conversation
+        // section trails the external-content section in the static block.
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        const result = buildSystemPrompt({ isBackgroundConversation: true });
+        const externalIdx = result.indexOf("## External Content");
+        const backgroundIdx = result.indexOf("## Background Conversation");
+        expect(externalIdx).toBeGreaterThan(-1);
+        expect(backgroundIdx).toBeGreaterThan(-1);
+        expect(externalIdx).toBeLessThan(backgroundIdx);
+      });
+    });
+
     test("unresolved {{variable}} is left as a literal in the body", () => {
       mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
       writeFileSync(
