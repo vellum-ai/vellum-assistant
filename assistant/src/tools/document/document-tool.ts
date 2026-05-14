@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  deleteDocument,
+  getDocumentsForConversation,
   saveDocument,
   updateDocumentContent,
 } from "../../documents/document-store.js";
@@ -125,5 +127,51 @@ export function executeDocumentUpdate(
       error: "No client connected to update document",
     }),
     isError: true,
+  };
+}
+
+export function executeDocumentList(
+  _input: Record<string, unknown>,
+  context: ToolContext,
+): ToolExecutionResult {
+  const docs = getDocumentsForConversation(context.conversationId);
+  return {
+    content: JSON.stringify({
+      success: true,
+      documents: docs.map((d) => ({
+        surface_id: d.surfaceId,
+        title: d.title,
+        word_count: d.wordCount,
+        created_at: d.createdAt,
+        updated_at: d.updatedAt,
+      })),
+    }),
+    isError: false,
+  };
+}
+
+export function executeDocumentDelete(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): ToolExecutionResult {
+  const surfaceId = input.surface_id as string;
+  const deleted = deleteDocument(surfaceId);
+  if (!deleted) {
+    return {
+      content: JSON.stringify({
+        success: false,
+        surface_id: surfaceId,
+        error: "Document not found",
+      }),
+      isError: true,
+    };
+  }
+  return {
+    content: JSON.stringify({
+      success: true,
+      surface_id: surfaceId,
+      message: "Document deleted",
+    }),
+    isError: false,
   };
 }
