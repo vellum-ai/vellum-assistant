@@ -50,6 +50,7 @@ import {
   isBoundGuardianActor,
   processChannelMessageInBackground,
   shouldStartSlackThinkingStatusForText,
+  shouldStartSlackThinkingStatusImmediately,
 } from "./background-dispatch.js";
 
 describe("isBoundGuardianActor", () => {
@@ -199,6 +200,116 @@ describe("Slack thinking status timing", () => {
     expect(
       shouldStartSlackThinkingStatusForText("<no_response/>\nReal response."),
     ).toBe(true);
+  });
+
+  test("starts Slack thinking status immediately for DMs and direct mentions", () => {
+    expect(
+      shouldStartSlackThinkingStatusImmediately({
+        sourceChannel: "slack",
+        chatType: "im",
+      }),
+    ).toBe(true);
+    expect(
+      shouldStartSlackThinkingStatusImmediately({
+        sourceChannel: "slack",
+        slackBotMentioned: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldStartSlackThinkingStatusImmediately({
+        sourceChannel: "slack",
+        chatType: "channel",
+      }),
+    ).toBe(false);
+    expect(
+      shouldStartSlackThinkingStatusImmediately({
+        sourceChannel: "telegram",
+        chatType: "im",
+        slackBotMentioned: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("sets Slack thinking indicator immediately for a DM", async () => {
+    const conversationId = "conv-dm-immediate-status";
+    const channelId = "D-DM-IMMEDIATE";
+    const messageTs = "1700000000.000010";
+
+    const processMessage: MessageProcessor = async () => {
+      expect(deliveredChannelReplies).toHaveLength(1);
+      expect(deliveredChannelReplies[0]!.payload.reaction).toEqual({
+        action: "add",
+        name: "eyes",
+        messageTs,
+      });
+      return { messageId: "user-msg-dm-immediate" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-dm-immediate-status",
+      content: "dm message",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      chatType: "im",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&messageTs=${messageTs}`,
+    });
+
+    await flush();
+
+    const reactions = deliveredChannelReplies.map(
+      (entry) => entry.payload.reaction,
+    );
+    expect(reactions).toEqual([
+      { action: "add", name: "eyes", messageTs },
+      { action: "remove", name: "eyes", messageTs },
+    ]);
+  });
+
+  test("sets Slack thinking status immediately for an app mention", async () => {
+    const conversationId = "conv-mention-immediate-status";
+    const channelId = "C-MENTION-IMMEDIATE";
+    const threadTs = "1700000000.000011";
+
+    const processMessage: MessageProcessor = async () => {
+      expect(deliveredChannelReplies).toHaveLength(1);
+      expect(deliveredChannelReplies[0]!.payload.assistantThreadStatus).toEqual(
+        {
+          channel: channelId,
+          threadTs,
+          status: "is thinking...",
+        },
+      );
+      return { messageId: "user-msg-mention-immediate" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-mention-immediate-status",
+      content: "@assistant please respond",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      slackBotMentioned: true,
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
+    });
+
+    await flush();
+
+    const statuses = deliveredChannelReplies.map((entry) => {
+      const status = entry.payload.assistantThreadStatus as
+        | { status?: string }
+        | undefined;
+      return status?.status;
+    });
+    expect(statuses).toEqual(["is thinking...", ""]);
   });
 
   test("does not set Slack thinking status for no_response text deltas", async () => {

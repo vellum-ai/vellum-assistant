@@ -1061,6 +1061,8 @@ export async function handleChannelInbound({
         sourceMetadata.account.length > 0
           ? sourceMetadata.account
           : undefined;
+      const slackBotMentioned =
+        sourceChannel === "slack" && sourceMetadata?.slackBotMentioned === true;
 
       // ── DM cold-start backfill ──
       // First time a Slack DM lands in a conversation that has fewer than
@@ -1146,6 +1148,7 @@ export async function handleChannelInbound({
         assistantId: canonicalAssistantId,
         approvalCopyGenerator,
         chatType: sourceChatType,
+        slackBotMentioned,
         slackInbound,
       });
     }

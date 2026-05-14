@@ -2500,45 +2500,52 @@ export async function runAgentLoopImpl(
       // the agent's most recent action context while aggressively
       // compressing history. Falls through to reducer tiers on failure.
       {
-        const emergencyConfig = getConfig().compaction;
-        const emergencyResult = await runEmergencyCompaction({
-          conversationId: ctx.conversationId,
-          messages: ctx.messages,
-          provider: ctx.provider,
-          systemPrompt: ctx.systemPrompt,
-          tools: undefined,
-          compaction: emergencyConfig,
-          maxInputTokens: effectiveContextWindow.maxInputTokens,
-          previousEstimatedInputTokens: estimatedTokensAtOverflow,
-          force: true,
-          signal: abortController.signal,
-          overrideProfile: turnOverrideProfile ?? null,
-          nonPersistedPrefixCount:
-            ctx.contextWindowManager.nonPersistedPrefixCount,
-        });
-        if (emergencyResult.compacted) {
-          rlog.info(
-            {
-              phase: "convergence",
-              compactedMessages: emergencyResult.compactedMessages,
-              summaryChars: emergencyResult.summaryText.length,
-            },
-            "Emergency mid-turn compaction succeeded — bypassing reducer tiers",
-          );
-          if (emergencyResult.summaryFailed !== undefined) {
-            await trackCompactionOutcome(
-              ctx,
-              emergencyResult.summaryFailed,
-              onEvent,
-            );
-          }
+        try {
+          const emergencyConfig = getConfig().compaction;
+          const emergencyResult = await runEmergencyCompaction({
+            conversationId: ctx.conversationId,
+            messages: ctx.messages,
+            provider: ctx.provider,
+            systemPrompt: ctx.systemPrompt,
+            tools: undefined,
+            compaction: emergencyConfig,
+            maxInputTokens: effectiveContextWindow.maxInputTokens,
+            previousEstimatedInputTokens: estimatedTokensAtOverflow,
+            force: true,
+            signal: abortController.signal,
+            overrideProfile: turnOverrideProfile ?? null,
+            nonPersistedPrefixCount:
+              ctx.contextWindowManager.nonPersistedPrefixCount,
+          });
           if (emergencyResult.compacted) {
-            await applySuccessfulCompaction(emergencyResult, ctx.messages);
-            shouldInjectWorkspace = true;
+            rlog.info(
+              {
+                phase: "convergence",
+                compactedMessages: emergencyResult.compactedMessages,
+                summaryChars: emergencyResult.summaryText.length,
+              },
+              "Emergency mid-turn compaction succeeded — bypassing reducer tiers",
+            );
+            if (emergencyResult.summaryFailed !== undefined) {
+              await trackCompactionOutcome(
+                ctx,
+                emergencyResult.summaryFailed,
+                onEvent,
+              );
+            }
+            if (emergencyResult.compacted) {
+              await applySuccessfulCompaction(emergencyResult, ctx.messages);
+              shouldInjectWorkspace = true;
+            }
+            // Clear the overflow flag and re-run the agent loop with
+            // the compacted context.
+            state.contextTooLargeDetected = false;
           }
-          // Clear the overflow flag and re-run the agent loop with
-          // the compacted context.
-          state.contextTooLargeDetected = false;
+        } catch (err) {
+          rlog.warn(
+            { phase: "convergence", err },
+            "Emergency mid-turn compaction failed; continuing to reducer tiers",
+          );
         }
         // If emergency compaction failed, fall through to reducer tiers.
       }

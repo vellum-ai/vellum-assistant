@@ -1793,6 +1793,10 @@ async function main() {
         const origMessageTs = normalized.event.source.messageId;
         if (!threadTs && origMessageTs) params.set("messageTs", origMessageTs);
         const replyCallbackUrl = `${config.gatewayInternalBaseUrl}/deliver/slack?${params}`;
+        const slackSourceMetadata =
+          normalized.event.raw.type === "app_mention"
+            ? { slackBotMentioned: true }
+            : undefined;
 
         // Whether this event represents an edit or callback action — these
         // never carry attachments to upload.
@@ -1968,6 +1972,9 @@ async function main() {
             handleInbound(config, normalized.event, {
               replyCallbackUrl,
               routingOverride: normalized.routing,
+              ...(slackSourceMetadata
+                ? { sourceMetadata: slackSourceMetadata }
+                : {}),
               ...(attachmentIds && attachmentIds.length > 0
                 ? { attachmentIds }
                 : {}),
@@ -1985,6 +1992,9 @@ async function main() {
             handleInbound(config, normalized.event, {
               replyCallbackUrl,
               routingOverride: normalized.routing,
+              ...(slackSourceMetadata
+                ? { sourceMetadata: slackSourceMetadata }
+                : {}),
             }).catch((fwdErr) => {
               log.error(
                 { err: fwdErr, channel, threadTs },

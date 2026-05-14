@@ -84,6 +84,8 @@ export interface BackgroundProcessingParams {
   sourceLanguageCode?: string;
   /** Chat type from the gateway (e.g. "private", "group", "supergroup"). */
   chatType?: string;
+  /** Slack app_mention/direct bot mention signal from the gateway. */
+  slackBotMentioned?: boolean;
   /**
    * Slack-specific inbound metadata extracted at the HTTP boundary. Threaded
    * through to `persistUserMessage` so the row can be tagged with a
@@ -118,6 +120,7 @@ export function processChannelMessageInBackground(
     commandIntent,
     sourceLanguageCode,
     chatType,
+    slackBotMentioned,
     slackInbound,
   } = params;
 
@@ -141,6 +144,11 @@ export function processChannelMessageInBackground(
       replyCallbackUrl,
       chatId: externalChatId,
       assistantId,
+      startImmediately: shouldStartSlackThinkingStatusImmediately({
+        sourceChannel,
+        chatType,
+        slackBotMentioned,
+      }),
     });
     const stopApprovalWatcher = replyCallbackUrl
       ? startPendingApprovalPromptWatcher({
@@ -388,13 +396,29 @@ function shouldEmitSlackThinkingStatus(
   }
 }
 
+export function shouldStartSlackThinkingStatusImmediately(params: {
+  sourceChannel: ChannelId;
+  chatType?: string;
+  slackBotMentioned?: boolean;
+}): boolean {
+  if (params.sourceChannel !== "slack") return false;
+  return params.chatType === "im" || params.slackBotMentioned === true;
+}
+
 function createSlackThinkingStatusController(params: {
   sourceChannel: ChannelId;
   replyCallbackUrl?: string;
   chatId: string;
   assistantId?: string;
+  startImmediately?: boolean;
 }): SlackThinkingStatusController | undefined {
-  const { sourceChannel, replyCallbackUrl, chatId, assistantId } = params;
+  const {
+    sourceChannel,
+    replyCallbackUrl,
+    chatId,
+    assistantId,
+    startImmediately,
+  } = params;
   if (
     !replyCallbackUrl ||
     !shouldEmitSlackThinkingStatus(sourceChannel, replyCallbackUrl)
@@ -415,6 +439,10 @@ function createSlackThinkingStatusController(params: {
       assistantId,
     );
   };
+
+  if (startImmediately) {
+    start();
+  }
 
   return {
     observeEvent(msg) {
