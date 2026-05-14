@@ -58,27 +58,42 @@ src/
   App.tsx                    # root layout component
   main.tsx                   # entry point (createRoot, RouterProvider)
   routes.tsx                 # route tree (createBrowserRouter)
-  features/                  # domain modules
-    messages/
-    conversations/
-    streaming/
-    interactions/
-  components/                # shared UI components (design system)
-  runtime/                   # framework adapters, auth, platform bridges
-  lib/                       # shared non-React utilities
+  domains/                   # business domain modules
+    messages/                # message lifecycle
+    conversations/           # conversation CRUD, grouping, selection
+    streaming/               # SSE transport, event parsing
+    interactions/            # user-facing prompts
+    voice/                   # STT, TTS, PTT
+    ...
+  hooks/                     # cross-domain shared hooks
+  utils/                     # cross-domain shared utilities (pure functions)
+  types/                     # cross-domain shared types
+  lib/                       # configured third-party wrappers (API client, Sentry, CSRF)
+  runtime/                   # framework adapters, platform bridges
+  components/                # cross-domain shared UI
   pages/                     # route-level page components
+  generated/                 # auto-generated code (HeyAPI, catalogs)
 ```
 
 ### Domain folders own their code
 
-Each domain folder contains its hooks, reducers, handlers, types, and
-tests. See [CONVENTIONS.md — Code organization](./CONVENTIONS.md#code-organization).
+Each domain folder contains its hooks, store, reducers, handlers,
+types, tests, and domain-specific components. See
+[CONVENTIONS.md — Code organization](./CONVENTIONS.md#code-organization).
+
+### Top-level shared directories
+
+Cross-domain code lives in top-level `hooks/`, `utils/`, `types/`,
+`lib/`, `runtime/`, and `components/`. If something is used by only
+one domain, it belongs inside `domains/<name>/`.
 
 ### Shared UI components
 
-Reusable, domain-agnostic UI components (buttons, modals, inputs,
-layout primitives) live in `components/`. They accept props and render
-UI — they do not import domain state or feature hooks.
+Reusable, domain-agnostic UI components live in `components/` for
+cross-domain shared UI. The design system (Button, Card, Modal, etc.)
+lives in `packages/design-library/` and is imported as
+`@vellum/design-library`. Components must not import domain state or
+feature hooks.
 
 ---
 
@@ -92,13 +107,13 @@ feature module.
 
 ```ts
 // Good — alias for cross-module imports
-import { useChatStore } from "@/features/messages/use-chat-store.js";
+import { useMessageStore } from "@/domains/messages/use-message-store.js";
 
-// Good — relative within same feature
+// Good — relative within same domain
 import { messageReducer } from "./message-reducer.js";
 
 // Avoid — deep relative path crossing module boundaries
-import { useChatStore } from "../../../features/messages/use-chat-store.js";
+import { useMessageStore } from "../../../domains/messages/use-message-store.js";
 ```
 
 Reference: [Vite — resolve.alias](https://vite.dev/config/shared-options.html#resolve-alias)
@@ -108,15 +123,15 @@ Reference: [Vite — resolve.alias](https://vite.dev/config/shared-options.html#
 Group imports in this order, separated by blank lines:
 
 1. **External packages** (`react`, `react-router`, `zustand`, etc.)
-2. **Alias imports** (`@/features/...`, `@/components/...`, `@/lib/...`)
+2. **Alias imports** (`@/domains/...`, `@/components/...`, `@/lib/...`)
 3. **Relative imports** (`./`, `../`)
 
 ```ts
 import { useCallback, useMemo } from "react";
 import { useParams } from "react-router";
 
-import { useChatStore } from "@/features/messages/use-chat-store.js";
-import { Button } from "@/components/button.js";
+import { useMessageStore } from "@/domains/messages/use-message-store.js";
+import { Button } from "@vellum/design-library/button.js";
 
 import { messageReducer } from "./message-reducer.js";
 ```
@@ -146,8 +161,8 @@ ensures they are erased at build time and prevents accidental runtime
 dependencies on type-only modules.
 
 ```ts
-import { type Conversation } from "@/features/conversations/types.js";
-import type { DisplayMessage } from "@/features/messages/types.js";
+import { type Conversation } from "@/domains/conversations/types.js";
+import type { DisplayMessage } from "@/domains/messages/types.js";
 ```
 
 Both `import { type X }` and `import type { X }` are acceptable.
