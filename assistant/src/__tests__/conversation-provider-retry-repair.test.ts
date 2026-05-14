@@ -56,6 +56,7 @@ mock.module("../config/loader.js", () => ({
       callSites: {},
       pricingOverrides: [],
     },
+    compaction: { enabled: true, autoThreshold: 0.7, prompt: null },
     rateLimit: { maxRequestsPerMinute: 0 },
     memory: {
       v2: { enabled: false },
