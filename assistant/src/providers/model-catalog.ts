@@ -1009,6 +1009,8 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 0.3,
           outputPer1mTokens: 1.2,
+          cacheReadPer1mTokens: 0.06,
+          cacheWritePer1mTokens: 0.375,
         },
       },
       {
@@ -1023,6 +1025,8 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 0.6,
           outputPer1mTokens: 2.4,
+          cacheReadPer1mTokens: 0.06,
+          cacheWritePer1mTokens: 0.375,
         },
       },
       {
@@ -1037,6 +1041,8 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 0.3,
           outputPer1mTokens: 1.2,
+          cacheReadPer1mTokens: 0.03,
+          cacheWritePer1mTokens: 0.375,
         },
       },
       {
@@ -1051,6 +1057,8 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 0.6,
           outputPer1mTokens: 2.4,
+          cacheReadPer1mTokens: 0.03,
+          cacheWritePer1mTokens: 0.375,
         },
       },
       {
@@ -1065,6 +1073,8 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 0.3,
           outputPer1mTokens: 1.2,
+          cacheReadPer1mTokens: 0.03,
+          cacheWritePer1mTokens: 0.375,
         },
       },
       {
@@ -1079,13 +1089,15 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 0.6,
           outputPer1mTokens: 2.4,
+          cacheReadPer1mTokens: 0.03,
+          cacheWritePer1mTokens: 0.375,
         },
       },
       {
         id: "MiniMax-M2",
         displayName: "MiniMax M2",
         contextWindowTokens: 204800,
-        maxOutputTokens: 204800,
+        maxOutputTokens: 131072,
         supportsThinking: true,
         supportsCaching: true,
         supportsVision: false,
@@ -1093,6 +1105,8 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 0.3,
           outputPer1mTokens: 1.2,
+          cacheReadPer1mTokens: 0.03,
+          cacheWritePer1mTokens: 0.375,
         },
       },
     ],
