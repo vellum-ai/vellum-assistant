@@ -53,6 +53,7 @@ struct SubagentDetailPanel: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .pointerCursor()
                 .accessibilityLabel("Stop subagent")
             }
         }, pinnedContent: {
