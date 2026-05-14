@@ -29,6 +29,7 @@ struct SubagentDetailPanel: View {
     @State private var panelHeight: CGFloat = 0
     @State private var objectiveContentHeight: CGFloat = 0
     @State private var objectiveScrollHeight: CGFloat = 0
+    @State private var objectiveScrolledToBottom = false
 
     var body: some View {
         VSidePanel(title: "", titleFont: VFont.titleSmall, onClose: onClose, titleAccessory: {
@@ -124,9 +125,16 @@ struct SubagentDetailPanel: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { objectiveContentHeight = $0 }
                     }
+                    .onScrollGeometryChange(for: Bool.self) { geo in
+                        let maxOffset = geo.contentSize.height - geo.containerSize.height
+                        return maxOffset > 0 && geo.contentOffset.y >= maxOffset - 1
+                    } action: { _, atBottom in
+                        objectiveScrolledToBottom = atBottom
+                    }
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { objectiveScrollHeight = $0 }
                     .mask {
-                        if objectiveContentHeight > objectiveScrollHeight + 1 {
+                        let overflows = objectiveContentHeight > objectiveScrollHeight + 1
+                        if overflows && !objectiveScrolledToBottom {
                             VStack(spacing: 0) {
                                 Color.black
                                 LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
