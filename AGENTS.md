@@ -93,15 +93,11 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 
 ## PR Workflow
 
-- **Linear tickets**: When a Linear ticket is provided anywhere in context (user message, TODO, plan), use the issue identifier (e.g. `JARVIS-123`) throughout:
-  - **Branch name**: Include the identifier, e.g. `do/jarvis-123-fix-stale-approvals`. Linear auto-links branches that contain the issue ID.
-  - **Single-PR workflows** (`/do`, `/work`, standalone PRs):
-    - **Commit message**: Include `Closes JARVIS-123` (or `Fixes`, `Resolves`) in the commit body so Linear auto-closes the issue when the PR merges.
-    - **PR description**: Mention `Closes JARVIS-123` in the PR body for redundancy.
-  - **Multi-PR plans** (`/run-plan`, `/blitz`, `/safe-blitz`):
-    - **Intermediate PRs**: Use `Part of JARVIS-123` in commit messages and PR bodies. This links the PR to the issue without triggering Linear's auto-close automation.
-    - **Final PR only**: Use `Closes JARVIS-123` to trigger the auto-close.
-  - **Status sync**: Set In Progress when starting work. For single-PR workflows, move to In Review when the PR is opened. For multi-PR plans, do not toggle status between PRs — let the final PR's `Closes` keyword handle the Done transition.
+- **Linear tickets**: every PR must reference a Linear issue. Search Illuminati (`LUM-`), Atlas, and Jarvis (`JARVIS-`) for an existing ticket before creating a new one. If no match, create the issue retroactively and link it from the PR — every piece of work should be tracked.
+  - **Branch name**: include the identifier, e.g. `do/jarvis-123-fix-stale-approvals`. Linear auto-links branches that contain the issue ID.
+  - **1 PR = 1 issue.** Every PR uses `Closes JARVIS-123` (or `Fixes` / `Resolves`) in its body and commit message so Linear auto-closes that issue on merge.
+  - **Multi-PR efforts get multiple issues.** Do not chain N PRs against a single ticket via `Part of JARVIS-123` — that breaks Linear's auto-status sync. Structure multi-step work as either sub-issues under a parent (one coherent effort, phased sequential steps) per [Linear's sub-issues guidance](https://linear.app/docs/sub-issues), or sibling issues at the project level (several independent efforts sharing a goal). Each PR closes its own issue. When all sub-issues complete, close the parent manually — Linear doesn't do this automatically, but err on the side of closing when there's no manual follow-up needed. If unsure, ask.
+  - **Status sync**: set In Progress when starting work, In Review when the PR is opened. The `Closes` keyword on merge transitions the issue to Done.
 - **Track merged PRs**: Append PR URL to `.private/UNREVIEWED_PRS.md` so `/check-reviews` can triage.
 - **Human attention comments**: After creating a PR with non-routine changes (architectural decisions, security, complex logic, deletions, low confidence), leave a `gh pr comment` highlighting where to focus review and the risk level. Skip for routine changes.
 
