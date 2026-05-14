@@ -390,4 +390,6 @@ Reference: [typescript-eslint — no-unused-vars](https://typescript-eslint.io/r
 
 When extracting or inlining logic, remove the original in the same PR.
 Do not leave dead imports, unused functions, or commented-out blocks.
+Unrelated dead code spotted during a PR gets its own separate PR opened
+at the same time — never just filed as an issue and left.
 See [CONVENTIONS.md — Dead code and cleanup](./CONVENTIONS.md#dead-code-and-cleanup).
