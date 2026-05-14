@@ -340,6 +340,8 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
       if (n.assistantName)
         lines.push(`- Chosen assistant name: ${n.assistantName}`);
       if (n.tone) lines.push(`- Preferred initial voice: ${n.tone}`);
+      if (options.onboardingContext.googleConnected)
+        lines.push("- Google connected: yes");
       lines.push(
         "",
         "Apply this context quietly. Do not recap it as a list unless the user asks.",
