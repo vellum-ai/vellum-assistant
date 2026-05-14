@@ -62,6 +62,7 @@ export interface NormalizedOnboarding {
   dailyTools: string[];
   tone?: string;
   assistantName?: string;
+  googleConnected?: boolean;
 }
 
 /**
@@ -76,5 +77,6 @@ export function normalizeOnboardingContext(
     dailyTools: normalizeTools(ctx.tools),
     tone: ctx.tone,
     assistantName: ctx.assistantName,
+    googleConnected: ctx.googleConnected,
   };
 }

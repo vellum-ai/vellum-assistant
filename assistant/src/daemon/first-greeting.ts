@@ -11,6 +11,7 @@ export interface OnboardingGreetingContext {
   tone: string;
   userName?: string;
   assistantName?: string;
+  googleConnected?: boolean;
 }
 
 export const CANNED_FIRST_GREETING = [
@@ -76,6 +77,16 @@ const TONE_INVITE: Record<Tone, string> = {
     "We can start with whatever's in front of you, or just talk for a bit first. Either way.",
 };
 
+const TONE_GOOGLE_SCAN: Record<Tone, string> = {
+  grounded:
+    "I can scan your email, calendar, and drive in the background while we talk — just say the word.",
+  warm: "Also — I can scan your email, calendar, and drive in the background while we chat, if you'd like. Just let me know.",
+  energetic:
+    "Oh, and I can scan your email, calendar, and drive in the background right now — want me to?",
+  poetic:
+    "I can also look through your email, calendar, and drive quietly in the background — say the word.",
+};
+
 function buildInvite(tone: Tone = "grounded"): string {
   return TONE_INVITE[tone];
 }
@@ -102,5 +113,9 @@ function buildPersonalizedGreeting(ctx: OnboardingGreetingContext): string {
 
   const intro = buildIntroLine(name, assistant, tone);
   const invite = buildInvite(tone);
-  return [intro, "", invite].join("\n");
+  const parts = [intro, "", invite];
+  if (ctx.googleConnected) {
+    parts.push("", TONE_GOOGLE_SCAN[tone]);
+  }
+  return parts.join("\n");
 }
