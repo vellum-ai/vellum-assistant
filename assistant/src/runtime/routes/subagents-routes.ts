@@ -193,6 +193,13 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       subagentId: z.string(),
       objective: z.string(),
+      usage: z
+        .object({
+          inputTokens: z.number(),
+          outputTokens: z.number(),
+          estimatedCost: z.number(),
+        })
+        .optional(),
       events: z.array(z.unknown()).describe("Subagent event objects"),
     }),
     handler: ({ pathParams, queryParams }) => {
