@@ -1126,10 +1126,14 @@ export async function handleChannelInbound({
       const contentForProcessing =
         trustCtx.trustClass !== "guardian"
           ? wrapUntrustedContent(trimmedContent, {
-              source: "webhook",
+              source: sourceChannel === "slack" ? "slack" : "webhook",
               sourceDetail: trustCtx.requesterIdentifier,
             })
           : trimmedContent;
+      const displayContentForProcessing =
+        sourceChannel === "slack" && trustCtx.trustClass !== "guardian"
+          ? trimmedContent
+          : undefined;
 
       // Fire-and-forget: process the message and deliver the reply in the background.
       // The HTTP response returns immediately so the gateway webhook is not blocked.
@@ -1140,6 +1144,7 @@ export async function handleChannelInbound({
         conversationId: result.conversationId,
         eventId: result.eventId,
         content: contentForProcessing,
+        displayContent: displayContentForProcessing,
         attachmentIds: hasAttachments ? attachmentIds : undefined,
         sourceChannel,
         sourceInterface,
