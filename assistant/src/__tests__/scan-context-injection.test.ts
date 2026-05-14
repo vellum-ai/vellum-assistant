@@ -1,12 +1,12 @@
 /**
  * Tests for Google Connect Scan context injection in buildSystemPrompt.
  *
- * The scan instructions are injected only when:
+ * The scan instructions are injected when:
  *   1. The `google-connect-scan` feature flag is enabled
  *   2. BOOTSTRAP.md is present (first conversation)
- *   3. `googleConnected: true` in onboarding context
  *
- * When any condition is unmet, the scan instructions must be absent.
+ * The `googleConnected` flag is NOT a gate — the template covers both
+ * Variant A (already connected) and Variant B (connects mid-conversation).
  */
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -134,7 +134,7 @@ describe("Google Connect Scan context injection", () => {
     expect(result).not.toContain("# Google Connect Scan");
   });
 
-  test("NOT injected when flag is on but googleConnected is false", () => {
+  test("injected when flag is on + BOOTSTRAP exists + googleConnected is false (Variant B)", () => {
     _mockFlagOverrides["google-connect-scan"] = true;
     seedBootstrap();
 
@@ -147,10 +147,11 @@ describe("Google Connect Scan context injection", () => {
       },
     });
 
-    expect(result).not.toContain(SCAN_OPEN_TAG);
+    expect(result).toContain(SCAN_OPEN_TAG);
+    expect(result).toContain(SCAN_CLOSE_TAG);
   });
 
-  test("NOT injected when flag is on but googleConnected is undefined", () => {
+  test("injected when flag is on + BOOTSTRAP exists + googleConnected is undefined (Variant B)", () => {
     _mockFlagOverrides["google-connect-scan"] = true;
     seedBootstrap();
 
@@ -162,7 +163,8 @@ describe("Google Connect Scan context injection", () => {
       },
     });
 
-    expect(result).not.toContain(SCAN_OPEN_TAG);
+    expect(result).toContain(SCAN_OPEN_TAG);
+    expect(result).toContain(SCAN_CLOSE_TAG);
   });
 
   test("NOT injected when flag is on + googleConnected but no BOOTSTRAP.md", () => {
@@ -181,13 +183,14 @@ describe("Google Connect Scan context injection", () => {
     expect(result).not.toContain(SCAN_OPEN_TAG);
   });
 
-  test("NOT injected when flag is on but no onboarding context at all", () => {
+  test("injected when flag is on + BOOTSTRAP exists + no onboarding context at all", () => {
     _mockFlagOverrides["google-connect-scan"] = true;
     seedBootstrap();
 
     const result = buildSystemPrompt({});
 
-    expect(result).not.toContain(SCAN_OPEN_TAG);
+    expect(result).toContain(SCAN_OPEN_TAG);
+    expect(result).toContain(SCAN_CLOSE_TAG);
   });
 
   test("scan block contains subagent dispatch instructions", () => {

@@ -353,13 +353,10 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // and phone-calls skill SKILL.md files.
 
   // Inject Google Connect Scan instructions when the feature flag is
-  // enabled and the user has connected Google OAuth.  The template is
-  // loaded only when both conditions are met so non-scan conversations
-  // pay zero I/O cost.
-  const scanInstructions = buildGoogleConnectScanSection(
-    includeBootstrap,
-    options?.onboardingContext,
-  );
+  // enabled and this is the first conversation (BOOTSTRAP.md present).
+  // The template covers both Variant A (Google already connected) and
+  // Variant B (user connects mid-conversation via in-chat OAuth).
+  const scanInstructions = buildGoogleConnectScanSection(includeBootstrap);
   if (scanInstructions) systemParts.push(scanInstructions);
 
   const integrationSection = buildIntegrationSection();
@@ -399,23 +396,24 @@ function buildIntegrationSection(): string {
 
 /**
  * Build the Google Connect Scan instruction block when the
- * `google-connect-scan` feature flag is enabled AND the user has
- * connected Google OAuth (indicated by `googleConnected: true` in the
- * onboarding context).
+ * `google-connect-scan` feature flag is enabled AND this is the first
+ * conversation (BOOTSTRAP.md present).
  *
  * The scan template is read from the bundled `GOOGLE_CONNECT_SCAN.md`
  * only when both conditions are satisfied, so non-scan conversations
  * pay zero file-system cost.
  *
- * The instructions are injected during the first conversation
- * (BOOTSTRAP.md present) when `googleConnected: true`.  Once
- * BOOTSTRAP.md is deleted the scan instructions also stop being
+ * The instructions cover both onboarding variants:
+ * - **Variant A**: `googleConnected: true` — model triggers scan immediately
+ * - **Variant B**: `googleConnected` is false/undefined — model knows what
+ *   to do if/when the user connects Google mid-conversation via in-chat OAuth
+ *
+ * Once BOOTSTRAP.md is deleted the scan instructions stop being
  * injected — ongoing scan behavior is handled by watchers, not the
  * system prompt.
  */
 function buildGoogleConnectScanSection(
   includeBootstrap: boolean,
-  onboardingContext?: OnboardingContext,
 ): string | null {
   // Gate 1: feature flag must be enabled.
   const config = getConfig();
@@ -423,9 +421,11 @@ function buildGoogleConnectScanSection(
     return null;
   }
 
-  // Gate 2: only inject during the first conversation (bootstrap present)
-  // AND when the user has connected Google.
-  if (!includeBootstrap || !onboardingContext?.googleConnected) {
+  // Gate 2: only inject during the first conversation (bootstrap present).
+  // The googleConnected check is intentionally omitted — the template
+  // handles both Variant A (already connected) and Variant B (connects
+  // mid-conversation via in-chat OAuth).
+  if (!includeBootstrap) {
     return null;
   }
 
