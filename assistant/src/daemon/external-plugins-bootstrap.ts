@@ -29,15 +29,22 @@
  *    through untouched).
  * 6. Creates `<workspaceDir>/plugins-data/<plugin>/` on demand for per-plugin
  *    writable state and exposes it via {@link PluginInitContext.pluginStorageDir}.
- * 7. Awaits `plugin.init(ctx)` sequentially. One init failure surfaces as a
+ * 7. For each surviving plugin, registers its contributed tools, routes,
+ *    and skills into their global registries via
+ *    {@link registerPluginTools}, {@link registerSkillRoute}, and
+ *    {@link registerPluginSkills}. Contributions land BEFORE `init()` so
+ *    the plugin's hook can observe a registry where its own model-visible
+ *    surface is already wired — useful for plugins that want to attach
+ *    metadata, warm caches, or otherwise interact with their own
+ *    contributions during initialization.
+ * 8. Awaits `plugin.init(ctx)` sequentially. An init failure surfaces as a
  *    {@link PluginExecutionError} naming the offending plugin and aborts
  *    bootstrap — later plugins' `init()` never runs and the daemon fails
- *    startup cleanly rather than coming up in a half-wired state.
- * 8. After a plugin's `init()` succeeds, registers any tools declared on
- *    `plugin.tools` with the global tool registry via
- *    {@link registerPluginTools}. Tool contributions land after `init()` so
- *    a plugin that fails mid-init never leaves partial tool registrations
- *    behind.
+ *    startup cleanly rather than coming up in a half-wired state. The
+ *    failing plugin's already-registered tools, routes, and skills are
+ *    rolled back before the error propagates so the registry never
+ *    carries state contributed by a plugin that never finished
+ *    initializing.
  *
  * A single shutdown hook is registered via
  * {@link registerShutdownHook} that walks the plugin list in **reverse
@@ -314,29 +321,11 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
         assistantVersion: ctx.assistantVersion,
       };
 
-      if (plugin.hooks?.[HOOKS.INIT]) {
-        try {
-          await plugin.hooks[HOOKS.INIT](initContext);
-        } catch (err) {
-          throw new PluginExecutionError(
-            `plugin ${name} init() failed: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-            name,
-            { cause: err },
-          );
-        }
-      }
-      // Reached when init() succeeded or the plugin has no init hook. The
-      // catch block reads this to decide whether onShutdown may run.
-      initCompleted = true;
-
-      // After init succeeds, wire in the plugin's model-visible capabilities.
-      // Tool contributions (PR 31) register only after `init()` succeeds so a
-      // plugin that fails mid-init never leaves partially-wired tools behind.
-      // Tool registration failures are wrapped in a PluginExecutionError so
-      // the offending plugin name surfaces in the abort — matching the
-      // strict-fail semantics of `init()` errors.
+      // Wire the plugin's contributions into their registries BEFORE
+      // `init()` runs so the hook can observe its own tools / routes /
+      // skills already live. Each contribution step is strict-fail: any
+      // failure aborts bootstrap with a {@link PluginExecutionError}
+      // naming the offending plugin and triggers the rollback path below.
       if (plugin.tools && plugin.tools.length > 0) {
         try {
           const accepted = registerPluginTools(name, plugin.tools);
@@ -355,13 +344,11 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
         }
       }
 
-      // Route contributions (PR 32) — registered after init() succeeds so a
-      // plugin that fails to initialize never exposes a half-wired HTTP
-      // surface. Mirrors the skill-route registry shape; see
-      // {@link PluginRouteRegistration}. Retain every returned handle so the
-      // teardown path unregisters by identity rather than pattern text — two
-      // plugins (or a plugin and a skill) that happen to register the same
-      // regex must not evict each other's routes during shutdown.
+      // Route contributions mirror the skill-route registry shape; see
+      // {@link PluginRouteRegistration}. Retain every returned handle so
+      // the teardown path unregisters by identity rather than pattern text
+      // — two plugins (or a plugin and a skill) that happen to register
+      // the same regex must not evict each other's routes during shutdown.
       if (plugin.routes && plugin.routes.length > 0) {
         for (const route of plugin.routes) {
           routeHandles.push(registerSkillRoute(route));
@@ -373,14 +360,15 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
       }
 
       // Skills register into the in-memory plugin-skill catalog so
-      // `skill_load` / `skill_execute` can resolve them alongside filesystem
-      // skills. A registration failure aborts bootstrap with the plugin named
-      // — same strict-fail posture as init() throws.
+      // `skill_load` / `skill_execute` can resolve them alongside
+      // filesystem skills. A registration failure aborts bootstrap with
+      // the plugin named — same strict-fail posture as init() throws.
       if (plugin.skills && plugin.skills.length > 0) {
         try {
-          // `plugin.skills` is typed as `PluginSkillRegistration[]` at the
-          // Plugin interface — the type assertion here is a narrowing from
-          // that generic slot into the concrete shape the registry expects.
+          // `plugin.skills` is typed as `PluginSkillRegistration[]` at
+          // the Plugin interface — the type assertion here is a narrowing
+          // from that generic slot into the concrete shape the registry
+          // expects.
           registerPluginSkills(
             name,
             plugin.skills as readonly PluginSkillRegistration[],
@@ -396,30 +384,63 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
         }
       }
 
+      // Init runs LAST so the plugin's hook can observe its own tools /
+      // routes / skills already wired into the registries. A throw here
+      // rolls back every contribution above before bootstrap re-throws.
+      if (plugin.hooks?.[HOOKS.INIT]) {
+        try {
+          await plugin.hooks[HOOKS.INIT](initContext);
+        } catch (err) {
+          throw new PluginExecutionError(
+            `plugin ${name} init() failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+            name,
+            { cause: err },
+          );
+        }
+      }
+      // Init succeeded (or no init hook). The catch block reads this to
+      // decide whether `onShutdown` runs during rollback — it should fire
+      // only when there is matching init-side state to tear down, which
+      // first exists between this point and the `activePlugins.push`
+      // below.
+      initCompleted = true;
+
       activePlugins.push({ plugin, routeHandles });
 
       log.info({ plugin: name }, "plugin initialized");
     } catch (err) {
-      // Roll back the currently-failing plugin first — it is not in
-      // `activePlugins` yet (that push happens only after every contribution
-      // step succeeds), so `teardownPartialInit()` alone would leave its
-      // already-registered tools, routes, and skills live.
+      // Roll back the currently-failing plugin before unwinding earlier
+      // plugins via `teardownPartialInit`. It is not in `activePlugins`
+      // yet (that push happens only after init() succeeds), so the
+      // partial-init walk alone would leave its already-registered
+      // tools/routes/skills live.
       //
-      // Branching on `initCompleted` keeps the init/onShutdown pairing
-      // intact. When init succeeded but a later contribution step (tools,
-      // routes, skills) threw, the plugin has live init-side state that
-      // `onShutdown()` is responsible for cleaning up, so the full
-      // rollbackPlugin() path runs. When init itself failed (or a step
-      // before init — credential resolution, config validation — threw),
-      // onShutdown must not run: calling it would invoke the plugin's
-      // teardown against an uninitialized self, violating the lifecycle
-      // contract documented on `Plugin.onShutdown`. In the init-failed case
-      // there is also nothing to unregister — tools, routes, and skills are
-      // all registered after init — so just drop the plugin from the
-      // registry (idempotent if already removed).
+      // The `initCompleted` branch covers the narrow window where init
+      // succeeded but a step between init's success and
+      // `activePlugins.push` throws — there the plugin has live init-side
+      // state that `onShutdown` is responsible for cleaning up, so the
+      // full rollbackPlugin path (with onShutdown) runs.
+      //
+      // The else branch is the dominant failure mode now that init runs
+      // LAST: contributions may have registered partially but init never
+      // ran, so `onShutdown` must NOT fire (calling it would invoke the
+      // plugin's teardown against an uninitialized self, violating the
+      // lifecycle contract documented on `Plugin.onShutdown`). Tools,
+      // routes, and skills are still unregistered in the order
+      // `teardownPlugin` uses, and the plugin is dropped from the
+      // registry.
       if (initCompleted) {
         await rollbackPlugin({ plugin, routeHandles });
       } else {
+        for (const handle of routeHandles) {
+          unregisterSkillRoute(handle);
+        }
+        unregisterPluginTools(name);
+        if (plugin.skills && plugin.skills.length > 0) {
+          unregisterPluginSkills(name);
+        }
         unregisterPlugin(name);
       }
       await teardownPartialInit();
