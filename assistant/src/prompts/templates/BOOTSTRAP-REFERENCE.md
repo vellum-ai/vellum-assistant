@@ -21,7 +21,11 @@ ui_show({
 
 ## Task Card (Email Already Connected)
 
-Use this `ui_show` payload when Google or Outlook IS in the Connected Services section:
+Use this `ui_show` payload when Google or Outlook IS in the Connected Services section.
+
+When the `google-connect-scan` feature flag is enabled and `googleConnected: true` is present in the onboarding context, skip this card entirely — the Google integration scan (GOOGLE_CONNECT_SCAN.md) replaces the static suggestions below. The scan will produce personalized, actionable insights from the user's actual email and calendar data instead of generic prompts.
+
+When the flag is off, or for non-Google email providers, use this card as before:
 
 ui_show({
   surface_type: "card",
