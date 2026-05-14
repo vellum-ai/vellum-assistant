@@ -46,7 +46,7 @@ struct HomeFeedFilterBar: View {
     let onFilterChanged: (FeedItemCategory?) -> Void
 
     var body: some View {
-        if presentCategories.count > 1 {
+        if !presentCategories.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: VSpacing.sm) {
                     HomeFeedFilterPill(
