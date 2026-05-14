@@ -1,60 +1,56 @@
 # apps/web
 
-Vite + React Router v7 SPA scaffold for the vellum-assistant web app
-surfaces (assistant + docs). This is a landing-zone shell only — the
-actual platform code is ported in
-[LUM-1543](https://linear.app/vellum/issue/LUM-1543/), and the fuller
-env/Sentry/scripts wiring belongs to
-[LUM-1545](https://linear.app/vellum/issue/LUM-1545/). Tracked under
-[LUM-1542](https://linear.app/vellum/issue/LUM-1542/).
+Vite + [React Router v7](https://reactrouter.com/) SPA for the
+vellum-assistant web app surfaces (assistant + docs).
 
-## Scope of this scaffold
+## Stack
 
-Includes:
+- [Vite](https://vite.dev/) for dev server and build.
+- [React 19](https://react.dev/) +
+  [React Router v7](https://reactrouter.com/start/modes) in
+  **library / data-router mode** (`createBrowserRouter` +
+  `<RouterProvider>`).
+- TypeScript with `NodeNext` module resolution — relative imports use
+  `.js` extensions even for `.tsx` sources.
+- Bun for dependency management; self-contained `bun.lock` per
+  [`apps/AGENTS.md`](../AGENTS.md).
 
-- Vite + React Router v7 (library / data-router) SPA shell.
-- Placeholder routes mirroring the intended app topology:
-  `/conversations/new`, `/conversations/:id`, `/settings/:tab`,
-  `/library`, `/library/:slug`.
-- A typed runtime/auth adapter interface
-  (`src/runtime/auth-adapter.ts`) so the shell does not assume hosted
-  Vellum login. Local, self-hosted, and no-login runtimes plug in via
-  the same interface.
+## Why library mode?
 
-Explicitly not included:
+React Router v7 ships two
+[modes](https://reactrouter.com/start/modes): _library / data-router_
+mode (pure-client SPA built around `createBrowserRouter`) and
+_framework_ mode (file-based routes, generated types, per-route code
+splitting; can be configured to produce a static SPA via
+[`ssr: false`](https://reactrouter.com/how-to/spa)).
 
-- Any platform web code (LUM-1543).
-- Env/Sentry wiring or the fuller release/deploy scripts (LUM-1545).
-- Real auth, data fetching, or state management.
-- Capacitor/iOS wrapper bits (LUM-1544).
+Library mode is the established React SPA pattern. Fewer conventions
+to learn, fewer build-time plugins, no generated types directory — the
+more recognizable shape for new contributors to this open source repo.
+Framework mode is a defensible alternative when the app grows enough
+that per-route code splitting or generated param types become worth
+their conventions; the React Router API used in day-to-day code
+(`<Link>`, `<Outlet>`, `useParams`, `useNavigate`) is the same in both
+modes, so switching later is a restructure rather than a rewrite.
 
-CI coverage for this directory lives in
-[`.github/workflows/pr-web.yaml`](../../.github/workflows/pr-web.yaml)
-and
-[`.github/workflows/ci-main-web.yaml`](../../.github/workflows/ci-main-web.yaml)
-(lint + typecheck + build on `apps/web/**`).
+## Runtime/auth adapter seam
 
-## Why Vite + React Router v7 library mode?
-
-LUM-1542 specifies "SPA, routes load without a Next server". React
-Router v7 ships two modes — _framework mode_ (Remix-merged,
-server-aware) and _library / data-router mode_ (pure client SPA built
-around `createBrowserRouter`). Library mode is the one that satisfies
-the no-server constraint; framework mode would silently re-introduce a
-Node server dependency. See the
-[React Router modes overview](https://reactrouter.com/start/modes).
+[`src/runtime/auth-adapter.ts`](src/runtime/auth-adapter.ts) defines a
+typed `RuntimeAuthAdapter` interface (`ensureSession` +
+`getAuthHeader`) so the shell does not hard-code hosted Vellum login.
+Hosted, local, self-hosted, and Electron runtimes plug in via the same
+interface from their respective hosts. No implementation is included
+in the scaffold.
 
 ## SSR/build-safe rendering
 
-Even though the SPA does not currently render on a server, this
-scaffold deliberately avoids `window` / `localStorage` / `document`
-access during initial render of route or layout components. Any
-client-only reads belong in `useEffect` or in a runtime adapter
-implementation, not in the synchronous render path. This keeps the
-door open for future static prerendering or hybrid runtimes without
-ad-hoc rewrites. Vite's [SSR
-guidance](https://vite.dev/guide/ssr.html) discusses why this matters
-even for predominantly-client apps.
+Even though this is an SPA, route and layout components must not
+access `window` / `localStorage` / `document` during synchronous
+render. Client-only reads belong in `useEffect` or in a runtime
+adapter implementation. This keeps the door open for future static
+prerendering or hybrid runtimes without ad-hoc rewrites. See Vite's
+[SSR guidance](https://vite.dev/guide/ssr.html) for the underlying
+reasoning.
 
 ## Local development
 
@@ -66,12 +62,3 @@ bun run preview    # Serve the production build
 bun run typecheck  # bunx tsc --noEmit
 bun run lint       # eslint
 ```
-
-## Conventions
-
-- Self-contained Bun package: own `bun.lock`, `package.json`,
-  `tsconfig.json`, and lint config (see
-  [`apps/AGENTS.md`](../AGENTS.md)).
-- Exact-version dependency pinning enforced by root `bunfig.toml`.
-- TypeScript `NodeNext` module resolution — relative imports use
-  `.js` extensions even for `.tsx` sources.
