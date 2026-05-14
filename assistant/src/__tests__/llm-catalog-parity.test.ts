@@ -208,10 +208,6 @@ describe("LLM catalog parity: daemon vs client", () => {
 
   test("every provider's defaultModel exists in its models list", () => {
     for (const entry of PROVIDER_CATALOG) {
-      // Providers like `openai-compatible` have no static catalog models —
-      // the model list comes from per-connection user input, so there is no
-      // meaningful catalog-level default to check.
-      if (entry.models.length === 0) continue;
       const found = entry.models.some((m) => m.id === entry.defaultModel);
       expect(
         found,

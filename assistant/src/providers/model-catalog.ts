@@ -869,18 +869,6 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyPlaceholder: "sk-or-v1-...",
   },
   {
-    id: "openai-compatible",
-    displayName: "OpenAI-compatible",
-    subtitle:
-      "Bring your own OpenAI-compatible endpoint (Together, vLLM, LM Studio, etc.).",
-    setupMode: "api-key",
-    setupHint:
-      "Enter the base URL of your endpoint and at least one model identifier.",
-    apiKeyPlaceholder: "Your provider's API key",
-    models: [],
-    defaultModel: "",
-  },
-  {
     id: "zai",
     displayName: "z.ai",
     subtitle: "GLM models from z.ai (Zhipu AI). Requires a z.ai API key.",

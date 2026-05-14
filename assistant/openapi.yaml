@@ -8692,7 +8692,6 @@ paths:
                             - ollama
                             - fireworks
                             - openrouter
-                            - openai-compatible
                             - zai
                             - deepseek
                             - minimax
@@ -8760,27 +8759,6 @@ paths:
                             - type: string
                               minLength: 1
                             - type: "null"
-                        baseUrl:
-                          anyOf:
-                            - type: string
-                              format: uri
-                            - type: "null"
-                        models:
-                          anyOf:
-                            - type: array
-                              items:
-                                type: object
-                                properties:
-                                  id:
-                                    type: string
-                                    minLength: 1
-                                  displayName:
-                                    type: string
-                                    minLength: 1
-                                required:
-                                  - id
-                                additionalProperties: false
-                            - type: "null"
                         createdAt:
                           type: integer
                           minimum: -9007199254740991
@@ -8797,8 +8775,6 @@ paths:
                         - auth
                         - status
                         - label
-                        - baseUrl
-                        - models
                         - createdAt
                         - updatedAt
                         - isManaged
@@ -8813,8 +8789,8 @@ paths:
           schema:
             type: string
           description:
-            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible,
-            zai, deepseek, minimax"
+            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, zai, deepseek,
+            minimax"
     post:
       operationId: inference_providerconnections_post
       summary: Create a provider connection
@@ -8841,7 +8817,6 @@ paths:
                       - ollama
                       - fireworks
                       - openrouter
-                      - openai-compatible
                       - zai
                       - deepseek
                       - minimax
@@ -8909,27 +8884,6 @@ paths:
                       - type: string
                         minLength: 1
                       - type: "null"
-                  baseUrl:
-                    anyOf:
-                      - type: string
-                        format: uri
-                      - type: "null"
-                  models:
-                    anyOf:
-                      - type: array
-                        items:
-                          type: object
-                          properties:
-                            id:
-                              type: string
-                              minLength: 1
-                            displayName:
-                              type: string
-                              minLength: 1
-                          required:
-                            - id
-                          additionalProperties: false
-                      - type: "null"
                   createdAt:
                     type: integer
                     minimum: -9007199254740991
@@ -8946,8 +8900,6 @@ paths:
                   - auth
                   - status
                   - label
-                  - baseUrl
-                  - models
                   - createdAt
                   - updatedAt
                   - isManaged
@@ -8975,7 +8927,6 @@ paths:
                     - ollama
                     - fireworks
                     - openrouter
-                    - openai-compatible
                     - zai
                     - deepseek
                     - minimax
@@ -9041,27 +8992,6 @@ paths:
                   enum:
                     - active
                     - disabled
-                base_url:
-                  anyOf:
-                    - type: string
-                      format: uri
-                    - type: "null"
-                models:
-                  anyOf:
-                    - type: array
-                      items:
-                        type: object
-                        properties:
-                          id:
-                            type: string
-                            minLength: 1
-                          displayName:
-                            type: string
-                            minLength: 1
-                        required:
-                          - id
-                        additionalProperties: false
-                    - type: "null"
               required:
                 - name
                 - provider
@@ -9129,7 +9059,6 @@ paths:
                       - ollama
                       - fireworks
                       - openrouter
-                      - openai-compatible
                       - zai
                       - deepseek
                       - minimax
@@ -9197,27 +9126,6 @@ paths:
                       - type: string
                         minLength: 1
                       - type: "null"
-                  baseUrl:
-                    anyOf:
-                      - type: string
-                        format: uri
-                      - type: "null"
-                  models:
-                    anyOf:
-                      - type: array
-                        items:
-                          type: object
-                          properties:
-                            id:
-                              type: string
-                              minLength: 1
-                            displayName:
-                              type: string
-                              minLength: 1
-                          required:
-                            - id
-                          additionalProperties: false
-                      - type: "null"
                   createdAt:
                     type: integer
                     minimum: -9007199254740991
@@ -9234,8 +9142,6 @@ paths:
                   - auth
                   - status
                   - label
-                  - baseUrl
-                  - models
                   - createdAt
                   - updatedAt
                   - isManaged
@@ -9277,7 +9183,6 @@ paths:
                       - ollama
                       - fireworks
                       - openrouter
-                      - openai-compatible
                       - zai
                       - deepseek
                       - minimax
@@ -9345,27 +9250,6 @@ paths:
                       - type: string
                         minLength: 1
                       - type: "null"
-                  baseUrl:
-                    anyOf:
-                      - type: string
-                        format: uri
-                      - type: "null"
-                  models:
-                    anyOf:
-                      - type: array
-                        items:
-                          type: object
-                          properties:
-                            id:
-                              type: string
-                              minLength: 1
-                            displayName:
-                              type: string
-                              minLength: 1
-                          required:
-                            - id
-                          additionalProperties: false
-                      - type: "null"
                   createdAt:
                     type: integer
                     minimum: -9007199254740991
@@ -9382,8 +9266,6 @@ paths:
                   - auth
                   - status
                   - label
-                  - baseUrl
-                  - models
                   - createdAt
                   - updatedAt
                   - isManaged
@@ -9468,27 +9350,6 @@ paths:
                   anyOf:
                     - type: string
                       minLength: 1
-                    - type: "null"
-                base_url:
-                  anyOf:
-                    - type: string
-                      format: uri
-                    - type: "null"
-                models:
-                  anyOf:
-                    - type: array
-                      items:
-                        type: object
-                        properties:
-                          id:
-                            type: string
-                            minLength: 1
-                          displayName:
-                            type: string
-                            minLength: 1
-                        required:
-                          - id
-                        additionalProperties: false
                     - type: "null"
               required:
                 - auth

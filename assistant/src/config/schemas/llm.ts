@@ -20,7 +20,6 @@ const LLMProvider = z.enum([
   "ollama",
   "fireworks",
   "openrouter",
-  "openai-compatible",
   "zai",
   "deepseek",
   "minimax",

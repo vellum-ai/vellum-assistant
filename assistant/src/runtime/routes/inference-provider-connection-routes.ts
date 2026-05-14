@@ -14,7 +14,6 @@ import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../memory/db-connection.js";
 import {
   AuthSchema,
-  ConnectionModelSchema,
   ConnectionProviderSchema,
   ConnectionStatusSchema,
   ProviderConnectionSchema,
@@ -36,65 +35,6 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // ---------------------------------------------------------------------------
 
 const providerConnectionResponseSchema = ProviderConnectionSchema;
-
-/**
- * Pull `base_url` and `models` out of a wire body, validating the shape but
- * leaving the cross-field rules (which providers require them) to the CRUD
- * layer. Returns `undefined` for any field the caller omitted so the
- * downstream layer can distinguish "not provided" from "explicitly null".
- */
-function parseCustomProviderFields(body: Record<string, unknown>): {
-  baseUrl?: string | null;
-  models?: import("../../providers/inference/auth.js").ConnectionModel[] | null;
-} {
-  const out: {
-    baseUrl?: string | null;
-    models?:
-      | import("../../providers/inference/auth.js").ConnectionModel[]
-      | null;
-  } = {};
-
-  if ("base_url" in body) {
-    const raw = body.base_url;
-    if (raw === null) {
-      out.baseUrl = null;
-    } else if (typeof raw === "string" && raw.length > 0) {
-      // Parse as a URL so values like "foo" are rejected at create/update
-      // time instead of failing later when the adapter tries to dispatch.
-      try {
-        const parsed = new URL(raw);
-        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-          throw new BadRequestError(`Invalid base_url: must be an http(s) URL`);
-        }
-      } catch (err) {
-        if (err instanceof BadRequestError) throw err;
-        throw new BadRequestError(
-          `Invalid base_url: must be a valid http(s) URL`,
-        );
-      }
-      out.baseUrl = raw;
-    } else {
-      throw new BadRequestError(
-        `Invalid base_url: must be a non-empty string or null`,
-      );
-    }
-  }
-
-  if ("models" in body) {
-    const raw = body.models;
-    if (raw === null) {
-      out.models = null;
-    } else {
-      const parsed = z.array(ConnectionModelSchema).safeParse(raw);
-      if (!parsed.success) {
-        throw new BadRequestError(`Invalid models: ${parsed.error.message}`);
-      }
-      out.models = parsed.data;
-    }
-  }
-
-  return out;
-}
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -159,20 +99,12 @@ function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  const customFields = parseCustomProviderFields(body);
-
   const result = createConnection(getDb(), {
     name,
     provider: providerResult.data,
     auth: authResult.data,
     ...(statusResult ? { status: statusResult.data } : {}),
     ...(labelRaw !== undefined ? { label: labelRaw as string | null } : {}),
-    ...(customFields.baseUrl !== undefined
-      ? { baseUrl: customFields.baseUrl }
-      : {}),
-    ...(customFields.models !== undefined
-      ? { models: customFields.models }
-      : {}),
   });
 
   if (!result.ok) {
@@ -184,16 +116,6 @@ function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     if (result.error.code === "invalid_provider") {
       throw new BadRequestError(
         `Invalid provider "${result.error.provider}". Valid: ${VALID_CONNECTION_PROVIDERS.join(", ")}`,
-      );
-    }
-    if (result.error.code === "base_url_required") {
-      throw new BadRequestError(
-        `base_url is required for "${providerResult.data}" connections.`,
-      );
-    }
-    if (result.error.code === "models_required") {
-      throw new BadRequestError(
-        `At least one model is required for "${providerResult.data}" connections.`,
       );
     }
     throw new BadRequestError("Invalid auth configuration.");
@@ -247,33 +169,15 @@ function handleUpdateConnection({
     );
   }
 
-  const customFields = parseCustomProviderFields(body);
-
   const result = updateConnection(getDb(), name, {
     auth: authResult.data,
     ...(statusResult ? { status: statusResult.data } : {}),
     ...(labelRaw !== undefined ? { label: labelRaw as string | null } : {}),
-    ...(customFields.baseUrl !== undefined
-      ? { baseUrl: customFields.baseUrl }
-      : {}),
-    ...(customFields.models !== undefined
-      ? { models: customFields.models }
-      : {}),
   });
 
   if (!result.ok) {
     if (result.error.code === "not_found") {
       throw new NotFoundError(`Connection "${name}" not found.`);
-    }
-    if (result.error.code === "base_url_required") {
-      throw new BadRequestError(
-        `base_url is required for this connection's provider.`,
-      );
-    }
-    if (result.error.code === "models_required") {
-      throw new BadRequestError(
-        `At least one model is required for this connection's provider.`,
-      );
     }
     throw new BadRequestError("Invalid auth configuration.");
   }
@@ -397,9 +301,6 @@ export const ROUTES: RouteDefinition[] = [
       auth: AuthSchema,
       label: z.string().min(1).optional(),
       status: ConnectionStatusSchema.optional(),
-      // Required for `openai-compatible` connections; ignored otherwise.
-      base_url: z.string().url().nullable().optional(),
-      models: z.array(ConnectionModelSchema).nullable().optional(),
     }),
     responseBody: providerConnectionResponseSchema,
     responseStatus: "201",
@@ -423,9 +324,6 @@ export const ROUTES: RouteDefinition[] = [
       auth: AuthSchema,
       status: ConnectionStatusSchema.optional(),
       label: z.string().min(1).nullable().optional(),
-      // Editable for `openai-compatible` connections; ignored otherwise.
-      base_url: z.string().url().nullable().optional(),
-      models: z.array(ConnectionModelSchema).nullable().optional(),
     }),
     responseBody: providerConnectionResponseSchema,
     additionalResponses: {

@@ -23,7 +23,6 @@ export type ResolveAuthError =
 export async function resolveAuth(
   auth: Auth,
   provider: string,
-  opts: { baseUrl?: string | null } = {},
 ): Promise<
   { ok: true; resolved: ResolvedAuth } | { ok: false; error: ResolveAuthError }
 > {
@@ -41,7 +40,6 @@ export async function resolveAuth(
         resolved: {
           kind: "header",
           headers: { Authorization: `Bearer ${value}` },
-          ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
         },
       };
     }

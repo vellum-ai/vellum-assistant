@@ -90,35 +90,12 @@ export type ConnectionStatus = z.infer<typeof ConnectionStatusSchema>;
 // Full connection shape used by CRUD layer
 // ---------------------------------------------------------------------------
 
-/**
- * Per-connection model entry for providers that don't have a fixed catalog
- * (e.g. `openai-compatible`). Each entry is a user-supplied model identifier
- * that the daemon passes verbatim to the upstream endpoint. Future revisions
- * can attach per-model metadata (context window, supportsThinking, pricing)
- * here without a migration — the column stores JSON.
- */
-export const ConnectionModelSchema = z.object({
-  id: z.string().min(1),
-  displayName: z.string().min(1).optional(),
-});
-export type ConnectionModel = z.infer<typeof ConnectionModelSchema>;
-
 export const ProviderConnectionSchema = z.object({
   name: z.string().min(1),
   provider: ConnectionProviderSchema,
   auth: AuthSchema,
   status: ConnectionStatusSchema,
   label: z.string().min(1).nullable(),
-  /**
-   * Custom upstream base URL. Required for `openai-compatible` connections
-   * (where the user supplies an arbitrary endpoint), null otherwise.
-   */
-  baseUrl: z.string().url().nullable(),
-  /**
-   * User-supplied model list. Required for `openai-compatible` connections
-   * (≥1 entry), null otherwise. Stored as a JSON array on disk.
-   */
-  models: z.array(ConnectionModelSchema).nullable(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
   /**

@@ -5,7 +5,6 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { migrateCreateProviderConnections } from "../../../memory/migrations/243-provider-connections.js";
 import { migrateProviderConnectionStatusLabel } from "../../../memory/migrations/244-provider-connection-status-label.js";
-import { migrateProviderConnectionBaseUrlAndModels } from "../../../memory/migrations/247-provider-connection-base-url-and-models.js";
 import * as schema from "../../../memory/schema.js";
 import {
   createConnection,
@@ -26,7 +25,6 @@ function bootDb() {
   const db = createTestDb();
   migrateCreateProviderConnections(db);
   migrateProviderConnectionStatusLabel(db);
-  migrateProviderConnectionBaseUrlAndModels(db);
   return db;
 }
 
