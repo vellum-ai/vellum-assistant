@@ -136,7 +136,7 @@ export function parseSubagentMessages(
                     return null;
                   })
                   .filter((s): s is string => s != null)
-                  .join("\n\n")
+                  .join("\n")
               : "";
         const isError = block.is_error === true;
         const toolName = toolUseId ? pendingTools.get(toolUseId) : undefined;
