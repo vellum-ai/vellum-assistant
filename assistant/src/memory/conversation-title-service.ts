@@ -329,10 +329,10 @@ function buildTitlePrompt(
   }
 
   if (userMessage) {
-    parts.push(`User: ${userMessage}`);
+    parts.push(`User: ${stripThinkingTags(userMessage)}`);
   }
   if (assistantResponse) {
-    parts.push(`Assistant: ${assistantResponse}`);
+    parts.push(`Assistant: ${stripThinkingTags(assistantResponse)}`);
   }
 
   return parts.join("\n");
@@ -356,10 +356,23 @@ const META_FAILURE_TITLES = new Set([
 function normalizeTitle(raw: string): string {
   let title = raw.trim().replace(/^["']|["']$/g, "");
   title = stripMarkdown(title);
+  title = stripThinkingTags(title);
   if (META_FAILURE_TITLES.has(title.toLowerCase())) {
     return "";
   }
   return title;
+}
+
+/** Strip thinking tags so they don't bleed into generated titles. */
+function stripThinkingTags(text: string): string {
+  return text
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, "")
+    .replace(/<thought>/gi, "")
+    .replace(/<\/thought>/gi, "")
+    .replace(/<thinking>/gi, "")
+    .replace(/<\/thinking>/gi, "")
+    .replace(/<:[^>]*>/gi, "");
 }
 
 /** Strip common markdown formatting so titles render as plain text. */

@@ -27,6 +27,7 @@ import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
+import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -195,9 +196,21 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           );
           return { success: false, error: validation.reason };
         }
+      } else if (name === "minimax") {
+        const validation = await validateMinimaxApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return { success: false, error: validation.reason };
+        }
       }
 
-      const stored = await setSecureKeyAsync(credentialKey(name, "api_key"), value);
+      const stored = await setSecureKeyAsync(
+        credentialKey(name, "api_key"),
+        value,
+      );
       if (!stored) {
         throw new InternalError(
           `Failed to store API key in secure storage (backend: ${getActiveBackendName()})`,
@@ -339,7 +352,9 @@ async function handleReadSecret({ body }: RouteHandlerArgs) {
 
   try {
     let accountKey: string;
-    let prefetchedResult: Awaited<ReturnType<typeof getSecureKeyResultAsync>> | undefined;
+    let prefetchedResult:
+      | Awaited<ReturnType<typeof getSecureKeyResultAsync>>
+      | undefined;
 
     if (type === "api_key") {
       if (
@@ -350,7 +365,9 @@ async function handleReadSecret({ body }: RouteHandlerArgs) {
         );
       }
       // Check credential namespace first; fall back to bare key only if not found and store is reachable.
-      const credResult = await getSecureKeyResultAsync(credentialKey(name, "api_key"));
+      const credResult = await getSecureKeyResultAsync(
+        credentialKey(name, "api_key"),
+      );
       if (credResult.value === undefined && !credResult.unreachable) {
         accountKey = name;
       } else {
@@ -373,7 +390,8 @@ async function handleReadSecret({ body }: RouteHandlerArgs) {
       );
     }
 
-    const { value, unreachable } = prefetchedResult ?? await getSecureKeyResultAsync(accountKey);
+    const { value, unreachable } =
+      prefetchedResult ?? (await getSecureKeyResultAsync(accountKey));
     if (value === undefined) {
       return { found: false, unreachable };
     }
@@ -543,7 +561,9 @@ async function handleListSecrets() {
         const field = rest.slice(slashIdx + 1);
         if (
           field === "api_key" &&
-          API_KEY_PROVIDERS.includes(service as (typeof API_KEY_PROVIDERS)[number])
+          API_KEY_PROVIDERS.includes(
+            service as (typeof API_KEY_PROVIDERS)[number],
+          )
         ) {
           return [service];
         }

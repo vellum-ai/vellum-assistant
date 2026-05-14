@@ -95,6 +95,7 @@ mock.module("openai", () => ({
 
 // Import after mocking
 import { FireworksProvider } from "../providers/fireworks/client.js";
+import { MinimaxProvider } from "../providers/minimax/client.js";
 import { OllamaProvider } from "../providers/ollama/client.js";
 import { OpenAIChatCompletionsProvider } from "../providers/openai/chat-completions-provider.js";
 import { OpenAIProvider } from "../providers/openai/client.js";
@@ -1146,6 +1147,27 @@ describe("custom baseURL initialization", () => {
     expect(lastConstructorOptions).toEqual({
       apiKey: "or-user-key",
       baseURL: "https://openrouter.ai/api/v1",
+    });
+  });
+
+  test("MinimaxProvider forwards a custom baseURL", () => {
+    const managed = new MinimaxProvider("ast-key-123", "MiniMax-M2.7", {
+      baseURL: "https://platform.example.com/v1/runtime-proxy/minimax",
+    });
+
+    expect(managed.name).toBe("minimax");
+    expect(lastConstructorOptions).toEqual({
+      apiKey: "ast-key-123",
+      baseURL: "https://platform.example.com/v1/runtime-proxy/minimax",
+    });
+  });
+
+  test("MinimaxProvider without custom baseURL uses default MiniMax URL", () => {
+    new MinimaxProvider("mm-user-key", "MiniMax-M2.7");
+
+    expect(lastConstructorOptions).toEqual({
+      apiKey: "mm-user-key",
+      baseURL: "https://api.minimax.io/v1",
     });
   });
 });
