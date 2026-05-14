@@ -3,7 +3,7 @@ import tseslint from "typescript-eslint";
 
 const eslintConfig = defineConfig([
   ...tseslint.configs.recommended,
-  globalIgnores(["dist/**"]),
+  globalIgnores(["dist/**", "src/generated/**"]),
   {
     rules: {
       "@typescript-eslint/no-unused-vars": [
