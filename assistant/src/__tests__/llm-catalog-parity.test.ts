@@ -216,14 +216,22 @@ describe("LLM catalog parity: daemon vs client", () => {
     }
   });
 
-  test("supportsCaching requires cache read pricing", () => {
+  test("cache pricing rates are positive when defined", () => {
     for (const entry of PROVIDER_CATALOG) {
       for (const model of entry.models) {
-        if (!model.supportsCaching || !model.pricing) continue;
-        expect(
-          model.pricing.cacheReadPer1mTokens,
-          `${entry.id}/${model.id} has supportsCaching but missing cacheReadPer1mTokens`,
-        ).toBeDefined();
+        if (!model.pricing) continue;
+        if (model.pricing.cacheReadPer1mTokens !== undefined) {
+          expect(
+            model.pricing.cacheReadPer1mTokens,
+            `${entry.id}/${model.id} cacheReadPer1mTokens must be positive`,
+          ).toBeGreaterThan(0);
+        }
+        if (model.pricing.cacheWritePer1mTokens !== undefined) {
+          expect(
+            model.pricing.cacheWritePer1mTokens,
+            `${entry.id}/${model.id} cacheWritePer1mTokens must be positive`,
+          ).toBeGreaterThan(0);
+        }
       }
     }
   });

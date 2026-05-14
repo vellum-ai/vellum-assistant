@@ -151,13 +151,11 @@
           "pricing": {
             "inputPer1mTokens": 30,
             "outputPer1mTokens": 180,
-            "cacheReadPer1mTokens": 3,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
                 "inputPer1mTokens": 60,
-                "outputPer1mTokens": 270,
-                "cacheReadPer1mTokens": 6
+                "outputPer1mTokens": 270
               }
             ]
           }
