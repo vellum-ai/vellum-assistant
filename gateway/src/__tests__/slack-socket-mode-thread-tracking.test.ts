@@ -33,7 +33,7 @@ mock.module("../fetch.js", () => ({
 }));
 
 const { SlackSocketModeClient } = await import("../slack/socket-mode.js");
-const { clearUserInfoCache, resolveSlackUser } =
+const { clearChannelInfoCache, clearUserInfoCache, resolveSlackUser } =
   await import("../slack/normalize.js");
 import type { SlackSocketModeConfig } from "../slack/socket-mode.js";
 
@@ -150,6 +150,7 @@ function flushAsyncEventEmission(): Promise<void> {
 
 beforeEach(() => {
   clearUserInfoCache();
+  clearChannelInfoCache();
   fetchMock = mock(async () => makeSlackUserResponse());
 });
 
@@ -649,6 +650,109 @@ describe("SlackSocketModeClient thread tracking", () => {
       );
       expect(emitted[0].event.message.content).not.toContain("<@ULEO>");
       expect(emitted[0].event.message.content).not.toContain("ULEO");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("renders live app mention channel refs as channel-name labels", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    fetchMock = mock(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        expect(url.searchParams.get("channel")).toBe("CFEEDBACK");
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            channel: { id: "CFEEDBACK", name: "user-feedback" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return makeSlackUserResponse();
+    });
+
+    try {
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-channel-label",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-channel-label",
+            event: {
+              type: "app_mention",
+              user: "U-actor",
+              text: "<@UBOT> continue in <#CFEEDBACK>",
+              ts: "1700000000.000900",
+              channel: "C-thread",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.content).toBe(
+        "@Example User continue in #user-feedback",
+      );
+      expect(emitted[0].event.message.content).not.toContain("CFEEDBACK");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("keeps embedded Slack channel labels without conversations.info lookup", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    let conversationInfoCalls = 0;
+
+    fetchMock = mock(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        conversationInfoCalls++;
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            channel: { id: "CFEEDBACK", name: "private-name" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return makeSlackUserResponse();
+    });
+
+    try {
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-channel-embedded-label",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-channel-embedded-label",
+            event: {
+              type: "app_mention",
+              user: "U-actor",
+              text: "<@UBOT> continue in <#CFEEDBACK|visible-name>",
+              ts: "1700000000.001000",
+              channel: "C-thread",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.content).toBe(
+        "@Example User continue in #visible-name",
+      );
+      expect(conversationInfoCalls).toBe(0);
     } finally {
       rawDb.close();
     }

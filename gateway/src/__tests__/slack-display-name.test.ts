@@ -15,8 +15,11 @@ mock.module("../fetch.js", () => ({
 
 const {
   normalizeSlackAppMention,
+  resolveSlackChannel,
   resolveSlackUser,
+  clearChannelInfoCache,
   clearUserInfoCache,
+  getChannelInfoCacheSize,
   getUserInfoCacheSize,
 } = await import("../slack/normalize.js");
 import type { SlackAppMentionEvent } from "../slack/normalize.js";
@@ -63,6 +66,7 @@ function makeEvent(
 
 beforeEach(() => {
   clearUserInfoCache();
+  clearChannelInfoCache();
 });
 
 describe("resolveSlackUser", () => {
@@ -146,6 +150,72 @@ describe("resolveSlackUser", () => {
 
     expect(callCount).toBe(1);
     expect(getUserInfoCacheSize()).toBe(1);
+  });
+});
+
+describe("resolveSlackChannel", () => {
+  test("resolves channel name from conversations.info", async () => {
+    fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          channel: { id: "C123", name: "user-feedback" },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const info = await resolveSlackChannel("C123", "xoxb-token");
+    expect(info).not.toBeUndefined();
+    expect(info!.name).toBe("user-feedback");
+  });
+
+  test("uses name_normalized when name is absent", async () => {
+    fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          channel: { id: "C123", name_normalized: "normalized-channel" },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const info = await resolveSlackChannel("C123", "xoxb-token");
+    expect(info!.name).toBe("normalized-channel");
+  });
+
+  test("returns undefined on API failure", async () => {
+    fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({ ok: false, error: "channel_not_found" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const info = await resolveSlackChannel("C_UNKNOWN", "xoxb-token");
+    expect(info).toBeUndefined();
+  });
+
+  test("caches channel names to avoid repeated API calls", async () => {
+    let callCount = 0;
+    fetchMock = mock(async () => {
+      callCount++;
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          channel: { id: "C_CACHED", name: "cached-channel" },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    await resolveSlackChannel("C_CACHED", "xoxb-token");
+    await resolveSlackChannel("C_CACHED", "xoxb-token");
+    await resolveSlackChannel("C_CACHED", "xoxb-token");
+
+    expect(callCount).toBe(1);
+    expect(getChannelInfoCacheSize()).toBe(1);
   });
 });
 
