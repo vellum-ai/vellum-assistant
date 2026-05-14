@@ -368,10 +368,13 @@ function stripThinkingTags(text: string): string {
   return text
     .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
     .replace(/<thought>[\s\S]*?<\/thought>/gi, "")
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
     .replace(/<thought>/gi, "")
     .replace(/<\/thought>/gi, "")
     .replace(/<thinking>/gi, "")
     .replace(/<\/thinking>/gi, "")
+    .replace(/<think>/gi, "")
+    .replace(/<\/think>/gi, "")
     .replace(/<:[^>]*>/gi, "");
 }
 
