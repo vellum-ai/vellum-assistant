@@ -510,6 +510,9 @@ export function handleListMessages(
               ...(typeof n.conversationId === "string"
                 ? { conversationId: n.conversationId }
                 : {}),
+              ...(typeof n.objective === "string"
+                ? { objective: n.objective }
+                : {}),
             };
           }
         }

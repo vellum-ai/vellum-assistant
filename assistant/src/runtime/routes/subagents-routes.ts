@@ -96,7 +96,11 @@ export function parseSubagentMessages(
         typeof block.text === "string"
       ) {
         events.push({ type: "text", content: block.text, messageId: m.id });
-      } else if (block.type === "tool_use") {
+      } else if (
+        block.type === "tool_use" ||
+        block.type === "server_tool_use" ||
+        block.type === "mcp_tool_use"
+      ) {
         const name = typeof block.name === "string" ? block.name : "unknown";
         const input = isRecord(block.input)
           ? (block.input as Record<string, unknown>)
@@ -108,7 +112,11 @@ export function parseSubagentMessages(
           toolName: name,
         });
         if (id) pendingTools.set(id, name);
-      } else if (block.type === "tool_result") {
+      } else if (
+        block.type === "tool_result" ||
+        block.type === "web_search_tool_result" ||
+        block.type === "mcp_tool_result"
+      ) {
         const toolUseId =
           typeof block.tool_use_id === "string" ? block.tool_use_id : "";
         const resultContent =
@@ -116,14 +124,19 @@ export function parseSubagentMessages(
             ? block.content
             : Array.isArray(block.content)
               ? (block.content as unknown[])
-                  .filter(
-                    (b): b is Record<string, unknown> =>
-                      isRecord(b) &&
-                      (b as Record<string, unknown>).type === "text" &&
-                      typeof (b as Record<string, unknown>).text === "string",
-                  )
-                  .map((b) => b.text as string)
-                  .join("\n")
+                  .filter((b): b is Record<string, unknown> => isRecord(b))
+                  .map((b) => {
+                    if (b.type === "text" && typeof b.text === "string")
+                      return b.text;
+                    if (
+                      b.type === "web_search_result" &&
+                      typeof b.title === "string"
+                    )
+                      return `${b.title}\n${typeof b.url === "string" ? b.url : ""}`;
+                    return null;
+                  })
+                  .filter((s): s is string => s != null)
+                  .join("\n\n")
               : "";
         const isError = block.is_error === true;
         const toolName = toolUseId ? pendingTools.get(toolUseId) : undefined;

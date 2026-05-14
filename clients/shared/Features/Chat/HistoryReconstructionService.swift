@@ -170,7 +170,8 @@ public enum HistoryReconstructionService {
                     label: notification.label,
                     status: SubagentStatus(wire: notification.status),
                     parentMessageId: parentId,
-                    conversationId: notification.conversationId
+                    conversationId: notification.conversationId,
+                    objective: notification.objective
                 )
                 info.error = notification.error
                 reconstructedSubagents.append(info)

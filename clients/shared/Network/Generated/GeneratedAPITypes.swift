@@ -2196,13 +2196,15 @@ public struct HistoryResponseMessageSubagentNotification: Codable, Sendable {
     public let status: String
     public let error: String?
     public let conversationId: String?
+    public let objective: String?
 
-    public init(subagentId: String, label: String, status: String, error: String? = nil, conversationId: String? = nil) {
+    public init(subagentId: String, label: String, status: String, error: String? = nil, conversationId: String? = nil, objective: String? = nil) {
         self.subagentId = subagentId
         self.label = label
         self.status = status
         self.error = error
         self.conversationId = conversationId
+        self.objective = objective
     }
 }
 

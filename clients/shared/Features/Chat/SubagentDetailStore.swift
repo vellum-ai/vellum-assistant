@@ -389,7 +389,9 @@ public final class SubagentDetailStore {
     /// so that the coalescing flush batches all events into a single update.
     public func populateFromDetailResponse(_ response: SubagentDetailResponse) {
         let subagentId = response.subagentId
-        if let objective = response.objective {
+        if let objective = response.objective,
+           stagedObjectives[subagentId] == nil,
+           subagentStates[subagentId]?.objective == nil {
             stagedObjectives[subagentId] = objective
             scheduleFlush()
         }
