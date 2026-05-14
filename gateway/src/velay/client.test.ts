@@ -975,7 +975,7 @@ describe("VelayTunnelClient", () => {
     expect(sockets[0].sent).toEqual([
       JSON.stringify({ type: VELAY_FRAME_TYPES.heartbeat }),
     ]);
-    expect(delays).toEqual([100, 100]);
+    expect(delays).toEqual([100, 1000, 100]);
 
     await client.stop();
   });
@@ -1006,17 +1006,19 @@ describe("VelayTunnelClient", () => {
     await flushPromises();
     expect(delays).toEqual([100]);
 
+    callbacks[0]();
+    await flushPromises();
     sendFrame(sockets[0], { type: VELAY_FRAME_TYPES.heartbeat });
     await flushPromises();
-    expect(delays).toEqual([100, 1000]);
+    expect(delays).toEqual([100, 1000, 100, 1000]);
 
-    callbacks[1]();
+    callbacks[3]();
     await flushPromises();
 
     expect(sockets[0].closes).toEqual([
       { code: 1000, reason: "heartbeat read timeout" },
     ]);
-    expect(delays).toEqual([100, 1000, 10]);
+    expect(delays).toEqual([100, 1000, 100, 1000, 10]);
   });
 
   test("resets the read-timeout when an inbound frame arrives", async () => {
@@ -1045,20 +1047,24 @@ describe("VelayTunnelClient", () => {
     await flushPromises();
     expect(delays).toEqual([100]);
 
+    callbacks[0]();
+    await flushPromises();
+    expect(delays).toEqual([100, 1000, 100]);
+
     sendFrame(sockets[0], { type: VELAY_FRAME_TYPES.heartbeat });
     await flushPromises();
-    expect(delays).toEqual([100, 1000]);
+    expect(delays).toEqual([100, 1000, 100, 1000]);
 
     sendFrame(sockets[0], { type: VELAY_FRAME_TYPES.heartbeat });
     await flushPromises();
 
-    expect(delays).toEqual([100, 1000, 1000]);
+    expect(delays).toEqual([100, 1000, 100, 1000, 1000]);
     expect(sockets[0].closes).toEqual([]);
 
     await client.stop();
   });
 
-  test("does not start the read-timeout until the peer echoes a heartbeat", async () => {
+  test("starts the read-timeout after sending the first heartbeat", async () => {
     const sockets: FakeWebSocket[] = [];
     const delays: number[] = [];
     const callbacks: Array<() => void> = [];
@@ -1083,17 +1089,20 @@ describe("VelayTunnelClient", () => {
     sockets[0].emit("open");
     await flushPromises();
 
-    // Only the heartbeat send is scheduled; read-timeout stays gated.
+    // Only the heartbeat send is scheduled before the first beat is written.
     expect(delays).toEqual([100]);
 
     callbacks[0]();
     await flushPromises();
+    expect(delays).toEqual([100, 1000, 100]);
+    expect(sockets[0].closes).toEqual([]);
+
     callbacks[1]();
     await flushPromises();
 
-    expect(delays).toEqual([100, 100, 100]);
-    expect(sockets[0].closes).toEqual([]);
-
-    await client.stop();
+    expect(sockets[0].closes).toEqual([
+      { code: 1000, reason: "heartbeat read timeout" },
+    ]);
+    expect(delays).toEqual([100, 1000, 100, 10]);
   });
 });
