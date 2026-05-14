@@ -515,7 +515,8 @@ final class ConversationListStore {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
             },
             forkParent: item.forkParent,
-            originChannel: item.channelBinding?.sourceChannel ?? item.conversationOriginChannel
+            originChannel: item.channelBinding?.sourceChannel ?? item.conversationOriginChannel,
+            channelBinding: item.channelBinding
         )
         // Automated conversations (heartbeat, schedule, background/task) should never
         // show unread indicators, regardless of what the server reports.

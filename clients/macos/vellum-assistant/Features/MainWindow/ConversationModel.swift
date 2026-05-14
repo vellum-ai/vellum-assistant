@@ -51,8 +51,9 @@ struct ConversationModel: Identifiable, Hashable {
     var lastSeenAssistantMessageAt: Date?
     var forkParent: ConversationForkParent?
     var originChannel: String?
+    var channelBinding: ChannelBinding?
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, groupId: String? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, source: String? = nil, conversationType: String? = nil, inferenceProfile: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil, originChannel: String? = nil) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, groupId: String? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, source: String? = nil, conversationType: String? = nil, inferenceProfile: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil, originChannel: String? = nil, channelBinding: ChannelBinding? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -70,6 +71,7 @@ struct ConversationModel: Identifiable, Hashable {
         self.lastSeenAssistantMessageAt = lastSeenAssistantMessageAt
         self.forkParent = forkParent
         self.originChannel = originChannel
+        self.channelBinding = channelBinding
     }
 
     /// Whether this conversation was created by a background process (heartbeat, etc.).
@@ -129,6 +131,21 @@ struct ConversationModel: Identifiable, Hashable {
         return true
     }
 
+    var slackChannelId: String? {
+        guard originChannel == "slack" else { return nil }
+        return channelBinding?.externalChatId
+    }
+
+    var slackThreadTimestamp: String? {
+        guard originChannel == "slack" else { return nil }
+        return channelBinding?.slackThread?.threadTs ?? channelBinding?.externalThreadId
+    }
+
+    var slackThreadURL: URL? {
+        guard originChannel == "slack" else { return nil }
+        return channelBinding?.slackThread?.link?.preferredURL
+    }
+
     /// Derive the groupId for a conversation from server metadata when the server
     /// doesn't provide an explicit groupId. Shared by ConversationManager and
     /// ConversationRestorer to avoid duplicated classification logic.
@@ -166,7 +183,8 @@ struct ConversationModel: Identifiable, Hashable {
             lhs.forkParent?.conversationId == rhs.forkParent?.conversationId &&
             lhs.forkParent?.messageId == rhs.forkParent?.messageId &&
             lhs.forkParent?.title == rhs.forkParent?.title &&
-            lhs.originChannel == rhs.originChannel
+            lhs.originChannel == rhs.originChannel &&
+            lhs.channelBinding == rhs.channelBinding
     }
 
     func hash(into hasher: inout Hasher) {
@@ -189,5 +207,6 @@ struct ConversationModel: Identifiable, Hashable {
         hasher.combine(forkParent?.messageId)
         hasher.combine(forkParent?.title)
         hasher.combine(originChannel)
+        hasher.combine(channelBinding)
     }
 }

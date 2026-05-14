@@ -576,19 +576,45 @@ public struct CancelRequest: Codable, Sendable {
 }
 
 /// Channel binding metadata exposed in conversation list APIs.
-public struct ChannelBinding: Codable, Sendable {
+public struct ChannelBinding: Codable, Sendable, Hashable {
     public let sourceChannel: String
     public let externalChatId: String
+    public let externalThreadId: String?
     public let externalUserId: String?
     public let displayName: String?
     public let username: String?
+    public let slackThread: SlackThreadReference?
 
-    public init(sourceChannel: String, externalChatId: String, externalUserId: String? = nil, displayName: String? = nil, username: String? = nil) {
+    public init(sourceChannel: String, externalChatId: String, externalThreadId: String? = nil, externalUserId: String? = nil, displayName: String? = nil, username: String? = nil, slackThread: SlackThreadReference? = nil) {
         self.sourceChannel = sourceChannel
         self.externalChatId = externalChatId
+        self.externalThreadId = externalThreadId
         self.externalUserId = externalUserId
         self.displayName = displayName
         self.username = username
+        self.slackThread = slackThread
+    }
+}
+
+public struct SlackDeepLinks: Codable, Sendable, Hashable {
+    public let appUrl: String?
+    public let webUrl: String?
+
+    public init(appUrl: String? = nil, webUrl: String? = nil) {
+        self.appUrl = appUrl
+        self.webUrl = webUrl
+    }
+}
+
+public struct SlackThreadReference: Codable, Sendable, Hashable {
+    public let channelId: String
+    public let threadTs: String
+    public let link: SlackDeepLinks?
+
+    public init(channelId: String, threadTs: String, link: SlackDeepLinks? = nil) {
+        self.channelId = channelId
+        self.threadTs = threadTs
+        self.link = link
     }
 }
 
@@ -2169,10 +2195,12 @@ public struct HistoryResponseMessage: Codable, Sendable {
     public let surfaces: [HistoryResponseSurface]?
     /// Present when this message is a subagent lifecycle notification (running/completed/failed/aborted).
     public let subagentNotification: HistoryResponseMessageSubagentNotification?
+    /// Slack channel/message metadata and deep links when the row originated in Slack.
+    public let slackMessage: SlackMessageReference?
     /// True when text or tool result content was truncated due to maxTextChars/maxToolResultChars.
     public let wasTruncated: Bool?
 
-    public init(id: String? = nil, daemonMessageId: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [HistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [UserMessageAttachment]? = nil, textSegments: [String]? = nil, thinkingSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [HistoryResponseSurface]? = nil, subagentNotification: HistoryResponseMessageSubagentNotification? = nil, wasTruncated: Bool? = nil) {
+    public init(id: String? = nil, daemonMessageId: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [HistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [UserMessageAttachment]? = nil, textSegments: [String]? = nil, thinkingSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [HistoryResponseSurface]? = nil, subagentNotification: HistoryResponseMessageSubagentNotification? = nil, slackMessage: SlackMessageReference? = nil, wasTruncated: Bool? = nil) {
         self.id = id
         self.daemonMessageId = daemonMessageId
         self.role = role
@@ -2186,7 +2214,24 @@ public struct HistoryResponseMessage: Codable, Sendable {
         self.contentOrder = contentOrder
         self.surfaces = surfaces
         self.subagentNotification = subagentNotification
+        self.slackMessage = slackMessage
         self.wasTruncated = wasTruncated
+    }
+}
+
+public struct SlackMessageReference: Codable, Sendable, Hashable {
+    public let channelId: String
+    public let channelTs: String
+    public let threadTs: String?
+    public let messageLink: SlackDeepLinks?
+    public let threadLink: SlackDeepLinks?
+
+    public init(channelId: String, channelTs: String, threadTs: String? = nil, messageLink: SlackDeepLinks? = nil, threadLink: SlackDeepLinks? = nil) {
+        self.channelId = channelId
+        self.channelTs = channelTs
+        self.threadTs = threadTs
+        self.messageLink = messageLink
+        self.threadLink = threadLink
     }
 }
 

@@ -1655,6 +1655,7 @@ public struct ChatMessage: Identifiable, Equatable {
         && lhs.isSubagentNotification == rhs.isSubagentNotification
         && lhs.isContentStripped == rhs.isContentStripped
         && lhs.streamingCodePreview == rhs.streamingCodePreview
+        && lhs.slackMessage == rhs.slackMessage
     }
     public let id: UUID
     public let role: ChatRole
@@ -1698,6 +1699,8 @@ public struct ChatMessage: Identifiable, Equatable {
     /// Nil for freshly streamed messages until completion or history backfills it.
     /// Used for fork-from-message, inspect LLM context, TTS, and other daemon-anchored actions.
     public var daemonMessageId: String?
+    /// Slack source metadata and deep links for rows mirrored from Slack.
+    public var slackMessage: SlackMessageReference?
     /// Client-generated correlation nonce stamped on the optimistic row at
     /// send time. Matched against `user_message_echo.clientMessageId` so the
     /// originating client can dedupe its echo even when the SSE event beats
@@ -1745,7 +1748,7 @@ public struct ChatMessage: Identifiable, Equatable {
         textSegments.joined(separator: "\n")
     }
 
-    public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, guardianDecision: GuardianDecisionData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], attachmentWarnings: [String] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = [], isError: Bool = false, conversationError: ConversationError? = nil) {
+    public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, guardianDecision: GuardianDecisionData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], attachmentWarnings: [String] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = [], slackMessage: SlackMessageReference? = nil, isError: Bool = false, conversationError: ConversationError? = nil) {
         self.id = id
         self.role = role
         self.textSegments = text.isEmpty ? [] : [text]
@@ -1761,6 +1764,7 @@ public struct ChatMessage: Identifiable, Equatable {
         self.toolCalls = toolCalls
         self.toolCallsRevision = Self.toolCallsFingerprint(toolCalls)
         self.inlineSurfaces = inlineSurfaces
+        self.slackMessage = slackMessage
         self.isError = isError
         self.conversationError = conversationError
     }

@@ -459,6 +459,7 @@ final class ConversationRestorer {
                 existing.source = session.source
                 existing.conversationType = session.conversationType
                 existing.originChannel = session.channelBinding?.sourceChannel ?? session.conversationOriginChannel
+                existing.channelBinding = session.channelBinding
                 existing.inferenceProfile = session.inferenceProfile
                 existing.scheduleJobId = session.scheduleJobId
                 // Attention merge reconciles pendingAttentionOverrides (e.g. a
@@ -503,7 +504,8 @@ final class ConversationRestorer {
                     Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
                 },
                 forkParent: session.forkParent,
-                originChannel: session.channelBinding?.sourceChannel ?? session.conversationOriginChannel
+                originChannel: session.channelBinding?.sourceChannel ?? session.conversationOriginChannel,
+                channelBinding: session.channelBinding
             )
             // Suppress unread indicators for automated conversations on initial load.
             // The server tracks attention for all conversations, but automated threads

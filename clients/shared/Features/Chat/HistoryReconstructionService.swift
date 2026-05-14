@@ -137,6 +137,7 @@ public enum HistoryReconstructionService {
 
             chatMsg.displayMessageId = item.id
             chatMsg.daemonMessageId = item.daemonMessageId ?? item.id
+            chatMsg.slackMessage = item.slackMessage
             chatMsg.wasTruncated = item.wasTruncated ?? false
             for i in chatMsg.attachments.indices {
                 chatMsg.attachments[i].data = ""

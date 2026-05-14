@@ -122,6 +122,10 @@ public struct MessageBubbleView: View {
                     }
                 }
 
+                if let slackURL = message.slackMessage?.preferredMessageURL {
+                    slackMessageLink(destination: slackURL)
+                }
+
                 // Offline-pending indicator: shown when the message is buffered
                 // locally awaiting daemon reconnect. Replaces the streaming dots.
                 if message.status == .pendingOffline {
@@ -314,6 +318,23 @@ public struct MessageBubbleView: View {
         }
     }
 
+    private func slackMessageLink(destination: URL) -> some View {
+        Link(destination: destination) {
+            HStack(spacing: VSpacing.xs) {
+                VIconView(.externalLink, size: 11)
+                    .foregroundStyle(VColor.contentTertiary)
+                Text("Open in Slack")
+                    .font(VFont.labelSmall)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .padding(.horizontal, VSpacing.sm)
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .nativeTooltip("Open message in Slack")
+        .accessibilityLabel("Open message in Slack")
+    }
+
     /// Parse markdown in text using SwiftUI's native AttributedString support.
     /// Kept for backward compatibility (used by macOS ChatView and other callers).
     public static func markdownString(_ text: String) -> AttributedString {
@@ -331,4 +352,3 @@ public struct MessageBubbleView: View {
         return 1.0 + 0.4 * sin(normalized * 2 * .pi)
     }
 }
-
