@@ -4496,14 +4496,22 @@ public struct SubagentDetailResponse: Codable, Sendable {
     public let type: String
     public let subagentId: String
     public let objective: String?
+    public let usage: SubagentDetailUsage?
     public let events: [SubagentDetailResponseEvent]
 
-    public init(type: String, subagentId: String, objective: String? = nil, events: [SubagentDetailResponseEvent]) {
+    public init(type: String, subagentId: String, objective: String? = nil, usage: SubagentDetailUsage? = nil, events: [SubagentDetailResponseEvent]) {
         self.type = type
         self.subagentId = subagentId
         self.objective = objective
+        self.usage = usage
         self.events = events
     }
+}
+
+public struct SubagentDetailUsage: Codable, Sendable {
+    public let inputTokens: Int
+    public let outputTokens: Int
+    public let estimatedCost: Double
 }
 
 public struct SubagentDetailResponseEvent: Codable, Sendable {

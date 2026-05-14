@@ -26,6 +26,10 @@ struct SubagentDetailPanel: View {
     /// `MarkdownSegmentView.maxContentWidth` so markdown wraps to the panel
     /// instead of the default `chatBubbleMaxWidth` (760pt).
     @State private var panelContentWidth: CGFloat = 0
+    @State private var panelHeight: CGFloat = 0
+    @State private var objectiveContentHeight: CGFloat = 0
+    @State private var objectiveScrollHeight: CGFloat = 0
+    @State private var objectiveScrolledToBottom = false
 
     var body: some View {
         VSidePanel(title: "", titleFont: VFont.titleSmall, onClose: onClose, titleAccessory: {
@@ -56,8 +60,6 @@ struct SubagentDetailPanel: View {
             }
         }, pinnedContent: {
             pinnedBody
-
-            Divider().background(VColor.borderBase)
         }) {
             Color.clear
                 .frame(height: 0)
@@ -78,6 +80,11 @@ struct SubagentDetailPanel: View {
             }
         }
         .background(VColor.surfaceLift)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { newHeight in
+            panelHeight = newHeight
+        }
         .onAppear {
             // Lazy-load events from DB when the panel opens for a completed subagent with no cached events
             if events.isEmpty, subagentInfo?.conversationId != nil {
@@ -110,12 +117,36 @@ struct SubagentDetailPanel: View {
                     Text("Objective")
                         .font(VFont.bodyMediumEmphasised)
                         .foregroundStyle(VColor.contentEmphasized)
-                    Text(objective)
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentDefault)
-                        .lineSpacing(18 - 14)
+                    ScrollView {
+                        Text(objective)
+                            .font(VFont.bodyMediumLighter)
+                            .foregroundStyle(VColor.contentDefault)
+                            .lineSpacing(18 - 14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { objectiveContentHeight = $0 }
+                    }
+                    .onScrollGeometryChange(for: Bool.self) { geo in
+                        let maxOffset = geo.contentSize.height - geo.containerSize.height
+                        return maxOffset > 0 && geo.contentOffset.y >= maxOffset - 1
+                    } action: { _, atBottom in
+                        objectiveScrolledToBottom = atBottom
+                    }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { objectiveScrollHeight = $0 }
+                    .mask {
+                        let overflows = objectiveContentHeight > objectiveScrollHeight + 1
+                        if overflows && !objectiveScrolledToBottom {
+                            VStack(spacing: 0) {
+                                Color.black
+                                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                                    .frame(height: 24)
+                            }
+                        } else {
+                            Color.black
+                        }
+                    }
                 }
                 .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.md, bottom: VSpacing.lg, trailing: VSpacing.md))
+                .frame(maxHeight: panelHeight > 0 ? panelHeight / 4 : nil)
                 .vCard(background: VColor.surfaceOverlay)
             }
 
@@ -140,7 +171,8 @@ struct SubagentDetailPanel: View {
             }
         }
         .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.lg)
+        .padding(.top, VSpacing.lg)
+        .padding(.bottom, VSpacing.sm)
     }
 
     // MARK: - Event List
@@ -601,6 +633,10 @@ private struct SubagentCollapsibleText: View {
     @Binding var isExpanded: Bool
     private let collapsedLineLimit = 4
 
+    @State private var truncatedHeight: CGFloat = 0
+    @State private var fullHeight: CGFloat = 0
+    private var isTruncated: Bool { fullHeight > truncatedHeight + 1 }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text(text)
@@ -608,16 +644,34 @@ private struct SubagentCollapsibleText: View {
                 .foregroundStyle(VColor.contentDefault)
                 .lineLimit(isExpanded ? nil : collapsedLineLimit)
                 .textSelection(.enabled)
+                .background {
+                    Text(text)
+                        .font(VFont.bodyMediumLighter)
+                        .lineLimit(collapsedLineLimit)
+                        .hidden()
+                        .fixedSize(horizontal: false, vertical: true)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { truncatedHeight = $0 }
+                }
+                .background {
+                    Text(text)
+                        .font(VFont.bodyMediumLighter)
+                        .lineLimit(nil)
+                        .hidden()
+                        .fixedSize(horizontal: false, vertical: true)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullHeight = $0 }
+                }
 
-            Button {
-                withAnimation(VAnimation.fast) { isExpanded.toggle() }
-            } label: {
-                Text(isExpanded ? "Show less" : "Show more")
-                    .font(VFont.bodySmallEmphasised)
-                    .foregroundStyle(VColor.primaryBase)
+            if isTruncated || isExpanded {
+                Button {
+                    withAnimation(VAnimation.fast) { isExpanded.toggle() }
+                } label: {
+                    Text(isExpanded ? "Show less" : "Show more")
+                        .font(VFont.bodySmallEmphasised)
+                        .foregroundStyle(VColor.primaryBase)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
         }
     }
 }

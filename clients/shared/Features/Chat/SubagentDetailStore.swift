@@ -393,6 +393,14 @@ public final class SubagentDetailStore {
             stagedObjectives[subagentId] = objective
             scheduleFlush()
         }
+        if let usage = response.usage {
+            stagedUsage[subagentId] = SubagentUsageStats(
+                inputTokens: usage.inputTokens,
+                outputTokens: usage.outputTokens,
+                estimatedCost: usage.estimatedCost
+            )
+            scheduleFlush()
+        }
         // Only populate if we don't already have events (avoid duplicates on re-open)
         let existing = currentEvents(for: subagentId)
         guard existing.isEmpty else { return }
