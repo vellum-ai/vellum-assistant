@@ -36,6 +36,7 @@ import type {
   ToolDefinition,
 } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
+import { estimatePromptTokens } from "./token-estimator.js";
 
 const log = getLogger("compactor");
 
@@ -779,6 +780,256 @@ export async function runAssistantDrivenCompaction(
     thresholdTokens,
     compactedMessages: compactableMessages.length,
     compactedPersistedMessages,
+    summaryCalls: 1,
+    summaryInputTokens: response.usage.inputTokens,
+    summaryOutputTokens: response.usage.outputTokens,
+    summaryModel: response.model,
+    summaryCallSite: COMPACTION_CALL_SITE,
+    summaryOverrideProfile: args.overrideProfile ?? null,
+    summaryCacheCreationInputTokens:
+      response.usage.cacheCreationInputTokens ?? 0,
+    summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
+    summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
+    summaryText,
+    keyState: parsed.keyState,
+    summaryFailed: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Emergency mid-turn compaction
+// ---------------------------------------------------------------------------
+
+/**
+ * Simplified instruction for emergency compaction. No `tail_start` or
+ * `retained_images` — the caller already knows the split point. The model
+ * just needs to produce a summary + key_state.
+ */
+const EMERGENCY_COMPACTION_PROMPT = `<emergency_compaction>
+The conversation has exceeded the context window during an active task.
+This is an emergency compaction — summarize EVERYTHING you see into a
+fresh-start summary so the assistant can continue its work.
+
+Write the summary in YOUR voice. Prioritize:
+- What task is currently in progress and what stage it is at
+- Decisions already made during this task
+- Key results from tool calls that are still relevant
+- Any commitments or state changes from earlier in the conversation
+- What the next step should be
+
+Be thorough on task state — this summary plus the most recent tool call
+and its result are the ONLY context the assistant will have to continue.
+
+Output your result in this exact format:
+
+<compaction_result>
+<summary>
+Your complete summary of everything that happened.
+</summary>
+
+<key_state>
+Structured list of:
+- Current task and its status
+- Important intermediate results
+- What to do next
+</key_state>
+</compaction_result>
+</emergency_compaction>`;
+
+/**
+ * Find the start index of the last tool_use + tool_result cluster in the
+ * message array. Walks backwards to find the last assistant message
+ * containing a `tool_use` content block, then returns that index. The
+ * caller keeps everything from this index onwards as the preserved tail.
+ *
+ * Returns `null` if no tool_use message is found.
+ */
+function findLastToolPairStart(messages: Message[]): number | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== "assistant") continue;
+    const hasToolUse = msg.content.some((b) => b.type === "tool_use");
+    if (hasToolUse) return i;
+  }
+  return null;
+}
+
+/**
+ * Emergency compaction for the mid-turn context overflow case.
+ *
+ * When a `context_too_large` error fires during an active agent turn,
+ * the normal compactor may itself exceed the context window (the
+ * conversation that needs compacting is, by definition, too large to
+ * send to the model as-is).
+ *
+ * This function:
+ *   1. Finds the last tool_use message + its trailing tool_result(s)
+ *   2. Splits the history there
+ *   3. Truncates the prefix from the front if it exceeds the model's
+ *      context window
+ *   4. Sends the (possibly truncated) prefix to the model with a
+ *      simplified emergency instruction
+ *   5. Returns `[summary_message, ...last_tool_pair]` so the agent
+ *      can continue with knowledge of what it just did
+ *
+ * If the provider call fails or no tool pair is found, returns
+ * `compacted: false` so the caller can fall through to other
+ * recovery strategies (tool-result truncation, media stubbing, etc.).
+ */
+export async function runEmergencyCompaction(
+  args: CompactionRunArgs,
+): Promise<CompactionRunResult> {
+  const thresholdTokens = Math.floor(
+    args.maxInputTokens * args.compaction.autoThreshold,
+  );
+
+  const splitIndex = findLastToolPairStart(args.messages);
+  if (splitIndex == null || splitIndex === 0) {
+    log.info(
+      "Emergency compaction: no tool pair found — falling through",
+    );
+    return emptyResult(args, thresholdTokens, "no tool pair for emergency split");
+  }
+
+  const keptTail = stripInjectionsForCompaction(
+    args.messages.slice(splitIndex),
+  );
+  let prefix = args.messages.slice(0, splitIndex);
+
+  // If the prefix itself exceeds the context window, truncate messages
+  // from the front so the model can at least see the recent portion.
+  // Reserve budget for the instruction message + output.
+  const instructionBudget = 800; // ~tokens for the emergency prompt
+  const outputBudget = Math.floor(args.maxInputTokens * 0.15);
+  const prefixBudget = args.maxInputTokens - instructionBudget - outputBudget;
+
+  let prefixEstimate = estimatePromptTokens(prefix, args.systemPrompt, {
+    providerName:
+      args.provider.tokenEstimationProvider ?? args.provider.name,
+  });
+
+  if (prefixEstimate > prefixBudget && prefix.length > 1) {
+    log.info(
+      {
+        prefixEstimate,
+        prefixBudget,
+        prefixMessages: prefix.length,
+      },
+      "Emergency compaction: prefix exceeds context window — truncating from front",
+    );
+    // Drop messages from the front until we fit. Keep at least the first
+    // message (may be an existing summary) and try to preserve recent context.
+    let dropCount = 0;
+    while (
+      prefixEstimate > prefixBudget &&
+      dropCount < prefix.length - 1
+    ) {
+      dropCount++;
+      const truncated = prefix.slice(dropCount);
+      prefixEstimate = estimatePromptTokens(truncated, args.systemPrompt, {
+        providerName:
+          args.provider.tokenEstimationProvider ?? args.provider.name,
+      });
+    }
+    if (dropCount > 0) {
+      prefix = [
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "text" as const,
+              text: `[${dropCount} earlier messages truncated — summary covers only the visible portion]`,
+            },
+          ],
+        },
+        ...prefix.slice(dropCount),
+      ];
+    }
+  }
+
+  const instruction: Message = {
+    role: "user",
+    content: [{ type: "text", text: EMERGENCY_COMPACTION_PROMPT }],
+  };
+  const requestMessages = [...prefix, instruction];
+
+  let response: ProviderResponse;
+  try {
+    response = await args.provider.sendMessage(
+      requestMessages,
+      args.tools,
+      args.systemPrompt,
+      {
+        signal: args.signal,
+        config: {
+          callSite: COMPACTION_CALL_SITE,
+          usageTracking: "manual",
+          ...(args.overrideProfile
+            ? { overrideProfile: args.overrideProfile }
+            : {}),
+        },
+      },
+    );
+  } catch (err) {
+    log.warn({ err }, "Emergency compaction provider call failed");
+    return {
+      ...emptyResult(args, thresholdTokens, "emergency provider error"),
+      summaryFailed: true,
+    };
+  }
+
+  const rawText = extractTextFromResponse(response.content);
+  const parsed = parseCompactionResult(rawText);
+  if (!parsed) {
+    log.warn(
+      { rawPreview: rawText.slice(0, 200) },
+      "Emergency compaction response did not contain a valid <compaction_result>",
+    );
+    return {
+      ...emptyResult(args, thresholdTokens, "emergency unparseable response"),
+      summaryFailed: false,
+      summaryCalls: 1,
+      summaryInputTokens: response.usage.inputTokens,
+      summaryOutputTokens: response.usage.outputTokens,
+      summaryModel: response.model,
+    };
+  }
+
+  const summaryText = buildSummaryMemoryText(parsed.summary, parsed.keyState);
+  const summaryMessage: Message = {
+    role: "assistant",
+    content: [{ type: "text", text: summaryText }],
+  };
+
+  const compactedMessages: Message[] = [summaryMessage, ...keptTail];
+
+  const compactedCount = splitIndex;
+  const nonPersistedAway = Math.min(
+    args.nonPersistedPrefixCount ?? 0,
+    compactedCount,
+  );
+
+  log.info(
+    {
+      conversationId: args.conversationId,
+      compactedMessages: compactedCount,
+      keptTailMessages: keptTail.length,
+      summaryChars: summaryText.length,
+      prefixTruncated: prefix[0]?.content?.[0]?.type === "text" &&
+        (prefix[0].content[0] as { text: string }).text.includes("truncated"),
+    },
+    "Applied emergency mid-turn compaction",
+  );
+
+  return {
+    messages: compactedMessages,
+    compacted: true,
+    previousEstimatedInputTokens: args.previousEstimatedInputTokens,
+    estimatedInputTokens: args.previousEstimatedInputTokens,
+    maxInputTokens: args.maxInputTokens,
+    thresholdTokens,
+    compactedMessages: compactedCount,
+    compactedPersistedMessages: Math.max(0, compactedCount - nonPersistedAway),
     summaryCalls: 1,
     summaryInputTokens: response.usage.inputTokens,
     summaryOutputTokens: response.usage.outputTokens,
