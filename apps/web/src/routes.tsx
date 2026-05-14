@@ -1,11 +1,11 @@
 import { createBrowserRouter, Navigate } from 'react-router';
 import { App } from './App.js';
-import { ConversationNew } from './pages/ConversationNew.js';
-import { ConversationDetail } from './pages/ConversationDetail.js';
-import { Library } from './pages/Library.js';
-import { LibraryDetail } from './pages/LibraryDetail.js';
-import { NotFound } from './pages/NotFound.js';
-import { SettingsTab } from './pages/SettingsTab.js';
+import { ConversationNew } from './pages/conversation-new.js';
+import { ConversationDetail } from './pages/conversation-detail.js';
+import { Library } from './pages/library.js';
+import { LibraryDetail } from './pages/library-detail.js';
+import { NotFound } from './pages/not-found.js';
+import { SettingsTab } from './pages/settings-tab.js';
 
 export const router = createBrowserRouter([
   {
