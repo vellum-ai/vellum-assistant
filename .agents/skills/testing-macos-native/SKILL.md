@@ -6,7 +6,7 @@ description: Test macOS/Swift native client code changes (clients/macos, clients
 # Testing macOS/Swift Native Client Code
 
 ## Overview
-The macOS client is a Swift/SwiftUI app under `clients/macos/` with shared code in `clients/shared/`. CI skips macOS builds and tests (no macOS build environment). The Devin Linux VM has no Swift toolchain or Xcode.
+The macOS client is a Swift/SwiftUI app under `clients/macos/` with shared code in `clients/shared/`. CI runs macOS builds and tests only when the PR has the `preview` label (see CI Notes below). The Devin Linux VM has no Swift toolchain or Xcode.
 
 ## What You CAN Test (Script-Based Verification)
 
@@ -57,8 +57,9 @@ Always clearly state these limitations in test reports. The reviewer must verify
 
 ## CI Notes
 
-- CI runs Socket Security + FlexFrame Lint (always pass for Swift-only changes)
-- macOS Build and macOS Tests are skipped in CI
+- CI runs Socket Security + FlexFrame Lint unconditionally (always pass for Swift-only changes)
+- **macOS Build and macOS Tests require the `preview` label** on the PR to run (defined in `.github/workflows/pr-macos.yaml`). Without the label, these jobs show as skipped. Add the `preview` label to trigger Xcode compilation and `./build.sh test` on `macos-15` runners.
+- `ci-main-macos.yaml` runs macOS CI on pushes to `main` for `clients/**` changes
 - No preview deployments for native client changes
 
 ## Devin Secrets Needed
