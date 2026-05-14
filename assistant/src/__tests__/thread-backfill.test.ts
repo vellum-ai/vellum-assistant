@@ -1624,7 +1624,53 @@ function seedHttpActiveMember(chatId = HTTP_SLACK_CHANNEL_ID): void {
   });
 }
 
+function seedHttpGuardianMember(chatId = HTTP_SLACK_CHANNEL_ID): void {
+  upsertContactChannel({
+    sourceChannel: "slack",
+    externalUserId: HTTP_SLACK_USER_ID,
+    externalChatId: chatId,
+    status: "active",
+    policy: "allow",
+    displayName: HTTP_SLACK_DISPLAY_NAME,
+    role: "guardian",
+    verifiedAt: Date.now(),
+    verifiedVia: "test",
+  });
+}
+
 let httpMsgCounter = 0;
+
+function buildSlackChannelRequest(
+  messageId: string,
+  overrides: Record<string, unknown> = {},
+): Request {
+  httpMsgCounter++;
+  const body: Record<string, unknown> = {
+    sourceChannel: "slack",
+    interface: "slack",
+    conversationExternalId: HTTP_SLACK_CHANNEL_ID,
+    externalMessageId: `${HTTP_SLACK_CHANNEL_ID}:${messageId}:${httpMsgCounter}`,
+    content: "channel text",
+    actorExternalId: HTTP_SLACK_USER_ID,
+    actorDisplayName: HTTP_SLACK_DISPLAY_NAME,
+    actorUsername: "charlie",
+    replyCallbackUrl: "http://localhost:7830/deliver/slack",
+    sourceMetadata: {
+      messageId,
+      chatType: "channel",
+    },
+    ...overrides,
+  };
+
+  return new Request("http://localhost:8080/channels/inbound", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Gateway-Origin": TEST_BEARER_TOKEN,
+    },
+    body: JSON.stringify(body),
+  });
+}
 
 function buildThreadReplyRequest(
   threadId: string,
@@ -1694,6 +1740,7 @@ function buildSlackDmRequest(
 }
 
 interface SlackInboundProcessOptions {
+  displayContent?: string;
   slackRuntimeContextNotice?: string;
   slackInbound?: {
     channelId: string;
@@ -1708,8 +1755,9 @@ function persistSlackInboundFromProcessMessage(
   content: string,
   options?: SlackInboundProcessOptions,
 ): string {
+  const contentToPersist = options?.displayContent ?? content;
   const slackInbound = options?.slackInbound;
-  return insertMessage(conversationId, "user", content, {
+  return insertMessage(conversationId, "user", contentToPersist, {
     ...(slackInbound
       ? {
           slackMeta: writeSlackMetadata({
@@ -1745,6 +1793,57 @@ function flattenText(messages: Message[]): string {
     })
     .map((block) => block.text)
     .join("\n");
+}
+
+interface CapturedSlackProcessMessage {
+  conversationId: string;
+  content: string;
+  options?: SlackInboundProcessOptions;
+}
+
+async function handleAndCaptureLiveSlackProcessMessage(
+  request: Request,
+): Promise<CapturedSlackProcessMessage> {
+  let captured: CapturedSlackProcessMessage | undefined;
+  let resolveProcessed: (() => void) | undefined;
+  const processed = new Promise<void>((resolve) => {
+    resolveProcessed = resolve;
+  });
+
+  const processMessage = async (
+    conversationId: string,
+    content: string,
+    _attachmentIds?: string[],
+    options?: SlackInboundProcessOptions,
+  ): Promise<{ messageId: string }> => {
+    captured = { conversationId, content, options };
+    const messageId = persistSlackInboundFromProcessMessage(
+      conversationId,
+      content,
+      options,
+    );
+    resolveProcessed?.();
+    return { messageId };
+  };
+  setAdapterProcessMessage(processMessage);
+
+  const resp = await handleChannelInbound(
+    request,
+    processMessage,
+    TEST_BEARER_TOKEN,
+  );
+  expect(resp.status).toBe(200);
+  await Promise.race([
+    processed,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("processMessage not called")), 250),
+    ),
+  ]);
+
+  if (!captured) {
+    throw new Error("processMessage not called");
+  }
+  return captured;
 }
 
 describe("handleChannelInbound — Slack thread backfill wiring", () => {
@@ -1845,6 +1944,48 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     expect(
       contents.some((row) => row.content.includes("Slack context note")),
     ).toBe(false);
+  });
+
+  test("live Slack non-guardian passes raw displayContent while wrapping model content", async () => {
+    const rawContent = "live Slack raw text";
+    const captured = await handleAndCaptureLiveSlackProcessMessage(
+      buildSlackChannelRequest("1700000000.000300", {
+        content: rawContent,
+      }),
+    );
+
+    expect(captured.content.match(/<external_content/g)?.length).toBe(1);
+    expect(captured.content).toContain('<external_content source="slack"');
+    expect(captured.content).not.toContain('source="webhook"');
+    expect(captured.content).toContain(`\n${rawContent}\n</external_content>`);
+    expect(captured.options?.displayContent).toBe(rawContent);
+
+    const persisted = readMessagesByConversation(captured.conversationId);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].content).toBe(rawContent);
+  });
+
+  test("live Slack guardian keeps raw content without displayContent", async () => {
+    seedHttpGuardianMember();
+    const rawContent = "guardian live Slack text";
+    const captured = await handleAndCaptureLiveSlackProcessMessage(
+      buildSlackChannelRequest("1700000000.000400", {
+        content: rawContent,
+      }),
+    );
+
+    expect(captured.content).toBe(rawContent);
+    expect(captured.content).not.toContain("<external_content");
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        captured.options ?? {},
+        "displayContent",
+      ),
+    ).toBe(false);
+
+    const persisted = readMessagesByConversation(captured.conversationId);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].content).toBe(rawContent);
   });
 
   test("late app mention sees unseen backfilled replies before the mention", async () => {
