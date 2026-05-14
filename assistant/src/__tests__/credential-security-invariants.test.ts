@@ -225,7 +225,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/credential-routes.ts", // CLI credential management routes (CLI-migrated to IPC)
       "runtime/routes/platform-routes.ts", // CLI platform connect/disconnect/status routes (CLI-migrated to IPC)
       "ipc/skill-routes/providers.ts", // host.providers.secureKeys.getProviderKey IPC route (out-of-process SkillHost companion)
-      "daemon/external-plugins-bootstrap.ts", // reads credentials at plugin init (manifest.requiresCredential) via the CES-mediated getSecureKeyAsync path
+      "plugins/init-context.ts", // shared PluginInitContext builder used by both daemon boot and CLI `assistant plugins install` — reads credentials at plugin init (manifest.requiresCredential) via the CES-mediated getSecureKeyAsync path
       "plugins/external-api.ts", // globalThis runtime bridge that exposes getSecureKeyAsync to dynamically-imported workspace plugins (compiled-binary plugin loading)
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
