@@ -14,6 +14,10 @@
  */
 
 export const HOOKS = {
+  /** Plugin bootstrap. Fires once when the daemon loads the plugin. */
+  INIT: "init",
+  /** Plugin teardown. Fires once when the daemon unloads the plugin. */
+  SHUTDOWN: "shutdown",
   /** Fires once per user turn, immediately before the agent loop receives `runMessages`. */
   USER_PROMPT_SUBMIT: "user-prompt-submit",
 } as const;

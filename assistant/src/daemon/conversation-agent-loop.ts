@@ -2012,6 +2012,30 @@ export async function runAgentLoopImpl(
       runMessages = webSearchStrip.messages;
     }
 
+    // user-prompt-submit hook: plugins may transform `runMessages` right
+    // before the agent loop receives them. Fires once per user turn at
+    // the primary `agentLoop.run` only — the re-entry / retry calls
+    // further down in this function do not refire it (they're not new
+    // user submissions). Plugins may mutate `ctx.latestMessages` in place
+    // OR return a new context with a fresh array; `runHook` forwards
+    // whichever the chain settles on. Order is plugin registration order.
+    //
+    // Fires BEFORE `preRunHistoryLength` is captured so the boundary
+    // between pre-existing and hook-emitted messages — consumed by the
+    // ordering-error retry gate, the post-run reconcile loop, and the
+    // new-message extraction for persistence — reflects exactly what
+    // `agentLoop.run` receives.
+    const userPromptCtx: UserPromptSubmitContext = {
+      conversationId: ctx.conversationId,
+      originalMessages: ctx.messages,
+      latestMessages: runMessages,
+    };
+    const finalUserPromptCtx = await runHook(
+      HOOKS.USER_PROMPT_SUBMIT,
+      userPromptCtx,
+    );
+    runMessages = finalUserPromptCtx.latestMessages;
+
     let preRunHistoryLength = runMessages.length;
 
     const shouldGenerateTitle = isReplaceableTitle(
@@ -2073,24 +2097,6 @@ export async function runAgentLoopImpl(
     // synthesized `"agent-loop"` placeholder. The loop clones this value
     // and overwrites `turnIndex` with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
-
-    // user-prompt-submit hook: plugins may transform `runMessages` right
-    // before the agent loop receives them. Fires once per user turn at
-    // the primary `agentLoop.run` only — the re-entry / retry calls
-    // further down in this function do not refire it (they're not new
-    // user submissions). Plugins may mutate `ctx.latestMessages` in place
-    // OR return a new context with a fresh array; `runHook` forwards
-    // whichever the chain settles on. Order is plugin registration order.
-    const userPromptCtx: UserPromptSubmitContext = {
-      conversationId: ctx.conversationId,
-      originalMessages: ctx.messages,
-      latestMessages: runMessages,
-    };
-    const finalUserPromptCtx = await runHook(
-      HOOKS.USER_PROMPT_SUBMIT,
-      userPromptCtx,
-    );
-    runMessages = finalUserPromptCtx.latestMessages;
 
     let updatedHistory = await ctx.agentLoop.run(
       runMessages,
