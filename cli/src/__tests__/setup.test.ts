@@ -1,23 +1,49 @@
-import { afterAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  spyOn,
+  test,
+  type Mock,
+} from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import type { AssistantEntry } from "../lib/assistant-config.js";
-import * as assistantConfig from "../lib/assistant-config.js";
-import * as guardianToken from "../lib/guardian-token.js";
-import * as providerSecrets from "../lib/provider-secrets.js";
+import {
+  saveGuardianToken,
+  type GuardianTokenData,
+} from "../lib/guardian-token.js";
+import { setup } from "../commands/setup.js";
 
-let activeAssistant: AssistantEntry | null = null;
+interface RecordedFetchCall {
+  url: string;
+  method?: string;
+  headers: Headers;
+  body: unknown;
+}
 
-type SetupEnsureOptions = Parameters<
-  typeof providerSecrets.ensureProviderApiKey
->[0];
-type SetupEnsureResult = Awaited<
-  ReturnType<typeof providerSecrets.ensureProviderApiKey>
->;
+const originalArgv = [...process.argv];
+const originalFetch = globalThis.fetch;
+const originalEnv = {
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+  openaiApiKey: process.env.OPENAI_API_KEY,
+  xdgConfigHome: process.env.XDG_CONFIG_HOME,
+  xdgDataHome: process.env.XDG_DATA_HOME,
+  vellumEnvironment: process.env.VELLUM_ENVIRONMENT,
+  vellumLockfileDir: process.env.VELLUM_LOCKFILE_DIR,
+};
+
+let testDir = "";
+let fetchCalls: RecordedFetchCall[] = [];
+let consoleLogSpy: Mock<(...args: unknown[]) => void>;
+let consoleErrorSpy: Mock<(...args: unknown[]) => void>;
 
 function guardianTokenFixture(
-  overrides: Partial<
-    NonNullable<ReturnType<typeof guardianToken.loadGuardianToken>>
-  > = {},
-): NonNullable<ReturnType<typeof guardianToken.loadGuardianToken>> {
+  overrides: Partial<GuardianTokenData> = {},
+): GuardianTokenData {
   return {
     guardianPrincipalId: "guardian-principal-123",
     accessToken: "guardian-token",
@@ -32,168 +58,239 @@ function guardianTokenFixture(
   };
 }
 
-const resolveAssistantMock = spyOn(
-  assistantConfig,
-  "resolveAssistant",
-).mockImplementation((): AssistantEntry | null => activeAssistant);
-const loadGuardianTokenMock = spyOn(
-  guardianToken,
-  "loadGuardianToken",
-).mockImplementation(
-  (_assistantId: string): ReturnType<typeof guardianToken.loadGuardianToken> =>
-    guardianTokenFixture(),
-);
-const refreshGuardianTokenMock = spyOn(
-  guardianToken,
-  "refreshGuardianToken",
-).mockResolvedValue(null);
-const configuredResult = (provider: string | null): SetupEnsureResult => ({
-  status: "configured",
-  provider:
-    provider && providerSecrets.isSupportedLlmProvider(provider)
-      ? provider
-      : "anthropic",
-  source: "prompt",
-});
-const ensureProviderApiKeyMock = spyOn(
-  providerSecrets,
-  "ensureProviderApiKey",
-).mockImplementation(async (options: SetupEnsureOptions) =>
-  configuredResult(options.provider),
-);
-const formatProviderNameMock = spyOn(
-  providerSecrets,
-  "formatProviderName",
-).mockImplementation((provider: string) =>
-  provider === "openai" ? "OpenAI" : "Anthropic",
-);
+function writeLockfile(entry: AssistantEntry): void {
+  const lockfileDir = process.env.VELLUM_LOCKFILE_DIR!;
+  mkdirSync(lockfileDir, { recursive: true });
+  writeFileSync(
+    join(lockfileDir, ".vellum.lock.json"),
+    JSON.stringify(
+      {
+        assistants: [entry],
+        activeAssistant: entry.assistantId,
+      },
+      null,
+      2,
+    ),
+  );
+}
 
-import { setup } from "../commands/setup.js";
+function installFetchStub(
+  options: { refreshedToken?: GuardianTokenData } = {},
+) {
+  fetchCalls = [];
+  globalThis.fetch = (async (input, init) => {
+    const headers = new Headers(init?.headers);
+    const body =
+      typeof init?.body === "string" ? JSON.parse(init.body) : init?.body;
+    const url = String(input);
+    fetchCalls.push({
+      url,
+      method: init?.method,
+      headers,
+      body,
+    });
 
-const originalArgv = [...process.argv];
-const consoleLogSpy = spyOn(console, "log").mockImplementation(() => {});
-const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+    if (url.endsWith("/v1/guardian/refresh")) {
+      if (!options.refreshedToken) {
+        return new Response(JSON.stringify({ error: "expired" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify(options.refreshedToken), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.endsWith("/v1/secrets/read")) {
+      return new Response(JSON.stringify({ found: false }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.endsWith("/v1/secrets")) {
+      return new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ error: "Unexpected URL" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+}
+
+function secretWriteCall(): RecordedFetchCall {
+  const call = fetchCalls.find((record) => record.url.endsWith("/v1/secrets"));
+  if (!call) {
+    throw new Error("Expected /v1/secrets call.");
+  }
+  return call;
+}
 
 describe("setup command", () => {
   beforeEach(() => {
+    testDir = mkdtempSync(join(tmpdir(), "vellum-setup-test-"));
     process.argv = ["bun", "vellum", "setup"];
-    activeAssistant = {
+    process.env.XDG_CONFIG_HOME = join(testDir, "config");
+    process.env.XDG_DATA_HOME = join(testDir, "data");
+    process.env.VELLUM_LOCKFILE_DIR = join(testDir, "lockfile");
+    delete process.env.VELLUM_ENVIRONMENT;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    consoleLogSpy = spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+    installFetchStub();
+  });
+
+  afterEach(() => {
+    process.argv = originalArgv;
+    globalThis.fetch = originalFetch;
+    setOptionalEnv("ANTHROPIC_API_KEY", originalEnv.anthropicApiKey);
+    setOptionalEnv("OPENAI_API_KEY", originalEnv.openaiApiKey);
+    setOptionalEnv("XDG_CONFIG_HOME", originalEnv.xdgConfigHome);
+    setOptionalEnv("XDG_DATA_HOME", originalEnv.xdgDataHome);
+    setOptionalEnv("VELLUM_ENVIRONMENT", originalEnv.vellumEnvironment);
+    setOptionalEnv("VELLUM_LOCKFILE_DIR", originalEnv.vellumLockfileDir);
+    consoleLogSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  test("configures the default provider through the active assistant gateway", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    writeLockfile({
       assistantId: "assistant-123",
       runtimeUrl: "http://runtime.example",
       localUrl: "http://127.0.0.1:3000",
       cloud: "local",
-    };
-    resolveAssistantMock.mockClear();
-    loadGuardianTokenMock.mockReset();
-    loadGuardianTokenMock.mockReturnValue(guardianTokenFixture());
-    refreshGuardianTokenMock.mockReset();
-    refreshGuardianTokenMock.mockResolvedValue(null);
-    ensureProviderApiKeyMock.mockReset();
-    ensureProviderApiKeyMock.mockImplementation(async (options) =>
-      configuredResult(options.provider),
-    );
-    consoleLogSpy.mockClear();
-    consoleErrorSpy.mockClear();
-  });
+    });
+    saveGuardianToken("assistant-123", guardianTokenFixture());
 
-  afterAll(() => {
-    process.argv = originalArgv;
-    consoleLogSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
-    resolveAssistantMock.mockRestore();
-    loadGuardianTokenMock.mockRestore();
-    refreshGuardianTokenMock.mockRestore();
-    ensureProviderApiKeyMock.mockRestore();
-    formatProviderNameMock.mockRestore();
-  });
-
-  test("configures the default provider through the active assistant gateway", async () => {
     await setup();
 
-    expect(resolveAssistantMock).toHaveBeenCalled();
-    expect(loadGuardianTokenMock).toHaveBeenCalledWith("assistant-123");
-    expect(ensureProviderApiKeyMock).toHaveBeenCalledTimes(1);
-
-    const options = ensureProviderApiKeyMock.mock.calls[0][0];
-    expect(options.gatewayUrl).toBe("http://127.0.0.1:3000");
-    expect(options.provider).toBe("anthropic");
-    expect(options.bearerToken).toBe("guardian-token");
-    expect(options.env).toBe(process.env);
+    expect(fetchCalls[0].url).toBe("http://127.0.0.1:3000/v1/secrets/read");
+    expect(fetchCalls[0].headers.get("Authorization")).toBe(
+      "Bearer guardian-token",
+    );
+    expect(secretWriteCall().body).toEqual({
+      type: "api_key",
+      name: "anthropic",
+      value: "test-anthropic-key",
+    });
+    expect(consoleLogSpy.mock.calls.flat().join("\n")).toContain(
+      "Anthropic API key saved to assistant from the environment.",
+    );
   });
 
   test("honors an explicit provider option", async () => {
     process.argv = ["bun", "vellum", "setup", "--provider", "openai"];
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    writeLockfile({
+      assistantId: "assistant-123",
+      runtimeUrl: "http://127.0.0.1:3000",
+      cloud: "local",
+    });
+    saveGuardianToken("assistant-123", guardianTokenFixture());
 
     await setup();
 
-    const options = ensureProviderApiKeyMock.mock.calls[0][0];
-    expect(options.provider).toBe("openai");
+    expect(secretWriteCall().body).toEqual({
+      type: "api_key",
+      name: "openai",
+      value: "test-openai-key",
+    });
     expect(consoleLogSpy.mock.calls.flat().join("\n")).toContain(
-      "OpenAI API key saved to assistant.",
+      "OpenAI API key saved to assistant from the environment.",
     );
   });
 
   test("falls back to runtime URL and lockfile bearer token", async () => {
-    activeAssistant = {
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    writeLockfile({
       assistantId: "assistant-123",
       runtimeUrl: "https://assistant.example",
       bearerToken: "entry-token",
       cloud: "vellum",
-    };
-    loadGuardianTokenMock.mockReturnValue(null);
+    });
 
     await setup();
 
-    const options = ensureProviderApiKeyMock.mock.calls[0][0];
-    expect(options.gatewayUrl).toBe("https://assistant.example");
-    expect(options.bearerToken).toBe("entry-token");
+    expect(fetchCalls[0].url).toBe("https://assistant.example/v1/secrets/read");
+    expect(fetchCalls[0].headers.get("Authorization")).toBe(
+      "Bearer entry-token",
+    );
   });
 
   test("falls back to the lockfile bearer token when guardian token is expired", async () => {
-    activeAssistant = {
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    writeLockfile({
       assistantId: "assistant-123",
       runtimeUrl: "https://assistant.example",
       bearerToken: "entry-token",
       cloud: "vellum",
-    };
-    loadGuardianTokenMock.mockReturnValue(
+    });
+    saveGuardianToken(
+      "assistant-123",
       guardianTokenFixture({
         accessToken: "expired-guardian-token",
         accessTokenExpiresAt: new Date(Date.now() - 60_000).toISOString(),
       }),
     );
-    refreshGuardianTokenMock.mockResolvedValue(null);
 
     await setup();
 
-    expect(refreshGuardianTokenMock).toHaveBeenCalledWith(
-      "https://assistant.example",
-      "assistant-123",
+    expect(fetchCalls[0].url).toBe(
+      "https://assistant.example/v1/guardian/refresh",
     );
-    const options = ensureProviderApiKeyMock.mock.calls[0][0];
-    expect(options.bearerToken).toBe("entry-token");
+    expect(fetchCalls[0].headers.get("Authorization")).toBe(
+      "Bearer expired-guardian-token",
+    );
+    expect(fetchCalls[1].headers.get("Authorization")).toBe(
+      "Bearer entry-token",
+    );
   });
 
   test("uses a refreshed guardian token before lockfile fallback", async () => {
-    activeAssistant = {
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    writeLockfile({
       assistantId: "assistant-123",
       runtimeUrl: "https://assistant.example",
       bearerToken: "entry-token",
       cloud: "vellum",
-    };
-    loadGuardianTokenMock.mockReturnValue(
+    });
+    saveGuardianToken(
+      "assistant-123",
       guardianTokenFixture({
         accessToken: "expired-guardian-token",
         accessTokenExpiresAt: new Date(Date.now() - 60_000).toISOString(),
       }),
     );
-    refreshGuardianTokenMock.mockResolvedValue(
-      guardianTokenFixture({ accessToken: "fresh-guardian-token" }),
-    );
+    installFetchStub({
+      refreshedToken: guardianTokenFixture({
+        accessToken: "fresh-guardian-token",
+      }),
+    });
 
     await setup();
 
-    const options = ensureProviderApiKeyMock.mock.calls[0][0];
-    expect(options.bearerToken).toBe("fresh-guardian-token");
+    expect(fetchCalls[0].url).toBe(
+      "https://assistant.example/v1/guardian/refresh",
+    );
+    expect(fetchCalls[1].headers.get("Authorization")).toBe(
+      "Bearer fresh-guardian-token",
+    );
   });
 });
+
+function setOptionalEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
