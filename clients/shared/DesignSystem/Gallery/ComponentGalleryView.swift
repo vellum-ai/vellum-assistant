@@ -124,30 +124,6 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                     description: "Reusable white right-side panel container with standardized header (icon + title + primary/secondary actions + dismiss)."
                 ),
                 GalleryComponent(
-                    "homeEmailEditor",
-                    "HomeEmailEditor",
-                    keywords: ["email editor", "compose", "side panel", "detail"],
-                    description: "Pure body content for the email editor variant of the Home detail panel."
-                ),
-                GalleryComponent(
-                    "homeDocumentPreview",
-                    "HomeDocumentPreview",
-                    keywords: ["document", "preview", "image", "attachment", "file", "detail"],
-                    description: "Pure body content showing a document, image, or any file attachment preview in the Home detail panel. Optional right-aligned footer actions."
-                ),
-                GalleryComponent(
-                    "homePermissionChatPreview",
-                    "HomePermissionChatPreview",
-                    keywords: ["permission", "chat", "confirmation", "tool", "preview", "detail"],
-                    description: "Pure body content for the Home detail panel's permission-request variant — last user message, assistant preamble, and an inline tool confirmation bubble."
-                ),
-                GalleryComponent(
-                    "homeSplitLayout",
-                    "HomeSplitLayout",
-                    keywords: ["home", "split", "side by side", "layout"],
-                    description: "Composite demo: home + right-side HomeDetailPanel showing the side-by-side layout."
-                ),
-                GalleryComponent(
                     "homeSuggestionPillBar",
                     "HomeSuggestionPillBar",
                     keywords: ["suggestion", "pill", "bar", "have you tried", "home"],
