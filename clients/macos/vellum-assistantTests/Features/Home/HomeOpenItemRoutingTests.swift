@@ -55,7 +55,7 @@ final class HomeOpenItemRoutingTests: XCTestCase {
         feedStore: HomeFeedStore,
         onDetailPanelSelected: @escaping (FeedItem) -> Void = { _ in },
         onFeedConversationOpened: @escaping (String) -> Void = { _ in }
-    ) -> HomePageView<EmptyView> {
+    ) -> HomePageView {
         let (meetStream, _) = AsyncStream<ServerMessage>.makeStream()
         let meetVM = MeetStatusViewModel(
             messageStream: meetStream,
