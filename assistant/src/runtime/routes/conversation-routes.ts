@@ -1046,6 +1046,7 @@ export function persistOnboardingArtifacts(onboarding: {
   tone: string;
   userName?: string;
   assistantName?: string;
+  googleConnected?: boolean;
 }): void {
   writeOnboardingSidecar(onboarding);
 
@@ -1121,6 +1122,7 @@ export async function handleSendMessage(
       tone: string;
       userName?: string;
       assistantName?: string;
+      googleConnected?: boolean;
     };
   };
 
