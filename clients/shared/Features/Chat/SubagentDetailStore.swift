@@ -393,7 +393,6 @@ public final class SubagentDetailStore {
            stagedObjectives[subagentId] == nil,
            subagentStates[subagentId]?.objective == nil {
             stagedObjectives[subagentId] = objective
-            scheduleFlush()
         }
         if let usage = response.usage {
             stagedUsage[subagentId] = SubagentUsageStats(
@@ -401,28 +400,34 @@ public final class SubagentDetailStore {
                 outputTokens: usage.outputTokens,
                 estimatedCost: usage.estimatedCost
             )
-            scheduleFlush()
         }
-        // Only populate if we don't already have events (avoid duplicates on re-open)
         let existing = currentEvents(for: subagentId)
-        guard existing.isEmpty else { return }
-        if stagedEvents[subagentId] == nil && (subagentStates[subagentId]?.events ?? []).isEmpty {
-            stagedEvents[subagentId] = []
+        guard existing.isEmpty else {
+            scheduleFlush()
+            return
         }
+
+        var items: [SubagentEventItem] = []
+        items.reserveCapacity(response.events.count)
+        let now = Date()
+
         for event in response.events {
             switch event.type {
             case "text":
-                handleEvent(
-                    subagentId: subagentId,
-                    event: .assistantTextDelta(AssistantTextDelta(type: "assistant_text_delta", text: event.content, conversationId: nil))
-                )
-                // Attach daemon message ID from the detail response if available.
-                if let messageId = event.messageId {
-                    var events = currentEvents(for: subagentId)
-                    if let lastIndex = events.indices.last, case .text = events[lastIndex].kind {
-                        events[lastIndex].daemonMessageId = messageId
-                        stageEvents(events, for: subagentId)
+                if let last = items.last, case .text = last.kind {
+                    var content = items[items.count - 1].content
+                    content += event.content
+                    if content.utf8.count > Self.textByteCap {
+                        content = String(content.prefix(Self.textByteCap)) + " [truncated]"
                     }
+                    items[items.count - 1].content = content
+                    items[items.count - 1].daemonMessageId = event.messageId
+                } else {
+                    var text = event.content
+                    if text.utf8.count > Self.textByteCap {
+                        text = String(text.prefix(Self.textByteCap)) + " [truncated]"
+                    }
+                    items.append(SubagentEventItem(timestamp: now, kind: .text, content: text, daemonMessageId: event.messageId))
                 }
             case "tool_use":
                 let input: [String: AnyCodable]
@@ -432,19 +437,23 @@ public final class SubagentDetailStore {
                 } else {
                     input = [:]
                 }
-                handleEvent(
-                    subagentId: subagentId,
-                    event: .toolUseStart(ToolUseStart(type: "tool_use_start", toolName: event.toolName ?? "unknown", input: input, conversationId: nil))
-                )
+                items.append(SubagentEventItem(timestamp: now, kind: .toolUse(name: event.toolName ?? "unknown"), content: summarizeToolInput(input)))
             case "tool_result":
-                handleEvent(
-                    subagentId: subagentId,
-                    event: .toolResult(ToolResult(type: "tool_result", toolName: event.toolName ?? "unknown", result: event.content, isError: event.isError, diff: nil, status: nil, conversationId: nil, imageDataList: nil))
-                )
+                var content = event.content
+                if content.utf8.count > Self.textByteCap {
+                    content = String(content.prefix(Self.textByteCap)) + " [truncated]"
+                }
+                items.append(SubagentEventItem(timestamp: now, kind: .toolResult(isError: event.isError ?? false), content: content))
             default:
                 break
             }
         }
+
+        if items.count > Self.eventRetentionCap {
+            items.removeFirst(items.count - Self.eventRetentionCap)
+        }
+        stagedEvents[subagentId] = items
+        scheduleFlush()
     }
 
     /// Simple tool input summary for subagent event display.
