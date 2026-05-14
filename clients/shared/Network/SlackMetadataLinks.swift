@@ -2,7 +2,7 @@ import Foundation
 
 public extension SlackDeepLinks {
     var preferredURL: URL? {
-        Self.parse(appUrl) ?? Self.parse(webUrl)
+        Self.parse(webUrl) ?? Self.parse(appUrl)
     }
 
     private static func parse(_ value: String?) -> URL? {

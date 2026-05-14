@@ -31,7 +31,7 @@ final class SlackMessageMetadataDecodingTests: XCTestCase {
         XCTAssertEqual(message.slackMessage?.threadTs, "1710000000.000001")
         XCTAssertEqual(
             message.slackMessage?.preferredMessageURL?.absoluteString,
-            "slack://channel?team=T123&id=C123&message=1710000000.000100"
+            "https://example.slack.com/archives/C123/p1710000000000100"
         )
         XCTAssertEqual(
             message.slackMessage?.preferredThreadURL?.absoluteString,
