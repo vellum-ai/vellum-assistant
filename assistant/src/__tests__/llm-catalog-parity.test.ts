@@ -29,11 +29,7 @@ function getRepoRoot(): string {
   return join(process.cwd(), "..");
 }
 
-const META_JSON_PATH = join(
-  getRepoRoot(),
-  "meta",
-  "llm-provider-catalog.json",
-);
+const META_JSON_PATH = join(getRepoRoot(), "meta", "llm-provider-catalog.json");
 const SWIFTPM_MIRROR_PATH = join(
   getRepoRoot(),
   "clients",
@@ -212,6 +208,10 @@ describe("LLM catalog parity: daemon vs client", () => {
 
   test("every provider's defaultModel exists in its models list", () => {
     for (const entry of PROVIDER_CATALOG) {
+      // Providers like `openai-compatible` have no static catalog models —
+      // the model list comes from per-connection user input, so there is no
+      // meaningful catalog-level default to check.
+      if (entry.models.length === 0) continue;
       const found = entry.models.some((m) => m.id === entry.defaultModel);
       expect(
         found,
@@ -395,8 +395,7 @@ describe("LLM catalog parity: daemon vs client", () => {
             `${provider.id}/${model.id} unpriced at tier ${tier.inputTokenThreshold}`,
           ).toBe("priced");
           const resolvedRate =
-            (result.estimatedCostUsd ?? 0) *
-            (TOKENS_PER_MILLION / probeTokens);
+            (result.estimatedCostUsd ?? 0) * (TOKENS_PER_MILLION / probeTokens);
           expect(
             resolvedRate,
             `${provider.id}/${model.id} input rate drift at tier ${tier.inputTokenThreshold}`,

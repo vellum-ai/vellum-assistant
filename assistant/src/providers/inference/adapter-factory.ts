@@ -182,10 +182,17 @@ export function createAdapterFromConnection(
   });
   if (!adapter) return null;
 
-  const isProxy = baseURL !== undefined;
+  // Usage-attribution headers (`X-Vellum-*`) are only meaningful when the
+  // request is routed through the Vellum-managed proxy — they carry billing
+  // metadata for our own backend. Forwarding them to a user-supplied endpoint
+  // (e.g. `openai-compatible` connections with `auth.type === "api_key"`)
+  // leaks internal Vellum metadata to third parties. Gate on the auth type,
+  // not on `baseURL !== undefined`, since `openai-compatible` connections
+  // also carry a user-supplied baseURL.
+  const isManagedProxy = connection.auth.type === "platform";
   return new UsageTrackingProvider(
     new RetryProvider(adapter, {
-      forwardUsageAttributionHeaders: isProxy,
+      forwardUsageAttributionHeaders: isManagedProxy,
     }),
   );
 }

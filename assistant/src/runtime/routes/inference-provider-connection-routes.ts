@@ -397,6 +397,9 @@ export const ROUTES: RouteDefinition[] = [
       auth: AuthSchema,
       label: z.string().min(1).optional(),
       status: ConnectionStatusSchema.optional(),
+      // Required for `openai-compatible` connections; ignored otherwise.
+      base_url: z.string().url().nullable().optional(),
+      models: z.array(ConnectionModelSchema).nullable().optional(),
     }),
     responseBody: providerConnectionResponseSchema,
     responseStatus: "201",
@@ -420,6 +423,9 @@ export const ROUTES: RouteDefinition[] = [
       auth: AuthSchema,
       status: ConnectionStatusSchema.optional(),
       label: z.string().min(1).nullable().optional(),
+      // Editable for `openai-compatible` connections; ignored otherwise.
+      base_url: z.string().url().nullable().optional(),
+      models: z.array(ConnectionModelSchema).nullable().optional(),
     }),
     responseBody: providerConnectionResponseSchema,
     additionalResponses: {
