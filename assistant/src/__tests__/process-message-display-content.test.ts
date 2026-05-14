@@ -9,6 +9,18 @@ const addMessageCalls: Array<{
 
 let activeConversation: unknown;
 
+type TestSlashResolution =
+  | { kind: "passthrough"; content: string }
+  | { kind: "unknown"; message: string }
+  | { kind: "compact"; targetInputTokensOverride?: number };
+
+let resolveSlashForTest: (
+  content: string,
+) => TestSlashResolution | Promise<TestSlashResolution> = (content) => ({
+  kind: "passthrough",
+  content,
+});
+
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
@@ -75,7 +87,7 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
 
 mock.module("../daemon/conversation-slash.js", () => ({
   buildSlashContextForContent: () => undefined,
-  resolveSlash: async (content: string) => ({ kind: "passthrough", content }),
+  resolveSlash: async (content: string) => resolveSlashForTest(content),
 }));
 
 mock.module("../daemon/host-app-control-proxy.js", () => ({
@@ -153,6 +165,13 @@ function makeTestConversation() {
     setHostCuProxy: () => {},
     setHostAppControlProxy: () => {},
     setCommandIntent: () => {},
+    emitActivityState: () => {},
+    forceCompact: mock(async () => ({
+      compacted: false,
+      reason: "nothing to compact",
+      estimatedInputTokens: 10,
+      maxInputTokens: 100,
+    })),
     setTurnChannelContext: (ctx: TurnChannelContext) => {
       turnChannelContext = ctx;
     },
@@ -185,10 +204,39 @@ function makeTestConversation() {
   return conversation;
 }
 
+async function expectEmptyDisplayContentFallsBackToModelContent(
+  modelContent: string,
+) {
+  const conversation = makeTestConversation();
+  activeConversation = conversation;
+
+  const result = await processMessage(
+    "conv-display-content",
+    modelContent,
+    undefined,
+    { displayContent: "" },
+    "slack",
+    "slack",
+  );
+
+  expect(result.messageId).toBe("persisted-1");
+  expect(addMessageCalls).toHaveLength(2);
+  expect(JSON.parse(addMessageCalls[0]!.content)).toEqual([
+    { type: "text", text: modelContent },
+  ]);
+  expect(conversation.getMessages()[0]).toEqual({
+    role: "user",
+    content: [{ type: "text", text: modelContent }],
+  });
+
+  return conversation;
+}
+
 describe("processMessage displayContent", () => {
   beforeEach(() => {
     addMessageCalls.length = 0;
     activeConversation = undefined;
+    resolveSlashForTest = (content) => ({ kind: "passthrough", content });
   });
 
   test("persists displayContent while keeping content in the in-memory turn", async () => {
@@ -217,5 +265,26 @@ describe("processMessage displayContent", () => {
     ]);
     expect(conversation.runAgentLoop).toHaveBeenCalledTimes(1);
     expect(conversation.runAgentLoop.mock.calls[0]![0]).toBe(modelContent);
+  });
+
+  test("empty displayContent falls back to model content for unknown slash results", async () => {
+    resolveSlashForTest = () => ({
+      kind: "unknown",
+      message: "Unknown slash command.",
+    });
+    const modelContent =
+      '<external_content source="webhook">/missing-command</external_content>';
+
+    await expectEmptyDisplayContentFallsBackToModelContent(modelContent);
+  });
+
+  test("empty displayContent falls back to model content for compact slash results", async () => {
+    resolveSlashForTest = () => ({ kind: "compact" });
+    const modelContent =
+      '<external_content source="webhook">/compact</external_content>';
+
+    const conversation =
+      await expectEmptyDisplayContentFallsBackToModelContent(modelContent);
+    expect(conversation.forceCompact).toHaveBeenCalledTimes(1);
   });
 });

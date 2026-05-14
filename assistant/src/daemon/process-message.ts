@@ -311,10 +311,9 @@ export async function processMessage(
       ? { ...serverChannelMeta, slackMeta }
       : serverChannelMeta;
     const cleanMsg = createUserMessage(content, attachments);
-    const persistedContent =
-      options?.displayContent !== undefined
-        ? createUserMessage(options.displayContent, attachments).content
-        : cleanMsg.content;
+    const persistedContent = options?.displayContent
+      ? createUserMessage(options.displayContent, attachments).content
+      : cleanMsg.content;
     const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
     const persisted = await addMessage(
       conversationId,
@@ -402,10 +401,9 @@ export async function processMessage(
       ? { ...compactChannelMeta, slackMeta }
       : compactChannelMeta;
     const cleanMsg = createUserMessage(content, attachments);
-    const persistedContent =
-      options?.displayContent !== undefined
-        ? createUserMessage(options.displayContent, attachments).content
-        : cleanMsg.content;
+    const persistedContent = options?.displayContent
+      ? createUserMessage(options.displayContent, attachments).content
+      : cleanMsg.content;
     const persisted = await addMessage(
       conversationId,
       "user",
