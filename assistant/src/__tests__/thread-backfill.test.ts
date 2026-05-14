@@ -93,6 +93,7 @@ import {
 import type { MessageRow } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { recordInbound } from "../memory/delivery-crud.js";
 import type { Message as MessagingMessage } from "../messaging/provider-types.js";
 import * as slackBackfill from "../messaging/providers/slack/backfill.js";
 import {
@@ -1848,12 +1849,7 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
 
   test("late app mention sees unseen backfilled replies before the mention", async () => {
     let capturedTranscript = "";
-    let parentTurnSeen = false;
-    let resolveParentTurn: (() => void) | undefined;
     let secondTurnSeen = false;
-    const parentTurnProcessed = new Promise<void>((resolve) => {
-      resolveParentTurn = resolve;
-    });
     let resolveSecondTurn: (() => void) | undefined;
     const secondTurnProcessed = new Promise<void>((resolve) => {
       resolveSecondTurn = resolve;
@@ -1870,10 +1866,6 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
         content,
         options,
       );
-      if (options?.slackInbound?.channelTs === "1234.0") {
-        parentTurnSeen = true;
-        resolveParentTurn?.();
-      }
       if (options?.slackInbound?.channelTs === "1234.5") {
         const context = loadSlackChronologicalContext(
           conversationId,
@@ -1891,23 +1883,27 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     };
     setAdapterProcessMessage(processMessage);
 
-    const parentResp = await handleChannelInbound(
-      buildThreadReplyRequest("1234.0", "1234.0", {
-        content: "parent already stored",
-        sourceMetadata: {
-          messageId: "1234.0",
-          chatType: "channel",
-        },
-      }),
-      processMessage,
-      TEST_BEARER_TOKEN,
+    const parentInbound = recordInbound(
+      "slack",
+      HTTP_SLACK_CHANNEL_ID,
+      `${HTTP_SLACK_CHANNEL_ID}:1234.0:seed`,
+      {
+        sourceMessageId: "1234.0",
+        sourceThreadId: "1234.0",
+      },
     );
-    expect(parentResp.status).toBe(200);
-    await Promise.race([
-      parentTurnProcessed,
-      new Promise((resolve) => setTimeout(resolve, 250)),
-    ]);
-    expect(parentTurnSeen).toBe(true);
+    persistSlackInboundFromProcessMessage(
+      parentInbound.conversationId,
+      "parent already stored",
+      {
+        slackInbound: {
+          channelId: HTTP_SLACK_CHANNEL_ID,
+          channelTs: "1234.0",
+          threadTs: "1234.0",
+          displayName: HTTP_SLACK_DISPLAY_NAME,
+        },
+      },
+    );
 
     backfillThreadMock.mockReset();
     backfillThreadMock.mockImplementation(async () => [

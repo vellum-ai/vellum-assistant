@@ -26,7 +26,7 @@ export interface RecordInboundOptions {
   sourceThreadId?: string;
 }
 
-export function buildScopedConversationKey(
+function buildScopedConversationKeyForAssistant(
   assistantId: string,
   sourceChannel: string,
   externalChatId: string,
@@ -37,6 +37,19 @@ export function buildScopedConversationKey(
     return `asst:${assistantId}:${sourceChannel}:${externalChatId}:thread:${threadId}`;
   }
   return `asst:${assistantId}:${sourceChannel}:${externalChatId}`;
+}
+
+export function buildScopedConversationKey(
+  sourceChannel: string,
+  externalChatId: string,
+  sourceThreadId?: string | null,
+): string {
+  return buildScopedConversationKeyForAssistant(
+    DAEMON_INTERNAL_ASSISTANT_ID,
+    sourceChannel,
+    externalChatId,
+    sourceThreadId,
+  );
 }
 
 /**
@@ -76,7 +89,7 @@ export function recordInbound(
   }
 
   const assistantId = options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
-  const scopedKey = buildScopedConversationKey(
+  const scopedKey = buildScopedConversationKeyForAssistant(
     assistantId,
     sourceChannel,
     externalChatId,
