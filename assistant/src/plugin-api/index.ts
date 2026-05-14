@@ -22,6 +22,8 @@
  *
  * - {@link PluginInitContext} — passed to `init` hook at bootstrap
  * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
+ * - {@link UserPromptSubmitContext} — passed to `user-prompt-submit` hook,
+ *   fired immediately before the agent loop receives a user's prompt
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts
  * - {@link ToolContext} — passed to a plugin tool's `execute` method
  * - {@link ToolExecutionResult} — return shape of a plugin tool's `execute`
@@ -38,4 +40,5 @@ export type {
   PluginShutdownContext,
   ToolContext,
   ToolExecutionResult,
+  UserPromptSubmitContext,
 } from "./types.js";

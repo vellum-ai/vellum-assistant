@@ -27,6 +27,7 @@ import {
   type PipelineName,
   type Plugin,
   PluginExecutionError,
+  type PluginHookFn,
 } from "./types.js";
 
 // ─── Internal state ──────────────────────────────────────────────────────────
@@ -159,6 +160,31 @@ export function getMiddlewaresFor<P extends PipelineName>(
     const middleware = plugin.middleware?.[pipeline];
     if (middleware) {
       out.push(middleware);
+    }
+  }
+  return out;
+}
+
+/**
+ * Collect every registered plugin's hook for the given name, in
+ * registration order. Plugins that don't declare a hook for `name` are
+ * skipped. Used by the daemon to invoke chain-style hooks like
+ * `user-prompt-submit` where each plugin's hook may transform a shared
+ * context.
+ *
+ * The `TCtx` generic mirrors {@link PluginHookFn}'s — callers parameterize
+ * over the concrete context type their hook receives. Hooks that mutate
+ * the context in place return `void`; hooks that return a new context
+ * replace the threaded value for the next hook in the chain.
+ */
+export function getHooksFor<TCtx = unknown>(
+  name: string,
+): PluginHookFn<TCtx>[] {
+  const out: PluginHookFn<TCtx>[] = [];
+  for (const plugin of registeredPlugins.values()) {
+    const hook = plugin.hooks?.[name];
+    if (hook) {
+      out.push(hook as PluginHookFn<TCtx>);
     }
   }
   return out;
