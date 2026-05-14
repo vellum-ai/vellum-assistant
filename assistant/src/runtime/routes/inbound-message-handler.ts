@@ -4,6 +4,10 @@
  * verification, guardian action answers, approval interception, and
  * invite token redemption.
  */
+import {
+  attachmentsToContentBlocks,
+  type MessageAttachmentInput,
+} from "../../agent/attachments.js";
 import { getChannelPermissionProfile } from "../../channels/permission-profiles.js";
 import {
   CHANNEL_IDS,
@@ -35,6 +39,7 @@ import {
   getMessageById,
   getMessages,
   selectSlackMetaCandidateMetadata,
+  updateMessageContent,
   updateMessageMetadata,
 } from "../../memory/conversation-crud.js";
 import {
@@ -64,6 +69,7 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
+import type { ContentBlock } from "../../providers/types.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
@@ -1078,6 +1084,7 @@ export async function handleChannelInbound({
           conversationId: result.conversationId,
           channelId: conversationExternalId,
           account: slackAccount,
+          guardianExternalUserId: trustCtx.guardianExternalUserId,
           latestTs: boundingTs,
         });
       }
@@ -1100,6 +1107,7 @@ export async function handleChannelInbound({
           threadTs: slackThreadTs,
           excludeChannelTs: slackInbound?.channelTs,
           account: slackAccount,
+          guardianExternalUserId: trustCtx.guardianExternalUserId,
         });
         const lateJoinNotice = buildSlackLateJoinNotice(backfillResult);
         if (lateJoinNotice) slackRuntimeContextNotice = lateJoinNotice;
@@ -1440,11 +1448,10 @@ function readStoredSlackThreadState(
  * `slackMeta` envelope.
  *
  * Shared insertion point for any path that hydrates Slack history lazily
- * (DM cold-start backfill, thread gap/delta backfill, etc.). Role is derived
- * from `message.metadata.isBot` — bot-authored rows map to `"assistant"` so
- * our own prior replies (and any other bot traffic) are not rehydrated as
- * user turns, which would otherwise corrupt speaker attribution and make
- * the assistant treat its own outputs as new user input on later turns.
+ * (DM cold-start backfill, thread gap/delta backfill, etc.). Backfilled Slack
+ * rows are always persisted as `user` history: `assistant` rows are reserved
+ * for messages produced by the local assistant loop, not third-party channel
+ * replay.
  * Caller is responsible for dedup checks before invoking; this helper
  * performs no idempotency check itself.
  */
@@ -1453,6 +1460,7 @@ async function persistBackfilledSlackMessage(params: {
   channelId: string;
   message: ProviderMessage;
   account?: string;
+  guardianExternalUserId?: string;
 }): Promise<void> {
   const { message } = params;
   const slackFilesWithUrls = readSlackFilesWithUrlsFromProviderMetadata(
@@ -1475,16 +1483,19 @@ async function persistBackfilledSlackMessage(params: {
     ...(slackFiles.length > 0 ? { slackFiles } : {}),
   };
 
-  const isBot = message.metadata?.isBot === true;
-  const role = isBot ? "assistant" : "user";
+  const isGuardian = isBackfilledSlackGuardianMessage(
+    message,
+    params.guardianExternalUserId,
+  );
+  const role = "user";
 
-  // Non-bot backfilled messages enter the model context wrapped in
-  // `<external_content>` boundaries — same contract as the live inbound
-  // path (`inbound-message-handler.ts:~1105`). Bot/assistant turns are
-  // left unwrapped so they read as normal assistant history.
+  // Non-guardian backfilled messages enter the model context wrapped in
+  // `<external_content>` boundaries — same contract as the live inbound path.
+  // Guardian-authored turns are left unwrapped so they read as normal trusted
+  // history.
   const rawText = message.text ?? "";
   const textForPersist =
-    !isBot && rawText.length > 0
+    !isGuardian && rawText.length > 0
       ? wrapUntrustedContent(rawText, {
           source: "webhook",
           ...(message.sender?.name
@@ -1502,11 +1513,10 @@ async function persistBackfilledSlackMessage(params: {
     },
   );
 
-  // Hydrate image attachments inline so the model receives them as
-  // `type: "image"` content blocks instead of only seeing the text marker
-  // `[attached file: <name>, <mimetype>]` produced by the transcript
-  // renderer. Non-image files keep the marker; this path is explicitly
-  // scoped to images.
+  // Hydrate image attachments inline, then rewrite the saved row to include
+  // `type: "image"` content blocks. Slack context assembly reloads from
+  // `messages.content`; the attachment link alone is not part of the model
+  // transcript. Non-image files keep the marker produced by the Slack renderer.
   const imageFiles = slackFilesWithUrls.filter(
     (f) =>
       (f.urlPrivateDownload || f.urlPrivate) &&
@@ -1515,57 +1525,108 @@ async function persistBackfilledSlackMessage(params: {
   );
   if (imageFiles.length === 0) return;
 
-  const hydrated = await withSlackBotToken(params.account, async (token) => {
-    for (let i = 0; i < imageFiles.length; i++) {
-      const file = imageFiles[i];
-      try {
-        const downloaded = await downloadSlackFile(file, token);
-        if (!downloaded) continue;
-        const validation = validateAttachmentUpload(
-          downloaded.filename,
-          downloaded.mimeType,
-        );
-        if (!validation.ok) {
-          log.warn(
-            {
-              filename: downloaded.filename,
-              mimeType: downloaded.mimeType,
-              error: validation.error,
-              channelTs: message.id,
-            },
-            "Skipping backfilled Slack image: validation failed",
+  const hydratedAttachments = await withSlackBotToken(
+    params.account,
+    async (token) => {
+      const attachments: MessageAttachmentInput[] = [];
+
+      for (let i = 0; i < imageFiles.length; i++) {
+        const file = imageFiles[i];
+        try {
+          const downloaded = await downloadSlackFile(file, token);
+          if (!downloaded) continue;
+          const validation = validateAttachmentUpload(
+            downloaded.filename,
+            downloaded.mimeType,
           );
-          continue;
-        }
-        attachInlineAttachmentToMessage(
-          persisted.id,
-          i,
-          downloaded.filename,
-          downloaded.mimeType,
-          downloaded.data,
-        );
-      } catch (err) {
-        if (err instanceof AttachmentUploadError) {
-          log.warn(
-            { filename: file.name, error: err.message, channelTs: message.id },
-            "Skipping backfilled Slack image: upload error",
+          if (!validation.ok) {
+            log.warn(
+              {
+                filename: downloaded.filename,
+                mimeType: downloaded.mimeType,
+                error: validation.error,
+                channelTs: message.id,
+              },
+              "Skipping backfilled Slack image: validation failed",
+            );
+            continue;
+          }
+          attachInlineAttachmentToMessage(
+            persisted.id,
+            i,
+            downloaded.filename,
+            downloaded.mimeType,
+            downloaded.data,
           );
-          continue;
+          attachments.push({
+            filename: downloaded.filename,
+            mimeType: downloaded.mimeType,
+            data: downloaded.data,
+          });
+        } catch (err) {
+          if (err instanceof AttachmentUploadError) {
+            log.warn(
+              {
+                filename: file.name,
+                error: err.message,
+                channelTs: message.id,
+              },
+              "Skipping backfilled Slack image: upload error",
+            );
+            continue;
+          }
+          log.warn(
+            { err, fileId: file.id, name: file.name, channelTs: message.id },
+            "Failed to hydrate backfilled Slack image; proceeding without it",
+          );
         }
-        log.warn(
-          { err, fileId: file.id, name: file.name, channelTs: message.id },
-          "Failed to hydrate backfilled Slack image; proceeding without it",
-        );
       }
-    }
-    return true;
-  });
-  if (hydrated === null) {
+
+      return attachments;
+    },
+  );
+  if (hydratedAttachments === null) {
     log.debug(
       { conversationId: params.conversationId, channelTs: message.id },
       "No Slack token available for backfill image hydration; skipping",
     );
+    return;
   }
+
+  if (hydratedAttachments.length > 0) {
+    updateMessageContent(
+      persisted.id,
+      JSON.stringify(
+        buildBackfilledSlackContentBlocks(textForPersist, hydratedAttachments),
+      ),
+    );
+  }
+}
+
+function buildBackfilledSlackContentBlocks(
+  text: string,
+  attachments: MessageAttachmentInput[],
+): ContentBlock[] {
+  const blocks: ContentBlock[] = [];
+  if (text.trim().length > 0) {
+    blocks.push({ type: "text", text });
+  }
+  blocks.push(...attachmentsToContentBlocks(attachments));
+  return blocks;
+}
+
+function isBackfilledSlackGuardianMessage(
+  message: ProviderMessage,
+  guardianExternalUserId: string | undefined,
+): boolean {
+  const rawSenderId = message.sender?.id?.trim();
+  if (!rawSenderId || !guardianExternalUserId) return false;
+  const canonicalSender =
+    canonicalizeInboundIdentity("slack", rawSenderId) ?? rawSenderId;
+  const canonicalGuardian =
+    canonicalizeInboundIdentity("slack", guardianExternalUserId) ??
+    guardianExternalUserId.trim();
+  return canonicalSender === canonicalGuardian;
 }
 
 /**
@@ -1638,6 +1699,7 @@ async function tryBackfillSlackDmIfCold(params: {
   conversationId: string;
   channelId: string;
   account?: string;
+  guardianExternalUserId?: string;
   latestTs?: string;
 }): Promise<void> {
   const existing = _dmBackfillInFlight.get(params.conversationId);
@@ -1656,6 +1718,7 @@ async function runBackfillSlackDmIfCold(params: {
   conversationId: string;
   channelId: string;
   account?: string;
+  guardianExternalUserId?: string;
   latestTs?: string;
 }): Promise<void> {
   try {
@@ -1697,6 +1760,9 @@ async function runBackfillSlackDmIfCold(params: {
           channelId: params.channelId,
           message,
           ...(params.account ? { account: params.account } : {}),
+          ...(params.guardianExternalUserId
+            ? { guardianExternalUserId: params.guardianExternalUserId }
+            : {}),
         });
         seen.add(message.id);
         written++;
@@ -2169,9 +2235,21 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
    * connection.
    */
   account?: string;
+  /**
+   * Canonical Slack user ID for the guardian, when a verified Slack guardian
+   * binding exists. Backfilled messages from this sender are trusted history
+   * and should not be wrapped as external content.
+   */
+  guardianExternalUserId?: string;
 }): Promise<SlackThreadBackfillResult> {
-  const { conversationId, channelId, threadTs, excludeChannelTs, account } =
-    params;
+  const {
+    conversationId,
+    channelId,
+    threadTs,
+    excludeChannelTs,
+    account,
+    guardianExternalUserId,
+  } = params;
 
   try {
     const upperBoundTs = parseSlackTimestamp(excludeChannelTs)
@@ -2257,6 +2335,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
           channelId,
           message,
           ...(account ? { account } : {}),
+          ...(guardianExternalUserId ? { guardianExternalUserId } : {}),
         });
         threadState.storedChannelTs.add(message.id);
         persisted++;
