@@ -112,29 +112,29 @@ When rebuilding, explain the Vellum equivalent and ask whether the creator wants
 
 ## Vellum Primitive Map
 
-| Source assistant concept | Vellum primitive | Migration guidance |
-| --- | --- | --- |
-| Name, persona, tone, identity docs, system prompts | Identity, Personality, Avatar, `SOUL.md`, user persona files | Preserve explicit creator-approved identity/personality material. Convert brittle prompt hacks into plain behavioral guidance. |
-| Current focus, scratchpads, working notes | `NOW.md`, Workspace notes, Memory | Preserve active projects and open loops. Avoid importing stale scratch state as permanent truth. |
-| Memory databases, summaries, profiles, user facts | Memory | Prefer source-produced summaries or human-readable exports. Preserve attribution where possible. Use review for inferred or sensitive facts. |
-| Conversation history | Conversations and Memory | Import supported structured exports when available. Otherwise summarize useful history into memory candidates rather than dumping logs blindly. |
-| Tools, skills, commands, plugins, playbooks | Skills | Recreate as Vellum skills when the capability is still useful. Keep instructions portable; avoid foreign runtime assumptions. |
-| MCP servers | MCP | Recreate server registrations and required environment through Vellum's MCP setup flow. Reconnect secrets through the credential vault. |
-| Browser automation state, browsing tasks | Browser capability | Recreate workflows and permissions. Do not import cookies or browser profile secrets directly. |
-| Computer-use automations | Computer Use capability | Recreate task intent and permission expectations. Verify host-computer access through Vellum's own consent model. |
-| Custom dashboards, tools, visual workflows | Apps or Widgets | Persistent interactive tools should become Apps. Transient conversation UI should become Widgets or normal chat flows. |
-| Slack, Telegram, email, phone, webhooks | Channels and Integrations | Reconnect channels through Vellum setup skills. Expect some providers, especially Slack, to need fresh setup. |
-| Friends, coworkers, allowed users | Contacts and Trusted Contacts | Map relationships into Contacts. Grant channel access through trusted-contact and guardian flows, not direct database edits. |
-| Owner/admin identity, approval authority | Guardian Verification | Verify the creator/guardian on each channel needed for secure access and approvals. |
-| Secrets, API keys, tokens, OAuth refresh tokens | Credential Vault and OAuth Integrations | Never paste or import raw secrets. Rebind through secure prompts, OAuth connect flows, or provider setup skills. |
-| Autonomy settings, allowlists, deny rules | Trust Rules and Permissions | Translate intent, not syntax. Start conservative when semantics are unclear. |
-| Timed jobs and reminders | Schedules | Recreate one-shot and recurring tasks using Vellum schedules. Preserve the user-visible intent and delivery channel. |
-| Autonomous monitors and polling jobs | Watchers | Rebuild as watchers when the source monitors external events. Reconnect provider credentials first. |
-| Periodic self-checks | Heartbeats | Use Vellum heartbeats for agenda-free self-checking, not for specific timed jobs. |
-| Pending replies or nudges | Followups | Preserve expected-response workflows as followups when the source tracks sent messages awaiting replies. |
-| Reusable action templates and queues | Task Queue | Recreate repeatable work as tasks or queued work items when the creator expects review before completion. |
-| Model routing, fast/quality/cost modes, provider keys | Inference Profiles and Provider Connections | Map source behavior to named profiles such as balanced, quality, or cost/speed variants. Reconnect provider credentials safely. |
-| Files, projects, notes, attachments | Workspace | Copy useful, non-secret artifacts into the Vellum workspace with clear organization. Leave local worktree artifacts and foreign caches behind. |
+| Source assistant concept                              | Vellum primitive                                             | Migration guidance                                                                                                                              |
+| ----------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Name, persona, tone, identity docs, system prompts    | Identity, Personality, Avatar, `SOUL.md`, user persona files | Preserve explicit creator-approved identity/personality material. Convert brittle prompt hacks into plain behavioral guidance.                  |
+| Current focus, scratchpads, working notes             | `NOW.md`, Workspace notes, Memory                            | Preserve active projects and open loops. Avoid importing stale scratch state as permanent truth.                                                |
+| Memory databases, summaries, profiles, user facts     | Memory                                                       | Prefer source-produced summaries or human-readable exports. Preserve attribution where possible. Use review for inferred or sensitive facts.    |
+| Conversation history                                  | Conversations and Memory                                     | Import supported structured exports when available. Otherwise summarize useful history into memory candidates rather than dumping logs blindly. |
+| Tools, skills, commands, plugins, playbooks           | Skills                                                       | Recreate as Vellum skills when the capability is still useful. Keep instructions portable; avoid foreign runtime assumptions.                   |
+| MCP servers                                           | MCP                                                          | Recreate server registrations and required environment through Vellum's MCP setup flow. Reconnect secrets through the credential vault.         |
+| Browser automation state, browsing tasks              | Browser capability                                           | Recreate workflows and permissions. Do not import cookies or browser profile secrets directly.                                                  |
+| Computer-use automations                              | Computer Use capability                                      | Recreate task intent and permission expectations. Verify host-computer access through Vellum's own consent model.                               |
+| Custom dashboards, tools, visual workflows            | Apps or Widgets                                              | Persistent interactive tools should become Apps. Transient conversation UI should become Widgets or normal chat flows.                          |
+| Slack, Telegram, email, phone, webhooks               | Channels and Integrations                                    | Reconnect channels through Vellum setup skills. Expect some providers, especially Slack, to need fresh setup.                                   |
+| Friends, coworkers, allowed users                     | Contacts and Trusted Contacts                                | Map relationships into Contacts. Grant channel access through trusted-contact and guardian flows, not direct database edits.                    |
+| Owner/admin identity, approval authority              | Guardian Verification                                        | Verify the creator/guardian on each channel needed for secure access and approvals.                                                             |
+| Secrets, API keys, tokens, OAuth refresh tokens       | Credential Vault and OAuth Integrations                      | Never paste or import raw secrets. Rebind through secure prompts, OAuth connect flows, or provider setup skills.                                |
+| Autonomy settings, allowlists, deny rules             | Trust Rules and Permissions                                  | Translate intent, not syntax. Start conservative when semantics are unclear.                                                                    |
+| Timed jobs and reminders                              | Schedules                                                    | Recreate one-shot and recurring tasks using Vellum schedules. Preserve the user-visible intent and delivery channel.                            |
+| Autonomous monitors and polling jobs                  | Watchers                                                     | Rebuild as watchers when the source monitors external events. Reconnect provider credentials first.                                             |
+| Periodic self-checks                                  | Heartbeats                                                   | Use Vellum heartbeats for agenda-free self-checking, not for specific timed jobs.                                                               |
+| Pending replies or nudges                             | Followups                                                    | Preserve expected-response workflows as followups when the source tracks sent messages awaiting replies.                                        |
+| Reusable action templates and queues                  | Task Queue                                                   | Recreate repeatable work as tasks or queued work items when the creator expects review before completion.                                       |
+| Model routing, fast/quality/cost modes, provider keys | Inference Profiles and Provider Connections                  | Map source behavior to named profiles such as balanced, quality, or cost/speed variants. Reconnect provider credentials safely.                 |
+| Files, projects, notes, attachments                   | Workspace                                                    | Copy useful, non-secret artifacts into the Vellum workspace with clear organization. Leave local worktree artifacts and foreign caches behind.  |
 
 ## Memory Import Guidance
 
