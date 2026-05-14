@@ -949,14 +949,25 @@ describe("buildSystemPrompt", () => {
         expect(result).not.toContain("{{workspaceDir}}");
       });
 
-      test("unresolved section key is left as a literal", () => {
+      test("section keys missing from ctx gate the body off (treated as falsy)", () => {
         mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
         writeFileSync(
           SECTION_FILE,
           FRONTMATTER + "{{#noSuchFlag}}hidden{{/noSuchFlag}}\n",
         );
         const result = buildSystemPrompt();
-        expect(result).toContain("{{#noSuchFlag}}hidden{{/noSuchFlag}}");
+        expect(result).not.toContain("{{#noSuchFlag}}");
+        expect(result).not.toContain("hidden");
+      });
+
+      test("inverted section keys missing from ctx render the body (undefined is falsy)", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER + "{{^noSuchFlag}}shown{{/noSuchFlag}}\n",
+        );
+        const result = buildSystemPrompt();
+        expect(result).toContain("shown");
       });
     });
 

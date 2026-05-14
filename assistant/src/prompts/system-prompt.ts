@@ -243,33 +243,26 @@ export interface BuildSystemPromptOptions {
  * files change between turns.
  */
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
-  // ── Static instruction sections (stable across turns) ──
-  // These sections are deterministic within a process lifetime.  They form
-  // the first cache block so they remain cached even when workspace files
-  // (IDENTITY.md, SOUL.md, users/<slug>.md, etc.) are edited between turns.
-  //
   // Section render context.  Workspace section frontmatter `enabled:`
   // predicates and `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation
   // both resolve against this map, so anything the renderer needs to see
   // (runtime gates, paths) must be lifted onto `ctx` rather than branched
-  // on at the call site.  Both `hasNoClient` and `isBackgroundConversation`
-  // are normalized to defined booleans so the mustache section tags in the
-  // `05-access-preference` and `08-background-conversation` registry
-  // entries always resolve (never warn-literal).
+  // on at the call site.  Mustache section tags `{{#flag}}` / `{{^flag}}`
+  // coerce `ctx[flag]` to boolean via `Boolean(...)`, so options that are
+  // undefined (caller didn't pass them) behave identically to false — no
+  // explicit normalization needed; `...options` is enough.
   const ctx = {
     ...options,
-    hasNoClient: options?.hasNoClient ?? false,
-    isBackgroundConversation: options?.isBackgroundConversation ?? false,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
   };
-  const staticParts: string[] = [...renderWorkspaceSections(ctx)];
 
-  // ── Dynamic sections (may change between turns) ──
-  // Workspace files, config, external comms identity, connected services,
-  // and skills catalog are all re-read from disk/DB each turn.  They form
-  // the second cache block.
-  const dynamicParts: string[] = [];
+  // Single array.  Everything pushed before `dynamicStart` lands in the
+  // static (cached) prefix; everything after lands in the dynamic suffix.
+  // The two halves are joined around `SYSTEM_PROMPT_CACHE_BOUNDARY` so the
+  // Anthropic provider can key its prompt cache on the prefix.
+  const systemParts: string[] = [...renderWorkspaceSections(ctx)];
+  const dynamicStart = systemParts.length;
 
   const soulPath = getWorkspacePromptPath("SOUL.md");
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
@@ -294,7 +287,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     if (identityIsTemplate) {
       // During bootstrap the model needs to see the template structure
       // so it can produce a valid file_write with the right fields.
-      dynamicParts.push(identity);
+      systemParts.push(identity);
     } else {
       // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
       // the model doesn't treat unresolved fields as prompts to ask the user.
@@ -303,13 +296,13 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
         .filter((line) => !/_\(not yet (?:chosen|established)\)_/.test(line))
         .join("\n");
       if (cleanedIdentity.trim()) {
-        dynamicParts.push(cleanedIdentity);
+        systemParts.push(cleanedIdentity);
       }
     }
   }
-  if (soul) dynamicParts.push(soul);
-  if (options?.userPersona) dynamicParts.push(options.userPersona);
-  if (options?.channelPersona) dynamicParts.push(options.channelPersona);
+  if (soul) systemParts.push(soul);
+  if (options?.userPersona) systemParts.push(options.userPersona);
+  if (options?.channelPersona) systemParts.push(options.channelPersona);
   if (includeBootstrap) {
     const userSlug = options?.userSlug ?? "default";
     const bootstrapWithSlug = bootstrap.replaceAll(
@@ -323,7 +316,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     if (voiceBlock) {
       bootstrapContent = voiceBlock + "\n\n" + bootstrapContent;
     }
-    dynamicParts.push(
+    systemParts.push(
       "# First-Run Ritual\n\n" +
         "BOOTSTRAP.md is present — this is your first conversation. Follow its instructions.\n\n" +
         bootstrapContent,
@@ -350,7 +343,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
         "",
         "Apply this context quietly. Do not recap it as a list unless the user asks.",
       );
-      dynamicParts.push(lines.join("\n"));
+      systemParts.push(lines.join("\n"));
     }
   }
   // Configuration section removed — workspace files are self-describing,
@@ -358,14 +351,16 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // External Communications Identity removed — guidance lives in messaging
   // and phone-calls skill SKILL.md files.
   const integrationSection = buildIntegrationSection();
-  if (integrationSection) dynamicParts.push(integrationSection);
+  if (integrationSection) systemParts.push(integrationSection);
 
   // Journal entries are extracted into graph nodes by the memory pipeline.
   // Journal files remain writable on disk.
 
-  const dynamic = dynamicParts.join("\n\n");
-
-  return staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamic;
+  return (
+    systemParts.slice(0, dynamicStart).join("\n\n") +
+    SYSTEM_PROMPT_CACHE_BOUNDARY +
+    systemParts.slice(dynamicStart).join("\n\n")
+  );
 }
 
 function buildIntegrationSection(): string {

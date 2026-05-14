@@ -161,12 +161,13 @@ const IDENT_REGEX = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
  *
  * Section *keys* are valid JS identifiers (`[A-Za-z_$][A-Za-z0-9_$]*`) so
  * the construct can't be confused with code-block braces in the markdown.
- * Section keys whose `ctx` value is `undefined` leave the entire construct
- * as a literal — this surfaces author typos at the warn log instead of
- * silently swallowing the body.  Variable keys whose `ctx` value is
- * `undefined` or `null` likewise stay literal.  `null` and `false` as
- * section values are treated as falsy (so callers can pass through
- * runtime gates without normalizing to plain booleans first).
+ * Section keys are coerced via `Boolean(ctx[key])` — `undefined`, `null`,
+ * `false`, `0`, and `""` all gate the body off; everything else gates it
+ * on.  This means callers can pass through optional flags without
+ * normalizing each one to a defined boolean first.  **Variable** keys
+ * whose `ctx` value is `undefined` or `null` stay literal (so an authoring
+ * typo on a `{{key}}` substitution surfaces at the warn log rather than
+ * inlining the string `"undefined"`).
  */
 function interpolateVariables(
   body: string,
@@ -177,19 +178,15 @@ function interpolateVariables(
   const collapsed = body.replace(STANDALONE_TAG_LINE, "$1");
 
   // Evaluate `{{#flag}}` / `{{^flag}}` blocks before variables, so a
-  // section body may itself contain `{{var}}` substitutions.
+  // section body may itself contain `{{var}}` substitutions.  Section
+  // keys are pure gates — the body is either in or out, never inlined —
+  // so we treat any falsy value (including `undefined`) as "gate off"
+  // rather than surfacing typos.  This keeps optional `BuildSystemPromptOptions`
+  // flags working when the caller omits them.
   const sectionsResolved = collapsed.replace(
     SECTION,
-    (match, kind: string, key: string, sectionBody: string) => {
-      const value = ctx[key];
-      if (value === undefined) {
-        log.warn(
-          { key, kind },
-          "Unresolved {{#section}} key in workspace system prompt; leaving literal",
-        );
-        return match;
-      }
-      const truthy = Boolean(value);
+    (_match, kind: string, key: string, sectionBody: string) => {
+      const truthy = Boolean(ctx[key]);
       const include = kind === "#" ? truthy : !truthy;
       return include ? sectionBody : "";
     },
