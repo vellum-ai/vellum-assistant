@@ -258,6 +258,9 @@ export function buildSlackMetaForPersistence(params: {
     eventKind: "message",
     ...(candidate.threadTs ? { threadTs: candidate.threadTs } : {}),
     ...(candidate.displayName ? { displayName: candidate.displayName } : {}),
+    ...(candidate.actorExternalUserId
+      ? { actorExternalUserId: candidate.actorExternalUserId }
+      : {}),
   };
   return writeSlackMetadata(slackMeta);
 }

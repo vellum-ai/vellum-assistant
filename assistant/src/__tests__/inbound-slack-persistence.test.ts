@@ -151,6 +151,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
           channelTs: "1700000001.111111",
           threadTs: "1700000000.000001",
           displayName: "Alice",
+          actorExternalUserId: "U_ALICE",
         },
       },
       undefined,
@@ -164,6 +165,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
     expect(slackMeta!.channelTs).toBe("1700000001.111111");
     expect(slackMeta!.threadTs).toBe("1700000000.000001");
     expect(slackMeta!.displayName).toBe("Alice");
+    expect(slackMeta!.actorExternalUserId).toBe("U_ALICE");
   });
 
   test("Slack top-level message: slackMeta has no threadTs", async () => {

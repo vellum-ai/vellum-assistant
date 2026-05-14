@@ -113,6 +113,7 @@ describe("readSlackMetadata", () => {
       channelTs: "1700000000.000100",
       threadTs: "1699999999.000000",
       displayName: "Alice",
+      actorExternalUserId: "U_ALICE",
       eventKind: "message",
       editedAt: 1700000123,
     };
@@ -146,6 +147,7 @@ describe("writeSlackMetadata", () => {
       channelTs: "1700000000.000100",
       threadTs: "1699999999.000000",
       displayName: "Alice",
+      actorExternalUserId: "U_ALICE",
       eventKind: "message",
     };
     const raw = writeSlackMetadata(meta);
