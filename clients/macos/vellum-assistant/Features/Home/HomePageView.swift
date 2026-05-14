@@ -91,7 +91,7 @@ struct HomePageView: View {
                     onFilterChanged: { activeFilter = $0 }
                 )
 
-                if groupedFeed.isEmpty, activeFilter != nil {
+                if feedBuckets.isEmpty, activeFilter != nil {
                     HStack {
                         Spacer(minLength: 0)
                         Text("No notifications")
@@ -102,61 +102,19 @@ struct HomePageView: View {
                     .padding(.vertical, VSpacing.xxl)
                 }
 
-                ForEach(Array(groupedFeed.enumerated()), id: \.element.group) { _, bucket in
+                ForEach(Array(feedBuckets.enumerated()), id: \.element.group) { _, bucket in
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         HomeFeedGroupHeader(label: bucket.group.label)
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            ForEach(bucket.rows, id: \.id) { row in
-                                switch row {
-                                case .single(let item):
-                                    HomeRecapRow(
-                                        icon: icon(for: item),
-                                        iconForeground: iconForeground(for: item),
-                                        iconBackground: iconBackground(for: item),
-                                        title: item.title,
-                                        onDismiss: { dismissItem(item) },
-                                        onTap: { openItem(item) }
-                                    )
-                                case .group(let parent, let children):
-                                    HomeRecapGroupRow(
-                                        parentIcon: icon(for: parent),
-                                        parentIconForeground: iconForeground(for: parent),
-                                        parentIconBackground: iconBackground(for: parent),
-                                        parentTitle: parent.title,
-                                        children: children.map { child in
-                                            HomeRecapGroupRow.Child(
-                                                id: child.id,
-                                                icon: icon(for: child),
-                                                iconForeground: iconForeground(for: child),
-                                                iconBackground: iconBackground(for: child),
-                                                title: child.title
-                                            )
-                                        },
-                                        // Always-expanded matches Figma `3679:21591` which shows the
-                                        // group's children already visible. Keeping expand/collapse as
-                                        // an affordance conflicted with tap-to-open (Devin P1 feedback
-                                        // on PR #27466 cycle 2) — any tap would either navigate away
-                                        // (losing the expand affordance) or block open (making the
-                                        // parent unreachable, Codex P2 cycle 1). Always-expanded keeps
-                                        // both open-tap AND visible children.
-                                        isExpanded: .constant(true),
-                                        onParentTap: { openItem(parent) },
-                                        onChildTap: { child in
-                                            if let feedChild = children.first(where: { $0.id == child.id }) {
-                                                openItem(feedChild)
-                                            }
-                                        },
-                                        // Mirror HomeRecapRow's dismiss affordance on the parent and
-                                        // each child so grouped rows aren't sticky in the feed
-                                        // (Codex P2 + Devin feedback on PR #27475).
-                                        onParentDismiss: { dismissItem(parent) },
-                                        onChildDismiss: { child in
-                                            if let feedChild = children.first(where: { $0.id == child.id }) {
-                                                dismissItem(feedChild)
-                                            }
-                                        }
-                                    )
-                                }
+                            ForEach(bucket.items, id: \.id) { item in
+                                HomeRecapRow(
+                                    icon: icon(for: item),
+                                    iconForeground: iconForeground(for: item),
+                                    iconBackground: iconBackground(for: item),
+                                    title: item.title,
+                                    onDismiss: { dismissItem(item) },
+                                    onTap: { openItem(item) }
+                                )
                             }
                         }
                     }
@@ -223,11 +181,8 @@ struct HomePageView: View {
     /// Sorts the feed by `priority desc, createdAt desc`, hides
     /// dismissed items (so `dismissItem(_:)` gives immediate feedback
     /// without waiting for a server refresh to rewrite the array),
-    /// buckets via `HomeFeedTimeGroup.bucket(_:)`, then collapses
-    /// contiguous low-priority digest runs within each bucket via
-    /// `HomeFeedGrouping.group(_:)`.
-    // Exposed for HomePageViewGroupingTests — kept out of public API via no-op accessor; grouping is a behavior that benefits from direct unit testing.
-    var groupedFeed: [(group: HomeFeedTimeGroup, rows: [HomeFeedGroupedRow])] {
+    /// then buckets via `HomeFeedTimeGroup.bucket(_:)`.
+    private var feedBuckets: [(group: HomeFeedTimeGroup, items: [FeedItem])] {
         let sorted = feedStore.items.sorted { a, b in
             if a.priority != b.priority { return a.priority > b.priority }
             return a.createdAt > b.createdAt
@@ -242,10 +197,7 @@ struct HomePageView: View {
             }
             return true
         }
-        let buckets = HomeFeedTimeGroup.bucket(filtered)
-        return buckets.map { bucket in
-            (group: bucket.group, rows: HomeFeedGrouping.group(bucket.items))
-        }
+        return HomeFeedTimeGroup.bucket(filtered)
     }
 
     // MARK: - Suggestions
