@@ -232,12 +232,6 @@ describe("GET /schedules — default defer exclusion", () => {
   });
 
   test("mutation routes emit schedule sync invalidation", async () => {
-    const agent = createSchedule({
-      name: "Agent schedule",
-      cronExpression: "* * * * *",
-      message: "hello",
-      syntax: "cron",
-    });
     const received: AssistantEvent[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
@@ -247,13 +241,22 @@ describe("GET /schedules — default defer exclusion", () => {
     });
 
     try {
+      const agent = createSchedule({
+        name: "Agent schedule",
+        cronExpression: "* * * * *",
+        message: "hello",
+        syntax: "cron",
+      });
+      await waitFor(() => received.length >= 1);
+      received.length = 0;
+
       const route = findRoute("schedules/:id/toggle", "POST");
       route.handler({
         pathParams: { id: agent.id },
         body: { enabled: false },
       });
 
-      await waitFor(() => received.length === 1);
+      await waitFor(() => received.length >= 1);
       expect(received[0].message).toEqual({
         type: "sync_changed",
         tags: [SYNC_TAGS.assistantSchedules],
