@@ -10,14 +10,18 @@ import type {
 const MAX_RETRIES = 3;
 
 export class CredentialRequiredError extends BackendError {
-  constructor(message = "Connection not set up on platform") {
+  constructor(
+    message = "OAuth credential for this provider has expired or been revoked. The service needs to be reconnected.",
+  ) {
     super(message);
     this.name = "CredentialRequiredError";
   }
 }
 
 export class ProviderUnreachableError extends BackendError {
-  constructor(message = "Provider is unreachable") {
+  constructor(
+    message = "The external service provider is temporarily unreachable. This may be a transient issue — retry after a brief pause.",
+  ) {
     super(message);
     this.name = "ProviderUnreachableError";
   }

@@ -39,8 +39,11 @@ mock.module("../daemon/conversation-store.js", () => ({
   },
 }));
 
+import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import type { AssistantEvent } from "../runtime/assistant-event.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES } from "../runtime/routes/schedule-routes.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
 import {
@@ -69,6 +72,15 @@ function findRoute(endpoint: string, method: string): RouteDefinition {
   );
   if (!route) throw new Error(`Route ${method} ${endpoint} not found`);
   return route;
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 500;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("Timed out waiting for schedule route event");
 }
 
 describe("schedule run-now trust propagation", () => {
@@ -217,6 +229,41 @@ describe("GET /schedules — default defer exclusion", () => {
     }) as { schedules: Array<{ id: string }> };
     expect(result.schedules).toHaveLength(1);
     expect(result.schedules[0].id).toBe(agent.id);
+  });
+
+  test("mutation routes emit schedule sync invalidation", async () => {
+    const received: AssistantEvent[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        received.push(event);
+      },
+    });
+
+    try {
+      const agent = createSchedule({
+        name: "Agent schedule",
+        cronExpression: "* * * * *",
+        message: "hello",
+        syntax: "cron",
+      });
+      await waitFor(() => received.length >= 1);
+      received.length = 0;
+
+      const route = findRoute("schedules/:id/toggle", "POST");
+      route.handler({
+        pathParams: { id: agent.id },
+        body: { enabled: false },
+      });
+
+      await waitFor(() => received.length >= 1);
+      expect(received[0].message).toEqual({
+        type: "sync_changed",
+        tags: [SYNC_TAGS.assistantSchedules],
+      });
+    } finally {
+      subscription.dispose();
+    }
   });
 });
 
@@ -388,9 +435,9 @@ describe("POST /schedules — create", () => {
   });
 
   test("rejects missing required fields", () => {
-    expect(() => postCreate({ expression: "* * * * *", message: "hi" })).toThrow(
-      "name is required",
-    );
+    expect(() =>
+      postCreate({ expression: "* * * * *", message: "hi" }),
+    ).toThrow("name is required");
     expect(() => postCreate({ name: "x", message: "hi" })).toThrow(
       "expression is required",
     );

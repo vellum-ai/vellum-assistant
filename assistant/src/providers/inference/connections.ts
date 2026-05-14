@@ -23,7 +23,11 @@ export function listConnections(
   filter?: { provider?: string },
 ): ProviderConnection[] {
   const rows = filter?.provider
-    ? db.select().from(providerConnections).where(eq(providerConnections.provider, filter.provider)).all()
+    ? db
+        .select()
+        .from(providerConnections)
+        .where(eq(providerConnections.provider, filter.provider))
+        .all()
     : db.select().from(providerConnections).all();
 
   return rows.flatMap((row) => {
@@ -32,15 +36,19 @@ export function listConnections(
     const provider = ConnectionProviderSchema.safeParse(row.provider);
     if (!provider.success) return [];
     const statusResult = ConnectionStatusSchema.safeParse(row.status);
-    const status: ConnectionStatus = statusResult.success ? statusResult.data : "active";
-    return [{
-      ...row,
-      auth: auth.data,
-      provider: provider.data,
-      status,
-      label: row.label ?? null,
-      isManaged: MANAGED_CONNECTION_NAMES.has(row.name),
-    }];
+    const status: ConnectionStatus = statusResult.success
+      ? statusResult.data
+      : "active";
+    return [
+      {
+        ...row,
+        auth: auth.data,
+        provider: provider.data,
+        status,
+        label: row.label ?? null,
+        isManaged: MANAGED_CONNECTION_NAMES.has(row.name),
+      },
+    ];
   });
 }
 
@@ -60,7 +68,9 @@ export function getConnection(
   const provider = ConnectionProviderSchema.safeParse(row.provider);
   if (!provider.success) return null;
   const statusResult = ConnectionStatusSchema.safeParse(row.status);
-  const status: ConnectionStatus = statusResult.success ? statusResult.data : "active";
+  const status: ConnectionStatus = statusResult.success
+    ? statusResult.data
+    : "active";
   return {
     ...row,
     auth: auth.data,
@@ -105,9 +115,14 @@ export type ConnectionDeleteError =
 export function createConnection(
   db: DrizzleDb,
   input: CreateConnectionInput,
-): { ok: true; connection: ProviderConnection } | { ok: false; error: ConnectionCreateError } {
+):
+  | { ok: true; connection: ProviderConnection }
+  | { ok: false; error: ConnectionCreateError } {
   if (!VALID_CONNECTION_PROVIDERS.includes(input.provider as never)) {
-    return { ok: false, error: { code: "invalid_provider", provider: input.provider } };
+    return {
+      ok: false,
+      error: { code: "invalid_provider", provider: input.provider },
+    };
   }
   // Safe cast: VALID_CONNECTION_PROVIDERS.includes() guards above.
   const provider = input.provider as ConnectionProvider;
@@ -130,15 +145,17 @@ export function createConnection(
   const label = input.label ?? null;
 
   const now = Date.now();
-  db.insert(providerConnections).values({
-    name: input.name,
-    provider,
-    auth: JSON.stringify(authResult.data),
-    status,
-    label,
-    createdAt: now,
-    updatedAt: now,
-  }).run();
+  db.insert(providerConnections)
+    .values({
+      name: input.name,
+      provider,
+      auth: JSON.stringify(authResult.data),
+      status,
+      label,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 
   // Invalidate per-connection adapter cache so subsequent dispatch
   // resolves the freshly-inserted row's auth.
@@ -163,7 +180,9 @@ export function updateConnection(
   db: DrizzleDb,
   name: string,
   input: UpdateConnectionInput,
-): { ok: true; connection: ProviderConnection } | { ok: false; error: ConnectionUpdateError } {
+):
+  | { ok: true; connection: ProviderConnection }
+  | { ok: false; error: ConnectionUpdateError } {
   const existing = getConnection(db, name);
   if (!existing) {
     return { ok: false, error: { code: "not_found" } };
@@ -226,14 +245,20 @@ export function deleteConnection(
     return { ok: false, error: { code: "not_found" } };
   }
 
-  if (!opts.force && opts.referencingProfiles && opts.referencingProfiles.length > 0) {
+  if (
+    !opts.force &&
+    opts.referencingProfiles &&
+    opts.referencingProfiles.length > 0
+  ) {
     return {
       ok: false,
       error: { code: "has_references", count: opts.referencingProfiles.length },
     };
   }
 
-  db.delete(providerConnections).where(eq(providerConnections.name, name)).run();
+  db.delete(providerConnections)
+    .where(eq(providerConnections.name, name))
+    .run();
 
   // Evict cached adapter for the deleted connection name.
   clearConnectionProviderCache();
@@ -251,9 +276,24 @@ const CANONICAL_CONNECTIONS: Array<{
   auth: Auth;
   label: string;
 }> = [
-  { name: "anthropic-managed", provider: "anthropic", auth: { type: "platform" }, label: "Anthropic" },
-  { name: "openai-managed",    provider: "openai",    auth: { type: "platform" }, label: "OpenAI" },
-  { name: "gemini-managed",    provider: "gemini",    auth: { type: "platform" }, label: "Google Gemini" },
+  {
+    name: "anthropic-managed",
+    provider: "anthropic",
+    auth: { type: "platform" },
+    label: "Anthropic",
+  },
+  {
+    name: "openai-managed",
+    provider: "openai",
+    auth: { type: "platform" },
+    label: "OpenAI",
+  },
+  {
+    name: "gemini-managed",
+    provider: "gemini",
+    auth: { type: "platform" },
+    label: "Google Gemini",
+  },
 ];
 
 /**
@@ -323,7 +363,12 @@ export function seedCanonicalConnections(db: DrizzleDb): void {
     // user-set label.
     db.update(providerConnections)
       .set({ label, updatedAt: now })
-      .where(and(eq(providerConnections.name, name), isNull(providerConnections.label)))
+      .where(
+        and(
+          eq(providerConnections.name, name),
+          isNull(providerConnections.label),
+        ),
+      )
       .run();
   }
 }

@@ -91,18 +91,26 @@ describe("OpenAI Responses API cutover guard", () => {
     ).toBe(true);
 
     // The factory must NOT instantiate OpenAIChatCompletionsProvider or
-    // OpenAIProvider (the backward-compatible alias) for the "openai" key.
-    // Chat-completions classes may appear in imports but should not be
-    // instantiated in the openai factory entry.
-    const chatCompletionsInstantiations = [
-      ...source.matchAll(/new\s+OpenAIChatCompletionsProvider\s*\(/g),
-      ...source.matchAll(/new\s+OpenAIProvider\s*\(/g),
+    // OpenAIProvider (the backward-compatible alias) inside the `openai:`
+    // factory entry. Other entries (e.g. `zai:`, `deepseek:`, `minimax:`)
+    // may legitimately use OpenAIChatCompletionsProvider since that's the
+    // OpenAI Chat Completions transport for third-party endpoints.
+    const openaiEntryRegion =
+      /(?:^|\s)openai\s*:\s*\([^)]*\)\s*=>\s*[\s\S]{0,400}?(?=\}\s*,\s*[a-z-]+\s*:|\}\s*;)/m.exec(
+        source,
+      )?.[0] ?? "";
+    const chatCompletionsInstantiationsInOpenAi = [
+      ...openaiEntryRegion.matchAll(
+        /new\s+OpenAIChatCompletionsProvider\s*\(/g,
+      ),
+      ...openaiEntryRegion.matchAll(/new\s+OpenAIProvider\s*\(/g),
     ];
     expect(
-      chatCompletionsInstantiations.length,
+      chatCompletionsInstantiationsInOpenAi.length,
       [
-        "adapter-factory.ts must NOT instantiate OpenAIChatCompletionsProvider or",
-        "OpenAIProvider (legacy alias). Use OpenAIResponsesProvider for openai.",
+        "ADAPTER_FACTORIES['openai'] must NOT instantiate",
+        "OpenAIChatCompletionsProvider or OpenAIProvider (legacy alias).",
+        "Use OpenAIResponsesProvider for openai.",
       ].join("\n"),
     ).toBe(0);
 

@@ -23,16 +23,24 @@ export type ResolveAuthError =
 export async function resolveAuth(
   auth: Auth,
   provider: string,
-): Promise<{ ok: true; resolved: ResolvedAuth } | { ok: false; error: ResolveAuthError }> {
+): Promise<
+  { ok: true; resolved: ResolvedAuth } | { ok: false; error: ResolveAuthError }
+> {
   switch (auth.type) {
     case "api_key": {
       const value = await getSecureKeyAsync(auth.credential);
       if (!value) {
-        return { ok: false, error: { code: "credential_not_found", credential: auth.credential } };
+        return {
+          ok: false,
+          error: { code: "credential_not_found", credential: auth.credential },
+        };
       }
       return {
         ok: true,
-        resolved: { kind: "header", headers: { Authorization: `Bearer ${value}` } },
+        resolved: {
+          kind: "header",
+          headers: { Authorization: `Bearer ${value}` },
+        },
       };
     }
 

@@ -42,6 +42,12 @@ struct SettingsSchedulesTab: View {
         .task {
             await loadAll()
         }
+        .task {
+            let notifications = NotificationCenter.default.notifications(named: .schedulesChanged)
+            for await _ in notifications {
+                await loadAll()
+            }
+        }
         .alert("Delete Schedule", isPresented: deleteConfirmBinding) {
             Button("Cancel", role: .cancel) {
                 deleteConfirmId = nil

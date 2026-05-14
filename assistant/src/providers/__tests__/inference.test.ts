@@ -45,13 +45,19 @@ function setupDb(): { db: DrizzleDb; raw: Database } {
 describe("migrateCreateProviderConnections", () => {
   test("creates the provider_connections table", () => {
     const { raw } = setupDb();
-    const rows = raw.query("SELECT name FROM provider_connections").all() as { name: string }[];
+    const rows = raw.query("SELECT name FROM provider_connections").all() as {
+      name: string;
+    }[];
     expect(Array.isArray(rows)).toBe(true);
   });
 
   test("seeds canonical connections on first run", () => {
     const { db } = setupDb();
-    const canonicals = ["anthropic-managed", "openai-managed", "gemini-managed"];
+    const canonicals = [
+      "anthropic-managed",
+      "openai-managed",
+      "gemini-managed",
+    ];
     for (const name of canonicals) {
       const conn = getConnection(db, name);
       expect(conn).not.toBeNull();
@@ -71,7 +77,9 @@ describe("migrateCreateProviderConnections", () => {
     seedCanonicalConnections(db);
     seedCanonicalConnections(db);
     const managed = listConnections(db, { provider: "anthropic" });
-    expect(managed.filter((c) => c.name === "anthropic-managed").length).toBe(1);
+    expect(managed.filter((c) => c.name === "anthropic-managed").length).toBe(
+      1,
+    );
   });
 });
 
@@ -224,7 +232,10 @@ describe("Connection CRUD", () => {
 
 describe("AuthSchema", () => {
   test("api_key variant requires credential", () => {
-    const ok = AuthSchema.safeParse({ type: "api_key", credential: "cred/foo/api_key" });
+    const ok = AuthSchema.safeParse({
+      type: "api_key",
+      credential: "cred/foo/api_key",
+    });
     expect(ok.success).toBe(true);
 
     const bad = AuthSchema.safeParse({ type: "api_key" }); // missing credential
@@ -243,10 +254,12 @@ describe("AuthSchema", () => {
 
   test("oauth_subscription and service_account parse (v2 variants, runtime-rejected)", () => {
     expect(
-      AuthSchema.safeParse({ type: "oauth_subscription", credential: "x" }).success,
+      AuthSchema.safeParse({ type: "oauth_subscription", credential: "x" })
+        .success,
     ).toBe(true);
     expect(
-      AuthSchema.safeParse({ type: "service_account", credential: "x" }).success,
+      AuthSchema.safeParse({ type: "service_account", credential: "x" })
+        .success,
     ).toBe(true);
   });
 });
@@ -281,7 +294,9 @@ describe("Mix-and-match: two profiles, same provider, different connections", ()
 
     // Auth is distinct per connection.
     const managed = anthropicConns.find((c) => c.name === "anthropic-managed");
-    const personal = anthropicConns.find((c) => c.name === "anthropic-personal");
+    const personal = anthropicConns.find(
+      (c) => c.name === "anthropic-personal",
+    );
     expect(managed?.auth.type).toBe("platform");
     expect(personal?.auth.type).toBe("api_key");
   });

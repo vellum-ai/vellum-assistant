@@ -39,6 +39,10 @@ export function publishSoundsConfigUpdated(): void {
   void publishSyncInvalidation([SYNC_TAGS.assistantSounds]);
 }
 
+export function publishSchedulesChanged(): void {
+  void publishSyncInvalidation([SYNC_TAGS.assistantSchedules]);
+}
+
 export function publishConversationListChanged(
   reason: ConversationListInvalidatedReason,
 ): void {

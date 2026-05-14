@@ -8,6 +8,7 @@ import {
 import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
+import { getCachedManagedConnections } from "../credential-execution/managed-catalog.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
@@ -363,18 +364,30 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
 }
 
 function buildIntegrationSection(): string {
-  let connections: { provider: string; accountInfo?: string | null }[];
+  const entries: { provider: string; accountInfo?: string | null }[] = [];
+
+  // Local (BYO) connections from the SQLite store.
   try {
-    connections = listConnections().filter((c) => c.status === "active");
+    const local = listConnections().filter((c) => c.status === "active");
+    entries.push(...local);
   } catch {
-    // DB not available — no connected services to show
-    return "";
+    // DB not available — skip local connections
   }
 
-  if (connections.length === 0) return "";
+  // Platform-managed connections from the in-memory cache (populated at
+  // daemon startup and refreshed periodically).
+  const managed = getCachedManagedConnections();
+  for (const mc of managed) {
+    // Avoid duplicates — a provider with a local row is already listed.
+    if (!entries.some((e) => e.provider === mc.provider)) {
+      entries.push(mc);
+    }
+  }
+
+  if (entries.length === 0) return "";
 
   const lines = ["# Connected Services", ""];
-  for (const conn of connections) {
+  for (const conn of entries) {
     const state = conn.accountInfo
       ? `Connected (${conn.accountInfo})`
       : "Connected";

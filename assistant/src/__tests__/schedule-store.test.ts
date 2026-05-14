@@ -9,13 +9,19 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
+import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import type { AssistantEvent } from "../runtime/assistant-event.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   cancelSchedule,
   claimDueSchedules,
   completeOneShot,
+  completeScheduleRun,
   createSchedule,
+  createScheduleRun,
+  deleteSchedule,
   describeCronExpression,
   failOneShot,
   getSchedule,
@@ -30,6 +36,94 @@ function getRawDb(): import("bun:sqlite").Database {
   return (getDb() as unknown as { $client: import("bun:sqlite").Database })
     .$client;
 }
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 500;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("Timed out waiting for schedule-store event");
+}
+
+async function expectScheduleSyncEvent(
+  received: AssistantEvent[],
+): Promise<void> {
+  await waitFor(() =>
+    received.some(
+      (event) =>
+        event.message.type === "sync_changed" &&
+        event.message.tags.includes(SYNC_TAGS.assistantSchedules),
+    ),
+  );
+  const syncEvent = received.find(
+    (event) =>
+      event.message.type === "sync_changed" &&
+      event.message.tags.includes(SYNC_TAGS.assistantSchedules),
+  );
+  expect(syncEvent?.message).toEqual({
+    type: "sync_changed",
+    tags: [SYNC_TAGS.assistantSchedules],
+  });
+  received.length = 0;
+}
+
+describe("schedule sync invalidation", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  test("store-level schedule mutations emit schedule sync invalidation", async () => {
+    const received: AssistantEvent[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        received.push(event);
+      },
+    });
+
+    try {
+      const job = createSchedule({
+        name: "Sync test",
+        cronExpression: "* * * * *",
+        message: "sync me",
+        syntax: "cron",
+      });
+      await expectScheduleSyncEvent(received);
+
+      updateSchedule(job.id, { name: "Updated sync test" });
+      await expectScheduleSyncEvent(received);
+
+      getRawDb().run("UPDATE cron_jobs SET next_run_at = ? WHERE id = ?", [
+        Date.now() - 1000,
+        job.id,
+      ]);
+      expect(claimDueSchedules(Date.now())).toHaveLength(1);
+      await expectScheduleSyncEvent(received);
+
+      const runId = createScheduleRun(job.id, "conv-123");
+      completeScheduleRun(runId, { status: "ok" });
+      await expectScheduleSyncEvent(received);
+
+      const oneShot = createSchedule({
+        name: "One-shot sync test",
+        message: "cancel me",
+        nextRunAt: Date.now() + 60_000,
+      });
+      await expectScheduleSyncEvent(received);
+
+      expect(cancelSchedule(oneShot.id)).toBe(true);
+      await expectScheduleSyncEvent(received);
+
+      expect(deleteSchedule(job.id)).toBe(true);
+      await expectScheduleSyncEvent(received);
+    } finally {
+      subscription.dispose();
+    }
+  });
+});
 
 // ── Cron schedules ──────────────────────────────────────────────────
 

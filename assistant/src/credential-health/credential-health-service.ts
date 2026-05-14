@@ -13,11 +13,14 @@
 
 import { isTokenExpired } from "@vellumai/credential-storage";
 
+import type { Services } from "../config/schemas/services.js";
 import { getConnectionAccessTokenResult } from "../oauth/credential-token-resolver.js";
 import {
   getProvider,
   listActiveConnectionsByProvider,
   listProviders,
+  type OAuthConnectionRow,
+  type OAuthProviderRow,
 } from "../oauth/oauth-store.js";
 import { getLogger } from "../util/logger.js";
 
@@ -271,6 +274,189 @@ async function checkConnection(
   };
 }
 
+// ── Managed provider checks ──────────────────────────────────────────
+
+/**
+ * Check whether a provider is configured in managed mode.
+ * Uses dynamic imports to avoid circular dependencies (same pattern as
+ * `integration-status.ts`).
+ */
+async function isManagedProvider(
+  providerRow: OAuthProviderRow,
+): Promise<boolean> {
+  const managedKey = providerRow.managedServiceConfigKey;
+  if (!managedKey) return false;
+
+  try {
+    const { ServicesSchema, getServiceMode } =
+      await import("../config/schemas/services.js");
+    if (!(managedKey in ServicesSchema.shape)) return false;
+
+    const { getConfig } = await import("../config/loader.js");
+    const services: Services = getConfig().services;
+    return getServiceMode(services, managedKey as keyof Services) === "managed";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Fetch active managed connections from the platform and ping each one.
+ * Returns health results for managed connections, or an empty array if
+ * the platform is unreachable or the provider is not managed.
+ */
+async function checkManagedProvider(
+  providerRow: OAuthProviderRow,
+): Promise<CredentialHealthResult[]> {
+  const results: CredentialHealthResult[] = [];
+
+  try {
+    const { VellumPlatformClient } = await import("../platform/client.js");
+    const client = await VellumPlatformClient.create();
+    if (!client?.platformAssistantId) return results;
+
+    const params = new URLSearchParams();
+    params.set("provider", providerRow.provider);
+    params.set("status", "ACTIVE");
+
+    const path = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/oauth/connections/?${params.toString()}`;
+    const response = await client.fetch(path);
+
+    if (!response.ok) {
+      log.warn(
+        { status: response.status, provider: providerRow.provider },
+        "Failed to list managed connections for health check",
+      );
+      return results;
+    }
+
+    const body = (await response.json()) as unknown;
+    const connections = (
+      Array.isArray(body)
+        ? body
+        : ((body as Record<string, unknown>).results ?? [])
+    ) as Array<{ id: string; account_label?: string }>;
+
+    if (connections.length === 0) {
+      // No active managed connections — report as missing so the
+      // heartbeat can notify the user.
+      results.push({
+        connectionId: `managed:${providerRow.provider}`,
+        provider: providerRow.provider,
+        accountInfo: null,
+        status: "missing_token",
+        details: `No active managed connection for ${providerRow.provider}. Reconnect on the Vellum platform.`,
+        missingScopes: [],
+        canAutoRecover: false,
+      });
+      return results;
+    }
+
+    // Ping each managed connection via the platform proxy
+    for (const conn of connections) {
+      const base: Omit<
+        CredentialHealthResult,
+        "status" | "details" | "canAutoRecover"
+      > = {
+        connectionId: conn.id,
+        provider: providerRow.provider,
+        accountInfo: conn.account_label ?? null,
+        missingScopes: [],
+      };
+
+      if (!providerRow.pingUrl) {
+        // No ping URL configured — assume healthy if connection exists
+        results.push({
+          ...base,
+          status: "healthy",
+          details: `${providerRow.provider} managed connection is active (no ping URL configured).`,
+          canAutoRecover: true,
+        });
+        continue;
+      }
+
+      // Ping via platform proxy
+      try {
+        const { PlatformOAuthConnection } =
+          await import("../oauth/platform-connection.js");
+        const platformConn = new PlatformOAuthConnection({
+          id: conn.id,
+          provider: providerRow.provider,
+          externalId: providerRow.provider,
+          accountInfo: conn.account_label ?? null,
+          client,
+          connectionId: conn.id,
+          baseUrl: undefined,
+        });
+
+        const pingResp = await platformConn.request({
+          method: providerRow.pingMethod ?? "GET",
+          path: providerRow.pingUrl,
+          signal: AbortSignal.timeout(PING_TIMEOUT_MS),
+        });
+
+        if (pingResp.status >= 200 && pingResp.status < 300) {
+          results.push({
+            ...base,
+            status: "healthy",
+            details: `${providerRow.provider} managed credential is healthy.`,
+            canAutoRecover: true,
+          });
+        } else if (pingResp.status === 401 || pingResp.status === 403) {
+          results.push({
+            ...base,
+            status: "revoked",
+            details: `${providerRow.provider} managed token was rejected (${pingResp.status}). Reconnect on the Vellum platform.`,
+            canAutoRecover: false,
+          });
+        } else {
+          results.push({
+            ...base,
+            status: "ping_failed",
+            details: `${providerRow.provider} managed liveness check returned ${pingResp.status}.`,
+            canAutoRecover: false,
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // CredentialRequiredError means the platform can't materialize
+        // the token — treat as revoked.
+        if (
+          err &&
+          typeof err === "object" &&
+          "name" in err &&
+          (err as { name: string }).name === "CredentialRequiredError"
+        ) {
+          results.push({
+            ...base,
+            status: "revoked",
+            details: `${providerRow.provider} managed connection is no longer valid. Reconnect on the Vellum platform.`,
+            canAutoRecover: false,
+          });
+        } else {
+          log.debug(
+            { provider: providerRow.provider, connectionId: conn.id, err: msg },
+            "Managed credential ping failed",
+          );
+          results.push({
+            ...base,
+            status: "ping_failed",
+            details: `${providerRow.provider} managed liveness check failed: ${msg}`,
+            canAutoRecover: false,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    log.warn(
+      { err, provider: providerRow.provider },
+      "Failed to check managed provider health",
+    );
+  }
+
+  return results;
+}
+
 // ── Public API ────────────────────────────────────────────────────────
 
 /**
@@ -279,6 +465,9 @@ async function checkConnection(
  * Iterates every registered provider, looks up active connections, and
  * validates each one. Returns a structured report with overall results
  * and a filtered list of unhealthy credentials.
+ *
+ * Checks both BYO (local SQLite) and managed (platform-hosted)
+ * connections.
  */
 export async function checkAllCredentials(): Promise<CredentialHealthReport> {
   const checkedAt = Date.now();
@@ -292,6 +481,10 @@ export async function checkAllCredentials(): Promise<CredentialHealthReport> {
     return { checkedAt, results, unhealthy: [] };
   }
 
+  // Track which providers have BYO connections so we skip the managed
+  // check for them (they're already covered by the BYO path).
+  const byoProviders = new Set<string>();
+
   for (const providerRow of providers) {
     let connections;
     try {
@@ -302,6 +495,10 @@ export async function checkAllCredentials(): Promise<CredentialHealthReport> {
         "Failed to list connections for provider",
       );
       continue;
+    }
+
+    if (connections.length > 0) {
+      byoProviders.add(providerRow.provider);
     }
 
     for (const conn of connections) {
@@ -329,6 +526,22 @@ export async function checkAllCredentials(): Promise<CredentialHealthReport> {
     }
   }
 
+  // Check managed connections for providers without BYO connections.
+  for (const providerRow of providers) {
+    if (byoProviders.has(providerRow.provider)) continue;
+    if (!(await isManagedProvider(providerRow))) continue;
+
+    try {
+      const managedResults = await checkManagedProvider(providerRow);
+      results.push(...managedResults);
+    } catch (err) {
+      log.warn(
+        { err, provider: providerRow.provider },
+        "Failed to check managed provider health",
+      );
+    }
+  }
+
   const unhealthy = results.filter((r) => r.status !== "healthy");
   if (unhealthy.length > 0) {
     log.info(
@@ -351,34 +564,47 @@ export async function checkAllCredentials(): Promise<CredentialHealthReport> {
  * result for the most recent active connection, or null if no connection
  * exists.
  *
+ * Checks BYO connections first; if none exist, falls back to checking
+ * managed connections on the platform.
+ *
  * Used by the watcher engine for pre-poll gating.
  */
 export async function checkCredentialForProvider(
   provider: string,
 ): Promise<CredentialHealthResult | null> {
-  let connections;
+  let connections: OAuthConnectionRow[];
   try {
     connections = listActiveConnectionsByProvider(provider);
   } catch {
-    return null;
+    connections = [];
   }
-  if (connections.length === 0) return null;
 
-  const conn = connections[0]!;
-  const providerRow = getProvider(conn.provider);
+  if (connections.length > 0) {
+    const conn = connections[0]!;
+    const providerRow = getProvider(conn.provider);
+    if (!providerRow) return null;
+
+    return checkConnection({
+      connectionId: conn.id,
+      provider: conn.provider,
+      accountInfo: conn.accountInfo,
+      expiresAt: conn.expiresAt,
+      hasRefreshToken: !!conn.hasRefreshToken,
+      grantedScopesRaw: conn.grantedScopes,
+      defaultScopesRaw: providerRow.defaultScopes,
+      pingUrl: providerRow.pingUrl,
+      pingMethod: providerRow.pingMethod,
+      pingHeaders: providerRow.pingHeaders,
+      pingBody: providerRow.pingBody,
+    });
+  }
+
+  // No local connections — check if provider is managed and query the
+  // platform for connection health.
+  const providerRow = getProvider(provider);
   if (!providerRow) return null;
+  if (!(await isManagedProvider(providerRow))) return null;
 
-  return checkConnection({
-    connectionId: conn.id,
-    provider: conn.provider,
-    accountInfo: conn.accountInfo,
-    expiresAt: conn.expiresAt,
-    hasRefreshToken: !!conn.hasRefreshToken,
-    grantedScopesRaw: conn.grantedScopes,
-    defaultScopesRaw: providerRow.defaultScopes,
-    pingUrl: providerRow.pingUrl,
-    pingMethod: providerRow.pingMethod,
-    pingHeaders: providerRow.pingHeaders,
-    pingBody: providerRow.pingBody,
-  });
+  const managedResults = await checkManagedProvider(providerRow);
+  return managedResults.length > 0 ? managedResults[0] : null;
 }

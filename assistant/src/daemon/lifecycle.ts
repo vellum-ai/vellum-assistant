@@ -20,6 +20,7 @@ import type { AssistantConfig } from "../config/schema.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { createCesClient } from "../credential-execution/client.js";
+import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
 import {
   type CesProcessManager,
   CesUnavailableError,
@@ -423,6 +424,16 @@ export async function runDaemon(): Promise<void> {
           "Manual-token connection backfill failed — continuing startup",
         );
       }
+
+      // Populate the managed-connection cache so buildIntegrationSection()
+      // can include platform-managed OAuth connections (e.g. Twitter) in the
+      // system prompt's "Connected Services" section from the first turn.
+      void refreshManagedConnectionCache().catch((err) =>
+        log.warn(
+          { err },
+          "Managed connection cache refresh failed — continuing startup",
+        ),
+      );
 
       // One-time backfill of `relationship-state.json` for existing or
       // upgraded users so they don't land on an empty Home page after the

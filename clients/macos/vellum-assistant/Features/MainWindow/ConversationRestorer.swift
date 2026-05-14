@@ -301,7 +301,7 @@ final class ConversationRestorer {
                 shouldRefetchConversationList = true
                 guard activeConversationId == conversationId else { continue }
                 requestReconnectHistory(conversationId: conversationId)
-            case .assistantAvatar, .assistantIdentity, .assistantConfig, .assistantSounds:
+            case .assistantAvatar, .assistantIdentity, .assistantConfig, .assistantSounds, .assistantSchedules:
                 continue
             }
         }

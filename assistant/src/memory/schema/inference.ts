@@ -20,9 +20,7 @@ export const providerConnections = sqliteTable(
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
-  (table) => [
-    index("idx_provider_connections_provider").on(table.provider),
-  ],
+  (table) => [index("idx_provider_connections_provider").on(table.provider)],
 );
 
 export type ProviderConnectionRow = typeof providerConnections.$inferSelect;

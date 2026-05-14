@@ -77,6 +77,43 @@ export interface FetchManagedCatalogResult {
  * Errors from the platform are captured and returned as `ok: false` with an
  * error message that never contains secret material.
  */
+// ---------------------------------------------------------------------------
+// Managed connection cache — provides a synchronous view of platform-managed
+// connections for use in the system prompt (which is built synchronously).
+// Refresh is triggered at daemon startup and periodically thereafter.
+// ---------------------------------------------------------------------------
+
+export interface CachedManagedConnection {
+  provider: string;
+  accountInfo: string | null;
+}
+
+let cachedConnections: CachedManagedConnection[] = [];
+
+/**
+ * Return the last successfully fetched managed connections.
+ * Returns an empty array before the first successful refresh.
+ */
+export function getCachedManagedConnections(): CachedManagedConnection[] {
+  return cachedConnections;
+}
+
+/**
+ * Fetch managed connections from the platform and update the in-memory cache.
+ * Best-effort: errors are logged and the cache retains its previous value.
+ */
+export async function refreshManagedConnectionCache(): Promise<void> {
+  const result = await fetchManagedCatalog();
+  if (result.ok) {
+    cachedConnections = result.descriptors
+      .filter((d) => d.status === "active" || d.status === "ACTIVE")
+      .map((d) => ({
+        provider: d.provider,
+        accountInfo: d.accountInfo,
+      }));
+  }
+}
+
 export async function fetchManagedCatalog(): Promise<FetchManagedCatalogResult> {
   const client = await VellumPlatformClient.create();
 

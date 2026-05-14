@@ -78,7 +78,8 @@ function handleCreateSchedule(body: Record<string, unknown>) {
   const expression =
     typeof body.expression === "string" ? body.expression.trim() : "";
   const message = typeof body.message === "string" ? body.message : "";
-  const timezoneRaw = typeof body.timezone === "string" ? body.timezone.trim() : "";
+  const timezoneRaw =
+    typeof body.timezone === "string" ? body.timezone.trim() : "";
   const timezone = timezoneRaw === "" ? null : timezoneRaw;
   const enabled = body.enabled !== false;
   const mode = (body.mode as string | undefined) ?? "execute";
@@ -298,16 +299,12 @@ export const ROUTES: RouteDefinition[] = [
         .boolean()
         .describe("Whether the schedule starts active (default true)")
         .optional(),
-      mode: z
-        .string()
-        .describe("Currently must be 'execute'")
-        .optional(),
+      mode: z.string().describe("Currently must be 'execute'").optional(),
     }),
     responseBody: z.object({
       schedules: z.array(z.unknown()).describe("Updated schedule list"),
     }),
-    handler: ({ body }: RouteHandlerArgs) =>
-      handleCreateSchedule(body ?? {}),
+    handler: ({ body }: RouteHandlerArgs) => handleCreateSchedule(body ?? {}),
   },
   {
     operationId: "listScheduleRuns",

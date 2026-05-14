@@ -32,6 +32,7 @@ import {
   createMessagesFts,
   createNotificationTables,
   createOAuthTables,
+  createOnboardingEventsTable,
   createScopedApprovalGrantsTable,
   createSequenceTables,
   createTasksAndWorkItemsTables,
@@ -426,6 +427,7 @@ export function initializeDb(): void {
     migrateMemoryRetrospectiveState,
     migrateBackfillProviderConnectionLabel,
     migrateExternalConversationBindingThreadId,
+    createOnboardingEventsTable,
   ];
 
   // Run each migration step, catching and logging individual failures so one

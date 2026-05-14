@@ -92,7 +92,7 @@ export async function resolveOAuthConnection(
       ? ` matching ${filters.join(" and ")}`
       : "";
     throw new Error(
-      `No active OAuth connection found for "${provider}"${qualifier}. Connect the service first with \`assistant oauth connect ${provider}\`.`,
+      `No active OAuth connection found for "${provider}"${qualifier}. The ${provider} service needs to be connected before it can be used.`,
     );
   }
 
@@ -102,7 +102,7 @@ export async function resolveOAuthConnection(
   });
   if (!tokenResult.value) {
     throw new Error(
-      `OAuth connection for "${provider}" exists but has no access token. Re-authorize with \`assistant oauth connect ${provider}\`.`,
+      `OAuth connection for "${provider}" exists but the access token is missing or expired. The ${provider} service needs to be reconnected.`,
     );
   }
 
@@ -223,18 +223,22 @@ async function resolvePlatformConnectionId(
 
   if (connections.length === 0) {
     throw new Error(
-      `No active platform OAuth connection found for provider "${provider}"` +
+      `No active OAuth connection found for provider "${provider}"` +
         (account ? ` with account "${account}"` : "") +
-        ". Connect the service on the Vellum platform first.",
+        `. The ${provider} service needs to be connected.`,
     );
   }
 
   if (connections.length > 1 && !account) {
+    const allAccounts = connections
+      .map((c) => c.account_label ?? c.id)
+      .join(", ");
     log.warn(
       {
         provider,
         count: connections.length,
         selectedId: connections[0].id,
+        allAccounts,
       },
       "Multiple active platform connections found; using the most recently created. " +
         "Pass an account option to select a specific connection.",

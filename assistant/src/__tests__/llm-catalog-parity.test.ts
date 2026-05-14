@@ -29,11 +29,7 @@ function getRepoRoot(): string {
   return join(process.cwd(), "..");
 }
 
-const META_JSON_PATH = join(
-  getRepoRoot(),
-  "meta",
-  "llm-provider-catalog.json",
-);
+const META_JSON_PATH = join(getRepoRoot(), "meta", "llm-provider-catalog.json");
 const SWIFTPM_MIRROR_PATH = join(
   getRepoRoot(),
   "clients",
@@ -395,8 +391,7 @@ describe("LLM catalog parity: daemon vs client", () => {
             `${provider.id}/${model.id} unpriced at tier ${tier.inputTokenThreshold}`,
           ).toBe("priced");
           const resolvedRate =
-            (result.estimatedCostUsd ?? 0) *
-            (TOKENS_PER_MILLION / probeTokens);
+            (result.estimatedCostUsd ?? 0) * (TOKENS_PER_MILLION / probeTokens);
           expect(
             resolvedRate,
             `${provider.id}/${model.id} input rate drift at tier ${tier.inputTokenThreshold}`,

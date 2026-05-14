@@ -232,6 +232,18 @@ export const lifecycleEvents = sqliteTable("lifecycle_events", {
   createdAt: integer("created_at").notNull(),
 });
 
+export const onboardingEvents = sqliteTable("onboarding_events", {
+  id: text("id").primaryKey(),
+  createdAt: integer("created_at").notNull(),
+  screen: text("screen").notNull(),
+  toolsJson: text("tools_json"),
+  tasksJson: text("tasks_json"),
+  tone: text("tone"),
+  googleConnected: integer("google_connected", { mode: "boolean" }),
+  googleScopesJson: text("google_scopes_json"),
+  abVariant: text("ab_variant"),
+});
+
 export const traceEvents = sqliteTable(
   "trace_events",
   {

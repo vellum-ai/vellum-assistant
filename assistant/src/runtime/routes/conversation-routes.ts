@@ -90,6 +90,7 @@ import {
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
+import { recordOnboardingEvent } from "../../memory/onboarding-events-store.js";
 import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
 import {
   readSlackMetadataFromMessageMetadata,
@@ -1165,6 +1166,7 @@ export async function handleSendMessage(
       tone: string;
       userName?: string;
       assistantName?: string;
+      googleConnected?: boolean;
     };
   };
 
@@ -1551,6 +1553,17 @@ export async function handleSendMessage(
 
       if (isFirstOnboarding) {
         persistOnboardingArtifacts(body.onboarding!);
+        try {
+          recordOnboardingEvent({
+            screen: "complete",
+            tools: body.onboarding!.tools,
+            tasks: body.onboarding!.tasks,
+            tone: body.onboarding!.tone,
+            googleConnected: body.onboarding!.googleConnected,
+          });
+        } catch (err) {
+          log.warn({ err }, "Failed to record onboarding telemetry event");
+        }
       }
 
       setTimeout(() => {
@@ -1593,6 +1606,17 @@ export async function handleSendMessage(
 
   if (isFirstOnboarding) {
     persistOnboardingArtifacts(body.onboarding!);
+    try {
+      recordOnboardingEvent({
+        screen: "complete",
+        tools: body.onboarding!.tools,
+        tasks: body.onboarding!.tasks,
+        tone: body.onboarding!.tone,
+        googleConnected: body.onboarding!.googleConnected,
+      });
+    } catch (err) {
+      log.warn({ err }, "Failed to record onboarding telemetry event");
+    }
   }
 
   const attachments = hasAttachments

@@ -12,7 +12,13 @@ import { z } from "zod";
 
 import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../memory/db-connection.js";
-import { AuthSchema, ConnectionProviderSchema, ConnectionStatusSchema, ProviderConnectionSchema, VALID_CONNECTION_PROVIDERS } from "../../providers/inference/auth.js";
+import {
+  AuthSchema,
+  ConnectionProviderSchema,
+  ConnectionStatusSchema,
+  ProviderConnectionSchema,
+  VALID_CONNECTION_PROVIDERS,
+} from "../../providers/inference/auth.js";
 import {
   createConnection,
   deleteConnection,
@@ -21,11 +27,7 @@ import {
   MANAGED_CONNECTION_NAMES,
   updateConnection,
 } from "../../providers/inference/connections.js";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -40,7 +42,10 @@ const providerConnectionResponseSchema = ProviderConnectionSchema;
 
 function handleListConnections({ queryParams = {} }: RouteHandlerArgs) {
   const provider = queryParams.provider;
-  const connections = listConnections(getDb(), provider ? { provider } : undefined);
+  const connections = listConnections(
+    getDb(),
+    provider ? { provider } : undefined,
+  );
   return { connections };
 }
 
@@ -75,14 +80,23 @@ function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
   }
 
-  const statusResult = body.status !== undefined ? ConnectionStatusSchema.safeParse(body.status) : null;
+  const statusResult =
+    body.status !== undefined
+      ? ConnectionStatusSchema.safeParse(body.status)
+      : null;
   if (statusResult && !statusResult.success) {
     throw new BadRequestError(`Invalid status: must be "active" or "disabled"`);
   }
 
   const labelRaw = body.label;
-  if (labelRaw !== undefined && labelRaw !== null && (typeof labelRaw !== "string" || labelRaw.length === 0)) {
-    throw new BadRequestError(`Invalid label: must be a non-empty string or null`);
+  if (
+    labelRaw !== undefined &&
+    labelRaw !== null &&
+    (typeof labelRaw !== "string" || labelRaw.length === 0)
+  ) {
+    throw new BadRequestError(
+      `Invalid label: must be a non-empty string or null`,
+    );
   }
 
   const result = createConnection(getDb(), {
@@ -110,7 +124,10 @@ function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
   return result.connection;
 }
 
-function handleUpdateConnection({ pathParams = {}, body = {} }: RouteHandlerArgs) {
+function handleUpdateConnection({
+  pathParams = {},
+  body = {},
+}: RouteHandlerArgs) {
   const { name } = pathParams;
   if (!name) throw new BadRequestError("name is required");
 
@@ -120,21 +137,33 @@ function handleUpdateConnection({ pathParams = {}, body = {} }: RouteHandlerArgs
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
   }
 
-  const statusResult = body.status !== undefined ? ConnectionStatusSchema.safeParse(body.status) : null;
+  const statusResult =
+    body.status !== undefined
+      ? ConnectionStatusSchema.safeParse(body.status)
+      : null;
   if (statusResult && !statusResult.success) {
     throw new BadRequestError(`Invalid status: must be "active" or "disabled"`);
   }
 
   const labelRaw = body.label;
-  if (labelRaw !== undefined && labelRaw !== null && (typeof labelRaw !== "string" || labelRaw.length === 0)) {
-    throw new BadRequestError(`Invalid label: must be a non-empty string or null`);
+  if (
+    labelRaw !== undefined &&
+    labelRaw !== null &&
+    (typeof labelRaw !== "string" || labelRaw.length === 0)
+  ) {
+    throw new BadRequestError(
+      `Invalid label: must be a non-empty string or null`,
+    );
   }
 
   // Managed connections: lock auth to `{type:"platform"}`. The boot upsert in
   // `seedCanonicalConnections` would revert any other value on next restart;
   // reject the write here so the surprise loop never happens. Label and status
   // remain user-editable (the boot upsert leaves those alone).
-  if (MANAGED_CONNECTION_NAMES.has(name) && authResult.data.type !== "platform") {
+  if (
+    MANAGED_CONNECTION_NAMES.has(name) &&
+    authResult.data.type !== "platform"
+  ) {
     throw new BadRequestError(
       `Cannot change auth on managed connection "${name}". Auth is locked to platform.`,
     );
@@ -180,7 +209,10 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   const config = getConfigReadOnly();
 
   // llm.default carries provider_connection (LLMConfigBase).
-  if ((config.llm?.default as Record<string, unknown> | undefined)?.provider_connection === name) {
+  if (
+    (config.llm?.default as Record<string, unknown> | undefined)
+      ?.provider_connection === name
+  ) {
     throw new ConflictError(
       `Connection "${name}" is referenced by llm.default. Update llm.default.provider_connection before deleting.`,
       { referencedBy: ["llm.default"] },
@@ -190,7 +222,9 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // llm.profiles.*: only ProfileEntry has provider_connection.
   const profiles = config.llm?.profiles ?? {};
   const referencingProfiles = Object.entries(profiles)
-    .filter(([, p]) => (p as Record<string, unknown>).provider_connection === name)
+    .filter(
+      ([, p]) => (p as Record<string, unknown>).provider_connection === name,
+    )
     .map(([profileName]) => profileName);
 
   const result = deleteConnection(getDb(), name, {
@@ -234,7 +268,9 @@ export const ROUTES: RouteDefinition[] = [
         description: `Filter by provider. One of: ${VALID_CONNECTION_PROVIDERS.join(", ")}`,
       },
     ],
-    responseBody: z.object({ connections: z.array(providerConnectionResponseSchema) }),
+    responseBody: z.object({
+      connections: z.array(providerConnectionResponseSchema),
+    }),
     handler: handleListConnections,
   },
   {
@@ -291,7 +327,10 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: providerConnectionResponseSchema,
     additionalResponses: {
-      "400": { description: "Invalid auth schema, or attempt to change auth on a managed connection" },
+      "400": {
+        description:
+          "Invalid auth schema, or attempt to change auth on a managed connection",
+      },
       "404": { description: "Connection not found" },
     },
     handler: handleUpdateConnection,
@@ -308,9 +347,14 @@ export const ROUTES: RouteDefinition[] = [
     pathParams: [{ name: "name", description: "Connection name" }],
     responseBody: z.object({ ok: z.literal(true) }),
     additionalResponses: {
-      "400": { description: "Connection is a Vellum-managed connection and cannot be deleted" },
+      "400": {
+        description:
+          "Connection is a Vellum-managed connection and cannot be deleted",
+      },
       "404": { description: "Connection not found" },
-      "409": { description: "Connection is referenced by profile(s) or call site(s)" },
+      "409": {
+        description: "Connection is referenced by profile(s) or call site(s)",
+      },
     },
     handler: handleDeleteConnection,
   },

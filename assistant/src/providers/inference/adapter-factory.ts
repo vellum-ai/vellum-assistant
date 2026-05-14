@@ -23,6 +23,7 @@ import { FireworksProvider } from "../fireworks/client.js";
 import { GeminiProvider } from "../gemini/client.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { OllamaProvider } from "../ollama/client.js";
+import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
 import { OpenAIResponsesProvider } from "../openai/responses-provider.js";
 import { OpenRouterProvider } from "../openrouter/client.js";
 import { RetryProvider } from "../retry.js";
@@ -52,7 +53,13 @@ type AdapterFactory = (opts: AdapterCreateOpts) => Provider;
  * module-load time.
  */
 const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
-  anthropic: ({ apiKey, model, streamTimeoutMs, baseURL, useNativeWebSearch }) =>
+  anthropic: ({
+    apiKey,
+    model,
+    streamTimeoutMs,
+    baseURL,
+    useNativeWebSearch,
+  }) =>
     new AnthropicProvider(apiKey, model, {
       useNativeWebSearch,
       streamTimeoutMs,
@@ -82,6 +89,27 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
   openrouter: ({ apiKey, model, streamTimeoutMs, useNativeWebSearch }) =>
     new OpenRouterProvider(apiKey, model, {
       useNativeWebSearch,
+      streamTimeoutMs,
+    }),
+  zai: ({ apiKey, model, streamTimeoutMs }) =>
+    new OpenAIChatCompletionsProvider(apiKey, model, {
+      providerName: "zai",
+      providerLabel: "z.ai",
+      baseURL: "https://api.z.ai/api/paas/v4/",
+      streamTimeoutMs,
+    }),
+  deepseek: ({ apiKey, model, streamTimeoutMs }) =>
+    new OpenAIChatCompletionsProvider(apiKey, model, {
+      providerName: "deepseek",
+      providerLabel: "DeepSeek",
+      baseURL: "https://api.deepseek.com",
+      streamTimeoutMs,
+    }),
+  minimax: ({ apiKey, model, streamTimeoutMs }) =>
+    new OpenAIChatCompletionsProvider(apiKey, model, {
+      providerName: "minimax",
+      providerLabel: "MiniMax",
+      baseURL: "https://api.minimax.io/v1",
       streamTimeoutMs,
     }),
 };
@@ -138,7 +166,11 @@ export function buildProviderAdapter(
 export function createAdapterFromConnection(
   connection: ProviderConnection,
   resolvedAuth: ResolvedAuth,
-  opts: { model: string; streamTimeoutMs?: number; useNativeWebSearch?: boolean },
+  opts: {
+    model: string;
+    streamTimeoutMs?: number;
+    useNativeWebSearch?: boolean;
+  },
 ): Provider | null {
   const { provider } = connection;
   const entry = PROVIDER_CATALOG.find((e) => e.id === provider);
@@ -164,10 +196,15 @@ export function createAdapterFromConnection(
   });
   if (!adapter) return null;
 
-  const isProxy = baseURL !== undefined;
+  // Usage-attribution headers (`X-Vellum-*`) are only meaningful when the
+  // request is routed through the Vellum-managed proxy — they carry billing
+  // metadata for our own backend. Forwarding them to a third-party endpoint
+  // would leak internal Vellum metadata, so gate on the auth type:
+  // `platform` is the only auth that flows through our proxy.
+  const isManagedProxy = connection.auth.type === "platform";
   return new UsageTrackingProvider(
     new RetryProvider(adapter, {
-      forwardUsageAttributionHeaders: isProxy,
+      forwardUsageAttributionHeaders: isManagedProxy,
     }),
   );
 }

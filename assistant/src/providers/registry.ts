@@ -92,9 +92,7 @@ function resolveModel(config: ProvidersConfig, providerName: string): string {
  * The routing decision is now derived from credential availability rather than
  * the removed `services.inference.mode` config field.
  */
-async function resolveProviderCredentials(
-  providerName: string,
-): Promise<{
+async function resolveProviderCredentials(providerName: string): Promise<{
   apiKey: string;
   baseURL?: string;
   source: "user-key" | "managed-proxy";
@@ -106,7 +104,11 @@ async function resolveProviderCredentials(
   const managedBaseUrl = await buildManagedBaseUrl(providerName);
   if (managedBaseUrl) {
     const ctx = await resolveManagedProxyContext();
-    return { apiKey: ctx.assistantApiKey, baseURL: managedBaseUrl, source: "managed-proxy" };
+    return {
+      apiKey: ctx.assistantApiKey,
+      baseURL: managedBaseUrl,
+      source: "managed-proxy",
+    };
   }
   return null;
 }
@@ -122,8 +124,10 @@ export async function initializeProviders(
     (config.timeouts?.providerStreamTimeoutSec ?? 1800) * 1000;
   const useNativeWebSearch =
     config.services["web-search"].provider === "inference-provider-native";
-  const mainAgentProvider = resolveCallSiteConfig("mainAgent", config.llm)
-    .provider;
+  const mainAgentProvider = resolveCallSiteConfig(
+    "mainAgent",
+    config.llm,
+  ).provider;
 
   for (const entry of PROVIDER_CATALOG) {
     const isKeyless = entry.setupMode === "keyless";
@@ -230,11 +234,15 @@ export async function resolveProviderFromConnection(
     config.services["web-search"].provider === "inference-provider-native";
   const model = resolveModel(config, connection.provider);
 
-  const provider = createAdapterFromConnection(connection, authResult.resolved, {
-    model,
-    streamTimeoutMs,
-    useNativeWebSearch,
-  });
+  const provider = createAdapterFromConnection(
+    connection,
+    authResult.resolved,
+    {
+      model,
+      streamTimeoutMs,
+      useNativeWebSearch,
+    },
+  );
 
   if (provider) {
     connectionProviders.set(connection.name, provider);

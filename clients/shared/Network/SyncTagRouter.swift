@@ -13,6 +13,7 @@ public enum SyncTagRoute: Hashable, Sendable {
     case assistantIdentity
     case assistantConfig
     case assistantSounds
+    case assistantSchedules
 }
 
 public enum SyncTagRouter {
@@ -36,6 +37,7 @@ public enum SyncTagRouter {
             .assistantIdentity,
             .assistantConfig,
             .assistantSounds,
+            .assistantSchedules,
         ]
 
         if let activeConversationId, !activeConversationId.isEmpty {
@@ -58,6 +60,8 @@ public enum SyncTagRouter {
             return .assistantConfig
         case "assistant:self:sounds":
             return .assistantSounds
+        case "assistant:self:schedules":
+            return .assistantSchedules
         default:
             return conversationRoute(for: tag)
         }
