@@ -19,18 +19,18 @@ Create and edit long-form documents using the built-in rich text editor. Documen
 - **document_create** - Opens a new document editor with an optional title and initial Markdown content. Returns a `surface_id` for subsequent updates.
 - **document_update** - Updates content in an open document editor by `surface_id`. Supports `replace` (overwrite) and `append` (add to end) modes.
 - **document_read** - Reads the current content of a document by `surface_id`. Use to verify content before editing.
-- **document_list** - Lists all documents in the current conversation with their surface_ids, titles, and word counts.
+- **document_list** - Lists documents. Without `query`, lists the current conversation's documents. With `query`, searches all documents by title across all conversations.
 - **document_delete** - Deletes a document by `surface_id`. Use to clean up unwanted documents.
 
 ## Retrieving existing documents
 
-When the user asks to see, open, or pull up a document from this conversation:
+When the user asks to see, open, or pull up a document:
 
-1. Check the `<active_documents>` block in your context — it lists all documents in this conversation with their `surface_id` and title.
-2. Call `document_read` with the matching `surface_id`. This is a single tool call — do NOT search files, conversations, or archives.
-3. If no `<active_documents>` block is present, call `document_list` to discover documents in this conversation.
+1. Check the `<active_documents>` block in your context — it lists all documents in this conversation with their `surface_id` and title. If the document is there, call `document_read` with its `surface_id`. Done in one call.
+2. If the document is NOT in `<active_documents>`, call `document_list` with a `query` matching the document title. This searches across all conversations and previous sessions.
+3. Once you have the `surface_id`, call `document_read` to retrieve the content.
 
-**Never** search the filesystem, conversation history, or archives to find a document that was created with the document editor. Always use `document_read` or `document_list`.
+**Never** search the filesystem, conversation history, or archives to find a document. Always use `document_list` with a `query`.
 
 ## Creating a new document
 

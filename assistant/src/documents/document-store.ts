@@ -132,6 +132,40 @@ export function getDocumentsForConversation(
 }
 
 /**
+ * Search documents across all conversations by title substring (case-insensitive).
+ * Returns documents ordered by most recently updated.
+ */
+export function searchDocumentsByTitle(
+  query: string,
+): Omit<DocumentRecord, "content">[] {
+  try {
+    const rows = rawAll<DocumentListRow>(
+      /*sql*/ `
+      SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
+      FROM documents
+      WHERE title LIKE '%' || ? || '%' COLLATE NOCASE
+      ORDER BY updated_at DESC
+      LIMIT 20
+      `,
+      query,
+    );
+
+    log.info({ query, count: rows.length }, "Searched documents by title");
+    return rows.map((row) => ({
+      surfaceId: row.surface_id,
+      conversationId: row.conversation_id,
+      title: row.title,
+      wordCount: row.word_count,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  } catch (error) {
+    log.error({ err: error, query }, "Search error");
+    return [];
+  }
+}
+
+/**
  * Delete a document and its conversation associations.
  * Returns `true` if the document existed and was deleted, `false` otherwise.
  */

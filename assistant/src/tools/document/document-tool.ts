@@ -5,6 +5,7 @@ import {
   getDocumentById,
   getDocumentsForConversation,
   saveDocument,
+  searchDocumentsByTitle,
   updateDocumentContent,
 } from "../../documents/document-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
@@ -161,10 +162,13 @@ export function executeDocumentRead(
 }
 
 export function executeDocumentList(
-  _input: Record<string, unknown>,
+  input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const docs = getDocumentsForConversation(context.conversationId);
+  const query = input.query as string | undefined;
+  const docs = query
+    ? searchDocumentsByTitle(query)
+    : getDocumentsForConversation(context.conversationId);
   return {
     content: JSON.stringify({
       success: true,

@@ -69,12 +69,17 @@
     },
     {
       "name": "document_list",
-      "description": "List all documents in the current conversation.",
+      "description": "List documents. Without a query, lists documents in the current conversation. With a query, searches all documents by title across all conversations.",
       "category": "document",
       "risk": "low",
       "input_schema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search documents by title across all conversations. Omit to list only the current conversation's documents."
+          }
+        }
       },
       "executor": "tools/document-list.ts",
       "execution_target": "host"
