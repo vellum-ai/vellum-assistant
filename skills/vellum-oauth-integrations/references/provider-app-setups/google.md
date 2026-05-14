@@ -157,10 +157,10 @@ On macOS desktop, before proceeding, copy the comma-separated scope string below
 The scopes to paste:
 
 ```
-https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/gmail.settings.basic,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly
+https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly
 ```
 
-> You should see all 9 scopes listed across the three categories (Non-sensitive, Sensitive, Restricted):
+> You should see all 8 scopes listed across the three categories (Non-sensitive, Sensitive, Restricted):
 >
 > - `userinfo.email`
 > - `contacts.readonly`
@@ -170,9 +170,8 @@ https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/g
 > - `gmail.send`
 > - `gmail.modify`
 > - `gmail.readonly`
-> - `gmail.settings.basic`
 >
-> **Note:** GCP may categorize these scopes differently than you'd expect — that's fine, as long as all 9 are present.
+> **Note:** GCP may categorize these scopes differently than you'd expect — that's fine, as long as all 8 are present.
 >
 > **Quick note on email safety:** The `gmail.modify` and `gmail.send` scopes let me create drafts and, when you explicitly ask, send them. By default I only create drafts — nothing leaves your outbox without your approval. If you'd rather I only have read access to your email for now, you can uncheck those two - everything else will still work fine, and you can always come back and add them later.
 
