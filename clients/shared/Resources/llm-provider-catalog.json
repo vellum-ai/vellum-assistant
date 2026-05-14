@@ -1049,38 +1049,6 @@
             "inputPer1mTokens": 0.15,
             "outputPer1mTokens": 1.15
           }
-        },
-        {
-          "id": "MiniMax-M2.1",
-          "displayName": "MiniMax M2.1",
-          "contextWindowTokens": 204800,
-          "maxOutputTokens": 131072,
-          "defaultContextWindowTokens": 200000,
-          "longContextMode": "native-model",
-          "supportsThinking": true,
-          "supportsCaching": false,
-          "supportsVision": false,
-          "supportsToolUse": true,
-          "pricing": {
-            "inputPer1mTokens": 0.29,
-            "outputPer1mTokens": 0.95
-          }
-        },
-        {
-          "id": "MiniMax-M1",
-          "displayName": "MiniMax M1",
-          "contextWindowTokens": 1000000,
-          "maxOutputTokens": 40000,
-          "defaultContextWindowTokens": 200000,
-          "longContextMode": "native-model",
-          "supportsThinking": true,
-          "supportsCaching": false,
-          "supportsVision": false,
-          "supportsToolUse": true,
-          "pricing": {
-            "inputPer1mTokens": 0.4,
-            "outputPer1mTokens": 2.2
-          }
         }
       ]
     }
