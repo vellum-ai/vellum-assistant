@@ -281,6 +281,7 @@ struct MessageCellView: View, Equatable {
             HStack(spacing: 0) {
                 SubagentGroupContainer(
                     subagents: subagents,
+                    headerAvatar: AvatarAppearanceManager.shared.chatAvatarImage,
                     onAbort: { id in onAbortSubagent?(id) },
                     onTap: { id in onSubagentTap?(id) },
                     avatarProvider: { SubagentAvatarProvider.avatar(for: $0, size: 20) }
