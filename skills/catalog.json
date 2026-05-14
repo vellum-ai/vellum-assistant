@@ -329,7 +329,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-05-14T15:59:51-04:00"
+      "updatedAt": "2026-05-14T16:08:22-04:00"
     },
     {
       "id": "macos-automation",
@@ -616,6 +616,27 @@
       },
       "compatibility": "Designed for Vellum personal assistants",
       "updatedAt": "2026-04-21T16:02:02-04:00"
+    },
+    {
+      "id": "species-migration",
+      "name": "species-migration",
+      "description": "Migrate from OpenClaw, Hermes, Manus, and other assistant species into Vellum by inspecting their exports, files, prompts, memory, tools, workflows, integrations, and relationships, then mapping as much as safely possible into Vellum primitives without hard-coded foreign-species porting logic.",
+      "metadata": {
+        "emoji": "🧬",
+        "vellum": {
+          "display-name": "Species Migration",
+          "feature-flag": "species-migration",
+          "activation-hints": [
+            "User wants to migrate from OpenClaw, Hermes, Manus, or another assistant species into Vellum",
+            "User has an assistant export, workspace, prompt bundle, memory dump, tool config, or migration request from another assistant system",
+            "User asks what can be preserved when switching assistant species"
+          ],
+          "avoid-when": [
+            "User is moving an existing Vellum assistant between Vellum homes; use backup/restore or teleport workflows instead"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
     },
     {
       "id": "start-the-day",
