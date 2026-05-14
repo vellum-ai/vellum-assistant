@@ -32,7 +32,6 @@ mock.module("../../acp/index.js", () => ({
 const capturedLimits: number[] = [];
 
 mock.module("../../memory/db-connection.js", () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const builder: any = {};
   builder.select = () => builder;
   builder.from = () => builder;
