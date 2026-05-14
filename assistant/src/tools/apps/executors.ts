@@ -217,6 +217,8 @@ render(<App />, document.getElementById('app')!);
             ...app,
             auto_opened: false,
             auto_open_error: openResult.content,
+            next_steps:
+              "Scaffold created with a placeholder src/main.tsx only. The app is NOT built yet. You MUST now (1) write the real src/main.tsx, components under src/components/, and src/styles.css with file_write, then (2) call app_refresh once. Stopping here leaves the user with an empty Hello-world placeholder.",
           }),
           isError: false,
         };
@@ -226,6 +228,8 @@ render(<App />, document.getElementById('app')!);
           ...app,
           auto_opened: true,
           open_result: openResult.content,
+          next_steps:
+            "Scaffold created with a placeholder src/main.tsx only. The app is NOT built yet. You MUST now (1) write the real src/main.tsx, components under src/components/, and src/styles.css with file_write, then (2) call app_refresh once. Stopping here leaves the user with an empty Hello-world placeholder.",
         }),
         isError: false,
       };
@@ -237,13 +241,22 @@ render(<App />, document.getElementById('app')!);
           auto_opened: false,
           auto_open_error:
             "Failed to auto-open app. Use app_open to open it manually.",
+          next_steps:
+            "Scaffold created with a placeholder src/main.tsx only. The app is NOT built yet. You MUST now (1) write the real src/main.tsx, components under src/components/, and src/styles.css with file_write, then (2) call app_refresh once. Stopping here leaves the user with an empty Hello-world placeholder.",
         }),
         isError: false,
       };
     }
   }
 
-  return { content: JSON.stringify(app), isError: false };
+  return {
+    content: JSON.stringify({
+      ...app,
+      next_steps:
+        "Scaffold created with a placeholder src/main.tsx only. The app is NOT built yet. You MUST now (1) write the real src/main.tsx, components under src/components/, and src/styles.css with file_write, then (2) call app_refresh once. Stopping here leaves the user with an empty Hello-world placeholder.",
+    }),
+    isError: false,
+  };
 }
 
 // ---------------------------------------------------------------------------

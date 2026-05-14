@@ -102,6 +102,85 @@ describe("executeAppCreate", () => {
     expect(files["src/main.tsx"]).toBeDefined();
     expect(files["src/main.tsx"]).toContain("import { render } from 'preact'");
     expect(files["src/main.tsx"]).toContain('{"Hello, New App!"}');
+    // next_steps directive must be present so the model keeps writing
+    // real source files instead of treating the scaffold as done.
+    const parsed = JSON.parse(result.content);
+    expect(parsed.next_steps).toContain("placeholder src/main.tsx");
+    expect(parsed.next_steps).toContain("app_refresh");
+  });
+
+  test("includes next_steps when auto_open succeeds", async () => {
+    const files: Record<string, string> = {};
+    const app = makeMultifileApp({ name: "New App" });
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: () => app,
+    };
+    const proxyResolver = async () => ({
+      content: JSON.stringify({ opened: true }),
+      isError: false,
+    });
+
+    const result = await executeAppCreate(
+      { name: "New App" },
+      store,
+      proxyResolver,
+    );
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.auto_opened).toBe(true);
+    expect(parsed.next_steps).toContain("placeholder src/main.tsx");
+    expect(parsed.next_steps).toContain("app_refresh");
+  });
+
+  test("includes next_steps when auto_open returns error", async () => {
+    const files: Record<string, string> = {};
+    const app = makeMultifileApp({ name: "New App" });
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: () => app,
+    };
+    const proxyResolver = async () => ({
+      content: "open failed",
+      isError: true,
+    });
+
+    const result = await executeAppCreate(
+      { name: "New App" },
+      store,
+      proxyResolver,
+    );
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.auto_opened).toBe(false);
+    expect(parsed.next_steps).toContain("placeholder src/main.tsx");
+    expect(parsed.next_steps).toContain("app_refresh");
+  });
+
+  test("includes next_steps when auto_open proxy throws", async () => {
+    const files: Record<string, string> = {};
+    const app = makeMultifileApp({ name: "New App" });
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: () => app,
+    };
+    const proxyResolver = async () => {
+      throw new Error("proxy unavailable");
+    };
+
+    const result = await executeAppCreate(
+      { name: "New App" },
+      store,
+      proxyResolver,
+    );
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.auto_opened).toBe(false);
+    expect(parsed.next_steps).toContain("placeholder src/main.tsx");
+    expect(parsed.next_steps).toContain("app_refresh");
   });
 
   test("rejects retired html shortcut", async () => {
