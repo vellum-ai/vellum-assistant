@@ -28,6 +28,14 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
 /** Turn event — one per user message. */
 export interface TurnTelemetryEvent extends TelemetryEventBase {
   type: "turn";
+  /**
+   * Type of the parent conversation. Lets analytics distinguish
+   * user-initiated turns (`"standard"`) from system-generated prompts
+   * in `"background"` / `"scheduled"` conversations. Daemons predating
+   * this field send no value; downstream consumers should treat a
+   * missing value as `"standard"` to preserve DAU during rollout.
+   */
+  conversation_type: string;
 }
 
 /** Lifecycle event — app_open, hatch, etc. */
