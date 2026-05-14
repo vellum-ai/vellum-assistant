@@ -24,7 +24,6 @@ import { updatePublishedAppDeployment } from "../services/published-app-updater.
 import { getSubagentManager } from "../subagent/index.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
-import { APP_VERSION } from "../version.js";
 import {
   AppSourceWatcher,
   setEnsureAppSourceWatcher,
@@ -43,14 +42,10 @@ import {
   setCesClientPromise,
 } from "./conversation-store.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
-import { installPluginPostBoot } from "./external-plugins-bootstrap.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { setGlobalSkillIpcSender } from "./meet-host-supervisor.js";
-import {
-  PluginSourceWatcher,
-  setEnsurePluginSourceWatcher,
-} from "./plugin-source-watcher.js";
+import { PluginSourceWatcher } from "./plugin-source-watcher.js";
 
 const log = getLogger("server");
 
@@ -76,7 +71,7 @@ export class DaemonServer {
   // Composed subsystems
   private configWatcher = getConfigWatcher();
   private appSourceWatcher = new AppSourceWatcher();
-  private pluginSourceWatcher = new PluginSourceWatcher();
+  private pluginSourceWatcher = PluginSourceWatcher.getInstance();
   private cliIpc = new AssistantIpcServer();
   private skillIpc = new SkillIpcServer();
 
@@ -150,9 +145,6 @@ export class DaemonServer {
     });
 
     setEnsureAppSourceWatcher(() => this.appSourceWatcher.ensureStarted());
-    setEnsurePluginSourceWatcher(() =>
-      this.pluginSourceWatcher.ensureStarted(),
-    );
     // Wire the skill IPC server into the meet-host supervisor's lazy
     // dispatch path. The supervisor is constructed in
     // `initializeProvidersAndTools()` (via `startMeetHost`), which can run
@@ -214,25 +206,6 @@ export class DaemonServer {
 
   private broadcastAvatarUpdated(): void {
     publishAvatarChanged();
-  }
-
-  /**
-   * Handle a detected plugin source change from the plugin filesystem
-   * watcher. Routes to `installPluginPostBoot` which gates on the in-memory
-   * registry, so repeated fires for an already-loaded plugin are cheap
-   * no-ops and partial writes are tolerated by the loader.
-   *
-   * The watcher's debounce callback signature returns Promise<void>; we
-   * return the promise so it gets awaited by the debouncer and any throw
-   * surfaces in the watcher-level catch (which logs and swallows). The
-   * plugin install itself also catches and logs its own failures, so this
-   * is belt-and-suspenders against an unhandled rejection.
-   */
-  private handlePluginSourceChange(pluginName: string): Promise<void> {
-    return installPluginPostBoot(pluginName, {
-      config: getConfig(),
-      assistantVersion: APP_VERSION,
-    });
   }
 
   /**
@@ -316,14 +289,10 @@ export class DaemonServer {
 
     this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
-    // Filesystem watcher for `<workspaceDir>/plugins/` — picks up
-    // `assistant plugins install` runs against the live daemon and triggers
-    // `installPluginPostBoot` so the new plugin's `init()` + tool/route/skill
-    // contributions land without a daemon restart. The CLI install command
-    // is a dumb file-writer; this watcher is the daemon-side init mechanism.
-    this.pluginSourceWatcher.start((pluginName) =>
-      this.handlePluginSourceChange(pluginName),
-    );
+    // Filesystem watcher for `<workspaceDir>/plugins/` — picks up plugin
+    // source changes (install/edit). The watcher owns its onChange handler
+    // internally.
+    this.pluginSourceWatcher.start();
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
     this.unsubscribeContactChange = onContactChange(() => {
