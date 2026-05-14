@@ -86,7 +86,6 @@ let mockLlmConfig: LLMConfig = structuredClone(defaultLlmConfig);
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     llm: mockLlmConfig,
-    compaction: { enabled: true, autoThreshold: 0.7, prompt: null },
     rateLimit: { maxRequestsPerMinute: 0 },
     workspaceGit: { turnCommitMaxWaitMs: 10 },
     memory: { retrieval: { scratchpadInjection: { enabled: true } } },
