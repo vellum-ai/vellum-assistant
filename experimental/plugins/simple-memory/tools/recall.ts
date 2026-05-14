@@ -25,27 +25,20 @@ export default {
     "Search every simple-memory entry (across all conversations) with a regex match. Use when you need to surface something the user told you to remember, including from previous conversations.",
   category: "plugin",
   defaultRiskLevel: "low" as const,
-  getDefinition() {
-    return {
-      name: "simple_memory_recall",
-      description:
-        "Search every simple-memory entry (across all conversations) with a regular-expression match on its text.",
-      input_schema: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description:
-              "JavaScript regular-expression pattern. Always case-insensitive. A plain string (e.g. `vargas`) works as a literal substring; metacharacters like `.`, `\\b`, alternation, or character classes are honored.",
-          },
-          limit: {
-            type: "number",
-            description: `Maximum number of matches to return. Default ${DEFAULT_LIMIT}, capped at ${MAX_LIMIT}.`,
-          },
-        },
-        required: ["query"],
+  input_schema: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description:
+          "JavaScript regular-expression pattern. Always case-insensitive. A plain string (e.g. `vargas`) works as a literal substring; metacharacters like `.`, `\\b`, alternation, or character classes are honored.",
       },
-    };
+      limit: {
+        type: "number",
+        description: `Maximum number of matches to return. Default ${DEFAULT_LIMIT}, capped at ${MAX_LIMIT}.`,
+      },
+    },
+    required: ["query"],
   },
   async execute(
     input: Record<string, unknown>,

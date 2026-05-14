@@ -49,7 +49,6 @@ import {
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import type { Plugin, PluginInitContext } from "../plugins/types.js";
-import type { ToolDefinition } from "../providers/types.js";
 import {
   __clearRegistryForTesting,
   __resetRegistryForTesting,
@@ -59,7 +58,11 @@ import {
   registerPluginTools,
   unregisterPluginTools,
 } from "../tools/registry.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
+import type {
+  PluginTool,
+  ToolContext,
+  ToolExecutionResult,
+} from "../tools/types.js";
 
 // Redirect plugin-storage-directory creation into a per-process temp tree so
 // the test doesn't touch the developer's real ~/.vellum. This matches the
@@ -76,19 +79,16 @@ const fakeCtx: DaemonContext = {
   assistantVersion: "9.9.9-test",
 };
 
-function makeFakeTool(name: string, extras: Partial<Tool> = {}): Tool {
+function makeFakeTool(
+  name: string,
+  extras: Partial<PluginTool> = {},
+): PluginTool {
   return {
     name,
     description: `Fake ${name}`,
     category: "plugin-test",
     defaultRiskLevel: RiskLevel.Low,
-    getDefinition(): ToolDefinition {
-      return {
-        name,
-        description: `Fake ${name}`,
-        input_schema: { type: "object", properties: {}, required: [] },
-      };
-    },
+    input_schema: { type: "object", properties: {}, required: [] },
     async execute(
       _input: Record<string, unknown>,
       _context: ToolContext,

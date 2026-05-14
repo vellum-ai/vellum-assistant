@@ -42,7 +42,11 @@ import type {
   ToolDefinition,
 } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
+import type {
+  PluginTool,
+  ToolContext,
+  ToolExecutionResult,
+} from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
@@ -997,15 +1001,16 @@ export interface Injector {
 // catalog-discoverable skills today.
 
 /**
- * Tool registration contributed by a plugin. Uses the canonical {@link Tool}
- * interface from the tool registry — the bootstrap stamps `origin: "plugin"`
- * and `ownerPluginId: <plugin.name>` before handing the batch to
- * `registerPluginTools`, which keeps plugin ref-counts and conflict detection
- * in a namespace disjoint from real skills. Plugin authors supply the
- * functional fields (`name`, `description`, `getDefinition`, `execute`, etc.)
- * and leave the ownership metadata to the bootstrap to set authoritatively.
+ * Tool registration contributed by a plugin. Uses the narrow
+ * {@link PluginTool} shape — plugin authors declare functional fields
+ * (`name`, `description`, `input_schema`, `execute`, etc.) and leave the
+ * ownership metadata to the bootstrap, which stamps `origin: "plugin"` and
+ * `ownerPluginId: <plugin.name>` before handing the batch to
+ * `registerPluginTools`. The registration boundary synthesizes
+ * `getDefinition()` from `{name, description, input_schema}` so the canonical
+ * {@link Tool} interface used by the internal registry stays unchanged.
  */
-export type PluginToolRegistration = Tool;
+export type PluginToolRegistration = PluginTool;
 /**
  * HTTP route registration contributed by a plugin. Plugins express routes as
  * {@link SkillRoute} values — the same shape the skill-route registry

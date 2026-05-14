@@ -373,3 +373,17 @@ export interface Tool {
     context: ToolContext,
   ): Promise<ToolExecutionResult>;
 }
+
+/**
+ * Plugin-facing tool shape. The narrow surface plugin authors implement;
+ * differs from {@link Tool} in two ways:
+ * - Plugins declare `input_schema` as a top-level field instead of
+ *   implementing `getDefinition()`. The registration boundary synthesizes
+ *   `getDefinition()` from `{name, description, input_schema}` before the
+ *   tool enters the internal registry.
+ * - All ownership stamps (`origin`, `ownerPluginId`, etc.) are set
+ *   authoritatively by the bootstrap; plugin authors leave them blank.
+ */
+export type PluginTool = Omit<Tool, "getDefinition"> & {
+  input_schema: object;
+};

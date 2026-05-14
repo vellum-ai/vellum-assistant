@@ -14,23 +14,15 @@ export default {
     "Append a freeform note to simple-memory for the current conversation. Use when the user states a stable preference, a fact about themselves, or a decision worth carrying across turns.",
   category: "plugin",
   defaultRiskLevel: "low" as const,
-  getDefinition() {
-    return {
-      name: "simple_memory_remember",
-      description:
-        "Append a freeform note to simple-memory for the current conversation.",
-      input_schema: {
-        type: "object",
-        properties: {
-          text: {
-            type: "string",
-            description:
-              "The note to remember. One sentence, written naturally.",
-          },
-        },
-        required: ["text"],
+  input_schema: {
+    type: "object",
+    properties: {
+      text: {
+        type: "string",
+        description: "The note to remember. One sentence, written naturally.",
       },
-    };
+    },
+    required: ["text"],
   },
   async execute(
     input: Record<string, unknown>,

@@ -10,7 +10,7 @@ import { hostFileWriteTool } from "./host-filesystem/write.js";
 import { hostShellTool } from "./host-terminal/host-shell.js";
 import { toProviderSafeToolName } from "./provider-tool-name.js";
 import { registerSystemTools } from "./system/register.js";
-import type { Tool } from "./types.js";
+import type { PluginTool, Tool } from "./types.js";
 import { allUiSurfaceTools } from "./ui-surface/definitions.js";
 import { registerUiSurfaceTools } from "./ui-surface/registry.js";
 
@@ -193,19 +193,28 @@ export function registerSkillTools(newTools: Tool[]): Tool[] {
  */
 export function registerPluginTools(
   pluginName: string,
-  newTools: Tool[],
+  newTools: PluginTool[],
 ): Tool[] {
-  const stamped: Tool[] = newTools.map((tool) =>
-    withProviderSafeToolName({
-      ...tool,
+  const stamped: Tool[] = newTools.map((pluginTool) => {
+    const { input_schema, ...rest } = pluginTool;
+    const tool: Tool = {
+      ...rest,
       origin: "plugin" as const,
       ownerPluginId: pluginName,
       ownerSkillId: undefined,
       ownerMcpServerId: undefined,
       ownerSkillBundled: undefined,
       ownerSkillVersionHash: undefined,
-    }),
-  );
+      getDefinition(): ToolDefinition {
+        return {
+          name: pluginTool.name,
+          description: pluginTool.description,
+          input_schema,
+        };
+      },
+    };
+    return withProviderSafeToolName(tool);
+  });
 
   const accepted: Tool[] = [];
   for (const tool of stamped) {
