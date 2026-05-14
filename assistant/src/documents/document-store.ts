@@ -58,6 +58,10 @@ interface DocumentRow {
 
 type DocumentListRow = Omit<DocumentRow, "content">;
 
+function escapeSqlLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
 function mapRowToRecord(row: DocumentRow): DocumentRecord {
   return {
     surfaceId: row.surface_id,
@@ -90,6 +94,32 @@ export function getDocumentById(surfaceId: string): DocumentRecord | null {
   } catch (error) {
     log.error({ err: error, surfaceId }, "Load error");
     return null;
+  }
+}
+
+/** Return true when a document is associated with a conversation. */
+export function isDocumentAssociatedWithConversation(
+  surfaceId: string,
+  conversationId: string,
+): boolean {
+  try {
+    const row = rawGet<{ found: number }>(
+      /*sql*/ `
+      SELECT 1 AS found
+      FROM document_conversations
+      WHERE surface_id = ? AND conversation_id = ?
+      LIMIT 1
+      `,
+      surfaceId,
+      conversationId,
+    );
+    return row != null;
+  } catch (error) {
+    log.error(
+      { err: error, surfaceId, conversationId },
+      "Document association check error",
+    );
+    return false;
   }
 }
 
@@ -132,25 +162,47 @@ export function getDocumentsForConversation(
 }
 
 /**
- * Search documents across all conversations by title substring (case-insensitive).
+ * Search documents by title substring (case-insensitive).
+ * When `conversationId` is supplied, only documents associated with that
+ * conversation are returned.
  * Returns documents ordered by most recently updated.
  */
 export function searchDocumentsByTitle(
   query: string,
+  options: { conversationId?: string } = {},
 ): Omit<DocumentRecord, "content">[] {
   try {
-    const rows = rawAll<DocumentListRow>(
-      /*sql*/ `
-      SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
-      FROM documents
-      WHERE title LIKE '%' || ? || '%' COLLATE NOCASE
-      ORDER BY updated_at DESC
-      LIMIT 20
-      `,
-      query,
-    );
+    const pattern = `%${escapeSqlLikePattern(query)}%`;
+    const rows = options.conversationId
+      ? rawAll<DocumentListRow>(
+          /*sql*/ `
+          SELECT d.surface_id, dc.conversation_id AS conversation_id,
+                 d.title, d.word_count, d.created_at, d.updated_at
+          FROM documents d
+          INNER JOIN document_conversations dc ON d.surface_id = dc.surface_id
+          WHERE dc.conversation_id = ?
+            AND d.title COLLATE NOCASE LIKE ? ESCAPE '\\'
+          ORDER BY d.updated_at DESC
+          LIMIT 20
+          `,
+          options.conversationId,
+          pattern,
+        )
+      : rawAll<DocumentListRow>(
+          /*sql*/ `
+          SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
+          FROM documents
+          WHERE title COLLATE NOCASE LIKE ? ESCAPE '\\'
+          ORDER BY updated_at DESC
+          LIMIT 20
+          `,
+          pattern,
+        );
 
-    log.info({ query, count: rows.length }, "Searched documents by title");
+    log.info(
+      { query, conversationId: options.conversationId, count: rows.length },
+      "Searched documents by title",
+    );
     return rows.map((row) => ({
       surfaceId: row.surface_id,
       conversationId: row.conversation_id,

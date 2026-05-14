@@ -4,11 +4,36 @@ import {
   deleteDocument,
   getDocumentById,
   getDocumentsForConversation,
+  isDocumentAssociatedWithConversation,
   saveDocument,
   searchDocumentsByTitle,
   updateDocumentContent,
 } from "../../documents/document-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+function isPrivilegedDocumentActor(context: ToolContext): boolean {
+  return (
+    context.trustClass === "guardian" || context.executionChannel === "vellum"
+  );
+}
+
+function documentNotFound(surfaceId: string): ToolExecutionResult {
+  return {
+    content: JSON.stringify({
+      success: false,
+      surface_id: surfaceId,
+      error: "Document not found",
+    }),
+    isError: true,
+  };
+}
+
+function canAccessDocument(surfaceId: string, context: ToolContext): boolean {
+  return (
+    isPrivilegedDocumentActor(context) ||
+    isDocumentAssociatedWithConversation(surfaceId, context.conversationId)
+  );
+}
 
 // ── Exported execute functions ──────────────────────────────────────
 
@@ -89,6 +114,10 @@ export function executeDocumentUpdate(
   const content = input.content as string;
   const mode = (input.mode as string | undefined) || "append";
 
+  if (!canAccessDocument(surfaceId, context)) {
+    return documentNotFound(surfaceId);
+  }
+
   const result = updateDocumentContent(surfaceId, content, mode);
   if (!result.success) {
     return {
@@ -134,19 +163,16 @@ export function executeDocumentUpdate(
 
 export function executeDocumentRead(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): ToolExecutionResult {
   const surfaceId = input.surface_id as string;
+  if (!canAccessDocument(surfaceId, context)) {
+    return documentNotFound(surfaceId);
+  }
+
   const doc = getDocumentById(surfaceId);
   if (!doc) {
-    return {
-      content: JSON.stringify({
-        success: false,
-        surface_id: surfaceId,
-        error: "Document not found",
-      }),
-      isError: true,
-    };
+    return documentNotFound(surfaceId);
   }
   return {
     content: JSON.stringify({
@@ -165,9 +191,17 @@ export function executeDocumentList(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const query = input.query as string | undefined;
+  const query =
+    typeof input.query === "string" && input.query.trim().length > 0
+      ? input.query.trim()
+      : undefined;
   const docs = query
-    ? searchDocumentsByTitle(query)
+    ? searchDocumentsByTitle(
+        query,
+        isPrivilegedDocumentActor(context)
+          ? {}
+          : { conversationId: context.conversationId },
+      )
     : getDocumentsForConversation(context.conversationId);
   return {
     content: JSON.stringify({
@@ -186,19 +220,16 @@ export function executeDocumentList(
 
 export function executeDocumentDelete(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): ToolExecutionResult {
   const surfaceId = input.surface_id as string;
+  if (!canAccessDocument(surfaceId, context)) {
+    return documentNotFound(surfaceId);
+  }
+
   const deleted = deleteDocument(surfaceId);
   if (!deleted) {
-    return {
-      content: JSON.stringify({
-        success: false,
-        surface_id: surfaceId,
-        error: "Document not found",
-      }),
-      isError: true,
-    };
+    return documentNotFound(surfaceId);
   }
   return {
     content: JSON.stringify({
