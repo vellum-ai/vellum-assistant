@@ -11,6 +11,7 @@ import {
   getMessages,
   type MessageRow,
 } from "../../memory/conversation-crud.js";
+import { getConversationUsageTotals } from "../../memory/llm-usage-store.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
@@ -29,6 +30,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export interface SubagentDetailResult {
   subagentId: string;
   objective?: string;
+  usage?: { inputTokens: number; outputTokens: number; estimatedCost: number };
   events: Array<{
     type: string;
     content: string;
@@ -142,7 +144,30 @@ function getSubagentDetail(
   subagentId: string,
   conversationId: string,
 ): SubagentDetailResult {
-  return parseSubagentMessages(subagentId, getMessages(conversationId));
+  const messages = getMessages(conversationId);
+  log.info(
+    {
+      subagentId,
+      conversationId,
+      messageCount: messages.length,
+      roles: messages.map((m) => m.role),
+    },
+    "getSubagentDetail: raw messages from DB",
+  );
+  const result = parseSubagentMessages(subagentId, messages);
+  log.info(
+    {
+      subagentId,
+      eventCount: result.events.length,
+      eventTypes: result.events.map((e) => `${e.type}:${e.toolName ?? ""}`),
+    },
+    "getSubagentDetail: parsed events",
+  );
+  const usage = getConversationUsageTotals(conversationId);
+  if (usage.inputTokens > 0 || usage.outputTokens > 0) {
+    result.usage = usage;
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -173,9 +198,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: ({ pathParams, queryParams }) => {
       const conversationId = queryParams?.conversationId;
       if (!conversationId) {
-        throw new BadRequestError(
-          "conversationId query parameter is required",
-        );
+        throw new BadRequestError("conversationId query parameter is required");
       }
 
       const manager = getSubagentManager();
@@ -209,11 +232,7 @@ export const ROUTES: RouteDefinition[] = [
       }
 
       const manager = getSubagentManager();
-      const aborted = manager.abort(
-        pathParams!.id,
-        () => {},
-        conversationId,
-      );
+      const aborted = manager.abort(pathParams!.id, () => {}, conversationId);
 
       if (!aborted) {
         log.warn(
