@@ -1012,7 +1012,7 @@
       "apiKeyPlaceholder": "eyJ...",
       "credentialsGuide": {
         "description": "Sign in to the MiniMax platform, navigate to API Keys, and create a new key.",
-        "url": "https://platform.minimaxi.com/user-center/basic-information/interface-key",
+        "url": "https://platform.minimax.io/user-center/basic-information/interface-key",
         "linkLabel": "Open MiniMax Platform"
       },
       "supportsPlatformAuth": false,
@@ -1026,12 +1026,28 @@
           "defaultContextWindowTokens": 200000,
           "longContextMode": "native-model",
           "supportsThinking": true,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.28,
+            "inputPer1mTokens": 0.3,
             "outputPer1mTokens": 1.2
+          }
+        },
+        {
+          "id": "MiniMax-M2.7-highspeed",
+          "displayName": "MiniMax M2.7 Highspeed",
+          "contextWindowTokens": 204800,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.6,
+            "outputPer1mTokens": 2.4
           }
         },
         {
@@ -1042,12 +1058,76 @@
           "defaultContextWindowTokens": 200000,
           "longContextMode": "native-model",
           "supportsThinking": true,
-          "supportsCaching": false,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.15,
-            "outputPer1mTokens": 1.15
+            "inputPer1mTokens": 0.3,
+            "outputPer1mTokens": 1.2
+          }
+        },
+        {
+          "id": "MiniMax-M2.5-highspeed",
+          "displayName": "MiniMax M2.5 Highspeed",
+          "contextWindowTokens": 204800,
+          "maxOutputTokens": 196608,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.6,
+            "outputPer1mTokens": 2.4
+          }
+        },
+        {
+          "id": "MiniMax-M2.1",
+          "displayName": "MiniMax M2.1",
+          "contextWindowTokens": 204800,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.3,
+            "outputPer1mTokens": 1.2
+          }
+        },
+        {
+          "id": "MiniMax-M2.1-highspeed",
+          "displayName": "MiniMax M2.1 Highspeed",
+          "contextWindowTokens": 204800,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.6,
+            "outputPer1mTokens": 2.4
+          }
+        },
+        {
+          "id": "MiniMax-M2",
+          "displayName": "MiniMax M2",
+          "contextWindowTokens": 204800,
+          "maxOutputTokens": 204800,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.3,
+            "outputPer1mTokens": 1.2
           }
         }
       ]
