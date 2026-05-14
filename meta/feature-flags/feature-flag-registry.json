@@ -304,6 +304,14 @@
       "label": "External Plugins",
       "description": "Enable the external-plugin install path: the `assistant plugins` CLI subcommand and the declarative external-plugin loader convention (`<workspaceDir>/plugins/<name>/` directories containing `package.json` plus interface dirs). Gates an unstable surface that may change shape before stabilizing.",
       "defaultEnabled": false
+    },
+    {
+      "id": "google-connect-scan",
+      "scope": "assistant",
+      "key": "google-connect-scan",
+      "label": "Google Connect Scan",
+      "description": "After Google OAuth completes during onboarding, spawn parallel subagents to scan Gmail and Calendar and synthesize actionable insights",
+      "defaultEnabled": false
     }
   ]
 }
