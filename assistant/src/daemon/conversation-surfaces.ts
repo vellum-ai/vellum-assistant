@@ -1626,7 +1626,7 @@ export async function handleSurfaceAction(
     requestId,
     surfaceId,
     undefined,
-    undefined,
+    { automated: true },
     undefined,
     displayContent,
   );
