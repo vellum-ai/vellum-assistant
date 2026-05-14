@@ -48,39 +48,125 @@ References:
 ### Organize by domain, not technical layer
 
 Group code by what it does (messages, conversations, streaming,
-interactions), not by what it is (hooks, utils, components).
+interactions), not by what it is (hooks, utils, components). The
+top-level folder for domain modules is called **`domains/`**.
 
 ```
 src/
-  features/
-    messages/
+  domains/                         # business domain modules
+    messages/                      # message lifecycle
+      use-message-store.ts
       use-send-message.ts
       message-handlers.ts
       message-handlers.test.ts
       types.ts
-    conversations/
+      components/
+        chat-body.tsx
+    conversations/                 # conversation CRUD, grouping, selection
+      use-conversation-store.ts
       use-conversation-loader.ts
       conversation-reducer.ts
       conversation-reducer.test.ts
-    streaming/
-      stream-handlers/
+      types.ts
+    streaming/                     # SSE transport, event parsing
+      use-stream-store.ts
+      stream-transport.ts
+      event-parser.ts
+      event-types.ts
+      handlers/
         message-handlers.ts
         interaction-handlers.ts
         types.ts
-      use-stream-event-handler.ts
-    interactions/
+    interactions/                   # user-facing prompts
+      use-interaction-store.ts
       interaction-state-machine.ts
       interaction-state-machine.test.ts
-      use-interaction-actions.ts
+      types.ts
+  hooks/                           # cross-domain shared hooks
+    use-is-mobile.ts
+    use-visible-viewport.ts
+  utils/                           # cross-domain shared utilities
+    format.ts
+    browser.ts
+  types/                           # cross-domain shared types
+    window.d.ts
+  lib/                             # configured third-party wrappers
+    api-client.ts
+    csrf.ts
+    telemetry.ts
+  runtime/                         # framework adapters, platform bridges
+    native-auth.ts
+    route-adapter.ts
+  components/                      # cross-domain shared UI
+  pages/                           # route-level page components
 ```
 
-Prefer domain folders over technical-layer folders (`hooks/`, `utils/`,
-`types/`). **Cross-domain shared code lives at the nearest common
-ancestor.** If a utility or hook is consumed by multiple domains, hoist
-it — sometimes that means a top-level shared directory, and that's
-fine.
+#### Why `domains/` not `features/`
 
-Reference: [React Router — Feature Folders](https://reactrouter.com/how-to/file-route-conventions)
+The team chose `domains/` over the more common `features/` because
+"features" implies product-level concepts (like "chat" or
+"settings") that contain multiple domains. `messages`,
+`conversations`, and `streaming` are business domains with distinct
+data models and lifecycles — not features. `domains/` is more precise
+for a DDD-influenced architecture and signals that each folder
+represents a bounded context.
+
+References:
+- [Bulletproof React — Project Structure](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md)
+- [React Router — Feature Folders](https://reactrouter.com/how-to/file-route-conventions)
+
+### How to decide where the domain split is
+
+Think of domains like database tables, not nested documents. Split by
+**lifecycle and reason-to-change**, not by containment:
+
+- **Separate domain if:** it has its own API endpoints, its own data
+  model/types, its own state lifecycle, and could be worked on by a
+  different developer without merge conflicts.
+- **Same domain if:** two things always change together, share the same
+  store, and splitting them would create circular cross-imports.
+- **Cross-domain imports are normal.** `messages/` importing types from
+  `conversations/` is expected. The rule is: **no circular
+  dependencies** between domains. If A imports from B AND B imports
+  from A, either merge them or hoist the shared code to `types/`.
+
+Examples of correct splits:
+- `messages/` vs `conversations/`: messages are created, streamed,
+  delta-updated, and compacted — different lifecycle from conversation
+  CRUD and grouping.
+- `streaming/` vs `messages/`: SSE transport and reconnection logic
+  changes for different reasons than message state management.
+- `interactions/` vs `turn/`: user-facing prompts (secrets,
+  confirmations) have their own state machine, independent from the
+  turn lifecycle (idle → sending → receiving → complete).
+
+### Top-level shared directories
+
+Code used across multiple domains lives in top-level shared
+directories. If something is domain-specific, it belongs inside
+`domains/<name>/`.
+
+| Folder | Purpose | Example contents |
+|---|---|---|
+| `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-keyboard-shortcuts.ts` |
+| `utils/` | Pure utility functions | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |
+| `types/` | Shared type definitions | `window.d.ts`, `api-types.ts` |
+| `lib/` | Configured third-party wrappers | `api-client.ts` (HeyAPI + interceptors), `csrf.ts`, `telemetry.ts` (Sentry), `feature-flags.ts` |
+| `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
+| `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
+| `pages/` | Route-level page components | `conversation-detail.tsx`, `settings-tab.tsx` |
+| `generated/` | Auto-generated code (HeyAPI, catalogs) | `heyapi/`, `catalogs/` |
+
+#### Why `lib/` exists
+
+The platform repo has configured third-party wrappers (HeyAPI client
+with request/response interceptors, CSRF token management, Sentry
+configuration, feature flag providers) that don't fit `utils/` (they
+have side effects and configure instances — not pure functions) or
+`runtime/` (they're not framework adapters). `lib/` is the standard
+home for this category of code.
+
+Reference: [Bulletproof React — `lib/` directory](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md)
 
 ### No barrel files
 
@@ -120,6 +206,35 @@ const { messages } = useContext(ChatContext);
 References:
 - [Zustand docs](https://zustand.docs.pmnd.rs/)
 - [Zustand — Auto-generating selectors](https://zustand.docs.pmnd.rs/guides/auto-generating-selectors)
+
+### Zustand store conventions
+
+Each domain owns its store, colocated within the domain folder:
+`domains/messages/use-message-store.ts`. File naming follows hook
+convention since stores are accessed as hooks: `use-{domain}-store.ts`.
+
+Store creation pattern:
+
+```ts
+import { create } from "zustand";
+import { messageReducer } from "./message-reducer.js";
+import type { MessageState, MessageAction } from "./types.js";
+
+interface MessageStore extends MessageState {
+  dispatch: (action: MessageAction) => void;
+}
+
+export const useMessageStore = create<MessageStore>((set) => ({
+  messages: [],
+  // ... initial state
+  dispatch: (action) => set((state) => messageReducer(state, action)),
+}));
+```
+
+Keep store definitions in their domain folder — adding or removing a
+domain means adding or removing a folder.
+
+Reference: [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
 
 ### useReducer for related state within a component
 
@@ -291,6 +406,30 @@ This keeps the door open for future static prerendering or hybrid
 runtimes.
 
 Reference: [Vite — SSR guidance](https://vite.dev/guide/ssr.html)
+
+---
+
+## Design system
+
+### `packages/design-library/`
+
+Domain-agnostic UI primitives (Button, Card, Modal, Menu, Toast,
+Inputs, etc.) live in `packages/design-library/` outside `apps/web/`.
+The package is aliased as `@vellum/design-library` via Vite
+`resolve.alias` + tsconfig `paths` for monorepo HMR during
+development, with a clean path to npm publishing later.
+
+```ts
+import { Button } from "@vellum/design-library/button.js";
+import { Modal } from "@vellum/design-library/modal.js";
+```
+
+Design system components accept props and render UI. They must not
+import domain state, feature hooks, or application-specific logic.
+
+References:
+- [Vite — resolve.alias](https://vite.dev/config/shared-options.html#resolve-alias)
+- [TypeScript — paths](https://www.typescriptlang.org/tsconfig/#paths)
 
 ---
 
