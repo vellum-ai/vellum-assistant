@@ -59,7 +59,7 @@ const HEADER_PREFIX_UNICODE = "── Vellum ";
 const HEADER_PREFIX_ASCII = "-- Vellum ";
 
 // Left panel structure: HEADER lines + art + FOOTER lines
-const LEFT_HEADER_LINES = 3; // spacer + heading + spacer
+const LEFT_HEADER_LINES = 4; // spacer + eyebrow + title + spacer
 const LEFT_FOOTER_LINES = 3; // spacer + runtimeUrl + dirName
 
 // Right panel structure
@@ -67,7 +67,7 @@ const TIPS = [
   "Send a message to start chatting",
   "Use /help to see available commands",
 ];
-const RIGHT_PANEL_INFO_SECTIONS = 3; // Assistant, Species, Status — each with heading + value
+const RIGHT_PANEL_INFO_SECTIONS = 3; // Assistant ID, Species, Status — each with heading + value
 const RIGHT_PANEL_SPACERS = 2; // top spacer + spacer between tips and info
 const RIGHT_PANEL_TIPS_HEADING = 1;
 const RIGHT_PANEL_LINE_COUNT =
@@ -665,6 +665,21 @@ function truncateValue(value: unknown, maxLen: number): string {
   return serialized;
 }
 
+function formatHeaderTitle(assistantName?: string): string {
+  const rawTitle = assistantName?.trim() || "Meet your Assistant!";
+  const title = rawTitle.replace(/\s+/g, " ");
+  const maxTitleLength = LEFT_PANEL_WIDTH - 2;
+  const displayTitle =
+    title.length > maxTitleLength
+      ? title.slice(0, maxTitleLength - 3) + "..."
+      : title;
+  return `  ${displayTitle}`;
+}
+
+function formatHeaderEyebrow(): string {
+  return "  Assistant";
+}
+
 interface ToolCallDisplayProps {
   tc: ToolCallInfo;
 }
@@ -854,28 +869,33 @@ function stripAnsi(str: string): string {
 interface DefaultMainScreenProps {
   runtimeUrl: string;
   assistantId: string;
+  assistantName?: string;
   species: Species;
   healthStatus?: string;
 }
 
 interface StyledLine {
   text: string;
-  style: "heading" | "dim" | "normal";
+  style: "heading" | "dim" | "normal" | "eyebrow" | "title" | "art";
 }
 
 function CompactHeader({
+  assistantName,
   species,
   healthStatus,
   totalWidth,
 }: {
+  assistantName?: string;
   species: Species;
   healthStatus?: string;
   totalWidth: number;
 }): ReactElement {
-  const config = SPECIES_CONFIG[species];
   const accentColor = species === "openclaw" ? "red" : "magenta";
   const status = healthStatus ?? "checking...";
-  const label = ` ${config.hatchedEmoji} ${species} ${statusEmoji(status)} `;
+  const identity = assistantName?.trim() || species;
+  const compactIdentity =
+    identity.length > 18 ? `${identity.slice(0, 15)}...` : identity;
+  const label = ` ${compactIdentity} ${statusEmoji(status)} `;
   const prefix = "── Vellum";
   const suffix = "──";
   const fillLen = Math.max(
@@ -897,13 +917,13 @@ function CompactHeader({
 function DefaultMainScreen({
   runtimeUrl,
   assistantId,
+  assistantName,
   species,
   healthStatus,
 }: DefaultMainScreenProps): ReactElement {
   const cwd = process.cwd();
   const dirName = basename(cwd);
   const config = SPECIES_CONFIG[species];
-  const art = config.art;
   const accentColor = species === "openclaw" ? "red" : "magenta";
   const caps = getTerminalCapabilities();
   const headerPrefix = caps.unicodeSupported
@@ -919,6 +939,7 @@ function DefaultMainScreen({
   if (isCompact) {
     return (
       <CompactHeader
+        assistantName={assistantName}
         species={species}
         healthStatus={healthStatus}
         totalWidth={totalWidth}
@@ -926,16 +947,21 @@ function DefaultMainScreen({
     );
   }
 
+  const art = config.art;
   const rightPanelWidth = Math.max(1, totalWidth - LEFT_PANEL_WIDTH);
 
-  const leftLines = [
-    " ",
-    "    Meet your Assistant!",
-    " ",
-    ...art.map((l) => `  ${stripAnsi(l)}`),
-    " ",
-    `  ${runtimeUrl}`,
-    `  ~/${dirName}`,
+  const leftLines: StyledLine[] = [
+    { text: " ", style: "normal" },
+    { text: formatHeaderEyebrow(), style: "eyebrow" },
+    { text: formatHeaderTitle(assistantName), style: "title" },
+    { text: " ", style: "normal" },
+    ...art.map((line) => ({
+      text: `  ${stripAnsi(line)}`,
+      style: "art" as const,
+    })),
+    { text: " ", style: "normal" },
+    { text: `  ${runtimeUrl}`, style: "dim" },
+    { text: `  ~/${dirName}`, style: "dim" },
   ];
 
   const rightLines: StyledLine[] = [
@@ -943,7 +969,7 @@ function DefaultMainScreen({
     { text: "Tips for getting started", style: "heading" },
     ...TIPS.map((t) => ({ text: t, style: "normal" as const })),
     { text: " ", style: "normal" },
-    { text: "Assistant", style: "heading" },
+    { text: "Assistant ID", style: "heading" },
     { text: assistantId, style: "dim" },
     { text: "Species", style: "heading" },
     {
@@ -965,29 +991,37 @@ function DefaultMainScreen({
       <Box flexDirection="row">
         <Box flexDirection="column" width={LEFT_PANEL_WIDTH}>
           {Array.from({ length: maxLines }, (_, i) => {
-            const line = leftLines[i] ?? " ";
-            if (i === 1) {
-              return (
-                <Text key={i} bold>
-                  {line}
-                </Text>
-              );
-            }
-            if (i > 2 && i <= 2 + art.length) {
+            const item = leftLines[i];
+            if (!item) return <Text key={i}> </Text>;
+            if (item.style === "eyebrow") {
               return (
                 <Text key={i} color={caps.isDumb ? undefined : accentColor}>
-                  {line}
+                  {item.text}
                 </Text>
               );
             }
-            if (i > 2 + art.length) {
+            if (item.style === "title") {
+              return (
+                <Text key={i} bold>
+                  {item.text}
+                </Text>
+              );
+            }
+            if (item.style === "art") {
+              return (
+                <Text key={i} color={caps.isDumb ? undefined : accentColor}>
+                  {item.text}
+                </Text>
+              );
+            }
+            if (item.style === "dim") {
               return (
                 <Text key={i} dimColor>
-                  {line}
+                  {item.text}
                 </Text>
               );
             }
-            return <Text key={i}>{line}</Text>;
+            return <Text key={i}>{item.text}</Text>;
           })}
         </Box>
         <Box flexDirection="column" width={rightPanelWidth}>
@@ -1108,8 +1142,7 @@ function calculateHeaderHeight(
   if ((terminalColumns ?? DEFAULT_TERMINAL_COLUMNS) < COMPACT_THRESHOLD) {
     return COMPACT_HEADER_HEIGHT;
   }
-  const config = SPECIES_CONFIG[species];
-  const artLength = config.art.length;
+  const artLength = SPECIES_CONFIG[species].art.length;
   const leftLineCount = LEFT_HEADER_LINES + artLength + LEFT_FOOTER_LINES;
   const maxLines = Math.max(leftLineCount, RIGHT_PANEL_LINE_COUNT);
   return maxLines + HEADER_CHROME_LINES;
@@ -1121,12 +1154,11 @@ export function render(
   runtimeUrl: string,
   assistantId: string,
   species: Species,
+  assistantName?: string,
 ): number {
   const terminalColumns = process.stdout.columns || DEFAULT_TERMINAL_COLUMNS;
   const isCompact = terminalColumns < COMPACT_THRESHOLD;
-
-  const config = SPECIES_CONFIG[species];
-  const art = config.art;
+  const art = SPECIES_CONFIG[species].art;
 
   const leftLineCount = LEFT_HEADER_LINES + art.length + LEFT_FOOTER_LINES;
   const maxLines = Math.max(leftLineCount, RIGHT_PANEL_LINE_COUNT);
@@ -1135,6 +1167,7 @@ export function render(
     <DefaultMainScreen
       runtimeUrl={runtimeUrl}
       assistantId={assistantId}
+      assistantName={assistantName}
       species={species}
     />,
     { exitOnCtrlC: false },
@@ -1353,6 +1386,7 @@ export interface ChatAppHandle {
 interface ChatAppProps {
   runtimeUrl: string;
   assistantId: string;
+  assistantName?: string;
   species: Species;
   /** Pre-built auth headers (e.g. { Authorization: "Bearer ..." } for local,
    *  { "X-Session-Token": "...", "Vellum-Organization-Id": "..." } for platform). */
@@ -1366,6 +1400,7 @@ interface ChatAppProps {
 function ChatApp({
   runtimeUrl,
   assistantId,
+  assistantName,
   species,
   auth,
   project,
@@ -2373,6 +2408,7 @@ function ChatApp({
       <DefaultMainScreen
         runtimeUrl={runtimeUrl}
         assistantId={assistantId}
+        assistantName={assistantName}
         species={species}
         healthStatus={healthStatus}
       />
@@ -2492,7 +2528,12 @@ export function renderChatApp(
   assistantId: string,
   species: Species,
   onExit: () => void,
-  options?: { auth?: Record<string, string>; project?: string; zone?: string },
+  options?: {
+    auth?: Record<string, string>;
+    project?: string;
+    zone?: string;
+    assistantName?: string;
+  },
 ): ChatAppInstance {
   let chatHandle: ChatAppHandle | null = null;
 
@@ -2500,6 +2541,7 @@ export function renderChatApp(
     <ChatApp
       runtimeUrl={runtimeUrl}
       assistantId={assistantId}
+      assistantName={options?.assistantName}
       species={species}
       auth={options?.auth}
       project={options?.project}

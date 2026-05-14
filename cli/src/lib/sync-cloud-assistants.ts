@@ -56,9 +56,7 @@ export async function syncCloudAssistants(
   const log = options?.log;
   const platformUrl = getPlatformUrl();
   log?.(`Platform URL: ${platformUrl}`);
-  log?.(
-    `Token found (${token.length} chars, prefix: ${token.slice(0, 6)}…)`,
-  );
+  log?.(`Token found (${token.length} chars, prefix: ${token.slice(0, 6)}…)`);
 
   // Fetch user info for the login status line
   let email: string | undefined;
@@ -94,27 +92,41 @@ export async function syncCloudAssistants(
   const platformIds = new Set(platformAssistants.map((a) => a.id));
 
   // Add new platform assistants not yet in the lockfile
-  const existingCloudIds = new Set(
-    loadAllAssistants()
-      .filter((a) => a.cloud === "vellum")
-      .map((a) => a.assistantId),
+  const existingCloudEntries = loadAllAssistants().filter(
+    (a) => a.cloud === "vellum",
   );
+  const existingCloudById = new Map(
+    existingCloudEntries.map((a) => [a.assistantId, a]),
+  );
+  const existingCloudIds = new Set(existingCloudById.keys());
   log?.(
     `Lockfile has ${existingCloudIds.size} cloud assistant(s): ${[...existingCloudIds].join(", ") || "(none)"}`,
   );
 
   let added = 0;
+  let updated = 0;
   for (const pa of platformAssistants) {
-    if (!existingCloudIds.has(pa.id)) {
+    const existing = existingCloudById.get(pa.id);
+    const assistantName = pa.name.trim();
+    const nameFields = assistantName ? { name: assistantName } : {};
+    if (!existing) {
       log?.(`Adding ${pa.name || pa.id} to lockfile`);
       saveAssistantEntry({
         assistantId: pa.id,
+        ...nameFields,
         runtimeUrl: getPlatformUrl(),
         cloud: "vellum",
         species: "vellum",
         hatchedAt: new Date().toISOString(),
       });
       added++;
+    } else if (assistantName && existing.name !== assistantName) {
+      log?.(`Updating ${pa.id} name to ${assistantName}`);
+      saveAssistantEntry({
+        ...existing,
+        name: assistantName,
+      });
+      updated++;
     }
   }
 
@@ -128,6 +140,8 @@ export async function syncCloudAssistants(
     }
   }
 
-  log?.(`Sync complete: ${added} added, ${removed} removed`);
+  log?.(
+    `Sync complete: ${added} added, ${updated} updated, ${removed} removed`,
+  );
   return { added, removed, email };
 }
