@@ -67,7 +67,6 @@ src/
         message-handlers.ts
         interaction-handlers.ts
         types.ts
-        index.ts              # barrel — re-exports public API
       use-stream-event-handler.ts
     interactions/
       interaction-state-machine.ts
@@ -75,26 +74,19 @@ src/
       use-interaction-actions.ts
 ```
 
-Do not create top-level `hooks/`, `utils/`, `types/` folders that lump
-unrelated code by technical role.
-
-**Cross-domain shared code lives at the nearest common ancestor.** If a
-utility or hook is consumed by multiple domains, hoist it — don't nest
-it inside one consumer's domain.
+Prefer domain folders over technical-layer folders (`hooks/`, `utils/`,
+`types/`). **Cross-domain shared code lives at the nearest common
+ancestor.** If a utility or hook is consumed by multiple domains, hoist
+it — sometimes that means a top-level shared directory, and that's
+fine.
 
 Reference: [React Router — Feature Folders](https://reactrouter.com/how-to/file-route-conventions)
 
-### Barrel files
+### No barrel files
 
-Use barrel files (`index.ts`) for multi-file modules that form a
-cohesive public API (e.g., `stream-handlers/index.ts` re-exporting 8+
-handler files + types). They provide clean import paths and
-encapsulation — internal reorganization doesn't break consumers.
-
-Avoid barrel files for single-file modules where `index.ts` just
-re-exports one sibling (pointless indirection).
-
-Reference: [TypeScript — Barrels](https://basarat.gitbook.io/typescript/main-1/barrel)
+Do not use barrel files (`index.ts` that re-export siblings). Import
+from the source file directly. If a genuine need arises in the future,
+discuss with the team before adding one.
 
 ---
 
@@ -343,9 +335,9 @@ why.
 
 - **Delete immediately.** When extracting logic into a new module or
   inlining it, remove the original in the same PR.
+- **Unrelated dead code spotted during a PR** gets its own separate PR
+  opened at the same time — never just filed as an issue and left.
 - **No commented-out code.** If code is removed, it lives in git
   history.
 - **Audit proactively.** When fixing a convention violation, audit the
   broader codebase for the same violation and fix all instances.
-
-Reference: [React — Keeping Components Pure](https://react.dev/learn/keeping-components-pure)
