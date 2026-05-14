@@ -110,6 +110,13 @@ export async function tryResolveProviderForConnectionName(
       `provider_connection "${connectionName}" has provider="${connection.provider}" but resolving profile declared provider="${expectedProvider}" — set the profile's provider_connection to a row matching its provider`,
     );
   }
+  if (connection.status === "disabled") {
+    log.debug(
+      { connectionName },
+      "provider_connection is disabled — returning null",
+    );
+    return null;
+  }
   // `resolveProviderFromConnection` reaches into auth resolution (credential
   // reads, managed-proxy context). A transient failure there is a soft
   // miss — log and return null so the caller can treat it the same as

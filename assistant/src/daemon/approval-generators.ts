@@ -1,6 +1,8 @@
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { loadConfig } from "../config/loader.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import { resolveDefaultProvider } from "../providers/connection-resolution.js";
+import { listProviders } from "../providers/registry.js";
 import type { Provider } from "../providers/types.js";
 import {
   APPROVAL_COPY_MAX_TOKENS,
@@ -16,6 +18,7 @@ import type {
   ApprovalConversationResult,
   ApprovalCopyGenerator,
 } from "../runtime/http-types.js";
+import { ProviderNotConfiguredError } from "../util/errors.js";
 
 // ---------------------------------------------------------------------------
 // Approval conversation generator constants
@@ -142,14 +145,13 @@ export function createApprovalConversationGenerator(): ApprovalConversationGener
     // Connection-aware default + per-call routing. `resolveDefaultProvider`
     // throws `ConnectionResolutionError` on hard config errors (missing /
     // unknown / mismatched connection) and returns null on soft credential
-    // failures (vault miss, transient auth) — we treat null as "no
-    // provider available" and throw a domain-specific error below. We do
-    // not pre-gate on `listProviders()` because the default provider lives
-    // behind a `provider_connection` and never appears in the registry's
-    // initialization-time provider list.
+    // failures (missing credential, platform auth unavailable).
     const baseProvider = await resolveDefaultProvider(config);
     if (!baseProvider) {
-      throw new Error("No provider available for approval conversation");
+      const resolved = resolveCallSiteConfig("mainAgent", config.llm);
+      throw new ProviderNotConfiguredError(resolved.provider, listProviders(), {
+        connectionName: resolved.provider_connection,
+      });
     }
     const provider = wrapWithCallSiteRouting(baseProvider, config);
 

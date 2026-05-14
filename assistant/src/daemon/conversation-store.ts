@@ -21,7 +21,9 @@ import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
+import { listProviders } from "../providers/registry.js";
 import { getSubagentManager } from "../subagent/index.js";
+import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
 import type { ConversationEvictor } from "./conversation-evictor.js";
@@ -226,12 +228,17 @@ export async function getOrCreateConversation(
       // Connection-aware default-provider resolution. Throws
       // `ConnectionResolutionError` when the default profile's
       // `provider_connection` is unset / unknown / mismatched (config
-      // bugs). Returns null on soft credential failures (handled below
-      // as "default provider not registered").
+      // bugs). Returns null on soft credential failures (missing
+      // credential, platform auth unavailable).
       const baseProvider = await resolveDefaultProvider(config);
       if (!baseProvider) {
-        throw new Error(
-          `Conversation: default provider '${resolveCallSiteConfig("mainAgent", config.llm).provider}' is not registered`,
+        const resolved = resolveCallSiteConfig("mainAgent", config.llm);
+        throw new ProviderNotConfiguredError(
+          resolved.provider,
+          listProviders(),
+          {
+            connectionName: resolved.provider_connection,
+          },
         );
       }
       // Per-call `callSite` routing layered on top, with connection-awareness

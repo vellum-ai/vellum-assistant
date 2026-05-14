@@ -19,7 +19,9 @@ import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
+import { listProviders } from "../providers/registry.js";
 import { createAbortReason } from "../util/abort-reasons.js";
+import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import {
@@ -186,14 +188,14 @@ export class SubagentManager {
     // Connection-aware default-provider resolution. Throws
     // `ConnectionResolutionError` if `llm.default.provider_connection` is
     // unset or the connection row is missing/mismatched (config bugs).
-    // Returns null on soft credential failures (vault miss, transient
-    // auth) — handled below as "no provider available". Per-call
-    // `callSite` routing is layered next.
+    // Returns null on soft credential failures (missing credential,
+    // platform auth unavailable).
     const baseProvider = await resolveDefaultProvider(appConfig);
     if (!baseProvider) {
-      throw new Error(
-        `Subagent: default provider '${resolveCallSiteConfig("mainAgent", appConfig.llm).provider}' is not registered`,
-      );
+      const resolved = resolveCallSiteConfig("mainAgent", appConfig.llm);
+      throw new ProviderNotConfiguredError(resolved.provider, listProviders(), {
+        connectionName: resolved.provider_connection,
+      });
     }
     // Per-call `options.config.callSite` (e.g. `subagentSpawn`) can resolve
     // to a profile that differs from `llm.default`. The shared wrapper
