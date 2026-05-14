@@ -403,10 +403,10 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(texts).toEqual(["older A", "older B"]);
   });
 
-  test("bot-authored backfilled messages are persisted with role=assistant", async () => {
-    // Slack DM history includes our own prior bot replies. If those rows
-    // were rehydrated as `user` turns, the assistant would later treat its
-    // own output as new user input and speaker attribution would break.
+  test("bot-authored backfilled messages are persisted as wrapped user history", async () => {
+    // Backfilled Slack history is third-party channel replay. Even bot rows
+    // must not become `assistant` messages; that role is reserved for outputs
+    // produced by the local assistant loop.
     backfillDmMock.mockImplementation(async () => [
       makeBackfilledMessage({
         id: "1700000000.000001",
@@ -431,7 +431,11 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(rows.length).toBe(2);
     const byText = new Map(rows.map((r) => [r.content, r.role]));
     expect(byText.get("user reply")).toBe("user");
-    expect(byText.get("assistant reply")).toBe("assistant");
+    expect(byText.get("assistant reply")).toBe("user");
+    const botRow = rows.find((r) => r.content === "assistant reply");
+    expect(botRow?.rawContent).toContain(
+      '<external_content source="webhook" origin="assistant-bot">',
+    );
   });
 
   test("backfill skips channelTs values already stored", async () => {

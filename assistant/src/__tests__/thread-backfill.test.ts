@@ -51,6 +51,34 @@ mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async () => {},
 }));
 
+type DownloadedSlackFile = {
+  filename: string;
+  mimeType: string;
+  data: string;
+};
+
+const downloadSlackFileMock = mock(
+  async (_file: unknown, _token: string): Promise<DownloadedSlackFile | null> =>
+    null,
+);
+
+mock.module("../messaging/providers/slack/download.js", () => ({
+  downloadSlackFile: (file: unknown, token: string) =>
+    downloadSlackFileMock(file, token),
+}));
+
+mock.module("../messaging/providers/slack/adapter.js", () => ({
+  slackProvider: {
+    resolveConnection: async () => ({}),
+    getThreadRepliesPage: async () => ({ messages: [], hasMore: false }),
+    getHistory: async () => [],
+  },
+  withSlackBotToken: async (
+    _account: string | undefined,
+    fn: (token: string) => Promise<unknown>,
+  ) => fn("test-slack-token"),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -122,6 +150,8 @@ const SLACK_CHANNEL_ID = "C0THREAD";
 
 function resetState(): void {
   const db = getDb();
+  db.$client.exec("DELETE FROM message_attachments");
+  db.$client.exec("DELETE FROM attachments");
   db.$client.exec("DELETE FROM messages");
   db.$client.exec("DELETE FROM conversations");
   _backfillTriggerCache.clear();
@@ -129,6 +159,8 @@ function resetState(): void {
   backfillThreadMock.mockImplementation(async () => []);
   backfillDmMock.mockReset();
   backfillDmMock.mockImplementation(async () => []);
+  downloadSlackFileMock.mockReset();
+  downloadSlackFileMock.mockResolvedValue(null);
 }
 
 let convCounter = 0;
@@ -845,6 +877,150 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(rendered).not.toContain("F-DRAFT");
   });
 
+  test("backfilled Slack image files are persisted as image content blocks", async () => {
+    const conv = createTestConversation();
+
+    seedSlackRow(conv.id, "1234.0", undefined, "parent already here");
+
+    const imageBase64 = Buffer.from("fake image bytes").toString("base64");
+    downloadSlackFileMock.mockResolvedValue({
+      filename: "diagram.png",
+      mimeType: "image/png",
+      data: imageBase64,
+    });
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.1",
+        text: "uploaded the diagram",
+        threadId: "1234.0",
+        sender: { id: "U_IMAGE", name: "Image Sharer" },
+        metadata: {
+          slackFiles: [
+            {
+              id: "F-DIAGRAM",
+              name: "diagram.png",
+              mimetype: "image/png",
+              urlPrivateDownload:
+                "https://files.slack.com/files-pri/T/F/download",
+            },
+          ],
+        },
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+      excludeChannelTs: "1234.2",
+    });
+
+    expect(downloadSlackFileMock).toHaveBeenCalledTimes(1);
+    expect(downloadSlackFileMock.mock.calls[0]?.[1]).toBe("test-slack-token");
+
+    const imageRow = readMessagesByConversation(conv.id).find((row) =>
+      row.content.includes("uploaded the diagram"),
+    );
+    expect(imageRow).toBeDefined();
+    const blocks = JSON.parse(imageRow!.content) as Message["content"];
+    const textBlock = blocks.find(
+      (block): block is Extract<Message["content"][number], { type: "text" }> =>
+        block.type === "text",
+    );
+    const imageBlock = blocks.find(
+      (
+        block,
+      ): block is Extract<Message["content"][number], { type: "image" }> =>
+        block.type === "image",
+    );
+    expect(textBlock?.text).toContain("uploaded the diagram");
+    expect(imageBlock?.source.media_type).toBe("image/png");
+    expect(imageBlock?.source.data).toBe(imageBase64);
+
+    const context = loadSlackChronologicalContext(conv.id, SLACK_CHANNEL_CAPS, {
+      loader: readMessageRowsByConversation,
+      trustClass: "guardian",
+    });
+
+    expect(context).not.toBeNull();
+    const contextImage = context!.messages
+      .flatMap((message) => message.content)
+      .find((block) => block.type === "image");
+    expect(contextImage).toBeDefined();
+  });
+
+  test("backfilled bot Slack image files are persisted as user image history", async () => {
+    const conv = createTestConversation();
+
+    seedSlackRow(conv.id, "1234.0", undefined, "parent already here");
+    downloadSlackFileMock.mockResolvedValue({
+      filename: "bot-diagram.png",
+      mimeType: "image/png",
+      data: Buffer.from("bot image bytes").toString("base64"),
+    });
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.1",
+        text: "bot posted a diagram",
+        threadId: "1234.0",
+        sender: { id: "B_IMAGE", name: "Build Bot" },
+        metadata: {
+          isBot: true,
+          slackFiles: [
+            {
+              id: "F-BOT-DIAGRAM",
+              name: "bot-diagram.png",
+              mimetype: "image/png",
+              urlPrivateDownload:
+                "https://files.slack.com/files-pri/T/F/download",
+            },
+          ],
+        },
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+      excludeChannelTs: "1234.2",
+    });
+
+    expect(downloadSlackFileMock).toHaveBeenCalledTimes(1);
+    const botRow = readMessagesByConversation(conv.id).find((row) =>
+      row.content.includes("bot posted a diagram"),
+    );
+    expect(botRow).toBeDefined();
+    expect(botRow?.role).toBe("user");
+    const blocks = JSON.parse(botRow!.content) as Message["content"];
+    const textBlock = blocks.find(
+      (block): block is Extract<Message["content"][number], { type: "text" }> =>
+        block.type === "text",
+    );
+    const imageBlock = blocks.find(
+      (
+        block,
+      ): block is Extract<Message["content"][number], { type: "image" }> =>
+        block.type === "image",
+    );
+    expect(textBlock?.text).toContain(
+      '<external_content source="webhook" origin="Build Bot">',
+    );
+    expect(textBlock?.text).toContain("bot posted a diagram");
+    expect(imageBlock?.source.media_type).toBe("image/png");
+
+    const context = loadSlackChronologicalContext(conv.id, SLACK_CHANNEL_CAPS, {
+      loader: readMessageRowsByConversation,
+      trustClass: "guardian",
+    });
+
+    expect(context).not.toBeNull();
+    const contextImage = context!.messages
+      .flatMap((message) => message.content)
+      .find((block) => block.type === "image");
+    expect(contextImage).toBeDefined();
+  });
+
   test("backfilled non-guardian text is persisted wrapped in an external_content envelope", async () => {
     const conv = createTestConversation();
 
@@ -906,7 +1082,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(persisted.rawContent).not.toContain("<external_content");
   });
 
-  test("backfilled bot-authored text is persisted unwrapped (assistant role)", async () => {
+  test("backfilled bot-authored text is persisted wrapped as user history", async () => {
     const conv = createTestConversation();
 
     backfillThreadMock.mockImplementation(async () => [
@@ -929,9 +1105,11 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       (p) => p.channelTs === "1234.0",
     );
     expect(persisted).toBeDefined();
-    expect(persisted.role).toBe("assistant");
-    expect(persisted.rawContent).toBe("earlier assistant reply");
-    expect(persisted.rawContent).not.toContain("<external_content");
+    expect(persisted.role).toBe("user");
+    expect(persisted.rawContent).toContain(
+      '<external_content source="webhook" origin="Douglas">',
+    );
+    expect(persisted.rawContent).toContain("earlier assistant reply");
   });
 
   test("backfilled non-bot message with empty text is persisted unwrapped", async () => {
