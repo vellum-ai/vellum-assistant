@@ -198,11 +198,9 @@ export function createAdapterFromConnection(
 
   // Usage-attribution headers (`X-Vellum-*`) are only meaningful when the
   // request is routed through the Vellum-managed proxy — they carry billing
-  // metadata for our own backend. Forwarding them to a user-supplied endpoint
-  // (e.g. `openai-compatible` connections with `auth.type === "api_key"`)
-  // leaks internal Vellum metadata to third parties. Gate on the auth type,
-  // not on `baseURL !== undefined`, since `openai-compatible` connections
-  // also carry a user-supplied baseURL.
+  // metadata for our own backend. Forwarding them to a third-party endpoint
+  // would leak internal Vellum metadata, so gate on the auth type:
+  // `platform` is the only auth that flows through our proxy.
   const isManagedProxy = connection.auth.type === "platform";
   return new UsageTrackingProvider(
     new RetryProvider(adapter, {
