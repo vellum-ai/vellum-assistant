@@ -11,6 +11,7 @@ mock.module("../../util/logger.js", () => ({
 
 import { createConversation } from "../conversation-crud.js";
 import {
+  buildExcerpt,
   countConversations,
   listConversations,
 } from "../conversation-queries.js";
@@ -34,6 +35,35 @@ function setConversationType(conversationId: string, type: string): void {
     .where(eq(conversations.id, conversationId))
     .run();
 }
+
+describe("buildExcerpt", () => {
+  test("does not expose external_content tags for legacy plain-string rows", () => {
+    const excerpt = buildExcerpt(
+      '<external_content source="slack">\nSearchable Slack text\n</external_content>',
+      "external_content",
+    );
+
+    expect(excerpt).toBe("Searchable Slack text");
+    expect(excerpt).not.toContain("<external_content");
+    expect(excerpt).not.toContain("</external_content>");
+  });
+
+  test("does not expose external_content tags for legacy text block rows", () => {
+    const excerpt = buildExcerpt(
+      JSON.stringify([
+        {
+          type: "text",
+          text: '<external_content source="slack">\nSearchable block text\n</external_content>',
+        },
+      ]),
+      "external_content",
+    );
+
+    expect(excerpt).toBe("Searchable block text");
+    expect(excerpt).not.toContain("<external_content");
+    expect(excerpt).not.toContain("</external_content>");
+  });
+});
 
 describe("countConversations", () => {
   beforeEach(() => {
