@@ -1007,18 +1007,16 @@ export class AnthropicProvider implements Provider {
           const dynamicBlock = systemPrompt.slice(
             boundaryIdx + SYSTEM_PROMPT_CACHE_BOUNDARY.length,
           );
-          params.system = [
-            {
+          const systemBlocks = [staticBlock, dynamicBlock]
+            .filter((text) => text.length > 0)
+            .map((text) => ({
               type: "text" as const,
-              text: staticBlock,
+              text,
               cache_control: cacheControl,
-            },
-            {
-              type: "text" as const,
-              text: dynamicBlock,
-              cache_control: cacheControl,
-            },
-          ];
+            }));
+          if (systemBlocks.length > 0) {
+            params.system = systemBlocks;
+          }
         } else {
           params.system = [
             {

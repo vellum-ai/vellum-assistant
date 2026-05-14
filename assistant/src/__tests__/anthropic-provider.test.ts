@@ -223,6 +223,22 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(system[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
+  test("omits empty dynamic system block after cache boundary", async () => {
+    const staticBlock = "You are a helpful assistant.";
+    const prompt = staticBlock + SYSTEM_PROMPT_CACHE_BOUNDARY;
+
+    await provider.sendMessage([userMsg("Hi")], undefined, prompt);
+
+    const system = lastStreamParams!.system as Array<{
+      type: string;
+      text: string;
+      cache_control?: { type: string; ttl?: string };
+    }>;
+    expect(system).toHaveLength(1);
+    expect(system[0].text).toBe(staticBlock);
+    expect(system[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  });
+
   test("drops static system block cache_control when total would exceed 4", async () => {
     const staticBlock = "You are a helpful assistant.";
     const dynamicBlock = "User workspace files here.";
