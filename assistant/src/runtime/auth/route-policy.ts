@@ -1110,3 +1110,7 @@ registerPolicy("oauth/managed-connect/poll", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["local"],
 });
+registerPolicy("oauth/connection-changed", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});

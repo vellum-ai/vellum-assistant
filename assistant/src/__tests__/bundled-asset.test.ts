@@ -101,18 +101,18 @@ describe("resolveBundledDir", () => {
       const macosDir = join(tempDir, "Contents", "MacOS");
       const resourcesDir = join(tempDir, "Contents", "Resources");
       mkdirSync(macosDir, { recursive: true });
-      mkdirSync(join(resourcesDir, "compact-prompts"), { recursive: true });
+      mkdirSync(join(resourcesDir, "templates"), { recursive: true });
       // Also create at execDir level
-      mkdirSync(join(macosDir, "compact-prompts"), { recursive: true });
+      mkdirSync(join(macosDir, "templates"), { recursive: true });
 
       process.execPath = join(macosDir, "vellum-daemon");
 
       const result = resolveBundledDir(
-        "/$bunfs/root/src/context/prompts",
-        "..",
-        "compact-prompts",
+        "/$bunfs/root/src/prompts",
+        "templates",
+        "templates",
       );
-      expect(result).toBe(join(resourcesDir, "compact-prompts"));
+      expect(result).toBe(join(resourcesDir, "templates"));
     });
 
     test("works with different bundleName values", () => {
