@@ -140,8 +140,8 @@ struct MessageListView: View {
     /// Owned here (same level as `thinkingBlockExpansionStore`) so the state
     /// survives view-tree destruction. See `FilePreviewExpansionStore.swift`.
     @State var filePreviewExpansionStore = FilePreviewExpansionStore()
-    /// Caches each transcript row's measured height so the VStack reports
-    /// an accurate `contentSize`. `.id(conversationId)` is applied to the
+    /// Caches each transcript row's measured height for diagnostic and
+    /// scroll-debug HUD use. `.id(conversationId)` is applied to the
     /// inner `ScrollView` (not `MessageListView`), so SwiftUI preserves
     /// this `@State` across conversation switches — the cache must be
     /// cleared explicitly in `handleConversationSwitched()` to avoid

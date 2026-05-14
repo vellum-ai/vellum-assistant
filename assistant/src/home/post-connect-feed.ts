@@ -44,6 +44,7 @@ export async function emitPostConnectNudge(service: string): Promise<void> {
       "I can triage your inbox, summarize new emails, or draft replies to important threads.",
     timestamp: now.toISOString(),
     status: "new",
+    category: "email",
     expiresAt,
     createdAt: now.toISOString(),
     actions: [

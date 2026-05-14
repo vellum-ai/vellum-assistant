@@ -63,11 +63,11 @@ assistant inference providers connections list
 
 ## Step 3 — Recommended profile assignment
 
-| Profile                    | Call Sites                                                                                                                                          |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `balanced` (Sonnet)        | `mainAgent`, `subagentSpawn`, `compactionAgent`, `analyzeConversation`, `patternScan`, `narrativeRefinement`, `memoryRouter`, `memoryConsolidation` |
-| `cost-optimized` (Haiku)   | **Everything else** — memory extraction/retrieval, UI copy, classifiers, summarization, background tasks                                            |
-| `quality-optimized` (Opus) | **Do not pin.** Reserved for on-demand user escalation via `/model`                                                                                 |
+| Profile                    | Call Sites                                                                                                                                                                                                                                                          |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `balanced` (Sonnet)        | `mainAgent`, `subagentSpawn`, `compactionAgent`, `analyzeConversation`, `patternScan`, `narrativeRefinement`, `memoryRouter`, `memoryConsolidation`, `recall`, `callAgent`, `emptyStateGreeting`, `conversationStarters`, `identityIntro`, `proactiveArtifactBuild` |
+| `cost-optimized` (Haiku)   | **Everything else** — memory extraction/retrieval, UI copy, classifiers, summarization, background tasks                                                                                                                                                            |
+| `quality-optimized` (Opus) | **Do not pin.** Reserved for on-demand user escalation via `/model`                                                                                                                                                                                                 |
 
 ---
 
@@ -129,15 +129,15 @@ assistant config set llm.callSites '{
 
   "heartbeatAgent":           {"profile":"cost-optimized","maxTokens":2048,"effort":"low","temperature":0,"thinking":{"enabled":false,"streamThinking":false},"contextWindow":{"maxInputTokens":16000}},
   "filingAgent":              {"profile":"cost-optimized"},
-  "callAgent":                {"profile":"cost-optimized"},
+  "callAgent":                {"profile":"balanced"},
   "proactiveArtifactDecision":{"profile":"cost-optimized"},
-  "proactiveArtifactBuild":   {"profile":"cost-optimized"},
+  "proactiveArtifactBuild":   {"profile":"balanced"},
 
   "memoryExtraction":         {"profile":"cost-optimized"},
   "memoryConsolidation":      {"profile":"balanced"},
   "memoryRetrieval":          {"profile":"cost-optimized"},
   "memoryRetrospective":      {"profile":"cost-optimized"},
-  "recall":                   {"profile":"cost-optimized","maxTokens":4096,"effort":"low","thinking":{"enabled":false,"streamThinking":false},"temperature":0},
+  "recall":                   {"profile":"balanced","maxTokens":4096,"effort":"low","thinking":{"enabled":false,"streamThinking":false},"temperature":0},
   "memoryV2Migration":        {"profile":"cost-optimized"},
   "memoryV2Sweep":            {"profile":"cost-optimized"},
   "memoryV2Consolidation":    {"profile":"cost-optimized"},
@@ -145,11 +145,11 @@ assistant config set llm.callSites '{
   "conversationSummarization":{"profile":"cost-optimized"},
   "commitMessage":            {"profile":"cost-optimized","maxTokens":120,"temperature":0.2,"effort":"low","thinking":{"enabled":false}},
 
-  "conversationStarters":     {"profile":"cost-optimized","effort":"low","thinking":{"enabled":false}},
+  "conversationStarters":     {"profile":"balanced","effort":"low","thinking":{"enabled":false}},
   "replySuggestion":          {"profile":"cost-optimized","effort":"low","thinking":{"enabled":false}},
   "conversationTitle":        {"profile":"cost-optimized"},
-  "identityIntro":            {"profile":"cost-optimized"},
-  "emptyStateGreeting":       {"profile":"cost-optimized"},
+  "identityIntro":            {"profile":"balanced"},
+  "emptyStateGreeting":       {"profile":"balanced"},
   "guardianQuestionCopy":     {"profile":"cost-optimized","effort":"low","thinking":{"enabled":false}},
   "approvalCopy":             {"profile":"cost-optimized"},
   "approvalConversation":     {"profile":"cost-optimized"},

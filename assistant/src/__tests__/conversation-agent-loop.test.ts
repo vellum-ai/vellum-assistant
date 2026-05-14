@@ -63,6 +63,7 @@ mock.module("../config/loader.js", () => ({
     workspaceGit: { turnCommitMaxWaitMs: 10 },
     memory: { retrieval: { scratchpadInjection: { enabled: true } } },
     ui: mockUiConfig,
+    compaction: { enabled: true, autoThreshold: 0.7 },
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},

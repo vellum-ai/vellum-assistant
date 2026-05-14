@@ -654,23 +654,40 @@ EOF
 
 # ---------------------------------------------------------------------------
 # sign_native_addons_in_runtime — walk a node_modules tree and codesign
-# every native .node addon found. Under --no-compile the runtime ships
-# real on-disk node_modules, which include per-arch native bindings
-# (e.g. @resvg/resvg-js-darwin-*, postgres native bits). Apple's hardened
-# runtime requires every loaded binary to be signed.
+# every Mach-O binary found. Under --no-compile the runtime ships real
+# on-disk node_modules, which include:
+#   - native addons (*.node, e.g. @resvg/resvg-js, postgres)
+#   - shared libraries (*.dylib)
+#   - native executables in bin/ paths (e.g. @esbuild/darwin-arm64/bin/esbuild)
+# Apple's notary rejects the bundle if any embedded Mach-O is unsigned,
+# lacks a secure timestamp, or doesn't have hardened-runtime enabled.
+# We gather candidates by structural hints (.node, .dylib, anything under
+# a bin/ directory, anything with executable bits) and confirm each is
+# Mach-O via `file` before signing.
 # ---------------------------------------------------------------------------
 sign_native_addons_in_runtime() {
     local runtime_dir="$1"
     [ -d "$runtime_dir" ] || return 0
     local count=0
-    while IFS= read -r -d '' addon; do
-        codesign --force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}" "$addon" 2>/dev/null || {
-            echo "WARNING: failed to sign $addon"
+    local candidates
+    candidates=$(mktemp)
+    {
+        find "$runtime_dir" -type f \( -name '*.node' -o -name '*.dylib' \) 2>/dev/null
+        find "$runtime_dir" -type f -path '*/bin/*' 2>/dev/null
+        find "$runtime_dir" -type f -perm +111 2>/dev/null
+    } | sort -u > "$candidates"
+    while IFS= read -r bin; do
+        [ -f "$bin" ] || continue
+        # Skip text scripts (shebang-based bin entries are common in node_modules).
+        file -b "$bin" 2>/dev/null | grep -q 'Mach-O' || continue
+        codesign --force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}" "$bin" 2>/dev/null || {
+            echo "WARNING: failed to sign $bin"
             continue
         }
         count=$((count + 1))
-    done < <(find "$runtime_dir" -name '*.node' -print0 2>/dev/null)
-    echo "Signed $count native .node addon(s) under $runtime_dir"
+    done < "$candidates"
+    rm -f "$candidates"
+    echo "Signed $count Mach-O binar(y/ies) under $runtime_dir"
 }
 
 # ---------------------------------------------------------------------------

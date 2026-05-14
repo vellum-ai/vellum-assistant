@@ -171,7 +171,6 @@ describe("channels/available", () => {
     const result = (await handler({})) as HandlerResult;
 
     for (const channel of result.channels) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const expected = (CHANNEL_METADATA as any)[channel.id];
       expect(expected).toBeDefined();
       expect(channel).toEqual(expected);

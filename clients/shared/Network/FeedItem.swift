@@ -52,6 +52,15 @@ public enum FeedItemUrgency: String, Codable, Sendable, Hashable {
     case critical
 }
 
+/// Broad category for grouping and filtering feed items.
+public enum FeedItemCategory: String, Codable, Sendable, Hashable, CaseIterable {
+    case security
+    case scheduling
+    case background
+    case email
+    case system
+}
+
 // MARK: - FeedAction
 
 /// A single action button attached to a feed item.
@@ -101,7 +110,7 @@ public struct FeedItemDetailPanel: Codable, Sendable, Hashable {
 /// In v2 every feed item is a `.notification` — the legacy
 /// `source` / `author` / `minTimeAway` discriminators were removed when
 /// the type collapsed. See the module comment above for rationale.
-public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
+public struct FeedItem: Codable, Sendable, Identifiable {
     public let id: String
     public let type: FeedItemType
     /// Integer in [0, 100]; higher values sort earlier.
@@ -120,6 +129,10 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
     public let conversationId: String?
     /// Server-driven detail panel descriptor; when present, the client opens this panel kind.
     public let detailPanel: FeedItemDetailPanel?
+    /// Broad category for grouping and filtering feed items.
+    public let category: FeedItemCategory?
+    /// Arbitrary structured data the detail panel or other consumers can use.
+    public let metadata: [String: AnyCodable]?
     /// Internal: writer-record time, used for ordering + TTL.
     public let createdAt: Date
 
@@ -136,6 +149,8 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
         urgency: FeedItemUrgency? = nil,
         conversationId: String? = nil,
         detailPanel: FeedItemDetailPanel? = nil,
+        category: FeedItemCategory? = nil,
+        metadata: [String: AnyCodable]? = nil,
         createdAt: Date
     ) {
         self.id = id
@@ -150,7 +165,35 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
         self.urgency = urgency
         self.conversationId = conversationId
         self.detailPanel = detailPanel
+        self.category = category
+        self.metadata = metadata
         self.createdAt = createdAt
+    }
+}
+
+extension FeedItem: Equatable {
+    public static func == (lhs: FeedItem, rhs: FeedItem) -> Bool {
+        lhs.id == rhs.id
+            && lhs.type == rhs.type
+            && lhs.priority == rhs.priority
+            && lhs.title == rhs.title
+            && lhs.summary == rhs.summary
+            && lhs.timestamp == rhs.timestamp
+            && lhs.status == rhs.status
+            && lhs.expiresAt == rhs.expiresAt
+            && lhs.actions == rhs.actions
+            && lhs.urgency == rhs.urgency
+            && lhs.conversationId == rhs.conversationId
+            && lhs.detailPanel == rhs.detailPanel
+            && lhs.category == rhs.category
+            && lhs.metadata == rhs.metadata
+            && lhs.createdAt == rhs.createdAt
+    }
+}
+
+extension FeedItem: Hashable {
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 

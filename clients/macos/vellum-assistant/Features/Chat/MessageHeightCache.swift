@@ -3,13 +3,12 @@ import SwiftUI
 
 /// Per-conversation cache of each transcript row's measured height, keyed by
 /// the row's `TranscriptItem.id`. Written on every render via the geometry
-/// reader inside `CachedHeightRow`; read only by the scroll debug HUD today
-/// (and by future diagnostics that want a ground-truth height per row).
+/// reader inside `CachedHeightRow`; read by the scroll debug HUD and
+/// future diagnostics that want a ground-truth height per row.
 ///
-/// The transcript uses a plain `VStack` inside `MessageListContentView`,
-/// which measures every cell so the scroll view reports the true total height
-/// without estimator drift. The cache records every row's measured height as
-/// a byproduct, useful for inspection.
+/// The transcript uses a `LazyVStack` inside `MessageListContentView`,
+/// so only visible rows are measured per layout pass. The cache records
+/// each row's measured height as it is materialised.
 ///
 /// Propagated through `EnvironmentValues.messageHeightCache` alongside the
 /// other transcript stores. Not annotated `@MainActor` because `EnvironmentKey`
@@ -53,12 +52,10 @@ extension EnvironmentValues {
 // MARK: - CachedHeightRow
 
 /// Wraps a transcript row so its measured height is recorded into the shared
-/// `MessageHeightCache`. Does NOT pin the row's frame — an earlier version
-/// applied `.frame(height: cached)` and produced catastrophic overlap when a
-/// row's content grew past its first-measured height (streaming, thinking
-/// block expanding). The row-height fix lives at the stack level: the
-/// enclosing `MessageListContentView` uses a plain `VStack`, which
-/// eliminates the estimator that caused jerky scroll.
+/// `MessageHeightCache`. Does NOT pin the row's frame — the enclosing
+/// `MessageListContentView` uses a `LazyVStack`, which only measures
+/// visible rows per layout pass. `LazyVStack` remembers each cell's last
+/// measured height internally for off-screen sizing.
 struct CachedHeightRow<Content: View>: View {
     let itemId: UUID
     @ViewBuilder let content: () -> Content
@@ -76,15 +73,29 @@ struct CachedHeightRow<Content: View>: View {
 
 // MARK: - MessageTranscriptStack
 
-/// Container for the transcript's main content stack. Uses a plain `VStack`
-/// so every row is materialised eagerly and `scrollContentHeight` equals the
-/// true sum of row heights with no estimator in the middle to drift.
+/// Container for the transcript's main content stack. Uses a `LazyVStack`
+/// so only visible rows are measured per layout pass — preventing the
+/// O(N) eager measurement that caused ≥ 2 000 ms main-thread hangs on
+/// conversation switch, window resize, and typography changes.
+///
+/// The enclosing `MessageListContentView` applies
+/// `.transaction { $0.animation = nil }` to suppress all insertion
+/// animations. Without that suppressor, any animated insertion in a
+/// `LazyVStack` triggers `motionVectors` — an O(n) `sizeThatFits` sweep
+/// over ALL children that defeats lazy loading.
+///
+/// Trade-off vs the previous plain `VStack`: `LazyVStack` estimates
+/// off-screen row heights from the average of measured rows instead of
+/// knowing the true sum. This can cause minor scroll-position drift the
+/// first time the user scrolls through unmeasured history. The drift is
+/// bounded (progressive, not sudden) and corrects itself as rows are
+/// materialised. The ≥ 2 s hang elimination is a net-positive trade.
 struct MessageTranscriptStack<Content: View>: View {
     let spacing: CGFloat
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: spacing) {
+        LazyVStack(alignment: .leading, spacing: spacing) {
             content()
         }
     }
