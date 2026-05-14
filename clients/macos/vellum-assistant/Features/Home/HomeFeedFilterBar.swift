@@ -1,26 +1,30 @@
 import SwiftUI
 import VellumAssistantShared
 
+/// Filter pill that mirrors the exact icon rendering used by ``HomeRecapRow``:
+/// a 12pt icon inside a 26pt circle with category-specific foreground/background
+/// colors. Selected state adds a 2pt ring around the circle.
 private struct HomeFeedFilterPill: View {
     let icon: VIcon
+    let iconForeground: Color
+    let iconBackground: Color
     let isSelected: Bool
     let accessibilityLabel: String
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            VIconView(icon, size: 16)
-                .foregroundStyle(isSelected ? VColor.contentInset : VColor.contentSecondary)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
-                .background(
-                    Capsule()
-                        .fill(isSelected ? VColor.primaryBase : Color.clear)
-                )
-                .overlay(
-                    Capsule()
-                        .stroke(isSelected ? Color.clear : VColor.borderElement, lineWidth: 1)
-                )
+            ZStack {
+                Circle().fill(iconBackground)
+                VIconView(icon, size: 12)
+                    .foregroundStyle(iconForeground)
+            }
+            .frame(width: 26, height: 26)
+            .overlay(
+                Circle()
+                    .stroke(isSelected ? VColor.primaryBase : Color.clear, lineWidth: 2)
+                    .padding(-2)
+            )
         }
         .buttonStyle(.plain)
         .pointerCursor()
@@ -32,7 +36,8 @@ private struct HomeFeedFilterPill: View {
 /// Horizontal pill/chip bar that filters the home feed by `FeedItemCategory`.
 ///
 /// Data-driven: only renders pills for categories that have at least one item
-/// in the current feed. Each pill shows the category's icon instead of text.
+/// in the current feed. Each pill uses the same icon, foreground color, and
+/// background color as the notification rows in the feed.
 struct HomeFeedFilterBar: View {
     let activeFilter: FeedItemCategory?
     let presentCategories: Set<FeedItemCategory>
@@ -44,6 +49,8 @@ struct HomeFeedFilterBar: View {
                 HStack(spacing: VSpacing.sm) {
                     HomeFeedFilterPill(
                         icon: .list,
+                        iconForeground: VColor.contentSecondary,
+                        iconBackground: VColor.surfaceOverlay,
                         isSelected: activeFilter == nil,
                         accessibilityLabel: "All",
                         onTap: { onFilterChanged(nil) }
@@ -52,6 +59,8 @@ struct HomeFeedFilterBar: View {
                     ForEach(sortedCategories, id: \.self) { category in
                         HomeFeedFilterPill(
                             icon: icon(for: category),
+                            iconForeground: iconForeground(for: category),
+                            iconBackground: iconBackground(for: category),
                             isSelected: activeFilter == category,
                             accessibilityLabel: category.rawValue.capitalized,
                             onTap: { onFilterChanged(category) }
@@ -73,6 +82,26 @@ struct HomeFeedFilterBar: View {
         case .scheduling: return .clock
         case .background: return .settings
         case .system:     return .bell
+        }
+    }
+
+    private func iconForeground(for category: FeedItemCategory) -> Color {
+        switch category {
+        case .security:   return VColor.feedNudgeStrong
+        case .email:      return VColor.feedDigestStrong
+        case .scheduling: return VColor.feedThreadStrong
+        case .background: return VColor.systemInfoStrong
+        case .system:     return VColor.feedDigestStrong
+        }
+    }
+
+    private func iconBackground(for category: FeedItemCategory) -> Color {
+        switch category {
+        case .security:   return VColor.feedNudgeWeak
+        case .email:      return VColor.feedDigestWeak
+        case .scheduling: return VColor.feedThreadWeak
+        case .background: return VColor.systemInfoWeak
+        case .system:     return VColor.feedDigestWeak
         }
     }
 }
