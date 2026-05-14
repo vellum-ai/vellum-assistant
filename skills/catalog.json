@@ -176,7 +176,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-13T16:13:31-06:00"
+      "updatedAt": "2026-05-14T09:15:31-06:00"
     },
     {
       "id": "gmail",
@@ -655,7 +655,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-13T15:16:00-06:00"
+      "updatedAt": "2026-05-14T09:15:31-06:00"
     },
     {
       "id": "tasks",
@@ -848,7 +848,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-11T15:40:02-04:00"
+      "updatedAt": "2026-05-14T10:02:12-07:00"
     },
     {
       "id": "vellum-self-knowledge",
@@ -985,7 +985,7 @@
           "emoji": "📺"
         }
       },
-      "updatedAt": "2026-05-13T15:16:00-06:00"
+      "updatedAt": "2026-05-14T09:15:31-06:00"
     },
     {
       "id": "watcher",
