@@ -49,6 +49,22 @@ const MAX_CONSECUTIVE_BATCHES = 10;
 const TELEMETRY_PATH = "/v1/telemetry/ingest/";
 
 // ---------------------------------------------------------------------------
+// Singleton access
+// ---------------------------------------------------------------------------
+
+let _instance: UsageTelemetryReporter | null = null;
+
+export function getUsageTelemetryReporter(): UsageTelemetryReporter | null {
+  return _instance;
+}
+
+export function setUsageTelemetryReporter(
+  reporter: UsageTelemetryReporter | null,
+): void {
+  _instance = reporter;
+}
+
+// ---------------------------------------------------------------------------
 // Reporter
 // ---------------------------------------------------------------------------
 

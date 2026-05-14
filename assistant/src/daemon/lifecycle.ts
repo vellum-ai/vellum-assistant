@@ -75,7 +75,10 @@ import {
   setCesClient,
   setCesReconnect,
 } from "../security/secure-keys.js";
-import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
+import {
+  UsageTelemetryReporter,
+  setUsageTelemetryReporter,
+} from "../telemetry/usage-telemetry-reporter.js";
 import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
@@ -567,6 +570,7 @@ export async function runDaemon(): Promise<void> {
     let telemetryReporter: UsageTelemetryReporter | null = null;
     if (collectUsageData) {
       telemetryReporter = new UsageTelemetryReporter();
+      setUsageTelemetryReporter(telemetryReporter);
       telemetryReporter.start();
       log.info("Usage telemetry reporter started");
     }

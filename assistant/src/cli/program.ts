@@ -45,6 +45,7 @@ import { registerSkillsCommand } from "./commands/skills.js";
 import { registerStatusCommand } from "./commands/status.js";
 import { registerSttCommand } from "./commands/stt.js";
 import { registerTaskCommand } from "./commands/task.js";
+import { registerTelemetryCommand } from "./commands/telemetry.js";
 import { registerTrustCommand } from "./commands/trust.js";
 import { registerTtsCommand } from "./commands/tts.js";
 import { registerUiCommand } from "./commands/ui.js";
@@ -126,6 +127,7 @@ Examples:
   registerSkillsCommand(program);
   registerSttCommand(program);
   registerTaskCommand(program);
+  registerTelemetryCommand(program);
   registerTrustCommand(program);
   registerTtsCommand(program);
   registerUiCommand(program);

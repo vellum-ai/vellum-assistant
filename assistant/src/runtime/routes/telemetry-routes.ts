@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { recordLifecycleEvent } from "../../memory/lifecycle-events-store.js";
+import { getUsageTelemetryReporter } from "../../telemetry/usage-telemetry-reporter.js";
 import { getLogger } from "../../util/logger.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -30,6 +31,15 @@ function handleRecordLifecycleEvent({ body }: RouteHandlerArgs) {
   log.info({ eventName, eventId: event.id }, "Recorded lifecycle event");
 
   return { id: event.id, event_name: event.eventName };
+}
+
+async function handleTelemetryFlush() {
+  const reporter = getUsageTelemetryReporter();
+  if (!reporter) {
+    return { flushed: false, reason: "disabled" };
+  }
+  await reporter.flush();
+  return { flushed: true };
 }
 
 export const ROUTES: RouteDefinition[] = [
@@ -57,5 +67,22 @@ export const ROUTES: RouteDefinition[] = [
       }),
     ]),
     handler: handleRecordLifecycleEvent,
+  },
+  {
+    operationId: "telemetry_flush",
+    endpoint: "telemetry/flush",
+    method: "POST",
+    summary: "Flush pending telemetry events",
+    description:
+      "Force-flush all pending usage, turn, and lifecycle telemetry events to the platform.",
+    tags: ["telemetry"],
+    responseBody: z.union([
+      z.object({ flushed: z.literal(true) }),
+      z.object({
+        flushed: z.literal(false),
+        reason: z.string(),
+      }),
+    ]),
+    handler: handleTelemetryFlush,
   },
 ];
