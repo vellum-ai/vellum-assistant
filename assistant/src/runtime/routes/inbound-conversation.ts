@@ -3,7 +3,6 @@
  */
 import {
   deleteConversationKey,
-  getConversationByKey,
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
 import { buildScopedConversationKey } from "../../memory/delivery-crud.js";
@@ -35,22 +34,14 @@ export function handleDeleteConversation({ body = {} }: RouteHandlerArgs) {
     conversationExternalId,
     normalizedThreadId,
   );
-  const scopedMapping = getConversationByKey(scopedKey);
   deleteConversationKey(scopedKey);
   const legacyKey = `${sourceChannel}:${conversationExternalId}`;
   if (!normalizedThreadId) {
     deleteConversationKey(legacyKey);
     deleteBindingByChannelChat(sourceChannel, conversationExternalId);
   } else {
-    if (sourceChannel === "slack" && scopedMapping) {
-      const legacyScopedKey = buildScopedConversationKey(
-        sourceChannel,
-        conversationExternalId,
-      );
-      const legacyScopedMapping = getConversationByKey(legacyScopedKey);
-      if (legacyScopedMapping?.conversationId === scopedMapping.conversationId) {
-        getOrCreateConversation(scopedKey);
-      }
+    if (sourceChannel === "slack") {
+      getOrCreateConversation(scopedKey);
     }
     deleteBindingByChannelChatThread(
       sourceChannel,

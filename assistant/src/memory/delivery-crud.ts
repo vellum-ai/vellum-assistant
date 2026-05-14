@@ -5,18 +5,19 @@
  * finding messages by source identifiers, and managing raw payload storage.
  */
 
-import { and, asc, eq, isNotNull, like, or } from "drizzle-orm";
+import { and, eq, isNotNull, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { selectSlackMetaCandidateMetadata } from "./conversation-crud.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
   setConversationKeyIfAbsent,
 } from "./conversation-key-store.js";
 import { getDb } from "./db-connection.js";
-import { channelInboundEvents, conversations, messages } from "./schema.js";
+import { channelInboundEvents, conversations } from "./schema.js";
 
 export interface InboundResult {
   accepted: boolean;
@@ -93,27 +94,16 @@ function legacySlackConversationHasThreadEvidence(
       SLACK_LEGACY_THREAD_EVIDENCE_BATCH_SIZE,
       remaining,
     );
-    const metadataRows = db
-      .select({ metadata: messages.metadata })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.conversationId, conversationId),
-          isNotNull(messages.metadata),
-          or(
-            like(messages.metadata, '%"slackMeta"%'),
-            like(messages.metadata, '%"source":"slack"%'),
-          ),
-        ),
-      )
-      .orderBy(asc(messages.createdAt))
-      .limit(batchLimit)
-      .offset(offset)
-      .all();
+    const metadataRows = selectSlackMetaCandidateMetadata(
+      conversationId,
+      batchLimit,
+      offset,
+      { includeFlatLegacy: true },
+    );
 
     if (metadataRows.length === 0) return false;
-    for (const row of metadataRows) {
-      const slackMeta = readSlackMetadataFromMessageMetadata(row.metadata, {
+    for (const metadata of metadataRows) {
+      const slackMeta = readSlackMetadataFromMessageMetadata(metadata, {
         allowFlatLegacy: true,
       });
       if (
