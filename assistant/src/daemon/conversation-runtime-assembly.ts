@@ -1989,6 +1989,7 @@ export interface RuntimeInjectionOptions {
    * `undefined` when the inbound is a top-level (non-thread) post.
    */
   slackActiveThreadFocusBlock?: string | null;
+  activeDocuments?: TurnInjectionInputs["activeDocuments"];
   mode?: InjectionMode;
   /**
    * Per-turn {@link TurnContext} forwarded to plugin-registered
@@ -2042,6 +2043,7 @@ function buildTurnInjectionInputs(
     voiceCallControlPrompt: options.voiceCallControlPrompt,
     transportHints: options.transportHints,
     isNonInteractive: options.isNonInteractive,
+    activeDocuments: options.activeDocuments,
   };
 }
 
