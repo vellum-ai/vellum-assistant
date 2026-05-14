@@ -24,13 +24,18 @@ mock.module("../../../../security/secure-keys.js", () => ({
 }));
 
 // OAuth helpers are exercised only when no bot_token is cached. The adapter
-// imports them at module load — route them through a stub that signals any
-// OAuth fallback with a distinctive error so tests can assert on it.
+// imports them at module load, so route them through a configurable stub.
 const OAUTH_FALLBACK_SENTINEL = "OAUTH_FALLBACK_NOT_STUBBED";
-mock.module("../../../../oauth/connection-resolver.js", () => ({
-  resolveOAuthConnection: async (): Promise<OAuthConnection> => {
+const resolveOAuthConnectionMock = mock(
+  async (
+    _provider: string,
+    _opts?: { account?: string },
+  ): Promise<OAuthConnection> => {
     throw new Error(OAUTH_FALLBACK_SENTINEL);
   },
+);
+mock.module("../../../../oauth/connection-resolver.js", () => ({
+  resolveOAuthConnection: resolveOAuthConnectionMock,
 }));
 mock.module("../../../../oauth/oauth-store.js", () => ({
   isProviderConnected: async () => false,
@@ -44,7 +49,7 @@ mock.module("../../../../contacts/contacts-write.js", () => ({
   upsertContactChannel: () => {},
 }));
 
-import { slackProvider } from "../adapter.js";
+import { slackProvider, withSlackBotToken } from "../adapter.js";
 
 // ── fetch capture ───────────────────────────────────────────────────────────
 
@@ -108,9 +113,23 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
 const BOT_TOKEN = "xoxb-BOT";
 const USER_TOKEN = "xoxp-USER";
 
+function makeOAuthConnection(account: string, token: string): OAuthConnection {
+  return {
+    id: `conn-${account}`,
+    provider: "slack",
+    accountInfo: account,
+    request: async () => ({ status: 200, headers: {}, body: { ok: true } }),
+    withToken: async <T>(fn: (rawToken: string) => Promise<T>) => fn(token),
+  };
+}
+
 describe("Slack adapter token routing", () => {
   beforeEach(() => {
     captured.length = 0;
+    resolveOAuthConnectionMock.mockReset();
+    resolveOAuthConnectionMock.mockImplementation(async () => {
+      throw new Error(OAUTH_FALLBACK_SENTINEL);
+    });
     getSecureKeyAsyncMock.mockReset();
     getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
       if (key === credentialKey("slack_channel", "bot_token")) return BOT_TOKEN;
@@ -278,5 +297,26 @@ describe("Slack adapter token routing", () => {
     await expect(slackProvider.resolveConnection!()).rejects.toThrow(
       OAUTH_FALLBACK_SENTINEL,
     );
+  });
+
+  test("raw bot token helper resolves the requested OAuth account even when cache is warm", async () => {
+    getSecureKeyAsyncMock.mockImplementation(async () => null);
+    resolveOAuthConnectionMock.mockImplementation(
+      async (_provider: string, opts?: { account?: string }) => {
+        const account = opts?.account ?? "default";
+        return makeOAuthConnection(account, `token-${account}`);
+      },
+    );
+
+    await slackProvider.resolveConnection!("workspace-a");
+
+    const result = await withSlackBotToken("workspace-b", async (token) => {
+      return token;
+    });
+
+    expect(result).toBe("token-workspace-b");
+    expect(resolveOAuthConnectionMock).toHaveBeenCalledWith("slack", {
+      account: "workspace-b",
+    });
   });
 });

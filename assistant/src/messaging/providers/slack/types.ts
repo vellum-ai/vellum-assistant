@@ -47,7 +47,19 @@ export interface SlackMessage {
   thread_ts?: string;
   reply_count?: number;
   reactions?: Array<{ name: string; count: number; users: string[] }>;
-  files?: Array<{ id: string; name: string; mimetype: string }>;
+  files?: Array<{
+    id: string;
+    name: string;
+    mimetype: string;
+    /** Slack-hosted download URL requiring bot-token auth. Present on
+     * real `conversations.replies` / `conversations.history` responses;
+     * downloaders prefer this over `url_private`. */
+    url_private_download?: string;
+    /** Slack-hosted file URL requiring bot-token auth. Fallback for
+     * downloaders when `url_private_download` is absent. */
+    url_private?: string;
+    size?: number;
+  }>;
 }
 
 export interface SlackConversationHistoryResponse extends SlackApiResponse {
