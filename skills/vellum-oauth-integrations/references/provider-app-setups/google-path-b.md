@@ -6,7 +6,7 @@ When the user is on a non-interactive channel, walk them through a text-based se
 
 Tell the user:
 
-> **Setting up Gmail & Calendar from chat**
+> **Setting up Gmail, Calendar & Drive from chat**
 >
 > Fair warning - this involves Google's developer console, which can feel pretty technical. Don't worry about that - you don't need to understand any of it. I'll give you a direct link for every step and tell you exactly what to do. If anything looks confusing, just let me know and I'll help you through it.
 >
@@ -49,12 +49,13 @@ Tell the user:
 >
 > Now that I have your project ID, here are the next steps — work through them in order:
 >
-> **Part A: Enable Gmail and Calendar APIs**
+> **Part A: Enable Gmail, Calendar, and Drive APIs**
 >
 > Open each link below and click **Enable**:
 >
 > 1. Gmail API: `https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=PROJECT_ID`
 > 2. Calendar API: `https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=PROJECT_ID`
+> 3. Drive API: `https://console.cloud.google.com/apis/library/drive.googleapis.com?project=PROJECT_ID`
 >
 > **Part B: Configure the OAuth consent screen**
 >
@@ -86,7 +87,7 @@ Tell the user:
 >
 > - Click **Add or Remove Scopes** - a panel will open
 > - Scroll down to the **"Manually add scopes"** text box and paste these (comma-separated):
->   `https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly`
+>   `https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly`
 > - Click **Update** at the bottom of the panel
 > - Back on the main page, scroll down and click **Save**
 >
@@ -140,4 +141,4 @@ Follow the `vellum-oauth-integrations` workflow to register the OAuth app, conne
 
 Send the returned auth URL to the user. If they see **This app isn't verified**, tell them to click **Advanced** and continue to **Vellum Assistant**.
 
-**On success:** "Gmail and Calendar are connected!"
+**On success:** "Gmail, Calendar, and Drive are connected!"

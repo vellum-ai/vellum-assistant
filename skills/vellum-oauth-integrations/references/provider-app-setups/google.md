@@ -1,4 +1,4 @@
-You are helping your user set up Google Cloud OAuth credentials so Gmail and Google Calendar integrations can connect.
+You are helping your user set up Google Cloud OAuth credentials so Gmail, Google Calendar, and Google Drive integrations can connect.
 
 The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the Google-specific steps.
 
@@ -92,6 +92,12 @@ Open: `https://console.cloud.google.com/apis/library/calendar-json.googleapis.co
 
 > Same thing - click **Enable** for the Google Calendar API.
 
+Then enable the Google Drive API:
+
+Open: `https://console.cloud.google.com/apis/library/drive.googleapis.com?project=PROJECT_ID`
+
+> Same thing - click **Enable** for the Google Drive API.
+
 **Milestone (4 of 9):** "APIs are enabled - now we'll set up the OAuth consent screen."
 
 ---
@@ -151,13 +157,14 @@ On macOS desktop, before proceeding, copy the comma-separated scope string below
 The scopes to paste:
 
 ```
-https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly
+https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly
 ```
 
-> You should see all 7 scopes listed across the three categories (Non-sensitive, Sensitive, Restricted):
+> You should see all 8 scopes listed across the three categories (Non-sensitive, Sensitive, Restricted):
 >
 > - `userinfo.email`
 > - `contacts.readonly`
+> - `drive`
 > - `calendar.readonly`
 > - `calendar.events`
 > - `gmail.send`
@@ -203,7 +210,7 @@ Google-specific override for macOS desktop app:
 >
 > Review the permissions and click **Allow**.
 
-**On success:** "Gmail and Calendar are connected! You can now ask me to check your inbox, manage emails, or look at your calendar."
+**On success:** "Gmail, Calendar, and Drive are connected! You can now ask me to check your inbox, manage emails, look at your calendar, or work with your Drive files."
 
 ---
 
