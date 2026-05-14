@@ -105,15 +105,27 @@ struct SubagentDetailPanel: View {
 
             // Objective card
             if let objective, !objective.isEmpty {
+                let needsScroll = objective.count > 250
+                    || objective.split(separator: "\n", omittingEmptySubsequences: false).count > 5
+
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("Objective")
                         .font(VFont.bodyMediumEmphasised)
                         .foregroundStyle(VColor.contentEmphasized)
-                    Text(objective)
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentDefault)
-                        .lineSpacing(18 - 14)
-                        .lineLimit(6)
+                    if needsScroll {
+                        ScrollView {
+                            Text(objective)
+                                .font(VFont.bodyMediumLighter)
+                                .foregroundStyle(VColor.contentDefault)
+                                .lineSpacing(18 - 14)
+                        }
+                        .frame(height: 120)
+                    } else {
+                        Text(objective)
+                            .font(VFont.bodyMediumLighter)
+                            .foregroundStyle(VColor.contentDefault)
+                            .lineSpacing(18 - 14)
+                    }
                 }
                 .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.md, bottom: VSpacing.lg, trailing: VSpacing.md))
                 .vCard(background: VColor.surfaceOverlay)
