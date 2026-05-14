@@ -196,7 +196,7 @@ async function loadHooks(
  * public entry point ({@link loadExternalPlugin}) wraps this in the
  * timeout/try-catch/register triple.
  */
-async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
+export async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   const pkgPath = join(pluginDir, "package.json");
   let rawPkg: unknown;
   try {

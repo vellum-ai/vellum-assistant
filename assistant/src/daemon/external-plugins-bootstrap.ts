@@ -50,12 +50,10 @@
  * plugin level so the plugin name is attributed.
  */
 
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { registerDefaultPlugins } from "../plugins/defaults/index.js";
+import { buildPluginInitContext } from "../plugins/init-context.js";
 import {
   registerPluginSkills,
   unregisterPluginSkills,
@@ -67,7 +65,6 @@ import {
 import {
   type Plugin,
   PluginExecutionError,
-  type PluginInitContext,
   type PluginShutdownContext,
   type PluginSkillRegistration,
 } from "../plugins/types.js";
@@ -76,13 +73,11 @@ import {
   type SkillRouteHandle,
   unregisterSkillRoute,
 } from "../runtime/skill-route-registry.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
 import {
   registerPluginTools,
   unregisterPluginTools,
 } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
 const log = getLogger("plugins-bootstrap");
@@ -95,78 +90,6 @@ const log = getLogger("plugins-bootstrap");
 export interface DaemonContext {
   config: AssistantConfig;
   assistantVersion: string;
-}
-
-/**
- * Resolve one credential value. Returns the raw secret string or throws a
- * {@link PluginExecutionError} tagged with the plugin name so the caller can
- * fail startup with clear attribution.
- */
-async function resolveCredentialOrThrow(
-  pluginName: string,
-  credentialKey: string,
-): Promise<string> {
-  const value = await getSecureKeyAsync(credentialKey);
-  if (value === undefined || value === "") {
-    throw new PluginExecutionError(
-      `plugin ${pluginName} requires credential "${credentialKey}" but the credential store returned no value`,
-      pluginName,
-    );
-  }
-  return value;
-}
-
-/**
- * Validate a plugin config block. If the manifest supplies a parser-like
- * validator (Zod schemas expose `.parse()`), use it. Otherwise pass the
- * config through untouched.
- */
-function validatePluginConfig(
-  pluginName: string,
-  validator: unknown,
-  raw: unknown,
-): unknown {
-  if (
-    validator != null &&
-    typeof validator === "object" &&
-    "parse" in validator &&
-    typeof (validator as { parse: unknown }).parse === "function"
-  ) {
-    try {
-      return (validator as { parse: (input: unknown) => unknown }).parse(raw);
-    } catch (err) {
-      throw new PluginExecutionError(
-        `plugin ${pluginName} config validation failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-        pluginName,
-        { cause: err },
-      );
-    }
-  }
-  return raw;
-}
-
-/**
- * Read `config.plugins.<name>`. `AssistantConfigSchema` declares `plugins` as
- * an optional `Record<string, unknown>`, so the field is type-safe at the
- * schema boundary; per-plugin validation happens downstream via
- * `plugin.manifest.config` in `validatePluginConfig`.
- */
-function getPluginConfigRaw(
-  config: AssistantConfig,
-  pluginName: string,
-): unknown {
-  return config.plugins?.[pluginName];
-}
-
-/**
- * Ensure `<workspaceDir>/plugins-data/<name>/` exists and return its absolute path.
- */
-function ensurePluginStorageDir(pluginName: string): string {
-  const dir = join(getWorkspaceDir(), "plugins-data", pluginName);
-  mkdirSync(dir, { recursive: true });
-  return dir;
 }
 
 /**
@@ -286,35 +209,17 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
     let initCompleted = false;
 
     try {
-      // Credential resolution — gather every entry in `requiresCredential`
-      // before calling `init()` so the plugin receives a fully-populated map.
-      const credentials: Record<string, string> = {};
-      const required = plugin.manifest.requiresCredential ?? [];
-      for (const key of required) {
-        credentials[key] = await resolveCredentialOrThrow(name, key);
-      }
-
-      // Per-plugin config block, validated against the manifest's parser-like
-      // validator when one is declared.
-      const rawConfig = getPluginConfigRaw(ctx.config, name);
-      const config = validatePluginConfig(
-        name,
-        plugin.manifest.config,
-        rawConfig,
+      // Build the init context (credential resolution, config validation,
+      // storage-dir creation, child logger) via the shared helper in
+      // `plugins/init-context.ts`. The CLI install action uses the same
+      // helper so plugin authors see one context shape regardless of which
+      // surface invokes `init()`.
+      const initContext = await buildPluginInitContext(
+        plugin,
+        ctx.config,
+        log,
+        { assistantVersion: ctx.assistantVersion },
       );
-
-      // Per-plugin writable data directory. Created lazily during bootstrap
-      // rather than at registration time so the side effect is isolated to
-      // the boot path.
-      const pluginStorageDir = ensurePluginStorageDir(name);
-
-      const initContext: PluginInitContext = {
-        config,
-        credentials,
-        logger: log.child({ plugin: name }),
-        pluginStorageDir,
-        assistantVersion: ctx.assistantVersion,
-      };
 
       if (plugin.hooks?.init) {
         try {

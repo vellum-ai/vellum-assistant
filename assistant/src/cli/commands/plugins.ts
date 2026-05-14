@@ -9,6 +9,9 @@
 
 import type { Command } from "commander";
 
+import { loadConfig } from "../../config/loader.js";
+import { buildPluginFromDir } from "../../plugins/external-plugin-loader.js";
+import { buildPluginInitContext } from "../../plugins/init-context.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
 import {
   DEFAULT_PLUGIN_REF,
@@ -77,7 +80,32 @@ Examples:
             console.log(
               `Installed plugin "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"}) → ${result.target}`,
             );
-            console.log("Restart the assistant to pick up the new plugin.");
+
+            // Run the plugin's init() hook in-process so one-time setup
+            // (DB migrations, key probing, scaffolding) lands immediately
+            // — no daemon restart needed. Init failures don't roll back
+            // the on-disk install; the files stay so the user can inspect
+            // or `assistant plugins uninstall`.
+            const plugin = await buildPluginFromDir(result.target);
+            if (plugin.hooks?.init) {
+              try {
+                const initContext = await buildPluginInitContext(
+                  plugin,
+                  loadConfig(),
+                  log,
+                );
+                await plugin.hooks.init(initContext);
+                console.log(`Plugin "${result.name}" initialized.`);
+              } catch (err) {
+                const message =
+                  err instanceof Error ? err.message : String(err);
+                console.error(
+                  `Plugin installed but init() failed: ${message}`,
+                );
+                process.exitCode = 1;
+                return;
+              }
+            }
           } catch (err) {
             if (err instanceof PluginAlreadyInstalledError) {
               console.error(`${err.message}\nPass --force to overwrite.`);

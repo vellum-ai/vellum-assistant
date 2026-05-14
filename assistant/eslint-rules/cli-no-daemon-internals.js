@@ -65,6 +65,13 @@ const ALLOWED_PREFIXES = {
     // service-contracts RPC; daemon is not involved.
     "../../credential-execution/",
     "@vellumai/service-contracts",
+    // Plugin install command needs to build the plugin from disk and
+    // construct the init context to run `plugin.hooks.init()` in-process
+    // right after files land. These two modules are pure helpers
+    // (no daemon-runtime state, no IPC) — they live under `plugins/`
+    // specifically because the CLI and daemon both consume them.
+    "../../plugins/external-plugin-loader",
+    "../../plugins/init-context",
   ],
   bootstrap: [
     "node:",
