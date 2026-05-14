@@ -65,7 +65,7 @@ assistant inference providers connections list
 
 | Profile                    | Call Sites                                                                                                                                          |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `balanced` (Sonnet)        | `mainAgent`, `subagentSpawn`, `compactionAgent`, `analyzeConversation`, `patternScan`, `narrativeRefinement`, `memoryRouter`, `memoryConsolidation` |
+| `balanced` (Sonnet)        | `mainAgent`, `subagentSpawn`, `compactionAgent`, `analyzeConversation`, `patternScan`, `narrativeRefinement`, `memoryRouter`, `memoryConsolidation`, `emptyStateGreeting` |
 | `cost-optimized` (Haiku)   | **Everything else** — memory extraction/retrieval, UI copy, classifiers, summarization, background tasks                                            |
 | `quality-optimized` (Opus) | **Do not pin.** Reserved for on-demand user escalation via `/model`                                                                                 |
 
