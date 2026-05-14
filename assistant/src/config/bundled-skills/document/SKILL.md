@@ -22,12 +22,28 @@ Create and edit long-form documents using the built-in rich text editor. Documen
 - **document_list** - Lists all documents in the current conversation with their surface_ids, titles, and word counts.
 - **document_delete** - Deletes a document by `surface_id`. Use to clean up unwanted documents.
 
-## Workflow
+## Retrieving existing documents
+
+When the user asks to see, open, or pull up a document from this conversation:
+
+1. Check the `<active_documents>` block in your context — it lists all documents in this conversation with their `surface_id` and title.
+2. Call `document_read` with the matching `surface_id`. This is a single tool call — do NOT search files, conversations, or archives.
+3. If no `<active_documents>` block is present, call `document_list` to discover documents in this conversation.
+
+**Never** search the filesystem, conversation history, or archives to find a document that was created with the document editor. Always use `document_read` or `document_list`.
+
+## Creating a new document
 
 1. **Create the document**: Call `document_create` with a title (inferred from the request). Call the tool immediately, not after conversational preamble.
 2. **Write content in Markdown**: Use proper structure (`#` for titles, `##` for sections), **bold**, *italic*, code blocks, tables, lists, blockquotes as appropriate.
 3. **CRITICAL - Stream content in chunks**: Call `document_update` MULTIPLE times, not just once. Break content into logical chunks (paragraphs, sections, or every 200-300 words). Call `document_update` with `mode: "append"` for EACH chunk separately. The user experiences real-time content appearing as you write.
-4. **Respond to edits**: When the user requests changes via the docked chat, use `document_update` with `replace` for full rewrites or `append` for additions.
+
+## Editing an existing document
+
+When the user requests changes to a document:
+1. Find the `surface_id` from the `<active_documents>` context block.
+2. Use `document_update` with the existing `surface_id` — do NOT call `document_create` again.
+3. Use `mode: "replace"` for full rewrites or `mode: "append"` for additions.
 
 ## Usage Notes
 
