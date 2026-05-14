@@ -592,7 +592,16 @@ struct HatchingStepView: View {
         let provider = state.selectedProvider.isEmpty
             ? LLMProviderRegistry.defaultProvider.id
             : state.selectedProvider
-        return ["llm.default.provider": provider]
+        var values = ["llm.default.provider": provider]
+
+        if state.skippedAPIKeyEntry {
+            // Authenticated local onboarding uses Vellum-managed inference. Pin
+            // the active profile so the off-platform hatch seeder does not route
+            // chat through the BYOK custom-balanced profile without an API key.
+            values["llm.activeProfile"] = "balanced"
+        }
+
+        return values
     }
 
     private func startRemoteHatch() {
