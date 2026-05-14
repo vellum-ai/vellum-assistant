@@ -149,7 +149,7 @@ assistant config set llm.callSites '{
   "replySuggestion":          {"profile":"cost-optimized","effort":"low","thinking":{"enabled":false}},
   "conversationTitle":        {"profile":"cost-optimized"},
   "identityIntro":            {"profile":"cost-optimized"},
-  "emptyStateGreeting":       {"profile":"cost-optimized"},
+  "emptyStateGreeting":       {"profile":"balanced"},
   "guardianQuestionCopy":     {"profile":"cost-optimized","effort":"low","thinking":{"enabled":false}},
   "approvalCopy":             {"profile":"cost-optimized"},
   "approvalConversation":     {"profile":"cost-optimized"},
