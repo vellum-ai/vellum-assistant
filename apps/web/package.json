@@ -8,14 +8,18 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "openapi-ts": "openapi-ts"
   },
   "dependencies": {
+    "@hey-api/client-fetch": "0.13.1",
+    "@tanstack/react-query": "5.90.21",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "react-router": "7.15.0"
   },
   "devDependencies": {
+    "@hey-api/openapi-ts": "0.97.1",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.1",

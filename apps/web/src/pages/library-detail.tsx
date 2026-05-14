@@ -1,4 +1,4 @@
-import { useParams } from 'react-router';
+import { useParams } from "react-router";
 
 export function LibraryDetail() {
   const { slug } = useParams<{ slug: string }>();
