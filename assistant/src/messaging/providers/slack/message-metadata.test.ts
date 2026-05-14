@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   mergeSlackMetadata,
   readSlackMetadata,
+  readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "./message-metadata.js";
@@ -135,6 +136,35 @@ describe("readSlackMetadata", () => {
     };
     const parsed = readSlackMetadata(JSON.stringify(meta));
     expect(parsed).toEqual(meta);
+  });
+});
+
+describe("readSlackMetadataFromMessageMetadata", () => {
+  const meta: SlackMessageMetadata = {
+    source: "slack",
+    channelId: "C123",
+    channelTs: "1700000000.000100",
+    threadTs: "1699999999.000000",
+    eventKind: "message",
+  };
+
+  test("reads nested slackMeta from a message metadata envelope", () => {
+    expect(
+      readSlackMetadataFromMessageMetadata(
+        JSON.stringify({
+          userMessageChannel: "slack",
+          slackMeta: writeSlackMetadata(meta),
+        }),
+      ),
+    ).toEqual(meta);
+  });
+
+  test("can read flat legacy Slack metadata when explicitly allowed", () => {
+    const raw = writeSlackMetadata(meta);
+    expect(readSlackMetadataFromMessageMetadata(raw)).toBeNull();
+    expect(
+      readSlackMetadataFromMessageMetadata(raw, { allowFlatLegacy: true }),
+    ).toEqual(meta);
   });
 });
 

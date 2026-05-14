@@ -20,7 +20,10 @@ import {
   updateMessageContent,
   updateMessageContentAndMetadata,
 } from "../../../memory/conversation-crud.js";
-import { findMessageBySourceId, recordInbound } from "../../../memory/delivery-crud.js";
+import {
+  findMessageBySourceId,
+  recordInbound,
+} from "../../../memory/delivery-crud.js";
 import {
   mergeSlackMetadata,
   readSlackMetadata,
@@ -39,6 +42,7 @@ export interface EditInterceptParams {
   conversationExternalId: string;
   externalMessageId: string;
   sourceMessageId: string;
+  sourceThreadId?: string;
   canonicalAssistantId: string;
   assistantId: string;
   content: string | undefined;
@@ -61,6 +65,7 @@ export async function handleEditIntercept(
     conversationExternalId,
     externalMessageId,
     sourceMessageId,
+    sourceThreadId,
     canonicalAssistantId,
     assistantId,
     content,
@@ -71,7 +76,7 @@ export async function handleEditIntercept(
     sourceChannel,
     conversationExternalId,
     externalMessageId,
-    { sourceMessageId, assistantId: canonicalAssistantId },
+    { sourceMessageId, sourceThreadId, assistantId: canonicalAssistantId },
   );
 
   if (editResult.duplicate) {
@@ -145,6 +150,7 @@ export async function handleEditIntercept(
         messageId: original.messageId,
         conversationExternalId,
         sourceMessageId,
+        sourceThreadId,
         newContent,
       });
     } else {
@@ -203,10 +209,16 @@ function applySlackEditMetadata(params: {
   messageId: string;
   conversationExternalId: string;
   sourceMessageId: string;
+  sourceThreadId?: string;
   newContent: string;
 }): void {
-  const { messageId, conversationExternalId, sourceMessageId, newContent } =
-    params;
+  const {
+    messageId,
+    conversationExternalId,
+    sourceMessageId,
+    sourceThreadId,
+    newContent,
+  } = params;
 
   const row = getMessageById(messageId);
   const outerMetadata: Record<string, unknown> =
@@ -230,6 +242,7 @@ function applySlackEditMetadata(params: {
           source: "slack" as const,
           channelId: conversationExternalId,
           channelTs: sourceMessageId,
+          ...(sourceThreadId ? { threadTs: sourceThreadId } : {}),
           eventKind: "message" as const,
         }),
     editedAt,

@@ -19,6 +19,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { addMessage } from "../memory/conversation-crud.js";
+import { getConversationByKey } from "../memory/conversation-key-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { linkMessage, recordInbound } from "../memory/delivery-crud.js";
@@ -158,6 +159,38 @@ describe("Slack edit propagation", () => {
     expect(slackMeta!.eventKind).toBe("message");
     expect(typeof slackMeta!.editedAt).toBe("number");
     expect(slackMeta!.editedAt!).toBeGreaterThanOrEqual(t0);
+  });
+
+  test("threaded Slack edits use the threaded conversation key and preserve thread metadata", async () => {
+    const conversationExternalId = "C0123CHANNEL";
+    const threadTs = "1234.0000";
+    const seeded = await seedSlackMessage({
+      conversationExternalId,
+      channelTs: "1234.5678",
+      initialContent: "original text",
+    });
+
+    const resp = await handleEditIntercept({
+      sourceChannel: "slack",
+      conversationExternalId,
+      externalMessageId: nextEditEventId(),
+      sourceMessageId: seeded.channelTs,
+      sourceThreadId: threadTs,
+      canonicalAssistantId: "self",
+      assistantId: "self",
+      content: "new text",
+    });
+
+    expect((resp as Record<string, unknown>).accepted).toBe(true);
+    const threadedKey = `asst:self:slack:${conversationExternalId}:thread:${threadTs}`;
+    const editConversation = getConversationByKey(threadedKey);
+    expect(editConversation).not.toBeNull();
+    expect(editConversation!.conversationId).not.toBe(seeded.conversationId);
+
+    const after = readMessageRow(seeded.messageId);
+    const outer = JSON.parse(after.metadata!) as Record<string, unknown>;
+    const slackMeta = readSlackMetadata(outer.slackMeta as string);
+    expect(slackMeta?.threadTs).toBe(threadTs);
   });
 
   test("is idempotent across successive edits", async () => {

@@ -1,7 +1,10 @@
 /**
  * Channel conversation deletion handler.
  */
-import { deleteConversationKey } from "../../memory/conversation-key-store.js";
+import {
+  deleteConversationKey,
+  getOrCreateConversation,
+} from "../../memory/conversation-key-store.js";
 import { buildScopedConversationKey } from "../../memory/delivery-crud.js";
 import {
   deleteBindingByChannelChat,
@@ -37,6 +40,9 @@ export function handleDeleteConversation({ body = {} }: RouteHandlerArgs) {
     deleteConversationKey(legacyKey);
     deleteBindingByChannelChat(sourceChannel, conversationExternalId);
   } else {
+    if (sourceChannel === "slack") {
+      getOrCreateConversation(scopedKey);
+    }
     deleteBindingByChannelChatThread(
       sourceChannel,
       conversationExternalId,

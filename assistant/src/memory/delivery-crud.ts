@@ -5,11 +5,17 @@
  * finding messages by source identifiers, and managing raw payload storage.
  */
 
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { getOrCreateConversation } from "./conversation-key-store.js";
+import { selectSlackMetaCandidateMetadata } from "./conversation-crud.js";
+import {
+  getConversationByKey,
+  getOrCreateConversation,
+  setConversationKeyIfAbsent,
+} from "./conversation-key-store.js";
 import { getDb } from "./db-connection.js";
 import { channelInboundEvents, conversations } from "./schema.js";
 
@@ -25,6 +31,9 @@ export interface RecordInboundOptions {
   assistantId?: string;
   sourceThreadId?: string;
 }
+
+const SLACK_LEGACY_THREAD_EVIDENCE_BATCH_SIZE = 50;
+const SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN = 500;
 
 function buildScopedConversationKeyForAssistant(
   assistantId: string,
@@ -50,6 +59,114 @@ export function buildScopedConversationKey(
     externalChatId,
     sourceThreadId,
   );
+}
+
+function legacySlackConversationHasThreadEvidence(
+  conversationId: string,
+  externalChatId: string,
+  sourceThreadId: string,
+): boolean {
+  const db = getDb();
+  const inboundEvidence = db
+    .select({ id: channelInboundEvents.id })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.conversationId, conversationId),
+        eq(channelInboundEvents.sourceChannel, "slack"),
+        eq(channelInboundEvents.externalChatId, externalChatId),
+        or(
+          eq(channelInboundEvents.sourceMessageId, sourceThreadId),
+          eq(channelInboundEvents.externalMessageId, sourceThreadId),
+        ),
+      ),
+    )
+    .get();
+
+  if (inboundEvidence) {
+    return true;
+  }
+
+  let offset = 0;
+  while (offset < SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN) {
+    const remaining = SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN - offset;
+    const batchLimit = Math.min(
+      SLACK_LEGACY_THREAD_EVIDENCE_BATCH_SIZE,
+      remaining,
+    );
+    const metadataRows = selectSlackMetaCandidateMetadata(
+      conversationId,
+      batchLimit,
+      offset,
+      { includeFlatLegacy: true },
+    );
+
+    if (metadataRows.length === 0) return false;
+    for (const metadata of metadataRows) {
+      const slackMeta = readSlackMetadataFromMessageMetadata(metadata, {
+        allowFlatLegacy: true,
+      });
+      if (
+        slackMeta?.channelId === externalChatId &&
+        slackMeta.threadTs === sourceThreadId
+      ) {
+        return true;
+      }
+    }
+
+    if (metadataRows.length < batchLimit) return false;
+    offset += metadataRows.length;
+  }
+
+  return false;
+}
+
+function resolveInboundConversation(
+  assistantId: string,
+  sourceChannel: string,
+  externalChatId: string,
+  sourceThreadId?: string | null,
+): { conversationId: string } {
+  const threadedKey = buildScopedConversationKeyForAssistant(
+    assistantId,
+    sourceChannel,
+    externalChatId,
+    sourceThreadId,
+  );
+
+  const threadId = sourceThreadId?.trim();
+  if (sourceChannel !== "slack" || !threadId) {
+    return getOrCreateConversation(threadedKey);
+  }
+
+  const threadedMapping = getConversationByKey(threadedKey);
+  if (threadedMapping) {
+    return { conversationId: threadedMapping.conversationId };
+  }
+
+  const legacyKey = buildScopedConversationKeyForAssistant(
+    assistantId,
+    sourceChannel,
+    externalChatId,
+    null,
+  );
+  const legacyMapping = getConversationByKey(legacyKey);
+  if (
+    legacyMapping &&
+    legacySlackConversationHasThreadEvidence(
+      legacyMapping.conversationId,
+      externalChatId,
+      threadId,
+    )
+  ) {
+    setConversationKeyIfAbsent(threadedKey, legacyMapping.conversationId);
+    const aliasedMapping = getConversationByKey(threadedKey);
+    if (aliasedMapping) {
+      return { conversationId: aliasedMapping.conversationId };
+    }
+  }
+
+  return getOrCreateConversation(threadedKey);
 }
 
 /**
@@ -89,13 +206,12 @@ export function recordInbound(
   }
 
   const assistantId = options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
-  const scopedKey = buildScopedConversationKeyForAssistant(
+  const mapping = resolveInboundConversation(
     assistantId,
     sourceChannel,
     externalChatId,
     options?.sourceThreadId,
   );
-  const mapping = getOrCreateConversation(scopedKey);
   const now = Date.now();
   const eventId = uuid();
 
