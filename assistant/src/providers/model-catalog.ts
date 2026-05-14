@@ -258,11 +258,13 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 30.0,
           outputPer1mTokens: 180.0,
+          cacheReadPer1mTokens: 3.0,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
               inputPer1mTokens: 60,
               outputPer1mTokens: 270,
+              cacheReadPer1mTokens: 6.0,
             },
           ],
         },
