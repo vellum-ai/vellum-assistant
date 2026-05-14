@@ -12,18 +12,16 @@
  * through a static singleton so tool side-effects can call
  * `PluginSourceWatcher.getInstance().ensureStarted()` directly without an
  * intermediate module-level injection.
- *
- * The post-boot install path (i.e. how `onChange` actually re-enters
- * `installPluginPostBoot`) lands in a follow-up PR. For now `onChange`
- * is a logging stub so the watcher infrastructure can be wired and
- * exercised end-to-end at the fs-event boundary.
  */
 
-import { existsSync, type FSWatcher, watch } from "node:fs";
+import { type FSWatcher, mkdirSync, watch } from "node:fs";
 
+import { getConfig } from "../config/loader.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
+import { APP_VERSION } from "../version.js";
+import { installPluginPostBoot } from "./external-plugins-bootstrap.js";
 
 const log = getLogger("plugin-source-watcher");
 
@@ -100,16 +98,22 @@ export class PluginSourceWatcher {
   }
 
   /**
-   * Stubbed change handler — logs the detected plugin change so the
-   * watcher's reach can be verified in dev. The daemon-side install path
-   * (build manifest → re-open registration → `installPluginPostBoot`)
-   * lands in a follow-up PR.
+   * Route a detected plugin source change into the daemon-side install
+   * path. {@link installPluginPostBoot} gates on the in-memory registry,
+   * so repeated fires for an already-loaded plugin are cheap no-ops, and
+   * partial writes (package.json missing) are tolerated — the next
+   * debounced fire catches the complete state.
+   *
+   * The promise is returned so the debouncer awaits it and any throw
+   * surfaces at the watcher boundary. `installPluginPostBoot` itself
+   * catches and logs its own failures, so this is belt-and-suspenders
+   * against an unhandled rejection if the install path ever evolves.
    */
-  private onChange(pluginName: string): void {
-    log.info(
-      { plugin: pluginName },
-      "plugin source change detected (install path lands in follow-up PR)",
-    );
+  private onChange(pluginName: string): Promise<void> {
+    return installPluginPostBoot(pluginName, {
+      config: getConfig(),
+      assistantVersion: APP_VERSION,
+    });
   }
 
   private tryWatch(): void {
@@ -125,9 +129,19 @@ export class PluginSourceWatcher {
       return;
     }
 
-    if (!existsSync(pluginsDir)) {
-      log.info(
-        "Plugins directory does not exist yet; skipping source watcher",
+    // Ensure the plugins directory exists so the watcher always has a
+    // target to attach to. Without this, a fresh workspace (no plugins/
+    // dir yet) would leave the watcher detached forever — fs.watch
+    // cannot attach to a non-existent path, and the CLI install path
+    // doesn't signal the daemon over IPC. `recursive: true` is
+    // idempotent and the side effect (an empty `plugins/` dir for users
+    // who never install a plugin) is negligible.
+    try {
+      mkdirSync(pluginsDir, { recursive: true });
+    } catch (err) {
+      log.warn(
+        { err, pluginsDir },
+        "Could not create plugins directory; source watching disabled",
       );
       return;
     }
@@ -141,7 +155,7 @@ export class PluginSourceWatcher {
           const pluginName = resolvePluginNameFromRelPath(filename);
           if (!pluginName) return;
           this.debouncer.schedule(`plugin:${pluginName}`, () => {
-            this.onChange(pluginName);
+            void this.onChange(pluginName);
           });
         },
       );

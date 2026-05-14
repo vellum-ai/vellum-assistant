@@ -64,11 +64,17 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import type { AssistantConfig } from "../config/schema.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { registerDefaultPlugins } from "../plugins/defaults/index.js";
+import { buildExternalPlugin } from "../plugins/external-plugin-loader.js";
 import {
   registerPluginSkills,
   unregisterPluginSkills,
 } from "../plugins/plugin-skill-contributions.js";
-import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
+import {
+  getRegisteredPlugin,
+  getRegisteredPlugins,
+  registerPluginPostBoot,
+  unregisterPlugin,
+} from "../plugins/registry.js";
 import {
   type Plugin,
   PluginExecutionError,
@@ -556,4 +562,214 @@ async function teardownPlugin(
       );
     }
   }
+}
+
+/**
+ * Post-boot install / hot-reload entry point invoked by the plugin source
+ * watcher when a directory under `<workspaceDir>/plugins/<name>/` is
+ * created or modified.
+ *
+ * **First fire for a plugin name** (not in the registry):
+ *   build → feature-flag gate → resolve credentials + validate config →
+ *   `init()` → register in registry + register tools. The plugin's
+ *   `init()` hook runs exactly once for the lifetime of the daemon.
+ *
+ * **Subsequent fires for the same name** (already in the registry):
+ *   build → feature-flag gate → REPLACE the registry entry → re-register
+ *   tools. `init()` is NOT called — init is a one-shot lifecycle event.
+ *   Hooks, middleware, and injectors update transparently because they
+ *   live on the Plugin object itself; consumers iterate the registry Map
+ *   and the slot's value is swapped atomically, so subsequent reads see
+ *   the new functions.
+ *
+ * Per-plugin isolation: any error inside this function is logged with
+ * plugin attribution and swallowed. One bad fire must not stall the
+ * watcher or crash the daemon. The watcher debounces per plugin name, so
+ * a partial-write fire (package.json missing, surface file mid-save)
+ * self-heals when the next debounced fire sees a complete state.
+ *
+ * Limitations (v1):
+ *   - {@link buildExternalPlugin} reads `tools` and `hooks` from disk
+ *     only; the loader does not currently read `skills`, `routes`, or
+ *     `injectors`. Hot-reload therefore swaps tools and the Plugin
+ *     object itself (which carries hooks, middleware, and injectors).
+ *     Skills and routes are not touched here.
+ *   - Manifest changes between fires (`requiresFlag`,
+ *     `requiresCredential`, `config` validator) retain the original
+ *     init's resolved values — restart the daemon to pick up manifest
+ *     changes that affect those gates.
+ */
+export async function installPluginPostBoot(
+  pluginName: string,
+  ctx: DaemonContext,
+): Promise<void> {
+  const pluginDir = join(getWorkspaceDir(), "plugins", pluginName);
+
+  const plugin = await buildExternalPlugin(pluginDir);
+  if (plugin === undefined) {
+    // buildExternalPlugin already logged the failure with attribution.
+    // The watcher will re-fire when the directory state settles, so a
+    // transient missing-file case self-heals.
+    return;
+  }
+  if (plugin.manifest.name !== pluginName) {
+    log.warn(
+      { plugin: pluginName, manifestName: plugin.manifest.name, pluginDir },
+      `post-boot install: directory name "${pluginName}" does not match manifest.name "${plugin.manifest.name}" — skipping`,
+    );
+    return;
+  }
+
+  // Feature-flag gate on the plugin itself. If any required flag is
+  // disabled, skip — the watcher will fire again on the next source
+  // change, and a later boot with the flag enabled picks up the plugin
+  // via the normal bootstrap path.
+  for (const flagKey of plugin.manifest.requiresFlag ?? []) {
+    if (!isAssistantFeatureFlagEnabled(flagKey, ctx.config)) {
+      log.info(
+        { plugin: pluginName, flag: flagKey },
+        `post-boot install: gated by disabled feature flag ${flagKey} — skipping`,
+      );
+      return;
+    }
+  }
+
+  const existing = getRegisteredPlugin(pluginName);
+
+  if (existing !== undefined) {
+    // ─── HOT-RELOAD PATH ─────────────────────────────────────────────
+    //
+    // Tear down the existing plugin's tool contributions, swap the
+    // Plugin object in the registry, then re-register fresh tool
+    // contributions. `init()` is NOT called — see the function-level
+    // docstring for the lifecycle reasoning. Hooks, middleware, and
+    // injectors update transparently when the registry's Map slot is
+    // replaced; no explicit teardown is needed for those.
+    try {
+      unregisterPluginTools(pluginName);
+    } catch (err) {
+      log.warn(
+        { err, plugin: pluginName },
+        "post-boot hot-reload: tool unregister failed (continuing — re-register below may shadow stale entries)",
+      );
+    }
+    try {
+      registerPluginPostBoot(plugin);
+    } catch (err) {
+      log.error(
+        { err, plugin: pluginName },
+        "post-boot hot-reload: registry replace failed — old plugin entry remains live",
+      );
+      return;
+    }
+    if (plugin.tools && plugin.tools.length > 0) {
+      try {
+        const accepted = registerPluginTools(pluginName, plugin.tools);
+        log.info(
+          { plugin: pluginName, count: accepted.length },
+          "post-boot plugin hot-reloaded (tools re-registered, init not called)",
+        );
+        return;
+      } catch (err) {
+        log.error(
+          { err, plugin: pluginName },
+          "post-boot hot-reload: tool re-register failed (plugin object replaced, tools missing)",
+        );
+        return;
+      }
+    }
+    log.info(
+      { plugin: pluginName },
+      "post-boot plugin hot-reloaded (no tools, init not called)",
+    );
+    return;
+  }
+
+  // ─── FRESH-INSTALL PATH ────────────────────────────────────────────
+  //
+  // Resolve credentials → validate config → ensure storage dir → run
+  // `init()` → register → register tools. Failures at any step are
+  // logged and skipped: the watcher will re-fire on the next source
+  // change, giving the plugin author a chance to correct the issue
+  // without restarting the daemon.
+
+  const credentials: Record<string, string> = {};
+  try {
+    for (const key of plugin.manifest.requiresCredential ?? []) {
+      credentials[key] = await resolveCredentialOrThrow(pluginName, key);
+    }
+  } catch (err) {
+    log.error(
+      { err, plugin: pluginName },
+      "post-boot install: credential resolution failed — skipping",
+    );
+    return;
+  }
+
+  const rawConfig = getPluginConfigRaw(ctx.config, pluginName);
+  let config: unknown;
+  try {
+    config = validatePluginConfig(
+      pluginName,
+      plugin.manifest.config,
+      rawConfig,
+    );
+  } catch (err) {
+    log.error(
+      { err, plugin: pluginName },
+      "post-boot install: config validation failed — skipping",
+    );
+    return;
+  }
+
+  const pluginStorageDir = ensurePluginStorageDir(pluginName);
+
+  const initContext: PluginInitContext = {
+    config,
+    credentials,
+    logger: log.child({ plugin: pluginName }),
+    pluginStorageDir,
+    assistantVersion: ctx.assistantVersion,
+  };
+
+  if (plugin.hooks?.[HOOKS.INIT]) {
+    try {
+      await plugin.hooks[HOOKS.INIT](initContext);
+    } catch (err) {
+      log.error(
+        { err, plugin: pluginName },
+        "post-boot install: init() failed — plugin not registered, no tools contributed",
+      );
+      return;
+    }
+  }
+
+  try {
+    registerPluginPostBoot(plugin);
+  } catch (err) {
+    log.error(
+      { err, plugin: pluginName },
+      "post-boot install: registry write failed after successful init — plugin init ran but plugin is not live",
+    );
+    return;
+  }
+
+  if (plugin.tools && plugin.tools.length > 0) {
+    try {
+      const accepted = registerPluginTools(pluginName, plugin.tools);
+      log.info(
+        { plugin: pluginName, count: accepted.length },
+        "post-boot plugin installed",
+      );
+      return;
+    } catch (err) {
+      log.error(
+        { err, plugin: pluginName },
+        "post-boot install: tool registration failed after init + registry write — plugin is live but contributes no tools",
+      );
+      return;
+    }
+  }
+
+  log.info({ plugin: pluginName }, "post-boot plugin installed (no tools)");
 }

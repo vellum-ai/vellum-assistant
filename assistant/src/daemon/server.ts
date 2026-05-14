@@ -291,9 +291,6 @@ export class DaemonServer {
 
     this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
-    // Filesystem watcher for `<workspaceDir>/plugins/` — picks up plugin
-    // source changes (install/edit). The watcher owns its onChange handler
-    // internally.
     this.pluginSourceWatcher.start();
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
