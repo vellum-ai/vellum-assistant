@@ -216,7 +216,7 @@ export function updateDocumentContent(
   surfaceId: string,
   markdown: string,
   mode: string,
-): void {
+): { success: true } | { success: false; error: string } {
   try {
     const existing = rawGet<{ content: string }>(
       /*sql*/ `SELECT content FROM documents WHERE surface_id = ?`,
@@ -224,7 +224,7 @@ export function updateDocumentContent(
     );
     if (!existing) {
       log.info({ surfaceId }, "No persisted document to update");
-      return;
+      return { success: false, error: "Document not found" };
     }
     const sep = mode === "append" && existing.content.length > 0 ? "\n\n" : "";
     const newContent =
@@ -240,7 +240,12 @@ export function updateDocumentContent(
       surfaceId,
     );
     log.info({ surfaceId, mode }, "Updated document content");
+    return { success: true };
   } catch (error) {
     log.error({ err: error, surfaceId }, "Document content update error");
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
   }
 }
