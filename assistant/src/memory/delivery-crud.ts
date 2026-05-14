@@ -5,13 +5,17 @@
  * finding messages by source identifiers, and managing raw payload storage.
  */
 
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, like, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { getOrCreateConversation } from "./conversation-key-store.js";
+import {
+  getConversationByKey,
+  getOrCreateConversation,
+  setConversationKeyIfAbsent,
+} from "./conversation-key-store.js";
 import { getDb } from "./db-connection.js";
-import { channelInboundEvents, conversations } from "./schema.js";
+import { channelInboundEvents, conversations, messages } from "./schema.js";
 
 export interface InboundResult {
   accepted: boolean;
@@ -52,6 +56,164 @@ export function buildScopedConversationKey(
   );
 }
 
+function readSlackMetadataEvidence(
+  raw: string | null,
+): { channelId: string; threadTs?: string } | null {
+  if (!raw) {
+    return null;
+  }
+
+  const candidates: string[] = [raw];
+  try {
+    const envelope: unknown = JSON.parse(raw);
+    if (
+      envelope !== null &&
+      typeof envelope === "object" &&
+      !Array.isArray(envelope)
+    ) {
+      const slackMeta = (envelope as { slackMeta?: unknown }).slackMeta;
+      if (typeof slackMeta === "string") {
+        candidates.unshift(slackMeta);
+      }
+    }
+  } catch {
+    // Fall through to parsing the raw value as a flat Slack metadata blob.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed: unknown = JSON.parse(candidate);
+      if (
+        parsed === null ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        continue;
+      }
+
+      const record = parsed as Record<string, unknown>;
+      const eventKind = record.eventKind;
+      if (
+        record.source !== "slack" ||
+        typeof record.channelId !== "string" ||
+        typeof record.channelTs !== "string" ||
+        (eventKind !== "message" && eventKind !== "reaction")
+      ) {
+        continue;
+      }
+
+      return {
+        channelId: record.channelId,
+        ...(typeof record.threadTs === "string"
+          ? { threadTs: record.threadTs }
+          : {}),
+      };
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
+  return null;
+}
+
+function legacySlackConversationHasThreadEvidence(
+  conversationId: string,
+  externalChatId: string,
+  sourceThreadId: string,
+): boolean {
+  const db = getDb();
+  const inboundEvidence = db
+    .select({ id: channelInboundEvents.id })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.conversationId, conversationId),
+        eq(channelInboundEvents.sourceChannel, "slack"),
+        eq(channelInboundEvents.externalChatId, externalChatId),
+        or(
+          eq(channelInboundEvents.sourceMessageId, sourceThreadId),
+          eq(channelInboundEvents.externalMessageId, sourceThreadId),
+        ),
+      ),
+    )
+    .get();
+
+  if (inboundEvidence) {
+    return true;
+  }
+
+  const metadataRows = db
+    .select({ metadata: messages.metadata })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        isNotNull(messages.metadata),
+        or(
+          like(messages.metadata, '%"slackMeta"%'),
+          like(messages.metadata, '%"source":"slack"%'),
+        ),
+      ),
+    )
+    .all();
+
+  return metadataRows.some((row) => {
+    const slackMeta = readSlackMetadataEvidence(row.metadata);
+    return (
+      slackMeta?.channelId === externalChatId &&
+      slackMeta.threadTs === sourceThreadId
+    );
+  });
+}
+
+function resolveInboundConversation(
+  assistantId: string,
+  sourceChannel: string,
+  externalChatId: string,
+  sourceThreadId?: string | null,
+): { conversationId: string } {
+  const threadedKey = buildScopedConversationKeyForAssistant(
+    assistantId,
+    sourceChannel,
+    externalChatId,
+    sourceThreadId,
+  );
+
+  const threadId = sourceThreadId?.trim();
+  if (sourceChannel !== "slack" || !threadId) {
+    return getOrCreateConversation(threadedKey);
+  }
+
+  const threadedMapping = getConversationByKey(threadedKey);
+  if (threadedMapping) {
+    return { conversationId: threadedMapping.conversationId };
+  }
+
+  const legacyKey = buildScopedConversationKeyForAssistant(
+    assistantId,
+    sourceChannel,
+    externalChatId,
+    null,
+  );
+  const legacyMapping = getConversationByKey(legacyKey);
+  if (
+    legacyMapping &&
+    legacySlackConversationHasThreadEvidence(
+      legacyMapping.conversationId,
+      externalChatId,
+      threadId,
+    )
+  ) {
+    setConversationKeyIfAbsent(threadedKey, legacyMapping.conversationId);
+    const aliasedMapping = getConversationByKey(threadedKey);
+    if (aliasedMapping) {
+      return { conversationId: aliasedMapping.conversationId };
+    }
+  }
+
+  return getOrCreateConversation(threadedKey);
+}
+
 /**
  * Record an inbound channel event. Returns `duplicate: true` if this
  * exact (channel, chat, message) combination was already seen.
@@ -89,13 +251,12 @@ export function recordInbound(
   }
 
   const assistantId = options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
-  const scopedKey = buildScopedConversationKeyForAssistant(
+  const mapping = resolveInboundConversation(
     assistantId,
     sourceChannel,
     externalChatId,
     options?.sourceThreadId,
   );
-  const mapping = getOrCreateConversation(scopedKey);
   const now = Date.now();
   const eventId = uuid();
 
