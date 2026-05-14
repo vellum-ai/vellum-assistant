@@ -33,6 +33,7 @@ import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../config/types.js";
+import { runEmergencyCompaction } from "../context/compactor.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
@@ -83,7 +84,6 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
-import { runEmergencyCompaction } from "../context/compactor.js";
 import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
 import {
   asDefaultGraphPayload,
@@ -2533,10 +2533,7 @@ export async function runAgentLoopImpl(
             );
           }
           if (emergencyResult.compacted) {
-            await applySuccessfulCompaction(
-              emergencyResult,
-              ctx.messages,
-            );
+            await applySuccessfulCompaction(emergencyResult, ctx.messages);
             shouldInjectWorkspace = true;
           }
           // Clear the overflow flag and re-run the agent loop with

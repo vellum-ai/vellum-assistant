@@ -74,6 +74,7 @@ mock.module("../config/loader.js", () => ({
       },
       "web-search": { mode: "your-own", provider: "inference-provider-native" },
     },
+    compaction: { enabled: true, autoThreshold: 0.7 },
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
