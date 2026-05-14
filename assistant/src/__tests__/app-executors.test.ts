@@ -1,13 +1,31 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+type CompileResult = {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  durationMs: number;
+};
+
+let compileResultOverride: CompileResult = {
+  ok: true,
+  errors: [],
+  warnings: [],
+  durationMs: 0,
+};
 
 mock.module("../bundler/app-compiler.js", () => ({
-  compileApp: async () => ({
+  compileApp: async () => compileResultOverride,
+}));
+
+beforeEach(() => {
+  compileResultOverride = {
     ok: true,
     errors: [],
     warnings: [],
     durationMs: 0,
-  }),
-}));
+  };
+});
 
 import type { AppDefinition } from "../memory/app-store.js";
 import type { AppStore } from "../tools/apps/executors.js";
@@ -181,6 +199,78 @@ describe("executeAppCreate", () => {
     expect(parsed.auto_opened).toBe(false);
     expect(parsed.next_steps).toContain("placeholder src/main.tsx");
     expect(parsed.next_steps).toContain("app_refresh");
+  });
+
+  test("omits next_steps when main.tsx was pre-written before app_create", async () => {
+    // The agent's supported workflow is to write the real source files first
+    // and then call app_create. In that case the placeholder directive would
+    // be false and risk triggering a destructive rewrite of correct code.
+    const files: Record<string, string> = {
+      "src/main.tsx": "// real code from the agent",
+    };
+    const app = makeMultifileApp({ name: "Pre-written App" });
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: () => app,
+    };
+
+    const result = await executeAppCreate({ name: "Pre-written App" }, store);
+
+    expect(result.isError).toBe(false);
+    // The pre-written file must be preserved
+    expect(files["src/main.tsx"]).toBe("// real code from the agent");
+    const parsed = JSON.parse(result.content);
+    expect(parsed.next_steps).toBeUndefined();
+  });
+
+  test("includes next_steps when compile fails on the scaffold", async () => {
+    compileResultOverride = {
+      ok: false,
+      errors: ["unexpected token"],
+      warnings: [],
+      durationMs: 3,
+    };
+    const files: Record<string, string> = {};
+    const app = makeMultifileApp({ name: "Broken App" });
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: () => app,
+    };
+
+    const result = await executeAppCreate({ name: "Broken App" }, store);
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.compile_errors).toEqual(["unexpected token"]);
+    expect(parsed.next_steps).toContain("placeholder src/main.tsx");
+    expect(parsed.next_steps).toContain("app_refresh");
+  });
+
+  test("omits next_steps when compile fails on pre-written files", async () => {
+    compileResultOverride = {
+      ok: false,
+      errors: ["unexpected token"],
+      warnings: [],
+      durationMs: 3,
+    };
+    const files: Record<string, string> = {
+      "src/main.tsx": "// agent's real (but broken) code",
+    };
+    const app = makeMultifileApp({ name: "Broken Pre-written App" });
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: () => app,
+    };
+
+    const result = await executeAppCreate(
+      { name: "Broken Pre-written App" },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.compile_errors).toEqual(["unexpected token"]);
+    expect(parsed.next_steps).toBeUndefined();
   });
 
   test("rejects retired html shortcut", async () => {
