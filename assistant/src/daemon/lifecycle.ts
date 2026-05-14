@@ -76,8 +76,8 @@ import {
   setCesReconnect,
 } from "../security/secure-keys.js";
 import {
-  UsageTelemetryReporter,
   setUsageTelemetryReporter,
+  UsageTelemetryReporter,
 } from "../telemetry/usage-telemetry-reporter.js";
 import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
 import { getDeviceId } from "../util/device-id.js";

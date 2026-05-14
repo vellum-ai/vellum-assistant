@@ -14980,6 +14980,39 @@ paths:
                   type: string
                   minLength: 1
               additionalProperties: false
+  /v1/telemetry/flush:
+    post:
+      operationId: telemetry_flush_post
+      summary: Flush pending telemetry events
+      description: Force-flush all pending usage, turn, and lifecycle telemetry events to the platform.
+      tags:
+        - telemetry
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      flushed:
+                        type: boolean
+                        const: true
+                    required:
+                      - flushed
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      flushed:
+                        type: boolean
+                        const: false
+                      reason:
+                        type: string
+                    required:
+                      - flushed
+                      - reason
+                    additionalProperties: false
   /v1/telemetry/lifecycle:
     post:
       operationId: telemetry_lifecycle_post
