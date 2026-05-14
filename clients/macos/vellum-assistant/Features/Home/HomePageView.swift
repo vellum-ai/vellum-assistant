@@ -15,80 +15,38 @@ import VellumAssistantShared
 /// both stores keep the last-good state so we never blank the UI between
 /// refreshes.
 ///
-/// The view is generic over an optional trailing detail panel. When
-/// `isDetailPanelVisible` is true and a non-empty `detailPanel` is
-/// supplied, the body splits into a two-pane layout with the main home
-/// content on the leading side and the supplied panel anchored to the
-/// trailing edge. When false, the layout renders identically to the
-/// single-column original.
-struct HomePageView<DetailPanel: View>: View {
+/// The split layout (detail panel) is now handled by ``VSplitView``
+/// at the ``PanelCoordinator`` level, matching the pattern used by
+/// SubagentDetailPanel and DocumentEditorPanelView.
+struct HomePageView: View {
     @Bindable var store: HomeStore
     @Bindable var feedStore: HomeFeedStore
-    /// Drives the "In meeting" status panel rendered at the top of the
-    /// gallery. Owned by the parent so the panel survives panel-dismiss
-    /// cycles and keeps its SSE subscription live for the whole session.
     @Bindable var meetStatusViewModel: MeetStatusViewModel
-    /// Fired when a feed action resolves to a daemon-created conversation
-    /// — the receiver (usually `PanelCoordinator`) navigates into it.
     let onFeedConversationOpened: (String) -> Void
-    /// Fired when the "New Chat" pill in the greeting header is tapped.
-    /// Routes to the same code path the sidebar's New-chat button hits.
     let onStartNewChat: () -> Void
-    /// Fired when the user dismisses the suggestion bar. The view also
-    /// hides the bar locally via `suggestionsDismissed`; this closure is
-    /// a hook for future server-side persistence (currently a no-op at
-    /// the call site — see PR note in the plan).
     let onDismissSuggestions: () -> Void
-    /// Fired when the user taps one of the suggestion pills. The parent
-    /// opens a fresh conversation seeded with the suggestion label.
     let onSuggestionSelected: (HomeSuggestion) -> Void
-    /// Fired when the user taps a feed item that resolves to a detail
-    /// panel via ``HomeDetailPanelKind.resolve(for:)``. The parent
-    /// presents the appropriate panel instead of opening a conversation.
-    /// Declared as `var` with a no-op default so the synthesized memberwise
-    /// initializer still accepts this argument (Swift bakes `let` defaults
-    /// in and omits them from the memberwise init, which breaks the
-    /// convenience-init forwarding path and any direct memberwise callers).
     var onDetailPanelSelected: (FeedItem) -> Void = { _ in }
-    /// Drives the two-pane split. When false, the home content renders in
-    /// its original single-column layout and the `detailPanel` slot is
-    /// ignored.
-    var isDetailPanelVisible: Bool = false
-    /// Trailing-edge slot. Callers supply a fully-constructed
-    /// `HomeDetailPanel` (or any view) here; ownership of the panel's
-    /// state stays with the caller.
-    @ViewBuilder let detailPanel: () -> DetailPanel
 
-    /// Local hide flag for the "have you tried…" bar. Flipped to `true`
-    /// when the user taps the X affordance; stays true for the rest of
-    /// this view's lifecycle so the bar doesn't reappear on state
-    /// refresh. Persistent per-account dismissal is a follow-up.
     @State private var suggestionsDismissed: Bool = false
+    @State private var activeFilter: FeedItemCategory? = nil
 
-    /// Editorial column width. Bumped from 600pt to 960pt to match the
-    /// Figma redesign — the new three-block layout reads as a wider page,
-    /// not a narrow column.
     private let maxContentWidth: CGFloat = 960
 
     var body: some View {
-        HStack(alignment: .top, spacing: isDetailPanelVisible ? VSpacing.lg : 0) {
-            Group {
-                if let state = store.state {
-                    content(for: state)
-                } else {
-                    skeleton
-                }
-            }
-
-            if isDetailPanelVisible {
-                detailPanel()
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                    .layoutHangSignpost("home.detailPanel")
+        Group {
+            if let state = store.state {
+                content(for: state)
+            } else {
+                skeleton
             }
         }
-        .padding(isDetailPanelVisible ? VSpacing.lg : 0)
         .background(VColor.surfaceBase)
-        .animation(VAnimation.standard, value: isDetailPanelVisible)
+        .onChange(of: presentCategories) { _, cats in
+            if let active = activeFilter, !cats.contains(active) {
+                activeFilter = nil
+            }
+        }
         .task {
             await store.load()
             await feedStore.load()
@@ -125,6 +83,23 @@ struct HomePageView<DetailPanel: View>: View {
                             onDismissSuggestions()
                         }
                     )
+                }
+
+                HomeFeedFilterBar(
+                    activeFilter: activeFilter,
+                    presentCategories: presentCategories,
+                    onFilterChanged: { activeFilter = $0 }
+                )
+
+                if groupedFeed.isEmpty, activeFilter != nil {
+                    HStack {
+                        Spacer(minLength: 0)
+                        Text("No notifications")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, VSpacing.xxl)
                 }
 
                 ForEach(Array(groupedFeed.enumerated()), id: \.element.group) { _, bucket in
@@ -233,6 +208,18 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Feed grouping
 
+    /// Categories present in the visible feed (non-dismissed, non-high-urgency).
+    /// Drives the filter bar — only categories with items get a pill.
+    private var presentCategories: Set<FeedItemCategory> {
+        var cats = Set<FeedItemCategory>()
+        for item in feedStore.items {
+            guard item.status != .dismissed else { continue }
+            if item.urgency == .high || item.urgency == .critical { continue }
+            cats.insert(item.category ?? .system)
+        }
+        return cats
+    }
+
     /// Sorts the feed by `priority desc, createdAt desc`, hides
     /// dismissed items (so `dismissItem(_:)` gives immediate feedback
     /// without waiting for a server refresh to rewrite the array),
@@ -245,7 +232,16 @@ struct HomePageView<DetailPanel: View>: View {
             if a.priority != b.priority { return a.priority > b.priority }
             return a.createdAt > b.createdAt
         }
-        let filtered = sorted.filter { $0.status != .dismissed }
+        let filtered = sorted.filter { item in
+            guard item.status != .dismissed else { return false }
+            // High/critical urgency items are surfaced as macOS system
+            // notifications instead of appearing in the feed.
+            if item.urgency == .high || item.urgency == .critical { return false }
+            if let active = activeFilter {
+                return (item.category ?? .system) == active
+            }
+            return true
+        }
         let buckets = HomeFeedTimeGroup.bucket(filtered)
         return buckets.map { bucket in
             (group: bucket.group, rows: HomeFeedGrouping.group(bucket.items))
@@ -264,26 +260,44 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Recap row styling
 
-    /// Icon glyph for a feed item. The v2 schema collapsed all items to
-    /// the single `notification` type, so every row uses the same glyph
-    /// — a per-item visual language driven by `urgency` or
-    /// `detailPanel.kind` is a future iteration. The `FeedItem` parameter
-    /// is retained (internal name dropped to flag intentionally unused) so
-    /// a future per-urgency / per-detail-panel-kind dispatch can re-thread
-    /// it without touching every call site.
-    private func icon(for _: FeedItem) -> VIcon {
-        .bell
+    /// Icon glyph for a feed item, dispatched per `FeedItemCategory`.
+    /// Falls back to `.bell` for items without a category.
+    private func icon(for item: FeedItem) -> VIcon {
+        switch item.category {
+        case .security:    return .shieldCheck
+        case .email:       return .mail
+        case .scheduling:  return .clock
+        case .background:  return .settings
+        case .system:      return .bell
+        case nil:          return .bell
+        }
     }
 
-    /// Foreground (glyph) color for the recap icon. See the `feed*`
-    /// tokens in `ColorTokens.swift`.
-    private func iconForeground(for _: FeedItem) -> Color {
-        VColor.feedDigestStrong
+    /// Foreground (glyph) color for the recap icon, dispatched per
+    /// `FeedItemCategory`. Uses feed-specific semantic tokens from
+    /// `ColorTokens.swift`.
+    private func iconForeground(for item: FeedItem) -> Color {
+        switch item.category {
+        case .security:    return VColor.feedNudgeStrong
+        case .email:       return VColor.feedDigestStrong
+        case .scheduling:  return VColor.feedThreadStrong
+        case .background:  return VColor.systemInfoStrong
+        case .system:      return VColor.feedDigestStrong
+        case nil:          return VColor.feedDigestStrong
+        }
     }
 
-    /// Background (circle fill) color for the recap icon.
-    private func iconBackground(for _: FeedItem) -> Color {
-        VColor.feedDigestWeak
+    /// Background (circle fill) color for the recap icon, dispatched per
+    /// `FeedItemCategory`.
+    private func iconBackground(for item: FeedItem) -> Color {
+        switch item.category {
+        case .security:    return VColor.feedNudgeWeak
+        case .email:       return VColor.feedDigestWeak
+        case .scheduling:  return VColor.feedThreadWeak
+        case .background:  return VColor.systemInfoWeak
+        case .system:      return VColor.feedDigestWeak
+        case nil:          return VColor.feedDigestWeak
+        }
     }
 
     // MARK: - Actions
@@ -344,34 +358,3 @@ struct HomePageView<DetailPanel: View>: View {
     }
 }
 
-// MARK: - Backward-compatible convenience init
-
-/// Default specialization used by every call site that doesn't opt into
-/// the split layout. The `detailPanel` closure returns `EmptyView`, and
-/// `isDetailPanelVisible` defaults to false so the single-column layout
-/// is rendered unchanged.
-extension HomePageView where DetailPanel == EmptyView {
-    init(
-        store: HomeStore,
-        feedStore: HomeFeedStore,
-        meetStatusViewModel: MeetStatusViewModel,
-        onFeedConversationOpened: @escaping (String) -> Void,
-        onStartNewChat: @escaping () -> Void,
-        onDismissSuggestions: @escaping () -> Void,
-        onSuggestionSelected: @escaping (HomeSuggestion) -> Void,
-        onDetailPanelSelected: @escaping (FeedItem) -> Void = { _ in }
-    ) {
-        self.init(
-            store: store,
-            feedStore: feedStore,
-            meetStatusViewModel: meetStatusViewModel,
-            onFeedConversationOpened: onFeedConversationOpened,
-            onStartNewChat: onStartNewChat,
-            onDismissSuggestions: onDismissSuggestions,
-            onSuggestionSelected: onSuggestionSelected,
-            onDetailPanelSelected: onDetailPanelSelected,
-            isDetailPanelVisible: false,
-            detailPanel: { EmptyView() }
-        )
-    }
-}

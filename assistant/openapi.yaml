@@ -7837,6 +7837,19 @@ paths:
                           required:
                             - kind
                           additionalProperties: false
+                        category:
+                          type: string
+                          enum:
+                            - security
+                            - scheduling
+                            - background
+                            - email
+                            - system
+                        metadata:
+                          type: object
+                          propertyNames:
+                            type: string
+                          additionalProperties: {}
                         createdAt:
                           type: string
                       required:
@@ -7986,6 +7999,19 @@ paths:
                     required:
                       - kind
                     additionalProperties: false
+                  category:
+                    type: string
+                    enum:
+                      - security
+                      - scheduling
+                      - background
+                      - email
+                      - system
+                  metadata:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties: {}
                   createdAt:
                     type: string
                 required:
@@ -11001,6 +11027,7 @@ paths:
                         - low
                         - medium
                         - high
+                        - critical
                     deadlineAt:
                       type: number
                     isAsyncBackground:

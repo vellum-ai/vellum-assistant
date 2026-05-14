@@ -64,6 +64,7 @@ struct MainWindowView: View {
     @AppStorage("sidePanelWidth") var sidePanelWidth: Double = 400
     @AppStorage("appPanelWidth") var appPanelWidth: Double = -1
     @AppStorage("appChatDockWidth") var appChatDockWidth: Double = -1
+    @AppStorage("homeDetailPanelWidth") var homeDetailPanelWidth: Double = 500
     let connectionManager: GatewayConnectionManager
     let eventStreamClient: EventStreamClient
     let surfaceManager: SurfaceManager

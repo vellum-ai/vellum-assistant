@@ -82,6 +82,40 @@ describe("feedItemSchema — valid minimal items", () => {
     expect(parsed.expiresAt).toBe("2026-04-15T00:00:00.000Z");
     expect(parsed.detailPanel?.kind).toBe("emailDraft");
   });
+
+  test("category field passes through when present", () => {
+    for (const cat of [
+      "security",
+      "scheduling",
+      "background",
+      "email",
+      "system",
+    ] as const) {
+      const parsed = feedItemSchema.parse({
+        ...minimalNotification(),
+        category: cat,
+      });
+      expect(parsed.category).toBe(cat);
+    }
+  });
+
+  test("metadata field passes through when present", () => {
+    const parsed = feedItemSchema.parse({
+      ...minimalNotification(),
+      metadata: { subject: "Hello", count: 3, nested: { ok: true } },
+    });
+    expect(parsed.metadata).toEqual({
+      subject: "Hello",
+      count: 3,
+      nested: { ok: true },
+    });
+  });
+
+  test("items without category or metadata still parse (backward compat)", () => {
+    const parsed = feedItemSchema.parse(minimalNotification());
+    expect(parsed.category).toBeUndefined();
+    expect(parsed.metadata).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -140,6 +174,12 @@ describe("feedItemSchema — enum validation", () => {
         feedItemSchema.parse({ ...minimalNotification(), type: legacy }),
       ).toThrow();
     }
+  });
+
+  test("rejects unknown `category`", () => {
+    expect(() =>
+      feedItemSchema.parse({ ...minimalNotification(), category: "weather" }),
+    ).toThrow();
   });
 
   test("rejects unknown `status`", () => {

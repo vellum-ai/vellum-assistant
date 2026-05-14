@@ -52,9 +52,11 @@ struct HomeDetailPanel<Content: View>: View {
                 .accessibilityHidden(true)
 
             if scrollable {
-                ScrollView {
-                    content()
-                        .containerRelativeFrame(.horizontal, alignment: .top)
+                GeometryReader { geo in
+                    ScrollView {
+                        content()
+                            .frame(width: geo.size.width, alignment: .topLeading)
+                    }
                 }
                 .layoutPriority(1)
             } else {
@@ -64,7 +66,6 @@ struct HomeDetailPanel<Content: View>: View {
 
             Spacer(minLength: 0)
         }
-        .frame(width: Self.defaultWidth)
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous))
         .overlay(

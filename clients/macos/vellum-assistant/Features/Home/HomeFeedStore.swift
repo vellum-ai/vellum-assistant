@@ -267,6 +267,8 @@ public final class HomeFeedStore {
             urgency: item.urgency,
             conversationId: item.conversationId,
             detailPanel: item.detailPanel,
+            category: item.category,
+            metadata: item.metadata,
             createdAt: item.createdAt
         )
     }

@@ -68,21 +68,15 @@ final class HomePageViewGroupingTests: XCTestCase {
         return MeetStatusViewModel(messageStream: stream)
     }
 
-    /// Constructs a fully-specialized `HomePageView` wired to the supplied
-    /// feed store. All callbacks are no-ops and `detailPanel` resolves to
-    /// `EmptyView` — the tests never exercise the view body, just the
-    /// pure `groupedFeed` helper.
-    private func makeView(feedStore: HomeFeedStore) -> HomePageView<EmptyView> {
-        HomePageView<EmptyView>(
+    private func makeView(feedStore: HomeFeedStore) -> HomePageView {
+        HomePageView(
             store: makeHomeStore(),
             feedStore: feedStore,
             meetStatusViewModel: makeMeetStatus(),
             onFeedConversationOpened: { _ in },
             onStartNewChat: {},
             onDismissSuggestions: {},
-            onSuggestionSelected: { _ in },
-            isDetailPanelVisible: false,
-            detailPanel: { EmptyView() }
+            onSuggestionSelected: { _ in }
         )
     }
 
