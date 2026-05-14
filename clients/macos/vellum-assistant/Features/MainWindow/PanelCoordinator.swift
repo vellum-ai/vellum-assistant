@@ -644,7 +644,8 @@ extension MainWindowView {
                         onAbort: { Task { await viewModel.abortSubagent(subagentId) } },
                         onRequestDetail: {
                             if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
-                                Task {
+                                Task { @MainActor in
+                                    try? await Task.sleep(for: .milliseconds(100))
                                     if let response = await SubagentClient().fetchDetail(subagentId: subagentId, conversationId: conversationId) {
                                         viewModel.subagentDetailStore.populateFromDetailResponse(response)
                                     }
@@ -656,7 +657,11 @@ extension MainWindowView {
                                 windowState.inspectorMessageId = messageId
                             }
                         },
-                        onClose: { windowState.selectedSubagentId = nil }
+                        onClose: {
+                            var t = Transaction()
+                            t.disablesAnimations = true
+                            withTransaction(t) { windowState.selectedSubagentId = nil }
+                        }
                     )
                     .id(subagentId)
                 } else {
@@ -993,7 +998,11 @@ struct ActiveChatViewWrapper: View {
                 },
                 bookmarkStore: bookmarkStore,
                 bookmarkConversationId: viewModel.conversationId,
-                onSubagentTap: { windowState.selectedSubagentId = $0 },
+                onSubagentTap: { id in
+                    var t = Transaction()
+                    t.disablesAnimations = true
+                    withTransaction(t) { windowState.selectedSubagentId = id }
+                },
                 onAddFunds: {
                     settingsStore.pendingSettingsTab = .billing
                     windowState.selection = .panel(.settings)

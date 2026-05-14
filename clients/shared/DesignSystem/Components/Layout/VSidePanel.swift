@@ -81,6 +81,7 @@ public struct VSidePanel<PinnedContent: View, Content: View, TitleAccessory: Vie
                     .padding(contentPadding)
                     .frame(width: scrollViewWidth > 0 ? scrollViewWidth : nil, alignment: .topLeading)
             }
+            .fixedWidth(scrollViewWidth > 0 ? scrollViewWidth : nil)
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.width
             } action: { newWidth in
