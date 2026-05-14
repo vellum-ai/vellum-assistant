@@ -1,5 +1,9 @@
 import { resolveAssistant } from "../lib/assistant-config.js";
-import { loadGuardianToken } from "../lib/guardian-token.js";
+import {
+  loadGuardianToken,
+  refreshGuardianToken,
+  type GuardianTokenData,
+} from "../lib/guardian-token.js";
 import {
   ensureProviderApiKey,
   formatProviderName,
@@ -25,6 +29,16 @@ function parseSetupArgs(args: string[]): { provider: string } {
   }
 
   return { provider };
+}
+
+function isGuardianAccessTokenUsable(
+  tokenData: GuardianTokenData | null,
+): tokenData is GuardianTokenData {
+  if (!tokenData?.accessToken) {
+    return false;
+  }
+  const expiresAt = new Date(tokenData.accessTokenExpiresAt).getTime();
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
 }
 
 export async function setup(): Promise<void> {
@@ -71,8 +85,18 @@ export async function setup(): Promise<void> {
   }
 
   const gatewayUrl = entry.localUrl ?? entry.runtimeUrl;
-  const bearerToken =
-    loadGuardianToken(entry.assistantId)?.accessToken ?? entry.bearerToken;
+  let bearerToken: string | undefined;
+  const guardianToken = loadGuardianToken(entry.assistantId);
+  if (isGuardianAccessTokenUsable(guardianToken)) {
+    bearerToken = guardianToken.accessToken;
+  } else {
+    const refreshedToken = guardianToken
+      ? await refreshGuardianToken(gatewayUrl, entry.assistantId)
+      : null;
+    bearerToken = isGuardianAccessTokenUsable(refreshedToken)
+      ? refreshedToken.accessToken
+      : entry.bearerToken;
+  }
 
   console.log("Vellum Setup");
   console.log("============\n");

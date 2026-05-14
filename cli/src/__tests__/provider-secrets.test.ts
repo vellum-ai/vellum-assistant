@@ -6,7 +6,6 @@ import {
   injectGatewayApiKey,
   promptSecret,
   readGatewayApiKey,
-  resolveHatchProvider,
   type ProviderSecretFetch,
 } from "../lib/provider-secrets.js";
 
@@ -74,22 +73,6 @@ class FakePromptInput extends EventEmitter {
 }
 
 describe("provider secret helpers", () => {
-  test("defaults hatch provider to anthropic", () => {
-    expect(resolveHatchProvider({})).toBe("anthropic");
-  });
-
-  test("skips provider key setup for ollama", () => {
-    expect(
-      resolveHatchProvider({ "llm.default.provider": "ollama" }),
-    ).toBeNull();
-  });
-
-  test("rejects unsupported hatch providers", () => {
-    expect(() =>
-      resolveHatchProvider({ "llm.default.provider": "custom" }),
-    ).toThrow("supported API-key setup flow");
-  });
-
   test("reads provider keys from the api_key namespace", async () => {
     const { calls, fetchImpl } = makeFetch([jsonResponse({ found: true })]);
 

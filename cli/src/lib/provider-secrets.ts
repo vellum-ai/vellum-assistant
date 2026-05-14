@@ -70,26 +70,6 @@ export function isSupportedLlmProvider(
   return Object.hasOwn(LLM_PROVIDER_ENV_VAR_NAMES, provider);
 }
 
-export function resolveHatchProvider(
-  configValues: Record<string, string | undefined>,
-): LlmProviderId | null {
-  const provider = (
-    configValues["llm.default.provider"]?.trim() || "anthropic"
-  ).toLowerCase();
-
-  if (provider === "ollama") {
-    return null;
-  }
-
-  if (!isSupportedLlmProvider(provider)) {
-    throw new Error(
-      `Provider '${provider}' does not have a supported API-key setup flow.`,
-    );
-  }
-
-  return provider;
-}
-
 function gatewayUrlWithPath(gatewayUrl: string, path: string): string {
   return `${gatewayUrl.replace(/\/+$/, "")}${path}`;
 }
