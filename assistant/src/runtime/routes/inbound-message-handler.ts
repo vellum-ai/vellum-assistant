@@ -64,7 +64,7 @@ import {
 import { downloadSlackFile } from "../../messaging/providers/slack/download.js";
 import {
   mergeSlackMetadata,
-  readSlackMetadata,
+  readSlackMetadataFromMessageMetadata,
   type SlackFileMetadata,
   type SlackMessageMetadata,
   writeSlackMetadata,
@@ -485,6 +485,7 @@ export async function handleChannelInbound({
       conversationExternalId,
       externalMessageId,
       sourceMessageId,
+      sourceThreadId: slackThreadTs,
       canonicalAssistantId,
       assistantId,
       content,
@@ -1352,25 +1353,6 @@ function countSlackMetaMessages(conversationId: string): number {
     offset += candidates.length;
   }
   return count;
-}
-
-function readSlackMetadataFromMessageMetadata(
-  metadata: string | null | undefined,
-): SlackMessageMetadata | null {
-  if (!metadata) return null;
-  let parent: Record<string, unknown> | null = null;
-  try {
-    const parsed = JSON.parse(metadata) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      parent = parsed as Record<string, unknown>;
-    }
-  } catch {
-    return null;
-  }
-  if (!parent) return null;
-  const raw = parent.slackMeta;
-  if (typeof raw !== "string") return null;
-  return readSlackMetadata(raw);
 }
 
 /**

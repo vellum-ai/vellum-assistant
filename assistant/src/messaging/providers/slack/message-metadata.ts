@@ -75,6 +75,32 @@ export function readSlackMetadata(
   return result.success ? result.data : null;
 }
 
+export function readSlackMetadataFromMessageMetadata(
+  metadata: string | null | undefined,
+  opts?: { allowFlatLegacy?: boolean },
+): SlackMessageMetadata | null {
+  if (!metadata) return null;
+
+  let parent: Record<string, unknown> | null = null;
+  try {
+    const parsed = JSON.parse(metadata) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      parent = parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  if (!parent) return null;
+
+  const nested = parent.slackMeta;
+  if (typeof nested === "string") {
+    const parsedNested = readSlackMetadata(nested);
+    if (parsedNested) return parsedNested;
+  }
+
+  return opts?.allowFlatLegacy ? readSlackMetadata(metadata) : null;
+}
+
 /**
  * Serialize `SlackMessageMetadata` to a JSON string suitable for a fresh
  * write to the `messages.metadata` column. Use `mergeSlackMetadata` when an
