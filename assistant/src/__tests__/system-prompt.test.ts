@@ -648,10 +648,7 @@ describe("buildSystemPrompt", () => {
       // so the bundled body must not leak into the rendered output.  This is
       // the explicit "user silenced this section" path.
       mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
-      writeFileSync(
-        PARALLEL_FILE,
-        "---\nenabled: false\n---\nIgnored body.\n",
-      );
+      writeFileSync(PARALLEL_FILE, "---\nenabled: false\n---\nIgnored body.\n");
       const result = buildSystemPrompt();
       expect(result).not.toContain("<use_parallel_tool_calls>");
       expect(result).not.toContain("Batch independent tool calls");
@@ -686,7 +683,10 @@ describe("buildSystemPrompt", () => {
     });
 
     describe("containerized section (slot 02)", () => {
-      const CONTAINERIZED_FILE = join(SYSTEM_PROMPTS_DIR, "02-containerized.md");
+      const CONTAINERIZED_FILE = join(
+        SYSTEM_PROMPTS_DIR,
+        "02-containerized.md",
+      );
 
       // The runtime gate is `isContainerized` on the render context, sourced
       // from `getIsContainerized()` which reads `process.env.IS_CONTAINERIZED`.
@@ -949,14 +949,32 @@ describe("buildSystemPrompt", () => {
         expect(result).not.toContain("{{workspaceDir}}");
       });
 
-      test("unresolved section key is left as a literal", () => {
+      test("unresolved section key is treated as falsy (block skipped, no literal leak)", () => {
         mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
         writeFileSync(
           SECTION_FILE,
           FRONTMATTER + "{{#noSuchFlag}}hidden{{/noSuchFlag}}\n",
         );
         const result = buildSystemPrompt();
-        expect(result).toContain("{{#noSuchFlag}}hidden{{/noSuchFlag}}");
+        // Block body is skipped — section value is falsy (undefined).
+        expect(result).not.toContain("hidden");
+        // Literal mustache tags also absent — the renderer treats
+        // `undefined` as falsy (emits a warn for typo detection) rather
+        // than leaving the construct as a literal in the prompt.
+        expect(result).not.toContain("{{#noSuchFlag}}");
+        expect(result).not.toContain("{{/noSuchFlag}}");
+      });
+
+      test("unresolved inverted section key is treated as falsy (block rendered)", () => {
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          SECTION_FILE,
+          FRONTMATTER + "{{^noSuchFlag}}shown{{/noSuchFlag}}\n",
+        );
+        const result = buildSystemPrompt();
+        // Inverted: undefined → falsy → `^` includes the body.
+        expect(result).toContain("shown");
+        expect(result).not.toContain("{{^noSuchFlag}}");
       });
     });
 
@@ -1055,10 +1073,7 @@ describe("buildSystemPrompt", () => {
     });
 
     describe("external-content section (slot 07)", () => {
-      const EXTERNAL_FILE = join(
-        SYSTEM_PROMPTS_DIR,
-        "07-external-content.md",
-      );
+      const EXTERNAL_FILE = join(SYSTEM_PROMPTS_DIR, "07-external-content.md");
 
       test("workspace external-content file is rendered into the static block", () => {
         mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
@@ -1142,7 +1157,9 @@ describe("buildSystemPrompt", () => {
           "{{#isBackgroundConversation}}## Background Conversation\n\nWorkspace override marker COMET_3K.\n{{/isBackgroundConversation}}\n",
         );
 
-        const offResult = buildSystemPrompt({ isBackgroundConversation: false });
+        const offResult = buildSystemPrompt({
+          isBackgroundConversation: false,
+        });
         expect(offResult).not.toContain("## Background Conversation");
         expect(offResult).not.toContain("Workspace override marker COMET_3K.");
 
@@ -1173,7 +1190,6 @@ describe("buildSystemPrompt", () => {
       const result = buildSystemPrompt();
       expect(result).toContain("Has {{somethingMissing}} in body.");
     });
-
   });
 });
 

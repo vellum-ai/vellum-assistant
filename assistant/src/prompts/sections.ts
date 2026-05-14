@@ -93,7 +93,10 @@ function collectSectionIds(workspaceDir: string): string[] {
         if (name.endsWith(".md")) ids.add(name.slice(0, -".md".length));
       }
     } catch (err) {
-      log.warn({ err, workspaceDir }, "Failed to list workspace system prompt dir");
+      log.warn(
+        { err, workspaceDir },
+        "Failed to list workspace system prompt dir",
+      );
     }
   }
   return [...ids].sort();
@@ -114,7 +117,10 @@ function resolveSection(
     try {
       raw = readFileSync(workspacePath, "utf-8");
     } catch (err) {
-      log.warn({ err, workspacePath }, "Failed to read workspace section override");
+      log.warn(
+        { err, workspacePath },
+        "Failed to read workspace section override",
+      );
       return null;
     }
     const parsed = parseFrontmatterFields(raw);
@@ -161,17 +167,16 @@ const IDENT_REGEX = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
  *
  * Section *keys* are valid JS identifiers (`[A-Za-z_$][A-Za-z0-9_$]*`) so
  * the construct can't be confused with code-block braces in the markdown.
- * Section keys whose `ctx` value is `undefined` leave the entire construct
- * as a literal — this surfaces author typos at the warn log instead of
- * silently swallowing the body.  Variable keys whose `ctx` value is
- * `undefined` or `null` likewise stay literal.  `null` and `false` as
- * section values are treated as falsy (so callers can pass through
- * runtime gates without normalizing to plain booleans first).
+ * For `{{#section}}` / `{{^section}}` block tags, `undefined`, `null`,
+ * and `false` are all treated as falsy (the section is skipped) so
+ * callers don't have to normalize optional flags to plain booleans
+ * before building the render context.  `undefined` still emits a warn
+ * log for typo detection — falsy but flagged.  Variable keys (`{{var}}`)
+ * whose `ctx` value is `undefined` or `null` stay literal (strict form):
+ * variables always substitute, so a typo would silently inject the wrong
+ * string — better to warn-literal than render `undefined`.
  */
-function interpolateVariables(
-  body: string,
-  ctx: SectionRenderContext,
-): string {
+function interpolateVariables(body: string, ctx: SectionRenderContext): string {
   // Collapse standalone tag lines so multiline section templates render
   // without phantom blank lines from the layout markers.
   const collapsed = body.replace(STANDALONE_TAG_LINE, "$1");
@@ -183,11 +188,12 @@ function interpolateVariables(
     (match, kind: string, key: string, sectionBody: string) => {
       const value = ctx[key];
       if (value === undefined) {
+        // Warn for typo detection but still treat as falsy below —
+        // callers don't have to normalize optional flags to false.
         log.warn(
           { key, kind },
-          "Unresolved {{#section}} key in workspace system prompt; leaving literal",
+          "Unresolved {{#section}} key in workspace system prompt; treating as falsy",
         );
-        return match;
       }
       const truthy = Boolean(value);
       const include = kind === "#" ? truthy : !truthy;

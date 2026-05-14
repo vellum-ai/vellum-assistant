@@ -252,14 +252,12 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // predicates and `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation
   // both resolve against this map, so anything the renderer needs to see
   // (runtime gates, paths) must be lifted onto `ctx` rather than branched
-  // on at the call site.  Both `hasNoClient` and `isBackgroundConversation`
-  // are normalized to defined booleans so the mustache section tags in the
-  // `05-access-preference` and `08-background-conversation` registry
-  // entries always resolve (never warn-literal).
+  // on at the call site.  Optional flags on `BuildSystemPromptOptions`
+  // (e.g. `hasNoClient`, `isBackgroundConversation`) flow through the
+  // spread untouched — the section renderer treats `undefined` as falsy
+  // for `{{#flag}}` / `{{^flag}}` tags (it still warns for typo detection).
   const ctx = {
     ...options,
-    hasNoClient: options?.hasNoClient ?? false,
-    isBackgroundConversation: options?.isBackgroundConversation ?? false,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
   };
