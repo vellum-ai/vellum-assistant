@@ -95,8 +95,7 @@ export async function handleSetTwilioCredentials({
 
   // Validate credentials against Twilio API
   const authHeader =
-    "Basic " +
-    Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+    "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64");
   try {
     const res = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${accountSid}.json`,
@@ -121,9 +120,7 @@ export async function handleSetTwilioCredentials({
     accountSid,
   );
   if (!sidStored) {
-    throw new InternalError(
-      "Failed to store Account SID in secure storage",
-    );
+    throw new InternalError("Failed to store Account SID in secure storage");
   }
 
   const tokenStored = await setSecureKeyAsync(
@@ -132,14 +129,13 @@ export async function handleSetTwilioCredentials({
   );
   if (!tokenStored) {
     await deleteSecureKeyAsync(credentialKey("twilio", "account_sid"));
-    throw new InternalError(
-      "Failed to store Auth Token in secure storage",
-    );
+    throw new InternalError("Failed to store Auth Token in secure storage");
   }
 
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
   twilio.accountSid = accountSid;
+  twilio.setupStarted = true;
   saveRawConfig({ ...raw, twilio });
 
   upsertCredentialMetadata("twilio", "account_sid", {
@@ -210,9 +206,7 @@ async function handleListTwilioNumbers() {
   return { success: true, hasCredentials: true, numbers };
 }
 
-export async function handleProvisionTwilioNumber({
-  body,
-}: RouteHandlerArgs) {
+export async function handleProvisionTwilioNumber({ body }: RouteHandlerArgs) {
   if (!(await hasTwilioCredentials())) {
     throw new BadRequestError(
       "Twilio credentials not configured. Set credentials first.",
@@ -323,8 +317,7 @@ async function handleReleaseTwilioNumber({ body }: RouteHandlerArgs) {
   };
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
-  const phoneNumber =
-    requestedNumber || (twilio.phoneNumber as string) || "";
+  const phoneNumber = requestedNumber || (twilio.phoneNumber as string) || "";
 
   if (!phoneNumber) {
     throw new BadRequestError(

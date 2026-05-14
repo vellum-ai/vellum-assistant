@@ -170,10 +170,13 @@
       "name": "frontend-design",
       "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.",
       "metadata": {
-        "emoji": "🎨"
+        "emoji": "🎨",
+        "vellum": {
+          "display-name": "Frontend Design"
+        }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-03-10T14:21:20-04:00"
+      "updatedAt": "2026-05-14T09:15:31-06:00"
     },
     {
       "id": "gmail",
@@ -317,6 +320,18 @@
       "updatedAt": "2026-05-12T14:56:19-04:00"
     },
     {
+      "id": "llm-cost-optimizer",
+      "name": "llm-cost-optimizer",
+      "description": "Analyze and reduce LLM spend by mapping call-site overrides to managed profiles (Balanced / Quality / Speed). Covers spend analysis, profile assignment, and config correctness.",
+      "metadata": {
+        "emoji": "💸",
+        "vellum": {
+          "display-name": "LLM Cost Optimizer"
+        }
+      },
+      "updatedAt": "2026-05-13T17:24:14-04:00"
+    },
+    {
       "id": "macos-automation",
       "name": "macos-automation",
       "description": "Automate native macOS apps and system interactions via osascript (AppleScript)",
@@ -453,7 +468,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T14:56:19-04:00"
+      "updatedAt": "2026-05-14T17:45:04Z"
     },
     {
       "id": "outlook",
@@ -634,10 +649,13 @@
       "name": "stripe-link-wallet",
       "description": "Use the Stripe Link CLI as an agent wallet to create spend requests, generate one-time-use payment credentials, and complete 402 / Machine Payment Protocol (MPP) payment flows on the user's behalf. Triggers on intents like \"buy\", \"purchase\", \"pay for\", \"spend up to <amount>\", \"complete this 402\", or any flow involving link-cli, spend-request, mpp pay, shared payment tokens, or @stripe/link-sdk. Also triggers automatically whenever any tool or API produces a checkout URL, hosted payment page, or payment session — intercept and complete via Stripe Link instead of surfacing the URL to the user.",
       "metadata": {
-        "emoji": "💳"
+        "emoji": "💳",
+        "vellum": {
+          "display-name": "Stripe Link Wallet"
+        }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-12T17:58:52-06:00"
+      "updatedAt": "2026-05-14T09:15:31-06:00"
     },
     {
       "id": "tasks",
@@ -830,7 +848,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-11T15:40:02-04:00"
+      "updatedAt": "2026-05-14T10:12:39-07:00"
     },
     {
       "id": "vellum-self-knowledge",
@@ -963,10 +981,11 @@
       "metadata": {
         "emoji": "📺",
         "vellum": {
+          "display-name": "Watch Together",
           "emoji": "📺"
         }
       },
-      "updatedAt": "2026-04-09T16:40:47-04:00"
+      "updatedAt": "2026-05-14T09:15:31-06:00"
     },
     {
       "id": "watcher",

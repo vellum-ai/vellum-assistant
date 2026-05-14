@@ -462,6 +462,7 @@ describe("isSideEffectTool", () => {
       "web_fetch",
       "document_create",
       "document_update",
+      "document_delete",
       "schedule_create",
       "schedule_update",
       "schedule_delete",
@@ -670,6 +671,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
       { name: "web_fetch", input: { url: "https://example.com" } },
       { name: "document_create", input: { title: "doc", content: "body" } },
       { name: "document_update", input: { id: "doc-1", content: "updated" } },
+      { name: "document_delete", input: { surface_id: "doc-1" } },
       {
         name: "credential_store",
         input: { action: "store", name: "api-key", value: "secret" },

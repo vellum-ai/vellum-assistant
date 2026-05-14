@@ -72,11 +72,24 @@ bun run typecheck
 | `gateway/` | Public ingress — webhooks, API routes, OAuth callbacks |
 | `cli/` | The `vellum` CLI |
 | `clients/` | Native clients (macOS) and browser extension |
+| `apps/` | End-user app surfaces (web, iOS, macOS/Electron, Chrome extension) — scaffold |
 | `credential-executor/` | Isolated credential execution service |
 | `packages/` | Shared internal packages |
 | `skills/` | Skill definitions |
 
 For deeper architectural context, see [ARCHITECTURE.md](ARCHITECTURE.md) and the domain-specific docs linked from it.
+
+## Active migrations
+
+Some directories in this repo are landing zones for in-progress
+relocations. They build green but are not the live source for the
+corresponding surface yet. Please avoid landing feature work in these
+directories until the move is complete.
+
+| Directory | Status |
+|---|---|
+| `apps/web/` | Scaffold only — Vite + React Router v7 toolchain landed, no app code yet. The live web app is currently maintained in a separate, non-public repository and will land here as the migration completes. |
+| `apps/chrome-extension/` | Move in progress from [`clients/chrome-extension/`](https://github.com/vellum-ai/vellum-assistant/tree/main/clients/chrome-extension). |
 
 ## Submitting a pull request
 

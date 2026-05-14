@@ -26,7 +26,9 @@
 
 import type { Logger } from "pino";
 
+import type { HookName } from "../plugin-api/constants.js";
 import { getLogger } from "../util/logger.js";
+import { getHooksFor } from "./registry.js";
 import {
   type Middleware,
   type PipelineName,
@@ -313,4 +315,39 @@ export async function runPipeline<A, R>(
     }
     logger.info(record, "plugin.pipeline");
   }
+}
+
+// ─── Hook runner ────────────────────────────────────────────────────────────
+
+/**
+ * Execute a hook chain: walk every registered plugin's hook for `name` in
+ * registration order, threading `initialCtx` through each. Hooks may either
+ * mutate the context in place (returning `void`) or return a new context
+ * that replaces the threaded value for subsequent hooks. The final context
+ * after the chain settles is returned.
+ *
+ * `runHook` is the hook-side counterpart to {@link runPipeline}:
+ * `runPipeline` composes middleware around a terminal handler for stateful
+ * request/response pipelines (memory retrieval, history repair, etc.);
+ * `runHook` walks ordered hook functions for declarative chain-style
+ * context transformations (`user-prompt-submit` today).
+ *
+ * @param name        The hook identifier — pick one from {@link HOOKS}.
+ * @param initialCtx  Context the first hook receives.
+ * @returns The final context after the chain settles. Same reference as
+ *          `initialCtx` when no plugin registers `name`, and when every
+ *          chained hook returns `void` (mutation-in-place style).
+ */
+export async function runHook<TCtx>(
+  name: HookName,
+  initialCtx: TCtx,
+): Promise<TCtx> {
+  let active = initialCtx;
+  for (const hook of getHooksFor<TCtx>(name)) {
+    const result = await hook(active);
+    if (result !== undefined) {
+      active = result;
+    }
+  }
+  return active;
 }

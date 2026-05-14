@@ -24,6 +24,16 @@ set -euo pipefail
 #
 # Flags:
 #   --universal        Cross-compile Bun binaries for arm64 + x64 (universal binary via lipo)
+#   --no-compile       Skip `bun build --compile` entirely. Ship raw TypeScript source
+#                      plus production node_modules inside the .app, with launcher shell
+#                      scripts in Contents/MacOS/ that exec the bundled bun runtime
+#                      against Resources/runtime/node_modules/@vellumai/<pkg>/src/...
+#                      Mirrors the npm meta/ distribution execution model. Trades
+#                      the 5 standalone compiled binaries (~6× bun runtime duplication)
+#                      for a single bundled bun + materialized source tree, which is
+#                      size-neutral after dmg compression. Useful for testing the
+#                      runtime shape and as a stepping stone to unwinding bundler-
+#                      specific workarounds (e.g. the system-sections.ts TS const).
 #
 # Environment variables (for CI):
 #   DISPLAY_VERSION   Override CFBundleShortVersionString (default: 0.1.0)
@@ -232,12 +242,14 @@ KATA_KERNEL_PATH="$KATA_KERNEL_CACHE_DIR/vmlinux.container"
 
 # Parse arguments: command + optional flags
 UNIVERSAL_BUILD=false
+NO_COMPILE=false
 CMD="build"
 CMD_SET=false
 CMD_ARGS=()
 for arg in "$@"; do
     case "$arg" in
         --universal) UNIVERSAL_BUILD=true ;;
+        --no-compile) NO_COMPILE=true ;;
         *)
             if [ "$CMD_SET" = false ]; then
                 CMD="$arg"
@@ -501,6 +513,164 @@ install_shared_packages() {
         [ -f "${pkg_dir}package.json" ] || continue
         (cd "$pkg_dir" && bun install --frozen-lockfile 2>/dev/null || bun install)
     done
+}
+
+# ---------------------------------------------------------------------------
+# materialize_first_party_symlinks — replace symlinked @vellumai/* entries
+# under a node_modules tree with real copies of the source. Bun resolves
+# `file:` deps to symlinks pointing back into the monorepo, which the .app
+# bundle cannot carry. Mirrors scripts/prepack-bundled-deps.mjs (used by
+# npm publish) but operates at the install root level so it materializes
+# every transitive first-party dep, regardless of whether the containing
+# package declared bundledDependencies (gateway/, for example, has 6 file:
+# deps but no bundledDependencies field).
+# ---------------------------------------------------------------------------
+materialize_first_party_symlinks() {
+    local nm="$1"
+    [ -d "$nm/@vellumai" ] || return 0
+    local materialized=0
+    for entry in "$nm/@vellumai"/*; do
+        [ -e "$entry" ] || continue
+        [ -L "$entry" ] || continue
+        local target
+        target=$(readlink -f "$entry")
+        [ -d "$target" ] || continue
+        rm "$entry"
+        mkdir -p "$entry"
+        # Copy source, excluding development noise that bloats the .app
+        # without being needed at runtime.
+        rsync -a \
+            --exclude='node_modules/' \
+            --exclude='.git/' \
+            --exclude='.turbo/' \
+            --exclude='dist/' \
+            --exclude='build/' \
+            --exclude='coverage/' \
+            --exclude='__tests__/' \
+            --exclude='*.test.ts' \
+            --exclude='*.test.tsx' \
+            --exclude='*.test.js' \
+            --exclude='*.bench.ts' \
+            --exclude='*.benchmark.test.ts' \
+            --exclude='*.tsbuildinfo' \
+            --exclude='.eslintrc*' \
+            --exclude='.prettierrc*' \
+            "$target/" "$entry/"
+        materialized=$((materialized + 1))
+    done
+    echo "Materialized $materialized first-party @vellumai/* package(s) under $nm"
+}
+
+# ---------------------------------------------------------------------------
+# stage_no_compile_runtime — build the materialized runtime tree that the
+# .app launchers will execute against under --no-compile. Creates a synthetic
+# package.json whose dependencies point at the four entry packages
+# (assistant/cli/gateway/credential-executor) via file: refs, runs
+# `bun install --production` to resolve the full third-party tree plus all
+# transitive first-party deps, then materializes the first-party symlinks
+# into real copies. Result is moved to $out_dir (typically Resources/runtime/).
+#
+# Usage: stage_no_compile_runtime <out_dir>
+# ---------------------------------------------------------------------------
+stage_no_compile_runtime() {
+    local out_dir="$1"
+    local stage_dir="$SCRIPT_DIR/.no-compile-staging"
+
+    command -v bun &>/dev/null || { echo "ERROR: bun is required for --no-compile staging"; exit 1; }
+    command -v rsync &>/dev/null || { echo "ERROR: rsync is required for --no-compile staging"; exit 1; }
+
+    rm -rf "$stage_dir"
+    mkdir -p "$stage_dir"
+
+    # Synthetic root depending on the 4 entry packages via file:. We do NOT
+    # use the monorepo root because that pulls in dev deps from every
+    # workspace member, and there's no workspace root package.json here.
+    cat > "$stage_dir/package.json" <<EOF
+{
+  "name": "vellum",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@vellumai/assistant": "file:$ASSISTANT_SRC_DIR",
+    "@vellumai/cli": "file:$CLI_SRC_DIR",
+    "@vellumai/vellum-gateway": "file:$GATEWAY_SRC_DIR",
+    "@vellumai/credential-executor": "file:$CES_SRC_DIR"
+  }
+}
+EOF
+
+    echo "Installing production runtime modules into $stage_dir..."
+    # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: browsers are large (hundreds of MB)
+    #   and downloaded lazily at runtime if features that need them are used.
+    # npm_config_ignore_scripts: skip postinstall hooks that may try to
+    #   compile native bits against unavailable toolchains in CI.
+    # HUSKY=0: skip any git hook installation from packages with husky.
+    (cd "$stage_dir" && \
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+        npm_config_ignore_scripts=true \
+        HUSKY=0 \
+        bun install --production)
+
+    # Materialize the 4 entry packages plus all transitive first-party deps.
+    materialize_first_party_symlinks "$stage_dir/node_modules"
+
+    # Move staging into final location atomically.
+    rm -rf "$out_dir"
+    mkdir -p "$(dirname "$out_dir")"
+    mv "$stage_dir" "$out_dir"
+    echo "No-compile runtime staged at $out_dir ($(du -sh "$out_dir" | cut -f1))"
+}
+
+# ---------------------------------------------------------------------------
+# write_no_compile_launcher — emit a launcher shell script at
+# $MACOS_DIR/<name> that execs the bundled bun runtime against the
+# materialized source under Resources/runtime/. Launchers do not need
+# JIT/network entitlements themselves; those entitlements ride with the
+# bundled bun binary at Resources/bun, which is what actually executes
+# the JS source.
+#
+# Usage: write_no_compile_launcher <name> <pkg> <entry>
+#   name  - filename under Contents/MacOS/ (e.g. vellum-daemon)
+#   pkg   - @vellumai package name (e.g. assistant)
+#   entry - entry path within pkg (e.g. src/daemon/main.ts)
+# ---------------------------------------------------------------------------
+write_no_compile_launcher() {
+    local name="$1" pkg="$2" entry="$3"
+    local out="$MACOS_DIR/$name"
+    mkdir -p "$MACOS_DIR"
+    # Heredoc: \$ are escaped so they expand at runtime; $pkg / $entry
+    # are interpolated now (build time).
+    cat > "$out" <<EOF
+#!/bin/bash
+# Auto-generated launcher for $name (--no-compile build).
+# Execs the bundled bun runtime against materialized package source.
+set -e
+DIR="\$(cd "\$(dirname "\$0")" && pwd)"
+RESOURCES="\$DIR/../Resources"
+exec "\$RESOURCES/bun" run "\$RESOURCES/runtime/node_modules/@vellumai/$pkg/$entry" "\$@"
+EOF
+    chmod +x "$out"
+}
+
+# ---------------------------------------------------------------------------
+# sign_native_addons_in_runtime — walk a node_modules tree and codesign
+# every native .node addon found. Under --no-compile the runtime ships
+# real on-disk node_modules, which include per-arch native bindings
+# (e.g. @resvg/resvg-js-darwin-*, postgres native bits). Apple's hardened
+# runtime requires every loaded binary to be signed.
+# ---------------------------------------------------------------------------
+sign_native_addons_in_runtime() {
+    local runtime_dir="$1"
+    [ -d "$runtime_dir" ] || return 0
+    local count=0
+    while IFS= read -r -d '' addon; do
+        codesign --force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}" "$addon" 2>/dev/null || {
+            echo "WARNING: failed to sign $addon"
+            continue
+        }
+        count=$((count + 1))
+    done < <(find "$runtime_dir" -name '*.node' -print0 2>/dev/null)
+    echo "Signed $count native .node addon(s) under $runtime_dir"
 }
 
 # ---------------------------------------------------------------------------
@@ -1127,7 +1297,7 @@ fi
 # target arch), skip staleness checks entirely to avoid overwriting pre-built
 # binaries with host-arch binaries.
 DAEMON_BIN_NEEDS_BUILD=false
-if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+if [ "$NO_COMPILE" != true ] && [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     if [ ! -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
         DAEMON_BIN_NEEDS_BUILD=true
     elif [ -n "$(find "$ASSISTANT_SRC_DIR/src" \( -name '*.ts' -o -name '*.json' \) -newer "$SCRIPT_DIR/daemon-bin/vellum-daemon" -print -quit 2>/dev/null)" ]; then
@@ -1205,7 +1375,7 @@ fi
 
 # Auto-build assistant CLI binary if missing or stale (source changed) and bun is available
 ASSISTANT_CLI_BIN_NEEDS_BUILD=false
-if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+if [ "$NO_COMPILE" != true ] && [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     if [ ! -f "$SCRIPT_DIR/assistant-bin/vellum-assistant" ]; then
         ASSISTANT_CLI_BIN_NEEDS_BUILD=true
     elif [ -n "$(find "$ASSISTANT_SRC_DIR/src" \( -name '*.ts' -o -name '*.json' \) -newer "$SCRIPT_DIR/assistant-bin/vellum-assistant" -print -quit 2>/dev/null)" ]; then
@@ -1232,7 +1402,7 @@ fi
 
 # Auto-build CLI binary if missing or stale (source changed) and bun is available
 CLI_BIN_NEEDS_BUILD=false
-if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$CLI_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+if [ "$NO_COMPILE" != true ] && [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$CLI_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     if [ ! -f "$SCRIPT_DIR/cli-bin/vellum-cli" ]; then
         CLI_BIN_NEEDS_BUILD=true
     elif [ -n "$(find "$CLI_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/cli-bin/vellum-cli" -print -quit 2>/dev/null)" ]; then
@@ -1256,7 +1426,7 @@ fi
 
 # Auto-build gateway binary if missing or stale (source changed) and bun is available
 GATEWAY_BIN_NEEDS_BUILD=false
-if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$GATEWAY_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+if [ "$NO_COMPILE" != true ] && [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$GATEWAY_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     if [ ! -f "$SCRIPT_DIR/gateway-bin/vellum-gateway" ]; then
         GATEWAY_BIN_NEEDS_BUILD=true
     elif [ -n "$(find "$GATEWAY_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/gateway-bin/vellum-gateway" -print -quit 2>/dev/null)" ]; then
@@ -1288,7 +1458,7 @@ fi
 # The compiled binary is bundled alongside the daemon in Contents/MacOS/ so
 # the packaged app can locate it without requiring a separate install.
 CES_BIN_NEEDS_BUILD=false
-if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$CES_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+if [ "$NO_COMPILE" != true ] && [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$CES_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     if [ ! -f "$SCRIPT_DIR/ces-bin/credential-executor" ]; then
         CES_BIN_NEEDS_BUILD=true
     elif [ -n "$(find "$CES_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/ces-bin/credential-executor" -print -quit 2>/dev/null)" ]; then
@@ -1461,6 +1631,28 @@ if bundled_bun_path=$(fetch_bundled_bun "$BUNDLED_BUN_TARGET_ARCH"); then
     chmod +x "$RESOURCES_DIR/bun"
 else
     echo "WARNING: failed to stage bundled bun binary; external skill spawn will fall back to PATH/bun-runtime" >&2
+fi
+
+# Stage materialized runtime + launchers under --no-compile.
+# Replaces the 5 compiled binaries that the standard build path would have
+# placed at Contents/MacOS/. The runtime is materialized into
+# Contents/Resources/runtime/ and each Contents/MacOS/<name> is a thin
+# shell-script launcher that execs $RESOURCES/bun against the right entry
+# under runtime/node_modules/@vellumai/<pkg>/.
+if [ "$NO_COMPILE" = true ]; then
+    echo "--- Staging no-compile runtime ---"
+    stage_no_compile_runtime "$RESOURCES_DIR/runtime"
+
+    echo "Writing launcher scripts..."
+    write_no_compile_launcher "vellum-assistant"     "assistant"            "src/index.ts"
+    write_no_compile_launcher "vellum-cli"           "cli"                  "src/index.ts"
+    write_no_compile_launcher "vellum-gateway"       "vellum-gateway"       "src/index.ts"
+    write_no_compile_launcher "credential-executor"  "credential-executor"  "src/main.ts"
+
+    # Mirror the `assistant` symlink that the compiled path creates so
+    # `which assistant` resolves to the bundled launcher inside subprocesses
+    # spawned by the app.
+    ln -sf "vellum-assistant" "$MACOS_DIR/assistant"
 fi
 
 # Always refresh non-JS assets in app bundle (not embedded by bun --compile)
@@ -2220,6 +2412,24 @@ else
     /usr/libexec/PlistBuddy -c "Add :com.apple.security.get-task-allow bool true" "$DAEMON_ENTITLEMENTS_PATH"
 fi
 
+# Sign flags for the 5 service entries at Contents/MacOS/<name>.
+#
+# Under --compile (default), each entry is a Mach-O Bun-compiled binary that
+# JITs JavaScript and needs allow-jit / allow-unsigned-executable-memory /
+# network entitlements to pass hardened runtime checks.
+#
+# Under --no-compile, each entry is a shell-script launcher that execs the
+# bundled bun runtime at $RESOURCES_DIR/bun. JIT/network entitlements ride
+# with that bun binary (signed below); the launchers themselves only need
+# a plain signature so the kernel doesn't reject them when the .app starts.
+if [ "$NO_COMPILE" = true ]; then
+    BUN_SERVICE_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
+    BUN_SERVICE_SIGN_DESC="launcher (no entitlements)"
+else
+    BUN_SERVICE_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
+    BUN_SERVICE_SIGN_DESC="binary with entitlements"
+fi
+
 # Sign Sparkle.framework — must sign nested binaries inside-out before the outer framework
 if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
     FW_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
@@ -2265,31 +2475,27 @@ if [ -d "$QLPREV_APPEX" ]; then
     echo "VellumQLPreview.appex signed"
 fi
 
-# Sign Bun-compiled binaries with daemon entitlements. These are JavaScript
-# executables produced by `bun build --compile` that require JIT and unsigned
-# executable memory to run under hardened runtime.
+# Sign the 5 service entries at Contents/MacOS/. Under --compile these are
+# Mach-O bun-compiled binaries; under --no-compile they are shell-script
+# launchers. Flags are computed once above based on $NO_COMPILE.
 if [ -f "$MACOS_DIR/vellum-cli" ]; then
-    CLI_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
-    codesign "${CLI_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-cli"
-    echo "CLI binary signed with entitlements"
+    codesign "${BUN_SERVICE_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-cli"
+    echo "CLI $BUN_SERVICE_SIGN_DESC signed"
 fi
 
 if [ -f "$MACOS_DIR/vellum-gateway" ]; then
-    GATEWAY_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
-    codesign "${GATEWAY_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-gateway"
-    echo "Gateway binary signed with entitlements"
+    codesign "${BUN_SERVICE_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-gateway"
+    echo "Gateway $BUN_SERVICE_SIGN_DESC signed"
 fi
 
 if [ -f "$MACOS_DIR/credential-executor" ]; then
-    CES_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
-    codesign "${CES_SIGN_FLAGS[@]}" "$MACOS_DIR/credential-executor"
-    echo "credential-executor binary signed with entitlements"
+    codesign "${BUN_SERVICE_SIGN_FLAGS[@]}" "$MACOS_DIR/credential-executor"
+    echo "credential-executor $BUN_SERVICE_SIGN_DESC signed"
 fi
 
 if [ -f "$MACOS_DIR/vellum-assistant" ]; then
-    ASSISTANT_BIN_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
-    codesign "${ASSISTANT_BIN_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-assistant"
-    echo "Assistant binary signed with entitlements"
+    codesign "${BUN_SERVICE_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-assistant"
+    echo "Assistant $BUN_SERVICE_SIGN_DESC signed"
 fi
 
 # Embedding runtime node_modules are no longer bundled (downloaded post-hatch).
@@ -2308,11 +2514,19 @@ if [ -d "$MACOS_DIR" ]; then
         -exec codesign "${EXTRA_FILE_SIGN_FLAGS[@]}" {} \;
 fi
 
-# Sign daemon binary with its own entitlements (JIT, network)
+# Sign the daemon entry. Under --compile this is a Mach-O bun-compiled
+# binary that needs JIT/network entitlements; under --no-compile it's a
+# shell-script launcher whose flags come from BUN_SERVICE_SIGN_FLAGS above.
 if [ -f "$MACOS_DIR/vellum-daemon" ]; then
-    DAEMON_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$DAEMON_ENTITLEMENTS_PATH" "${CODESIGN_TS_FLAGS[@]}")
-    codesign "${DAEMON_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-daemon"
-    echo "Daemon binary signed with entitlements"
+    codesign "${BUN_SERVICE_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-daemon"
+    echo "Daemon $BUN_SERVICE_SIGN_DESC signed"
+fi
+
+# Under --no-compile, sign all native .node addons inside the materialized
+# node_modules tree. Each addon is a Mach-O dylib that the bun runtime
+# dlopen()s; the hardened runtime rejects unsigned loaded code.
+if [ "$NO_COMPILE" = true ] && [ -d "$RESOURCES_DIR/runtime" ]; then
+    sign_native_addons_in_runtime "$RESOURCES_DIR/runtime"
 fi
 
 # Sign the bundled bun runtime with the same entitlements as the daemon.

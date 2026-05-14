@@ -1597,13 +1597,16 @@ public struct SubagentInfo: Equatable, Identifiable {
     public var parentMessageId: UUID?
     /// The subagent's own conversation ID, used for lazy-loading detail events.
     public var conversationId: String?
+    /// The original objective from the spawn config, persisted in notification metadata.
+    public var objective: String?
 
-    public init(id: String, label: String, status: SubagentStatus = .pending, parentMessageId: UUID? = nil, conversationId: String? = nil) {
+    public init(id: String, label: String, status: SubagentStatus = .pending, parentMessageId: UUID? = nil, conversationId: String? = nil, objective: String? = nil) {
         self.id = id
         self.label = label
         self.status = status
         self.parentMessageId = parentMessageId
         self.conversationId = conversationId
+        self.objective = objective
     }
 
     public var isTerminal: Bool { status.isTerminal }

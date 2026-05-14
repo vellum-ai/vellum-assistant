@@ -21,6 +21,11 @@ const MAX_DIMENSION = 1568;
 // Threshold below which we skip optimization — small images don't need it.
 const OPTIMIZE_THRESHOLD_BYTES = 300 * 1024; // 300 KB
 
+// Anthropic rejects any single image whose source payload exceeds 5 MB,
+// regardless of pixel dimensions. Cap at ~3.5 MB raw so the base64-encoded
+// form (raw * 4/3) stays comfortably under 5 MB even after re-encoding.
+const MAX_TRANSPORT_BYTES = Math.floor(3.5 * 1024 * 1024); // ~3.5 MB raw
+
 const JPEG_QUALITY = 80;
 
 // Content-addressed disk cache to avoid re-running sips on the same image.
@@ -130,10 +135,13 @@ function runSips(inputBytes: Buffer): Buffer | null {
 /**
  * Decide whether an image needs to be rescaled before sending.
  *
- * Anthropic rejects many-image requests when any image exceeds 2000 px on a
- * side, so dimensions — not file size — are the authoritative gate. A sparse
- * screenshot can be under 300 KB while still being 3000+ px wide, which the
- * byte-size heuristic alone would let slip through.
+ * Two independent gates apply:
+ *   1. Pixel dimensions — Anthropic rejects many-image requests when any
+ *      image exceeds 2000 px on a side. A sparse screenshot can be under
+ *      300 KB while still being 3000+ px wide.
+ *   2. Byte size — Anthropic rejects any image whose source payload
+ *      exceeds 5 MB. A 1500×1500 high-color screenshot can produce a >5 MB
+ *      payload while staying well under the dimension cap.
  *
  * Exported for unit testing.
  */
@@ -141,8 +149,8 @@ export function shouldRescaleImage(
   dims: { width: number; height: number } | null,
   byteLength: number,
 ): boolean {
+  if (byteLength > MAX_TRANSPORT_BYTES) return true;
   if (dims) {
-    // Dimensions known — they are the authoritative check.
     return dims.width > MAX_DIMENSION || dims.height > MAX_DIMENSION;
   }
   // Dimensions unparseable — fall back to file size as a rough proxy.

@@ -11,6 +11,7 @@ import {
   getMessages,
   type MessageRow,
 } from "../../memory/conversation-crud.js";
+import { getConversationUsageTotals } from "../../memory/llm-usage-store.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
@@ -29,6 +30,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export interface SubagentDetailResult {
   subagentId: string;
   objective?: string;
+  usage?: { inputTokens: number; outputTokens: number; estimatedCost: number };
   events: Array<{
     type: string;
     content: string;
@@ -94,7 +96,11 @@ export function parseSubagentMessages(
         typeof block.text === "string"
       ) {
         events.push({ type: "text", content: block.text, messageId: m.id });
-      } else if (block.type === "tool_use") {
+      } else if (
+        block.type === "tool_use" ||
+        block.type === "server_tool_use" ||
+        block.type === "mcp_tool_use"
+      ) {
         const name = typeof block.name === "string" ? block.name : "unknown";
         const input = isRecord(block.input)
           ? (block.input as Record<string, unknown>)
@@ -106,7 +112,11 @@ export function parseSubagentMessages(
           toolName: name,
         });
         if (id) pendingTools.set(id, name);
-      } else if (block.type === "tool_result") {
+      } else if (
+        block.type === "tool_result" ||
+        block.type === "web_search_tool_result" ||
+        block.type === "mcp_tool_result"
+      ) {
         const toolUseId =
           typeof block.tool_use_id === "string" ? block.tool_use_id : "";
         const resultContent =
@@ -114,13 +124,18 @@ export function parseSubagentMessages(
             ? block.content
             : Array.isArray(block.content)
               ? (block.content as unknown[])
-                  .filter(
-                    (b): b is Record<string, unknown> =>
-                      isRecord(b) &&
-                      (b as Record<string, unknown>).type === "text" &&
-                      typeof (b as Record<string, unknown>).text === "string",
-                  )
-                  .map((b) => b.text as string)
+                  .filter((b): b is Record<string, unknown> => isRecord(b))
+                  .map((b) => {
+                    if (b.type === "text" && typeof b.text === "string")
+                      return b.text;
+                    if (
+                      b.type === "web_search_result" &&
+                      typeof b.title === "string"
+                    )
+                      return `${b.title}\n${typeof b.url === "string" ? b.url : ""}`;
+                    return null;
+                  })
+                  .filter((s): s is string => s != null)
                   .join("\n")
               : "";
         const isError = block.is_error === true;
@@ -142,7 +157,30 @@ function getSubagentDetail(
   subagentId: string,
   conversationId: string,
 ): SubagentDetailResult {
-  return parseSubagentMessages(subagentId, getMessages(conversationId));
+  const messages = getMessages(conversationId);
+  log.info(
+    {
+      subagentId,
+      conversationId,
+      messageCount: messages.length,
+      roles: messages.map((m) => m.role),
+    },
+    "getSubagentDetail: raw messages from DB",
+  );
+  const result = parseSubagentMessages(subagentId, messages);
+  log.info(
+    {
+      subagentId,
+      eventCount: result.events.length,
+      eventTypes: result.events.map((e) => `${e.type}:${e.toolName ?? ""}`),
+    },
+    "getSubagentDetail: parsed events",
+  );
+  const usage = getConversationUsageTotals(conversationId);
+  if (usage.inputTokens > 0 || usage.outputTokens > 0) {
+    result.usage = usage;
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,14 +206,19 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       subagentId: z.string(),
       objective: z.string(),
+      usage: z
+        .object({
+          inputTokens: z.number(),
+          outputTokens: z.number(),
+          estimatedCost: z.number(),
+        })
+        .optional(),
       events: z.array(z.unknown()).describe("Subagent event objects"),
     }),
     handler: ({ pathParams, queryParams }) => {
       const conversationId = queryParams?.conversationId;
       if (!conversationId) {
-        throw new BadRequestError(
-          "conversationId query parameter is required",
-        );
+        throw new BadRequestError("conversationId query parameter is required");
       }
 
       const manager = getSubagentManager();
@@ -209,11 +252,7 @@ export const ROUTES: RouteDefinition[] = [
       }
 
       const manager = getSubagentManager();
-      const aborted = manager.abort(
-        pathParams!.id,
-        () => {},
-        conversationId,
-      );
+      const aborted = manager.abort(pathParams!.id, () => {}, conversationId);
 
       if (!aborted) {
         log.warn(

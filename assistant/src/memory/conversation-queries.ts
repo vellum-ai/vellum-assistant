@@ -55,9 +55,14 @@ export function listConversations(
   // SQLite file without running migrations in-process, so legacy private rows
   // can briefly exist before migration cleanup. Hide them from foreground
   // lists until the next migration pass deletes them.
+  //
+  // group_id is checked alongside conversationType so that conversations
+  // routed to system:background (e.g. heartbeat) via conversationMetadata
+  // but created with conversationType "standard" (vellum channel strategy)
+  // appear in the correct bucket.
   const typeCond = backgroundOnly
-    ? sql`${conversations.conversationType} IN ('background', 'scheduled') AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
-    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`;
+    ? sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
+    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
   const where = includeArchived
     ? typeCond
     : sql`${typeCond} AND ${conversations.archivedAt} IS NULL`;
@@ -151,10 +156,11 @@ export function listConversationsByTitlePrefix(
 }
 
 export function countConversations(backgroundOnly = false): number {
+  ensureGroupMigration();
   const db = getDb();
   const where = backgroundOnly
-    ? sql`${conversations.conversationType} IN ('background', 'scheduled') AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
-    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`;
+    ? sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
+    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
@@ -233,6 +239,7 @@ export function searchConversations(
 ): ConversationSearchResult[] {
   if (!query.trim()) return [];
 
+  ensureGroupMigration();
   const db = getDb();
   const limit = opts?.limit ?? 20;
   const maxMsgsPerConv = opts?.maxMessagesPerConversation ?? 3;
@@ -262,7 +269,7 @@ export function searchConversations(
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND c.archived_at IS NULL
+        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND COALESCE(c.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled') AND c.archived_at IS NULL
         LIMIT 1000
       `,
         ftsMatch,
@@ -287,7 +294,7 @@ export function searchConversations(
       SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
-      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND c.archived_at IS NULL
+      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND COALESCE(c.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled') AND c.archived_at IS NULL
       LIMIT 1000
     `,
       likePattern,
@@ -302,6 +309,7 @@ export function searchConversations(
     .where(
       and(
         sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`,
+        sql`COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`,
         sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
         sql`${conversations.archivedAt} IS NULL`,
       ),

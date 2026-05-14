@@ -13,62 +13,85 @@ interface SlackUserInfo {
   username: string;
 }
 
-interface CacheEntry {
-  value: SlackUserInfo;
+interface SlackChannelInfo {
+  name: string;
+}
+
+interface CacheEntry<T> {
+  value: T;
   expiresAt: number;
 }
 
 const USER_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const USER_CACHE_MAX_SIZE = 500;
+const CHANNEL_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const CHANNEL_CACHE_MAX_SIZE = 500;
 
 /**
  * In-memory LRU cache for Slack user info lookups.
  * Entries expire after TTL and the cache evicts least-recently-used
  * entries when it exceeds MAX_SIZE.
  */
-const userInfoCache = new Map<string, CacheEntry>();
+const userInfoCache = new Map<string, CacheEntry<SlackUserInfo>>();
+const channelInfoCache = new Map<string, CacheEntry<SlackChannelInfo>>();
 
 /**
  * Deduplicates concurrent fetches for the same userId so only one
  * API call is made even when multiple messages arrive simultaneously.
  */
-const inFlightFetches = new Map<string, Promise<SlackUserInfo | undefined>>();
+const inFlightUserFetches = new Map<
+  string,
+  Promise<SlackUserInfo | undefined>
+>();
+const inFlightChannelFetches = new Map<
+  string,
+  Promise<SlackChannelInfo | undefined>
+>();
 
-function evictExpired(): void {
+function evictExpired<T>(cache: Map<string, CacheEntry<T>>): void {
   const now = Date.now();
-  for (const [key, entry] of userInfoCache) {
+  for (const [key, entry] of cache) {
     if (entry.expiresAt <= now) {
-      userInfoCache.delete(key);
+      cache.delete(key);
     }
   }
 }
 
-function cacheGet(userId: string): SlackUserInfo | undefined {
-  const entry = userInfoCache.get(userId);
+function cacheGet<T>(
+  cache: Map<string, CacheEntry<T>>,
+  key: string,
+): T | undefined {
+  const entry = cache.get(key);
   if (!entry) return undefined;
   if (entry.expiresAt <= Date.now()) {
-    userInfoCache.delete(userId);
+    cache.delete(key);
     return undefined;
   }
   // Move to end for LRU ordering (Map preserves insertion order)
-  userInfoCache.delete(userId);
-  userInfoCache.set(userId, entry);
+  cache.delete(key);
+  cache.set(key, entry);
   return entry.value;
 }
 
-function cacheSet(userId: string, value: SlackUserInfo): void {
+function cacheSet<T>(
+  cache: Map<string, CacheEntry<T>>,
+  key: string,
+  value: T,
+  ttlMs: number,
+  maxSize: number,
+): void {
   // Evict if over capacity
-  if (userInfoCache.size >= USER_CACHE_MAX_SIZE) {
-    evictExpired();
+  if (cache.size >= maxSize) {
+    evictExpired(cache);
     // If still over capacity, evict oldest entry
-    if (userInfoCache.size >= USER_CACHE_MAX_SIZE) {
-      const oldest = userInfoCache.keys().next().value;
-      if (oldest) userInfoCache.delete(oldest);
+    if (cache.size >= maxSize) {
+      const oldest = cache.keys().next().value;
+      if (typeof oldest === "string") cache.delete(oldest);
     }
   }
-  userInfoCache.set(userId, {
+  cache.set(key, {
     value,
-    expiresAt: Date.now() + USER_CACHE_TTL_MS,
+    expiresAt: Date.now() + ttlMs,
   });
 }
 
@@ -83,11 +106,11 @@ export async function resolveSlackUser(
   userId: string,
   botToken: string,
 ): Promise<SlackUserInfo | undefined> {
-  const cached = cacheGet(userId);
+  const cached = cacheGet(userInfoCache, userId);
   if (cached) return cached;
 
   // If another caller is already fetching this user, reuse that promise
-  const existing = inFlightFetches.get(userId);
+  const existing = inFlightUserFetches.get(userId);
   if (existing) return existing;
 
   const fetchPromise = (async (): Promise<SlackUserInfo | undefined> => {
@@ -120,18 +143,86 @@ export async function resolveSlackUser(
       const username = data.user.name || userId;
 
       const info: SlackUserInfo = { displayName, username };
-      cacheSet(userId, info);
+      cacheSet(
+        userInfoCache,
+        userId,
+        info,
+        USER_CACHE_TTL_MS,
+        USER_CACHE_MAX_SIZE,
+      );
       return info;
     } catch {
       return undefined;
     }
   })();
 
-  inFlightFetches.set(userId, fetchPromise);
+  inFlightUserFetches.set(userId, fetchPromise);
   try {
     return await fetchPromise;
   } finally {
-    inFlightFetches.delete(userId);
+    inFlightUserFetches.delete(userId);
+  }
+}
+
+/**
+ * Resolve a Slack channel name via `conversations.info`.
+ * Results are cached to avoid repeated API calls.
+ *
+ * Returns undefined on failure so callers can fall back to
+ * `#unknown-channel` without leaking raw channel IDs into model context.
+ */
+export async function resolveSlackChannel(
+  channelId: string,
+  botToken: string,
+): Promise<SlackChannelInfo | undefined> {
+  const cached = cacheGet(channelInfoCache, channelId);
+  if (cached) return cached;
+
+  const existing = inFlightChannelFetches.get(channelId);
+  if (existing) return existing;
+
+  const fetchPromise = (async (): Promise<SlackChannelInfo | undefined> => {
+    try {
+      const resp = await fetchImpl(
+        `https://slack.com/api/conversations.info?channel=${encodeURIComponent(channelId)}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${botToken}` },
+        },
+      );
+      if (!resp.ok) return undefined;
+
+      const data = (await resp.json()) as {
+        ok?: boolean;
+        channel?: {
+          name?: string;
+          name_normalized?: string;
+        };
+      };
+      if (!data.ok || !data.channel) return undefined;
+
+      const name = data.channel.name || data.channel.name_normalized;
+      if (!name) return undefined;
+
+      const info: SlackChannelInfo = { name };
+      cacheSet(
+        channelInfoCache,
+        channelId,
+        info,
+        CHANNEL_CACHE_TTL_MS,
+        CHANNEL_CACHE_MAX_SIZE,
+      );
+      return info;
+    } catch {
+      return undefined;
+    }
+  })();
+
+  inFlightChannelFetches.set(channelId, fetchPromise);
+  try {
+    return await fetchPromise;
+  } finally {
+    inFlightChannelFetches.delete(channelId);
   }
 }
 
@@ -144,8 +235,8 @@ export function resolveSlackUserSync(
   userId: string,
   botToken: string,
 ): SlackUserInfo | undefined {
-  const cached = cacheGet(userId);
-  if (!cached && !inFlightFetches.has(userId)) {
+  const cached = cacheGet(userInfoCache, userId);
+  if (!cached && !inFlightUserFetches.has(userId)) {
     // Fire-and-forget: warm the cache for next time
     resolveSlackUser(userId, botToken).catch(() => {});
   }
@@ -157,14 +248,25 @@ export function clearUserInfoCache(): void {
   userInfoCache.clear();
 }
 
+/** Exported for testing — clears the channel info cache. */
+export function clearChannelInfoCache(): void {
+  channelInfoCache.clear();
+}
+
 /** Exported for testing — clears the in-flight fetch map. */
 export function clearInFlightFetches(): void {
-  inFlightFetches.clear();
+  inFlightUserFetches.clear();
+  inFlightChannelFetches.clear();
 }
 
 /** Exported for testing — returns current cache size. */
 export function getUserInfoCacheSize(): number {
   return userInfoCache.size;
+}
+
+/** Exported for testing — returns current channel cache size. */
+export function getChannelInfoCacheSize(): number {
+  return channelInfoCache.size;
 }
 
 /** Slack file object (subset relevant to attachment handling). */
@@ -280,6 +382,7 @@ export interface SlackMessageDeletedEvent {
 
 export type SlackTextRenderContext = {
   userLabels?: Record<string, string>;
+  channelLabels?: Record<string, string>;
 };
 
 function renderSlackInboundText(
@@ -288,6 +391,7 @@ function renderSlackInboundText(
 ): string {
   return renderSlackTextForModel(text, {
     userLabels: context.userLabels,
+    channelLabels: context.channelLabels,
   });
 }
 

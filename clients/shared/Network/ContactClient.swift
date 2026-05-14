@@ -34,6 +34,7 @@ public protocol ContactClientProtocol {
     func fetchContact(contactId: String) async throws -> ContactPayload?
     func deleteContact(contactId: String) async throws -> Bool
     func updateContactChannel(channelId: String, status: String?, policy: String?, reason: String?) async throws -> ContactPayload?
+    func verifyContactChannel(channelId: String) async throws -> Bool
 }
 
 /// A channel to attach when creating a new contact.
@@ -254,5 +255,16 @@ public struct ContactClient: ContactClientProtocol {
             throw ContactClientError.httpError(statusCode: response.statusCode, serverMessage: Self.parseServerError(from: response.data))
         }
         return try JSONDecoder().decode(SingleContactResponse.self, from: response.data).contact
+    }
+
+    public func verifyContactChannel(channelId: String) async throws -> Bool {
+        let response = try await GatewayHTTPClient.post(
+            path: "contact-channels/\(channelId)/verify", json: [:], timeout: 10
+        )
+        guard response.isSuccess else {
+            log.error("verifyContactChannel failed (HTTP \(response.statusCode))")
+            throw ContactClientError.httpError(statusCode: response.statusCode, serverMessage: Self.parseServerError(from: response.data))
+        }
+        return true
     }
 }

@@ -21,6 +21,15 @@ initializeDb();
 seedOAuthProviders();
 
 describe("oauth provider profiles (DB-seeded)", () => {
+  test("google provider row includes Drive in default scopes", () => {
+    const provider = getProvider("google");
+
+    expect(provider).toBeDefined();
+    expect(JSON.parse(provider!.defaultScopes)).toContain(
+      "https://www.googleapis.com/auth/drive",
+    );
+  });
+
   test("google provider row contains bearer injection templates for 3 Google API hosts", () => {
     const provider = getProvider("google");
 

@@ -25,7 +25,8 @@ struct SubagentDetailPanel: View {
     /// scroll content closure and forwarded to
     /// `MarkdownSegmentView.maxContentWidth` so markdown wraps to the panel
     /// instead of the default `chatBubbleMaxWidth` (760pt).
-    @State private var panelContentWidth: CGFloat = 0
+    @State private var panelContentWidth: CGFloat = 320
+    private static let objectiveMaxHeight: CGFloat = 150
 
     var body: some View {
         VSidePanel(title: "", titleFont: VFont.titleSmall, onClose: onClose, titleAccessory: {
@@ -52,12 +53,11 @@ struct SubagentDetailPanel: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .pointerCursor()
                 .accessibilityLabel("Stop subagent")
             }
         }, pinnedContent: {
             pinnedBody
-
-            Divider().background(VColor.borderBase)
         }) {
             Color.clear
                 .frame(height: 0)
@@ -67,7 +67,16 @@ struct SubagentDetailPanel: View {
                     panelContentWidth = newWidth
                 }
 
-            if events.isEmpty {
+            if events.isEmpty, !isRunning {
+                VStack(spacing: VSpacing.md) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading events…")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+                .frame(height: 120)
+            } else if events.isEmpty {
                 VEmptyState(
                     title: "No events yet",
                     subtitle: "Events will appear as the subagent runs",
@@ -81,6 +90,14 @@ struct SubagentDetailPanel: View {
         .onAppear {
             // Lazy-load events from DB when the panel opens for a completed subagent with no cached events
             if events.isEmpty, subagentInfo?.conversationId != nil {
+                onRequestDetail?()
+            }
+        }
+        .onChange(of: subagentInfo?.conversationId) { _, newConversationId in
+            // Safety net: if conversationId becomes available after the panel is
+            // already visible (e.g. history reconstruction merges it after .onAppear
+            // already fired with conversationId == nil), trigger the lazy-load.
+            if events.isEmpty, newConversationId != nil {
                 onRequestDetail?()
             }
         }
@@ -98,14 +115,27 @@ struct SubagentDetailPanel: View {
 
             // Objective card
             if let objective, !objective.isEmpty {
+                let needsScroll = objective.count > 250
+                    || objective.split(separator: "\n", omittingEmptySubsequences: false).count > 5
+
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("Objective")
                         .font(VFont.bodyMediumEmphasised)
                         .foregroundStyle(VColor.contentEmphasized)
-                    Text(objective)
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentDefault)
-                        .lineSpacing(18 - 14)
+                    if needsScroll {
+                        ScrollView {
+                            Text(objective)
+                                .font(VFont.bodyMediumLighter)
+                                .foregroundStyle(VColor.contentDefault)
+                                .lineSpacing(18 - 14)
+                        }
+                        .frame(height: 120)
+                    } else {
+                        Text(objective)
+                            .font(VFont.bodyMediumLighter)
+                            .foregroundStyle(VColor.contentDefault)
+                            .lineSpacing(18 - 14)
+                    }
                 }
                 .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.md, bottom: VSpacing.lg, trailing: VSpacing.md))
                 .vCard(background: VColor.surfaceOverlay)
@@ -132,7 +162,8 @@ struct SubagentDetailPanel: View {
             }
         }
         .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.lg)
+        .padding(.top, VSpacing.lg)
+        .padding(.bottom, VSpacing.sm)
     }
 
     // MARK: - Event List
@@ -167,7 +198,7 @@ struct SubagentDetailPanel: View {
     private func timelineNode(for group: SubagentEventGrouping.Group, isLast: Bool) -> some View {
         HStack(alignment: .top, spacing: VSpacing.lg) {
             iconNode(for: group)
-                .frame(width: Self.gutterWidth)
+                .fixedWidth(Self.gutterWidth)
 
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -182,7 +213,6 @@ struct SubagentDetailPanel: View {
                 Rectangle()
                     .fill(VColor.borderBase)
                     .frame(width: 1.5)
-                    .frame(maxHeight: .infinity)
                     .padding(.top, Self.iconNodeSize)
                     .padding(.leading, (Self.gutterWidth - 1.5) / 2)
             }
@@ -268,23 +298,12 @@ struct SubagentDetailPanel: View {
 
     @ViewBuilder
     private func textCardContent(_ event: SubagentEventItem) -> some View {
-        // Subtract: gutter (24) + gutter-to-card spacing (16) + card horizontal padding (12*2)
-        let markdownWidth: CGFloat? = panelContentWidth > 0
-            ? max(panelContentWidth - Self.gutterWidth - VSpacing.lg - 2 * VSpacing.md, 0)
-            : nil
         ZStack(alignment: .topTrailing) {
-            HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 0) {
-                    MarkdownSegmentView(
-                        segments: parseMarkdownSegments(event.content),
-                        typographyGeneration: typographyObserver.generation,
-                        maxContentWidth: markdownWidth
-                    )
-                    .equatable()
-                    .textSelection(.enabled)
-                }
-                Spacer(minLength: 0)
-            }
+            Text(event.content)
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentDefault)
+                .lineSpacing(18 - 14)
+                .textSelection(.enabled)
 
             SubagentTextActionOverlay(
                 event: event,
@@ -593,6 +612,11 @@ private struct SubagentCollapsibleText: View {
     @Binding var isExpanded: Bool
     private let collapsedLineLimit = 4
 
+    private var likelyTruncated: Bool {
+        text.split(separator: "\n", omittingEmptySubsequences: false).count > collapsedLineLimit
+            || text.count > 300
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text(text)
@@ -601,15 +625,17 @@ private struct SubagentCollapsibleText: View {
                 .lineLimit(isExpanded ? nil : collapsedLineLimit)
                 .textSelection(.enabled)
 
-            Button {
-                withAnimation(VAnimation.fast) { isExpanded.toggle() }
-            } label: {
-                Text(isExpanded ? "Show less" : "Show more")
-                    .font(VFont.bodySmallEmphasised)
-                    .foregroundStyle(VColor.primaryBase)
+            if likelyTruncated || isExpanded {
+                Button {
+                    withAnimation(VAnimation.fast) { isExpanded.toggle() }
+                } label: {
+                    Text(isExpanded ? "Show less" : "Show more")
+                        .font(VFont.bodySmallEmphasised)
+                        .foregroundStyle(VColor.primaryBase)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
         }
     }
 }

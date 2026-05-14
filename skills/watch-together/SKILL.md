@@ -4,6 +4,7 @@ description: "Watch TV shows and movies with the user in real time by processing
 metadata:
   emoji: "📺"
   vellum:
+    display-name: "Watch Together"
     emoji: 📺
 ---
 

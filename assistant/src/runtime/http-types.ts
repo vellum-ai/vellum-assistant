@@ -227,5 +227,6 @@ export interface RuntimeMessagePayload {
     status: string;
     error?: string;
     conversationId?: string;
+    objective?: string;
   };
 }

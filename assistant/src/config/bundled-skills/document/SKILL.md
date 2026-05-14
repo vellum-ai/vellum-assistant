@@ -18,13 +18,33 @@ Create and edit long-form documents using the built-in rich text editor. Documen
 
 - **document_create** - Opens a new document editor with an optional title and initial Markdown content. Returns a `surface_id` for subsequent updates.
 - **document_update** - Updates content in an open document editor by `surface_id`. Supports `replace` (overwrite) and `append` (add to end) modes.
+- **document_read** - Reads the current content of a document by `surface_id` when it belongs to the current conversation, or when the current actor is the guardian/local user. Use to verify content before editing.
+- **document_list** - Lists documents. Without `query`, lists the current conversation's documents. With `query`, searches by title; guardian/local users can search across conversations, while other actors are scoped to the current conversation.
+- **document_delete** - Deletes a document by `surface_id`. Use to clean up unwanted documents.
 
-## Workflow
+## Retrieving existing documents
+
+When the user asks to see, open, or pull up a document:
+
+1. Check the `<active_documents>` block in your context — it lists all documents in this conversation with their `surface_id` and title. If the document is there, call `document_read` with its `surface_id`. Done in one call.
+2. If the document is NOT in `<active_documents>`, call `document_list` with a `query` matching the document title. For guardian/local users, this searches across previous conversations and sessions.
+3. Once you have the `surface_id`, call `document_read` to retrieve the content.
+
+**Never** search the filesystem, conversation history, or archives to find a document. Always use `document_list` with a `query`.
+
+## Creating a new document
 
 1. **Create the document**: Call `document_create` with a title (inferred from the request). Call the tool immediately, not after conversational preamble.
-2. **Write content in Markdown**: Use proper structure (`#` for titles, `##` for sections), **bold**, *italic*, code blocks, tables, lists, blockquotes as appropriate.
+2. **Write content in Markdown**: Use proper structure (`#` for titles, `##` for sections), **bold**, _italic_, code blocks, tables, lists, blockquotes as appropriate.
 3. **CRITICAL - Stream content in chunks**: Call `document_update` MULTIPLE times, not just once. Break content into logical chunks (paragraphs, sections, or every 200-300 words). Call `document_update` with `mode: "append"` for EACH chunk separately. The user experiences real-time content appearing as you write.
-4. **Respond to edits**: When the user requests changes via the docked chat, use `document_update` with `replace` for full rewrites or `append` for additions.
+
+## Editing an existing document
+
+When the user requests changes to a document:
+
+1. Find the `surface_id` from the `<active_documents>` context block.
+2. Use `document_update` with the existing `surface_id` — do NOT call `document_create` again.
+3. Use `mode: "replace"` for full rewrites or `mode: "append"` for additions.
 
 ## Usage Notes
 

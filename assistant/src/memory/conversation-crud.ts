@@ -87,6 +87,7 @@ const subagentNotificationSchema = z.object({
   status: z.enum(["running", "completed", "failed", "aborted"]),
   error: z.string().optional(),
   conversationId: z.string().optional(),
+  objective: z.string().optional(),
 });
 
 export const messageMetadataSchema = z

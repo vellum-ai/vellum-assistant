@@ -16,7 +16,7 @@ Connect the user's Oura Ring to pull sleep, heart rate, readiness, activity, and
 
 - An Oura Ring (Gen 3 or Ring 4) with an active Oura Membership ($6/mo required for API access)
 - The Oura app installed and paired with the ring
-- An Oura Cloud account at https://cloud.ouraring.com
+- An Oura Cloud account at https://api.ouraring.com
 
 ## Setup
 
@@ -59,7 +59,7 @@ class Handler(BaseHTTPRequestHandler):
                 'redirect_uri': REDIRECT_URI, 'scope': SCOPES, 'state': 'assistant'
             })
             self.send_response(302)
-            self.send_header('Location', f'https://cloud.ouraring.com/oauth/authorize?{params}')
+            self.send_header('Location', f'https://api.ouraring.com/oauth/authorize?{params}')
             self.end_headers()
         elif parsed.path == '/callback':
             code = parse_qs(parsed.query).get('code', [''])[0]

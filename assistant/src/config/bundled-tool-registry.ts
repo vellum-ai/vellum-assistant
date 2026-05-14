@@ -52,6 +52,9 @@ import * as contactSearch from "./bundled-skills/contacts/tools/contact-search.j
 import * as googleContacts from "./bundled-skills/contacts/tools/google-contacts.js";
 // ── document ───────────────────────────────────────────────────────────────────
 import * as documentCreate from "./bundled-skills/document/tools/document-create.js";
+import * as documentDelete from "./bundled-skills/document/tools/document-delete.js";
+import * as documentList from "./bundled-skills/document/tools/document-list.js";
+import * as documentRead from "./bundled-skills/document/tools/document-read.js";
 import * as documentUpdate from "./bundled-skills/document/tools/document-update.js";
 // ── followups ──────────────────────────────────────────────────────────────────
 import * as followupCreate from "./bundled-skills/followups/tools/followup-create.js";
@@ -168,6 +171,9 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // document
   ["document:tools/document-create.ts", documentCreate],
+  ["document:tools/document-delete.ts", documentDelete],
+  ["document:tools/document-list.ts", documentList],
+  ["document:tools/document-read.ts", documentRead],
   ["document:tools/document-update.ts", documentUpdate],
 
   // followups

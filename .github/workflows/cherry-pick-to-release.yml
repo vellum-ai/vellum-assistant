@@ -97,7 +97,6 @@ jobs:
                 --body "Automated cherry-picks onto \`${RELEASE_BRANCH}\`." \
                 --base "$RELEASE_BRANCH" \
                 --head "$CHERRY_PICK_BRANCH")
-
               echo "Created cherry-pick PR: $PR_URL"
             fi
           else
@@ -119,3 +118,4 @@ jobs:
 
             echo "::warning::Cherry-pick of #${PR_NUMBER} to ${RELEASE_BRANCH} failed due to conflicts. Commented on the original PR."
           fi
+

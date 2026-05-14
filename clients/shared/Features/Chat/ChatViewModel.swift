@@ -2201,6 +2201,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             } else {
                 activeSubagents.append(info)
             }
+            if let objective = info.objective {
+                subagentDetailStore.recordSpawned(subagentId: info.id, objective: objective)
+            }
         }
 
         // Update daemon pagination cursor from the response metadata.

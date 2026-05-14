@@ -6,6 +6,7 @@ export interface RenderSlackTextOptions {
 }
 
 const SLACK_USER_MENTION_RE = /<@([UW][A-Z0-9]+)>/g;
+const SLACK_CHANNEL_REFERENCE_RE = /<#([CDG][A-Z0-9]+)(?:\|[^>]*)?>/g;
 
 export function extractSlackUserMentionIds(text: string): string[] {
   const seen = new Set<string>();
@@ -22,9 +23,24 @@ export function extractSlackUserMentionIds(text: string): string[] {
   return ids;
 }
 
+export function extractSlackChannelReferenceIds(text: string): string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+
+  for (const match of text.matchAll(SLACK_CHANNEL_REFERENCE_RE)) {
+    const id = match[1];
+    if (!seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+
+  return ids;
+}
+
 export function renderSlackTextForModel(
   text: string,
-  options: RenderSlackTextOptions = {}
+  options: RenderSlackTextOptions = {},
 ): string {
   return text.replace(/<([^<>\s][^<>]*)>/g, (token, content: string) => {
     if (content.startsWith("@")) {
@@ -49,7 +65,7 @@ export function renderSlackTextForModel(
 
 export async function buildSlackUserLabelMap(
   texts: Iterable<string | undefined>,
-  resolveLabel: (userId: string) => Promise<string | undefined | null>
+  resolveLabel: (userId: string) => Promise<string | undefined | null>,
 ): Promise<Record<string, string>> {
   const ids: string[] = [];
   const seen = new Set<string>();
@@ -66,18 +82,55 @@ export async function buildSlackUserLabelMap(
   if (ids.length === 0) return {};
 
   const entries = await Promise.all(
-    ids.map(
-      async (id): Promise<[string, string] | undefined> => {
-        try {
-          const label = await resolveLabel(id);
-          const sanitized = sanitizeOptionalLabel(label ?? undefined);
-          if (!sanitized || sanitized === id) return undefined;
-          return [id, sanitized];
-        } catch {
-          return undefined;
-        }
+    ids.map(async (id): Promise<[string, string] | undefined> => {
+      try {
+        const label = await resolveLabel(id);
+        const sanitized = sanitizeOptionalLabel(label ?? undefined);
+        if (!sanitized || sanitized === id) return undefined;
+        return [id, sanitized];
+      } catch {
+        return undefined;
       }
-    )
+    }),
+  );
+
+  return Object.fromEntries(entries.filter((entry) => entry !== undefined));
+}
+
+export async function buildSlackChannelLabelMap(
+  texts: Iterable<string | undefined>,
+  resolveLabel: (channelId: string) => Promise<string | undefined | null>,
+): Promise<Record<string, string>> {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+
+  for (const text of texts) {
+    if (!text) continue;
+    for (const match of text.matchAll(SLACK_CHANNEL_REFERENCE_RE)) {
+      const id = match[1];
+      const [, embeddedLabel] = splitSlackLabel(match[0].slice(1, -1));
+      const sanitizedEmbeddedLabel = sanitizeOptionalLabel(embeddedLabel);
+      if (sanitizedEmbeddedLabel && sanitizedEmbeddedLabel !== id) continue;
+      if (!seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+  }
+
+  if (ids.length === 0) return {};
+
+  const entries = await Promise.all(
+    ids.map(async (id): Promise<[string, string] | undefined> => {
+      try {
+        const label = await resolveLabel(id);
+        const sanitized = sanitizeOptionalLabel(label ?? undefined);
+        if (!sanitized || sanitized === id) return undefined;
+        return [id, sanitized];
+      } catch {
+        return undefined;
+      }
+    }),
   );
 
   return Object.fromEntries(entries.filter((entry) => entry !== undefined));
@@ -85,7 +138,7 @@ export async function buildSlackUserLabelMap(
 
 function renderUserMention(
   content: string,
-  options: RenderSlackTextOptions
+  options: RenderSlackTextOptions,
 ): string {
   const id = content.slice(1);
   if (!isSlackUserId(id)) {
@@ -102,16 +155,27 @@ function renderUserMention(
 
 function renderChannelReference(
   content: string,
-  options: RenderSlackTextOptions
+  options: RenderSlackTextOptions,
 ): string {
   const [idWithPrefix, label] = splitSlackLabel(content);
   const channelId = idWithPrefix.slice(1);
   const fallback = sanitizeLabel(
     options.channelFallbackLabel,
-    "unknown-channel"
+    "unknown-channel",
   );
-  const resolvedLabel = label ?? options.channelLabels?.[channelId];
-  return `#${sanitizeLabel(resolvedLabel, fallback)}`;
+  const embeddedLabel = sanitizeOptionalLabel(label);
+  if (embeddedLabel && embeddedLabel !== channelId) {
+    return `#${embeddedLabel}`;
+  }
+
+  const resolvedLabel = sanitizeOptionalLabel(
+    options.channelLabels?.[channelId],
+  );
+  if (resolvedLabel && resolvedLabel !== channelId) {
+    return `#${resolvedLabel}`;
+  }
+
+  return `#${fallback}`;
 }
 
 function renderSpecialReference(content: string): string {

@@ -45,6 +45,7 @@ import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { setGlobalSkillIpcSender } from "./meet-host-supervisor.js";
+import { PluginSourceWatcher } from "./plugin-source-watcher.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
 
 const log = getLogger("server");
@@ -71,6 +72,7 @@ export class DaemonServer {
   // Composed subsystems
   private configWatcher = getConfigWatcher();
   private appSourceWatcher = new AppSourceWatcher();
+  private pluginSourceWatcher = PluginSourceWatcher.getInstance();
   private cliIpc = new AssistantIpcServer();
   private skillIpc = new SkillIpcServer();
 
@@ -289,6 +291,11 @@ export class DaemonServer {
 
     this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
+    // Filesystem watcher for `<workspaceDir>/plugins/` — picks up plugin
+    // source changes (install/edit). The watcher owns its onChange handler
+    // internally.
+    this.pluginSourceWatcher.start();
+
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
     this.unsubscribeContactChange = onContactChange(() => {
       broadcastMessage({ type: "contacts_changed" });
@@ -303,6 +310,7 @@ export class DaemonServer {
     this.evictor.stop();
     this.configWatcher.stop();
     this.appSourceWatcher.stop();
+    this.pluginSourceWatcher.stop();
     this.cliIpc.stop();
     this.skillIpc.stop();
     if (this.unsubscribeContactChange) {

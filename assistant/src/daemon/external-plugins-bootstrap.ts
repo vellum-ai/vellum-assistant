@@ -55,15 +55,13 @@ import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
+import { HOOKS } from "../plugin-api/constants.js";
 import { registerDefaultPlugins } from "../plugins/defaults/index.js";
 import {
   registerPluginSkills,
   unregisterPluginSkills,
 } from "../plugins/plugin-skill-contributions.js";
-import {
-  getRegisteredPlugins,
-  unregisterPlugin,
-} from "../plugins/registry.js";
+import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
   PluginExecutionError,
@@ -316,9 +314,9 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
         assistantVersion: ctx.assistantVersion,
       };
 
-      if (plugin.hooks?.init) {
+      if (plugin.hooks?.[HOOKS.INIT]) {
         try {
-          await plugin.hooks.init(initContext);
+          await plugin.hooks[HOOKS.INIT](initContext);
         } catch (err) {
           throw new PluginExecutionError(
             `plugin ${name} init() failed: ${
@@ -512,9 +510,9 @@ async function teardownPlugin(
     );
   }
 
-  if (plugin.hooks?.shutdown) {
+  if (plugin.hooks?.[HOOKS.SHUTDOWN]) {
     try {
-      await plugin.hooks.shutdown(shutdownContext);
+      await plugin.hooks[HOOKS.SHUTDOWN](shutdownContext);
     } catch (err) {
       // Swallow — we want every plugin's shutdown to get a chance to run
       // even when an earlier one throws. The outer runShutdownHooks already

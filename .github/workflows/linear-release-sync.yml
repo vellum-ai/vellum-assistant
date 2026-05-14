@@ -1,0 +1,134 @@
+# Linear Release sync — connects published production releases of this repo
+# to Linear's release tracking so issues referenced in commit/PR titles between
+# the previous tagged release and the current one are automatically grouped
+# under the new release.
+#
+# This repo follows a tagged-release model (semver tags like `v0.5.3`), so the
+# Linear pipeline configured to consume this sync should be of type
+# **Scheduled** — not Continuous. The companion repo
+# `vellum-ai/vellum-assistant-platform` is continuously deployed and uses a
+# separate Continuous pipeline (see that repo's `linear-release-sync.yml`).
+#
+# The action scans commit history between the previous Linear release and the
+# tagged commit, extracts Linear issue identifiers (e.g. `LUM-1234`,
+# `JARVIS-123`), and creates or updates a Scheduled release identified by the
+# git tag.
+#
+# Filtering: only true production releases (clean semver tags such as
+# `v0.5.3`) advance the pipeline. The repo's release workflow also publishes
+# `-staging.N` pre-release tags (`v0.7.4-staging.2`) via `gh release create`,
+# and future workflows could plausibly publish other pre-release variants
+# (`-rc.N`, `-beta.N`, `-alpha.N`). All such tags share the property that the
+# semver-string contains a hyphen, so any tag with `-` in the suffix is
+# skipped. This keeps Linear issues from being marked as shipped to
+# production before they actually are.
+#
+# Setup prerequisites (one-time, in Linear and GitHub UIs):
+#   1. Create a Scheduled release pipeline in Linear:
+#      Settings → Releases → New pipeline → Type: Scheduled.
+#   2. Copy the pipeline access key from its settings page.
+#   3. Add the access key as a GitHub Actions secret on this repo named
+#      `LINEAR_ACCESS_KEY` (Settings → Secrets and variables → Actions).
+#
+# References:
+#   - Linear — Releases: https://linear.app/docs/releases
+#   - linear/linear-release-action: https://github.com/linear/linear-release-action
+#   - Linear Release CLI (pipeline semantics): https://github.com/linear/linear-release
+#   - GitHub — `release` event:
+#     https://docs.github.com/en/actions/reference/events-that-trigger-workflows#release
+name: Linear Release Sync
+
+on:
+  release:
+    types: [published]
+  # Manual trigger for backfill or re-sync. Use this to (a) sync a historical
+  # tag that was published before this workflow existed, or (b) re-run sync
+  # against a release whose Linear stamping turned out wrong. Pass the git
+  # tag name (e.g. `v0.8.0`) — must be an exact tag that exists in this repo.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to sync (e.g. v0.8.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # Serialize so two releases published back-to-back can't race the action
+  # into creating overlapping releases for the same commit window.
+  group: linear-release-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync Linear release
+    runs-on: ubuntu-latest
+    # Skip on forks (the secret isn't available there) and on any pre-release
+    # tag (`vX.Y.Z-staging.N`, `vX.Y.Z-rc.N`, `vX.Y.Z-beta.N`, …). The repo's
+    # current release workflow publishes staging tags through the same
+    # `gh release create` path as production but encodes the channel in the
+    # tag suffix; the `prerelease` flag on the GitHub Release object is *not*
+    # set (no `--prerelease`), so we can't rely on
+    # `github.event.release.prerelease`. Filtering on a hyphen in the tag
+    # catches every pre-release shape semver allows and keeps
+    # Scheduled-pipeline releases aligned with actual production launches.
+    # On `release: published`, skip pre-release tags (those that contain a
+    # hyphen, e.g. `vX.Y.Z-staging.N`). On `workflow_dispatch`, the operator
+    # explicitly provided the tag, so trust their intent.
+    if: >-
+      github.repository == 'vellum-ai/vellum-assistant' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'release' &&
+          !contains(github.event.release.tag_name, '-')
+        )
+      )
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The published release's tag — checkout this exact ref so the
+          # action scans the commit history that actually shipped, not
+          # whatever HEAD happens to be on the default branch when the event
+          # fires. For manual dispatch, use the operator-supplied tag.
+          ref: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+          # Full commit history required so the action can walk back from the
+          # release tag to the previous Linear release and find every issue
+          # mentioned in commit titles, merge commits, and PR titles in
+          # between.
+          fetch-depth: 0
+
+      - name: Sync to Linear scheduled pipeline
+        uses: linear/linear-release-action@755d50b5adb7dd42b976ee9334952745d62ceb2d # v0.6.0
+        with:
+          access_key: ${{ secrets.LINEAR_ACCESS_KEY }}
+          # For scheduled pipelines, the Linear Release CLI recommends always
+          # passing `version` in CI so the sync targets the exact Linear
+          # release matching this git tag instead of inferring from
+          # started/planned state. See "Command targeting" in the action's
+          # README.
+          version: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+          # Pin the underlying Linear Release CLI version. The action's input
+          # defaults to `latest`, which would let every production run pull a
+          # newer CLI build with potentially-changed behavior or flags. To
+          # upgrade: look up the new CLI tag at
+          # https://github.com/linear/linear-release/releases and bump the
+          # value below in the same PR as the action SHA bump.
+          cli_version: v0.10.0
+
+      # Scheduled-pipeline releases are created in the pipeline's initial
+      # stage (Planned / Started). The `complete` command moves them to the
+      # terminal stage so they show up as shipped in Linear without manual
+      # UI clicks per release. Continuous pipelines auto-complete on sync
+      # and don't need this step (see vellum-assistant-platform's workflow).
+      # See the action README's "complete" command for full semantics.
+      - name: Mark Linear release complete
+        uses: linear/linear-release-action@755d50b5adb7dd42b976ee9334952745d62ceb2d # v0.6.0
+        with:
+          access_key: ${{ secrets.LINEAR_ACCESS_KEY }}
+          command: complete
+          version: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+          cli_version: v0.10.0
