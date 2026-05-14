@@ -316,6 +316,37 @@ describe("channel-delivery-store", () => {
     ).toBe(afterReset.conversationId);
   });
 
+  test("reset legacy Slack thread before alias exists does not reattach to old legacy conversation", async () => {
+    const channelId = "C0123ABCDEF";
+    const threadTs = "1710000000.000100";
+    const legacy = recordInbound("slack", channelId, "legacy-event", {
+      sourceMessageId: threadTs,
+    });
+
+    const req = new Request("http://localhost/channels/conversation", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceChannel: "slack",
+        conversationExternalId: channelId,
+        sourceThreadId: threadTs,
+      }),
+    });
+    const res = await handleDeleteConversation(req);
+    expect(res.status).toBe(200);
+
+    const afterReset = recordInbound("slack", channelId, "after-reset-reply", {
+      sourceThreadId: threadTs,
+      sourceMessageId: "1710000002.000100",
+    });
+
+    expect(afterReset.conversationId).not.toBe(legacy.conversationId);
+    expect(
+      getConversationByKey(`asst:self:slack:${channelId}:thread:${threadTs}`)
+        ?.conversationId,
+    ).toBe(afterReset.conversationId);
+  });
+
   test("different chats get different conversations", () => {
     const r1 = recordInbound("telegram", "chat-1", "msg-1");
     const r2 = recordInbound("telegram", "chat-2", "msg-1");

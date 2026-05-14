@@ -92,7 +92,7 @@ import {
 import { searchConversations } from "../../memory/conversation-queries.js";
 import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
 import {
-  readSlackMetadata,
+  readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
@@ -144,22 +144,6 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
     typeof value === "string" &&
     VALID_RISK_THRESHOLDS.includes(value as RiskThreshold)
   );
-}
-
-function readSlackMetadataFromEnvelope(
-  metadata: string | null | undefined,
-): SlackMessageMetadata | null {
-  if (!metadata) return null;
-  try {
-    const parsed = JSON.parse(metadata) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    const slackMeta = (parsed as Record<string, unknown>).slackMeta;
-    return typeof slackMeta === "string" ? readSlackMetadata(slackMeta) : null;
-  } catch {
-    return null;
-  }
 }
 
 function buildSlackHistoryMessage(
@@ -572,7 +556,7 @@ export function handleListMessages(
       }
     }
     const slackMessage = buildSlackHistoryMessage(
-      readSlackMetadataFromEnvelope(msg.metadata),
+      readSlackMetadataFromMessageMetadata(msg.metadata),
     );
 
     // Strip <no_response/> markers from assistant messages so web/API
