@@ -102,7 +102,7 @@ whatever your editor / linter / publish tooling expects.
 
 Plugins import types and constants from `@vellumai/plugin-api`. This
 package is the only public-contract surface — anything not exported
-from there is daemon-internal and subject to change.
+from there is assistant-internal and subject to change.
 
 For more on what these API exports, please see [here](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api).
 
@@ -147,14 +147,14 @@ export default async function init(
 }
 ```
 
-If `init` **throws**, the daemon raises `PluginExecutionError` and
+If `init` **throws**, the assistant raises `PluginExecutionError` and
 aborts bootstrap for that plugin. Throw early if your plugin can't
 start (missing creds, corrupt state, version mismatch you want to
 hard-reject on).
 
 ### `shutdown`
 
-Fires once when the daemon tears down the plugin (process exit,
+Fires once when the assistant tears down the plugin (process exit,
 explicit unload, etc.).
 
 ```ts
@@ -168,7 +168,7 @@ export default async function shutdown(
 }
 ```
 
-Shutdown errors are **best-effort**: the daemon logs them with plugin
+Shutdown errors are **best-effort**: the assistant logs them with plugin
 attribution and continues tearing down sibling plugins. Don't rely on
 shutdown to do critical cleanup the user will notice, write durably
 during normal operation instead.
@@ -239,7 +239,7 @@ export default {
   ): Promise<ToolExecutionResult> {
     // input.query        - defined in the schema
     // ctx.conversationId — current conversation
-    // ctx.workingDir     — daemon working directory
+    // ctx.workingDir     — assistant working directory
     // ctx.signal         — cooperative cancellation; check `.aborted` or
     //                      forward to fetch() / spawn() options
     // ctx.requestId      — per-turn request id for log correlation
