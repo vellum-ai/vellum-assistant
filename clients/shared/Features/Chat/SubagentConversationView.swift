@@ -8,6 +8,7 @@ import SwiftUI
 /// expanding reveals individual rows. Tapping a row opens its detail panel.
 public struct SubagentGroupContainer: View {
     let subagents: [SubagentInfo]
+    var headerAvatar: NSImage?
     var onAbort: ((String) -> Void)?
     var onTap: ((String) -> Void)?
     var avatarProvider: ((String) -> NSImage?)?
@@ -16,11 +17,13 @@ public struct SubagentGroupContainer: View {
 
     public init(
         subagents: [SubagentInfo],
+        headerAvatar: NSImage? = nil,
         onAbort: ((String) -> Void)? = nil,
         onTap: ((String) -> Void)? = nil,
         avatarProvider: ((String) -> NSImage?)? = nil
     ) {
         self.subagents = subagents
+        self.headerAvatar = headerAvatar
         self.onAbort = onAbort
         self.onTap = onTap
         self.avatarProvider = avatarProvider
@@ -76,7 +79,9 @@ public struct SubagentGroupContainer: View {
             }
         }) {
             HStack(spacing: VSpacing.sm) {
-                if allTerminal {
+                if let headerAvatar {
+                    VAvatarImage(image: headerAvatar, size: 20, showBorder: false)
+                } else if allTerminal {
                     VIconView(failedCount > 0 ? .triangleAlert : .circleCheck, size: 12)
                         .foregroundStyle(failedCount > 0 ? VColor.systemNegativeStrong : VColor.primaryBase)
                 } else {
