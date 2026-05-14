@@ -1407,13 +1407,6 @@ export async function handleSendMessage(
     !!body.onboarding && conversation.messages.length === 0;
   if (isFirstOnboarding) {
     conversation.setOnboardingContext(body.onboarding!);
-    recordOnboardingEvent({
-      screen: "complete",
-      tools: body.onboarding!.tools,
-      tasks: body.onboarding!.tasks,
-      tone: body.onboarding!.tone,
-      googleConnected: body.onboarding!.googleConnected,
-    });
   }
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.
@@ -1576,6 +1569,17 @@ export async function handleSendMessage(
 
       if (isFirstOnboarding) {
         persistOnboardingArtifacts(body.onboarding!);
+        try {
+          recordOnboardingEvent({
+            screen: "complete",
+            tools: body.onboarding!.tools,
+            tasks: body.onboarding!.tasks,
+            tone: body.onboarding!.tone,
+            googleConnected: body.onboarding!.googleConnected,
+          });
+        } catch (err) {
+          log.warn({ err }, "Failed to record onboarding telemetry event");
+        }
       }
 
       setTimeout(() => {
@@ -1618,6 +1622,17 @@ export async function handleSendMessage(
 
   if (isFirstOnboarding) {
     persistOnboardingArtifacts(body.onboarding!);
+    try {
+      recordOnboardingEvent({
+        screen: "complete",
+        tools: body.onboarding!.tools,
+        tasks: body.onboarding!.tasks,
+        tone: body.onboarding!.tone,
+        googleConnected: body.onboarding!.googleConnected,
+      });
+    } catch (err) {
+      log.warn({ err }, "Failed to record onboarding telemetry event");
+    }
   }
 
   const attachments = hasAttachments
