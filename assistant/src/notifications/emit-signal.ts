@@ -282,7 +282,24 @@ export async function emitNotificationSignal<TEventName extends string>(
 
     let decision = await evaluateSignal(signal, connectedChannels);
 
-    // Step 2.5: Enforce routing intent policy (fire-time guard)
+    // Step 2.5a: High/critical urgency signals always get a system
+    // notification via the vellum channel, regardless of what the
+    // decision engine selected. This ensures macOS surfaces a banner
+    // even when the app is focused.
+    const urgency = signal.attentionHints.urgency;
+    if (
+      (urgency === "high" || urgency === "critical") &&
+      decision.shouldNotify &&
+      !decision.selectedChannels.includes("vellum")
+    ) {
+      decision = {
+        ...decision,
+        selectedChannels: ["vellum", ...decision.selectedChannels],
+        reasoningSummary: `${decision.reasoningSummary} (vellum forced: ${urgency} urgency)`,
+      };
+    }
+
+    // Step 2.5b: Enforce routing intent policy (fire-time guard)
     const preEnforcementDecision = decision;
     decision = enforceRoutingIntent(
       decision,

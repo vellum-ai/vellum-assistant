@@ -326,8 +326,9 @@ function buildFallbackDecision(
   signal: NotificationSignal,
   availableChannels: NotificationChannel[],
 ): NotificationDecision {
+  const urgency = signal.attentionHints.urgency;
   const isHighUrgencyAction =
-    signal.attentionHints.urgency === "high" &&
+    (urgency === "high" || urgency === "critical") &&
     signal.attentionHints.requiresAction;
 
   // Always include the vellum channel in the fallback — it's a local

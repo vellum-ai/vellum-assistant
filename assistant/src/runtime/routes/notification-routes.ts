@@ -52,7 +52,7 @@ function handleNotificationIntentResult({ body = {} }: RouteHandlerArgs) {
 
 const AttentionHintsSchema = z.object({
   requiresAction: z.boolean(),
-  urgency: z.enum(["low", "medium", "high"]),
+  urgency: z.enum(["low", "medium", "high", "critical"]),
   deadlineAt: z.number().optional(),
   isAsyncBackground: z.boolean(),
   visibleInSourceNow: z.boolean(),
