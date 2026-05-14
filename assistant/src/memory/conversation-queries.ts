@@ -1,5 +1,6 @@
 import { and, count, desc, eq, sql } from "drizzle-orm";
 
+import { unwrapExternalContentForDisplay } from "../security/untrusted-content.js";
 import { getLogger } from "../util/logger.js";
 import type { ConversationRow } from "./conversation-crud.js";
 import { parseConversation } from "./conversation-crud.js";
@@ -420,7 +421,7 @@ export function buildExcerpt(rawContent: string, query: string): string {
       for (const block of parsed) {
         if (typeof block === "object" && block != null) {
           if (block.type === "text" && typeof block.text === "string") {
-            parts.push(block.text);
+            parts.push(unwrapExternalContentForDisplay(block.text));
           } else if (
             block.type === "tool_result" ||
             block.type === "web_search_tool_result"
@@ -428,7 +429,7 @@ export function buildExcerpt(rawContent: string, query: string): string {
             const inner = Array.isArray(block.content) ? block.content : [];
             for (const ib of inner) {
               if (ib?.type === "text" && typeof ib.text === "string")
-                parts.push(ib.text);
+                parts.push(unwrapExternalContentForDisplay(ib.text));
             }
           }
         }
@@ -440,6 +441,8 @@ export function buildExcerpt(rawContent: string, query: string): string {
   } catch {
     // Not JSON — use as-is
   }
+
+  text = unwrapExternalContentForDisplay(text);
 
   const WINDOW = 100;
   const lowerText = text.toLowerCase();
