@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   deleteDocument,
+  getDocumentById,
   getDocumentsForConversation,
   saveDocument,
   updateDocumentContent,
@@ -127,6 +128,35 @@ export function executeDocumentUpdate(
       error: "No client connected to update document",
     }),
     isError: true,
+  };
+}
+
+export function executeDocumentRead(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): ToolExecutionResult {
+  const surfaceId = input.surface_id as string;
+  const doc = getDocumentById(surfaceId);
+  if (!doc) {
+    return {
+      content: JSON.stringify({
+        success: false,
+        surface_id: surfaceId,
+        error: "Document not found",
+      }),
+      isError: true,
+    };
+  }
+  return {
+    content: JSON.stringify({
+      success: true,
+      surface_id: doc.surfaceId,
+      title: doc.title,
+      content: doc.content,
+      word_count: doc.wordCount,
+      updated_at: doc.updatedAt,
+    }),
+    isError: false,
   };
 }
 

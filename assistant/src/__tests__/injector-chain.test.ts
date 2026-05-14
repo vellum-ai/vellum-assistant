@@ -42,12 +42,10 @@ mock.module("../config/loader.js", () => ({
   },
 }));
 
-const { applyRuntimeInjections, composeInjectorChain } = await import(
-  "../daemon/conversation-runtime-assembly.js"
-);
-const { DEFAULT_INJECTOR_ORDER, defaultInjectorsPlugin } = await import(
-  "../plugins/defaults/injectors.js"
-);
+const { applyRuntimeInjections, composeInjectorChain } =
+  await import("../daemon/conversation-runtime-assembly.js");
+const { DEFAULT_INJECTOR_ORDER, defaultInjectorsPlugin } =
+  await import("../plugins/defaults/injectors.js");
 import {
   getInjectors,
   registerPlugin,
@@ -90,7 +88,7 @@ describe("injector chain", () => {
     resetPluginRegistryForTests();
   });
 
-  test("defaultInjectorsPlugin registers the ten defaults in the documented order", () => {
+  test("defaultInjectorsPlugin registers the defaults in the documented order", () => {
     registerPlugin(defaultInjectorsPlugin);
 
     const names = getInjectors().map((i) => i.name);
@@ -102,6 +100,7 @@ describe("injector chain", () => {
       "pkb-reminder",
       "memory-v2-static",
       "now-md",
+      "active-documents",
       "subagent-status",
       "slack-messages",
       "thread-focus",
@@ -158,6 +157,7 @@ describe("injector chain", () => {
       "pkb-reminder", // 35
       "memory-v2-static", // 38
       "now-md", // 40
+      "active-documents", // 45
       "subagent-status", // 50
       "slack-messages", // 60
       "thread-focus", // 70
