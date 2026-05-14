@@ -44,8 +44,21 @@ export interface LifecycleTelemetryEvent extends TelemetryEventBase {
   event_name: string;
 }
 
+/** Onboarding event — pre-chat selections and Google connect status. */
+export interface OnboardingTelemetryEvent extends TelemetryEventBase {
+  type: "onboarding";
+  screen: string;
+  tools?: string[];
+  tasks?: string[];
+  tone?: string;
+  google_connected?: boolean;
+  google_scopes?: string[];
+  ab_variant?: string;
+}
+
 /** Discriminated union of all telemetry event types. */
 export type TelemetryEvent =
   | LlmUsageTelemetryEvent
   | TurnTelemetryEvent
-  | LifecycleTelemetryEvent;
+  | LifecycleTelemetryEvent
+  | OnboardingTelemetryEvent;

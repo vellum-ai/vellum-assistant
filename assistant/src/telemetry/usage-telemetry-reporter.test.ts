@@ -95,6 +95,25 @@ mock.module("../memory/lifecycle-events-store.js", () => ({
   queryUnreportedLifecycleEvents: mockQueryUnreportedLifecycleEvents,
 }));
 
+const mockQueryUnreportedOnboardingEvents = mock(
+  () =>
+    [] as {
+      id: string;
+      createdAt: number;
+      screen: string;
+      toolsJson: string | null;
+      tasksJson: string | null;
+      tone: string | null;
+      googleConnected: boolean | null;
+      googleScopesJson: string | null;
+      abVariant: string | null;
+    }[],
+);
+
+mock.module("../memory/onboarding-events-store.js", () => ({
+  queryUnreportedOnboardingEvents: mockQueryUnreportedOnboardingEvents,
+}));
+
 // ---------------------------------------------------------------------------
 // Production import (after mocks)
 // ---------------------------------------------------------------------------
@@ -149,6 +168,8 @@ beforeEach(() => {
   mockQueryUnreportedTurnEvents.mockReturnValue([]);
   mockQueryUnreportedLifecycleEvents.mockReset();
   mockQueryUnreportedLifecycleEvents.mockReturnValue([]);
+  mockQueryUnreportedOnboardingEvents.mockReset();
+  mockQueryUnreportedOnboardingEvents.mockReturnValue([]);
   mockPlatformClient = null;
   mockGetPlatformBaseUrl.mockReset();
   mockGetDeviceId.mockReset();
@@ -597,15 +618,16 @@ describe("UsageTelemetryReporter", () => {
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 3 timestamp watermarks should have been advanced (IDs left untouched
+    // All 4 timestamp watermarks should have been advanced (IDs left untouched
     // so the compound-cursor branch stays active)
-    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(3);
+    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(4);
 
     const calls = mockSetMemoryCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
     expect(keys).toContain("telemetry:usage:last_reported_at");
     expect(keys).toContain("telemetry:turns:last_reported_at");
     expect(keys).toContain("telemetry:lifecycle:last_reported_at");
+    expect(keys).toContain("telemetry:onboarding:last_reported_at");
   });
 
   test("events sent normally after re-enabling collectUsageData", async () => {
