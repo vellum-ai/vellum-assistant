@@ -28,6 +28,7 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => rawConfig,
   invalidateConfigCache: () => {},
   withSuppressedConfigDiskWrites: async (fn: () => unknown) => fn(),
+  withSuppressedConfigDiskWritesSync: (fn: () => unknown) => fn(),
   // setNestedValue is also exported by loader; handleSetConfig imports the
   // real one from this module, so we re-export a thin implementation that
   // mutates in place (matches loader's behavior).

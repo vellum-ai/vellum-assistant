@@ -859,6 +859,15 @@ export async function withSuppressedConfigDiskWrites<T>(
   }
 }
 
+export function withSuppressedConfigDiskWritesSync<T>(fn: () => T): T {
+  suppressConfigDiskWritesDepth++;
+  try {
+    return fn();
+  } finally {
+    suppressConfigDiskWritesDepth--;
+  }
+}
+
 /**
  * Load the raw config from disk without any secure-storage merging.
  * Used by CLI config commands to read/write the file directly.

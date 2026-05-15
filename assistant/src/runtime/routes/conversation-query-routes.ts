@@ -29,6 +29,7 @@ import {
   saveRawConfig,
   setNestedValue,
   withSuppressedConfigDiskWrites,
+  withSuppressedConfigDiskWritesSync,
 } from "../../config/loader.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
@@ -230,7 +231,7 @@ function getModelSetContext(): ModelSetContext {
       watcher.suppressConfigReload = value;
     },
     updateConfigFingerprint() {
-      void withSuppressedConfigDiskWrites(() => watcher.updateFingerprint());
+      withSuppressedConfigDiskWritesSync(() => watcher.updateFingerprint());
     },
     debounceTimers: watcher.timers,
   };
