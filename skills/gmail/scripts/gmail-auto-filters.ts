@@ -13,16 +13,8 @@
  *   preview   — show what filters would be created without creating them
  */
 
-import {
-  parseArgs,
-  printError,
-  ok,
-  optionalArg,
-} from "./lib/common.js";
-import {
-  gmailGet,
-  gmailPost,
-} from "./lib/gmail-client.js";
+import { parseArgs, printError, ok, optionalArg } from "./lib/common.js";
+import { gmailGet, gmailPost } from "./lib/gmail-client.js";
 import {
   readLog,
   generateRunId,
@@ -142,7 +134,9 @@ function extractSenderFromEntry(entry: OpEntry): string {
     if (emailMatch) return emailMatch[0].toLowerCase();
 
     // Try to extract a domain reference (e.g. "from example.com")
-    const domainMatch = entry.reason.match(/(?:from|domain[:\s]+)([\w.-]+\.\w+)/i);
+    const domainMatch = entry.reason.match(
+      /(?:from|domain[:\s]+)([\w.-]+\.\w+)/i,
+    );
     if (domainMatch) return `@${domainMatch[1].toLowerCase()}`;
   }
 
@@ -201,20 +195,14 @@ function deriveFilterCandidates(entries: OpEntry[]): FilterCandidate[] {
     if (phase.includes("sketchy") || phase.includes("tld")) {
       const domain = extractDomain(from);
       if (domain && isSketchyTld(domain)) {
-        sketchyTldDomains.set(
-          domain,
-          (sketchyTldDomains.get(domain) ?? 0) + 1,
-        );
+        sketchyTldDomains.set(domain, (sketchyTldDomains.get(domain) ?? 0) + 1);
       }
     }
 
     // Track newsletters (Pass 4)
     if (phase.includes("newsletter") || phase.includes("digest")) {
       if (from) {
-        newsletterSenders.set(
-          from,
-          (newsletterSenders.get(from) ?? 0) + 1,
-        );
+        newsletterSenders.set(from, (newsletterSenders.get(from) ?? 0) + 1);
       }
     }
   }
@@ -331,9 +319,7 @@ function isDuplicateFilter(
 
 /** Format filter candidates into a human-readable confirmation message. */
 function formatFilterPlan(candidates: FilterCandidate[]): string {
-  const lines: string[] = [
-    `${candidates.length} filter(s) will be created:\n`,
-  ];
+  const lines: string[] = [`${candidates.length} filter(s) will be created:\n`];
   for (const c of candidates) {
     const criteria = c.criteria.from
       ? `from: ${c.criteria.from}`
@@ -404,7 +390,9 @@ const ARCHIVE_PHASES = new Set([
 ]);
 
 /** Check if a run contains archive operations (i.e. is a cleanup run, not a filter-creation run). */
-function isCleanupRun(summary: NonNullable<ReturnType<typeof summarizeRun>>): boolean {
+function isCleanupRun(
+  summary: NonNullable<ReturnType<typeof summarizeRun>>,
+): boolean {
   const phases = Object.keys(summary.phases);
   // A cleanup run has at least one phase that isn't "auto_filter" or "unknown"
   return phases.some(
@@ -441,8 +429,7 @@ async function handleGenerate(
   const account = optionalArg(args, "account");
   const dryRun = args["dry-run"] === true;
   const skipConfirm = args["skip-confirm"] === true;
-  const sourceRunId =
-    optionalArg(args, "run-id") ?? findLatestCleanupRun();
+  const sourceRunId = optionalArg(args, "run-id") ?? findLatestCleanupRun();
 
   if (!sourceRunId) {
     printError(
@@ -474,9 +461,7 @@ async function handleGenerate(
     account,
   );
   if (!existingRes.ok) {
-    printError(
-      `Failed to list existing filters (HTTP ${existingRes.status})`,
-    );
+    printError(`Failed to list existing filters (HTTP ${existingRes.status})`);
   }
   const existingFilters = existingRes.data.filter ?? [];
 
