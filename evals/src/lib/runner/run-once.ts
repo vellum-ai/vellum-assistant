@@ -19,6 +19,7 @@ import { UserSimulator } from "../simulator/user-simulator";
 import type { Simulator } from "../simulator/types";
 import { createAgent } from "./create-agent";
 import { AgentEventCollector } from "./event-collector";
+import type { EvalProgressReporter } from "./progress";
 
 export const EVENT_QUIET_MS = 5_000;
 export const EVENT_MAX_MS = 30_000;
@@ -29,6 +30,7 @@ export interface EvalRunInput {
   runId: string;
   simulator?: Simulator;
   maxTurns?: number;
+  progress?: EvalProgressReporter;
 }
 
 export interface EvalRunResult {
@@ -89,6 +91,7 @@ async function sendAndPersistSimulatorMessage(input: {
 }
 
 export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
+  const progress = input.progress ?? (() => undefined);
   const agent = createAgent({
     profile: input.profile,
     testId: input.test.id,
@@ -96,7 +99,19 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
   });
   const simulator =
     input.simulator ?? new UserSimulator({ maxTurns: input.maxTurns });
+  progress({
+    step: "artifacts",
+    status: "start",
+    message: "Preparing run artifacts",
+    detail: input.runId,
+  });
   const artifacts = await ensureRunArtifacts(input.runId);
+  progress({
+    step: "artifacts",
+    status: "done",
+    message: "Run artifacts ready",
+    detail: artifacts.runDir,
+  });
   const assistantEvents: AgentEvent[] = [];
   const startedAt = new Date().toISOString();
   await writeRunMetadata(input.runId, {
@@ -108,27 +123,105 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
     artifactDir: artifacts.runDir,
   });
 
+  progress({
+    step: "hatch",
+    status: "start",
+    message: "Hatching assistant",
+    detail: input.profile.id,
+  });
   await agent.hatch();
+  progress({
+    step: "hatch",
+    status: "done",
+    message: "Assistant ready",
+    detail: agent.id,
+  });
   try {
-    for (const command of input.test.setupCommands) {
+    for (const [index, command] of input.test.setupCommands.entries()) {
+      progress({
+        step: "setup",
+        status: "start",
+        message: `Running setup ${index + 1}/${input.test.setupCommands.length}`,
+        detail: command.type,
+      });
       await agent.runSetupCommand(command);
+      progress({
+        step: "setup",
+        status: "done",
+        message: `Setup ${index + 1}/${input.test.setupCommands.length} complete`,
+        detail: command.type,
+      });
     }
 
+    progress({
+      step: "events",
+      status: "start",
+      message: "Subscribing to assistant events",
+      detail: agent.conversationKey,
+    });
     const collector = new AgentEventCollector(
       agent.events()[Symbol.asyncIterator](),
     );
+    progress({
+      step: "events",
+      status: "done",
+      message: "Assistant event stream connected",
+      detail: agent.conversationKey,
+    });
 
     for (;;) {
+      const simulatorTurns = (await readTranscript(input.runId)).filter(
+        (turn) => turn.role === "simulator",
+      ).length;
+      progress({
+        step: "simulator",
+        status: "start",
+        message: `Asking simulator for turn ${simulatorTurns + 1}`,
+        turn: simulatorTurns + 1,
+      });
       const decision = await simulator.decide({
         test: input.test,
         transcript: await readTranscript(input.runId),
       });
-      if (decision.action === "end") break;
+      if (decision.action === "end") {
+        progress({
+          step: "simulator",
+          status: "done",
+          message: "Simulator ended the run",
+          detail: decision.reason,
+          turn: simulatorTurns + 1,
+        });
+        break;
+      }
+      progress({
+        step: "simulator",
+        status: "done",
+        message: "Simulator produced the next user message",
+        turn: simulatorTurns + 1,
+      });
 
+      progress({
+        step: "send",
+        status: "start",
+        message: "Sending simulator message",
+        turn: simulatorTurns + 1,
+      });
       await sendAndPersistSimulatorMessage({
         runId: input.runId,
         agentSend: (message) => agent.send(message),
         message: decision.message,
+      });
+      progress({
+        step: "send",
+        status: "done",
+        message: "Simulator message sent",
+        turn: simulatorTurns + 1,
+      });
+      progress({
+        step: "events",
+        status: "start",
+        message: "Waiting for assistant response",
+        turn: simulatorTurns + 1,
       });
       await collectAndPersistEvents({
         runId: input.runId,
@@ -136,9 +229,27 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         assistantEvents,
         includeInTranscript: true,
       });
+      progress({
+        step: "events",
+        status: "done",
+        message: "Assistant response collected",
+        turn: simulatorTurns + 1,
+      });
     }
 
+    progress({
+      step: "metrics",
+      status: "start",
+      message: "Running metrics",
+      detail: `${input.test.metricPaths.length} metric file(s)`,
+    });
     const metrics = await runMetrics({ test: input.test, runId: input.runId });
+    progress({
+      step: "metrics",
+      status: "done",
+      message: "Metrics complete",
+      detail: `${metrics.length} result(s)`,
+    });
     await writeMetricResults(input.runId, metrics);
     await writeRunMetadata(input.runId, {
       runId: input.runId,
@@ -170,6 +281,18 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
     });
     throw err;
   } finally {
+    progress({
+      step: "shutdown",
+      status: "start",
+      message: "Shutting down assistant",
+      detail: agent.id,
+    });
     await agent.shutdown();
+    progress({
+      step: "shutdown",
+      status: "done",
+      message: "Assistant shut down",
+      detail: agent.id,
+    });
   }
 }

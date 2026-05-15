@@ -4,6 +4,7 @@ import {
   AVATAR_DEVICE_ENV_VAR,
   dockerResourceNames,
   resolveAvatarDevicePath,
+  resolveDockerHatchMode,
   type ServiceName,
 } from "../docker.js";
 import { buildServiceRunArgs } from "../statefulset.js";
@@ -169,5 +170,64 @@ describe("VELLUM_AVATAR_DEVICE passthrough", () => {
     expect(args.some((a) => a.startsWith(`${AVATAR_DEVICE_ENV_VAR}=`))).toBe(
       false,
     );
+  });
+});
+
+describe("resolveDockerHatchMode", () => {
+  test("defaults to pulling published images when no source flag is set", () => {
+    expect(
+      resolveDockerHatchMode({
+        watch: false,
+        buildFromSource: false,
+        fullSourceTreeAvailable: true,
+      }),
+    ).toEqual({ build: false, watcher: false, fellBackToPull: false });
+  });
+
+  test("--build-from-source builds without enabling the file watcher", () => {
+    expect(
+      resolveDockerHatchMode({
+        watch: false,
+        buildFromSource: true,
+        fullSourceTreeAvailable: true,
+      }),
+    ).toEqual({ build: true, watcher: false, fellBackToPull: false });
+  });
+
+  test("--watch builds and enables the file watcher", () => {
+    expect(
+      resolveDockerHatchMode({
+        watch: true,
+        buildFromSource: false,
+        fullSourceTreeAvailable: true,
+      }),
+    ).toEqual({ build: true, watcher: true, fellBackToPull: false });
+  });
+
+  test("--watch + --build-from-source still enables the watcher (watch wins)", () => {
+    expect(
+      resolveDockerHatchMode({
+        watch: true,
+        buildFromSource: true,
+        fullSourceTreeAvailable: true,
+      }),
+    ).toEqual({ build: true, watcher: true, fellBackToPull: false });
+  });
+
+  test("falls back to pull when source flag is set but source tree is missing", () => {
+    expect(
+      resolveDockerHatchMode({
+        watch: false,
+        buildFromSource: true,
+        fullSourceTreeAvailable: false,
+      }),
+    ).toEqual({ build: false, watcher: false, fellBackToPull: true });
+    expect(
+      resolveDockerHatchMode({
+        watch: true,
+        buildFromSource: false,
+        fullSourceTreeAvailable: false,
+      }),
+    ).toEqual({ build: false, watcher: false, fellBackToPull: true });
   });
 });
