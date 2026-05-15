@@ -23,7 +23,7 @@ If it reports an available platform assistant, do not install or start ngrok for
 - Check that the phone number is in E.164 format
 - Verify Twilio credentials are correct (wrong auth token causes API errors)
 - On trial accounts, ensure the destination number is verified
-- Check that the configured tunnel is still running. For ngrok, use `curl -s http://127.0.0.1:4040/api/tunnels`. For Velay, run `assistant platform status --json` and confirm `velayTunnel.connected` is `true`, or check gateway logs for `Velay tunnel registered`.
+- Check that the configured tunnel is still running. For ngrok, use `curl -s http://127.0.0.1:4040/api/tunnels`. For Velay, run `assistant platform status --json` and confirm `velayTunnel.connected` is `true`, or check gateway logs for `Starting Velay tunnel` followed by `Velay tunnel registered`.
 
 ## Call connects but no audio / one-way audio
 
@@ -61,8 +61,8 @@ Do not rotate ngrok to work around a managed Velay WebSocket failure. Fix the Ve
 ## Velay tunnel is not registering
 
 - Confirm vembda passes the environment-appropriate `VELAY_BASE_URL` to the gateway container.
+- The gateway starts Velay automatically when `VELAY_BASE_URL` is configured. Check gateway logs for `Starting Velay tunnel`, then `Velay tunnel connected` followed by `Velay tunnel registered`.
 - Re-hatch or restart the assistant after changing the environment.
-- Check gateway logs for `Velay tunnel connected` followed by `Velay tunnel registered`.
 - If `VELAY_BASE_URL` is not set on a local/self-hosted assistant, the gateway does not start the Velay client. Use ngrok or another custom tunnel in `ingress.publicBaseUrl`.
 
 ## Local Twilio Velay smoke tests

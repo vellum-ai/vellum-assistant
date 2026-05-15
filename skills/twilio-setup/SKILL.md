@@ -150,7 +150,7 @@ Twilio needs publicly reachable HTTP webhooks and, for live calls, a publicly re
 assistant platform status --json
 ```
 
-If this reports an available platform assistant and `velayTunnel.connected` is `true`, do not load `public-ingress` or install ngrok. Use the managed Velay route for the WebSocket leg. If `velayTunnel.connected` is `false`, restart or re-hatch the assistant/gateway and check gateway logs for `Velay tunnel registered`; do not treat that as an ngrok setup problem.
+If this reports an available platform assistant and `velayTunnel.connected` is `true`, do not load `public-ingress` or install ngrok. Use the managed Velay route for the WebSocket leg. If `velayTunnel.connected` is `false`, check gateway logs for `Starting Velay tunnel`, followed by either `Velay tunnel registered` or a credential/configuration warning; do not treat that as an ngrok setup problem.
 
 For local/self-hosted assistants without Velay, load the `public-ingress` skill to determine whether `ingress.publicBaseUrl` is configured and walk the user through setting one up if not.
 
@@ -232,7 +232,7 @@ curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" \
   "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers.json?PhoneNumber=$PHONE_NUMBER"
 ```
 
-Check that `voice_url` and `status_callback` start with the current `ingress.publicBaseUrl`. If they don't match, update them:
+For platform-managed assistants, `voice_url` and `status_callback` may use stable platform callback-route URLs while the live WebSocket URL in the TwiML uses Velay. That is expected. For local/self-hosted assistants, check that `voice_url` and `status_callback` start with the current `ingress.publicBaseUrl`. If they don't match, update them:
 
 ```bash
 PHONE_SID=<PN sid from the response above>
