@@ -2,7 +2,6 @@ import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { AssistantError, ProviderError } from "../util/errors.js";
-
 import {
   getAssistantMessageIdsInTurn,
   getMessageById,

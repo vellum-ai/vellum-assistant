@@ -85,7 +85,9 @@ describe("AgentLoop provider_error event emission", () => {
 
     await loop.run(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-      (e) => events.push(e),
+      (e) => {
+        events.push(e);
+      },
     );
 
     expect(calls).toHaveLength(1);
@@ -122,7 +124,9 @@ describe("AgentLoop provider_error event emission", () => {
 
     await loop.run(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-      (e) => events.push(e),
+      (e) => {
+        events.push(e);
+      },
     );
 
     const providerErrorIdx = events.findIndex(
@@ -146,7 +150,9 @@ describe("AgentLoop provider_error event emission", () => {
 
     await loop.run(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-      (e) => events.push(e),
+      (e) => {
+        events.push(e);
+      },
     );
 
     const providerErrorEvent = events.find((e) => e.type === "provider_error");
@@ -175,7 +181,9 @@ describe("AgentLoop provider_error event emission", () => {
 
     await loop.run(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-      (e) => events.push(e),
+      (e) => {
+        events.push(e);
+      },
       controller.signal,
     );
 
