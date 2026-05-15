@@ -12,7 +12,6 @@ export default {
   name: "simple_memory_remember",
   description:
     "Append a freeform note to simple-memory for the current conversation. Use when the user states a stable preference, a fact about themselves, or a decision worth carrying across turns.",
-  category: "plugin",
   defaultRiskLevel: "low" as const,
   input_schema: {
     type: "object",

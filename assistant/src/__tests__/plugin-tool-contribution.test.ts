@@ -86,7 +86,6 @@ function makeFakeTool(
   return {
     name,
     description: `Fake ${name}`,
-    category: "plugin-test",
     defaultRiskLevel: RiskLevel.Low,
     input_schema: { type: "object", properties: {}, required: [] },
     async execute(
@@ -248,17 +247,20 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     __resetRegistryForTesting();
   });
 
-  test("registerPluginTools stamps origin and ownerPluginId from the plugin name", () => {
-    // Even if the plugin author hands in a tool with no ownership metadata,
-    // the helper fills it in so the tool can be unregistered later.
+  test("registerPluginTools stamps category, origin, and ownerPluginId from the plugin name", () => {
+    // Even if the plugin author hands in a tool with no category or ownership
+    // metadata, the helper fills it in so the tool can be registered and
+    // unregistered consistently.
     const accepted = registerPluginTools("my-plugin", [
       makeFakeTool("pt_stamped"),
     ]);
     expect(accepted).toHaveLength(1);
+    expect(accepted[0]?.category).toBe("plugin");
     expect(accepted[0]?.origin).toBe("plugin");
     expect(accepted[0]?.ownerPluginId).toBe("my-plugin");
 
     const retrieved = getTool("pt_stamped");
+    expect(retrieved?.category).toBe("plugin");
     expect(retrieved?.origin).toBe("plugin");
     expect(retrieved?.ownerPluginId).toBe("my-plugin");
   });

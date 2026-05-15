@@ -1003,10 +1003,10 @@ export interface Injector {
 /**
  * Tool registration contributed by a plugin. Uses the narrow
  * {@link PluginTool} shape — plugin authors declare functional fields
- * (`name`, `description`, `input_schema`, `execute`, etc.) and leave the
- * ownership metadata to the bootstrap, which stamps `origin: "plugin"` and
- * `ownerPluginId: <plugin.name>` before handing the batch to
- * `registerPluginTools`. The registration boundary synthesizes
+ * (`name`, `description`, `input_schema`, `execute`, etc.) and leave category
+ * / ownership metadata to the bootstrap, which stamps `category: "plugin"`,
+ * `origin: "plugin"`, and `ownerPluginId: <plugin.name>` before handing the
+ * batch to `registerPluginTools`. The registration boundary synthesizes
  * `getDefinition()` from `{name, description, input_schema}` so the canonical
  * {@link Tool} interface used by the internal registry stays unchanged.
  */

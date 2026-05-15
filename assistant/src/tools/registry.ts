@@ -199,6 +199,7 @@ export function registerPluginTools(
     const { input_schema, ...rest } = pluginTool;
     const tool: Tool = {
       ...rest,
+      category: "plugin",
       origin: "plugin" as const,
       ownerPluginId: pluginName,
       ownerSkillId: undefined,

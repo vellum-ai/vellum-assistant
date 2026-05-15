@@ -23,7 +23,6 @@ export default {
   name: "simple_memory_recall",
   description:
     "Search every simple-memory entry (across all conversations) with a regex match. Use when you need to surface something the user told you to remember, including from previous conversations.",
-  category: "plugin",
   defaultRiskLevel: "low" as const,
   input_schema: {
     type: "object",

@@ -210,7 +210,6 @@ describe("plugin core types", () => {
     const sampleTool: PluginTool = {
       name: "sample-tool",
       description: "Sample plugin tool",
-      category: "plugins",
       defaultRiskLevel: RiskLevel.Low,
       input_schema: { type: "object", properties: {}, required: [] },
       async execute() {
