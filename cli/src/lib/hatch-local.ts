@@ -22,7 +22,7 @@ import {
 } from "./assistant-config.js";
 import type { AssistantEntry } from "./assistant-config.js";
 import type { Species } from "./constants.js";
-import { writeInitialConfig } from "./config-utils.js";
+import { buildHatchConfigValues, writeInitialConfig } from "./config-utils.js";
 import {
   generateLocalSigningKey,
   startLocalDaemon,
@@ -34,6 +34,12 @@ import { generateInstanceName } from "./random-name.js";
 import { leaseGuardianToken } from "./guardian-token.js";
 import { archiveLogFile, resetLogFile } from "./xdg-log.js";
 import { emitProgress } from "./desktop-progress.js";
+import {
+  configureHatchProviderApiKey,
+  formatProviderName,
+  resolveHatchProvider,
+} from "./provider-secrets.js";
+import { logHatchNextSteps } from "./hatch-next-steps.js";
 
 /**
  * Attempts to place a symlink at the given path pointing to cliBinary.
@@ -125,13 +131,22 @@ function installCLISymlink(): void {
   );
 }
 
+export interface HatchLocalOptions {
+  setupProviderCredentials?: boolean;
+}
+
 export async function hatchLocal(
   species: Species,
   name: string | null,
   watch: boolean = false,
   keepAlive: boolean = false,
   configValues: Record<string, string> = {},
+  options: HatchLocalOptions = {},
 ): Promise<void> {
+  const provider =
+    options.setupProviderCredentials === false
+      ? undefined
+      : resolveHatchProvider(configValues);
   const instanceName = generateInstanceName(
     species,
     name ?? process.env.VELLUM_ASSISTANT_NAME,
@@ -168,7 +183,8 @@ export async function hatchLocal(
   }
 
   emitProgress(2, 6, "Writing configuration...");
-  const defaultWorkspaceConfigPath = writeInitialConfig(configValues);
+  const hatchConfigValues = buildHatchConfigValues(configValues, provider);
+  const defaultWorkspaceConfigPath = writeInitialConfig(hatchConfigValues);
 
   emitProgress(3, 6, "Starting assistant...");
   const signingKey = generateLocalSigningKey();
@@ -198,9 +214,11 @@ export async function hatchLocal(
   emitProgress(5, 6, "Securing connection...");
   const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
   const maxLeaseAttempts = 3;
+  let guardianAccessToken: string | undefined;
   for (let attempt = 1; attempt <= maxLeaseAttempts; attempt++) {
     try {
-      await leaseGuardianToken(loopbackUrl, instanceName);
+      const tokenData = await leaseGuardianToken(loopbackUrl, instanceName);
+      guardianAccessToken = tokenData.accessToken;
       break;
     } catch (err) {
       if (attempt < maxLeaseAttempts) {
@@ -238,6 +256,26 @@ export async function hatchLocal(
     installCLISymlink();
   }
 
+  if (provider !== undefined && provider !== null && !guardianAccessToken) {
+    console.error(
+      `⚠️  Provider credential setup skipped because the guardian token was not leased.\n` +
+        `   The assistant is still hatched. Run \`vellum setup --provider ${provider}\` after fixing the connection.`,
+    );
+  } else if (provider !== undefined) {
+    console.log("");
+    console.log(
+      provider === null
+        ? "Checking provider credentials..."
+        : `Checking ${formatProviderName(provider)} credentials...`,
+    );
+    await configureHatchProviderApiKey({
+      gatewayUrl: loopbackUrl,
+      provider,
+      bearerToken: guardianAccessToken,
+      env: process.env,
+    });
+  }
+
   console.log("");
   console.log(`✅ Local assistant hatched!`);
   console.log("");
@@ -245,6 +283,7 @@ export async function hatchLocal(
   console.log(`  Name: ${instanceName}`);
   console.log(`  Runtime: ${runtimeUrl}`);
   console.log("");
+  logHatchNextSteps(console.log, instanceName);
 
   if (keepAlive) {
     const healthUrl = `http://127.0.0.1:${resources.gatewayPort}/healthz`;

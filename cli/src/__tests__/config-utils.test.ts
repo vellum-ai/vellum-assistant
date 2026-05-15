@@ -1,7 +1,11 @@
 import { readFileSync, rmSync } from "fs";
 import { describe, expect, test } from "bun:test";
 
-import { buildNestedConfig, writeInitialConfig } from "../lib/config-utils.js";
+import {
+  buildHatchConfigValues,
+  buildNestedConfig,
+  writeInitialConfig,
+} from "../lib/config-utils.js";
 
 function readInitialConfig(
   configValues: Record<string, string>,
@@ -30,6 +34,32 @@ describe("config-utils", () => {
         },
       },
     });
+  });
+
+  test("buildHatchConfigValues adds the default hatch provider when no config exists", () => {
+    expect(buildHatchConfigValues({}, "anthropic")).toEqual({
+      "llm.default.provider": "anthropic",
+    });
+  });
+
+  test("buildHatchConfigValues preserves explicit provider config", () => {
+    expect(
+      buildHatchConfigValues(
+        {
+          "llm.default.provider": "openai",
+          "llm.default.model": "gpt-5.4",
+        },
+        "anthropic",
+      ),
+    ).toEqual({
+      "llm.default.provider": "openai",
+      "llm.default.model": "gpt-5.4",
+    });
+  });
+
+  test("buildHatchConfigValues skips internal hatches without provider setup", () => {
+    expect(buildHatchConfigValues({}, undefined)).toEqual({});
+    expect(buildHatchConfigValues({}, null)).toEqual({});
   });
 
   test("writeInitialConfig does not add a mainAgent callSite for Anthropic defaults", () => {

@@ -52,12 +52,28 @@ export interface GatewayApiKeyReadResult {
   unreachable: boolean;
 }
 
+export interface HatchProviderApiKeyOptions {
+  gatewayUrl: string;
+  provider: LlmProviderId | null;
+  bearerToken?: string;
+  env?: NodeJS.ProcessEnv;
+  fetchImpl?: ProviderSecretFetch;
+  log?: (message: string) => void;
+  prompt?: (prompt: string) => Promise<string>;
+  stdinIsTTY?: boolean;
+  input?: NodeJS.ReadStream;
+  output?: NodeJS.WriteStream;
+}
+
 const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   gemini: "Gemini",
   fireworks: "Fireworks",
   openrouter: "OpenRouter",
+  zai: "z.ai",
+  deepseek: "DeepSeek",
+  minimax: "MiniMax",
 };
 
 export function formatProviderName(provider: LlmProviderId): string {
@@ -68,6 +84,87 @@ export function isSupportedLlmProvider(
   provider: string,
 ): provider is LlmProviderId {
   return Object.hasOwn(LLM_PROVIDER_ENV_VAR_NAMES, provider);
+}
+
+export function resolveHatchProvider(
+  configValues: Record<string, string | undefined>,
+): LlmProviderId | null {
+  const provider = (
+    resolveConfiguredMainAgentProvider(configValues) || "anthropic"
+  ).toLowerCase();
+
+  if (provider === "ollama") {
+    return null;
+  }
+
+  if (!isSupportedLlmProvider(provider)) {
+    throw new Error(
+      `Provider '${provider}' does not have a supported API-key setup flow.`,
+    );
+  }
+
+  return provider;
+}
+
+function resolveConfiguredMainAgentProvider(
+  configValues: Record<string, string | undefined>,
+): string | undefined {
+  // Fresh hatches seed the active custom profile from llm.default and then
+  // that active profile wins over static mainAgent call-site defaults. Match
+  // that startup behavior so hatch prompts for the provider the assistant will
+  // actually use on first chat.
+  return (
+    resolveProfileProvider(
+      configValues,
+      readConfigValue(configValues, "llm.activeProfile"),
+    ) ??
+    resolveFragmentProvider(configValues, "llm.default") ??
+    resolveFragmentProvider(configValues, "llm.callSites.mainAgent") ??
+    resolveProfileProvider(
+      configValues,
+      readConfigValue(configValues, "llm.callSites.mainAgent.profile"),
+    )
+  );
+}
+
+function resolveProfileProvider(
+  configValues: Record<string, string | undefined>,
+  profileName: string | undefined,
+): string | undefined {
+  if (!profileName) return undefined;
+  return resolveFragmentProvider(configValues, `llm.profiles.${profileName}`);
+}
+
+function resolveFragmentProvider(
+  configValues: Record<string, string | undefined>,
+  prefix: string,
+): string | undefined {
+  const provider = readConfigValue(configValues, `${prefix}.provider`);
+  if (provider) return provider;
+
+  const model = readConfigValue(configValues, `${prefix}.model`);
+  return model ? inferProviderFromModel(model) : undefined;
+}
+
+function readConfigValue(
+  configValues: Record<string, string | undefined>,
+  key: string,
+): string | undefined {
+  const value = configValues[key]?.trim();
+  return value && value.length > 0 ? value : undefined;
+}
+
+function inferProviderFromModel(model: string): string | undefined {
+  if (model.startsWith("claude-")) return "anthropic";
+  if (model.startsWith("gpt-")) return "openai";
+  if (model.startsWith("gemini-")) return "gemini";
+  if (model.startsWith("accounts/fireworks/models/")) return "fireworks";
+  if (model.includes("/")) return "openrouter";
+  if (model.startsWith("glm-")) return "zai";
+  if (model.startsWith("deepseek-")) return "deepseek";
+  if (model.startsWith("MiniMax-")) return "minimax";
+  if (model === "llama3.2" || model === "mistral") return "ollama";
+  return undefined;
 }
 
 function gatewayUrlWithPath(gatewayUrl: string, path: string): string {
@@ -410,4 +507,64 @@ export async function ensureProviderApiKey(
     provider,
     source,
   };
+}
+
+export async function configureHatchProviderApiKey(
+  options: HatchProviderApiKeyOptions,
+): Promise<void> {
+  const log = options.log ?? console.log;
+  const { provider } = options;
+
+  if (provider === null) {
+    log("Provider credentials not required for the selected provider.");
+    return;
+  }
+
+  try {
+    const result = await ensureProviderApiKey({
+      gatewayUrl: options.gatewayUrl,
+      provider,
+      bearerToken: options.bearerToken,
+      env: options.env,
+      fetchImpl: options.fetchImpl,
+      prompt: options.prompt,
+      stdinIsTTY: options.stdinIsTTY,
+      input: options.input,
+      output: options.output,
+    });
+
+    if (result.status === "already_configured") {
+      log(
+        `Provider credentials already configured for ${formatProviderName(result.provider)}.`,
+      );
+      return;
+    }
+
+    if (result.status === "configured") {
+      if (result.source === "env") {
+        log(
+          `Configured ${formatProviderName(result.provider)} credentials from ${LLM_PROVIDER_ENV_VAR_NAMES[result.provider]}.`,
+        );
+      } else {
+        log(`Configured ${formatProviderName(result.provider)} credentials.`);
+      }
+      return;
+    }
+
+    if (result.status === "skipped") {
+      log(result.message);
+      return;
+    }
+
+    log(
+      `⚠️  Provider credential setup skipped: ${result.message}\n` +
+        `   The assistant is still hatched. Run \`vellum setup --provider ${provider}\` to finish setup.`,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log(
+      `⚠️  Provider credential setup failed: ${message}\n` +
+        `   The assistant is still hatched. Run \`vellum setup --provider ${provider}\` after fixing the issue.`,
+    );
+  }
 }

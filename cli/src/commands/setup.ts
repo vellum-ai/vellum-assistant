@@ -1,5 +1,6 @@
 import { resolveAssistant } from "../lib/assistant-config.js";
 import {
+  leaseGuardianToken,
   loadGuardianToken,
   refreshGuardianToken,
   type GuardianTokenData,
@@ -39,6 +40,50 @@ function isGuardianAccessTokenUsable(
   }
   const expiresAt = new Date(tokenData.accessTokenExpiresAt).getTime();
   return Number.isFinite(expiresAt) && expiresAt > Date.now();
+}
+
+async function resolveSetupBearerToken(
+  entry: NonNullable<ReturnType<typeof resolveAssistant>>,
+  gatewayUrl: string,
+): Promise<string | undefined> {
+  const guardianToken = loadGuardianToken(entry.assistantId);
+  if (isGuardianAccessTokenUsable(guardianToken)) {
+    return guardianToken.accessToken;
+  }
+
+  if (guardianToken) {
+    const refreshedToken = await refreshGuardianToken(
+      gatewayUrl,
+      entry.assistantId,
+    );
+    if (isGuardianAccessTokenUsable(refreshedToken)) {
+      return refreshedToken.accessToken;
+    }
+  }
+
+  const canLeaseGuardianToken =
+    entry.cloud === "local" || entry.cloud === "docker" || entry.localUrl;
+  if (canLeaseGuardianToken) {
+    try {
+      const bootstrapSecret =
+        typeof entry.guardianBootstrapSecret === "string"
+          ? entry.guardianBootstrapSecret
+          : undefined;
+      const leasedToken = await leaseGuardianToken(
+        gatewayUrl,
+        entry.assistantId,
+        bootstrapSecret,
+      );
+      if (isGuardianAccessTokenUsable(leasedToken)) {
+        return leasedToken.accessToken;
+      }
+    } catch {
+      // Fall through to any lockfile bearer token, or let the setup request
+      // surface the gateway's auth error below.
+    }
+  }
+
+  return entry.bearerToken;
 }
 
 export async function setup(): Promise<void> {
@@ -85,18 +130,7 @@ export async function setup(): Promise<void> {
   }
 
   const gatewayUrl = entry.localUrl ?? entry.runtimeUrl;
-  let bearerToken: string | undefined;
-  const guardianToken = loadGuardianToken(entry.assistantId);
-  if (isGuardianAccessTokenUsable(guardianToken)) {
-    bearerToken = guardianToken.accessToken;
-  } else {
-    const refreshedToken = guardianToken
-      ? await refreshGuardianToken(gatewayUrl, entry.assistantId)
-      : null;
-    bearerToken = isGuardianAccessTokenUsable(refreshedToken)
-      ? refreshedToken.accessToken
-      : entry.bearerToken;
-  }
+  const bearerToken = await resolveSetupBearerToken(entry, gatewayUrl);
 
   console.log("Vellum Setup");
   console.log("============\n");

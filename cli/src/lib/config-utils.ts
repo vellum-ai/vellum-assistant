@@ -33,6 +33,24 @@ export function buildNestedConfig(
 }
 
 /**
+ * Ensure hatch always provides enough initial LLM config for the assistant to
+ * detect a fresh off-platform hatch and seed BYOK profiles.
+ */
+export function buildHatchConfigValues(
+  configValues: Record<string, string>,
+  provider: string | null | undefined,
+): Record<string, string> {
+  if (!provider || configValues["llm.default.provider"]) {
+    return configValues;
+  }
+
+  return {
+    ...configValues,
+    "llm.default.provider": provider,
+  };
+}
+
+/**
  * Write arbitrary key-value pairs to a temporary JSON file and return its
  * path. The caller passes this path to the daemon via the
  * VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH env var so the daemon can merge the

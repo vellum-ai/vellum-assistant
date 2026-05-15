@@ -89,6 +89,8 @@ export interface AssistantEntry {
   resources?: LocalInstanceResources;
   /** PID of the file watcher process for docker instances hatched with --watch. */
   watcherPid?: number;
+  /** Local bootstrap secret used to lease guardian tokens for Docker assistants after detached hatch. */
+  guardianBootstrapSecret?: string;
   /** Docker image metadata for rollback. Only present for docker topology entries. */
   containerInfo?: ContainerInfo;
   /** Docker image metadata from before the last upgrade. Enables rollback to the prior version. */

@@ -5,6 +5,7 @@ import {
   dockerResourceNames,
   resolveAvatarDevicePath,
   resolveDockerHatchMode,
+  resolveDockerProviderCredentialSetupAction,
   type ServiceName,
 } from "../docker.js";
 import { buildServiceRunArgs } from "../statefulset.js";
@@ -101,6 +102,51 @@ describe("buildServiceRunArgs — assistant", () => {
     expect(args.some((a) => a.startsWith("GUARDIAN_BOOTSTRAP_SECRET="))).toBe(
       false,
     );
+  });
+});
+
+describe("resolveDockerProviderCredentialSetupAction", () => {
+  test("defers provider setup in detached mode", () => {
+    expect(
+      resolveDockerProviderCredentialSetupAction({
+        provider: "anthropic",
+        detached: true,
+      }),
+    ).toBe("defer");
+  });
+
+  test("reports missing guardian token only when a lease was expected", () => {
+    expect(
+      resolveDockerProviderCredentialSetupAction({
+        provider: "anthropic",
+        detached: false,
+      }),
+    ).toBe("missing-token");
+  });
+
+  test("configures provider setup when a guardian token is available", () => {
+    expect(
+      resolveDockerProviderCredentialSetupAction({
+        provider: "anthropic",
+        guardianAccessToken: "guardian-token",
+        detached: false,
+      }),
+    ).toBe("configure");
+  });
+
+  test("skips provider setup for internal hatches and detached keyless hatches", () => {
+    expect(
+      resolveDockerProviderCredentialSetupAction({
+        provider: undefined,
+        detached: false,
+      }),
+    ).toBe("skip");
+    expect(
+      resolveDockerProviderCredentialSetupAction({
+        provider: null,
+        detached: true,
+      }),
+    ).toBe("skip");
   });
 });
 

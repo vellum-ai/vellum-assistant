@@ -12,15 +12,21 @@ import {
   setActiveAssistant,
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
-import { writeInitialConfig } from "./config-utils";
+import { buildHatchConfigValues, writeInitialConfig } from "./config-utils";
 import { buildServiceRunArgs } from "./statefulset.js";
 import type { Species } from "./constants";
 import { getDefaultPorts } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { leaseGuardianToken } from "./guardian-token";
+import { logHatchNextSteps } from "./hatch-next-steps.js";
 import { isVellumProcess, stopProcess } from "./process";
 import { generateInstanceName } from "./random-name";
 import { resolveImageRefs } from "./platform-releases.js";
+import {
+  configureHatchProviderApiKey,
+  formatProviderName,
+  resolveHatchProvider,
+} from "./provider-secrets.js";
 import { exec, execOutput } from "./step-runner";
 import {
   closeLogFile,
@@ -248,6 +254,28 @@ function ensureLocalBinOnPath(): void {
   if (!currentPath.includes(LOCAL_BIN_DIR)) {
     process.env.PATH = `${LOCAL_BIN_DIR}:${currentPath}`;
   }
+}
+
+export interface HatchDockerOptions {
+  setupProviderCredentials?: boolean;
+}
+
+export type DockerProviderCredentialSetupAction =
+  | "configure"
+  | "defer"
+  | "missing-token"
+  | "skip";
+
+export function resolveDockerProviderCredentialSetupAction(options: {
+  provider: string | null | undefined;
+  guardianAccessToken?: string;
+  detached: boolean;
+}): DockerProviderCredentialSetupAction {
+  if (options.provider === undefined) return "skip";
+  if (options.provider === null) return options.detached ? "skip" : "configure";
+  if (options.detached) return "defer";
+  if (!options.guardianAccessToken) return "missing-token";
+  return "configure";
 }
 
 /**
@@ -928,6 +956,10 @@ export async function hatchDocker(
   options: HatchDockerOptions = {},
 ): Promise<void> {
   resetLogFile("hatch.log");
+  const provider =
+    options.setupProviderCredentials === false
+      ? undefined
+      : resolveHatchProvider(configValues);
 
   let logFd = openLogFile("hatch.log");
   const log = (msg: string): void => {
@@ -1082,7 +1114,8 @@ export async function hatchDocker(
 
     // Write --config key=value pairs to a temp file that gets bind-mounted
     // into the assistant container and read via VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH.
-    const defaultWorkspaceConfigPath = writeInitialConfig(configValues);
+    const hatchConfigValues = buildHatchConfigValues(configValues, provider);
+    const defaultWorkspaceConfigPath = writeInitialConfig(hatchConfigValues);
 
     const cesServiceToken = randomBytes(32).toString("hex");
     const signingKey = randomBytes(32).toString("hex");
@@ -1122,6 +1155,7 @@ export async function hatchDocker(
       cloud: "docker",
       species,
       hatchedAt: new Date().toISOString(),
+      guardianBootstrapSecret: ownSecret,
       containerInfo: {
         assistantImage: imageTags.assistant,
         gatewayImage: imageTags.gateway,
@@ -1137,10 +1171,11 @@ export async function hatchDocker(
     setActiveAssistant(instanceName);
 
     emitProgress(6, 6, "Waiting for services...");
-    const { ready } = await waitForGatewayAndLease({
+    const waitDetached = watch ? false : detached;
+    const { ready, guardianAccessToken } = await waitForGatewayAndLease({
       bootstrapSecret: ownSecret,
       containerName: res.assistantContainer,
-      detached: watch ? false : detached,
+      detached: waitDetached,
       instanceName,
       logFd,
       runtimeUrl,
@@ -1148,6 +1183,43 @@ export async function hatchDocker(
 
     if (!ready && !(watch && repoRoot)) {
       throw new Error("Timed out waiting for assistant to become ready");
+    }
+
+    if (ready) {
+      const providerSetupAction = resolveDockerProviderCredentialSetupAction({
+        provider,
+        guardianAccessToken,
+        detached: waitDetached,
+      });
+
+      if (providerSetupAction === "defer" && provider !== null) {
+        log(
+          `Provider credential setup deferred in detached mode.\n` +
+            `Run \`vellum setup --provider ${provider}\` after the assistant is ready.`,
+        );
+      } else if (providerSetupAction === "missing-token" && provider !== null) {
+        log(
+          `⚠️  Provider credential setup skipped because the guardian token was not leased.\n` +
+            `   The assistant is still hatched. Run \`vellum setup --provider ${provider}\` after fixing the connection.`,
+        );
+      } else if (
+        providerSetupAction === "configure" &&
+        provider !== undefined
+      ) {
+        log(
+          provider === null
+            ? "Checking provider credentials..."
+            : `Checking ${formatProviderName(provider)} credentials...`,
+        );
+        await configureHatchProviderApiKey({
+          gatewayUrl: runtimeUrl,
+          provider,
+          bearerToken: guardianAccessToken,
+          env: process.env,
+          log,
+        });
+      }
+      logHatchNextSteps(log, instanceName);
     }
 
     if (watch && repoRoot) {
@@ -1205,7 +1277,7 @@ async function waitForGatewayAndLease(opts: {
   instanceName: string;
   logFd: number | "ignore";
   runtimeUrl: string;
-}): Promise<{ ready: boolean }> {
+}): Promise<{ ready: boolean; guardianAccessToken?: string }> {
   const {
     bootstrapSecret,
     containerName,
@@ -1284,6 +1356,7 @@ async function waitForGatewayAndLease(opts: {
   const leaseDeadline = start + DOCKER_READY_TIMEOUT_MS;
   let leaseSuccess = false;
   let lastLeaseError: string | undefined;
+  let guardianAccessToken: string | undefined;
 
   while (Date.now() < leaseDeadline) {
     try {
@@ -1296,6 +1369,7 @@ async function waitForGatewayAndLease(opts: {
       log(
         `Guardian token lease: success after ${leaseElapsed}s (principalId=${tokenData.guardianPrincipalId}, expiresAt=${tokenData.accessTokenExpiresAt})`,
       );
+      guardianAccessToken = tokenData.accessToken;
       leaseSuccess = true;
       break;
     } catch (err) {
@@ -1326,5 +1400,5 @@ async function waitForGatewayAndLease(opts: {
   log(`   Name: ${instanceName}`);
   log(`   Runtime: ${runtimeUrl}`);
   log("");
-  return { ready: true };
+  return { ready: true, guardianAccessToken };
 }

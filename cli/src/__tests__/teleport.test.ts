@@ -779,6 +779,7 @@ describe("resolveOrHatchTarget", () => {
       "new-one",
       false,
       {},
+      { setupProviderCredentials: false },
     );
     expect(result).toBe(newEntry);
   });

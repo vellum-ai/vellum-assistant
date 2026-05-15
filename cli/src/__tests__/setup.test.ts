@@ -75,7 +75,10 @@ function writeLockfile(entry: AssistantEntry): void {
 }
 
 function installFetchStub(
-  options: { refreshedToken?: GuardianTokenData } = {},
+  options: {
+    leasedToken?: GuardianTokenData;
+    refreshedToken?: GuardianTokenData;
+  } = {},
 ) {
   fetchCalls = [];
   globalThis.fetch = (async (input, init) => {
@@ -98,6 +101,19 @@ function installFetchStub(
         });
       }
       return new Response(JSON.stringify(options.refreshedToken), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.endsWith("/v1/guardian/init")) {
+      if (!options.leasedToken) {
+        return new Response(JSON.stringify({ error: "not allowed" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify(options.leasedToken), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -206,6 +222,54 @@ describe("setup command", () => {
     });
     expect(consoleLogSpy.mock.calls.flat().join("\n")).toContain(
       "OpenAI API key saved to assistant from the environment.",
+    );
+  });
+
+  test("leases a guardian token for local assistants when no token exists", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    writeLockfile({
+      assistantId: "assistant-123",
+      runtimeUrl: "http://runtime.example",
+      localUrl: "http://127.0.0.1:3000",
+      cloud: "local",
+    });
+    installFetchStub({
+      leasedToken: guardianTokenFixture({
+        accessToken: "leased-guardian-token",
+      }),
+    });
+
+    await setup();
+
+    expect(fetchCalls[0].url).toBe("http://127.0.0.1:3000/v1/guardian/init");
+    expect(fetchCalls[1].url).toBe("http://127.0.0.1:3000/v1/secrets/read");
+    expect(fetchCalls[1].headers.get("Authorization")).toBe(
+      "Bearer leased-guardian-token",
+    );
+  });
+
+  test("uses saved bootstrap secret when leasing a Docker guardian token", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    writeLockfile({
+      assistantId: "assistant-123",
+      runtimeUrl: "http://localhost:7831",
+      cloud: "docker",
+      guardianBootstrapSecret: "test-bootstrap-secret",
+    });
+    installFetchStub({
+      leasedToken: guardianTokenFixture({
+        accessToken: "leased-docker-token",
+      }),
+    });
+
+    await setup();
+
+    expect(fetchCalls[0].url).toBe("http://localhost:7831/v1/guardian/init");
+    expect(fetchCalls[0].headers.get("x-bootstrap-secret")).toBe(
+      "test-bootstrap-secret",
+    );
+    expect(fetchCalls[1].headers.get("Authorization")).toBe(
+      "Bearer leased-docker-token",
     );
   });
 
