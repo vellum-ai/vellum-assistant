@@ -239,6 +239,14 @@ final class MessageListScrollState {
     @ObservationIgnored var isStreamingActive: Bool = false
     @ObservationIgnored var paginationTask: Task<Void, Never>?
     @ObservationIgnored var highlightDismissTask: Task<Void, Never>?
+    /// Receiver for `ContentHeightSourceDiagnosticEvent`s — set by the
+    /// scroll-debug overlay when the user starts a recording session,
+    /// cleared on stop. `MessageListView`'s
+    /// `onContentHeightSourceDiagnostic` callback dispatches through this
+    /// optional so the overlay can capture per-event subview attribution
+    /// to a sidecar file paired with the CSV. `nil` whenever the user
+    /// isn't actively recording.
+    @ObservationIgnored weak var anchorDiagSink: ScrollAnchorDiagSink?
 
     // MARK: - Debug metrics (populated only when scroll-debug-overlay is on)
 

@@ -302,7 +302,13 @@ extension MessageListView {
         let truncated = event.changedSubviews.count > maxEntries
             ? " …+\(event.changedSubviews.count - maxEntries)"
             : ""
-        scrollDiagLog.debug("contentHΔ=\(event.contentHDelta) changed=\(event.changedSubviews.count): \(summary)\(truncated)")
+        // `.info` rather than `.debug` so the entries land in the in-memory
+        // log buffer reachable by `log show --info` and `log stream`.
+        // `.debug` would only be retrievable after `log config --mode
+        // "level:debug" --subsystem ...`, which is too much setup for a
+        // dev-only diagnostic — the sidecar file is the durable path; this
+        // emission exists for live tailing.
+        scrollDiagLog.info("contentHΔ=\(event.contentHDelta) changed=\(event.changedSubviews.count): \(summary)\(truncated)")
     }
 
     // MARK: - Confirmation focus

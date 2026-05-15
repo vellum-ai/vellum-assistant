@@ -145,7 +145,17 @@ extension MessageListView {
 
     private var debugContentHeightDiagnostic: (@MainActor (ContentHeightSourceDiagnosticEvent) -> Void)? {
         guard isScrollDebugOverlayEnabled else { return nil }
-        return { event in MessageListView.logContentHeightSource(event) }
+        // Two paths, both fed by every event so investigators can pick the
+        // capture method that matches their workflow:
+        //   • `scrollState.anchorDiagSink` is set while the HUD's "rec" button
+        //     is active, capturing events to a sidecar file paired with the
+        //     CSV in `~/Downloads/` for offline analysis.
+        //   • `logContentHeightSource` emits to `os.Logger` at `.info` for
+        //     live `log stream` users who'd rather watch it interactively.
+        return { [self] event in
+            scrollState.anchorDiagSink?.record(event)
+            MessageListView.logContentHeightSource(event)
+        }
     }
 
     private func shouldPreserveScrollAnchor() -> Bool {

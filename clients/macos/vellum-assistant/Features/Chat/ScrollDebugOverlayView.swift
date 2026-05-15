@@ -204,11 +204,17 @@ struct ScrollDebugOverlayView: View {
 
     private func toggleRecording() {
         if recorder.isRecording {
+            scrollState.anchorDiagSink = nil
             if let url = recorder.stop() {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         } else {
             recorder.start()
+            // Route diag events into the recorder for the duration of the
+            // recording session. Cleared on stop so the callback can stay
+            // wired on `MessageListView` without leaking events into a
+            // recorder that's no longer collecting.
+            scrollState.anchorDiagSink = recorder
         }
     }
 
@@ -267,14 +273,33 @@ struct ScrollDebugOverlayView: View {
     }
 }
 
+// MARK: - ScrollAnchorDiagSink
+
+/// Receiver for `ContentHeightSourceDiagnosticEvent`s emitted by
+/// `MessageListScrollObserver`'s coordinator. Lets `MessageListView` route
+/// events to whichever sink is interested without taking a direct dependency
+/// on `ScrollDebugRecorder` — the recorder lives on `ScrollDebugOverlayView`
+/// and is reached via `MessageListScrollState.anchorDiagSink`, which is set
+/// when recording starts and cleared on stop.
+@MainActor
+protocol ScrollAnchorDiagSink: AnyObject {
+    func record(_ event: ContentHeightSourceDiagnosticEvent)
+}
+
 // MARK: - ScrollDebugRecorder
 
 /// Captures per-frame snapshots of the scroll metrics displayed in the HUD
 /// and writes them as CSV to `~/Downloads` on stop. Only exists when the
 /// scroll-debug overlay is mounted — all work happens on the main actor.
+///
+/// Also accumulates `ContentHeightSourceDiagnosticEvent`s when wired up as
+/// the `MessageListScrollState.anchorDiagSink`, and writes them to a
+/// sidecar text file paired with the CSV on stop. The sidecar uses the
+/// same `<timestamp>` suffix as the CSV so the two always line up when
+/// shipped to whoever's debugging.
 @Observable
 @MainActor
-final class ScrollDebugRecorder {
+final class ScrollDebugRecorder: ScrollAnchorDiagSink {
     /// Observed so the record button's label/indicator update when recording
     /// toggles. The frame buffer and session start are `@ObservationIgnored` —
     /// appending to them inside the HUD's body would otherwise invalidate
@@ -285,6 +310,26 @@ final class ScrollDebugRecorder {
     /// time, which is computed off the first frame's timestamp.
     @ObservationIgnored var sessionStartTime: Date?
     @ObservationIgnored var frames: [Frame] = []
+    /// `ContentHeightSourceDiagnosticEvent`s collected via `record(_:)`
+    /// while recording. Written to a sidecar text file paired with the CSV
+    /// on `stop()`. Cleared by `clear()` alongside `frames`.
+    @ObservationIgnored var diagEvents: [DiagEvent] = []
+
+    /// Compact in-memory copy of a `ContentHeightSourceDiagnosticEvent` —
+    /// stored separately from the live struct so we can keep the recorder's
+    /// buffer growth bounded (`maxDiagSubviewsPerEvent` truncates the
+    /// per-event subview list at capture time, not write time).
+    struct DiagEvent {
+        let timestamp: Date
+        let contentHDelta: CGFloat
+        let totalChangedCount: Int
+        let subviews: [ContentHeightSourceDiagnosticEvent.ChangedSubview]
+    }
+
+    /// Cap on per-event subview entries kept in memory and written to disk.
+    /// A single layout storm under the 8pt `contentHDelta` threshold can
+    /// emit hundreds of changes; this keeps the diag file size bounded.
+    static let maxDiagSubviewsPerEvent: Int = 32
 
     struct Frame {
         let timestamp: Date
@@ -338,22 +383,46 @@ final class ScrollDebugRecorder {
         frames.append(frame)
     }
 
+    /// `ScrollAnchorDiagSink` conformance. Called by `MessageListView`'s
+    /// `onContentHeightSourceDiagnostic` callback once per small `contentH`
+    /// delta while the overlay flag is on. No-op when not recording so the
+    /// callback can stay wired to `scrollState` for the whole session
+    /// without leaking events into a stopped recorder.
+    func record(_ event: ContentHeightSourceDiagnosticEvent) {
+        guard isRecording else { return }
+        let trimmed = event.changedSubviews.prefix(Self.maxDiagSubviewsPerEvent)
+        diagEvents.append(DiagEvent(
+            timestamp: event.at,
+            contentHDelta: event.contentHDelta,
+            totalChangedCount: event.changedSubviews.count,
+            subviews: Array(trimmed)
+        ))
+    }
+
     /// Stop recording and write the accumulated buffer to
-    /// `~/Downloads/vellum-scroll-debug-<timestamp>.csv`. Frames are kept so
-    /// a subsequent `start()` appends to the same buffer; call `clear()` to
-    /// reset. Returns the written URL, or `nil` if the buffer was empty or
-    /// the write failed.
+    /// `~/Downloads/vellum-scroll-debug-<timestamp>.csv`. If any diagnostic
+    /// events were collected (via `record(_:)`), also write a paired
+    /// `vellum-scroll-anchor-diag-<timestamp>.txt` using the same anchor
+    /// timestamp so the two files line up when shipped. Frames and diag
+    /// events are kept so a subsequent `start()` appends to the same
+    /// buffers; call `clear()` to reset. Returns the CSV URL, or `nil` if
+    /// the frame buffer was empty or the write failed.
     func stop() -> URL? {
         isRecording = false
         sessionStartTime = nil
-        guard !frames.isEmpty else { return nil }
-        return writeCSV(frames: frames)
+        guard let firstFrame = frames.first else { return nil }
+        let csvURL = writeCSV(frames: frames)
+        if !diagEvents.isEmpty {
+            _ = writeDiagFile(events: diagEvents, anchor: firstFrame.timestamp)
+        }
+        return csvURL
     }
 
     /// Discard the buffer. Safe to call while recording — the next captured
     /// frame becomes the new anchor, and the HUD's elapsed readout restarts.
     func clear() {
         frames.removeAll(keepingCapacity: true)
+        diagEvents.removeAll(keepingCapacity: true)
         if isRecording {
             sessionStartTime = Date()
         } else {
@@ -413,6 +482,55 @@ final class ScrollDebugRecorder {
 
         do {
             try csv.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            NSLog("ScrollDebugRecorder: failed to write \(url.path): \(error)")
+            return nil
+        }
+    }
+
+    /// Writes the accumulated diagnostic events to a sidecar text file at
+    /// `~/Downloads/vellum-scroll-anchor-diag-<timestamp>.txt`. `anchor`
+    /// matches the CSV's first-frame timestamp so the two files share the
+    /// same suffix and `elapsedSec` baseline. Each line is a flat record:
+    ///
+    /// ```
+    /// <elapsedSec>,<contentHDelta>,<changedCount>,<typeName@path@minY:prev->curr>|...
+    /// ```
+    ///
+    /// Subview entries are pipe-separated inside a single CSV field so each
+    /// line stays parseable. `changedCount` is the untrimmed total — the
+    /// `subviews` list is capped at `maxDiagSubviewsPerEvent`, so the two
+    /// can differ.
+    private func writeDiagFile(events: [DiagEvent], anchor: Date) -> URL? {
+        var out = "elapsedSec,contentHDelta,changedCount,subviews\n"
+        out.reserveCapacity(events.count * 160)
+        for event in events {
+            let elapsed = event.timestamp.timeIntervalSince(anchor)
+            let subviews = event.subviews.map { s in
+                "\(s.typeName)@\(s.path)@\(Int(s.minY)):\(s.previousHeight)->\(s.currentHeight)"
+            }.joined(separator: "|")
+            out.append(String(format: "%.4f", elapsed))
+            out.append(",")
+            out.append(String(format: "%.2f", event.contentHDelta))
+            out.append(",")
+            out.append(String(event.totalChangedCount))
+            out.append(",")
+            out.append(subviews)
+            out.append("\n")
+        }
+
+        let nameFormatter = DateFormatter()
+        nameFormatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        nameFormatter.locale = Locale(identifier: "en_US_POSIX")
+        let filename = "vellum-scroll-anchor-diag-\(nameFormatter.string(from: anchor)).txt"
+
+        let directory = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let url = directory.appendingPathComponent(filename)
+
+        do {
+            try out.write(to: url, atomically: true, encoding: .utf8)
             return url
         } catch {
             NSLog("ScrollDebugRecorder: failed to write \(url.path): \(error)")
