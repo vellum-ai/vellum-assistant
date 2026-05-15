@@ -18,12 +18,14 @@
  * resource. It is acquired optimistically when `app_control_start` is
  * dispatched (storing `(conversationId, app)`) so that the synchronous
  * guard and the asynchronous host round-trip cannot race. A separate
- * `confirmedAppControlSession` tracks the last successfully-started
- * session; the rollback path on a failed `start` restores from confirmed
- * (not from a sibling optimistic write), so two overlapping starts that
- * both fail cannot leave a phantom lock pointing at a never-confirmed
- * optimistic value. The lock is released outright when the owning
- * proxy's `dispose()` fires.
+ * `confirmedAppControlSession` tracks the last session the host reported
+ * `running`; the rollback path on a failed `start` restores from the
+ * current confirmed pointer (not from a per-call snapshot of a sibling
+ * optimistic write), so two overlapping starts that both fail cannot
+ * leave a phantom lock — and a late-arriving `running` for an older
+ * overlapping start still updates the confirmed pointer so the lock
+ * survives a subsequent rollback of the newer start. The lock is
+ * released outright when the owning proxy's `dispose()` fires.
  *
  * `app_control_start` is the only tool that can acquire the lock — the
  * user's medium-risk approval at start time is the consent boundary. All
@@ -253,7 +255,6 @@ export class HostAppControlProxy extends HostProxyBase<
     // belong to the active session and target the same `app`. Without this
     // gate, prompt-injected calls would bypass the start-time approval and
     // send raw input to arbitrary apps.
-    let priorSession: ActiveAppControlSession | undefined;
     let attemptedSession: ActiveAppControlSession | undefined;
     if (input.tool === "start") {
       if (
@@ -268,9 +269,6 @@ export class HostAppControlProxy extends HostProxyBase<
           isError: true,
         };
       }
-      // Snapshot the last confirmed session — see the module header for
-      // why we use confirmed, not the live optimistic value.
-      priorSession = confirmedAppControlSession;
       // Acquire optimistically to close the TOCTOU window between this
       // synchronous guard and the asynchronous `dispatchRequest` below. Two
       // concurrent starts from different conversations would otherwise both
@@ -307,13 +305,13 @@ export class HostAppControlProxy extends HostProxyBase<
         if (payload.state === "running") {
           this.promoteStartIfCurrent(attemptedSession);
         } else {
-          this.rollbackStartIfCurrent(attemptedSession, priorSession);
+          this.rollbackStartIfCurrent(attemptedSession);
         }
       }
       return this.handleSuccess(payload);
     } catch (err) {
       if (input.tool === "start") {
-        this.rollbackStartIfCurrent(attemptedSession, priorSession);
+        this.rollbackStartIfCurrent(attemptedSession);
       }
       if (err instanceof HostProxyRequestError) {
         if (err.reason === "timeout") {
@@ -341,27 +339,41 @@ export class HostAppControlProxy extends HostProxyBase<
    * already replaced our write — e.g. start A → start B (pending) →
    * start C (success); when B later fails, the live session is C and the
    * identity check makes our rollback a no-op rather than restoring A.
+   *
+   * Restores from the *current* `confirmedAppControlSession`, not a
+   * per-call snapshot of it. This matters when a late-arriving `running`
+   * for an older overlapping start has updated `confirmedAppControlSession`
+   * in the meantime: if A is dispatched, then C is dispatched (overwriting
+   * active), then A returns `running` (confirming A), then C returns
+   * non-running, the rollback must restore active to A — not undefined.
    */
   private rollbackStartIfCurrent(
     attempted: ActiveAppControlSession | undefined,
-    prior: ActiveAppControlSession | undefined,
   ): void {
     if (attempted != null && activeAppControlSession === attempted) {
-      activeAppControlSession = prior;
+      activeAppControlSession = confirmedAppControlSession;
     }
   }
 
   /**
    * Promote this start's optimistic write to the confirmed pointer when
-   * the host returns `running`. Identity-keyed so a late success from an
-   * older overlapping start does not overwrite a newer confirmed session.
+   * the host returns `running`. Gated on conversation ownership rather
+   * than object identity: a newer overlapping start in the same
+   * conversation may have superseded our optimistic write while we were
+   * waiting on the host, but the host's `running` response for our
+   * `attempted` is still ground-truth that the lock should be held.
+   * The conversation-ownership check ensures we don't resurrect a session
+   * after `dispose()` cleared the lock or after another conversation
+   * acquired it.
    */
   private promoteStartIfCurrent(
     attempted: ActiveAppControlSession | undefined,
   ): void {
-    if (attempted != null && activeAppControlSession === attempted) {
-      confirmedAppControlSession = attempted;
+    if (attempted == null) return;
+    if (activeAppControlSession?.conversationId !== attempted.conversationId) {
+      return;
     }
+    confirmedAppControlSession = attempted;
   }
 
   /**
