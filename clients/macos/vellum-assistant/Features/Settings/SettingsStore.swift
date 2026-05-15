@@ -123,6 +123,22 @@ public final class SettingsStore: ObservableObject {
     /// optimistic value that itself never landed on the daemon.
     private var lastConfirmedActiveProfile: String = "balanced"
 
+    /// Monotonic counter incremented on each `setActiveProfile` call.
+    /// Each call captures its generation at entry and uses it to detect
+    /// out-of-order completions when picks race.
+    private var setActiveProfileGenerationCounter: Int = 0
+
+    /// Generations of `setActiveProfile` calls currently awaiting their
+    /// PATCH response. A newer pick in this set means the user has moved
+    /// on; an older completion must not stomp it.
+    private var inFlightSetActiveProfileGens: Set<Int> = []
+
+    /// Generation of the most recent `setActiveProfile` call whose success
+    /// was applied to `activeProfile` / `lastConfirmedActiveProfile`. A
+    /// later out-of-order success with a smaller generation must not
+    /// re-apply over this confirmed value.
+    private var lastConfirmedSetActiveProfileGen: Int = 0
+
     static let availableImageGenModels: [String] = [
         "gemini-3.1-flash-image-preview",
         "gemini-3-pro-image-preview",
@@ -3312,26 +3328,44 @@ public final class SettingsStore: ObservableObject {
     /// `self.activeProfile` synchronously so SwiftUI bindings render the new
     /// value without waiting for the round-trip.
     ///
-    /// Both branches gate post-PATCH state mutation on `self.activeProfile
-    /// == name` — i.e. apply only if the published state still reflects
-    /// this call's pick. Guards against stale async completions when picks
-    /// resolve out of order: e.g. user picks A then B; B succeeds first; A's
-    /// delayed success then arrives and would otherwise stomp the newer
-    /// confirmed value.
+    /// Each call captures a monotonic generation at entry. After the await,
+    /// post-PATCH mutation is gated on whether a *newer* pick is still
+    /// "live" — i.e. either still in flight or already successfully
+    /// confirmed. This distinguishes two race scenarios:
+    ///
+    /// 1. A→B both succeed, A late: B's success advances
+    ///    `lastConfirmedSetActiveProfileGen` past A. A's late success sees
+    ///    that and skips entirely, so it does not stomp B.
+    /// 2. A→B-fails-and-reverts→A late success: B never confirms, so
+    ///    `lastConfirmedSetActiveProfileGen` is unchanged. By the time A's
+    ///    success arrives, B is no longer in flight either. No newer pick
+    ///    is live, so A applies fully — re-syncing `activeProfile` from
+    ///    the post-revert "balanced" back to the daemon-confirmed "A".
     @discardableResult
     func setActiveProfile(_ name: String) async -> Bool {
+        setActiveProfileGenerationCounter += 1
+        let myGen = setActiveProfileGenerationCounter
+        inFlightSetActiveProfileGens.insert(myGen)
         self.activeProfile = name
         let success = await settingsClient.patchConfig([
             "llm": ["activeProfile": name]
         ])
-        if !success {
-            log.error("Failed to patch config for llm.activeProfile")
-        }
-        guard self.activeProfile == name else { return success }
+        inFlightSetActiveProfileGens.remove(myGen)
+
+        let newerPickLive = lastConfirmedSetActiveProfileGen > myGen
+            || inFlightSetActiveProfileGens.contains(where: { $0 > myGen })
+
         if success {
-            lastConfirmedActiveProfile = name
+            if !newerPickLive {
+                lastConfirmedActiveProfile = name
+                self.activeProfile = name
+                lastConfirmedSetActiveProfileGen = myGen
+            }
         } else {
-            self.activeProfile = lastConfirmedActiveProfile
+            log.error("Failed to patch config for llm.activeProfile")
+            if !newerPickLive, self.activeProfile == name {
+                self.activeProfile = lastConfirmedActiveProfile
+            }
         }
         return success
     }
