@@ -16,6 +16,7 @@ export const INTERNAL_ERROR = -32603;
 
 export const TASK_NOT_FOUND = -32001;
 export const TASK_NOT_CANCELABLE = -32002;
+export const PUSH_NOTIFICATION_NOT_SUPPORTED = -32003;
 export const UNSUPPORTED_OPERATION = -32004;
 
 // ── Helpers ─────────────────────────────────────────────────────────
