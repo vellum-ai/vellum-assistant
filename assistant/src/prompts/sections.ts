@@ -93,7 +93,10 @@ function collectSectionIds(workspaceDir: string): string[] {
         if (name.endsWith(".md")) ids.add(name.slice(0, -".md".length));
       }
     } catch (err) {
-      log.warn({ err, workspaceDir }, "Failed to list workspace system prompt dir");
+      log.warn(
+        { err, workspaceDir },
+        "Failed to list workspace system prompt dir",
+      );
     }
   }
   return [...ids].sort();
@@ -102,6 +105,7 @@ function collectSectionIds(workspaceDir: string): string[] {
 interface ResolvedSection {
   enabled: string | boolean | undefined;
   body: string;
+  stripPlaceholders?: string | boolean;
 }
 
 function resolveSection(
@@ -114,13 +118,23 @@ function resolveSection(
     try {
       raw = readFileSync(workspacePath, "utf-8");
     } catch (err) {
-      log.warn({ err, workspacePath }, "Failed to read workspace section override");
+      log.warn(
+        { err, workspacePath },
+        "Failed to read workspace section override",
+      );
       return null;
     }
     const parsed = parseFrontmatterFields(raw);
     const fields = parsed?.fields ?? {};
     const body = parsed?.body ?? raw;
-    return { enabled: fields["enabled"] as string | boolean | undefined, body };
+    return {
+      enabled: fields["enabled"] as string | boolean | undefined,
+      body,
+      stripPlaceholders: fields["stripPlaceholders"] as
+        | string
+        | boolean
+        | undefined,
+    };
   }
   const bundled = BUNDLED_SYSTEM_SECTIONS.find((s) => s.id === id);
   if (!bundled) return null;
@@ -136,16 +150,21 @@ function resolveSection(
       try {
         body = readFileSync(filePath, "utf-8");
       } catch (err) {
-        log.warn(
-          { err, filePath, id },
-          "Failed to read section workspacePath",
-        );
+        log.warn({ err, filePath, id }, "Failed to read section workspacePath");
       }
     }
-    return { enabled: bundled.enabled, body };
+    return {
+      enabled: bundled.enabled,
+      body,
+      stripPlaceholders: bundled.stripPlaceholders,
+    };
   }
 
-  return { enabled: bundled.enabled, body: bundled.body };
+  return {
+    enabled: bundled.enabled,
+    body: bundled.body,
+    stripPlaceholders: bundled.stripPlaceholders,
+  };
 }
 
 function renderSection(
@@ -156,11 +175,38 @@ function renderSection(
   const section = resolveSection(id, workspaceDir);
   if (section === null) return null;
 
-  if (!isEnabled(section.enabled, ctx)) return null;
+  if (!isSectionPredicateEnabled(section.enabled, ctx, "enabled")) return null;
 
-  const stripped = stripCommentLines(section.body).trim();
-  if (stripped.length === 0) return null;
-  return interpolateVariables(stripped, ctx);
+  let body = stripCommentLines(section.body);
+  if (
+    section.stripPlaceholders !== undefined &&
+    isSectionPredicateEnabled(
+      section.stripPlaceholders,
+      ctx,
+      "stripPlaceholders",
+    )
+  ) {
+    body = stripPlaceholderLines(body);
+  }
+  const trimmed = body.trim();
+  if (trimmed.length === 0) return null;
+  return interpolateVariables(trimmed, ctx);
+}
+
+/**
+ * Matches italic-wrapped unfilled-field placeholders, e.g.
+ * `_(not yet chosen)_` / `_(not yet established)_`.  Sections that opt
+ * into `stripPlaceholders: true` drop any line containing one of these
+ * markers after the standard comment-line strip.
+ */
+const PLACEHOLDER_LINE_REGEX = /_\(not yet (?:chosen|established)\)_/;
+
+function stripPlaceholderLines(content: string): string {
+  return content
+    .split("\n")
+    .filter((line) => !PLACEHOLDER_LINE_REGEX.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
 }
 
 const IDENT_REGEX = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -190,10 +236,7 @@ const IDENT_REGEX = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
  * typo on a `{{key}}` substitution surfaces at the warn log rather than
  * inlining the string `"undefined"`).
  */
-function interpolateVariables(
-  body: string,
-  ctx: SectionRenderContext,
-): string {
+function interpolateVariables(body: string, ctx: SectionRenderContext): string {
   // Collapse standalone tag lines so multiline section templates render
   // without phantom blank lines from the layout markers.
   const collapsed = body.replace(STANDALONE_TAG_LINE, "$1");
@@ -253,25 +296,30 @@ const SECTION = new RegExp(
 const VARIABLE = new RegExp(`\\{\\{(${IDENT_PATTERN})\\}\\}`, "g");
 
 /**
- * Evaluate an `enabled:` predicate.  Supported shapes:
+ * Evaluate a section frontmatter / registry predicate field such as
+ * `enabled:` or `stripPlaceholders:`. Supported shapes:
  *
- *   - omitted / undefined  → always enabled
+ *   - omitted / undefined  → enabled
  *   - boolean              → use as-is
- *   - `<key>`              → render when `ctx[key]` is truthy
- *   - `!<key>`             → render when `ctx[key]` is falsy
+ *   - `<key>`              → true when `ctx[key]` is truthy
+ *   - `!<key>`             → true when `ctx[key]` is falsy
  *
  * Predicate forms are intentionally limited to a single identifier (with
- * optional leading `!`).  Anything more elaborate is rejected so the
- * predicate stays declarative — if a section needs richer logic, route a
- * pre-computed boolean through the context map and reference that.
+ * optional leading `!`). Anything more elaborate is rejected so predicates
+ * stay declarative — if a section needs richer logic, route a pre-computed
+ * boolean through the context map and reference that.
  */
-function isEnabled(value: unknown, ctx: SectionRenderContext): boolean {
+function isSectionPredicateEnabled(
+  value: unknown,
+  ctx: SectionRenderContext,
+  fieldName: string,
+): boolean {
   if (value === undefined) return true;
   if (typeof value === "boolean") return value;
   if (typeof value !== "string") {
     log.warn(
       { value },
-      "Unsupported `enabled` type in section frontmatter; treating as disabled",
+      `Unsupported \`${fieldName}\` type in section frontmatter; treating as disabled`,
     );
     return false;
   }
@@ -288,7 +336,7 @@ function isEnabled(value: unknown, ctx: SectionRenderContext): boolean {
   if (!IDENT_REGEX.test(trimmed)) {
     log.warn(
       { value },
-      "Unsupported `enabled` expression in section frontmatter; treating as disabled",
+      `Unsupported \`${fieldName}\` expression in section frontmatter; treating as disabled`,
     );
     return false;
   }

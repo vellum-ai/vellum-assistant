@@ -212,9 +212,11 @@ export function ensurePromptFiles(): void {
  * Build the system prompt from ~/.vellum prompt files.
  *
  * Composition:
- *   1. Base prompt: IDENTITY.md + SOUL.md (guaranteed to exist after ensurePromptFiles)
+ *   1. Static workspace-backed bundled sections, including SOUL.md (`09-soul`)
+ *      then IDENTITY.md (`10-identity`) when present.
  *   2. Append the resolved user persona from users/<slug>.md (via options.userPersona)
- *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
+ *      and channel persona into the dynamic suffix.
+ *   3. If BOOTSTRAP.md exists, append first-run ritual instructions.
  */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
@@ -243,29 +245,11 @@ export interface BuildSystemPromptOptions {
  * files change between turns.
  */
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
-  // Section render context.  Workspace section frontmatter `enabled:`
-  // predicates and `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation
-  // both resolve against this map, so anything the renderer needs to see
-  // (runtime gates, paths) must be lifted onto `ctx` rather than branched
-  // on at the call site.  Mustache section tags `{{#flag}}` / `{{^flag}}`
-  // coerce `ctx[flag]` to boolean via `Boolean(...)`, so options that are
-  // undefined (caller didn't pass them) behave identically to false — no
-  // explicit normalization needed; `...options` is enough.
-  const ctx = {
-    ...options,
-    isContainerized: getIsContainerized(),
-    workspaceDir: getWorkspaceDir(),
-  };
-
-  // Single array.  Everything pushed before `dynamicStart` lands in the
-  // static (cached) prefix; everything after lands in the dynamic suffix.
-  // The two halves are joined around `SYSTEM_PROMPT_CACHE_BOUNDARY` so the
-  // Anthropic provider can key its prompt cache on the prefix.
-  const systemParts: string[] = [...renderWorkspaceSections(ctx)];
-  const dynamicStart = systemParts.length;
-
-  // SOUL.md is rendered by the `09-soul` workspace-backed section
-  // (see templates/system-sections.ts) — no inline read needed here.
+  // SOUL.md and IDENTITY.md both render via workspace-backed BundledSection
+  // entries (`09-soul`, `10-identity`) — no inline reads of their content
+  // are needed here.  The template-skip and placeholder-stripping behavior
+  // for IDENTITY.md are decided up front and passed to the section pipeline
+  // via ctx; the bundled section reads + renders the file body itself.
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
   const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
 
@@ -280,26 +264,43 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // narrate its own setup process instead of following the BOOTSTRAP.md
   // ritual.  Detect unmodified templates by comparing against the bundled
   // source and skip them — SOUL.md provides sufficient personality defaults
-  // until onboarding completes.
+  // until onboarding completes.  During bootstrap the model needs to see
+  // the template structure so it can produce a valid file_write with the
+  // right fields, so the gate flips back on whenever BOOTSTRAP.md is
+  // present.
   const identityIsTemplate = isTemplateContent(identity, "IDENTITY.md");
+  const shouldRenderIdentity =
+    !!identity && (!identityIsTemplate || includeBootstrap);
+  // Non-template identity files should not leak unfilled placeholder lines
+  // (e.g. `Name: _(not yet chosen)_`) into the prompt.  But when the
+  // unmodified IDENTITY.md template is rendered during first-run bootstrap,
+  // those exact placeholder fields are the structure the model needs in
+  // order to write the filled file, so stripping must stay off there.
+  const stripIdentityPlaceholders = !identityIsTemplate;
 
-  if (identity && (!identityIsTemplate || includeBootstrap)) {
-    if (identityIsTemplate) {
-      // During bootstrap the model needs to see the template structure
-      // so it can produce a valid file_write with the right fields.
-      systemParts.push(identity);
-    } else {
-      // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
-      // the model doesn't treat unresolved fields as prompts to ask the user.
-      const cleanedIdentity = identity
-        .split("\n")
-        .filter((line) => !/_\(not yet (?:chosen|established)\)_/.test(line))
-        .join("\n");
-      if (cleanedIdentity.trim()) {
-        systemParts.push(cleanedIdentity);
-      }
-    }
-  }
+  // Section render context.  Workspace section frontmatter `enabled:`
+  // predicates and `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation
+  // both resolve against this map, so anything the renderer needs to see
+  // (runtime gates, paths) must be lifted onto `ctx` rather than branched
+  // on at the call site.  Mustache section tags `{{#flag}}` / `{{^flag}}`
+  // coerce `ctx[flag]` to boolean via `Boolean(...)`, so options that are
+  // undefined (caller didn't pass them) behave identically to false — no
+  // explicit normalization needed; `...options` is enough.
+  const ctx = {
+    ...options,
+    isContainerized: getIsContainerized(),
+    workspaceDir: getWorkspaceDir(),
+    shouldRenderIdentity,
+    stripIdentityPlaceholders,
+  };
+
+  // Single array.  Everything pushed before `dynamicStart` lands in the
+  // static (cached) prefix; everything after lands in the dynamic suffix.
+  // The two halves are joined around `SYSTEM_PROMPT_CACHE_BOUNDARY` so the
+  // Anthropic provider can key its prompt cache on the prefix.
+  const systemParts: string[] = [...renderWorkspaceSections(ctx)];
+  const dynamicStart = systemParts.length;
+
   if (options?.userPersona) systemParts.push(options.userPersona);
   if (options?.channelPersona) systemParts.push(options.channelPersona);
   if (includeBootstrap) {

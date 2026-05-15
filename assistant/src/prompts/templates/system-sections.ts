@@ -60,6 +60,22 @@ export interface BundledSection {
    * wins when present.
    */
   workspacePath?: string;
+  /**
+   * When `true`, the renderer strips lines containing italic-wrapped
+   * unfilled-field placeholders (`_(not yet chosen)_` /
+   * `_(not yet established)_`) after the standard comment-line strip.
+   *
+   * Intended for workspace files like `IDENTITY.md` whose template ships
+   * with placeholder values the user is expected to fill in.  Stripping
+   * the unfilled lines prevents the model from treating "Name: _(not yet
+   * chosen)_" as a prompt to ask the user, while letting any fields the
+   * user *has* filled in flow through normally.
+   *
+   * Accepts the same boolean / context-key predicate shape as `enabled`, so
+   * sections may strip only in specific render contexts. Workspace overrides
+   * may opt in via frontmatter `stripPlaceholders: true`.
+   */
+  stripPlaceholders?: string | boolean;
 }
 
 export const BUNDLED_SYSTEM_SECTIONS: readonly BundledSection[] = [
@@ -169,5 +185,22 @@ You are running as a non-interactive background job — the user is not watching
     id: "09-soul",
     body: "",
     workspacePath: "SOUL.md",
+  },
+  {
+    // The assistant's identity — name, emoji, role, personality fields
+    // the user fills in.  Body is read at render time from
+    // `<workspaceDir>/IDENTITY.md`.  Gated by `shouldRenderIdentity`
+    // computed in `buildSystemPrompt`, which suppresses the section when
+    // the workspace file is still the unmodified bundled template
+    // (unless BOOTSTRAP.md is also present — during first-run the model
+    // needs to see the template structure to file_write the filled-in
+    // version).  `stripPlaceholders` is gated by `stripIdentityPlaceholders`
+    // so normal prompts remove unfilled placeholders, while first-run
+    // bootstrap keeps the template fields visible for file_write.
+    id: "10-identity",
+    body: "",
+    workspacePath: "IDENTITY.md",
+    enabled: "shouldRenderIdentity",
+    stripPlaceholders: "stripIdentityPlaceholders",
   },
 ];
