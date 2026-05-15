@@ -34,8 +34,6 @@ const STATUS_GLYPHS: Record<EvalProgressEvent["status"], string> = {
 export interface ConsoleReporterOptions {
   /** Stream to write to. Defaults to `process.stderr` so stdout stays clean for JSON piping. */
   stream?: { write(chunk: string): unknown };
-  /** Clock for timestamps. Defaults to `Date.now`. Injected for tests. */
-  now?: () => number;
 }
 
 /**

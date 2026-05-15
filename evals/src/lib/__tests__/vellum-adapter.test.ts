@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import { describe, expect, test } from "bun:test";
 
 import { VellumAgent } from "../adapters/vellum";
@@ -7,6 +9,11 @@ import type {
   CommandRunner,
   SpawnedProcess,
 } from "../runtime/command-runner";
+
+// Adapter computes the repo root the same way: four `..`s up from its own
+// file. `__tests__/` sits at the same depth as `adapters/` so the same
+// expression yields the same path here.
+const ADAPTER_REPO_ROOT = resolve(import.meta.dir, "..", "..", "..", "..");
 
 function lines(values: string[]): AsyncIterable<string> {
   return (async function* () {
@@ -80,7 +87,8 @@ describe("VellumAgent", () => {
         "vellum",
         "--remote",
         "docker",
-        "--build-from-source",
+        "--source",
+        ADAPTER_REPO_ROOT,
         "--name",
         "eval-run-1",
       ],
@@ -233,7 +241,8 @@ describe("VellumAgent", () => {
         "vellum",
         "--remote",
         "docker",
-        "--build-from-source",
+        "--source",
+        ADAPTER_REPO_ROOT,
         "--name",
         "preexisting",
       ],
