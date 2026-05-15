@@ -35,9 +35,9 @@ const MEMORY_V2_STATIC_BLOCKS: readonly MemoryV2StaticBlock[] = [
 ];
 
 /**
- * Build the v2 static memory block, gated on `config.memory.v2.enabled`.
- * Empty/missing files are skipped; returns `null` when the gate is off or
- * every file is empty.
+ * Build the v2 static memory block, gated on `config.memory.enabled` and
+ * `config.memory.v2.enabled`. Empty/missing files are skipped; returns `null`
+ * when either gate is off or every file is empty.
  */
 export function readMemoryV2StaticContent(): string | null {
   let config;
@@ -46,7 +46,7 @@ export function readMemoryV2StaticContent(): string | null {
   } catch {
     return null;
   }
-  if (!config.memory.v2.enabled) {
+  if (!config.memory.enabled || !config.memory.v2.enabled) {
     return null;
   }
 

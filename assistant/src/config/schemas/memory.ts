@@ -23,7 +23,9 @@ export const MemoryConfigSchema = z
     enabled: z
       .boolean({ error: "memory.enabled must be a boolean" })
       .default(true)
-      .describe("Whether the long-term memory system is enabled"),
+      .describe(
+        "Whether the long-term memory system is enabled — gates background memory jobs, embedding generation, and `<memory>` block injection into user messages",
+      ),
     embeddings: MemoryEmbeddingsConfigSchema.default(
       MemoryEmbeddingsConfigSchema.parse({}),
     ),
