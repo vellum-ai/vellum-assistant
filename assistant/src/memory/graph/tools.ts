@@ -20,7 +20,7 @@ const RECALL_DEPTHS = ["fast", "standard", "deep"] as const;
 export const graphRecallDefinition: ToolDefinition = {
   name: "recall",
   description:
-    'Search local information the moment you feel uncertain. Use recall for memory, past conversations, and workspace files — before you guess, before you ask, before you hedge. Auto-injection is incomplete by design; it surfaces patterns, not the specifics you need to answer well. If you catch yourself reaching for "I think", "I believe", "if I remember", "didn\'t we", "last time" — that\'s the signal. Recall. If the user references someone, a place, a decision, a document, or prior work you should be able to find locally — recall. Call it multiple times per conversation if the turn warrants it. Be specific in your query for best results.',
+    'Search local information the moment you feel uncertain. Use recall for memory, past conversations, and workspace files — before you guess, before you ask, before you hedge. Auto-injection is incomplete by design; it surfaces patterns, not the specifics you need to answer well. If you catch yourself reaching for "I think", "I believe", "if I remember", "didn\'t we", "last time" — that\'s the signal. Recall. If a turn references someone, a place, a decision, a document, or prior work you should be able to find locally — recall. Call it multiple times per conversation if the turn warrants it. Be specific in your query for best results.',
   input_schema: {
     type: "object",
     properties: {
@@ -72,7 +72,7 @@ const REMEMBER_DESCRIPTION_DEFAULT =
  * something feels worth marking, not because the volume is required.
  */
 const REMEMBER_DESCRIPTION_RELAXED =
-  "Remember anything concrete the user shared: corrections, plans, decisions, felt moments, names, dates, commitments, preferences. Corrections are the highest priority — call `remember` the same turn the correction lands. You don't have to call this on every turn; a retrospective pass reviews the conversation after each message-count / time interval and saves what you didn't capture. Use judgment: pause and remember when something feels worth marking, not because the volume is required.";
+  "Remember anything concrete shared in conversation: corrections, plans, decisions, felt moments, names, dates, commitments, preferences. Corrections are the highest priority — call `remember` the same turn the correction lands. You don't have to call this on every turn; a retrospective pass reviews the conversation after each message-count / time interval and saves what you didn't capture. Use judgment: pause and remember when something feels worth marking, not because the volume is required.";
 
 /**
  * Return the description that should appear in the `remember` tool
@@ -115,7 +115,7 @@ export const graphRememberDefinition: ToolDefinition = {
       finish_turn: {
         type: "boolean",
         description:
-          "When you have nothing else to say and want to hand control back to the user you MUST set this to true. When true, your turn ends after this tool call. It's critical that you do this in order to avoid unnecessary LLM calls.",
+          "When you have nothing else to say and want to yield the turn you MUST set this to true. When true, your turn ends after this tool call. It's critical that you do this in order to avoid unnecessary LLM calls.",
       },
     },
     required: ["content"],
