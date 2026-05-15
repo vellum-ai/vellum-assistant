@@ -17,7 +17,10 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
-import { listConversationsBySource } from "../../memory/conversation-queries.js";
+import {
+  getMessageRoleStatsByConversation,
+  listConversationsBySource,
+} from "../../memory/conversation-queries.js";
 import {
   enqueueMemoryJob,
   hasActiveJobOfType,
@@ -126,13 +129,18 @@ export const ROUTES: RouteDefinition[] = [
       "the run. Synthetic fields: `id` mirrors `conversationId` (no separate " +
       "run row exists), `scheduledFor` and `startedAt` both equal " +
       "`conversation.createdAt` (no separate schedule timestamp), " +
-      "`finishedAt` equals `conversation.lastMessageAt`, `status` is `'ok'` " +
-      "when `lastMessageAt` is set (agent emitted at least one message) " +
-      "otherwise `'running'`. `skipReason` and `error` are always null — " +
-      "skipped runs (lock held, disabled, empty buffer) never create a " +
-      "conversation, and run failure detail is not stored on the " +
-      "conversation row. Shape mirrors `heartbeat/runs` so the schedules " +
-      "settings UI can reuse its run-row component.",
+      "`finishedAt` is the `createdAt` of the latest assistant message in " +
+      "the conversation (NOT `conversation.lastMessageAt`, which the kickoff " +
+      "user prompt bumps before the agent runs). `status` is `'ok'` when " +
+      "the conversation has at least one assistant message — i.e. positive " +
+      "evidence the agent emitted output — otherwise `'running'`. This is a " +
+      "weaker signal than heartbeat's `'ok'`: without a dedicated runs " +
+      "table we cannot distinguish 'ran cleanly' from 'crashed after " +
+      "emitting at least one assistant message'. `skipReason` and `error` " +
+      "are always null — skipped runs (lock held, disabled, empty buffer) " +
+      "never create a conversation, and run failure detail is not stored " +
+      "on the conversation row. Shape mirrors `heartbeat/runs` so the " +
+      "schedules settings UI can reuse its run-row component.",
     tags: ["consolidation"],
     queryParams: [
       {
@@ -169,22 +177,37 @@ export const ROUTES: RouteDefinition[] = [
         MEMORY_V2_CONSOLIDATION_SOURCE,
         limit,
       );
+      // Aggregate assistant-message stats in one batched query: presence of
+      // an assistant message is the strongest "agent emitted output" signal
+      // available without a dedicated consolidation runs table. The kickoff
+      // user prompt is persisted via `addMessage` before the agent run,
+      // which bumps `conversations.lastMessageAt` — so that field cannot
+      // be used to infer completion.
+      const assistantStats = getMessageRoleStatsByConversation(
+        rows.map((r) => r.id),
+        "assistant",
+      );
       return {
-        runs: rows.map((c) => ({
-          id: c.id,
-          scheduledFor: c.createdAt,
-          startedAt: c.createdAt,
-          finishedAt: c.lastMessageAt,
-          durationMs:
-            c.lastMessageAt != null ? c.lastMessageAt - c.createdAt : null,
-          status: (c.lastMessageAt != null ? "ok" : "running") as
-            | "ok"
-            | "running",
-          skipReason: null,
-          error: null,
-          conversationId: c.id,
-          createdAt: c.createdAt,
-        })),
+        runs: rows.map((c) => {
+          const stat = assistantStats.get(c.id);
+          const hasAssistantOutput = (stat?.count ?? 0) > 0;
+          const finishedAt = hasAssistantOutput ? stat!.lastAt : null;
+          return {
+            id: c.id,
+            scheduledFor: c.createdAt,
+            startedAt: c.createdAt,
+            finishedAt,
+            durationMs:
+              finishedAt != null ? finishedAt - c.createdAt : null,
+            status: (hasAssistantOutput ? "ok" : "running") as
+              | "ok"
+              | "running",
+            skipReason: null,
+            error: null,
+            conversationId: c.id,
+            createdAt: c.createdAt,
+          };
+        }),
       };
     },
   },

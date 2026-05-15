@@ -14,6 +14,7 @@ import {
   buildExcerpt,
   buildRecallEvidenceExcerpt,
   countConversations,
+  getMessageRoleStatsByConversation,
   listConversations,
   listConversationsBySource,
 } from "../conversation-queries.js";
@@ -372,5 +373,111 @@ describe("listConversationsBySource", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]!.title).toBe("sub-1");
+  });
+});
+
+describe("getMessageRoleStatsByConversation", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  function insertMessage(
+    conversationId: string,
+    role: string,
+    createdAt: number,
+  ): void {
+    rawRun(
+      "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
+      `msg-${conversationId}-${role}-${createdAt}`,
+      conversationId,
+      role,
+      "x",
+      createdAt,
+    );
+  }
+
+  test("returns empty map for empty input", () => {
+    const result = getMessageRoleStatsByConversation([]);
+    expect(result.size).toBe(0);
+  });
+
+  test("returns empty map when conversations exist but no matching role", () => {
+    const a = createConversation("a");
+    insertMessage(a.id, "user", 1000);
+
+    const result = getMessageRoleStatsByConversation([a.id], "assistant");
+
+    expect(result.size).toBe(0);
+  });
+
+  test("counts assistant messages and returns max createdAt", () => {
+    const a = createConversation("a");
+    insertMessage(a.id, "user", 1000);
+    insertMessage(a.id, "assistant", 1500);
+    insertMessage(a.id, "assistant", 2500);
+    insertMessage(a.id, "assistant", 2000);
+
+    const result = getMessageRoleStatsByConversation([a.id], "assistant");
+
+    expect(result.size).toBe(1);
+    expect(result.get(a.id)).toEqual({ count: 3, lastAt: 2500 });
+  });
+
+  test("does not count messages from other roles", () => {
+    const a = createConversation("a");
+    insertMessage(a.id, "user", 1000);
+    insertMessage(a.id, "user", 2000);
+    insertMessage(a.id, "system", 1500);
+    insertMessage(a.id, "assistant", 3000);
+
+    const result = getMessageRoleStatsByConversation([a.id], "assistant");
+
+    expect(result.get(a.id)).toEqual({ count: 1, lastAt: 3000 });
+  });
+
+  test("scopes to the supplied conversation ids", () => {
+    const a = createConversation("a");
+    const b = createConversation("b");
+    insertMessage(a.id, "assistant", 1000);
+    insertMessage(b.id, "assistant", 2000);
+
+    const result = getMessageRoleStatsByConversation([a.id], "assistant");
+
+    expect(result.size).toBe(1);
+    expect(result.has(a.id)).toBe(true);
+    expect(result.has(b.id)).toBe(false);
+  });
+
+  test("aggregates per-conversation across many ids in a single query", () => {
+    const a = createConversation("a");
+    const b = createConversation("b");
+    const c = createConversation("c");
+    insertMessage(a.id, "assistant", 1000);
+    insertMessage(a.id, "assistant", 1500);
+    insertMessage(b.id, "assistant", 2000);
+    // c has no assistant messages → absent from the result.
+
+    const result = getMessageRoleStatsByConversation(
+      [a.id, b.id, c.id],
+      "assistant",
+    );
+
+    expect(result.size).toBe(2);
+    expect(result.get(a.id)).toEqual({ count: 2, lastAt: 1500 });
+    expect(result.get(b.id)).toEqual({ count: 1, lastAt: 2000 });
+    expect(result.has(c.id)).toBe(false);
+  });
+
+  test("role parameter selects the counted role (defaults to assistant)", () => {
+    const a = createConversation("a");
+    insertMessage(a.id, "user", 1000);
+    insertMessage(a.id, "user", 2000);
+    insertMessage(a.id, "assistant", 1500);
+
+    const assistants = getMessageRoleStatsByConversation([a.id]);
+    expect(assistants.get(a.id)).toEqual({ count: 1, lastAt: 1500 });
+
+    const users = getMessageRoleStatsByConversation([a.id], "user");
+    expect(users.get(a.id)).toEqual({ count: 2, lastAt: 2000 });
   });
 });

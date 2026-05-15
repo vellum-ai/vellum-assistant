@@ -1,4 +1,4 @@
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import {
   parseExternalContentEnvelope,
@@ -116,8 +116,8 @@ export function listConversationsBySource(
   const db = getDb();
   const includeArchived = opts?.includeArchived ?? true;
   const where = includeArchived
-    ? sql`${conversations.source} = ${source}`
-    : sql`${conversations.source} = ${source} AND ${conversations.archivedAt} IS NULL`;
+    ? eq(conversations.source, source)
+    : and(eq(conversations.source, source), isNull(conversations.archivedAt));
   const rows = db
     .select()
     .from(conversations)
@@ -126,6 +126,50 @@ export function listConversationsBySource(
     .limit(limit)
     .all();
   return rows.map(parseConversation);
+}
+
+/**
+ * Per-conversation aggregate of messages with a specific role. Powers
+ * heartbeat-shaped run endpoints (e.g. `consolidation/runs`) that need a
+ * "did the agent emit any output?" signal stronger than
+ * `conversations.lastMessageAt` — which is bumped by the kickoff user
+ * prompt and so cannot distinguish "agent ran" from "agent dispatched but
+ * crashed before responding".
+ *
+ * Single batched aggregate query (no N+1). Conversations with zero matching
+ * messages are NOT present in the returned map — callers should treat a
+ * missing key as `{ count: 0, lastAt: null }`.
+ *
+ * @param conversationIds  Conversation ids to look up (empty → empty map).
+ * @param role             Message role to count (default `"assistant"`).
+ */
+export function getMessageRoleStatsByConversation(
+  conversationIds: string[],
+  role: string = "assistant",
+): Map<string, { count: number; lastAt: number }> {
+  if (conversationIds.length === 0) return new Map();
+  const db = getDb();
+  const rows = db
+    .select({
+      conversationId: messages.conversationId,
+      count: sql<number>`COUNT(*)`.as("count"),
+      lastAt: sql<number>`MAX(${messages.createdAt})`.as("last_at"),
+    })
+    .from(messages)
+    .where(
+      and(
+        inArray(messages.conversationId, conversationIds),
+        eq(messages.role, role),
+      ),
+    )
+    .groupBy(messages.conversationId)
+    .all();
+  return new Map(
+    rows.map((r) => [
+      r.conversationId,
+      { count: Number(r.count), lastAt: Number(r.lastAt) },
+    ]),
+  );
 }
 
 export function listPinnedConversations(): ConversationRow[] {

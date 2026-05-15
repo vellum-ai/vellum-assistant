@@ -3622,11 +3622,14 @@ paths:
         "Return recent memory v2 consolidation conversations as run records. Each consolidation dispatch creates
         exactly one background conversation tagged with `source = memory_v2_consolidation`; that conversation IS the
         run. Synthetic fields: `id` mirrors `conversationId` (no separate run row exists), `scheduledFor` and
-        `startedAt` both equal `conversation.createdAt` (no separate schedule timestamp), `finishedAt` equals
-        `conversation.lastMessageAt`, `status` is `'ok'` when `lastMessageAt` is set (agent emitted at least one
-        message) otherwise `'running'`. `skipReason` and `error` are always null — skipped runs (lock held, disabled,
-        empty buffer) never create a conversation, and run failure detail is not stored on the conversation row. Shape
-        mirrors `heartbeat/runs` so the schedules settings UI can reuse its run-row component."
+        `startedAt` both equal `conversation.createdAt` (no separate schedule timestamp), `finishedAt` is the
+        `createdAt` of the latest assistant message in the conversation (NOT `conversation.lastMessageAt`, which the
+        kickoff user prompt bumps before the agent runs). `status` is `'ok'` when the conversation has at least one
+        assistant message — i.e. positive evidence the agent emitted output — otherwise `'running'`. This is a weaker
+        signal than heartbeat's `'ok'`: without a dedicated runs table we cannot distinguish 'ran cleanly' from 'crashed
+        after emitting at least one assistant message'. `skipReason` and `error` are always null — skipped runs (lock
+        held, disabled, empty buffer) never create a conversation, and run failure detail is not stored on the
+        conversation row. Shape mirrors `heartbeat/runs` so the schedules settings UI can reuse its run-row component."
       tags:
         - consolidation
       responses:
