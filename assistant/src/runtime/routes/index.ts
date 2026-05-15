@@ -72,6 +72,7 @@ import { ROUTES as IMAGE_GENERATION_ROUTES } from "./image-generation-routes.js"
 import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "./inference-profile-session-routes.js";
 import { ROUTES as INFERENCE_PROVIDER_CONNECTION_ROUTES } from "./inference-provider-connection-routes.js";
 import { ROUTES as INFERENCE_SEND_ROUTES } from "./inference-send-routes.js";
+import { ROUTES as A2A_ROUTES } from "./integrations/a2a.js";
 import { ROUTES as SLACK_CHANNEL_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
 import { ROUTES as TELEGRAM_ROUTES } from "./integrations/telegram.js";
@@ -223,6 +224,7 @@ export const ROUTES: RouteDefinition[] = [
   ...SECRET_ROUTES,
   ...SETTINGS_ROUTES,
   ...SKILL_ROUTES,
+  ...A2A_ROUTES,
   ...SLACK_CHANNEL_ROUTES,
   ...SLACK_SHARE_ROUTES,
   ...STT_ROUTES,
