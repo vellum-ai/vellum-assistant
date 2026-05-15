@@ -79,9 +79,7 @@ public struct VTab: View {
                 .opacity(isSelected ? 1 : 0)
         )
         .animation(VAnimation.fast, value: isHovered)
-        .pointerCursor(onHover: { hovering in
-            if isHovered != hovering { isHovered = hovering }
-        })
+        .pointerCursor(onHover: { isHovered = $0 })
     }
 }
 

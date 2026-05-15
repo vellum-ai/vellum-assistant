@@ -71,9 +71,7 @@ struct EmojiPickerRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .pointerCursor(onHover: { hovering in
-            if isHovered != hovering { isHovered = hovering }
-        })
+        .pointerCursor(onHover: { isHovered = $0 })
     }
 }
 #endif

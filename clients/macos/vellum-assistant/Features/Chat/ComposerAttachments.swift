@@ -115,9 +115,7 @@ private struct AttachmentRemoveButton: View {
                 .foregroundStyle(isHovered ? VColor.contentDefault : VColor.contentTertiary)
         }
         .buttonStyle(.plain)
-        .pointerCursor(onHover: { hovering in
-            if isHovered != hovering { isHovered = hovering }
-        })
+        .pointerCursor(onHover: { isHovered = $0 })
     }
 }
 

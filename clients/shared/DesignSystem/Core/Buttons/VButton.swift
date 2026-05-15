@@ -98,10 +98,7 @@ public struct VButton: View {
             tintColor: tintColor,
             buttonShape: buttonShape
         ))
-        .pointerCursor(onHover: { hovering in
-            let newValue = effectivelyDisabled ? false : hovering
-            if isHovered != newValue { isHovered = newValue }
-        })
+        .pointerCursor(onHover: { isHovered = effectivelyDisabled ? false : $0 })
         .disabled(isDisabled)
         .accessibilityLabel(label)
         .accessibilityHint(effectivelyDisabled ? "Button is currently disabled" : "")

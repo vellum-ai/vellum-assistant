@@ -299,9 +299,7 @@ private struct PublishedButton: View {
                         copied = false
                     }
                 }
-                .pointerCursor(onHover: { hovering in
-                    if isCopyHovered != hovering { isCopyHovered = hovering }
-                })
+                .pointerCursor(onHover: { isCopyHovered = $0 })
                 .accessibilityLabel(copied ? "URL copied" : "Copy published URL")
         }
         .foregroundStyle(VColor.primaryBase)

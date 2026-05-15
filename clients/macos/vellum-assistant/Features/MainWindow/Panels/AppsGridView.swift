@@ -319,10 +319,7 @@ struct AppsGridView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .pointerCursor(onHover: { hovering in
-            let newValue = hovering ? app.id : nil
-            if hoveredAppId != newValue { hoveredAppId = newValue }
-        })
+        .pointerCursor(onHover: { hoveredAppId = $0 ? app.id : nil })
         .vContextMenu(width: 200) {
             VMenuItem(icon: (app.isPinned ? VIcon.pinOff : .pin).rawValue, label: app.isPinned ? "Unpin" : "Pin") {
                 if app.isPinned {
@@ -406,10 +403,7 @@ struct AppsGridView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .pointerCursor(onHover: { hovering in
-            let newValue = hovering ? "shared-\(app.uuid)" : nil
-            if hoveredAppId != newValue { hoveredAppId = newValue }
-        })
+        .pointerCursor(onHover: { hoveredAppId = $0 ? "shared-\(app.uuid)" : nil })
     }
 
     // MARK: - Document Card
@@ -454,10 +448,7 @@ struct AppsGridView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .pointerCursor(onHover: { hovering in
-            let newValue = hovering ? document.surfaceId : nil
-            if hoveredAppId != newValue { hoveredAppId = newValue }
-        })
+        .pointerCursor(onHover: { hoveredAppId = $0 ? document.surfaceId : nil })
         .accessibilityLabel(document.title)
     }
 

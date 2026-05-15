@@ -98,9 +98,7 @@ struct HomeRecapGroupRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .pointerCursor(onHover: { hovering in
-            if isParentHovering != hovering { isParentHovering = hovering }
-        })
+        .pointerCursor(onHover: { isParentHovering = $0 })
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(parentTitle))
         .accessibilityAddTraits(.isButton)
@@ -187,9 +185,7 @@ private struct ChildRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .pointerCursor(onHover: { hovering in
-            if isHovering != hovering { isHovering = hovering }
-        })
+        .pointerCursor(onHover: { isHovering = $0 })
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(child.title))
         .accessibilityAddTraits(.isButton)

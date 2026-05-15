@@ -180,9 +180,7 @@ public struct InlineSurfaceRouter: View {
             }
         }
         #if os(macOS)
-        .onHover { hovering in
-            if isCardHovered != hovering { isCardHovered = hovering }
-        }
+        .onHover { isCardHovered = $0 }
         #endif
         // Dynamic page/document previews stay compact; tables can grow to the chat bubble max width.
         .widthCap(isAppCreated ? 400 : (isDynamicPreview || isDocumentPreview ? 350 : standardWidgetMaxWidth))

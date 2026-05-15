@@ -75,9 +75,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
         .contentShape(Rectangle())
         .animation(VAnimation.fast, value: isDividerHovered)
         .animation(VAnimation.fast, value: isDragging)
-        .pointerCursor(onHover: { hovering in
-            if isDividerHovered != hovering { isDividerHovered = hovering }
-        })
+        .pointerCursor(onHover: { isDividerHovered = $0 })
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .named(dragCoordinateSpaceName))
                 .onChanged { value in

@@ -471,9 +471,7 @@ public struct VMenuItem<Trailing: View>: View {
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
             .onTapGesture { guard isEnabled else { return }; dismissMenu?(); action() }
-            .pointerCursor(onHover: { hovering in
-                if isHovered != hovering { isHovered = hovering }
-            })
+            .pointerCursor(onHover: { isHovered = $0 })
             .accessibilityElement(children: .combine)
             .accessibilityLabel(label)
             .accessibilityAddTraits(.isButton)
