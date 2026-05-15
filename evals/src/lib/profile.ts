@@ -9,10 +9,9 @@
  * The profile id is the directory name; the manifest does not declare it.
  */
 import { readFile } from "node:fs/promises";
-import { dirname, join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { z } from "zod";
+
+import { assertSafeId, getProfilesDir, resolveUnder } from "./catalog";
 
 const SPECIES = [
   "vellum",
@@ -51,38 +50,9 @@ export interface Profile {
   workspaceDir: string;
 }
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_PROFILES_DIR = join(HERE, "..", "..", "profiles");
-
-function profilesDir(): string {
-  return process.env.EVALS_PROFILES_DIR ?? DEFAULT_PROFILES_DIR;
-}
-
-// Conservative id pattern — disallows leading hyphens, dots, slashes, anything
-// other than lowercase alphanumerics + hyphens. Guards against path traversal
-// and keeps profile ids URL-safe.
-const SAFE_ID = /^[a-z0-9][a-z0-9-]*$/;
-
-function assertSafeId(kind: string, id: string): void {
-  if (!SAFE_ID.test(id)) {
-    throw new Error(
-      `Invalid ${kind} id "${id}" — must match ${SAFE_ID.source}`,
-    );
-  }
-}
-
-function resolveUnder(baseDir: string, ...segments: string[]): string {
-  const base = resolve(baseDir);
-  const target = resolve(base, ...segments);
-  if (target !== base && !target.startsWith(base + sep)) {
-    throw new Error(`Refusing to resolve path outside of ${base}: ${target}`);
-  }
-  return target;
-}
-
 export async function loadProfile(id: string): Promise<Profile> {
   assertSafeId("profile", id);
-  const base = profilesDir();
+  const base = getProfilesDir();
   const manifestPath = resolveUnder(base, id, "manifest.json");
   const workspaceDir = resolveUnder(base, id, "workspace");
 

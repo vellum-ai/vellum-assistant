@@ -9,8 +9,7 @@
  * The test id is the directory name.
  */
 import { readdir, stat } from "node:fs/promises";
-import { dirname, join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { assertSafeId, getTestsDir, resolveUnder } from "./catalog";
 
 import type { TestSetupCommand } from "./setup-command";
 
@@ -27,32 +26,6 @@ export interface TestDef {
   metricsDir: string;
   /** Absolute paths to each `.ts` file in the metrics directory, sorted. */
   metricPaths: string[];
-}
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_TESTS_DIR = join(HERE, "..", "..", "tests");
-
-function testsDir(): string {
-  return process.env.EVALS_TESTS_DIR ?? DEFAULT_TESTS_DIR;
-}
-
-const SAFE_ID = /^[a-z0-9][a-z0-9-]*$/;
-
-function assertSafeId(kind: string, id: string): void {
-  if (!SAFE_ID.test(id)) {
-    throw new Error(
-      `Invalid ${kind} id "${id}" — must match ${SAFE_ID.source}`,
-    );
-  }
-}
-
-function resolveUnder(baseDir: string, ...segments: string[]): string {
-  const base = resolve(baseDir);
-  const target = resolve(base, ...segments);
-  if (target !== base && !target.startsWith(base + sep)) {
-    throw new Error(`Refusing to resolve path outside of ${base}: ${target}`);
-  }
-  return target;
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -82,7 +55,7 @@ async function loadSetupCommands(
 
 export async function loadTestDef(id: string): Promise<TestDef> {
   assertSafeId("test", id);
-  const base = testsDir();
+  const base = getTestsDir();
   const specPath = resolveUnder(base, id, "SPEC.md");
   const setupPath = resolveUnder(base, id, "setup.ts");
   const metricsDir = resolveUnder(base, id, "metrics");
