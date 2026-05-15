@@ -2,3 +2,5 @@
 results/
 runs/
 *.local.json
+
+.runs/

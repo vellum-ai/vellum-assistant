@@ -1,9 +1,13 @@
-import type { MetricContext, MetricResult } from "../../../src/lib/metrics";
+import {
+  readUsage,
+  type MetricInput,
+  type MetricResult,
+} from "../../../src/lib/metrics";
 
 export default async function scoreAssistantCost(
-  context: MetricContext,
+  input: MetricInput,
 ): Promise<MetricResult> {
-  const usage = await context.readUsage();
+  const usage = await readUsage(input.runId);
   const totalCostUsd = usage.totalCostUsd ?? 0;
   return {
     name: "assistant-cost-usd",

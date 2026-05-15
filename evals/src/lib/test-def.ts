@@ -3,7 +3,7 @@
  *
  * Each test lives at `tests/<id>/` with:
  *   - `SPEC.md`    — markdown briefing for the simulator agent.
- *   - `setup.json` — optional array of user messages that seed prior history.
+ *   - `setup.json` — optional deterministic setup commands.
  *   - `metrics/`   — directory of `.ts` files. Each file exports a scorer.
  *
  * The test id is the directory name.
@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
-import type { AgentMessage } from "./adapter";
+import type { TestSetupCommand } from "./setup-command";
 
 export interface TestDef {
   /** Directory name under `tests/`. */
@@ -23,16 +23,19 @@ export interface TestDef {
   specPath: string;
   /** Absolute path to optional `tests/<id>/setup.json`. */
   setupPath: string;
-  /** User messages sent before the simulator starts, to seed test history. */
-  setupMessages: AgentMessage[];
+  /** Deterministic commands run before the simulator starts. */
+  setupCommands: TestSetupCommand[];
   /** Absolute path to `tests/<id>/metrics/` — may be empty or absent. */
   metricsDir: string;
   /** Absolute paths to each `.ts` file in the metrics directory, sorted. */
   metricPaths: string[];
 }
 
-const SetupMessageSchema = z.object({ content: z.string().min(1) });
-const SetupSchema = z.array(SetupMessageSchema);
+const SetupCommandSchema = z.object({
+  type: z.literal("user-message"),
+  content: z.string().min(1),
+});
+const SetupSchema = z.array(SetupCommandSchema);
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_TESTS_DIR = join(HERE, "..", "..", "tests");
@@ -60,7 +63,9 @@ function resolveUnder(baseDir: string, ...segments: string[]): string {
   return target;
 }
 
-async function loadSetupMessages(setupPath: string): Promise<AgentMessage[]> {
+async function loadSetupCommands(
+  setupPath: string,
+): Promise<TestSetupCommand[]> {
   let raw: string;
   try {
     raw = await readFile(setupPath, "utf8");
@@ -125,7 +130,7 @@ export async function loadTestDef(id: string): Promise<TestDef> {
     id,
     specPath,
     setupPath,
-    setupMessages: await loadSetupMessages(setupPath),
+    setupCommands: await loadSetupCommands(setupPath),
     metricsDir,
     metricPaths,
   };
