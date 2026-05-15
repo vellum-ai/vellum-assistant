@@ -403,6 +403,14 @@ export class SubagentManager {
     this.setStatus(subagentId, "running", getSender());
     managed.state.startedAt = Date.now();
 
+    // Periodically snapshot usage stats and broadcast to the client so the
+    // detail panel shows live-updating input/output/cost values during execution.
+    const usageBroadcastInterval = setInterval(() => {
+      if (TERMINAL_STATUSES.has(managed.state.status)) return;
+      managed.state.usage = { ...conversation.usageStats };
+      this.setStatus(subagentId, managed.state.status, getSender());
+    }, 5_000);
+
     try {
       // For forks, inject the parent's message history before the first message.
       // This prepends the inherited context so the fork has full conversational
@@ -472,6 +480,7 @@ export class SubagentManager {
 
       log.error({ subagentId, err }, "Subagent failed");
     } finally {
+      clearInterval(usageBroadcastInterval);
       // Release the heavyweight Conversation — output is already persisted in DB.
       // drainQueue is async: it awaits buildPassthroughBatch (which awaits
       // resolveSlash) before shifting anything, and runAgentLoop fires it
@@ -523,6 +532,10 @@ export class SubagentManager {
       return false;
     }
 
+    // Snapshot usage before aborting so the terminal event carries accurate stats.
+    if (managed.conversation) {
+      managed.state.usage = { ...managed.conversation.usageStats };
+    }
     managed.conversation?.abort(
       createAbortReason(
         "subagent_aborted",
