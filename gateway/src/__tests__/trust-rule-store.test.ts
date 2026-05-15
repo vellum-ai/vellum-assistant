@@ -87,6 +87,55 @@ describe("create()", () => {
     expect(rule.createdAt <= after).toBe(true);
     expect(rule.updatedAt).toBe(rule.createdAt);
   });
+
+  test("upserts when a rule with the same tool+pattern already exists", () => {
+    const original = store.create({
+      tool: "bash",
+      pattern: "create-upsert-echo",
+      risk: "low",
+      description: "Original description",
+    });
+
+    const updated = store.create({
+      tool: "bash",
+      pattern: "create-upsert-echo",
+      risk: "high",
+      description: "Updated description",
+    });
+
+    expect(updated.id).toBe(original.id);
+    expect(updated.risk).toBe("high");
+    expect(updated.description).toBe("Updated description");
+    expect(updated.origin).toBe("user_defined");
+    expect(updated.createdAt).toBe(original.createdAt);
+    expect(updated.updatedAt >= original.updatedAt).toBe(true);
+  });
+
+  test("upsert un-deletes a soft-deleted rule with the same tool+pattern", () => {
+    store.upsertDefault({
+      id: "default:bash:create-upsert-undelete",
+      tool: "bash",
+      pattern: "create-upsert-undelete",
+      risk: "low",
+      description: "Default rule",
+    });
+    store.remove("default:bash:create-upsert-undelete");
+
+    const deleted = store.getById("default:bash:create-upsert-undelete")!;
+    expect(deleted.deleted).toBe(true);
+
+    const recreated = store.create({
+      tool: "bash",
+      pattern: "create-upsert-undelete",
+      risk: "medium",
+      description: "Re-created by user",
+    });
+
+    expect(recreated.deleted).toBe(false);
+    expect(recreated.risk).toBe("medium");
+    expect(recreated.description).toBe("Re-created by user");
+    expect(recreated.origin).toBe("user_defined");
+  });
 });
 
 // ---------------------------------------------------------------------------

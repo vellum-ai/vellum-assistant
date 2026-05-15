@@ -159,7 +159,9 @@ export class TrustRuleStore {
   }
 
   /**
-   * Create a user-defined trust rule. Generates a UUIDv4 id.
+   * Create or update a user-defined trust rule. If a rule with the same
+   * (tool, pattern) already exists, updates its risk and description
+   * instead of failing on the UNIQUE constraint.
    */
   create(input: CreateInput): TrustRule {
     assertValidRisk(input.risk);
@@ -167,23 +169,26 @@ export class TrustRuleStore {
     const now = nowISO();
     const id = crypto.randomUUID();
 
-    this.db
-      .insert(trustRules)
-      .values({
-        id,
-        tool: input.tool,
-        pattern: input.pattern,
-        risk: input.risk,
-        description: input.description,
-        origin: "user_defined",
-        userModified: false,
-        deleted: false,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    this.db.run(sql`
+      INSERT INTO trust_rules (id, tool, pattern, risk, description, origin, user_modified, deleted, created_at, updated_at)
+      VALUES (${id}, ${input.tool}, ${input.pattern}, ${input.risk}, ${input.description}, 'user_defined', 0, 0, ${now}, ${now})
+      ON CONFLICT (tool, pattern) DO UPDATE SET
+        risk = excluded.risk,
+        description = excluded.description,
+        origin = excluded.origin,
+        deleted = 0,
+        updated_at = excluded.updated_at
+    `);
 
-    return this.getById(id)!;
+    const row = this.db
+      .select()
+      .from(trustRules)
+      .where(
+        and(eq(trustRules.tool, input.tool), eq(trustRules.pattern, input.pattern)),
+      )
+      .get();
+
+    return toTrustRule(row!);
   }
 
   /**
