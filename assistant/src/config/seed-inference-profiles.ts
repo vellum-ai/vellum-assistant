@@ -1,5 +1,6 @@
 import type { DrizzleDb } from "../memory/db-connection.js";
 import {
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   createConnection,
   disableManagedConnectionsForByokHatch,
   getConnection,
@@ -248,7 +249,11 @@ export function seedInferenceProfiles(
     }
 
     const hatchProvider = readString(readObject(llm.default)?.provider);
-    if (hatchProvider && hatchProvider !== "ollama") {
+    if (
+      hatchProvider &&
+      hatchProvider !== "ollama" &&
+      !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(hatchProvider)
+    ) {
       userConnectionName = `${hatchProvider}-personal`;
 
       if (options.db) {

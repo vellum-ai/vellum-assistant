@@ -31,9 +31,8 @@ function parseModelsColumn(raw: string | null): ConnectionModel[] | null {
   }
 }
 
-const PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: ReadonlySet<string> = new Set([
-  "openai-compatible",
-]);
+export const PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: ReadonlySet<string> =
+  new Set(["openai-compatible"]);
 
 // ---------------------------------------------------------------------------
 // Read
