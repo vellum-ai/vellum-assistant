@@ -107,11 +107,33 @@ struct MessageListScrollObserver: NSViewRepresentable {
         /// instrumentation targets the steady ~1pt drift seen during
         /// streaming.
         private static let diagnosticContentHDeltaThreshold: CGFloat = 8
-        /// Last observed `documentView.frame.height`. Used to compute the
-        /// growth delta for anchor preservation. Reset to 0 on attach/detach
-        /// so a stale baseline from a previous conversation cannot apply
-        /// a phantom delta on the first emit of a new ScrollView.
+        /// Last observed `documentView.frame.height`. Kept for telemetry
+        /// (`ScrollAnchorDecisionEvent.contentHDelta`) only — the anchor
+        /// preserver no longer compensates against this value, because
+        /// `contentH` changes can come from sources that don't shift the
+        /// visible rows (LazyVStack height estimates, off-viewport growth
+        /// that doesn't propagate up the materialized subtree). Use
+        /// `lastReferenceY` for the actual compensation baseline.
         private var lastContentHeight: CGFloat = 0
+        /// Weak reference to a stable visible `NSView` whose movement we
+        /// compensate against. Picked on each emit when the previous
+        /// reference is invalidated (removed from the tree, scrolled out
+        /// of the viewport, or zero-height). Re-used otherwise.
+        ///
+        /// Compensating against this view's `minY` in `documentView` coords
+        /// — instead of the global `contentHDelta` — eliminates the failure
+        /// mode where `contentH` grows without visible rows shifting. The
+        /// recorded scroll-debug CSVs show this regularly: streaming
+        /// response below the viewport grows by 1 pt/token, `contentH`
+        /// follows, but the materialized rows in the viewport hold their
+        /// `minY` constant. The old anchor would still apply `+1` per
+        /// token, walking the user away from latest at ~120 pt/sec.
+        private weak var anchorReferenceView: NSView?
+        /// Cached `convert(.zero, to: documentView).y` of `anchorReferenceView`
+        /// from the last emit. The next emit's `Δref` is `currentY -
+        /// lastReferenceY`, which is what we pass to
+        /// `ScrollAnchorPreserver.decide`.
+        private var lastReferenceY: CGFloat = 0
         /// Tracks whether an AppKit live scroll (trackpad/wheel gesture plus
         /// momentum decay) is currently in progress. Bracketed by
         /// `willStartLiveScrollNotification` / `didEndLiveScrollNotification`
@@ -180,6 +202,12 @@ struct MessageListScrollObserver: NSViewRepresentable {
             // conversation switch destroys the old view tree, so stale paths
             // would no longer correspond to anything.
             self.lastSubviewHeights = [:]
+            // Re-attach destroys the old view tree, so any prior reference
+            // is now dangling (weak ref will be nil shortly). Reset
+            // explicitly so the first emit picks a fresh reference from
+            // the new tree without computing a delta against a stale Y.
+            self.anchorReferenceView = nil
+            self.lastReferenceY = 0
             installObservers()
         }
 
@@ -193,6 +221,8 @@ struct MessageListScrollObserver: NSViewRepresentable {
             lastContentHeight = 0
             isLiveScrolling = false
             lastSubviewHeights = [:]
+            anchorReferenceView = nil
+            lastReferenceY = 0
         }
 
         func emitCurrentSnapshotIfPossible() {
@@ -207,20 +237,28 @@ struct MessageListScrollObserver: NSViewRepresentable {
             let clipView = scrollView.contentView
             let currentContentHeight = documentView.frame.height
             let preOffsetY = clipView.bounds.origin.y
+            let containerHeight = clipView.bounds.height
             let contentHDelta = currentContentHeight - lastContentHeight
 
-            // Anchor preservation: when the streaming assistant response
-            // grows and the user is reading older content above the visual
-            // bottom, leaving the offset alone lets the new content push
-            // the visible region upward off the top of the viewport (the
-            // streaming message lives at doc Y=0; growing it shifts every
-            // higher-Y item further from the visual bottom). Shift the
-            // clip view by the height delta so the visible content stays
-            // put. The decision lives in `ScrollAnchorPreserver` so the
-            // logic is unit-testable without an NSScrollView.
+            // Anchor preservation: when content above the visible region
+            // shifts (because a message expanded, a thinking block opened,
+            // an old image loaded), compensate `clipView.bounds.origin.y`
+            // by the same amount so the visible rows hold their visual
+            // position. The compensation amount is the movement of a
+            // *concrete visible reference NSView* — not the global
+            // `contentH` delta. Captured recordings show the streaming
+            // response below the viewport grows by 1 pt/token while no
+            // visible row's `minY` changes, so compensating by
+            // `contentHDelta` would walk the user away from latest with
+            // no corresponding visual cause. Tracking a reference view
+            // instead skips that case cleanly.
+            let referenceDelta = updateAndReadReferenceDelta(
+                documentView: documentView,
+                viewportY: preOffsetY,
+                viewportHeight: containerHeight
+            )
             let decision = ScrollAnchorPreserver.decide(
-                currentContentHeight: currentContentHeight,
-                lastContentHeight: lastContentHeight,
+                compensationDelta: referenceDelta,
                 contentOffsetY: preOffsetY,
                 shouldPreserveAnchor: shouldPreserveScrollAnchor(),
                 isUserLiveScrolling: isLiveScrolling,
@@ -375,8 +413,15 @@ struct MessageListScrollObserver: NSViewRepresentable {
                     // that accumulated during the gesture has already
                     // been absorbed into the user's new scroll position,
                     // so we must not retroactively compensate for it on
-                    // the next passive emit.
+                    // the next passive emit. Both the content-height
+                    // baseline (for telemetry) and the reference baseline
+                    // (for the actual compensation) get reset. Drop the
+                    // reference view entirely: the user likely scrolled
+                    // it out of the viewport, so the next emit will pick
+                    // a fresh one from the post-gesture viewport.
                     self.lastContentHeight = self.documentView?.frame.height ?? 0
+                    self.anchorReferenceView = nil
+                    self.lastReferenceY = 0
                     self.emitCurrentSnapshotIfPossible()
                 }
             })
@@ -390,6 +435,114 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 center.removeObserver(observer)
             }
             observers.removeAll()
+        }
+
+        /// Resolves the anchor reference view for this emit and returns the
+        /// signed delta (in points) that the visible reference has moved
+        /// since the previous emit. The Coordinator passes this delta to
+        /// `ScrollAnchorPreserver.decide` as `compensationDelta`.
+        ///
+        /// If the previous reference is still in the tree and intersects
+        /// the viewport, it's reused and the delta is its `minY` movement
+        /// in `documentView` coords. If invalidated (removed, scrolled out,
+        /// shrunk to zero height), a new reference is picked from the
+        /// current viewport and `0` is returned — no compensation on the
+        /// pick-frame, because there's no previous-Y to diff against.
+        ///
+        /// Returning `0` is also what's expected on the first emit after
+        /// attach: `anchorReferenceView` is `nil`, we pick one, and the
+        /// decide function skips with `.noVisibleShift`.
+        private func updateAndReadReferenceDelta(
+            documentView: NSView,
+            viewportY: CGFloat,
+            viewportHeight: CGFloat
+        ) -> CGFloat {
+            let viewport = CGRect(
+                x: 0,
+                y: viewportY,
+                width: documentView.bounds.width,
+                height: viewportHeight
+            )
+            if let reference = anchorReferenceView, isReferenceStillUsable(reference, in: documentView, viewport: viewport) {
+                let currentY = reference.convert(.zero, to: documentView).y
+                let delta = currentY - lastReferenceY
+                lastReferenceY = currentY
+                return delta
+            }
+            // Reference invalid — pick a new one. No delta on this emit
+            // since there's no previous-Y to diff against.
+            let newReference = pickAnchorReference(in: documentView, viewport: viewport)
+            anchorReferenceView = newReference
+            lastReferenceY = newReference?.convert(.zero, to: documentView).y ?? 0
+            return 0
+        }
+
+        /// A reference is still usable when it's still in the document
+        /// view's subtree, still has a non-zero frame, and still intersects
+        /// the viewport. Anything else means it was recycled, hidden, or
+        /// scrolled fully out — pick a new one rather than tracking a stale
+        /// position that could spike the delta when the view is finally
+        /// destroyed.
+        private func isReferenceStillUsable(_ view: NSView, in documentView: NSView, viewport: CGRect) -> Bool {
+            guard view.isDescendant(of: documentView) else { return false }
+            guard view.frame.height > 0 else { return false }
+            let frameInDoc = view.convert(view.bounds, to: documentView)
+            return frameInDoc.intersects(viewport)
+        }
+
+        /// Picks an anchor reference from the materialized subtree of
+        /// `documentView`. Walks depth-first and returns the deepest
+        /// descendant whose frame intersects the viewport and has non-zero
+        /// height. We prefer the deepest match so we land on a concrete
+        /// row/leaf instead of the outer LazyVStack wrappers (which
+        /// themselves grow as content streams).
+        ///
+        /// Intersection — rather than full containment — is required
+        /// because real-world rows are often taller than the viewport in
+        /// long-running conversations; a strict containment test would
+        /// reject those and leave us with no reference. The deepest-match
+        /// preference still bypasses the wrapper chain even when the
+        /// outer rows are tall.
+        private func pickAnchorReference(in documentView: NSView, viewport: CGRect) -> NSView? {
+            var best: NSView?
+            var bestDepth = -1
+            walkForReference(
+                in: documentView,
+                depth: 0,
+                documentView: documentView,
+                viewport: viewport,
+                best: &best,
+                bestDepth: &bestDepth
+            )
+            return best
+        }
+
+        private func walkForReference(
+            in parent: NSView,
+            depth: Int,
+            documentView: NSView,
+            viewport: CGRect,
+            best: inout NSView?,
+            bestDepth: inout Int
+        ) {
+            guard depth < Self.diagnosticWalkMaxDepth else { return }
+            for child in parent.subviews {
+                guard child.frame.height > 0 else { continue }
+                let frameInDoc = child.convert(child.bounds, to: documentView)
+                guard frameInDoc.intersects(viewport) else { continue }
+                if depth > bestDepth {
+                    best = child
+                    bestDepth = depth
+                }
+                walkForReference(
+                    in: child,
+                    depth: depth + 1,
+                    documentView: documentView,
+                    viewport: viewport,
+                    best: &best,
+                    bestDepth: &bestDepth
+                )
+            }
         }
 
         /// Walks `root`'s descendant tree depth-first by index path, skipping
@@ -454,8 +607,7 @@ enum ScrollAnchorPreserver {
     enum SkipReason: String {
         case anchorPreservationDisabled
         case userLiveScrolling
-        case firstLayout
-        case contentHUnchanged
+        case noVisibleShift
         case jitterBelowThreshold
         case pinnedToLatest
     }
@@ -476,20 +628,20 @@ enum ScrollAnchorPreserver {
 
     /// Rich decision for a single layout-change notification. `offsetDelta`
     /// is a thin convenience over this, kept for tests and simple callers
-    /// that only need the CGFloat?.
+    /// that only need the `CGFloat?`.
     ///
-    /// In the inverted scroll, `contentOffsetY = 0` is the visual bottom
-    /// (latest messages). The streaming assistant response lives at the
-    /// low end of the document (doc Y near 0), so its growth pushes every
-    /// higher-Y item further from the visual bottom — and symmetrically,
-    /// when the streaming edge shrinks (pin spacer release, thinking-block
-    /// collapse during streaming, height-estimate correction) every
-    /// higher-Y item is pulled back toward the visual bottom. Either
-    /// direction moves the user's visible region off the current doc-Y
-    /// window unless the offset is shifted by the same signed delta.
+    /// `compensationDelta` is the signed movement of the *anchor reference
+    /// view* in `documentView` coords since the previous emit. Compensating
+    /// against the reference's movement — instead of the global
+    /// `contentHDelta` — handles the case where `contentH` grows without
+    /// visible rows shifting (streaming response below the viewport, lazy
+    /// height-estimate corrections in off-viewport rows). Recorded CSVs
+    /// caught the old `contentHDelta` formulation walking the user away
+    /// from latest at ~120 pt/sec while no row's `minY` changed; the
+    /// reference-based formulation skips those frames cleanly with
+    /// `.noVisibleShift`.
     static func decide(
-        currentContentHeight: CGFloat,
-        lastContentHeight: CGFloat,
+        compensationDelta: CGFloat,
         contentOffsetY: CGFloat,
         shouldPreserveAnchor: Bool,
         isUserLiveScrolling: Bool,
@@ -497,30 +649,27 @@ enum ScrollAnchorPreserver {
     ) -> Decision {
         if !shouldPreserveAnchor { return .skipped(.anchorPreservationDisabled) }
         if isUserLiveScrolling { return .skipped(.userLiveScrolling) }
-        if lastContentHeight <= 0 { return .skipped(.firstLayout) }
-        if currentContentHeight == lastContentHeight { return .skipped(.contentHUnchanged) }
-        if abs(currentContentHeight - lastContentHeight) < Self.minCompensationDelta {
+        if compensationDelta == 0 { return .skipped(.noVisibleShift) }
+        if abs(compensationDelta) < Self.minCompensationDelta {
             return .skipped(.jitterBelowThreshold)
         }
         if contentOffsetY <= pinnedToLatestEpsilon { return .skipped(.pinnedToLatest) }
-        return .applied(delta: currentContentHeight - lastContentHeight)
+        return .applied(delta: compensationDelta)
     }
 
     /// Returns the offset delta to add to `contentOffsetY` so the visible
-    /// content stays anchored when the document height changes (either
-    /// direction), or `nil` if no adjustment is needed. Kept for tests and
-    /// simple callers — see `decide(...)` for the richer outcome.
+    /// content stays anchored when the reference view's position changes,
+    /// or `nil` if no adjustment is needed. Kept for tests and simple
+    /// callers — see `decide(...)` for the richer outcome.
     static func offsetDelta(
-        currentContentHeight: CGFloat,
-        lastContentHeight: CGFloat,
+        compensationDelta: CGFloat,
         contentOffsetY: CGFloat,
         shouldPreserveAnchor: Bool,
         isUserLiveScrolling: Bool,
         pinnedToLatestEpsilon: CGFloat
     ) -> CGFloat? {
         switch decide(
-            currentContentHeight: currentContentHeight,
-            lastContentHeight: lastContentHeight,
+            compensationDelta: compensationDelta,
             contentOffsetY: contentOffsetY,
             shouldPreserveAnchor: shouldPreserveAnchor,
             isUserLiveScrolling: isUserLiveScrolling,

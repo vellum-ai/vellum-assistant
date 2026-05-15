@@ -351,7 +351,7 @@ final class ScrollDebugRecorder: ScrollAnchorDiagSink {
         let anchorsPerSecond: Int
         let anchorTotal: Int
         /// Outcome string of the most recent anchor decision: `"applied"` or
-        /// the skip reason (`"contentHUnchanged"`, `"pinnedToLatest"`, etc.).
+        /// the skip reason (`"noVisibleShift"`, `"pinnedToLatest"`, etc.).
         /// Empty before the first decision fires.
         let anchorOutcome: String
         /// Delta applied by the anchor preserver on the most recent decision.
