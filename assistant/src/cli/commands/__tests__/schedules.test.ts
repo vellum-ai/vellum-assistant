@@ -99,6 +99,7 @@ describe("schedules command", () => {
     expect(schedules!.commands.map((command) => command.name())).toEqual([
       "list",
       "runs",
+      "create",
       "enable",
       "disable",
       "cancel",
@@ -357,6 +358,172 @@ describe("schedules runs", () => {
       "schedules",
       "runs",
       "missing-schedule",
+    ]);
+
+    expect(exitCode).toBe(10);
+    expect(exitFromIpcResultCalls).toEqual([mockIpcResult]);
+    expect(errorLines).toEqual([]);
+  });
+});
+
+describe("schedules create", () => {
+  test("calls createSchedule with the required fields", async () => {
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Heartbeat",
+      "--expression",
+      "*/30 * * * *",
+      "--message",
+      "run heartbeat",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "createSchedule",
+        params: {
+          body: {
+            name: "Heartbeat",
+            expression: "*/30 * * * *",
+            message: "run heartbeat",
+            enabled: true,
+          },
+        },
+      },
+    ]);
+    expect(logLines).toEqual(["Created schedule: Heartbeat"]);
+  });
+
+  test("passes --timezone through to the request body", async () => {
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Morning",
+      "--expression",
+      "0 9 * * MON-FRI",
+      "--message",
+      "morning summary",
+      "--timezone",
+      "America/New_York",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "createSchedule",
+        params: {
+          body: {
+            name: "Morning",
+            expression: "0 9 * * MON-FRI",
+            message: "morning summary",
+            enabled: true,
+            timezone: "America/New_York",
+          },
+        },
+      },
+    ]);
+  });
+
+  test("sends enabled:false when --no-enabled is set", async () => {
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Drafted",
+      "--expression",
+      "0 0 * * *",
+      "--message",
+      "placeholder",
+      "--no-enabled",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "createSchedule",
+        params: {
+          body: {
+            name: "Drafted",
+            expression: "0 0 * * *",
+            message: "placeholder",
+            enabled: false,
+          },
+        },
+      },
+    ]);
+  });
+
+  test("emits JSON when --json is set", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        schedules: [
+          {
+            id: "new-schedule-id",
+            name: "Heartbeat",
+            enabled: true,
+            syntax: "cron",
+            expression: "*/30 * * * *",
+            cronExpression: "*/30 * * * *",
+            timezone: null,
+            message: "run heartbeat",
+            script: null,
+            nextRunAt: 1_778_800_000_000,
+            lastRunAt: null,
+            lastStatus: null,
+            retryCount: 0,
+            maxRetries: 3,
+            retryBackoffMs: 60_000,
+            description: "Every 30 minutes",
+            mode: "execute",
+            status: "active",
+            routingIntent: "all_channels",
+            reuseConversation: false,
+            wakeConversationId: null,
+            isOneShot: false,
+          },
+        ],
+      },
+    };
+
+    const { stdout, exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Heartbeat",
+      "--expression",
+      "*/30 * * * *",
+      "--message",
+      "run heartbeat",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      schedules: [expect.objectContaining({ id: "new-schedule-id" })],
+    });
+    expect(logLines).toEqual([]);
+  });
+
+  test("routes IPC failure through exitFromIpcResult", async () => {
+    mockIpcResult = {
+      ok: false,
+      error: "expression could not be parsed as cron or rrule",
+    };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Bad",
+      "--expression",
+      "not-a-cron",
+      "--message",
+      "noop",
     ]);
 
     expect(exitCode).toBe(10);

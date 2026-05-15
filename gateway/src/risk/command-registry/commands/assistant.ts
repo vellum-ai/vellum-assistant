@@ -192,6 +192,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "schedules",
   "schedules list",
   "schedules runs",
+  "schedules create",
   "schedules enable",
   "schedules disable",
   "schedules cancel",
@@ -503,6 +504,12 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "platform connect", risk: "low" },
   { path: "platform disconnect", risk: "medium" },
   { path: "platform callback-routes register", risk: "low" },
+  {
+    path: "schedules create",
+    risk: "medium",
+    reason:
+      "Creates a new recurring schedule that fires assistant-side messages",
+  },
   {
     path: "schedules enable",
     risk: "medium",
