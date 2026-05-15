@@ -70,13 +70,17 @@ If no session is active, check the current default profile:
 assistant config get llm.default.profile
 ```
 
-If the active profile is `balanced` or `cost-optimized` (or any non-quality profile), prompt the user:
+If the profile is already `quality-optimized`, skip the rest of this step and proceed to Step 1.
+
+**If the active profile is `balanced`, `cost-optimized`, or any non-quality profile, you MUST ask the user for permission before switching. Do NOT open an inference session without explicit user confirmation.** Use `assistant ui confirm`:
 
 ```
 assistant ui confirm --message "App building works best with a high-quality model — it makes better design decisions, writes cleaner components, and produces more visually polished results. Switch to the quality profile for this build? (You can switch back after.)"
 ```
 
-If the user confirms (or if `assistant ui confirm` isn't available, ask in conversation), open an inference session:
+If `assistant ui confirm` isn't available on this binary, ask the user directly in conversation instead. **Either way, wait for the user's answer before proceeding.**
+
+**Only if the user confirms**, open an inference session:
 
 ```
 assistant inference session open quality-optimized --ttl 1h
@@ -91,7 +95,7 @@ assistant inference session open <profile-name> --ttl 1h
 
 The `--ttl 1h` gives comfortable headroom for a typical app build without leaving a forever-pinned session if the close in Step 6 is skipped.
 
-If the user declines, proceed anyway — the build still works, the model just won't be pinned. Skip the close in Step 6 too.
+**If the user declines, do not switch profiles.** Proceed with the current profile — the build still works, the model just won't be pinned. Skip the close in Step 6 too.
 
 If `assistant inference session` isn't available on this binary, proceed without it.
 
