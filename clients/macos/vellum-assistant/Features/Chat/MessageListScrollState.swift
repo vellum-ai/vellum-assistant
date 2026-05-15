@@ -228,6 +228,15 @@ final class MessageListScrollState {
 
     @ObservationIgnored var lastHandledChatColumnWidth: CGFloat = 0
     @ObservationIgnored var isPaginationInFlight: Bool = false
+    /// Mirrors `MessageListView.isSending`. Gates `ScrollAnchorPreserver` so
+    /// `clipView.setBoundsOrigin` compensation only fires while the assistant
+    /// is actively producing a response — the case that compensation was
+    /// designed for. Idle content-height changes (lazy-cell materialization in
+    /// `LazyVStack`, media-embed late loads, etc.) are progressive and
+    /// self-correcting; compensating them produces large jerky offset shifts
+    /// that look like scroll jitter on hover or mouse-move. Mirrored from the
+    /// view layer in `handleAppear` and `handleSendingChanged`.
+    @ObservationIgnored var isStreamingActive: Bool = false
     @ObservationIgnored var paginationTask: Task<Void, Never>?
     @ObservationIgnored var highlightDismissTask: Task<Void, Never>?
 

@@ -396,6 +396,7 @@ Three fixes outside the scroll subsystem prevent observation feedback loops that
 
 - **Route all scroll reactions through dedicated methods.** Do not add inline `onChange` handlers that call `scrollTo` directly in `MessageListView`. Instead, add a new method on the scroll state or behavior extension and call it from the view. This keeps scroll logic centralized and testable.
 - **Use an in-flight guard to prevent stacking concurrent pagination loads.** The `isPaginationInFlight` flag on `MessageListScrollState` gates the pagination sentinel. Without it, rapid scroll-to-top can enqueue multiple concurrent loads before `isLoadingMoreMessages` is set by the async response, duplicating content and corrupting the history cursor.
+- **Gate `ScrollAnchorPreserver` on active streaming.** `clipView.setBoundsOrigin` compensation must only fire while the assistant is producing a response (`isStreamingActive`). Compensating idle content-height changes — `LazyVStack` lazy-cell estimate corrections, media-embed late loads — produces large jerky offset shifts that read as scroll jitter on hover or mouse-move. Lazy-cell drift is progressive and self-correcting and is the intended trade-off of the `LazyVStack` transcript stack; do not "fight" it with offset shifts. When adding a new use case for anchor preservation, route it through an explicit state signal on `MessageListScrollState` rather than widening the `shouldPreserveScrollAnchor` predicate.
 <details>
 <summary><strong>Layout timing, scroll forwarding, and .scrollPosition caveats</strong></summary>
 

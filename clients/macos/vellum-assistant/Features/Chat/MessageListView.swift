@@ -188,12 +188,23 @@ struct MessageListView: View {
                                     enqueueScrollGeometryUpdate(newState)
                                 },
                                 shouldPreserveScrollAnchor: { [scrollState] in
-                                    // Skip during pagination — the explicit
+                                    // Anchor preservation absorbs streaming
+                                    // growth at the latest end so users
+                                    // scrolled up don't see their reading
+                                    // position shift. It must NOT fire while
+                                    // idle: idle content-height changes come
+                                    // from `LazyVStack` lazy-cell estimate
+                                    // corrections and media-embed late loads,
+                                    // which are progressive and self-correcting.
+                                    // Compensating them produces large jerky
+                                    // offset shifts that read as scroll jitter.
+                                    //
+                                    // Also skip during pagination — the explicit
                                     // scroll-to-anchor in `handlePaginationSentinel`
-                                    // is the source of truth for that flow, and
-                                    // shifting the offset to absorb the older
-                                    // page's height would race the snap.
-                                    !scrollState.isPaginationInFlight
+                                    // owns that flow, and shifting the offset to
+                                    // absorb the older page's height would race
+                                    // the snap.
+                                    !scrollState.isPaginationInFlight && scrollState.isStreamingActive
                                 },
                                 onAnchorShift: { [scrollState, isScrollDebugOverlayEnabled] in
                                     // Debug-only counter for anchor-preserver
