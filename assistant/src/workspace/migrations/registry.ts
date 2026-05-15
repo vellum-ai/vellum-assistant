@@ -82,6 +82,7 @@ import { backfillBashAllowedToolsForInjectionCredentialsMigration } from "./081-
 import { backfillManagedProfileLabelsMigration } from "./082-backfill-managed-profile-labels.js";
 import { systemPromptPrefixToFileMigration } from "./083-system-prompt-prefix-to-file.js";
 import { removeLegacySkillsIndexMigration } from "./084-remove-legacy-skills-index.js";
+import { revertStaleGeminiMisRewritesMigration } from "./085-revert-stale-gemini-mis-rewrites.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -175,4 +176,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   backfillManagedProfileLabelsMigration,
   systemPromptPrefixToFileMigration,
   removeLegacySkillsIndexMigration,
+  revertStaleGeminiMisRewritesMigration,
 ];
