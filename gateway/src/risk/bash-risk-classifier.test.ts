@@ -1035,6 +1035,22 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("low");
   });
 
+  test("assistant schedules enable → medium", async () => {
+    const result = await classifier.classify({
+      command: "assistant schedules enable schedule-1",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("assistant schedules disable → medium", async () => {
+    const result = await classifier.classify({
+      command: "assistant schedules disable schedule-1",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
   test("assistant schedules cancel → medium", async () => {
     const result = await classifier.classify({
       command: "assistant schedules cancel schedule-1",

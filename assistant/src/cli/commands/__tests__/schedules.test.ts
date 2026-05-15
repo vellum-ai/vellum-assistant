@@ -99,6 +99,8 @@ describe("schedules command", () => {
     expect(schedules!.commands.map((command) => command.name())).toEqual([
       "list",
       "runs",
+      "enable",
+      "disable",
       "cancel",
       "execute",
     ]);
@@ -353,6 +355,115 @@ describe("schedules runs", () => {
     const { exitCode } = await runCommand([
       "schedules",
       "runs",
+      "missing-schedule",
+    ]);
+
+    expect(exitCode).toBe(10);
+    expect(exitFromIpcResultCalls).toEqual([mockIpcResult]);
+    expect(errorLines).toEqual([]);
+  });
+});
+
+describe("schedules enable/disable", () => {
+  test("enable calls toggleSchedule with enabled true", async () => {
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "enable",
+      "schedule-1",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "toggleSchedule",
+        params: {
+          pathParams: { id: "schedule-1" },
+          body: { enabled: true },
+        },
+      },
+    ]);
+    expect(logLines).toEqual(["Enabled schedule: schedule-1"]);
+  });
+
+  test("disable calls toggleSchedule with enabled false", async () => {
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "disable",
+      "schedule-1",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "toggleSchedule",
+        params: {
+          pathParams: { id: "schedule-1" },
+          body: { enabled: false },
+        },
+      },
+    ]);
+    expect(logLines).toEqual(["Disabled schedule: schedule-1"]);
+  });
+
+  test("emits JSON result when --json is set", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        schedules: [
+          {
+            id: "schedule-1",
+            name: "Heartbeat",
+            enabled: false,
+            syntax: "cron",
+            expression: "*/30 * * * *",
+            cronExpression: "*/30 * * * *",
+            timezone: "UTC",
+            message: "run heartbeat",
+            script: null,
+            nextRunAt: 1_778_800_000_000,
+            lastRunAt: null,
+            lastStatus: "ok",
+            retryCount: 0,
+            maxRetries: 3,
+            retryBackoffMs: 60_000,
+            description: "Every 30 minutes",
+            mode: "execute",
+            status: "active",
+            routingIntent: "all_channels",
+            reuseConversation: false,
+            wakeConversationId: null,
+            isOneShot: false,
+          },
+        ],
+      },
+    };
+
+    const { stdout, exitCode } = await runCommand([
+      "schedules",
+      "disable",
+      "schedule-1",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      schedules: [
+        expect.objectContaining({ id: "schedule-1", enabled: false }),
+      ],
+    });
+    expect(logLines).toEqual([]);
+  });
+
+  test("routes IPC failure through exitFromIpcResult", async () => {
+    mockIpcResult = { ok: false, error: "Schedule not found" };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "enable",
       "missing-schedule",
     ]);
 

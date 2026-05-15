@@ -63,15 +63,17 @@ export function registerSchedulesCommand(program: Command): void {
 Schedules are recurring or one-shot jobs run by the assistant.
 
 This CLI namespace is intentionally landing incrementally. Today it supports
-listing schedules, viewing recent run history, and manually executing a schedule
-one time, and cancelling pending one-shot schedules; create, delete,
-enable/disable, and run inspection will follow as separate slices.
+listing schedules, viewing recent run history, enabling/disabling schedules,
+manually executing a schedule one time, and cancelling pending one-shot schedules;
+create, delete, and run inspection will follow as separate slices.
 
 Examples:
   $ assistant schedules list
   $ assistant schedules list --all
   $ assistant schedules runs <schedule-id>
   $ assistant schedules runs <schedule-id> --limit 25 --json
+  $ assistant schedules disable <schedule-id>
+  $ assistant schedules enable <schedule-id>
   $ assistant schedules cancel <schedule-id>
   $ assistant schedules execute <schedule-id>`,
       );
@@ -309,6 +311,57 @@ Examples:
         );
 
       schedules
+        .command("enable <id>")
+        .description("Enable a schedule")
+        .option("--json", "Machine-readable compact JSON output")
+        .addHelpText(
+          "after",
+          `
+Options:
+  --json   Output the updated schedule list as compact JSON.
+
+Arguments:
+  <id>   Schedule ID (UUID) — run 'assistant schedules list --all' to find it.
+
+Behavior:
+  Enables the schedule so it can run on future matching times. This does not
+  execute the schedule immediately; use 'assistant schedules execute <id>' for
+  manual run-now behavior.
+
+Examples:
+  $ assistant schedules enable 9f2c4f3a-3f1a-41e4-88e7-abc123
+  $ assistant schedules enable 9f2c4f3a-3f1a-41e4-88e7-abc123 --json`,
+        )
+        .action(async (id: string, opts: { json?: boolean }, cmd: Command) => {
+          await toggleScheduleEnabled(id, true, opts, cmd);
+        });
+
+      schedules
+        .command("disable <id>")
+        .description("Disable a schedule")
+        .option("--json", "Machine-readable compact JSON output")
+        .addHelpText(
+          "after",
+          `
+Options:
+  --json   Output the updated schedule list as compact JSON.
+
+Arguments:
+  <id>   Schedule ID (UUID) — run 'assistant schedules list --all' to find it.
+
+Behavior:
+  Disables the schedule so future scheduled fires are skipped until it is
+  enabled again. Existing run history is preserved.
+
+Examples:
+  $ assistant schedules disable 9f2c4f3a-3f1a-41e4-88e7-abc123
+  $ assistant schedules disable 9f2c4f3a-3f1a-41e4-88e7-abc123 --json`,
+        )
+        .action(async (id: string, opts: { json?: boolean }, cmd: Command) => {
+          await toggleScheduleEnabled(id, false, opts, cmd);
+        });
+
+      schedules
         .command("cancel <id>")
         .description("Cancel a pending one-shot schedule")
         .option("--json", "Machine-readable compact JSON output")
@@ -324,7 +377,7 @@ Arguments:
 
 Behavior:
   Cancels a pending one-shot schedule. Recurring schedules are not cancellable;
-  use enable/disable commands once those CLI slices land.
+  use 'assistant schedules disable <id>' to pause recurring schedules.
 
 Examples:
   $ assistant schedules cancel 9f2c4f3a-3f1a-41e4-88e7-abc123
@@ -407,6 +460,29 @@ Examples:
         });
     },
   });
+}
+
+async function toggleScheduleEnabled(
+  id: string,
+  enabled: boolean,
+  opts: { json?: boolean },
+  cmd: Command,
+): Promise<void> {
+  const scheduleId = id.trim();
+  const result = await cliIpcCall<ListSchedulesResponse>("toggleSchedule", {
+    pathParams: { id: scheduleId },
+    body: { enabled },
+  });
+
+  if (!result.ok) return exitFromIpcResult(result, cmd);
+
+  const response = result.result ?? { schedules: [] };
+  if (opts.json) {
+    writeOutput(cmd, response);
+    return;
+  }
+
+  log.info(`${enabled ? "Enabled" : "Disabled"} schedule: ${scheduleId}`);
 }
 
 function describeSchedule(schedule: ScheduleRecord): string {
