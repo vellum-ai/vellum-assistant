@@ -17,6 +17,7 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
     case registrationFailed(String)
     case provisioningFailed(String)
     case assistantInjectionFailed
+    case managedInferenceActivationFailed
     case multipleOrganizations
     /// organizationId is carried so the retire call doesn't re-resolve it.
     case existingRegistrationConflict(existing: PlatformAssistant, organizationId: String)
@@ -31,6 +32,8 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
             return "API key provisioning failed: \(message)"
         case .assistantInjectionFailed:
             return "Failed to inject API key into the assistant"
+        case .managedInferenceActivationFailed:
+            return "Failed to enable Vellum managed inference"
         case .multipleOrganizations:
             return "Multiple organizations found. Multi-org support is not yet available — please contact support."
         case .existingRegistrationConflict(let existing, _):
@@ -54,6 +57,9 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
 /// Does NOT write cloud = "vellum" into the lockfile.
 @MainActor
 public final class LocalAssistantBootstrapService {
+
+    private static let managedDefaultProfileName = "balanced"
+    private static let managedDefaultConnectionName = "anthropic-managed"
 
     private let authService: AuthService
     private let credentialStorage: CredentialStorage?
@@ -228,6 +234,7 @@ public final class LocalAssistantBootstrapService {
         if let secret = registration.webhookSecret, !secret.isEmpty {
             try? await injectWebhookSecretIntoAssistant(secret: secret)
         }
+        try await activateManagedInferenceDefaults()
 
         return platformAssistantId
     }
@@ -326,6 +333,39 @@ public final class LocalAssistantBootstrapService {
         guard response.isSuccess else {
             throw LocalBootstrapError.assistantInjectionFailed
         }
+    }
+
+    /// Re-enable the managed defaults that BYOK hatch disables before Vellum
+    /// credentials exist. This runs before the first wake-up send is released.
+    private func activateManagedInferenceDefaults() async throws {
+        let providerConnectionClient = ProviderConnectionClient()
+        let updatedConnection = await providerConnectionClient.updateProviderConnection(
+            name: Self.managedDefaultConnectionName,
+            auth: ProviderConnectionAuth(type: "platform"),
+            status: .active,
+            label: nil
+        )
+        guard updatedConnection != nil else {
+            log.error("Failed to activate managed inference connection: \(Self.managedDefaultConnectionName, privacy: .public)")
+            throw LocalBootstrapError.managedInferenceActivationFailed
+        }
+
+        let settingsClient = SettingsClient()
+        let didPatchProfile = await settingsClient.patchConfig([
+            "llm": [
+                "profiles": [
+                    Self.managedDefaultProfileName: [
+                        "status": "active"
+                    ]
+                ]
+            ]
+        ])
+        guard didPatchProfile else {
+            log.error("Failed to activate managed inference profile: \(Self.managedDefaultProfileName, privacy: .public)")
+            throw LocalBootstrapError.managedInferenceActivationFailed
+        }
+
+        log.info("Activated Vellum managed inference defaults")
     }
 
     /// Clears platform identity credentials and the assistant API key from
