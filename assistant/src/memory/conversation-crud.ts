@@ -96,6 +96,16 @@ export const messageMetadataSchema = z
     assistantMessageChannel: channelIdSchema.optional(),
     userMessageInterface: interfaceIdSchema.optional(),
     assistantMessageInterface: interfaceIdSchema.optional(),
+    /**
+     * Optional client-side metadata bag attached to user messages by HTTP
+     * header middleware (reads `x-vellum-browser-family`,
+     * `x-vellum-browser-version`, `x-vellum-client-os`,
+     * `x-vellum-interface-version`). Forwarded verbatim onto
+     * `TurnTelemetryEvent.client` for downstream analytics. Kept as a
+     * permissive `record` so adding a new client field doesn't require a
+     * migration -- dbt can unpack later via JSON_VALUE.
+     */
+    client: z.record(z.string(), z.unknown()).optional(),
     subagentNotification: subagentNotificationSchema.optional(),
     /**
      * Trust class of the actor at the time this message was persisted.

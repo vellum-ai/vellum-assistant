@@ -53,14 +53,22 @@ private struct TrustRuleSuggestionResponse: Decodable {
 
 // MARK: - Errors
 
+private struct GatewayErrorResponse: Decodable {
+    let error: String?
+}
+
 public enum TrustRuleClientError: Error, LocalizedError {
-    case requestFailed(Int)
+    case requestFailed(Int, String?)
     case notFound
     case featureDisabled
 
     public var errorDescription: String? {
         switch self {
-        case .requestFailed(let code): return "Trust rule v3 request failed (HTTP \(code))"
+        case .requestFailed(let code, let serverMessage):
+            if let serverMessage, !serverMessage.isEmpty {
+                return serverMessage
+            }
+            return "Trust rule request failed (HTTP \(code))"
         case .notFound: return "Trust rule not found"
         case .featureDisabled: return "Feature not enabled"
         }
@@ -92,6 +100,10 @@ public protocol TrustRuleClientProtocol {
 public struct TrustRuleClient: TrustRuleClientProtocol {
     nonisolated public init() {}
 
+    private static func extractServerError(from data: Data) -> String? {
+        try? JSONDecoder().decode(GatewayErrorResponse.self, from: data).error
+    }
+
     public func listRules(origin: String? = nil, tool: String? = nil, includeDeleted: Bool? = nil) async throws -> [TrustRule] {
         var params: [String: String] = [:]
         if let origin { params["origin"] = origin }
@@ -103,7 +115,7 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
         )
         guard response.isSuccess else {
             log.error("listRules failed (HTTP \(response.statusCode))")
-            throw TrustRuleClientError.requestFailed(response.statusCode)
+            throw TrustRuleClientError.requestFailed(response.statusCode, Self.extractServerError(from: response.data))
         }
         return try JSONDecoder().decode(TrustRuleListResponse.self, from: response.data).rules
     }
@@ -124,7 +136,7 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
         }
         guard response.isSuccess else {
             log.error("createRule failed (HTTP \(response.statusCode))")
-            throw TrustRuleClientError.requestFailed(response.statusCode)
+            throw TrustRuleClientError.requestFailed(response.statusCode, Self.extractServerError(from: response.data))
         }
         return try JSONDecoder().decode(TrustRuleSingleResponse.self, from: response.data).rule
     }
@@ -146,7 +158,7 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
         }
         guard response.isSuccess else {
             log.error("updateRule failed (HTTP \(response.statusCode))")
-            throw TrustRuleClientError.requestFailed(response.statusCode)
+            throw TrustRuleClientError.requestFailed(response.statusCode, Self.extractServerError(from: response.data))
         }
         return try JSONDecoder().decode(TrustRuleSingleResponse.self, from: response.data).rule
     }
@@ -164,7 +176,7 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
         }
         guard response.isSuccess else {
             log.error("deleteRule failed (HTTP \(response.statusCode))")
-            throw TrustRuleClientError.requestFailed(response.statusCode)
+            throw TrustRuleClientError.requestFailed(response.statusCode, Self.extractServerError(from: response.data))
         }
     }
 
@@ -181,7 +193,7 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
         }
         guard response.isSuccess else {
             log.error("resetRule failed (HTTP \(response.statusCode))")
-            throw TrustRuleClientError.requestFailed(response.statusCode)
+            throw TrustRuleClientError.requestFailed(response.statusCode, Self.extractServerError(from: response.data))
         }
         return try JSONDecoder().decode(TrustRuleSingleResponse.self, from: response.data).rule
     }
@@ -223,7 +235,7 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
         }
         guard response.isSuccess else {
             log.error("suggestRule failed (HTTP \(response.statusCode))")
-            throw TrustRuleClientError.requestFailed(response.statusCode)
+            throw TrustRuleClientError.requestFailed(response.statusCode, Self.extractServerError(from: response.data))
         }
         return try JSONDecoder().decode(TrustRuleSuggestionResponse.self, from: response.data).suggestion
     }

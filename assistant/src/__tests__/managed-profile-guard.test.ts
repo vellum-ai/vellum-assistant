@@ -67,6 +67,8 @@ mock.module("../config/loader.js", () => ({
   },
   getConfig: () => rawConfig,
   invalidateConfigCache: () => {},
+  withSuppressedConfigDiskWrites: async (fn: () => unknown) => fn(),
+  withSuppressedConfigDiskWritesSync: (fn: () => unknown) => fn(),
 }));
 
 mock.module("../providers/registry.js", () => ({

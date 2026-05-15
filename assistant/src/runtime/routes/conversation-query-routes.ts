@@ -28,6 +28,8 @@ import {
   loadRawConfig,
   saveRawConfig,
   setNestedValue,
+  withSuppressedConfigDiskWrites,
+  withSuppressedConfigDiskWritesSync,
 } from "../../config/loader.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
@@ -229,7 +231,7 @@ function getModelSetContext(): ModelSetContext {
       watcher.suppressConfigReload = value;
     },
     updateConfigFingerprint() {
-      watcher.updateFingerprint();
+      withSuppressedConfigDiskWritesSync(() => watcher.updateFingerprint());
     },
     debounceTimers: watcher.timers,
   };
@@ -471,15 +473,14 @@ async function commitConfigWrite(
 
   clearEmbeddingBackendCache();
   invalidateConfigCache();
-  // Reinitialize providers so the live registry reflects the new config
-  // (e.g. a mode flip between managed and your-own). Isolated try/catch so
-  // a provider reinit failure doesn't mask the successful config save.
-  // Only advance the config fingerprint on success - if reinit failed, leave
-  // it stale so the watcher can detect the saved config on the next event
-  // and retry provider initialization.
+  // Reinitialize providers so the live registry reflects the new config.
+  // Suppress disk writes inside loadConfig() — we just wrote the raw config
+  // and the first-launch seed path would overwrite it with full defaults.
   try {
-    await initializeProviders(getConfig());
-    configWatcher.updateFingerprint();
+    await withSuppressedConfigDiskWrites(async () => {
+      await initializeProviders(getConfig());
+      configWatcher.updateFingerprint();
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, `${opLabel} config: provider reinit failed: ${message}`);
