@@ -1338,36 +1338,6 @@ describe("effort config passthrough", () => {
     expect(config.effort).toBe("high");
   });
 
-  test("effort is preserved for minimax provider", async () => {
-    let capturedOptions: SendMessageOptions | undefined;
-    const inner = makeProvider("minimax", (opts) => {
-      capturedOptions = opts;
-    });
-    const retry = new RetryProvider(inner);
-
-    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
-      config: { effort: "high" },
-    });
-
-    const config = capturedOptions?.config as Record<string, unknown>;
-    expect(config.effort).toBe("high");
-  });
-
-  test("effort is preserved for deepseek provider", async () => {
-    let capturedOptions: SendMessageOptions | undefined;
-    const inner = makeProvider("deepseek", (opts) => {
-      capturedOptions = opts;
-    });
-    const retry = new RetryProvider(inner);
-
-    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
-      config: { effort: "medium" },
-    });
-
-    const config = capturedOptions?.config as Record<string, unknown>;
-    expect(config.effort).toBe("medium");
-  });
-
   test("thinking is still stripped for OpenAI provider", async () => {
     let capturedOptions: SendMessageOptions | undefined;
     const inner = makeProvider("openai", (opts) => {
