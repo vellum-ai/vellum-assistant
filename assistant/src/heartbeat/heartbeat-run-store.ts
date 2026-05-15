@@ -23,7 +23,8 @@ export type HeartbeatSkipReason =
   | "disabled"
   | "outside_active_hours"
   | "overlap"
-  | "pre_first_user_message";
+  | "pre_first_user_message"
+  | "max_consecutive_runs";
 
 export interface HeartbeatRunRecord {
   id: string;

@@ -47,6 +47,15 @@ export const HeartbeatConfigSchema = z
       .describe(
         "Hour of the day (0-23) when heartbeat checks stop, or null to disable active hours restriction",
       ),
+    maxConsecutiveRuns: z
+      .number({ error: "heartbeat.maxConsecutiveRuns must be a number" })
+      .int("heartbeat.maxConsecutiveRuns must be an integer")
+      .positive("heartbeat.maxConsecutiveRuns must be a positive integer")
+      .nullable()
+      .default(3)
+      .describe(
+        "Maximum heartbeats that can run consecutively without a guardian message. Counter resets when the guardian sends a message. Set to null for unlimited.",
+      ),
   })
   .describe("Periodic heartbeat configuration for health monitoring")
   .superRefine((config, ctx) => {
