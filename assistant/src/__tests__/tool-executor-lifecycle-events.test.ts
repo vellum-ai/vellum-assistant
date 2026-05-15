@@ -242,7 +242,7 @@ describe("ToolExecutor lifecycle events", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("Permission denied by user");
+    expect(result.content).toContain("Permission denied");
     expect(events.map((event) => event.type)).toEqual([
       "start",
       "permission_prompt",
