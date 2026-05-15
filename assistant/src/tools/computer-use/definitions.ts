@@ -374,7 +374,7 @@ export const computerUseOpenAppTool: Tool = {
 export const computerUseRunAppleScriptTool: Tool = {
   name: "computer_use_run_applescript",
   description:
-    "Run an AppleScript command. Prefer this over click/type when possible - it doesn't move the cursor or interrupt the user. Never use 'do shell script' inside AppleScript (blocked for security).",
+    "Run an AppleScript command. Prefer this over click/type when possible - it doesn't move the cursor or interrupt foreground activity. Never use 'do shell script' inside AppleScript (blocked for security).",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
@@ -448,7 +448,7 @@ export const computerUseDoneTool: Tool = {
 export const computerUseRespondTool: Tool = {
   name: "computer_use_respond",
   description:
-    "Respond to the user with a text answer instead of performing computer actions. Use this when you can answer directly without interacting with the screen.",
+    "Reply with a text answer instead of performing computer actions. Use this when you can answer directly without interacting with the screen.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionMode: "proxy",
@@ -462,7 +462,7 @@ export const computerUseRespondTool: Tool = {
         properties: {
           answer: {
             type: "string",
-            description: "The text answer to display to the user",
+            description: "The text answer to display",
           },
           reasoning: {
             type: "string",

@@ -95,7 +95,7 @@ function buildHostBashProxyEnv(
 class HostShellTool implements Tool {
   name = "host_bash";
   description =
-    "LAST RESORT — Execute a shell command directly on the user's host machine. You MUST strongly prefer the regular `bash` tool for all commands. Only use `host_bash` when you are absolutely certain the command MUST run on the user's host machine and CANNOT run in the workspace (e.g., managing host-level system services, accessing host-only peripherals, or interacting with host paths outside the workspace). If in doubt, use `bash` instead. Approval-gated: your user must allow each invocation. Do not use for commands that require injected credentials or secrets.";
+    "LAST RESORT — Execute a shell command directly on the host machine. You MUST strongly prefer the regular `bash` tool for all commands. Only use `host_bash` when you are absolutely certain the command MUST run on the host machine and CANNOT run in the workspace (e.g., managing host-level system services, accessing host-only peripherals, or interacting with host paths outside the workspace). If in doubt, use `bash` instead. Approval-gated: each invocation must be explicitly approved. Do not use for commands that require injected credentials or secrets.";
   category = "host-terminal";
   // host_bash is a weaker-tier escape hatch under CES lockdown. It remains
   // Medium risk by default but persistent approvals are disabled for

@@ -90,7 +90,7 @@ const MODE_TRADEOFFS: Record<StatusCheckMode, string[]> = {
   [BROWSER_STATUS_MODE.EXTENSION]: [
     "This is the preferred approach for all things browser-use.",
     "On macOS, the host browser proxy is provisioned automatically via the desktop client's SSE bridge — no extension install required.",
-    "When the Chrome extension is also installed, it takes priority for direct WebSocket routing to the user's Chrome session.",
+    "When the Chrome extension is also installed, it takes priority for direct WebSocket routing to the active Chrome session.",
     "More secure than relying on Chrome's native remote debugging functionality.",
   ],
   [BROWSER_STATUS_MODE.CDP_INSPECT]: [
@@ -101,8 +101,8 @@ const MODE_TRADEOFFS: Record<StatusCheckMode, string[]> = {
   ],
   [BROWSER_STATUS_MODE.LOCAL]: [
     "The least-preferred approach for all things browser-use.",
-    "Considered a last-resort fallback if the user has not installed the Chrome Extension or enabled remote debugging in Chrome, and has indicated that they do not want to.",
-    "Does not use the user's existing browser profile, so sessions/cookies may differ.",
+    "Considered a last-resort fallback when the Chrome Extension is not installed, remote debugging in Chrome is not enabled, and neither will be enabled.",
+    "Does not use the existing browser profile, so sessions/cookies may differ.",
     "Requires that Playwright and Chromium are installed on the host machine,",
   ],
 };
@@ -392,8 +392,8 @@ function acquireCdpClientWithMode(
     targetClientId != null
       ? "extension"
       : browserMode === "auto" && rememberedKind !== null
-      ? rememberedKind
-      : browserMode;
+        ? rememberedKind
+        : browserMode;
 
   try {
     const raw = getCdpClient(context, { mode: effectiveMode, targetClientId });
@@ -406,7 +406,11 @@ function acquireCdpClientWithMode(
     // sticky preference doesn't surface as a hard failure.
     // Do not apply this fallback when target_client_id is set — a targeting
     // failure must surface as an error, not silently route elsewhere.
-    if (browserMode === "auto" && effectiveMode !== "auto" && targetClientId == null) {
+    if (
+      browserMode === "auto" &&
+      effectiveMode !== "auto" &&
+      targetClientId == null
+    ) {
       browserManager.clearPreferredBackendKind(context.conversationId);
       try {
         const raw = getCdpClient(context, { mode: "auto", targetClientId });
@@ -952,10 +956,10 @@ export async function executeBrowserNavigate(
                 "2. Use credential fill to enter email/password from credential_store",
               );
               lines.push(
-                "3. For email verification codes, use ui_show with a form to ask the user for the code mid-turn",
+                "3. For email verification codes, use ui_show with a form to request the code mid-turn",
               );
               lines.push(
-                "4. Do NOT give up or tell the user to sign in manually - handle the login flow yourself",
+                "4. Do NOT give up or suggest manual sign-in - handle the login flow yourself",
               );
             }
           } else {
@@ -964,7 +968,7 @@ export async function executeBrowserNavigate(
               "⚠️ CAPTCHA/Cloudflare verification detected on this page.",
             );
             lines.push(
-              "The user needs to solve this challenge manually. Please inform the user that the page requires human verification before the content can be accessed.",
+              "This challenge requires human verification. Surface this clearly: the page cannot be accessed until the verification is solved manually.",
             );
           }
         } else {
@@ -979,10 +983,10 @@ export async function executeBrowserNavigate(
             "2. Use credential fill to enter email/password from credential_store",
           );
           lines.push(
-            "3. For email verification codes, use ui_show with a form to ask the user for the code mid-turn",
+            "3. For email verification codes, use ui_show with a form to request the code mid-turn",
           );
           lines.push(
-            "4. Do NOT give up or tell the user to sign in manually - handle the login flow yourself",
+            "4. Do NOT give up or suggest manual sign-in - handle the login flow yourself",
           );
         }
       }

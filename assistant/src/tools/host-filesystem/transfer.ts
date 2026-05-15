@@ -13,7 +13,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 class HostFileTransferTool implements Tool {
   name = "host_file_transfer";
   description =
-    "Copy a file between the assistant's workspace and the user's host machine. Set direction to 'to_host' to send a workspace file to the host, or 'to_sandbox' to pull a host file into the workspace. When multiple clients support host_file, specify which one to use with target_client_id.";
+    "Copy a file between the assistant's workspace and the host machine. Set direction to 'to_host' to send a workspace file to the host, or 'to_sandbox' to pull a host file into the workspace. When multiple clients support host_file, specify which one to use with target_client_id.";
   category = "host-filesystem";
   defaultRiskLevel = RiskLevel.Medium;
 

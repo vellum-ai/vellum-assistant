@@ -74,7 +74,7 @@ export type AskQuestionInput = z.infer<typeof InputSchema>;
 // ── Tool description ────────────────────────────────────────────────
 
 const DESCRIPTION = [
-  "Use this tool whenever the user's request is ambiguous and can be resolved",
+  "Use this tool whenever a request is ambiguous and can be resolved",
   "by 2–4 plausible interpretations or discrete choices. Prefer it over",
   "plain-text clarification — structured options are faster to answer and",
   "remove guessing.",
@@ -82,7 +82,7 @@ const DESCRIPTION = [
   "When in doubt between (a) asking inline and (b) calling ask_question with",
   "structured options: call ask_question. The structured choices are better UX.",
   "",
-  'Example: if the user says "schedule lunch with Alice next week" and there',
+  'Example: given a request like "schedule lunch with Alice next week" where there',
   "are two plausible Alice contacts, ask which Alice with options like",
   '`{id: "alice_work", label: "Alice (work)"}` and',
   '`{id: "alice_personal", label: "Alice (personal)"}`.',
@@ -97,8 +97,8 @@ const DESCRIPTION = [
   "- You're about to take a low-stakes reversible action and can adjust based",
   "  on feedback.",
   "",
-  "If the user skips a question, proceed with reasonable defaults for that",
-  "question; if they skip every question in the batch, stop interrupting them",
+  "If a question is skipped, proceed with reasonable defaults for that",
+  "question; if every question in the batch is skipped, stop interrupting",
   "and use defaults across the board.",
   "",
   "Provide 2–4 options. A free-text fallback is always added by the UI — do not",
@@ -169,7 +169,7 @@ export class AskQuestionTool implements Tool {
               properties: {
                 question: {
                   type: "string",
-                  description: "The clarifying question shown to the user.",
+                  description: "The clarifying question to display.",
                 },
                 description: {
                   type: "string",
