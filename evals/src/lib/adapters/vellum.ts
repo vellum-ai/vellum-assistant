@@ -1,13 +1,14 @@
 import type {
-  AgentAdapter,
   AgentEvent,
+  AgentHatchInput,
   AgentMessage,
-  RunningAgent,
+  BaseAgent,
 } from "../adapter";
 import type { Profile } from "../profile";
 import {
-  prepareDockerEgressJail,
-  vellumDockerResourceNames,
+  applyDockerEgressJail,
+  type DockerEgressJail,
+  vellumDockerAssistantContainer,
 } from "../egress/docker-jail";
 import {
   assertSuccess,
@@ -17,17 +18,15 @@ import {
 } from "../runtime/command-runner";
 import { parseNdjson } from "../runtime/ndjson";
 
-export interface VellumAdapterOptions {
+async function* emptyLines(): AsyncGenerator<string> {}
+
+export interface VellumAgentOptions {
+  profile: Profile;
+  testId: string;
+  runId?: string;
   runner?: CommandRunner;
   cliCommand?: string;
-  allowHosts?: string[];
 }
-
-const DEFAULT_ALLOW_HOSTS = [
-  "api.anthropic.com",
-  "api.openai.com",
-  "generativelanguage.googleapis.com",
-];
 
 function setupCommands(profile: Profile): string[] {
   const setup = profile.manifest.setup;
@@ -39,108 +38,85 @@ function shellWords(command: string): string[] {
   return ["sh", "-lc", command];
 }
 
-export class VellumAdapter implements AgentAdapter {
-  private readonly runner: CommandRunner;
-  private readonly cliCommand: string;
-  private readonly allowHosts: string[];
-
-  constructor(opts: VellumAdapterOptions = {}) {
-    this.runner = opts.runner ?? new NodeCommandRunner();
-    this.cliCommand = opts.cliCommand ?? "vellum";
-    this.allowHosts = opts.allowHosts ?? DEFAULT_ALLOW_HOSTS;
-  }
-
-  async spawn(input: {
-    profile: Profile;
-    testId: string;
-    runId?: string;
-  }): Promise<RunningAgent> {
-    if (input.profile.manifest.species !== "vellum") {
-      throw new Error(
-        `VellumAdapter can only run species=vellum profiles (received ${input.profile.manifest.species})`,
-      );
-    }
-
-    const instanceName =
-      input.runId ?? `eval-${input.profile.id}-${input.testId}-${Date.now()}`;
-    const resources = vellumDockerResourceNames(instanceName);
-    const jail = await prepareDockerEgressJail(this.runner, {
-      instanceName,
-      networkName: resources.networkName,
-      allowHosts: this.allowHosts,
-    });
-
-    try {
-      const hatch = await this.runner.run(
-        this.cliCommand,
-        ["hatch", "vellum", "--remote", "docker", "--name", instanceName],
-        { env: jail.env },
-      );
-      assertSuccess(hatch, `hatch Vellum profile ${input.profile.id}`);
-
-      for (const command of setupCommands(input.profile)) {
-        const setup = await this.runner.run(
-          this.cliCommand,
-          ["exec", instanceName, "--", ...shellWords(command)],
-          { env: jail.env },
-        );
-        assertSuccess(setup, `setup command for profile ${input.profile.id}`);
-      }
-    } catch (err) {
-      await jail.stop();
-      await this.runner
-        .run(this.cliCommand, ["retire", instanceName])
-        .catch(() => undefined);
-      throw err;
-    }
-
-    const conversationKey = `evals:${input.testId}:${instanceName}`;
-    const eventsProcess = this.runner.spawn(this.cliCommand, [
-      "events",
-      instanceName,
-      "--conversation-key",
-      conversationKey,
-      "--json",
-    ]);
-
-    return new VellumRunningAgent({
-      runner: this.runner,
-      cliCommand: this.cliCommand,
-      instanceName,
-      conversationKey,
-      eventsProcess,
-      stopJail: jail.stop,
-    });
-  }
-}
-
-class VellumRunningAgent implements RunningAgent {
+export class VellumAgent implements BaseAgent {
   readonly id: string;
   readonly conversationKey: string;
 
+  private readonly profile: Profile;
   private readonly runner: CommandRunner;
   private readonly cliCommand: string;
-  private readonly eventsProcess: SpawnedProcess;
-  private readonly stopJail: () => Promise<void>;
+  private readonly testId: string;
+  private eventsProcess?: SpawnedProcess;
+  private jail?: DockerEgressJail;
+  private hatched = false;
   private stopped = false;
 
-  constructor(opts: {
-    runner: CommandRunner;
-    cliCommand: string;
-    instanceName: string;
-    conversationKey: string;
-    eventsProcess: SpawnedProcess;
-    stopJail: () => Promise<void>;
-  }) {
-    this.runner = opts.runner;
-    this.cliCommand = opts.cliCommand;
-    this.id = opts.instanceName;
-    this.conversationKey = opts.conversationKey;
-    this.eventsProcess = opts.eventsProcess;
-    this.stopJail = opts.stopJail;
+  constructor(opts: VellumAgentOptions) {
+    this.profile = opts.profile;
+    this.testId = opts.testId;
+    this.runner = opts.runner ?? new NodeCommandRunner();
+    this.cliCommand = opts.cliCommand ?? "vellum";
+    this.id =
+      opts.runId ?? `eval-${opts.profile.id}-${opts.testId}-${Date.now()}`;
+    this.conversationKey = `evals:${opts.testId}:${this.id}`;
+  }
+
+  async hatch(): Promise<void> {
+    if (this.hatched) return;
+    if (this.profile.manifest.species !== "vellum") {
+      throw new Error(
+        `VellumAgent can only run species=vellum profiles (received ${this.profile.manifest.species})`,
+      );
+    }
+
+    let hatchStarted = false;
+    try {
+      const hatch = await this.runner.run(this.cliCommand, [
+        "hatch",
+        "vellum",
+        "--remote",
+        "docker",
+        "--name",
+        this.id,
+      ]);
+      assertSuccess(hatch, `hatch Vellum profile ${this.profile.id}`);
+      hatchStarted = true;
+
+      this.jail = await applyDockerEgressJail(this.runner, {
+        containerName: vellumDockerAssistantContainer(this.id),
+      });
+
+      for (const command of setupCommands(this.profile)) {
+        const setup = await this.runner.run(this.cliCommand, [
+          "exec",
+          this.id,
+          "--",
+          ...shellWords(command),
+        ]);
+        assertSuccess(setup, `setup command for profile ${this.profile.id}`);
+      }
+
+      this.eventsProcess = this.runner.spawn(this.cliCommand, [
+        "events",
+        this.id,
+        "--conversation-key",
+        this.conversationKey,
+        "--json",
+      ]);
+      this.hatched = true;
+    } catch (err) {
+      await this.jail?.stop().catch(() => undefined);
+      if (hatchStarted) {
+        await this.runner
+          .run(this.cliCommand, ["retire", this.id])
+          .catch(() => undefined);
+      }
+      throw err;
+    }
   }
 
   async send(message: AgentMessage): Promise<void> {
+    this.assertHatched();
     const result = await this.runner.run(this.cliCommand, [
       "message",
       this.id,
@@ -152,16 +128,32 @@ class VellumRunningAgent implements RunningAgent {
   }
 
   events(): AsyncIterable<AgentEvent> {
-    return parseNdjson<AgentEvent>(this.eventsProcess.stdout);
+    this.assertHatched();
+    return parseNdjson<AgentEvent>(this.eventsProcess?.stdout ?? emptyLines());
   }
 
   async shutdown(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
-    this.eventsProcess.kill();
-    await this.stopJail();
-    await this.runner
-      .run(this.cliCommand, ["retire", this.id])
-      .catch(() => undefined);
+    this.eventsProcess?.kill();
+    await this.jail?.stop().catch(() => undefined);
+    if (this.hatched) {
+      await this.runner
+        .run(this.cliCommand, ["retire", this.id])
+        .catch(() => undefined);
+    }
   }
+
+  private assertHatched(): void {
+    if (!this.hatched || !this.eventsProcess) {
+      throw new Error(`Agent ${this.id} has not been hatched`);
+    }
+  }
+}
+
+export function createVellumAgent(
+  input: AgentHatchInput,
+  opts: Omit<VellumAgentOptions, keyof AgentHatchInput> = {},
+): VellumAgent {
+  return new VellumAgent({ ...input, ...opts });
 }

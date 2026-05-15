@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  dockerEgressProxyName,
-  egressProxyEnv,
-  prepareDockerEgressJail,
-  vellumDockerResourceNames,
+  DEFAULT_MODEL_ALLOW_HOSTS,
+  applyDockerEgressJail,
+  dockerEgressJailContainerName,
+  vellumDockerAssistantContainer,
 } from "../egress/docker-jail";
 import type {
   CommandResult,
@@ -26,56 +26,69 @@ class FakeRunner implements CommandRunner {
 }
 
 describe("docker egress jail", () => {
-  test("derives Docker names from the Vellum instance name", () => {
-    expect(vellumDockerResourceNames("eval-vellum-bare")).toEqual({
-      assistantContainer: "eval-vellum-bare-assistant",
-      networkName: "eval-vellum-bare-net",
-    });
-    expect(dockerEgressProxyName("eval-vellum-bare")).toBe(
-      "eval-vellum-bare-egress-proxy",
+  test("derives deterministic Docker names from the assistant container", () => {
+    expect(vellumDockerAssistantContainer("eval-vellum-bare")).toBe(
+      "eval-vellum-bare-assistant",
+    );
+    expect(dockerEgressJailContainerName("eval-vellum-bare-assistant")).toBe(
+      "eval-vellum-bare-assistant-egress-jail",
     );
   });
 
-  test("returns proxy env forwarded into hatch", () => {
-    expect(egressProxyEnv("proxy", 8080)).toMatchObject({
-      VELLUM_ASSISTANT_HTTP_PROXY: "http://proxy:8080",
-      VELLUM_ASSISTANT_HTTPS_PROXY: "http://proxy:8080",
-      VELLUM_DOCKER_NETWORK_PRECREATED: "1",
-      VELLUM_ASSISTANT_NO_PROXY: "localhost,127.0.0.1,::1",
+  test("applies policy from a sidecar in the target container namespace", async () => {
+    const runner = new FakeRunner();
+
+    const jail = await applyDockerEgressJail(runner, {
+      containerName: "eval-run-1-assistant",
+      allowHosts: ["api.anthropic.com"],
+      jailImage: "jail-image@sha256:abc",
+      scriptPath: "/workspace/evals/docker-egress-jail.sh",
+    });
+
+    expect(runner.runs).toEqual(
+      [
+        ["docker", "rm", "-f", "eval-run-1-assistant-egress-jail"],
+        [
+          "docker",
+          "run",
+          "--rm",
+          "--name",
+          "eval-run-1-assistant-egress-jail",
+          "--network",
+          "container:eval-run-1-assistant",
+          "--cap-add",
+          "NET_ADMIN",
+          "--label",
+          "evals.vellum.ai/egress-jail=1",
+          "-e",
+          "ALLOW_HOSTS=api.anthropic.com",
+          "-v",
+          "/workspace/evals/docker-egress-jail.sh:/evals/apply-egress-jail.sh:ro",
+          "jail-image@sha256:abc",
+          "sh",
+          "/evals/apply-egress-jail.sh",
+        ],
+      ].map(([command, ...args]) => ({ command, args })),
+    );
+
+    await jail.stop();
+    expect(runner.runs.at(-1)).toEqual({
+      command: "docker",
+      args: ["rm", "-f", "eval-run-1-assistant-egress-jail"],
     });
   });
 
-  test("creates an internal network and dual-homes the proxy", async () => {
+  test("defaults to the shared model-provider allowlist", async () => {
     const runner = new FakeRunner();
-    const jail = await prepareDockerEgressJail(runner, {
-      instanceName: "eval-run",
-      networkName: "eval-run-net",
-      allowHosts: ["api.anthropic.com"],
+
+    await applyDockerEgressJail(runner, {
+      containerName: "eval-run-2-assistant",
+      scriptPath: "/workspace/evals/docker-egress-jail.sh",
     });
 
-    expect(jail.proxyContainer).toBe("eval-run-egress-proxy");
-    expect(runner.runs.map((r) => [r.command, ...r.args])).toEqual([
-      ["docker", "rm", "-f", "eval-run-egress-proxy"],
-      ["docker", "network", "rm", "eval-run-net"],
-      ["docker", "network", "create", "--internal", "eval-run-net"],
-      expect.arrayContaining([
-        "docker",
-        "run",
-        "-d",
-        "--name",
-        "eval-run-egress-proxy",
-        "-e",
-        "ALLOW_HOSTS=api.anthropic.com",
-      ]),
-      [
-        "docker",
-        "network",
-        "connect",
-        "--alias",
-        "eval-run-egress-proxy",
-        "eval-run-net",
-        "eval-run-egress-proxy",
-      ],
-    ]);
+    expect(DEFAULT_MODEL_ALLOW_HOSTS).toContain("api.anthropic.com");
+    expect(runner.runs[1].args).toContain(
+      `ALLOW_HOSTS=${DEFAULT_MODEL_ALLOW_HOSTS.join(",")}`,
+    );
   });
 });

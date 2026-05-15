@@ -23,18 +23,17 @@ export interface AgentEvent {
   };
 }
 
-export interface RunningAgent {
+export interface AgentHatchInput {
+  profile: Profile;
+  testId: string;
+  runId?: string;
+}
+
+export interface BaseAgent {
   readonly id: string;
   readonly conversationKey: string;
+  hatch(): Promise<void>;
   send(message: AgentMessage): Promise<void>;
   events(): AsyncIterable<AgentEvent>;
   shutdown(): Promise<void>;
-}
-
-export interface AgentAdapter {
-  spawn(input: {
-    profile: Profile;
-    testId: string;
-    runId?: string;
-  }): Promise<RunningAgent>;
 }

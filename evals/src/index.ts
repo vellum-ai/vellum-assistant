@@ -1,22 +1,15 @@
-/**
- * @vellumai/evals — Vellum Personal-Intelligence Benchmark harness.
- *
- * Public module API. The CLI entry is in `./cli.ts`.
- */
 export type {
-  AgentAdapter,
   AgentEvent,
+  AgentHatchInput,
   AgentMessage,
-  RunningAgent,
+  BaseAgent,
 } from "./lib/adapter";
-
-export { VellumAdapter } from "./lib/adapters/vellum";
-
+export { VellumAgent, createVellumAgent } from "./lib/adapters/vellum";
 export {
-  type Profile,
-  type ProfileManifest,
-  ProfileManifestSchema,
-  loadProfile,
-} from "./lib/profile";
-
-export { type TestDef, loadTestDef } from "./lib/test-def";
+  DEFAULT_MODEL_ALLOW_HOSTS,
+  applyDockerEgressJail,
+  dockerEgressJailContainerName,
+  vellumDockerAssistantContainer,
+} from "./lib/egress/docker-jail";
+export { loadProfile, ProfileManifestSchema } from "./lib/profile";
+export { loadTestDef } from "./lib/test-def";

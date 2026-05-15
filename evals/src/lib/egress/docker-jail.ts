@@ -1,178 +1,95 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { assertSuccess, type CommandRunner } from "../runtime/command-runner";
 
 export interface DockerEgressJailConfig {
-  /** Docker network created before `vellum hatch --remote docker` runs. */
-  networkName: string;
-  /** Unique assistant instance name. */
-  instanceName: string;
+  /** Container whose network namespace should be restricted. */
+  containerName: string;
   /** Hostnames allowed for outbound model traffic. */
-  allowHosts: string[];
-  /** Sidecar image that runs the local HTTP CONNECT proxy. */
-  proxyImage?: string;
-  /** Port exposed by the proxy sidecar inside the docker network. */
-  proxyPort?: number;
+  allowHosts?: string[];
+  /** Image containing sh, iptables, and getent. */
+  jailImage?: string;
+  /** Optional override for the host-side policy script path. */
+  scriptPath?: string;
 }
 
 export interface DockerEgressJail {
-  proxyContainer: string;
-  env: Record<string, string>;
   stop(): Promise<void>;
 }
 
-const DEFAULT_PROXY_IMAGE = "node:22-alpine";
-const DEFAULT_PROXY_PORT = 8080;
+export const DEFAULT_MODEL_ALLOW_HOSTS = [
+  "api.anthropic.com",
+  "api.openai.com",
+  "generativelanguage.googleapis.com",
+];
 
-const PROXY_SCRIPT = String.raw`
-const http = require("http");
-const net = require("net");
-const allow = new Set((process.env.ALLOW_HOSTS || "").split(",").map((s) => s.trim()).filter(Boolean));
-const port = Number(process.env.PROXY_PORT || "8080");
-function hostAllowed(host) {
-  const normalized = String(host || "").split(":")[0].toLowerCase();
-  for (const allowed of allow) {
-    const a = allowed.toLowerCase();
-    if (normalized === a || normalized.endsWith("." + a)) return true;
-  }
-  return false;
-}
-const server = http.createServer((req, res) => {
-  const target = new URL(req.url);
-  if (!hostAllowed(target.hostname)) {
-    res.writeHead(403);
-    res.end("blocked by evals egress jail");
-    return;
-  }
-  const upstream = http.request(target, { method: req.method, headers: req.headers }, (upstreamRes) => {
-    res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
-    upstreamRes.pipe(res);
-  });
-  upstream.on("error", () => {
-    res.writeHead(502);
-    res.end("upstream error");
-  });
-  req.pipe(upstream);
-});
-server.on("connect", (req, client, head) => {
-  const [host, rawPort] = req.url.split(":");
-  const port = Number(rawPort || "443");
-  if (!hostAllowed(host)) {
-    client.write("HTTP/1.1 403 Forbidden\r\n\r\n");
-    client.destroy();
-    return;
-  }
-  const upstream = net.connect(port, host, () => {
-    client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-    if (head.length) upstream.write(head);
-    upstream.pipe(client);
-    client.pipe(upstream);
-  });
-  upstream.on("error", () => client.destroy());
-});
-server.listen(port, "0.0.0.0");
-`;
+const DEFAULT_JAIL_IMAGE = "ghcr.io/nicolaka/netshoot:v0.13";
 
-/** Deterministic container names make cleanup idempotent and debuggable. */
-export function dockerEgressProxyName(instanceName: string): string {
-  return `${instanceName}-egress-proxy`;
+function defaultScriptPath(): string {
+  return resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "docker-egress-jail.sh",
+  );
 }
 
-export function egressProxyEnv(
-  proxyContainer: string,
-  proxyPort: number,
-): Record<string, string> {
-  const proxyUrl = `http://${proxyContainer}:${proxyPort}`;
-  return {
-    VELLUM_ASSISTANT_HTTP_PROXY: proxyUrl,
-    VELLUM_ASSISTANT_HTTPS_PROXY: proxyUrl,
-    VELLUM_ASSISTANT_NO_PROXY: "localhost,127.0.0.1,::1",
-    VELLUM_DOCKER_NETWORK_PRECREATED: "1",
-  };
+/** Deterministic Docker names make cleanup idempotent and debuggable. */
+export function dockerEgressJailContainerName(containerName: string): string {
+  return `${containerName}-egress-jail`;
 }
 
 /**
- * Prepare a block-by-default Docker network before hatching the assistant.
+ * Apply a block-by-default outbound policy to an already-created Docker
+ * container without requiring changes to the species being evaluated.
  *
- * Topology:
- * - `networkName` is created with `--internal`, so containers attached only to
- *   it have no direct route to the internet.
- * - The proxy sidecar starts on Docker's default bridge network, then joins the
- *   internal network with a DNS alias matching its container name.
- * - The assistant is hatched onto the pre-created internal network and receives
- *   HTTP(S)_PROXY env vars at container creation time.
+ * The helper launches a short-lived NET_ADMIN sidecar in the target
+ * container's network namespace. The sidecar installs iptables rules there,
+ * then exits. The policy remains attached to the namespace until the target
+ * container is retired.
  */
-export async function prepareDockerEgressJail(
+export async function applyDockerEgressJail(
   runner: CommandRunner,
   config: DockerEgressJailConfig,
 ): Promise<DockerEgressJail> {
-  const proxyPort = config.proxyPort ?? DEFAULT_PROXY_PORT;
-  const proxyImage = config.proxyImage ?? DEFAULT_PROXY_IMAGE;
-  const proxyContainer = dockerEgressProxyName(config.instanceName);
+  const allowHosts = config.allowHosts ?? DEFAULT_MODEL_ALLOW_HOSTS;
+  const jailContainer = dockerEgressJailContainerName(config.containerName);
+  const jailImage = config.jailImage ?? DEFAULT_JAIL_IMAGE;
+  const scriptPath = config.scriptPath ?? defaultScriptPath();
 
   await runner
-    .run("docker", ["rm", "-f", proxyContainer])
-    .catch(() => undefined);
-  await runner
-    .run("docker", ["network", "rm", config.networkName])
+    .run("docker", ["rm", "-f", jailContainer])
     .catch(() => undefined);
 
-  const network = await runner.run("docker", [
-    "network",
-    "create",
-    "--internal",
-    config.networkName,
-  ]);
-  assertSuccess(network, "create docker egress network");
-
-  const proxy = await runner.run("docker", [
+  const result = await runner.run("docker", [
     "run",
-    "-d",
+    "--rm",
     "--name",
-    proxyContainer,
+    jailContainer,
+    "--network",
+    `container:${config.containerName}`,
+    "--cap-add",
+    "NET_ADMIN",
     "--label",
-    `evals.vellum.ai/instance=${config.instanceName}`,
-    "--label",
-    `evals.vellum.ai/allow-hosts=${config.allowHosts.join(",")}`,
+    "evals.vellum.ai/egress-jail=1",
     "-e",
-    `ALLOW_HOSTS=${config.allowHosts.join(",")}`,
-    "-e",
-    `PROXY_PORT=${proxyPort}`,
-    proxyImage,
-    "node",
-    "-e",
-    PROXY_SCRIPT,
+    `ALLOW_HOSTS=${allowHosts.join(",")}`,
+    "-v",
+    `${scriptPath}:/evals/apply-egress-jail.sh:ro`,
+    jailImage,
+    "sh",
+    "/evals/apply-egress-jail.sh",
   ]);
-  assertSuccess(proxy, "start docker egress proxy");
-
-  const connect = await runner.run("docker", [
-    "network",
-    "connect",
-    "--alias",
-    proxyContainer,
-    config.networkName,
-    proxyContainer,
-  ]);
-  assertSuccess(connect, "attach egress proxy to internal network");
+  assertSuccess(result, `apply docker egress jail to ${config.containerName}`);
 
   return {
-    proxyContainer,
-    env: egressProxyEnv(proxyContainer, proxyPort),
     stop: async () => {
       await runner
-        .run("docker", ["rm", "-f", proxyContainer])
-        .catch(() => undefined);
-      await runner
-        .run("docker", ["network", "rm", config.networkName])
+        .run("docker", ["rm", "-f", jailContainer])
         .catch(() => undefined);
     },
   };
 }
 
-export function vellumDockerResourceNames(instanceName: string): {
-  assistantContainer: string;
-  networkName: string;
-} {
-  return {
-    assistantContainer: `${instanceName}-assistant`,
-    networkName: `${instanceName}-net`,
-  };
+export function vellumDockerAssistantContainer(instanceName: string): string {
+  return `${instanceName}-assistant`;
 }

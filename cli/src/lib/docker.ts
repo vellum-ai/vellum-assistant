@@ -987,19 +987,7 @@ export async function hatchDocker(
 
     emitProgress(3, 6, "Creating volumes...");
     log("📁 Creating network and volumes...");
-    const networkPrecreated =
-      process.env.VELLUM_DOCKER_NETWORK_PRECREATED === "1";
-    const networkInternal = process.env.VELLUM_DOCKER_NETWORK_INTERNAL === "1";
-    if (networkPrecreated) {
-      log(`Using pre-created Docker network: ${res.network}`);
-    } else {
-      await exec("docker", [
-        "network",
-        "create",
-        ...(networkInternal ? ["--internal"] : []),
-        res.network,
-      ]);
-    }
+    await exec("docker", ["network", "create", res.network]);
     await exec("docker", ["volume", "create", res.socketVolume]);
     await exec("docker", ["volume", "create", res.assistantIpcVolume]);
     await exec("docker", ["volume", "create", res.gatewayIpcVolume]);

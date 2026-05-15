@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { VellumAdapter } from "../adapters/vellum";
+import { VellumAgent } from "../adapters/vellum";
 import type { Profile } from "../profile";
 import type {
   CommandResult,
@@ -30,20 +30,12 @@ class FakeProcess implements SpawnedProcess {
 }
 
 class FakeRunner implements CommandRunner {
-  readonly runs: Array<{
-    command: string;
-    args: string[];
-    env?: Record<string, string>;
-  }> = [];
+  readonly runs: Array<{ command: string; args: string[] }> = [];
   readonly spawns: Array<{ command: string; args: string[] }> = [];
   readonly process = new FakeProcess();
 
-  async run(
-    command: string,
-    args: string[],
-    opts?: { env?: Record<string, string> },
-  ): Promise<CommandResult> {
-    this.runs.push({ command, args, env: opts?.env });
+  async run(command: string, args: string[]): Promise<CommandResult> {
+    this.runs.push({ command, args });
     return { exitCode: 0, stdout: "ok", stderr: "" };
   }
 
@@ -62,39 +54,22 @@ const profile: Profile = {
   workspaceDir: "/profiles/vellum-bare/workspace",
 };
 
-describe("VellumAdapter", () => {
-  test("prepares the jail, hatches a fresh docker assistant, runs setup, and subscribes to events", async () => {
+describe("VellumAgent", () => {
+  test("hatches a fresh docker assistant, applies the jail externally, runs setup, and subscribes to events", async () => {
     const runner = new FakeRunner();
-    const adapter = new VellumAdapter({ runner, cliCommand: "vellum" });
-
-    const agent = await adapter.spawn({
+    const agent = new VellumAgent({
+      runner,
+      cliCommand: "vellum",
       profile,
       testId: "timeline-recall",
       runId: "eval-run-1",
     });
 
+    await agent.hatch();
+
     expect(agent.id).toBe("eval-run-1");
     expect(agent.conversationKey).toBe("evals:timeline-recall:eval-run-1");
     expect(runner.runs.map((r) => [r.command, ...r.args])).toEqual([
-      ["docker", "rm", "-f", "eval-run-1-egress-proxy"],
-      ["docker", "network", "rm", "eval-run-1-net"],
-      ["docker", "network", "create", "--internal", "eval-run-1-net"],
-      expect.arrayContaining([
-        "docker",
-        "run",
-        "-d",
-        "--name",
-        "eval-run-1-egress-proxy",
-      ]),
-      [
-        "docker",
-        "network",
-        "connect",
-        "--alias",
-        "eval-run-1-egress-proxy",
-        "eval-run-1-net",
-        "eval-run-1-egress-proxy",
-      ],
       [
         "vellum",
         "hatch",
@@ -104,6 +79,16 @@ describe("VellumAdapter", () => {
         "--name",
         "eval-run-1",
       ],
+      ["docker", "rm", "-f", "eval-run-1-assistant-egress-jail"],
+      expect.arrayContaining([
+        "docker",
+        "run",
+        "--rm",
+        "--name",
+        "eval-run-1-assistant-egress-jail",
+        "--network",
+        "container:eval-run-1-assistant",
+      ]),
       [
         "vellum",
         "exec",
@@ -114,11 +99,7 @@ describe("VellumAdapter", () => {
         "assistant plugins install simple-memory",
       ],
     ]);
-
-    expect(runner.runs[5].env).toMatchObject({
-      VELLUM_ASSISTANT_HTTPS_PROXY: "http://eval-run-1-egress-proxy:8080",
-      VELLUM_DOCKER_NETWORK_PRECREATED: "1",
-    });
+    expect(runner.runs[2].args).toContain("--cap-add");
     expect(runner.spawns).toEqual([
       {
         command: "vellum",
@@ -141,17 +122,18 @@ describe("VellumAdapter", () => {
 
   test("sends through the same conversation key and shuts down resources", async () => {
     const runner = new FakeRunner();
-    const adapter = new VellumAdapter({ runner });
-    const agent = await adapter.spawn({
+    const agent = new VellumAgent({
+      runner,
       profile,
       testId: "timeline-recall",
       runId: "eval-run-2",
     });
 
+    await agent.hatch();
     await agent.send({ content: "hello" });
     await agent.shutdown();
 
-    expect(runner.runs.map((r) => [r.command, ...r.args]).slice(-4)).toEqual([
+    expect(runner.runs.map((r) => [r.command, ...r.args]).slice(-3)).toEqual([
       [
         "vellum",
         "message",
@@ -160,10 +142,45 @@ describe("VellumAdapter", () => {
         "evals:timeline-recall:eval-run-2",
         "hello",
       ],
-      ["docker", "rm", "-f", "eval-run-2-egress-proxy"],
-      ["docker", "network", "rm", "eval-run-2-net"],
+      ["docker", "rm", "-f", "eval-run-2-assistant-egress-jail"],
       ["vellum", "retire", "eval-run-2"],
     ]);
     expect(runner.process.killed).toBe(true);
+  });
+
+  test("does not retire a pre-existing assistant if hatch fails before creation succeeds", async () => {
+    class FailingRunner extends FakeRunner {
+      override async run(
+        command: string,
+        args: string[],
+      ): Promise<CommandResult> {
+        this.runs.push({ command, args });
+        if (args[0] === "hatch") {
+          return { exitCode: 1, stdout: "", stderr: "name already exists" };
+        }
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      }
+    }
+
+    const runner = new FailingRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "preexisting",
+    });
+
+    await expect(agent.hatch()).rejects.toThrow("name already exists");
+    expect(runner.runs.map((r) => [r.command, ...r.args])).toEqual([
+      [
+        "vellum",
+        "hatch",
+        "vellum",
+        "--remote",
+        "docker",
+        "--name",
+        "preexisting",
+      ],
+    ]);
   });
 });

@@ -77,40 +77,6 @@ describe("buildServiceRunArgs — assistant", () => {
     expect(args).toContain(`VELLUM_ASSISTANT_NAME=${instanceName}`);
   });
 
-  test("forwards proxy env vars into the assistant container when present", () => {
-    const saved = {
-      HTTP_PROXY: process.env.VELLUM_ASSISTANT_HTTP_PROXY,
-      HTTPS_PROXY: process.env.VELLUM_ASSISTANT_HTTPS_PROXY,
-      NO_PROXY: process.env.VELLUM_ASSISTANT_NO_PROXY,
-    };
-    process.env.VELLUM_ASSISTANT_HTTP_PROXY = "http://egress-proxy:8080";
-    process.env.VELLUM_ASSISTANT_HTTPS_PROXY = "http://egress-proxy:8080";
-    process.env.VELLUM_ASSISTANT_NO_PROXY = "localhost,127.0.0.1,::1";
-
-    try {
-      const args = buildAssistantArgs();
-      expect(args).toContain("HTTP_PROXY=http://egress-proxy:8080");
-      expect(args).toContain("HTTPS_PROXY=http://egress-proxy:8080");
-      expect(args).toContain("NO_PROXY=localhost,127.0.0.1,::1");
-    } finally {
-      if (saved.HTTP_PROXY === undefined) {
-        delete process.env.VELLUM_ASSISTANT_HTTP_PROXY;
-      } else {
-        process.env.VELLUM_ASSISTANT_HTTP_PROXY = saved.HTTP_PROXY;
-      }
-      if (saved.HTTPS_PROXY === undefined) {
-        delete process.env.VELLUM_ASSISTANT_HTTPS_PROXY;
-      } else {
-        process.env.VELLUM_ASSISTANT_HTTPS_PROXY = saved.HTTPS_PROXY;
-      }
-      if (saved.NO_PROXY === undefined) {
-        delete process.env.VELLUM_ASSISTANT_NO_PROXY;
-      } else {
-        process.env.VELLUM_ASSISTANT_NO_PROXY = saved.NO_PROXY;
-      }
-    }
-  });
-
   test("publishes the assistant HTTP port on all host interfaces so sibling bot containers can reach the daemon via host.docker.internal on both Docker Desktop and Linux", () => {
     const args = buildAssistantArgs();
     // The port mapping is expressed as two adjacent args: "-p" then the spec.

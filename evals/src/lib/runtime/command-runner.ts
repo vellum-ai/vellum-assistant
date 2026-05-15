@@ -27,6 +27,14 @@ export interface CommandRunner {
   ): SpawnedProcess;
 }
 
+function closeExitCode(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): number {
+  if (code !== null) return code;
+  return signal ? 128 : 1;
+}
+
 async function* streamToStrings(
   stream: NodeJS.ReadableStream | null,
 ): AsyncGenerator<string> {
@@ -56,7 +64,7 @@ export class NodeCommandRunner implements CommandRunner {
 
     const exitCode = await new Promise<number>((resolve, reject) => {
       child.on("error", reject);
-      child.on("close", (code) => resolve(code ?? 0));
+      child.on("close", (code, signal) => resolve(closeExitCode(code, signal)));
     });
 
     return {
@@ -84,7 +92,9 @@ export class NodeCommandRunner implements CommandRunner {
       wait: () =>
         new Promise<number>((resolve, reject) => {
           child.on("error", reject);
-          child.on("close", (code) => resolve(code ?? 0));
+          child.on("close", (code, signal) =>
+            resolve(closeExitCode(code, signal)),
+          );
         }),
       kill: (signal = "SIGTERM") => child.kill(signal),
     };
