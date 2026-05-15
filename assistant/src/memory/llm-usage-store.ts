@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type {
@@ -8,7 +8,7 @@ import type {
 } from "../usage/types.js";
 import { getDb } from "./db-connection.js";
 import { rawAll } from "./raw-query.js";
-import { llmUsageEvents } from "./schema.js";
+import { conversations, llmUsageEvents } from "./schema.js";
 import {
   bucketEventsByDay,
   bucketEventsByHour,
@@ -123,15 +123,96 @@ export function listUsageEvents(options?: { limit?: number }): UsageEvent[] {
   return rows.map(rowToUsageEvent);
 }
 
+/**
+ * Telemetry-flavoured `UsageEvent`: the persisted columns plus the two
+ * JOIN-computed conversation-level fields the reporter needs to emit
+ * for analytics (`avg turns per conversation`, `tokens on first turn`,
+ * foreground/background split on llm_usage rows themselves).
+ *
+ * Lives next to the query that produces it so the shape stays in lockstep
+ * with the SELECT; broader `UsageEvent` consumers stay untouched.
+ */
+export interface UnreportedUsageEvent extends UsageEvent {
+  /**
+   * Type of the parent conversation (`"standard"` / `"background"` /
+   * `"scheduled"`). Null when the LLM call has no `conversationId`
+   * (memory consolidation, background embedding work, etc.) and so no
+   * `conversations` row to join against.
+   */
+  conversationType: string | null;
+  /**
+   * 1-indexed position of the user turn this LLM call belongs to within
+   * the parent conversation, counting only real user turns (tool-result
+   * rows persisted with role="user" are excluded — same filter as the
+   * turn-event eligibility predicate). Computed as the count of user
+   * messages with `created_at <= this LLM call's created_at` in the
+   * parent conversation. Null when there's no parent conversation, or
+   * when the LLM call fired before any user turn (rare — covers seed
+   * agent starts).
+   */
+  turnIndex: number | null;
+}
+
 export function queryUnreportedUsageEvents(
   afterCreatedAt: number,
   afterId: string | undefined,
   limit: number,
-): UsageEvent[] {
+): UnreportedUsageEvent[] {
   const db = getDb();
+  // JOIN to `conversations` to attach `conversationType`. LEFT JOIN
+  // because `llm_usage_events.conversationId` is nullable — calls that
+  // aren't tied to a conversation (memory consolidation, etc.) still
+  // need to flush through telemetry.
+  //
+  // `turnIndex` is a correlated subquery counting real user turns in
+  // the same conversation up to and including this LLM call's
+  // `created_at`. The filter mirrors `queryUnreportedTurnEvents` so the
+  // two indexes stay aligned: an LLM call fired during processing of
+  // turn N reports `turn_index = N`, matching what the turn event
+  // stream emitted for the triggering user message.
   const rows = db
-    .select()
+    .select({
+      id: llmUsageEvents.id,
+      createdAt: llmUsageEvents.createdAt,
+      conversationId: llmUsageEvents.conversationId,
+      runId: llmUsageEvents.runId,
+      requestId: llmUsageEvents.requestId,
+      actor: llmUsageEvents.actor,
+      callSite: llmUsageEvents.callSite,
+      inferenceProfile: llmUsageEvents.inferenceProfile,
+      inferenceProfileSource: llmUsageEvents.inferenceProfileSource,
+      provider: llmUsageEvents.provider,
+      model: llmUsageEvents.model,
+      inputTokens: llmUsageEvents.inputTokens,
+      outputTokens: llmUsageEvents.outputTokens,
+      cacheCreationInputTokens: llmUsageEvents.cacheCreationInputTokens,
+      cacheReadInputTokens: llmUsageEvents.cacheReadInputTokens,
+      estimatedCostUsd: llmUsageEvents.estimatedCostUsd,
+      pricingStatus: llmUsageEvents.pricingStatus,
+      conversationType: conversations.conversationType,
+      // Null when conversationId is null (no parent conversation).
+      // Otherwise the count of eligible user turns up to and including
+      // this LLM call's createdAt. The COALESCE guard returns null
+      // (rather than 0) for the "no user turn yet" edge case so the
+      // analytics layer can distinguish "before-first-turn" LLM calls.
+      turnIndex: sql<number | null>`(
+        CASE WHEN ${llmUsageEvents.conversationId} IS NULL THEN NULL
+        ELSE (
+          SELECT COUNT(*) FROM messages AS m2
+          WHERE m2.conversation_id = ${llmUsageEvents.conversationId}
+            AND m2.role = 'user'
+            AND m2.content NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\'
+            AND m2.content NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'
+            AND m2.created_at <= ${llmUsageEvents.createdAt}
+        )
+        END
+      )`.as("turn_index"),
+    })
     .from(llmUsageEvents)
+    .leftJoin(
+      conversations,
+      eq(llmUsageEvents.conversationId, conversations.id),
+    )
     .where(
       afterId
         ? or(
@@ -146,7 +227,15 @@ export function queryUnreportedUsageEvents(
     .orderBy(asc(llmUsageEvents.createdAt), asc(llmUsageEvents.id))
     .limit(limit)
     .all();
-  return rows.map(rowToUsageEvent);
+  return rows.map((row) => ({
+    ...rowToUsageEvent(row),
+    conversationType: row.conversationType,
+    // SQLite returns COUNT(*) as 0 when no rows match; the CASE in the
+    // subquery already collapses the no-conversation case to NULL.
+    // Convert the integer column to `number | null` for the typed
+    // return value.
+    turnIndex: row.turnIndex === null ? null : Number(row.turnIndex),
+  }));
 }
 
 // ---------------------------------------------------------------------------

@@ -54,13 +54,16 @@ async function insertUserMessageAt(
 }
 
 describe("queryUnreportedTurnEvents", () => {
-  test("attaches conversationType for standard conversations", async () => {
+  test("attaches conversationId, conversationType, and turnIndex for a standard conversation", async () => {
     const conv = createConversation({ conversationType: "standard" });
     await insertUserMessageAt(conv.id, "hello", 1000);
 
     const events = queryUnreportedTurnEvents(0, undefined, 100);
     expect(events.length).toBe(1);
+    expect(events[0].conversationId).toBe(conv.id);
     expect(events[0].conversationType).toBe("standard");
+    // The single user message in this conversation is turn 1.
+    expect(events[0].turnIndex).toBe(1);
   });
 
   test("attaches conversationType for background and scheduled conversations", async () => {
@@ -115,6 +118,70 @@ describe("queryUnreportedTurnEvents", () => {
     expect(events.length).toBe(1);
     expect(events[0].id).toBe(realId);
     expect(events[0].conversationType).toBe("standard");
+    // Tool-result rows must NOT increment the turn index: this is the
+    // only real user turn in the conversation, so its index is 1 even
+    // though two synthetic role="user" rows exist with later timestamps.
+    expect(events[0].turnIndex).toBe(1);
+  });
+
+  test("turnIndex counts real user turns in (createdAt, id) order within a conversation", async () => {
+    const conv = createConversation({ conversationType: "standard" });
+    const m1 = await insertUserMessageAt(conv.id, "first", 1000);
+    const m2 = await insertUserMessageAt(conv.id, "second", 2000);
+    const m3 = await insertUserMessageAt(conv.id, "third", 3000);
+
+    const events = queryUnreportedTurnEvents(0, undefined, 100);
+    const byId = Object.fromEntries(events.map((e) => [e.id, e]));
+    expect(byId[m1].turnIndex).toBe(1);
+    expect(byId[m2].turnIndex).toBe(2);
+    expect(byId[m3].turnIndex).toBe(3);
+  });
+
+  test("turnIndex resets across conversations", async () => {
+    const a = createConversation({ conversationType: "standard" });
+    const b = createConversation({ conversationType: "standard" });
+    const a1 = await insertUserMessageAt(a.id, "a first", 1000);
+    const b1 = await insertUserMessageAt(b.id, "b first", 1500);
+    const a2 = await insertUserMessageAt(a.id, "a second", 2000);
+
+    const events = queryUnreportedTurnEvents(0, undefined, 100);
+    const byId = Object.fromEntries(events.map((e) => [e.id, e]));
+    // Conversation A: 1, 2. Conversation B: 1 (independent of A).
+    expect(byId[a1].turnIndex).toBe(1);
+    expect(byId[a2].turnIndex).toBe(2);
+    expect(byId[b1].turnIndex).toBe(1);
+    // And the conversation_id labels them correctly.
+    expect(byId[a1].conversationId).toBe(a.id);
+    expect(byId[b1].conversationId).toBe(b.id);
+  });
+
+  test("turnIndex skips tool_result rows even when they're interleaved", async () => {
+    const conv = createConversation({ conversationType: "standard" });
+    const real1 = await insertUserMessageAt(conv.id, "first real", 1000);
+
+    // Inject a tool_result row between the two real turns. The
+    // correlated subquery must use the same content filter as the
+    // outer query, otherwise turn_index would jump by 2 instead of 1.
+    const db = getDb();
+    db.insert(messages)
+      .values({
+        id: "interleaved-tool-result",
+        conversationId: conv.id,
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "x", content: "" },
+        ]),
+        createdAt: 1500,
+      })
+      .run();
+
+    const real2 = await insertUserMessageAt(conv.id, "second real", 2000);
+
+    const events = queryUnreportedTurnEvents(0, undefined, 100);
+    const byId = Object.fromEntries(events.map((e) => [e.id, e]));
+    expect(events.length).toBe(2);
+    expect(byId[real1].turnIndex).toBe(1);
+    expect(byId[real2].turnIndex).toBe(2);
   });
 
   test("respects the cursor and returns events in (createdAt, id) order", async () => {

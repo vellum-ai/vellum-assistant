@@ -7,12 +7,47 @@ export interface TurnEvent {
   id: string;
   createdAt: number;
   /**
+   * Parent conversation id. Lets downstream analytics group turns by
+   * conversation (e.g. avg turns per conversation).
+   */
+  conversationId: string;
+  /**
    * Conversation type of the parent conversation. Used downstream to
    * distinguish user-initiated turns (`"standard"`) from system-generated
    * prompts in `"background"` / `"scheduled"` conversations so analytics
    * (e.g. DAU) can exclude the latter.
    */
   conversationType: string;
+  /**
+   * 1-indexed position of this user turn within the parent conversation,
+   * counting only real user turns (tool-result rows persisted with
+   * role="user" are excluded — same filter as the eligibility predicate
+   * below). The first user turn in a conversation is `1`.
+   *
+   * Computed via correlated subquery on the same filtered set used for
+   * eligibility; this scales with batch size (≤ BATCH_SIZE turns per
+   * flush) and uses the `idx_messages_conversation_id` index for the
+   * partition lookup.
+   */
+  turnIndex: number;
+}
+
+/**
+ * SQL fragment that excludes tool-result rows persisted with role="user".
+ * Kept as a single source of truth so the eligibility predicate and the
+ * correlated `turn_index` count stay in lockstep — otherwise the index
+ * can drift from the visible turn stream and break "first turn" /
+ * "turns per conversation" math.
+ *
+ * `<alias>` is interpolated as the SQL identifier for the table whose
+ * `content` column should be filtered (e.g. `messages` for the outer
+ * query, `m2` for the correlated subquery).
+ */
+function realUserTurnContentFilter(alias: string): ReturnType<typeof sql> {
+  return sql.raw(
+    `${alias}.content NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\' ` +
+      `AND ${alias}.content NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'`,
+  );
 }
 
 /**
@@ -23,6 +58,9 @@ export interface TurnEvent {
  * The inner join is safe because `messages.conversationId` has a
  * not-null FK to `conversations.id` (cascade on delete): every message
  * row has a matching conversation row.
+ *
+ * `turnIndex` is computed via a correlated subquery counting the real
+ * user turns in the same conversation up to and including this row.
  */
 export function queryUnreportedTurnEvents(
   afterCreatedAt: number,
@@ -34,7 +72,21 @@ export function queryUnreportedTurnEvents(
     .select({
       id: messages.id,
       createdAt: messages.createdAt,
+      conversationId: messages.conversationId,
       conversationType: conversations.conversationType,
+      // 1-indexed turn position within the parent conversation. Counts
+      // only real user turns (same filter applied to the outer query).
+      // `(created_at, id)` lex-comparison matches the watermark cursor
+      // ordering so ties on `created_at` are broken deterministically.
+      turnIndex: sql<number>`(
+        SELECT COUNT(*) FROM messages AS m2
+        WHERE m2.conversation_id = ${messages.conversationId}
+          AND m2.role = 'user'
+          AND ${realUserTurnContentFilter("m2")}
+          AND (m2.created_at < ${messages.createdAt}
+               OR (m2.created_at = ${messages.createdAt}
+                   AND m2.id <= ${messages.id}))
+      )`.as("turn_index"),
     })
     .from(messages)
     .innerJoin(conversations, eq(messages.conversationId, conversations.id))

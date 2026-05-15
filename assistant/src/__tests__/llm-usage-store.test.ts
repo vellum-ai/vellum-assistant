@@ -1223,7 +1223,14 @@ describe("getUsageGroupedSeries", () => {
 describe("queryUnreportedUsageEvents", () => {
   beforeEach(() => {
     const db = getDb();
+    // Order matters: clear `llm_usage_events` (no FK), then `messages`
+    // (FK to conversations cascades, but be explicit), then
+    // `conversations`. The conversation-level metadata tests below
+    // depend on a clean conversations + messages slate so JOINs are
+    // deterministic.
     db.run(`DELETE FROM llm_usage_events`);
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
   });
 
   test("returns events with createdAt strictly greater than afterCreatedAt in ascending order", () => {
@@ -1276,5 +1283,112 @@ describe("queryUnreportedUsageEvents", () => {
   test("returns empty array when table is empty", () => {
     const events = queryUnreportedUsageEvents(0, undefined, 100);
     expect(events).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Conversation-level metadata (conversationType + turnIndex). These are
+  // JOIN-computed at telemetry-query time so the reporter can emit them on
+  // the wire without persisting extra columns on `llm_usage_events`.
+  // -------------------------------------------------------------------------
+
+  test("conversationType is JOINed from the conversations table", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-std', 'standard', ${now}, ${now})`,
+    );
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-bg', 'background', ${now}, ${now})`,
+    );
+
+    insertEventAt(1000, { conversationId: "conv-std" });
+    insertEventAt(2000, { conversationId: "conv-bg" });
+    insertEventAt(3000, { conversationId: null });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(3);
+    expect(events[0].conversationType).toBe("standard");
+    expect(events[1].conversationType).toBe("background");
+    // LLM calls without a parent conversation get null — LEFT JOIN, not INNER.
+    expect(events[2].conversationType).toBeNull();
+  });
+
+  test("turnIndex counts real user turns up to the LLM call's createdAt", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-1', 'standard', ${now}, ${now})`,
+    );
+    // Two user messages in the conversation.
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('m1', 'conv-1', 'user', 'hello', 1000)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('m2', 'conv-1', 'user', 'follow up', 3000)`,
+    );
+
+    // Three LLM calls across the timeline:
+    //  - mid-turn-1 (between m1 and m2)
+    //  - exactly at m2's createdAt (still counts m2: `created_at <= e.created_at`)
+    //  - after m2
+    insertEventAt(2000, { conversationId: "conv-1" });
+    insertEventAt(3000, { conversationId: "conv-1" });
+    insertEventAt(4000, { conversationId: "conv-1" });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(3);
+    expect(events[0].turnIndex).toBe(1);
+    expect(events[1].turnIndex).toBe(2);
+    expect(events[2].turnIndex).toBe(2);
+  });
+
+  test("turnIndex is null when the LLM call has no conversationId", () => {
+    insertEventAt(1000, { conversationId: null });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].conversationId).toBeNull();
+    expect(events[0].turnIndex).toBeNull();
+  });
+
+  test("turnIndex skips tool_result rows when counting", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-tr', 'standard', ${now}, ${now})`,
+    );
+    // One real user turn, then a tool_result row (which should be
+    // ignored), then the LLM call. Expected turn_index = 1.
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('real-1', 'conv-tr', 'user', 'real text', 1000)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('tool-1', 'conv-tr', 'user', '[{"type":"tool_result","tool_use_id":"x","content":""}]', 1500)`,
+    );
+    insertEventAt(2000, { conversationId: "conv-tr" });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].turnIndex).toBe(1);
+  });
+
+  test("turnIndex is 0 when the LLM call fires before any user message", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-early', 'standard', ${now}, ${now})`,
+    );
+    // LLM call fires at t=1000; first user message is at t=2000.
+    insertEventAt(1000, { conversationId: "conv-early" });
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('later', 'conv-early', 'user', 'hi', 2000)`,
+    );
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    // Conversation exists but no user turn has fired yet. The CASE
+    // short-circuits only on null conversationId, so we get a real 0.
+    // Analytics can treat 0 as "pre-first-turn" if needed.
+    expect(events[0].turnIndex).toBe(0);
   });
 });

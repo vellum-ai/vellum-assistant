@@ -34,7 +34,14 @@ mock.module("../memory/llm-usage-store.js", () => ({
 }));
 
 const mockQueryUnreportedTurnEvents = mock(
-  () => [] as { id: string; createdAt: number; conversationType: string }[],
+  () =>
+    [] as {
+      id: string;
+      createdAt: number;
+      conversationId: string;
+      conversationType: string;
+      turnIndex: number;
+    }[],
 );
 
 mock.module("../memory/turn-events-store.js", () => ({
@@ -127,7 +134,18 @@ import { UsageTelemetryReporter } from "./usage-telemetry-reporter.js";
 
 let eventIdCounter = 0;
 
-function makeUsageEvent(overrides: Partial<UsageEvent> = {}): UsageEvent {
+// The reporter consumes `UnreportedUsageEvent` (UsageEvent + the two
+// JOIN-computed fields `conversationType` and `turnIndex`). Build that
+// shape directly so the mock matches `queryUnreportedUsageEvents`'
+// return type exactly.
+type UnreportedUsageEventFixture = UsageEvent & {
+  conversationType: string | null;
+  turnIndex: number | null;
+};
+
+function makeUsageEvent(
+  overrides: Partial<UnreportedUsageEventFixture> = {},
+): UnreportedUsageEventFixture {
   eventIdCounter += 1;
   return {
     id: `evt-${eventIdCounter}`,
@@ -147,6 +165,8 @@ function makeUsageEvent(overrides: Partial<UsageEvent> = {}): UsageEvent {
     requestId: null,
     estimatedCostUsd: 0.001,
     pricingStatus: "priced",
+    conversationType: "standard",
+    turnIndex: 1,
     ...overrides,
   };
 }
@@ -525,7 +545,9 @@ describe("UsageTelemetryReporter", () => {
       {
         id: "evt-mixed-turn",
         createdAt: 1700000050000,
+        conversationId: "conv-mixed",
         conversationType: "standard",
+        turnIndex: 1,
       },
     ]);
     mockFetch.mockImplementation(() =>
@@ -557,7 +579,9 @@ describe("UsageTelemetryReporter", () => {
     expect(turnEvent).toBeDefined();
     expect(turnEvent.daemon_event_id).toBe("evt-mixed-turn");
     expect(turnEvent.recorded_at).toBe(1700000050000);
+    expect(turnEvent.conversation_id).toBe("conv-mixed");
     expect(turnEvent.conversation_type).toBe("standard");
+    expect(turnEvent.turn_index).toBe(1);
   });
 
   test("turn events carry conversation_type for background/scheduled conversations", async () => {
@@ -566,17 +590,23 @@ describe("UsageTelemetryReporter", () => {
       {
         id: "evt-turn-standard",
         createdAt: 1700000100000,
+        conversationId: "conv-std",
         conversationType: "standard",
+        turnIndex: 1,
       },
       {
         id: "evt-turn-background",
         createdAt: 1700000200000,
+        conversationId: "conv-bg",
         conversationType: "background",
+        turnIndex: 1,
       },
       {
         id: "evt-turn-scheduled",
         createdAt: 1700000300000,
+        conversationId: "conv-sched",
         conversationType: "scheduled",
+        turnIndex: 1,
       },
     ]);
     mockFetch.mockImplementation(() =>
@@ -602,6 +632,86 @@ describe("UsageTelemetryReporter", () => {
     expect(byId["evt-turn-standard"].conversation_type).toBe("standard");
     expect(byId["evt-turn-background"].conversation_type).toBe("background");
     expect(byId["evt-turn-scheduled"].conversation_type).toBe("scheduled");
+  });
+
+  test("llm_usage events carry conversation_id, conversation_type, and turn_index", async () => {
+    // Three LLM calls across the spectrum of the new fields:
+    //  - tied to a conversation, mid-turn (typical foreground)
+    //  - tied to a background conversation, first turn
+    //  - untied (memory consolidation: no conversation, no turn)
+    mockQueryUnreportedUsageEvents.mockReturnValue([
+      makeUsageEvent({
+        id: "evt-fg-call",
+        conversationId: "conv-fg",
+        conversationType: "standard",
+        turnIndex: 4,
+      }),
+      makeUsageEvent({
+        id: "evt-bg-call",
+        conversationId: "conv-bg",
+        conversationType: "background",
+        turnIndex: 1,
+      }),
+      makeUsageEvent({
+        id: "evt-untied-call",
+        conversationId: null,
+        conversationType: null,
+        turnIndex: null,
+      }),
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":3}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+
+    const byId: Record<
+      string,
+      {
+        type: string;
+        conversation_id: string | null;
+        conversation_type: string | null;
+        turn_index: number | null;
+      }
+    > = {};
+    for (const e of body.events as Array<{
+      type: string;
+      daemon_event_id: string;
+      conversation_id: string | null;
+      conversation_type: string | null;
+      turn_index: number | null;
+    }>) {
+      byId[e.daemon_event_id] = e;
+    }
+
+    expect(byId["evt-fg-call"]).toMatchObject({
+      type: "llm_usage",
+      conversation_id: "conv-fg",
+      conversation_type: "standard",
+      turn_index: 4,
+    });
+    expect(byId["evt-bg-call"]).toMatchObject({
+      type: "llm_usage",
+      conversation_id: "conv-bg",
+      conversation_type: "background",
+      turn_index: 1,
+    });
+    // LLM calls without a parent conversation flush through with all
+    // three conversation-level fields null — the serializer accepts
+    // allow_null and downstream SQL filters can `WHERE conversation_id
+    // IS NOT NULL` to scope to foreground analytics.
+    expect(byId["evt-untied-call"]).toMatchObject({
+      type: "llm_usage",
+      conversation_id: null,
+      conversation_type: null,
+      turn_index: null,
+    });
   });
 
   test("flush is skipped and watermarks advanced when collectUsageData is false", async () => {

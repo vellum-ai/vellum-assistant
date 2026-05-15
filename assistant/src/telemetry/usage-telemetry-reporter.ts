@@ -221,6 +221,13 @@ export class UsageTelemetryReporter {
           (e): TelemetryEvent => ({
             type: "llm_usage",
             daemon_event_id: e.id,
+            // Conversation-level metadata for analytics joins. All three
+            // are nullable on the wire: `conversation_id` is null for
+            // LLM calls not tied to a conversation (memory consolidation,
+            // background work), and the other two cascade from that.
+            conversation_id: e.conversationId,
+            conversation_type: e.conversationType,
+            turn_index: e.turnIndex,
             provider: e.provider,
             model: e.model,
             input_tokens: e.inputTokens,
@@ -240,7 +247,9 @@ export class UsageTelemetryReporter {
             type: "turn",
             daemon_event_id: e.id,
             recorded_at: e.createdAt,
+            conversation_id: e.conversationId,
             conversation_type: e.conversationType,
+            turn_index: e.turnIndex,
           }),
         ),
         ...lifecycleEvents.map(
