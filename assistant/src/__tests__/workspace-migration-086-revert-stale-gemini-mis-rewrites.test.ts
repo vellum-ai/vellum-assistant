@@ -162,6 +162,34 @@ describe("086-revert-stale-gemini-mis-rewrites migration", () => {
     expect(config.llm.profiles.custom.model).toBe("gemini-3-flash");
   });
 
+  test("reverts both profile and call-site when call-site references a candidate profile", () => {
+    // Regression for ordering bug: if profile reversion ran after call-site
+    // evaluation, the call-site would see the profile's pre-revert rewritten
+    // model and infer a Gemini context, masking its own need to revert.
+    writeConfig({
+      llm: {
+        default: { provider: "ollama", model: "llama3.2" },
+        profiles: {
+          custom: { model: "gemini-3-flash-preview" },
+        },
+        callSites: {
+          recall: { profile: "custom", model: "gemini-3-flash-preview" },
+        },
+      },
+    });
+
+    revertStaleGeminiMisRewritesMigration.run(workspaceDir);
+
+    const config = readConfig() as {
+      llm: {
+        profiles: { custom: { model: string } };
+        callSites: { recall: { model: string; profile: string } };
+      };
+    };
+    expect(config.llm.profiles.custom.model).toBe("gemini-3-flash");
+    expect(config.llm.callSites.recall.model).toBe("gemini-3-flash");
+  });
+
   test("mainAgent revert uses activeProfile over call-site for context", () => {
     writeConfig({
       llm: {
