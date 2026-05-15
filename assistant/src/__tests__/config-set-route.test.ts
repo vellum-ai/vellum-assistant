@@ -177,7 +177,7 @@ describe("config_set route - request validation", () => {
     expect(result).toEqual({ ok: true });
     expect(savedRaw).not.toBeNull();
 
-    const saved = savedRaw as Record<string, unknown>;
+    const saved = savedRaw as unknown as Record<string, unknown>;
     const llm = saved.llm as Record<string, unknown>;
     expect(llm.activeProfile).toBe("my-custom-profile");
 
@@ -214,7 +214,7 @@ describe("config_set route - request validation", () => {
       body: { path: "memory.cleanup.conversationRetentionDays", value: 30 },
     });
     expect(savedRaw).not.toBeNull();
-    const saved = savedRaw as Record<string, unknown>;
+    const saved = savedRaw as unknown as Record<string, unknown>;
     expect(saved.llm).toEqual({ default: { provider: "anthropic" } });
     expect(saved.calls).toEqual({ enabled: true });
     expect(saved.heartbeat).toEqual({
