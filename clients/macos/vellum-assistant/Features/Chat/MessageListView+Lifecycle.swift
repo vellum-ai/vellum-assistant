@@ -26,6 +26,12 @@ extension MessageListView {
         let isConversationSwitch = previousConversationId != nil
             && previousConversationId != conversationId
         scrollState.currentConversationId = conversationId
+        // Seed the anchor-preservation gate so it fires immediately when the
+        // view appears mid-stream (conversation switch into a still-streaming
+        // thread, or app launch with isSending=true). Otherwise it would only
+        // turn on at the next isSending transition, missing the growth that
+        // happens before that.
+        scrollState.isStreamingActive = isSending
         if isConversationSwitch {
             handleConversationSwitched()
         } else {
@@ -75,6 +81,10 @@ extension MessageListView {
     func handleSendingChanged() {
         // Guard against stale fires during a conversation switch.
         guard conversationId == scrollState.currentConversationId else { return }
+        // Mirror into the scroll state so the anchor-preservation gate flips
+        // synchronously with the send/stream lifecycle. See `isStreamingActive`
+        // on `MessageListScrollState` for the rationale.
+        scrollState.isStreamingActive = isSending
         if isSending {
             // Only pin on genuine user sends, not confirmation resumes.
             // When the assistant resumes from awaiting_confirmation,
