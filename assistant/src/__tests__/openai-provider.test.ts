@@ -21,6 +21,7 @@ interface FakeChunk {
   choices: Array<{
     delta: {
       content?: string | null;
+      reasoning_content?: string | null;
       tool_calls?: Array<{
         index: number;
         id?: string;
@@ -103,6 +104,17 @@ import { OpenRouterProvider } from "../providers/openrouter/client.js";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function reasoningChunk(
+  reasoning_content: string,
+  finish: string | null = null,
+): FakeChunk {
+  return {
+    choices: [{ delta: { reasoning_content }, finish_reason: finish }],
+    usage: null,
+    model: "gpt-5.2",
+  };
+}
 
 function textChunk(content: string, finish: string | null = null): FakeChunk {
   return {
@@ -1067,6 +1079,85 @@ describe("OpenAIProvider", () => {
         },
       ],
     });
+  });
+
+  // -----------------------------------------------------------------------
+  // reasoning_content (DeepSeek-style thinking) round-trip
+  // -----------------------------------------------------------------------
+  test("captures reasoning_content from stream as thinking block", async () => {
+    fakeChunks = [
+      reasoningChunk("Let me think"),
+      reasoningChunk(" about this."),
+      textChunk("Hello!"),
+      usageChunk(10, 5),
+    ];
+
+    const events: Array<{ type: string }> = [];
+    const result = await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      {
+        onEvent: (e) => events.push(e),
+      },
+    );
+
+    expect(result.content).toHaveLength(2);
+    expect(result.content[0]).toEqual({
+      type: "thinking",
+      thinking: "Let me think about this.",
+    });
+    expect(result.content[1]).toEqual({ type: "text", text: "Hello!" });
+
+    const thinkingDeltas = events.filter((e) => e.type === "thinking_delta");
+    expect(thinkingDeltas).toHaveLength(2);
+  });
+
+  test("includes reasoning_content on assistant messages in conversation history", async () => {
+    fakeChunks = [textChunk("OK"), usageChunk(10, 2)];
+
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "User said hello." },
+          { type: "text", text: "Hi there!" },
+        ],
+      },
+      { role: "user", content: [{ type: "text", text: "How are you?" }] },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const sent = lastCreateParams!.messages as Array<Record<string, unknown>>;
+    expect(sent[1]).toEqual({
+      role: "assistant",
+      content: "Hi there!",
+      reasoning_content: "User said hello.",
+    });
+  });
+
+  test("omits reasoning_content when no thinking blocks exist", async () => {
+    fakeChunks = [textChunk("OK"), usageChunk(10, 2)];
+
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Hi there!" }],
+      },
+      { role: "user", content: [{ type: "text", text: "How are you?" }] },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const sent = lastCreateParams!.messages as Array<Record<string, unknown>>;
+    expect(sent[1]).toEqual({
+      role: "assistant",
+      content: "Hi there!",
+    });
+    expect(sent[1]).not.toHaveProperty("reasoning_content");
   });
 });
 
