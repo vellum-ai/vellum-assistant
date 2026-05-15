@@ -53,6 +53,7 @@ import {
   RateLimitConfigSchema,
   TimeoutConfigSchema,
 } from "./schemas/timeouts.js";
+import { ToolsConfigSchema } from "./schemas/tools.js";
 import { UpdatesConfigSchema } from "./schemas/updates.js";
 import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
@@ -117,6 +118,7 @@ export const AssistantConfigSchema = z
       NotificationsConfigSchema.parse({}),
     ),
     ui: UiConfigSchema.default(UiConfigSchema.parse({})),
+    tools: ToolsConfigSchema.default(ToolsConfigSchema.parse({})),
     // Per-plugin config blocks keyed by plugin name. The schema is intentionally
     // permissive — each plugin's manifest supplies its own validator which the
     // plugin bootstrap (`external-plugins-bootstrap.ts`) runs against the raw
