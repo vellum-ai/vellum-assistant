@@ -903,6 +903,8 @@ export class SubagentManager {
           subagentId: info.subagentId,
           label: info.label,
           status: "running" as const,
+          conversationId: managed.state.conversationId,
+          objective: managed.state.config.objective,
         },
       },
     );
