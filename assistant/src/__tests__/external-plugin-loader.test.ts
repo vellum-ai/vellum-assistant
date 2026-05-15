@@ -347,9 +347,8 @@ describe("loadExternalPlugin — tools", () => {
       `export default {
   name: "two_tools_alpha",
   description: "alpha",
-  category: "plugin",
   defaultRiskLevel: "low" as const,
-  getDefinition() { return { name: "two_tools_alpha", description: "alpha", input_schema: { type: "object", properties: {}, required: [] } }; },
+  input_schema: { type: "object", properties: {}, required: [] },
   async execute() { return { content: "a", isError: false }; },
 };
 `,
@@ -360,9 +359,8 @@ describe("loadExternalPlugin — tools", () => {
       `export default {
   name: "two_tools_beta",
   description: "beta",
-  category: "plugin",
   defaultRiskLevel: "low" as const,
-  getDefinition() { return { name: "two_tools_beta", description: "beta", input_schema: { type: "object", properties: {}, required: [] } }; },
+  input_schema: { type: "object", properties: {}, required: [] },
   async execute() { return { content: "b", isError: false }; },
 };
 `,

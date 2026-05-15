@@ -919,8 +919,6 @@ build_binaries() {
         "$SCRIPT_DIR/daemon-bin/first-party-skills/meet-join/manifest.json"
     rm -rf "$SCRIPT_DIR/daemon-bin/templates"
     cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
-    rm -rf "$SCRIPT_DIR/daemon-bin/compact-prompts"
-    cp -R "$ASSISTANT_SRC_DIR/src/context/prompts" "$SCRIPT_DIR/daemon-bin/compact-prompts"
     rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
     mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
     cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
@@ -1374,10 +1372,6 @@ if [ -d "$ASSISTANT_SRC_DIR/src/prompts/templates" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/templates"
     cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
 fi
-if [ -d "$ASSISTANT_SRC_DIR/src/context/prompts" ]; then
-    rm -rf "$SCRIPT_DIR/daemon-bin/compact-prompts"
-    cp -R "$ASSISTANT_SRC_DIR/src/context/prompts" "$SCRIPT_DIR/daemon-bin/compact-prompts"
-fi
 if [ -f "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
     mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
@@ -1676,10 +1670,6 @@ fi
 if [ -d "$SCRIPT_DIR/daemon-bin/templates" ]; then
     rm -rf "$RESOURCES_DIR/templates"
     cp -R "$SCRIPT_DIR/daemon-bin/templates" "$RESOURCES_DIR/templates"
-fi
-if [ -d "$SCRIPT_DIR/daemon-bin/compact-prompts" ]; then
-    rm -rf "$RESOURCES_DIR/compact-prompts"
-    cp -R "$SCRIPT_DIR/daemon-bin/compact-prompts" "$RESOURCES_DIR/compact-prompts"
 fi
 if [ -d "$SCRIPT_DIR/daemon-bin/brain-graph" ]; then
     rm -rf "$RESOURCES_DIR/brain-graph"

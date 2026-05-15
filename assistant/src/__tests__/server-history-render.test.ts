@@ -91,6 +91,49 @@ describe("renderHistoryContent", () => {
     expect(renderHistoryContent(42).text).toBe("42");
   });
 
+  test("unwraps complete legacy external_content envelopes for plain string content", () => {
+    const output = renderHistoryContent(
+      '<external_content source="slack">\nVisible Slack text\n</external_content>',
+    );
+
+    expect(output.text).toBe("Visible Slack text");
+    expect(output.textSegments).toEqual(["Visible Slack text"]);
+    expect(output.contentOrder).toEqual(["text:0"]);
+  });
+
+  test("unwraps complete legacy external_content envelopes in text blocks", () => {
+    const output = renderHistoryContent([
+      {
+        type: "text",
+        text: '<external_content source="slack">\nVisible block text\n</external_content>',
+      },
+      { type: "text", text: "Plain follow-up." },
+    ]);
+
+    expect(output.text).toBe("Visible block text Plain follow-up.");
+    expect(output.textSegments).toEqual([
+      "Visible block text Plain follow-up.",
+    ]);
+    expect(output.contentOrder).toEqual(["text:0"]);
+  });
+
+  test("leaves malformed or mixed external_content text unchanged", () => {
+    const malformed =
+      '<external_content source="slack">Visible text</external_content>';
+    const mixed =
+      'prefix <external_content source="slack">\nVisible text\n</external_content>';
+
+    const malformedOutput = renderHistoryContent([
+      { type: "text", text: malformed },
+    ]);
+    expect(malformedOutput.text).toBe(malformed);
+    expect(malformedOutput.textSegments).toEqual([malformed]);
+
+    const mixedOutput = renderHistoryContent(mixed);
+    expect(mixedOutput.text).toBe(mixed);
+    expect(mixedOutput.textSegments).toEqual([mixed]);
+  });
+
   test("preserves JSON object content as JSON string", () => {
     expect(renderHistoryContent({ foo: "bar" }).text).toBe('{"foo":"bar"}');
   });

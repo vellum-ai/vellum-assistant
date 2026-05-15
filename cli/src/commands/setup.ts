@@ -1,78 +1,79 @@
-import { createInterface } from "readline";
-
 import { resolveAssistant } from "../lib/assistant-config.js";
+import {
+  loadGuardianToken,
+  refreshGuardianToken,
+  type GuardianTokenData,
+} from "../lib/guardian-token.js";
+import {
+  ensureProviderApiKey,
+  formatProviderName,
+} from "../lib/provider-secrets.js";
 
-async function promptMasked(prompt: string): Promise<string> {
-  return new Promise((resolve) => {
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
+function parseSetupArgs(args: string[]): { provider: string } {
+  let provider = "anthropic";
 
-    process.stdout.write(prompt);
-
-    const stdin = process.stdin;
-    const wasRaw = stdin.isRaw;
-    if (stdin.isTTY) {
-      stdin.setRawMode(true);
-    }
-
-    let input = "";
-    const onData = (key: Buffer): void => {
-      const char = key.toString("utf-8");
-
-      if (char === "\r" || char === "\n") {
-        stdin.removeListener("data", onData);
-        if (stdin.isTTY) {
-          stdin.setRawMode(wasRaw ?? false);
-        }
-        process.stdout.write("\n");
-        rl.close();
-        resolve(input);
-      } else if (char === "\u0003") {
-        process.stdout.write("\n");
-        process.exit(1);
-      } else if (char === "\u007F" || char === "\b") {
-        if (input.length > 0) {
-          input = input.slice(0, -1);
-          process.stdout.write("\b \b");
-        }
-      } else if (char.length === 1 && char >= " ") {
-        input += char;
-        process.stdout.write("*");
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--provider") {
+      const value = args[i + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("--provider requires a provider name.");
       }
-    };
+      provider = value;
+      i++;
+    } else if (arg.startsWith("--provider=")) {
+      provider = arg.slice("--provider=".length);
+    } else {
+      throw new Error(`Unknown option: ${arg}`);
+    }
+  }
 
-    stdin.on("data", onData);
-  });
+  return { provider };
 }
 
-async function validateAnthropicKey(apiKey: string): Promise<boolean> {
-  try {
-    const resp = await fetch("https://api.anthropic.com/v1/models", {
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
-    return resp.ok;
-  } catch {
+function isGuardianAccessTokenUsable(
+  tokenData: GuardianTokenData | null,
+): tokenData is GuardianTokenData {
+  if (!tokenData?.accessToken) {
     return false;
   }
+  const expiresAt = new Date(tokenData.accessTokenExpiresAt).getTime();
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
 }
 
 export async function setup(): Promise<void> {
   const args = process.argv.slice(3);
 
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum setup");
+    console.log("Usage: vellum setup [--provider <provider>]");
     console.log("");
-    console.log("Interactive wizard to configure API keys.");
+    console.log("Configure a provider API key on the active assistant.");
+    console.log("");
+    console.log("Options:");
     console.log(
-      "Injects secrets into your running assistant via the gateway API.",
+      "  --provider <provider>  Provider to configure. Defaults to anthropic.",
     );
+    console.log("");
+    console.log("Behavior:");
+    console.log(
+      "  - Checks the active assistant for an existing provider key.",
+    );
+    console.log("  - Uses the matching environment variable when it is set.");
+    console.log("  - Otherwise prompts securely without echoing the key.");
+    console.log("");
+    console.log("Examples:");
+    console.log("  vellum setup");
+    console.log("  ANTHROPIC_API_KEY=... vellum setup");
+    console.log("  vellum setup --provider openai");
     process.exit(0);
+  }
+
+  let parsed: { provider: string };
+  try {
+    parsed = parseSetupArgs(args);
+  } catch (error) {
+    console.error(error instanceof Error ? `Error: ${error.message}` : error);
+    process.exit(1);
   }
 
   const entry = resolveAssistant();
@@ -84,54 +85,58 @@ export async function setup(): Promise<void> {
   }
 
   const gatewayUrl = entry.localUrl ?? entry.runtimeUrl;
+  let bearerToken: string | undefined;
+  const guardianToken = loadGuardianToken(entry.assistantId);
+  if (isGuardianAccessTokenUsable(guardianToken)) {
+    bearerToken = guardianToken.accessToken;
+  } else {
+    const refreshedToken = guardianToken
+      ? await refreshGuardianToken(gatewayUrl, entry.assistantId)
+      : null;
+    bearerToken = isGuardianAccessTokenUsable(refreshedToken)
+      ? refreshedToken.accessToken
+      : entry.bearerToken;
+  }
 
   console.log("Vellum Setup");
   console.log("============\n");
 
-  const apiKey = await promptMasked(
-    "Enter your Anthropic API key (sk-ant-...): ",
-  );
+  try {
+    const result = await ensureProviderApiKey({
+      gatewayUrl,
+      provider: parsed.provider,
+      bearerToken,
+      env: process.env,
+    });
 
-  if (!apiKey.trim()) {
-    console.error("Error: API key cannot be empty.");
+    if (result.status === "already_configured") {
+      console.log(
+        `${formatProviderName(result.provider)} API key is already configured.`,
+      );
+      return;
+    }
+
+    if (result.status === "configured") {
+      const providerName = formatProviderName(result.provider);
+      const source = result.source === "env" ? " from the environment" : "";
+      console.log(`\n${providerName} API key saved to assistant${source}.`);
+      console.log("Setup complete.");
+      return;
+    }
+
+    if (result.status === "skipped") {
+      console.log(result.message);
+      return;
+    }
+
+    console.error(`Error: ${result.message}`);
     process.exit(1);
-  }
-
-  console.log("Validating key...");
-  const valid = await validateAnthropicKey(apiKey.trim());
-
-  if (!valid) {
+  } catch (error) {
     console.error(
-      "Error: Invalid API key. Could not authenticate with the Anthropic API.",
+      error instanceof Error
+        ? `Error: ${error.message}`
+        : "Error: Setup failed.",
     );
     process.exit(1);
   }
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-  if (entry.bearerToken) {
-    headers["Authorization"] = `Bearer ${entry.bearerToken}`;
-  }
-
-  const response = await fetch(`${gatewayUrl}/v1/secrets`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      type: "credential",
-      name: "ANTHROPIC_API_KEY",
-      value: apiKey.trim(),
-    }),
-    signal: AbortSignal.timeout(10_000),
-  });
-
-  if (!response.ok) {
-    console.error(
-      `Error: Failed to store API key in assistant (${response.status}).`,
-    );
-    process.exit(1);
-  }
-
-  console.log("\nAPI key saved to assistant. Setup complete.");
 }

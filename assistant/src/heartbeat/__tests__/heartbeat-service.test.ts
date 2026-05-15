@@ -47,12 +47,22 @@ mock.module("../../util/platform.js", () => ({
 
 // Stub config so heartbeat is enabled. Must export every symbol from
 // the real module because Bun's mock.module replaces the entire module.
-const stubConfig = {
+// Tests that need to flex maxConsecutiveRuns mutate this in-place.
+const stubConfig: {
+  heartbeat: {
+    enabled: boolean;
+    intervalMs: number;
+    activeHoursStart: number | null;
+    activeHoursEnd: number | null;
+    maxConsecutiveRuns: number | null;
+  };
+} = {
   heartbeat: {
     enabled: true,
     intervalMs: 60_000,
     activeHoursStart: null,
     activeHoursEnd: null,
+    maxConsecutiveRuns: null,
   },
 };
 mock.module("../../config/loader.js", () => ({
@@ -164,7 +174,6 @@ mock.module("../../runtime/pre-first-message-gate.js", () => ({
   hasReceivedUserMessage: () => preFirstMessageGateOpen,
 }));
 
-
 const { HeartbeatService } = await import("../heartbeat-service.js");
 
 let origWorkspaceDir: string | undefined;
@@ -177,6 +186,7 @@ beforeEach(() => {
   runBackgroundJobCalls.length = 0;
   skipHeartbeatRunCalls.length = 0;
   preFirstMessageGateOpen = true;
+  stubConfig.heartbeat.maxConsecutiveRuns = null;
   runBackgroundJobImpl = async () => ({
     conversationId: STUB_CONVERSATION_ID,
     ok: true,
@@ -350,9 +360,85 @@ describe("HeartbeatService", () => {
 
     expect(runBackgroundJobCalls).toHaveLength(1);
     expect(
-      skipHeartbeatRunCalls.some(
-        (c) => c.reason === "pre_first_user_message",
-      ),
+      skipHeartbeatRunCalls.some((c) => c.reason === "pre_first_user_message"),
     ).toBe(false);
+  });
+
+  describe("max consecutive runs cap", () => {
+    test("skips with reason 'max_consecutive_runs' after the cap is hit", async () => {
+      stubConfig.heartbeat.maxConsecutiveRuns = 2;
+      const service = new HeartbeatService({ alerter: () => {} });
+
+      expect(await service.runOnce({ force: false })).toBe(true);
+      expect(await service.runOnce({ force: false })).toBe(true);
+      expect(await service.runOnce({ force: false })).toBe(false);
+
+      expect(runBackgroundJobCalls).toHaveLength(2);
+      expect(
+        skipHeartbeatRunCalls.some((c) => c.reason === "max_consecutive_runs"),
+      ).toBe(true);
+    });
+
+    test("resetTimer() clears the counter so auto runs resume", async () => {
+      stubConfig.heartbeat.maxConsecutiveRuns = 1;
+      const service = new HeartbeatService({ alerter: () => {} });
+      service.start();
+      try {
+        await service.runOnce({ force: false });
+        expect(await service.runOnce({ force: false })).toBe(false);
+
+        service.resetTimer();
+        expect(await service.runOnce({ force: false })).toBe(true);
+        expect(runBackgroundJobCalls).toHaveLength(2);
+      } finally {
+        await service.stop();
+      }
+    });
+
+    test("null disables the cap entirely", async () => {
+      stubConfig.heartbeat.maxConsecutiveRuns = null;
+      const service = new HeartbeatService({ alerter: () => {} });
+
+      for (let i = 0; i < 5; i++) {
+        expect(await service.runOnce({ force: false })).toBe(true);
+      }
+      expect(runBackgroundJobCalls).toHaveLength(5);
+      expect(
+        skipHeartbeatRunCalls.some((c) => c.reason === "max_consecutive_runs"),
+      ).toBe(false);
+    });
+
+    test("force runs bypass the cap and do not increment the counter", async () => {
+      stubConfig.heartbeat.maxConsecutiveRuns = 2;
+      const service = new HeartbeatService({ alerter: () => {} });
+
+      // Five force runs would push us well past the cap if force counted.
+      for (let i = 0; i < 5; i++) {
+        expect(await service.runOnce({ force: true })).toBe(true);
+      }
+      // Two auto runs should still proceed because the counter is at zero.
+      expect(await service.runOnce({ force: false })).toBe(true);
+      expect(await service.runOnce({ force: false })).toBe(true);
+      // The third auto run trips the cap.
+      expect(await service.runOnce({ force: false })).toBe(false);
+      expect(
+        skipHeartbeatRunCalls.some((c) => c.reason === "max_consecutive_runs"),
+      ).toBe(true);
+    });
+
+    test("reconfigure() resets the counter", async () => {
+      stubConfig.heartbeat.maxConsecutiveRuns = 1;
+      const service = new HeartbeatService({ alerter: () => {} });
+      service.start();
+      try {
+        await service.runOnce({ force: false });
+        expect(await service.runOnce({ force: false })).toBe(false);
+
+        service.reconfigure();
+        expect(await service.runOnce({ force: false })).toBe(true);
+      } finally {
+        await service.stop();
+      }
+    });
   });
 });

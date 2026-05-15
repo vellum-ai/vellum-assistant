@@ -4,7 +4,6 @@ github_to_slack_all_notifications:
   ashleeradka: U06LGSYA9JP
   awlevin: U07CLDQ4TB3
   TirmanSidhu: U08ASQYPTB6
-  emmiekehoe: U08Q1QHGKTM
   alex-nork: U095KUZ3L20
   Jasonnnz: U09DVL1JN3V
   marinatrajk: U0A6VKE2RAA
@@ -14,6 +13,7 @@ github_to_slack_all_notifications:
 github_to_slack_failure_notifications: # neutral good
   asharma53: U04BTP01B2S
   siddseethepalli: U04C0B3038A
+  emmiekehoe: U08Q1QHGKTM
   dvargas92495: U05D5EGNNMS
   clopen-set: U08QQU27M0W
   m-abboud: U06CMAEKH4L
@@ -22,6 +22,7 @@ github_to_slack_failure_notifications: # neutral good
 github_to_slack_success_notifications: # chaotic evil
 
 github_to_slack_cancelled_notifications: # chaotic neutral
+  emmiekehoe: U08Q1QHGKTM
   dvargas92495: U05D5EGNNMS
   clopen-set: U08QQU27M0W
   m-abboud: U06CMAEKH4L

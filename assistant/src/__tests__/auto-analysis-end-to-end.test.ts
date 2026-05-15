@@ -585,3 +585,38 @@ describe("indexer v1/v2 mutual exclusion for graph_extract", () => {
     );
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// Indexer v1/v2 mutual exclusion: build_conversation_summary feeds
+// v1-only readers (fetchRecentSummaries, semantic search). When
+// memory.v2.enabled is on, the summary writes are unread, so the
+// indexer must not enqueue them.
+// ─────────────────────────────────────────────────────────────────
+
+describe("indexer v1/v2 mutual exclusion for build_conversation_summary", () => {
+  const originalV2Enabled = TEST_CONFIG.memory.v2.enabled;
+
+  afterEach(() => {
+    TEST_CONFIG.memory.v2.enabled = originalV2Enabled;
+  });
+
+  test("v2 active (config on) → build_conversation_summary not enqueued", async () => {
+    TEST_CONFIG.memory.v2.enabled = true;
+
+    const source = createConversation("summary-v2-active");
+    await indexMessages(source.id, 2);
+
+    expect(countJobsOfType("build_conversation_summary", source.id)).toBe(0);
+  });
+
+  test("config gate off → build_conversation_summary enqueued", async () => {
+    TEST_CONFIG.memory.v2.enabled = false;
+
+    const source = createConversation("summary-v2-config-off");
+    await indexMessages(source.id, 2);
+
+    expect(
+      countJobsOfType("build_conversation_summary", source.id),
+    ).toBeGreaterThanOrEqual(1);
+  });
+});

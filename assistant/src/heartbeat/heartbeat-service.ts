@@ -198,6 +198,10 @@ export class HeartbeatService {
   private _startupMissedCount = 0;
   private _startupCrashedCount = 0;
   private _hasRunStartupRecovery = false;
+  // Counter of consecutive auto-heartbeats since the last guardian message.
+  // Reset by resetTimer (guardian message), reconfigure, and stop. Force runs
+  // bypass the cap and do not increment.
+  private _consecutiveRuns = 0;
 
   constructor(deps: HeartbeatDeps) {
     this.deps = deps;
@@ -355,6 +359,7 @@ export class HeartbeatService {
 
   /** Restart the timer with the latest config (e.g. after settings change). */
   reconfigure(): void {
+    this._consecutiveRuns = 0;
     this.configEpoch++;
     if (this._pendingRunId) {
       supersedePendingRun(this._pendingRunId);
@@ -376,6 +381,9 @@ export class HeartbeatService {
    * after an active conversation.
    */
   resetTimer(): void {
+    // Counter resets even when the timer is null so a guardian message during
+    // a stopped window still clears the count.
+    this._consecutiveRuns = 0;
     if (!this.timer) return;
     if (this.cronMode) {
       clearTimeout(this.timer as ReturnType<typeof setTimeout>);
@@ -395,6 +403,7 @@ export class HeartbeatService {
   }
 
   async stop(): Promise<void> {
+    this._consecutiveRuns = 0;
     this.stopped = true;
     if (this.timer) {
       clearTimeout(this.timer as ReturnType<typeof setTimeout>);
@@ -505,6 +514,28 @@ export class HeartbeatService {
       }
     }
 
+    // Cap consecutive auto-runs without a guardian message so the assistant
+    // stops burning LLM tokens when the user is away. Force runs (manual
+    // operator action) bypass the cap and do not increment the counter.
+    if (
+      !force &&
+      config.maxConsecutiveRuns != null &&
+      this._consecutiveRuns >= config.maxConsecutiveRuns
+    ) {
+      log.debug(
+        {
+          consecutiveRuns: this._consecutiveRuns,
+          maxConsecutiveRuns: config.maxConsecutiveRuns,
+        },
+        "Max consecutive runs reached, skipping",
+      );
+      if (runId) skipHeartbeatRun(runId, "max_consecutive_runs");
+      if (!this.cronMode) {
+        this.scheduleNextRun(config.intervalMs);
+      }
+      return false;
+    }
+
     // Overlap prevention
     if (this.activeRun) {
       log.debug("Previous heartbeat run still active, skipping");
@@ -530,6 +561,9 @@ export class HeartbeatService {
         this.activeRun = null;
       }
       this._lastRunAt = Date.now();
+      if (!force) {
+        this._consecutiveRuns++;
+      }
       if (!this.cronMode) {
         this.scheduleNextRun(getConfig().heartbeat.intervalMs);
       }

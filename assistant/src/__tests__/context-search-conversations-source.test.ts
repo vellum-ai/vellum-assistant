@@ -5,6 +5,7 @@ import type { RecallSearchContext } from "../memory/context-search/types.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { rawRun } from "../memory/raw-query.js";
+import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 initializeDb();
 
 let seedId = 0;
@@ -225,6 +226,99 @@ describe("searchConversationSource", () => {
     );
   });
 
+  test("preserves external_content boundaries in recall evidence", async () => {
+    const { conversation, message } = await seedConversation({
+      title: "Slack recall",
+      content:
+        '<external_content source="slack" origin="@alice">\nThe recalltoken decision came from Slack.\n</external_content>',
+    });
+
+    const result = await searchConversationSource(
+      "recalltoken",
+      makeContext(),
+      1,
+    );
+
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0]).toMatchObject({
+      locator: `${conversation.id}#${message.id}`,
+      excerpt:
+        '<external_content source="slack" origin="@alice">\nThe recalltoken decision came from Slack.\n</external_content>',
+    });
+  });
+
+  test("wraps raw non-guardian Slack recall evidence from metadata", async () => {
+    const { conversation, message } = await seedConversation({
+      title: "Raw Slack recall",
+      role: "user",
+      content: "The rawrecalltoken decision came from Slack.",
+      metadata: slackMetadata("1700000100.000000", {
+        provenanceTrustClass: "unknown",
+      }),
+    });
+
+    const result = await searchConversationSource(
+      "rawrecalltoken",
+      makeContext(),
+      1,
+    );
+
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0]).toMatchObject({
+      locator: `${conversation.id}#${message.id}`,
+      excerpt:
+        '<external_content source="slack" origin="@alice">\nThe rawrecalltoken decision came from Slack.\n</external_content>',
+    });
+  });
+
+  test("wraps raw non-guardian Slack recall evidence that mentions external_content", async () => {
+    const { conversation, message } = await seedConversation({
+      title: "Raw Slack tag mention recall",
+      role: "user",
+      content:
+        "The tagmentionrecalltoken text mentions <external_content but is raw Slack content.",
+      metadata: slackMetadata("1700000102.000000", {
+        provenanceTrustClass: "unknown",
+      }),
+    });
+
+    const result = await searchConversationSource(
+      "tagmentionrecalltoken",
+      makeContext(),
+      1,
+    );
+
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0]).toMatchObject({
+      locator: `${conversation.id}#${message.id}`,
+      excerpt:
+        '<external_content source="slack" origin="@alice">\nThe tagmentionrecalltoken text mentions <external_content but is raw Slack content.\n</external_content>',
+    });
+  });
+
+  test("does not wrap guardian Slack recall evidence", async () => {
+    const { conversation, message } = await seedConversation({
+      title: "Guardian Slack recall",
+      role: "user",
+      content: "The guardianrecalltoken decision came from Slack.",
+      metadata: slackMetadata("1700000101.000000", {
+        provenanceTrustClass: "guardian",
+      }),
+    });
+
+    const result = await searchConversationSource(
+      "guardianrecalltoken",
+      makeContext(),
+      1,
+    );
+
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0]).toMatchObject({
+      locator: `${conversation.id}#${message.id}`,
+      excerpt: "The guardianrecalltoken decision came from Slack.",
+    });
+  });
+
   test("broadens overconstrained recall queries to salient terms", async () => {
     const specific = await seedConversation({
       title: "Birthday cake plan",
@@ -258,6 +352,7 @@ function seedConversation(opts: {
   memoryScopeId?: string;
   role?: string;
   content: string;
+  metadata?: string;
 }) {
   const id = ++seedId;
   const now = Date.now() + id;
@@ -297,17 +392,37 @@ function seedConversation(opts: {
       conversation_id,
       role,
       content,
-      created_at
-    ) VALUES (?, ?, ?, ?, ?)
+      created_at,
+      metadata
+    ) VALUES (?, ?, ?, ?, ?, ?)
     `,
     message.id,
     conversation.id,
     opts.role ?? "assistant",
     opts.content,
     now,
+    opts.metadata ?? null,
   );
 
   return { conversation, message };
+}
+
+function slackMetadata(
+  channelTs: string,
+  extra: Record<string, unknown>,
+): string {
+  return JSON.stringify({
+    userMessageChannel: "slack",
+    assistantMessageChannel: "slack",
+    slackMeta: writeSlackMetadata({
+      source: "slack",
+      channelId: "C0123",
+      channelTs,
+      eventKind: "message",
+      displayName: "@alice",
+    }),
+    ...extra,
+  });
 }
 
 function makeContext(

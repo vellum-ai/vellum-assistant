@@ -339,6 +339,11 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
       if (n.assistantName)
         lines.push(`- Chosen assistant name: ${n.assistantName}`);
       if (n.tone) lines.push(`- Preferred initial voice: ${n.tone}`);
+      if (n.googleConnected && n.googleServices?.length) {
+        lines.push(
+          `- Google connected: yes (${n.googleServices.join(", ")} access granted)`,
+        );
+      }
       lines.push(
         "",
         "Apply this context quietly. Do not recap it as a list unless the user asks.",
@@ -378,7 +383,10 @@ function buildIntegrationSection(): string {
   // daemon startup and refreshed periodically).
   const managed = getCachedManagedConnections();
   for (const mc of managed) {
-    // Avoid duplicates — a provider with a local row is already listed.
+    // Provider-level dedup is intentional: this section is a summary of
+    // connected services for the system prompt, not an exhaustive account
+    // list. Multiple accounts for the same provider (e.g. two Google
+    // accounts) collapse into a single line to keep the prompt compact.
     if (!entries.some((e) => e.provider === mc.provider)) {
       entries.push(mc);
     }

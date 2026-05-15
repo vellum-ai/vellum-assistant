@@ -11,6 +11,8 @@ mock.module("../../util/logger.js", () => ({
 
 import { createConversation } from "../conversation-crud.js";
 import {
+  buildExcerpt,
+  buildRecallEvidenceExcerpt,
   countConversations,
   listConversations,
 } from "../conversation-queries.js";
@@ -34,6 +36,96 @@ function setConversationType(conversationId: string, type: string): void {
     .where(eq(conversations.id, conversationId))
     .run();
 }
+
+describe("buildExcerpt", () => {
+  test("does not expose external_content tags for legacy plain-string rows", () => {
+    const excerpt = buildExcerpt(
+      '<external_content source="slack">\nSearchable Slack text\n</external_content>',
+      "external_content",
+    );
+
+    expect(excerpt).toBe("Searchable Slack text");
+    expect(excerpt).not.toContain("<external_content");
+    expect(excerpt).not.toContain("</external_content>");
+  });
+
+  test("does not expose external_content tags for legacy text block rows", () => {
+    const excerpt = buildExcerpt(
+      JSON.stringify([
+        {
+          type: "text",
+          text: '<external_content source="slack">\nSearchable block text\n</external_content>',
+        },
+      ]),
+      "external_content",
+    );
+
+    expect(excerpt).toBe("Searchable block text");
+    expect(excerpt).not.toContain("<external_content");
+    expect(excerpt).not.toContain("</external_content>");
+  });
+});
+
+describe("buildRecallEvidenceExcerpt", () => {
+  test("preserves external_content boundaries for legacy plain-string rows", () => {
+    const excerpt = buildRecallEvidenceExcerpt(
+      '<external_content source="slack" origin="@alice">\nSearchable Slack text\n</external_content>',
+      "Slack",
+    );
+
+    expect(excerpt).toBe(
+      '<external_content source="slack" origin="@alice">\nSearchable Slack text\n</external_content>',
+    );
+  });
+
+  test("preserves external_content boundaries for legacy text block rows", () => {
+    const excerpt = buildRecallEvidenceExcerpt(
+      JSON.stringify([
+        {
+          type: "text",
+          text: '<external_content source="slack">\nSearchable block text\n</external_content>',
+        },
+      ]),
+      "block",
+    );
+
+    expect(excerpt).toBe(
+      '<external_content source="slack">\nSearchable block text\n</external_content>',
+    );
+  });
+
+  test("preserves external_content boundaries when joined with other text blocks", () => {
+    const excerpt = buildRecallEvidenceExcerpt(
+      JSON.stringify([
+        {
+          type: "text",
+          text: '<external_content source="slack">\nSearchable block text\n</external_content>',
+        },
+        {
+          type: "text",
+          text: "Local follow-up text.",
+        },
+      ]),
+      "block",
+    );
+
+    expect(excerpt).toBe(
+      '<external_content source="slack">\nSearchable block text\n</external_content> Local follow-up text.',
+    );
+  });
+
+  test("does not unwrap malformed or mixed external_content text", () => {
+    const malformed =
+      '<external_content source="slack">Malformed Slack text</external_content>';
+    const mixed =
+      'prefix <external_content source="slack">\nMixed Slack text\n</external_content>';
+
+    expect(buildRecallEvidenceExcerpt(malformed, "Slack")).toBe(malformed);
+    expect(buildRecallEvidenceExcerpt(mixed, "Slack")).toBe(
+      'prefix <external_content source="slack"> Mixed Slack text </external_content>',
+    );
+  });
+});
 
 describe("countConversations", () => {
   beforeEach(() => {

@@ -33,7 +33,10 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
-import { buildSlackMetaForPersistence } from "./conversation-messaging.js";
+import {
+  buildSlackMetaForPersistence,
+  serializePersistedUserMessageContent,
+} from "./conversation-messaging.js";
 import { formatCompactResult } from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import {
@@ -315,7 +318,11 @@ export async function processMessage(
     const persisted = await addMessage(
       conversationId,
       "user",
-      JSON.stringify(cleanMsg.content),
+      serializePersistedUserMessageContent(
+        content,
+        attachments,
+        options?.displayContent,
+      ),
       userMetaWithSlack,
     );
     conversation.getMessages().push(llmMsg);
@@ -401,7 +408,11 @@ export async function processMessage(
     const persisted = await addMessage(
       conversationId,
       "user",
-      JSON.stringify(cleanMsg.content),
+      serializePersistedUserMessageContent(
+        content,
+        attachments,
+        options?.displayContent,
+      ),
       compactUserMeta,
     );
     conversation.getMessages().push(cleanMsg);
@@ -438,6 +449,7 @@ export async function processMessage(
     attachments,
     requestId,
     persistMetadata,
+    options?.displayContent,
   );
   publishConversationMessagesChanged(conversationId);
 
@@ -503,6 +515,7 @@ export async function processMessageInBackground(
     attachments,
     requestId,
     persistMetadata,
+    options?.displayContent,
   );
   publishConversationMessagesChanged(conversationId);
 

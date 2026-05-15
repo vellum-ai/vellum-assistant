@@ -30,6 +30,7 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "oauth_connection_changed",
     endpoint: "oauth/connection-changed",
     method: "POST",
+    policyKey: "oauth/connection-changed",
     handler: handleOAuthConnectionChanged,
     summary: "Notify the assistant that an OAuth connection changed",
     description:

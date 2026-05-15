@@ -289,7 +289,7 @@ export class VelayTunnelClient {
       this.peerHeartbeatConfirmed = true;
       log.info("Velay peer confirmed heartbeat support");
     }
-    if (this.peerHeartbeatConfirmed) {
+    if (this.peerHeartbeatConfirmed || this.readTimeoutTimer) {
       this.resetReadTimeout(originWs);
     }
 
@@ -422,10 +422,23 @@ export class VelayTunnelClient {
       });
   }
 
-  private sendFrame(frame: VelayFrame): void {
+  private sendFrame(frame: VelayFrame): boolean {
     const ws = this.ws;
-    if (!this.running || !ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify(frame));
+    if (!this.running || !ws || ws.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    try {
+      ws.send(JSON.stringify(frame));
+      return true;
+    } catch (err) {
+      log.warn(
+        { err },
+        "Velay tunnel WebSocket send failed; forcing reconnect",
+      );
+      this.disconnectActiveWebSocket(ws, 1000, "websocket send failed");
+      return false;
+    }
   }
 
   private startHeartbeat(ws: WebSocket): void {
@@ -454,7 +467,10 @@ export class VelayTunnelClient {
       if (this.ws !== ws || !this.running || ws.readyState !== WebSocket.OPEN) {
         return;
       }
-      this.sendFrame({ type: VELAY_FRAME_TYPES.heartbeat });
+      if (!this.sendFrame({ type: VELAY_FRAME_TYPES.heartbeat })) {
+        return;
+      }
+      this.resetReadTimeout(ws);
       this.scheduleHeartbeatSend(ws);
     }, this.heartbeatIntervalMs);
   }

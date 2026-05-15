@@ -62,6 +62,29 @@ export interface NormalizedOnboarding {
   dailyTools: string[];
   tone?: string;
   assistantName?: string;
+  googleConnected?: boolean;
+  googleServices?: string[];
+}
+
+const SCOPE_SERVICE_MAP: Record<string, string> = {
+  "gmail.readonly": "Gmail",
+  "gmail.modify": "Gmail",
+  "gmail.send": "Gmail",
+  "gmail.settings.basic": "Gmail",
+  "calendar.readonly": "Calendar",
+  "calendar.events": "Calendar",
+  drive: "Drive",
+};
+
+export function deriveGoogleServices(scopes?: string[]): string[] {
+  if (!scopes?.length) return ["Gmail", "Calendar", "Drive"];
+  const services = new Set<string>();
+  for (const scope of scopes) {
+    const suffix = scope.replace("https://www.googleapis.com/auth/", "");
+    const service = SCOPE_SERVICE_MAP[suffix];
+    if (service) services.add(service);
+  }
+  return services.size > 0 ? [...services] : ["Gmail", "Calendar", "Drive"];
 }
 
 /**
@@ -76,5 +99,9 @@ export function normalizeOnboardingContext(
     dailyTools: normalizeTools(ctx.tools),
     tone: ctx.tone,
     assistantName: ctx.assistantName,
+    googleConnected: ctx.googleConnected,
+    googleServices: ctx.googleConnected
+      ? deriveGoogleServices(ctx.googleScopes)
+      : undefined,
   };
 }

@@ -10,7 +10,7 @@
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll } from "bun:test";
+import { afterAll, mock } from "bun:test";
 
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "vellum-cli-test-workspace-")),
@@ -24,4 +24,8 @@ afterAll(() => {
   } catch {
     /* best-effort cleanup */
   }
+
+  // Reset all module mocks so mock.module() calls in one test file
+  // don't leak into the next file in the same bun test run.
+  mock.restore();
 });

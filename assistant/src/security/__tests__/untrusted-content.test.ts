@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   escapeContentBoundaries,
+  parseExternalContentEnvelope,
+  unwrapExternalContentForDisplay,
   wrapUntrustedContent,
 } from "../untrusted-content.js";
 
@@ -105,5 +107,89 @@ describe("escapeContentBoundaries", () => {
   test("handles content with no boundary sequences", () => {
     const safe = "Hello, this is a normal email about <html> tags.";
     expect(escapeContentBoundaries(safe)).toBe(safe);
+  });
+});
+
+describe("parseExternalContentEnvelope", () => {
+  test("parses a complete envelope with source and content", () => {
+    expect(
+      parseExternalContentEnvelope(
+        '<external_content source="slack">\nhello world\n</external_content>',
+      ),
+    ).toEqual({
+      source: "slack",
+      content: "hello world",
+    });
+  });
+
+  test("parses optional origin and multiline content from wrapped output", () => {
+    const wrapped = wrapUntrustedContent("line one\nline two", {
+      source: "slack",
+      sourceDetail: "channel-123",
+    });
+
+    expect(parseExternalContentEnvelope(wrapped)).toEqual({
+      source: "slack",
+      origin: "channel-123",
+      content: "line one\nline two",
+    });
+  });
+
+  test("returns null for malformed wrappers", () => {
+    expect(
+      parseExternalContentEnvelope(
+        '<external_content source="slack">body\n</external_content>',
+      ),
+    ).toBeNull();
+    expect(
+      parseExternalContentEnvelope(
+        '<external_content source="slack">\nbody</external_content>',
+      ),
+    ).toBeNull();
+    expect(
+      parseExternalContentEnvelope(
+        '<external_content source="slack" extra="ignored">\nbody\n</external_content>',
+      ),
+    ).toBeNull();
+    expect(
+      parseExternalContentEnvelope(
+        '<external_content source="slack">\nbody\n</external_content>\n</external_content>',
+      ),
+    ).toBeNull();
+  });
+
+  test("returns null for mixed prefix or suffix content", () => {
+    const envelope =
+      '<external_content source="email">\nbody\n</external_content>';
+
+    expect(parseExternalContentEnvelope(`prefix ${envelope}`)).toBeNull();
+    expect(parseExternalContentEnvelope(`${envelope} suffix`)).toBeNull();
+  });
+
+  test("returns null for unknown sources", () => {
+    expect(
+      parseExternalContentEnvelope(
+        '<external_content source="chat">\nbody\n</external_content>',
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("unwrapExternalContentForDisplay", () => {
+  test("returns only the inner body for a complete envelope", () => {
+    expect(
+      unwrapExternalContentForDisplay(
+        '<external_content source="slack">\nvisible text\n</external_content>',
+      ),
+    ).toBe("visible text");
+  });
+
+  test("leaves partial or malformed external content unchanged", () => {
+    const partial = '<external_content source="slack">\nvisible text';
+    const malformed =
+      '<external_content source="slack">visible text</external_content>';
+
+    expect(unwrapExternalContentForDisplay(partial)).toBe(partial);
+    expect(unwrapExternalContentForDisplay(malformed)).toBe(malformed);
   });
 });

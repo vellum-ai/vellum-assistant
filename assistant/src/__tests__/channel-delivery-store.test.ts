@@ -56,7 +56,11 @@ function resetTables() {
 }
 
 /** Insert a message row so FK constraints on channel_inbound_events.message_id pass. */
-function insertMessage(id: string, conversationId: string): void {
+function insertMessage(
+  id: string,
+  conversationId: string,
+  metadata?: Record<string, unknown>,
+): void {
   const db = getDb();
   db.insert(messages)
     .values({
@@ -65,6 +69,7 @@ function insertMessage(id: string, conversationId: string): void {
       role: "user",
       content: "test message",
       createdAt: Date.now(),
+      metadata: metadata ? JSON.stringify(metadata) : null,
     })
     .run();
 }
@@ -142,6 +147,204 @@ describe("channel-delivery-store", () => {
     });
 
     expect(r1.conversationId).not.toBe(r2.conversationId);
+  });
+
+  test("legacy Slack channel key with matching inbound root ts gets aliased to the threaded key", () => {
+    const channelId = "C0123ABCDEF";
+    const threadTs = "1710000000.000100";
+    const legacy = recordInbound("slack", channelId, "legacy-event", {
+      sourceMessageId: threadTs,
+    });
+
+    const threaded = recordInbound("slack", channelId, "thread-reply", {
+      sourceThreadId: threadTs,
+      sourceMessageId: "1710000001.000100",
+    });
+
+    expect(threaded.conversationId).toBe(legacy.conversationId);
+    expect(
+      getConversationByKey(`asst:self:slack:${channelId}:thread:${threadTs}`)
+        ?.conversationId,
+    ).toBe(legacy.conversationId);
+  });
+
+  test("legacy Slack channel key with matching slackMeta.threadTs evidence gets aliased to the threaded key", () => {
+    const channelId = "C0123ABCDEF";
+    const threadTs = "1710000000.000200";
+    const legacy = recordInbound("slack", channelId, "legacy-event", {
+      sourceMessageId: "1710000000.999999",
+    });
+    insertMessage("legacy-thread-message", legacy.conversationId, {
+      slackMeta: JSON.stringify({
+        source: "slack",
+        channelId,
+        channelTs: "1710000001.000200",
+        threadTs,
+        eventKind: "message",
+      }),
+    });
+
+    const threaded = recordInbound("slack", channelId, "thread-reply", {
+      sourceThreadId: threadTs,
+      sourceMessageId: "1710000002.000200",
+    });
+
+    expect(threaded.conversationId).toBe(legacy.conversationId);
+    expect(
+      getConversationByKey(`asst:self:slack:${channelId}:thread:${threadTs}`)
+        ?.conversationId,
+    ).toBe(legacy.conversationId);
+  });
+
+  test("legacy Slack thread evidence scan is bounded when metadata does not prove the thread", () => {
+    const channelId = "C0123ABCDEF";
+    const legacy = recordInbound("slack", channelId, "legacy-event", {
+      sourceMessageId: "1710000000.000100",
+    });
+    for (let i = 0; i < 550; i++) {
+      insertMessage(`legacy-thread-message-${i}`, legacy.conversationId, {
+        slackMeta: JSON.stringify({
+          source: "slack",
+          channelId,
+          channelTs: `1710000001.${String(i).padStart(6, "0")}`,
+          threadTs: "1710000000.000100",
+          eventKind: "message",
+        }),
+      });
+    }
+    insertMessage("legacy-thread-message-target", legacy.conversationId, {
+      slackMeta: JSON.stringify({
+        source: "slack",
+        channelId,
+        channelTs: "1710000002.000600",
+        threadTs: "1710000000.000600",
+        eventKind: "message",
+      }),
+    });
+
+    const threaded = recordInbound("slack", channelId, "thread-reply", {
+      sourceThreadId: "1710000000.000600",
+      sourceMessageId: "1710000003.000600",
+    });
+
+    expect(threaded.conversationId).not.toBe(legacy.conversationId);
+  });
+
+  test("legacy Slack channel key without evidence for the requested thread is not reused", () => {
+    const channelId = "C0123ABCDEF";
+    const legacy = recordInbound("slack", channelId, "legacy-event", {
+      sourceMessageId: "1710000000.000100",
+    });
+    insertMessage("legacy-other-thread-message", legacy.conversationId, {
+      slackMeta: JSON.stringify({
+        source: "slack",
+        channelId,
+        channelTs: "1710000001.000100",
+        threadTs: "1710000000.000100",
+        eventKind: "message",
+      }),
+    });
+
+    const threaded = recordInbound("slack", channelId, "new-thread-reply", {
+      sourceThreadId: "1710000000.000300",
+      sourceMessageId: "1710000001.000300",
+    });
+
+    expect(threaded.conversationId).not.toBe(legacy.conversationId);
+    expect(
+      getConversationByKey(
+        `asst:self:slack:${channelId}:thread:1710000000.000300`,
+      )?.conversationId,
+    ).toBe(threaded.conversationId);
+  });
+
+  test("aliasing a proven legacy Slack thread does not collapse different thread IDs", () => {
+    const channelId = "C0123ABCDEF";
+    const legacyThreadTs = "1710000000.000100";
+    const newThreadTs = "1710000000.000200";
+    const legacy = recordInbound("slack", channelId, "legacy-event", {
+      sourceMessageId: legacyThreadTs,
+    });
+
+    const aliased = recordInbound("slack", channelId, "legacy-thread-reply", {
+      sourceThreadId: legacyThreadTs,
+      sourceMessageId: "1710000001.000100",
+    });
+    const separate = recordInbound("slack", channelId, "new-thread-reply", {
+      sourceThreadId: newThreadTs,
+      sourceMessageId: "1710000001.000200",
+    });
+
+    expect(aliased.conversationId).toBe(legacy.conversationId);
+    expect(separate.conversationId).not.toBe(legacy.conversationId);
+    expect(separate.conversationId).not.toBe(aliased.conversationId);
+  });
+
+  test("reset legacy-aliased Slack thread does not reattach to old legacy conversation", async () => {
+    const channelId = "C0123ABCDEF";
+    const threadTs = "1710000000.000100";
+    const legacy = recordInbound("slack", channelId, "legacy-event", {
+      sourceMessageId: threadTs,
+    });
+    const aliased = recordInbound("slack", channelId, "legacy-thread-reply", {
+      sourceThreadId: threadTs,
+      sourceMessageId: "1710000001.000100",
+    });
+    expect(aliased.conversationId).toBe(legacy.conversationId);
+
+    const req = new Request("http://localhost/channels/conversation", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceChannel: "slack",
+        conversationExternalId: channelId,
+        sourceThreadId: threadTs,
+      }),
+    });
+    const res = await handleDeleteConversation(req);
+    expect(res.status).toBe(200);
+
+    const afterReset = recordInbound("slack", channelId, "after-reset-reply", {
+      sourceThreadId: threadTs,
+      sourceMessageId: "1710000002.000100",
+    });
+
+    expect(afterReset.conversationId).not.toBe(legacy.conversationId);
+    expect(
+      getConversationByKey(`asst:self:slack:${channelId}:thread:${threadTs}`)
+        ?.conversationId,
+    ).toBe(afterReset.conversationId);
+  });
+
+  test("reset legacy Slack thread before alias exists does not reattach to old legacy conversation", async () => {
+    const channelId = "C0123ABCDEF";
+    const threadTs = "1710000000.000100";
+    const legacy = recordInbound("slack", channelId, "legacy-event", {
+      sourceMessageId: threadTs,
+    });
+
+    const req = new Request("http://localhost/channels/conversation", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceChannel: "slack",
+        conversationExternalId: channelId,
+        sourceThreadId: threadTs,
+      }),
+    });
+    const res = await handleDeleteConversation(req);
+    expect(res.status).toBe(200);
+
+    const afterReset = recordInbound("slack", channelId, "after-reset-reply", {
+      sourceThreadId: threadTs,
+      sourceMessageId: "1710000002.000100",
+    });
+
+    expect(afterReset.conversationId).not.toBe(legacy.conversationId);
+    expect(
+      getConversationByKey(`asst:self:slack:${channelId}:thread:${threadTs}`)
+        ?.conversationId,
+    ).toBe(afterReset.conversationId);
   });
 
   test("different chats get different conversations", () => {

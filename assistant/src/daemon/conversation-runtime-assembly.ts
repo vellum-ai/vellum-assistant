@@ -1182,11 +1182,22 @@ function placeholderForBlockType(type: ContentBlock["type"]): string | null {
  */
 function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
   let slackMeta: ReturnType<typeof readSlackMetadata> = null;
+  let provenanceTrustClass: TrustClass | undefined;
   if (row.metadata) {
     try {
-      const outer = JSON.parse(row.metadata) as { slackMeta?: unknown };
+      const outer = JSON.parse(row.metadata) as {
+        slackMeta?: unknown;
+        provenanceTrustClass?: unknown;
+      };
       if (typeof outer.slackMeta === "string") {
         slackMeta = readSlackMetadata(outer.slackMeta);
+      }
+      if (
+        outer.provenanceTrustClass === "guardian" ||
+        outer.provenanceTrustClass === "trusted_contact" ||
+        outer.provenanceTrustClass === "unknown"
+      ) {
+        provenanceTrustClass = outer.provenanceTrustClass;
       }
     } catch {
       // Malformed metadata — fall through to legacy/null treatment.
@@ -1252,6 +1263,8 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
     senderLabel,
     createdAt: row.createdAt,
     contentBlocks,
+    wrapContentForModel:
+      row.role === "user" && !isReaction && provenanceTrustClass !== "guardian",
   };
 }
 

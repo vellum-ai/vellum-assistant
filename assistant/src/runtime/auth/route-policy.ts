@@ -1082,6 +1082,10 @@ registerPolicy("oauth/mode.set", {
   requiredScopes: ["settings.write"],
   allowedPrincipalTypes: ["local"],
 });
+registerPolicy("oauth/connection-changed", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
 registerPolicy("oauth/status", {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ["local"],

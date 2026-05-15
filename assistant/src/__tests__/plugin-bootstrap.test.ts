@@ -374,13 +374,8 @@ describe("plugin bootstrap", () => {
           {
             name: "gated-off-tool",
             description: "should not be registered",
-            category: "plugin-test",
             defaultRiskLevel: RiskLevel.Low,
-            getDefinition: () => ({
-              name: "gated-off-tool",
-              description: "should not be registered",
-              input_schema: { type: "object", properties: {}, required: [] },
-            }),
+            input_schema: { type: "object", properties: {}, required: [] },
             execute: async () => ({ content: "nope", isError: false }),
           },
         ],

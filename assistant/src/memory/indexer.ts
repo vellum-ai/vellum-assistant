@@ -169,32 +169,30 @@ export async function indexMessageNow(
     const batchSize = config.extraction.batchSize ?? 10;
     const idleTimeoutMs = config.extraction.idleTimeoutMs ?? 300_000;
 
+    // Reading config here is best-effort: when it fails we treat v2 as
+    // inactive (failing-open to v1) so a config error never silently
+    // drops the extraction or summarization paths.
+    let triggerConfig: ReturnType<typeof getConfig> | null = null;
+    try {
+      triggerConfig = getConfig();
+    } catch (err) {
+      log.debug(
+        { err, conversationId: input.conversationId },
+        "Skipping feature-gated extraction triggers: failed to load config",
+      );
+    }
+
+    const v2Config =
+      triggerConfig != null && triggerConfig.memory.v2.enabled
+        ? triggerConfig
+        : null;
+
     // Recursion guard: skip graph extraction + auto-analysis enqueues
     // when the source conversation is itself an auto-analysis
     // conversation. The analysis agent writes memory directly via tools,
     // so extracting from its reflective musings would double-count and
     // analyzing its own output would loop indefinitely.
-    // Summaries still run — they feed the graph retrieval pipeline and
-    // are not recursion-prone.
     if (!isAutoAnalysisSource) {
-      // Reading config here is best-effort: when it fails we treat v2 as
-      // inactive (failing-open to v1) so a config error never silently
-      // drops both extraction paths.
-      let triggerConfig: ReturnType<typeof getConfig> | null = null;
-      try {
-        triggerConfig = getConfig();
-      } catch (err) {
-        log.debug(
-          { err, conversationId: input.conversationId },
-          "Skipping feature-gated extraction triggers: failed to load config",
-        );
-      }
-
-      const v2Config =
-        triggerConfig != null && triggerConfig.memory.v2.enabled
-          ? triggerConfig
-          : null;
-
       // ── Graph extraction (v1) ───────────────────────────────────────
       // Suppressed when v2 is active — v2 reads memory from buffer.md
       // and concept pages, so the v1 graph would be stale data nobody
@@ -302,15 +300,22 @@ export async function indexMessageNow(
       }
     }
 
-    // ── Conversation summarization (independent of extraction) ────────
-    // Summaries feed the graph retrieval pipeline via fetchRecentSummaries().
-    // Debounced on the same idle timeout — no threshold trigger needed since
-    // summaries compress the whole conversation, not incremental batches.
-    upsertDebouncedJob(
-      "build_conversation_summary",
-      { conversationId: input.conversationId },
-      Date.now() + idleTimeoutMs,
-    );
+    // ── Conversation summarization (v1) ───────────────────────────────
+    // Summaries feed the v1 graph retrieval pipeline (fetchRecentSummaries,
+    // semantic search). Suppressed when v2 is active — v2 readers (concept
+    // pages, activation pipeline) do not consume `memorySummaries`, so the
+    // summarization LLM call would produce rows nothing reads. Stale rows
+    // from before v2 was enabled are short-circuited at dispatch in
+    // jobs-worker.ts. Debounced on the same idle timeout — no threshold
+    // trigger needed since summaries compress the whole conversation, not
+    // incremental batches.
+    if (v2Config == null) {
+      upsertDebouncedJob(
+        "build_conversation_summary",
+        { conversationId: input.conversationId },
+        Date.now() + idleTimeoutMs,
+      );
+    }
   }
 
   if (skippedShortSegments > 0) {

@@ -6,6 +6,7 @@ import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
 import { isPlaceholderSentinelText } from "../../providers/anthropic/client.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
+import { unwrapExternalContentForDisplay } from "../../security/untrusted-content.js";
 import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
 import type { ConversationTransportMetadata } from "../message-protocol.js";
@@ -120,6 +121,8 @@ export interface SlackInboundMessageMetadata {
   threadTs?: string;
   /** Resolved sender label (display name preferred, username fallback). */
   displayName?: string;
+  /** Canonical Slack external user id for the sender, when available. */
+  actorExternalUserId?: string;
 }
 
 /**
@@ -143,6 +146,11 @@ export interface ConversationCreateOptions {
   isInteractive?: boolean;
   /** Slack-only non-persisted notice injected into the active model turn. */
   slackRuntimeContextNotice?: string;
+  /**
+   * Persisted user-facing content. When present, storage/UI use this value
+   * while the model-facing turn continues to use `content`.
+   */
+  displayContent?: string;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
 
@@ -219,7 +227,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     } else if (typeof content === "object") {
       text = JSON.stringify(content);
     } else {
-      text = String(content);
+      text = unwrapExternalContentForDisplay(String(content));
     }
     return {
       text,
@@ -324,20 +332,21 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     }
 
     if (block.type === "text" && typeof block.text === "string") {
+      const displayText = unwrapExternalContentForDisplay(block.text);
       // Skip empty/whitespace-only text blocks. During streaming the client
       // discards empty text deltas (guard !text.isEmpty), so including them
       // here produces a contentOrder that differs from the live streaming
       // path — e.g. empty segments between consecutive tool_use blocks that
       // break tool-call grouping in the UI.
-      if (block.text.trim().length === 0) continue;
+      if (displayText.trim().length === 0) continue;
       // Drop Anthropic provider placeholder sentinels. These are injected
       // into outbound API requests to preserve role alternation and must
       // never be rendered to users. Belt-and-suspenders with the persist-
       // time filter in cleanAssistantContent and migration 222.
-      if (isPlaceholderSentinelText(block.text)) continue;
-      textParts.push(block.text);
+      if (isPlaceholderSentinelText(displayText)) continue;
+      textParts.push(displayText);
       ensureSegment();
-      currentSegmentParts.push(block.text);
+      currentSegmentParts.push(displayText);
       seenText = true;
       continue;
     }

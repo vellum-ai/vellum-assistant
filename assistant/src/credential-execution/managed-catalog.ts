@@ -67,20 +67,10 @@ export interface FetchManagedCatalogResult {
   error?: string;
 }
 
-/**
- * Fetch the managed credential catalog from the platform.
- *
- * Requires managed proxy prerequisites (platform base URL + assistant API key).
- * Returns an empty list with `ok: true` when prerequisites are missing —
- * callers should not treat a missing platform as an error.
- *
- * Errors from the platform are captured and returned as `ok: false` with an
- * error message that never contains secret material.
- */
 // ---------------------------------------------------------------------------
 // Managed connection cache — provides a synchronous view of platform-managed
 // connections for use in the system prompt (which is built synchronously).
-// Refresh is triggered at daemon startup and periodically thereafter.
+// Refresh is triggered at daemon startup and periodically via setInterval.
 // ---------------------------------------------------------------------------
 
 export interface CachedManagedConnection {
@@ -114,6 +104,16 @@ export async function refreshManagedConnectionCache(): Promise<void> {
   }
 }
 
+/**
+ * Fetch the managed credential catalog from the platform.
+ *
+ * Requires managed proxy prerequisites (platform base URL + assistant API key).
+ * Returns an empty list with `ok: true` when prerequisites are missing —
+ * callers should not treat a missing platform as an error.
+ *
+ * Errors from the platform are captured and returned as `ok: false` with an
+ * error message that never contains secret material.
+ */
 export async function fetchManagedCatalog(): Promise<FetchManagedCatalogResult> {
   const client = await VellumPlatformClient.create();
 

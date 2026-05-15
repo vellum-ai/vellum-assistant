@@ -734,6 +734,98 @@ describe("HostAppControlProxy", () => {
       proxy.dispose();
     });
 
+    test("both-fail overlapping starts release the lock (no phantom session)", async () => {
+      // Two same-conversation starts overlap, both fail. The later
+      // rollback must release the lock instead of resurrecting the
+      // earlier (never-confirmed) optimistic write.
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+
+      const pA = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.a" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdA = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+
+      sentMessages.length = 0;
+      const pC = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.c" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdC = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.c");
+
+      // A fails first — identity check makes it a no-op (C is live).
+      proxy.resolve(reqIdA, payload({ state: "missing" }));
+      await pA;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.c");
+
+      // C fails second — must roll back to confirmed (undefined), not
+      // to A's never-confirmed optimistic write.
+      proxy.resolve(reqIdC, payload({ state: "missing" }));
+      await pC;
+
+      expect(_getActiveAppControlSession()).toBeUndefined();
+
+      proxy.dispose();
+    });
+
+    test("late running confirmation from older overlapping start is preserved", async () => {
+      // Same-conversation overlapping starts where the older one's `running`
+      // response arrives AFTER a newer optimistic start has superseded it,
+      // and the newer one then fails. The host has actually confirmed A as
+      // running, so the lock must remain held for A rather than going
+      // undefined and desyncing from the host.
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+
+      // A is dispatched; do not resolve yet.
+      const pA = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.a" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdA = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+
+      // C is dispatched, overwriting the optimistic active pointer to C.
+      sentMessages.length = 0;
+      const pC = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.c" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdC = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.c");
+
+      // A finally returns running — by object identity active is no longer A,
+      // but the host has confirmed A so we must still record it as confirmed.
+      proxy.resolve(reqIdA, payload({ pngBase64: PNG_A }));
+      await pA;
+      // Active is still the newer optimistic C; nothing has rolled it back.
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.c");
+
+      // C fails — rollback must restore active to A (the current confirmed),
+      // not to undefined (the snapshot prior at C's dispatch time).
+      proxy.resolve(reqIdC, payload({ state: "missing" }));
+      await pC;
+
+      const session = _getActiveAppControlSession();
+      expect(session?.conversationId).toBe("conv-1");
+      expect(session?.app).toBe("com.example.a");
+
+      proxy.dispose();
+    });
+
     test("first-start failure releases the lock (no prior session to restore)", async () => {
       const proxy = new HostAppControlProxy("conv-1");
       const ctrl = new AbortController();

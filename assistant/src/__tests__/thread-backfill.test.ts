@@ -268,7 +268,12 @@ interface PersistedRow {
   channelTs: string | undefined;
   threadTs: string | undefined;
   displayName: string | undefined;
+  actorExternalUserId: string | undefined;
   slackFiles: Array<{ name: string; mimetype?: string }> | undefined;
+  provenanceTrustClass: string | undefined;
+  provenanceSourceChannel: string | undefined;
+  provenanceGuardianExternalUserId: string | undefined;
+  provenanceRequesterIdentifier: string | undefined;
 }
 
 const EXTERNAL_CONTENT_WRAPPER =
@@ -290,7 +295,12 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       channelTs: undefined,
       threadTs: undefined,
       displayName: undefined,
+      actorExternalUserId: undefined,
       slackFiles: undefined,
+      provenanceTrustClass: undefined,
+      provenanceSourceChannel: undefined,
+      provenanceGuardianExternalUserId: undefined,
+      provenanceRequesterIdentifier: undefined,
     };
     if (!row.metadata) {
       out.push(blank);
@@ -325,10 +335,27 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       channelTs: slackMeta?.channelTs,
       threadTs: slackMeta?.threadTs,
       displayName: slackMeta?.displayName,
+      actorExternalUserId: slackMeta?.actorExternalUserId,
       slackFiles: slackMeta?.slackFiles?.map((file) => ({
         name: file.name,
         ...(file.mimetype ? { mimetype: file.mimetype } : {}),
       })),
+      provenanceTrustClass:
+        typeof envelope.provenanceTrustClass === "string"
+          ? envelope.provenanceTrustClass
+          : undefined,
+      provenanceSourceChannel:
+        typeof envelope.provenanceSourceChannel === "string"
+          ? envelope.provenanceSourceChannel
+          : undefined,
+      provenanceGuardianExternalUserId:
+        typeof envelope.provenanceGuardianExternalUserId === "string"
+          ? envelope.provenanceGuardianExternalUserId
+          : undefined,
+      provenanceRequesterIdentifier:
+        typeof envelope.provenanceRequesterIdentifier === "string"
+          ? envelope.provenanceRequesterIdentifier
+          : undefined,
     });
   }
   return out;
@@ -934,7 +961,8 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       ): block is Extract<Message["content"][number], { type: "image" }> =>
         block.type === "image",
     );
-    expect(textBlock?.text).toContain("uploaded the diagram");
+    expect(textBlock?.text).toBe("uploaded the diagram");
+    expect(textBlock?.text).not.toContain("<external_content");
     expect(imageBlock?.source.media_type).toBe("image/png");
     expect(imageBlock?.source.data).toBe(imageBase64);
 
@@ -1004,10 +1032,8 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       ): block is Extract<Message["content"][number], { type: "image" }> =>
         block.type === "image",
     );
-    expect(textBlock?.text).toContain(
-      '<external_content source="webhook" origin="Build Bot">',
-    );
-    expect(textBlock?.text).toContain("bot posted a diagram");
+    expect(textBlock?.text).toBe("bot posted a diagram");
+    expect(textBlock?.text).not.toContain("<external_content");
     expect(imageBlock?.source.media_type).toBe("image/png");
 
     const context = loadSlackChronologicalContext(conv.id, SLACK_CHANNEL_CAPS, {
@@ -1022,7 +1048,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(contextImage).toBeDefined();
   });
 
-  test("backfilled non-guardian text is persisted wrapped in an external_content envelope", async () => {
+  test("backfilled non-guardian text is persisted raw with actor provenance", async () => {
     const conv = createTestConversation();
 
     backfillThreadMock.mockImplementation(async () => [
@@ -1046,16 +1072,17 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     );
     expect(persisted).toBeDefined();
     expect(persisted.role).toBe("user");
-    expect(persisted.rawContent).toContain(
-      '<external_content source="webhook" origin="Anita">',
-    );
-    expect(persisted.rawContent).toContain("i can't find the credential field");
-    expect(persisted.rawContent).toContain("</external_content>");
-    // Inner text round-trips unchanged through the wrapper.
+    expect(persisted.rawContent).toBe("i can't find the credential field");
+    expect(persisted.rawContent).not.toContain("<external_content");
     expect(persisted.content).toBe("i can't find the credential field");
+    expect(persisted.actorExternalUserId).toBe("U_ANITA");
+    expect(persisted.provenanceTrustClass).toBe("unknown");
+    expect(persisted.provenanceSourceChannel).toBe("slack");
+    expect(persisted.provenanceGuardianExternalUserId).toBe("U_GUARDIAN");
+    expect(persisted.provenanceRequesterIdentifier).toBe("U_ANITA");
   });
 
-  test("backfilled guardian-authored text is persisted unwrapped", async () => {
+  test("backfilled guardian-authored text is persisted raw with guardian provenance", async () => {
     const conv = createTestConversation();
 
     backfillThreadMock.mockImplementation(async () => [
@@ -1081,9 +1108,14 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(persisted.role).toBe("user");
     expect(persisted.rawContent).toBe("here is the trusted context");
     expect(persisted.rawContent).not.toContain("<external_content");
+    expect(persisted.actorExternalUserId).toBe("U_GUARDIAN");
+    expect(persisted.provenanceTrustClass).toBe("guardian");
+    expect(persisted.provenanceSourceChannel).toBe("slack");
+    expect(persisted.provenanceGuardianExternalUserId).toBe("U_GUARDIAN");
+    expect(persisted.provenanceRequesterIdentifier).toBe("U_GUARDIAN");
   });
 
-  test("backfilled bot-authored text is persisted wrapped as user history", async () => {
+  test("backfilled bot-authored text is persisted raw as user history", async () => {
     const conv = createTestConversation();
 
     backfillThreadMock.mockImplementation(async () => [
@@ -1107,10 +1139,12 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     );
     expect(persisted).toBeDefined();
     expect(persisted.role).toBe("user");
-    expect(persisted.rawContent).toContain(
-      '<external_content source="webhook" origin="Douglas">',
-    );
-    expect(persisted.rawContent).toContain("earlier assistant reply");
+    expect(persisted.rawContent).toBe("earlier assistant reply");
+    expect(persisted.rawContent).not.toContain("<external_content");
+    expect(persisted.actorExternalUserId).toBe("U_BOT");
+    expect(persisted.provenanceTrustClass).toBe("unknown");
+    expect(persisted.provenanceSourceChannel).toBe("slack");
+    expect(persisted.provenanceRequesterIdentifier).toBe("U_BOT");
   });
 
   test("backfilled non-bot message with empty text is persisted unwrapped", async () => {
@@ -1624,7 +1658,53 @@ function seedHttpActiveMember(chatId = HTTP_SLACK_CHANNEL_ID): void {
   });
 }
 
+function seedHttpGuardianMember(chatId = HTTP_SLACK_CHANNEL_ID): void {
+  upsertContactChannel({
+    sourceChannel: "slack",
+    externalUserId: HTTP_SLACK_USER_ID,
+    externalChatId: chatId,
+    status: "active",
+    policy: "allow",
+    displayName: HTTP_SLACK_DISPLAY_NAME,
+    role: "guardian",
+    verifiedAt: Date.now(),
+    verifiedVia: "test",
+  });
+}
+
 let httpMsgCounter = 0;
+
+function buildSlackChannelRequest(
+  messageId: string,
+  overrides: Record<string, unknown> = {},
+): Request {
+  httpMsgCounter++;
+  const body: Record<string, unknown> = {
+    sourceChannel: "slack",
+    interface: "slack",
+    conversationExternalId: HTTP_SLACK_CHANNEL_ID,
+    externalMessageId: `${HTTP_SLACK_CHANNEL_ID}:${messageId}:${httpMsgCounter}`,
+    content: "channel text",
+    actorExternalId: HTTP_SLACK_USER_ID,
+    actorDisplayName: HTTP_SLACK_DISPLAY_NAME,
+    actorUsername: "charlie",
+    replyCallbackUrl: "http://localhost:7830/deliver/slack",
+    sourceMetadata: {
+      messageId,
+      chatType: "channel",
+    },
+    ...overrides,
+  };
+
+  return new Request("http://localhost:8080/channels/inbound", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Gateway-Origin": TEST_BEARER_TOKEN,
+    },
+    body: JSON.stringify(body),
+  });
+}
 
 function buildThreadReplyRequest(
   threadId: string,
@@ -1694,12 +1774,14 @@ function buildSlackDmRequest(
 }
 
 interface SlackInboundProcessOptions {
+  displayContent?: string;
   slackRuntimeContextNotice?: string;
   slackInbound?: {
     channelId: string;
     channelTs: string;
     threadTs?: string;
     displayName?: string;
+    actorExternalUserId?: string;
   };
 }
 
@@ -1708,8 +1790,9 @@ function persistSlackInboundFromProcessMessage(
   content: string,
   options?: SlackInboundProcessOptions,
 ): string {
+  const contentToPersist = options?.displayContent ?? content;
   const slackInbound = options?.slackInbound;
-  return insertMessage(conversationId, "user", content, {
+  return insertMessage(conversationId, "user", contentToPersist, {
     ...(slackInbound
       ? {
           slackMeta: writeSlackMetadata({
@@ -1721,6 +1804,9 @@ function persistSlackInboundFromProcessMessage(
               : {}),
             ...(slackInbound.displayName
               ? { displayName: slackInbound.displayName }
+              : {}),
+            ...(slackInbound.actorExternalUserId
+              ? { actorExternalUserId: slackInbound.actorExternalUserId }
               : {}),
             eventKind: "message",
           }),
@@ -1745,6 +1831,77 @@ function flattenText(messages: Message[]): string {
     })
     .map((block) => block.text)
     .join("\n");
+}
+
+interface CapturedSlackProcessMessage {
+  conversationId: string;
+  content: string;
+  attachmentIds?: string[];
+  options?: SlackInboundProcessOptions;
+}
+
+function seedAttachment(id: string): void {
+  getDb()
+    .$client.prepare(
+      `INSERT INTO attachments (
+          id, original_filename, mime_type, size_bytes, kind, data_base64, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      "attachment.pdf",
+      "application/pdf",
+      Buffer.byteLength("pdf bytes"),
+      "upload",
+      Buffer.from("pdf bytes").toString("base64"),
+      Date.now(),
+    );
+}
+
+async function handleAndCaptureLiveSlackProcessMessage(
+  request: Request,
+): Promise<CapturedSlackProcessMessage> {
+  let captured: CapturedSlackProcessMessage | undefined;
+  let resolveProcessed: (() => void) | undefined;
+  const processed = new Promise<void>((resolve) => {
+    resolveProcessed = resolve;
+  });
+
+  const processMessage = async (
+    conversationId: string,
+    content: string,
+    attachmentIds?: string[],
+    options?: SlackInboundProcessOptions,
+  ): Promise<{ messageId: string }> => {
+    captured = { conversationId, content, attachmentIds, options };
+    const messageId = persistSlackInboundFromProcessMessage(
+      conversationId,
+      content,
+      options,
+    );
+    resolveProcessed?.();
+    return { messageId };
+  };
+  setAdapterProcessMessage(processMessage);
+
+  const resp = await handleChannelInbound(
+    request,
+    processMessage,
+    TEST_BEARER_TOKEN,
+  );
+  expect(resp.status).toBe(200);
+  await Promise.race([
+    processed,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("processMessage not called")), 250),
+    ),
+  ]);
+
+  if (!captured) {
+    throw new Error("processMessage not called");
+  }
+  return captured;
 }
 
 describe("handleChannelInbound — Slack thread backfill wiring", () => {
@@ -1845,6 +2002,73 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     expect(
       contents.some((row) => row.content.includes("Slack context note")),
     ).toBe(false);
+  });
+
+  test("live Slack non-guardian passes raw displayContent while wrapping model content", async () => {
+    const rawContent = "live Slack raw text";
+    const captured = await handleAndCaptureLiveSlackProcessMessage(
+      buildSlackChannelRequest("1700000000.000300", {
+        content: rawContent,
+      }),
+    );
+
+    expect(captured.content.match(/<external_content/g)?.length).toBe(1);
+    expect(captured.content).toContain('<external_content source="slack"');
+    expect(captured.content).not.toContain('source="webhook"');
+    expect(captured.content).toContain(`\n${rawContent}\n</external_content>`);
+    expect(captured.options?.displayContent).toBe(rawContent);
+    expect(captured.options?.slackInbound?.actorExternalUserId).toBe(
+      HTTP_SLACK_USER_ID,
+    );
+
+    const persisted = readMessagesByConversation(captured.conversationId);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].content).toBe(rawContent);
+  });
+
+  test("live Slack attachment-only passes empty raw displayContent for persistence", async () => {
+    seedAttachment("att-slack-file");
+
+    const captured = await handleAndCaptureLiveSlackProcessMessage(
+      buildSlackChannelRequest("1700000000.000350", {
+        content: "",
+        attachmentIds: ["att-slack-file"],
+      }),
+    );
+
+    expect(captured.content.match(/<external_content/g)?.length).toBe(1);
+    expect(captured.content).toContain('<external_content source="slack"');
+    expect(captured.content).toContain("\n\n</external_content>");
+    expect(captured.attachmentIds).toEqual(["att-slack-file"]);
+    expect(captured.options?.displayContent).toBe("");
+
+    const persisted = readMessagesByConversation(captured.conversationId);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].content).toBe("");
+    expect(persisted[0].content).not.toContain("<external_content");
+  });
+
+  test("live Slack guardian keeps raw content without displayContent", async () => {
+    seedHttpGuardianMember();
+    const rawContent = "guardian live Slack text";
+    const captured = await handleAndCaptureLiveSlackProcessMessage(
+      buildSlackChannelRequest("1700000000.000400", {
+        content: rawContent,
+      }),
+    );
+
+    expect(captured.content).toBe(rawContent);
+    expect(captured.content).not.toContain("<external_content");
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        captured.options ?? {},
+        "displayContent",
+      ),
+    ).toBe(false);
+
+    const persisted = readMessagesByConversation(captured.conversationId);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].content).toBe(rawContent);
   });
 
   test("late app mention sees unseen backfilled replies before the mention", async () => {

@@ -11236,6 +11236,26 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/oauth/connection-changed:
+    post:
+      operationId: oauth_connectionchanged_post
+      summary: Notify the assistant that an OAuth connection changed
+      description: Invalidates the config cache so the assistant picks up mode and credential changes immediately.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  refreshed:
+                    type: boolean
+                required:
+                  - refreshed
+                additionalProperties: false
   /v1/oauth/connections/{id}:
     delete:
       operationId: oauth_connections_by_id_delete

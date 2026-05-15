@@ -7,7 +7,10 @@
 
 import { v4 as uuid } from "uuid";
 
-import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
+import {
+  enrichMessageWithSourcePaths,
+  type MessageAttachmentInput,
+} from "../agent/attachments.js";
 import { createUserMessage } from "../agent/message-types.js";
 import type {
   TurnChannelContext,
@@ -191,6 +194,19 @@ export interface MessagingConversationContext {
   getTurnInterfaceContext(): TurnInterfaceContext | null;
 }
 
+export function serializePersistedUserMessageContent(
+  content: string,
+  attachments: MessageAttachmentInput[],
+  displayContent: string | undefined,
+): string {
+  return JSON.stringify(
+    createUserMessage(
+      displayContent !== undefined ? displayContent : content,
+      attachments,
+    ).content,
+  );
+}
+
 function extractTurnChannelContext(
   metadata?: Record<string, unknown>,
 ): TurnChannelContext | null {
@@ -258,6 +274,9 @@ export function buildSlackMetaForPersistence(params: {
     eventKind: "message",
     ...(candidate.threadTs ? { threadTs: candidate.threadTs } : {}),
     ...(candidate.displayName ? { displayName: candidate.displayName } : {}),
+    ...(candidate.actorExternalUserId
+      ? { actorExternalUserId: candidate.actorExternalUserId }
+      : {}),
   };
   return writeSlackMetadata(slackMeta);
 }
@@ -454,11 +473,11 @@ export async function persistQueuedMessageBody(
     // intent stripping), persist that to DB so users see the full message
     // after restart. The in-memory userMessage (sent to the LLM) still uses
     // the stripped content.
-    const contentToPersist = displayContent
-      ? JSON.stringify(
-          createUserMessage(displayContent, attachmentInputs).content,
-        )
-      : JSON.stringify(cleanMessage.content);
+    const contentToPersist = serializePersistedUserMessageContent(
+      content,
+      attachmentInputs,
+      displayContent,
+    );
     const persistedUserMessage = await addMessage(
       ctx.conversationId,
       "user",

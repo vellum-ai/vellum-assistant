@@ -17,6 +17,10 @@
 import { createHash } from "node:crypto";
 
 import type { ContentBlock, Message } from "../../../providers/types.js";
+import {
+  parseExternalContentEnvelope,
+  wrapUntrustedContent,
+} from "../../../security/untrusted-content.js";
 import type { SlackMessageMetadata } from "./message-metadata.js";
 
 export interface RenderableSlackMessage {
@@ -47,6 +51,12 @@ export interface RenderableSlackMessage {
    * fallback tag-line text block is emitted so chronology is preserved.
    */
   readonly contentBlocks?: readonly ContentBlock[];
+  /**
+   * When true, the user-authored body and Slack file markers are wrapped in
+   * `<external_content>` before entering model context. The Slack tag-line
+   * attribution remains outside that envelope.
+   */
+  wrapContentForModel?: boolean;
 }
 
 export interface RenderOptions {
@@ -260,7 +270,7 @@ function renderMessage(msg: RenderableSlackMessage): string {
   if (!meta) {
     // Legacy pre-upgrade row: flat render, no thread tag.
     const time = formatEpochMs(msg.createdAt);
-    return `[${time}${senderPart}]: ${msg.content}`;
+    return `[${time}${senderPart}]: ${renderModelBodyWithSlackFiles(msg, undefined)}`;
   }
 
   const time = formatSlackTs(meta.channelTs);
@@ -277,8 +287,51 @@ function renderMessage(msg: RenderableSlackMessage): string {
   if (meta.editedAt !== undefined) {
     head += `, edited ${formatEpochMs(meta.editedAt)}`;
   }
-  head += `]: ${appendSlackFileMarkers(msg.content, meta.slackFiles)}`;
+  head += `]: ${renderModelBodyWithSlackFiles(msg, meta.slackFiles)}`;
   return head;
+}
+
+function renderModelBodyWithSlackFiles(
+  msg: RenderableSlackMessage,
+  files: SlackMessageMetadata["slackFiles"],
+): string {
+  const markers = renderSlackFileMarkers(files);
+  if (!markers) {
+    return renderModelBody(msg, msg.content);
+  }
+
+  if (!msg.wrapContentForModel) {
+    return appendSlackFileMarkers(msg.content, files);
+  }
+
+  const parsedEnvelope = parseExternalContentEnvelope(msg.content);
+  if (parsedEnvelope !== null) {
+    return wrapUntrustedContent(
+      appendSlackFileMarkers(parsedEnvelope.content, files),
+      {
+        source: parsedEnvelope.source,
+        ...(parsedEnvelope.origin
+          ? { sourceDetail: parsedEnvelope.origin }
+          : {}),
+      },
+    );
+  }
+
+  return renderModelBody(msg, appendSlackFileMarkers(msg.content, files));
+}
+
+function renderModelBody(msg: RenderableSlackMessage, body: string): string {
+  if (!msg.wrapContentForModel || body.length === 0) {
+    return body;
+  }
+  if (parseExternalContentEnvelope(body) !== null) {
+    return body;
+  }
+  const origin = msg.senderLabel ?? undefined;
+  return wrapUntrustedContent(body, {
+    source: "slack",
+    ...(origin ? { sourceDetail: origin } : {}),
+  });
 }
 
 /**
@@ -314,9 +367,12 @@ function renderReaction(msg: RenderableSlackMessage): string | null {
  *   (if any) are discarded because the delete is a logical erasure.
  * - **Legacy rows** (no structured `contentBlocks`, or empty array): fall
  *   back to a single tag-line block to preserve pre-plumbing behaviour.
- * - **Pure tool-only rows** (`contentBlocks` present but no `text` block):
- *   emit only the replayable blocks — no tag line. Anthropic accepts role-
- *   correct messages with only tool blocks.
+ * - **Attachment-only rows** (`image` / `file` blocks with no `text` block):
+ *   emit a leading tag-line text block so sender/timestamp/file-marker
+ *   attribution is preserved.
+ * - **Pure tool-only rows** (`tool_use` / `tool_result` with no `text`,
+ *   `image`, or `file` block): emit only the replayable blocks — no tag line.
+ *   Anthropic accepts role-correct messages with only tool blocks.
  * - **All-non-replayable rows** (`contentBlocks` present but every block is
  *   filtered out — e.g. a row whose only blocks are `server_tool_use` or
  *   `ui_surface`): emit a single fallback tag-line text block annotated
@@ -364,6 +420,14 @@ function buildMessageContentBlocks(
     } else {
       strippedLabels.push(block.type);
     }
+  }
+
+  if (
+    !tagEmitted &&
+    tagLine.length > 0 &&
+    out.some((block) => block.type === "image" || block.type === "file")
+  ) {
+    return [{ type: "text", text: tagLine }, ...out];
   }
 
   // Non-empty source fully filtered to nothing: emit a fallback tag line so

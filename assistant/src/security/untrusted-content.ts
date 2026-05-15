@@ -15,14 +15,23 @@
 // Types
 // ---------------------------------------------------------------------------
 
-export type UntrustedContentSource =
-  | "email"
-  | "slack"
-  | "web"
-  | "calendar"
-  | "webhook"
-  | "search"
-  | "tool_result";
+const UNTRUSTED_CONTENT_SOURCES = [
+  "email",
+  "slack",
+  "web",
+  "calendar",
+  "webhook",
+  "search",
+  "tool_result",
+] as const;
+
+export type UntrustedContentSource = (typeof UNTRUSTED_CONTENT_SOURCES)[number];
+
+export interface ExternalContentEnvelope {
+  source: UntrustedContentSource;
+  origin?: string;
+  content: string;
+}
 
 export interface WrapOptions {
   /** Which external source produced this content. */
@@ -47,6 +56,14 @@ const DEFAULT_BUDGETS: Record<UntrustedContentSource, number> = {
   tool_result: 20_000,
 };
 
+const UNTRUSTED_CONTENT_SOURCE_SET = new Set<string>(UNTRUSTED_CONTENT_SOURCES);
+
+const EXTERNAL_CONTENT_ENVELOPE_PATTERN =
+  /^<external_content\s+([^\r\n<>]*)>\n([\s\S]*)\n<\/external_content>$/;
+
+const EXTERNAL_CONTENT_ATTRIBUTE_PATTERN =
+  /(?:^|\s+)(source|origin)="([^"\r\n]*)"/g;
+
 // ---------------------------------------------------------------------------
 // Core API
 // ---------------------------------------------------------------------------
@@ -70,6 +87,31 @@ export function wrapUntrustedContent(
   return `<external_content source="${options.source}"${detail}>\n${truncated}\n</external_content>`;
 }
 
+export function parseExternalContentEnvelope(
+  value: string,
+): ExternalContentEnvelope | null {
+  const match = EXTERNAL_CONTENT_ENVELOPE_PATTERN.exec(value);
+  if (!match || match[0] !== value) {
+    return null;
+  }
+
+  const attributes = parseExternalContentAttributes(match[1]);
+  if (!attributes) {
+    return null;
+  }
+
+  const content = match[2];
+  if (/<\/external_content/gi.test(content)) {
+    return null;
+  }
+
+  return { ...attributes, content };
+}
+
+export function unwrapExternalContentForDisplay(value: string): string {
+  return parseExternalContentEnvelope(value)?.content ?? value;
+}
+
 /**
  * Escape sequences that could break out of the `<external_content>` wrapper.
  * Case-insensitive to cover mixed-case evasion attempts.
@@ -88,6 +130,49 @@ export function escapeContentBoundaries(content: string): string {
 /** Sanitize a value for use as an XML attribute (no quotes, angle brackets, newlines). */
 function sanitizeAttr(value: string): string {
   return value.replace(/[<>"&\r\n]/g, "").slice(0, 200);
+}
+
+function parseExternalContentAttributes(
+  attributes: string,
+): Pick<ExternalContentEnvelope, "source" | "origin"> | null {
+  let source: UntrustedContentSource | undefined;
+  let origin: string | undefined;
+  let originSeen = false;
+  let cursor = 0;
+
+  EXTERNAL_CONTENT_ATTRIBUTE_PATTERN.lastIndex = 0;
+  for (const match of attributes.matchAll(EXTERNAL_CONTENT_ATTRIBUTE_PATTERN)) {
+    if (match.index !== cursor) {
+      return null;
+    }
+
+    const [, name, value] = match;
+    if (name === "source") {
+      if (source || !isUntrustedContentSource(value)) {
+        return null;
+      }
+      source = value;
+    } else {
+      if (originSeen) {
+        return null;
+      }
+      originSeen = true;
+      origin = value;
+    }
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor !== attributes.length || !source) {
+    return null;
+  }
+
+  return originSeen ? { source, origin } : { source };
+}
+
+function isUntrustedContentSource(
+  value: string,
+): value is UntrustedContentSource {
+  return UNTRUSTED_CONTENT_SOURCE_SET.has(value);
 }
 
 /** Truncate content to a character budget, appending a notice if truncated. */

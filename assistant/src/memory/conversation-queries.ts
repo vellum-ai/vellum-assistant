@@ -1,5 +1,11 @@
 import { and, count, desc, eq, sql } from "drizzle-orm";
 
+import {
+  parseExternalContentEnvelope,
+  type UntrustedContentSource,
+  unwrapExternalContentForDisplay,
+  wrapUntrustedContent,
+} from "../security/untrusted-content.js";
 import { getLogger } from "../util/logger.js";
 import type { ConversationRow } from "./conversation-crud.js";
 import { parseConversation } from "./conversation-crud.js";
@@ -411,29 +417,68 @@ export function searchConversations(
  * text; we extract a readable snippet in either case.
  */
 export function buildExcerpt(rawContent: string, query: string): string {
+  return buildExcerptWithExternalContentMode(rawContent, query, "display");
+}
+
+/**
+ * Build an excerpt for model-facing recall evidence. Unlike display excerpts,
+ * this keeps complete external_content envelopes around untrusted snippets so
+ * the model still sees clear third-party content boundaries.
+ */
+export function buildRecallEvidenceExcerpt(
+  rawContent: string,
+  query: string,
+): string {
+  return buildExcerptWithExternalContentMode(rawContent, query, "preserve");
+}
+
+function buildExcerptWithExternalContentMode(
+  rawContent: string,
+  query: string,
+  externalContentMode: "display" | "preserve",
+): string {
   // Try to extract plain text from JSON content blocks first.
   let text = rawContent;
   try {
     const parsed = JSON.parse(rawContent);
     if (Array.isArray(parsed)) {
       const parts: string[] = [];
+      let preservedExternalContent = false;
       for (const block of parsed) {
         if (typeof block === "object" && block != null) {
           if (block.type === "text" && typeof block.text === "string") {
-            parts.push(block.text);
+            if (externalContentMode === "display") {
+              parts.push(unwrapExternalContentForDisplay(block.text));
+            } else {
+              const excerpt = buildRecallEvidenceText(block.text, query);
+              parts.push(excerpt.text);
+              preservedExternalContent ||= excerpt.preservedExternalContent;
+            }
           } else if (
             block.type === "tool_result" ||
             block.type === "web_search_tool_result"
           ) {
             const inner = Array.isArray(block.content) ? block.content : [];
             for (const ib of inner) {
-              if (ib?.type === "text" && typeof ib.text === "string")
-                parts.push(ib.text);
+              if (ib?.type === "text" && typeof ib.text === "string") {
+                if (externalContentMode === "display") {
+                  parts.push(unwrapExternalContentForDisplay(ib.text));
+                } else {
+                  const excerpt = buildRecallEvidenceText(ib.text, query);
+                  parts.push(excerpt.text);
+                  preservedExternalContent ||= excerpt.preservedExternalContent;
+                }
+              }
             }
           }
         }
       }
-      if (parts.length > 0) text = parts.join(" ");
+      if (parts.length > 0) {
+        text = parts.join(" ");
+        if (externalContentMode === "preserve" && preservedExternalContent) {
+          return text;
+        }
+      }
     } else if (typeof parsed === "string") {
       text = parsed;
     }
@@ -441,6 +486,53 @@ export function buildExcerpt(rawContent: string, query: string): string {
     // Not JSON — use as-is
   }
 
+  if (externalContentMode === "display") {
+    text = unwrapExternalContentForDisplay(text);
+  } else {
+    const envelope = parseExternalContentEnvelope(text);
+    if (envelope) {
+      const innerExcerpt = buildExcerptFromText(envelope.content, query);
+      return wrapRecallEvidenceExcerpt(
+        innerExcerpt,
+        envelope.source,
+        envelope.origin,
+      );
+    }
+  }
+
+  return buildExcerptFromText(text, query);
+}
+
+function buildRecallEvidenceText(
+  text: string,
+  query: string,
+): { text: string; preservedExternalContent: boolean } {
+  const envelope = parseExternalContentEnvelope(text);
+  if (!envelope) {
+    return { text, preservedExternalContent: false };
+  }
+  const innerExcerpt = buildExcerptFromText(envelope.content, query);
+  return {
+    text: wrapRecallEvidenceExcerpt(
+      innerExcerpt,
+      envelope.source,
+      envelope.origin,
+    ),
+    preservedExternalContent: true,
+  };
+}
+
+function wrapRecallEvidenceExcerpt(
+  excerpt: string,
+  source: UntrustedContentSource,
+  origin?: string,
+): string {
+  return origin
+    ? wrapUntrustedContent(excerpt, { source, sourceDetail: origin })
+    : wrapUntrustedContent(excerpt, { source });
+}
+
+function buildExcerptFromText(text: string, query: string): string {
   const WINDOW = 100;
   const lowerText = text.toLowerCase();
   const lowerQuery = query.toLowerCase();
