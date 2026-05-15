@@ -87,6 +87,16 @@ export const ConnectionStatusSchema = z.enum(["active", "disabled"]);
 export type ConnectionStatus = z.infer<typeof ConnectionStatusSchema>;
 
 // ---------------------------------------------------------------------------
+// Per-connection model entries (openai-compatible)
+// ---------------------------------------------------------------------------
+
+export const ConnectionModelSchema = z.object({
+  id: z.string().min(1),
+  displayName: z.string().min(1).optional(),
+});
+export type ConnectionModel = z.infer<typeof ConnectionModelSchema>;
+
+// ---------------------------------------------------------------------------
 // Full connection shape used by CRUD layer
 // ---------------------------------------------------------------------------
 
@@ -96,6 +106,8 @@ export const ProviderConnectionSchema = z.object({
   auth: AuthSchema,
   status: ConnectionStatusSchema,
   label: z.string().min(1).nullable(),
+  baseUrl: z.string().url().nullable(),
+  models: z.array(ConnectionModelSchema).nullable(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
   /**

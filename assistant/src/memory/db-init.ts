@@ -142,6 +142,7 @@ import {
   migrateOAuthProvidersScopeSeparator,
   migrateOAuthProvidersTokenAuthMethodDefault,
   migrateOAuthProvidersTokenExchangeBodyFormat,
+  migrateProviderConnectionBaseUrlAndModels,
   migrateProviderConnectionStatusLabel,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
@@ -430,6 +431,7 @@ export function initializeDb(): void {
     migrateExternalConversationBindingThreadId,
     createOnboardingEventsTable,
     migrateNormalizeSlackExternalContent,
+    migrateProviderConnectionBaseUrlAndModels,
   ];
 
   // Run each migration step, catching and logging individual failures so one

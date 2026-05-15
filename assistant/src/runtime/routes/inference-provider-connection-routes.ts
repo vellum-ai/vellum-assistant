@@ -14,6 +14,8 @@ import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../memory/db-connection.js";
 import {
   AuthSchema,
+  type ConnectionModel,
+  ConnectionModelSchema,
   ConnectionProviderSchema,
   ConnectionStatusSchema,
   ProviderConnectionSchema,
@@ -35,6 +37,59 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // ---------------------------------------------------------------------------
 
 const providerConnectionResponseSchema = ProviderConnectionSchema;
+
+// ---------------------------------------------------------------------------
+// Custom provider field parsing (openai-compatible base_url + models)
+// ---------------------------------------------------------------------------
+
+function parseCustomProviderFields(body: Record<string, unknown>): {
+  baseUrl?: string | null;
+  models?: ConnectionModel[] | null;
+} {
+  const out: {
+    baseUrl?: string | null;
+    models?: ConnectionModel[] | null;
+  } = {};
+
+  if ("base_url" in body) {
+    const raw = body.base_url;
+    if (raw === null) {
+      out.baseUrl = null;
+    } else if (typeof raw === "string" && raw.length > 0) {
+      try {
+        const parsed = new URL(raw);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          throw new BadRequestError(`Invalid base_url: must be an http(s) URL`);
+        }
+      } catch (err) {
+        if (err instanceof BadRequestError) throw err;
+        throw new BadRequestError(
+          `Invalid base_url: must be a valid http(s) URL`,
+        );
+      }
+      out.baseUrl = raw;
+    } else {
+      throw new BadRequestError(
+        `Invalid base_url: must be a non-empty string or null`,
+      );
+    }
+  }
+
+  if ("models" in body) {
+    const raw = body.models;
+    if (raw === null) {
+      out.models = null;
+    } else {
+      const parsed = z.array(ConnectionModelSchema).safeParse(raw);
+      if (!parsed.success) {
+        throw new BadRequestError(`Invalid models: ${parsed.error.message}`);
+      }
+      out.models = parsed.data;
+    }
+  }
+
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -99,12 +154,15 @@ function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     );
   }
 
+  const customFields = parseCustomProviderFields(body);
+
   const result = createConnection(getDb(), {
     name,
     provider: providerResult.data,
     auth: authResult.data,
     ...(statusResult ? { status: statusResult.data } : {}),
     ...(labelRaw !== undefined ? { label: labelRaw as string | null } : {}),
+    ...customFields,
   });
 
   if (!result.ok) {
@@ -116,6 +174,16 @@ function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     if (result.error.code === "invalid_provider") {
       throw new BadRequestError(
         `Invalid provider "${result.error.provider}". Valid: ${VALID_CONNECTION_PROVIDERS.join(", ")}`,
+      );
+    }
+    if (result.error.code === "base_url_required") {
+      throw new BadRequestError(
+        "base_url is required for openai-compatible connections.",
+      );
+    }
+    if (result.error.code === "models_required") {
+      throw new BadRequestError(
+        "At least one model is required for openai-compatible connections.",
       );
     }
     throw new BadRequestError("Invalid auth configuration.");
@@ -169,15 +237,28 @@ function handleUpdateConnection({
     );
   }
 
+  const customFields = parseCustomProviderFields(body);
+
   const result = updateConnection(getDb(), name, {
     auth: authResult.data,
     ...(statusResult ? { status: statusResult.data } : {}),
     ...(labelRaw !== undefined ? { label: labelRaw as string | null } : {}),
+    ...customFields,
   });
 
   if (!result.ok) {
     if (result.error.code === "not_found") {
       throw new NotFoundError(`Connection "${name}" not found.`);
+    }
+    if (result.error.code === "base_url_required") {
+      throw new BadRequestError(
+        "base_url is required for openai-compatible connections.",
+      );
+    }
+    if (result.error.code === "models_required") {
+      throw new BadRequestError(
+        "At least one model is required for openai-compatible connections.",
+      );
     }
     throw new BadRequestError("Invalid auth configuration.");
   }
@@ -301,6 +382,8 @@ export const ROUTES: RouteDefinition[] = [
       auth: AuthSchema,
       label: z.string().min(1).optional(),
       status: ConnectionStatusSchema.optional(),
+      base_url: z.string().url().nullable().optional(),
+      models: z.array(ConnectionModelSchema).nullable().optional(),
     }),
     responseBody: providerConnectionResponseSchema,
     responseStatus: "201",
@@ -324,6 +407,8 @@ export const ROUTES: RouteDefinition[] = [
       auth: AuthSchema,
       status: ConnectionStatusSchema.optional(),
       label: z.string().min(1).nullable().optional(),
+      base_url: z.string().url().nullable().optional(),
+      models: z.array(ConnectionModelSchema).nullable().optional(),
     }),
     responseBody: providerConnectionResponseSchema,
     additionalResponses: {

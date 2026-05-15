@@ -214,6 +214,7 @@ export {
   downNormalizeSlackExternalContent,
   migrateNormalizeSlackExternalContent,
 } from "./249-normalize-slack-external-content.js";
+export { migrateProviderConnectionBaseUrlAndModels } from "./250-provider-connection-base-url-and-models.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

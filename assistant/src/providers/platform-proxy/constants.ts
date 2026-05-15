@@ -54,4 +54,5 @@ export const PLATFORM_PROVIDER_META: Record<string, ManagedProviderMeta> = {
   deepseek: { name: "deepseek", managed: false },
   minimax: { name: "minimax", managed: false },
   "opencode-go": { name: "opencode-go", managed: false },
+  "openai-compatible": { name: "openai-compatible", managed: false },
 };

@@ -205,7 +205,9 @@ export async function resolveProviderFromConnection(
   const cached = connectionProviders.get(connection.name);
   if (cached) return cached;
 
-  const authResult = await resolveAuth(connection.auth, connection.provider);
+  const authResult = await resolveAuth(connection.auth, connection.provider, {
+    baseUrl: connection.baseUrl,
+  });
   if (!authResult.ok) {
     const err = authResult.error;
     if (err.code === "not_implemented") {

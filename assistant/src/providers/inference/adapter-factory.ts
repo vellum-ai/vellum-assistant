@@ -123,6 +123,13 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
         streamTimeoutMs,
       },
     ),
+  "openai-compatible": ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new OpenAIChatCompletionsProvider(apiKey, model, {
+      providerName: "openai-compatible",
+      providerLabel: "OpenAI-compatible",
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
 };
 
 /**

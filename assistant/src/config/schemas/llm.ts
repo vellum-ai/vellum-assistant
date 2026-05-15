@@ -23,6 +23,7 @@ const LLMProvider = z.enum([
   "zai",
   "deepseek",
   "minimax",
+  "openai-compatible",
 ]);
 type LLMProvider = z.infer<typeof LLMProvider>;
 

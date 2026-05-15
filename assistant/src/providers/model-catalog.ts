@@ -1385,6 +1385,18 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "opencode-go/deepseek-v4-flash",
     apiKeyPlaceholder: "your-api-key",
   },
+  {
+    id: "openai-compatible",
+    displayName: "OpenAI-compatible",
+    subtitle:
+      "Bring your own OpenAI-compatible endpoint (vLLM, LMStudio, Groq, Together, etc.).",
+    setupMode: "api-key",
+    setupHint:
+      "Enter the base URL of your endpoint and at least one model identifier.",
+    apiKeyPlaceholder: "Your provider's API key",
+    models: [],
+    defaultModel: "",
+  },
 ];
 
 export const PROVIDER_CATALOG: ProviderCatalogEntry[] =
