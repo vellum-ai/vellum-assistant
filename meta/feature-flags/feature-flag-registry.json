@@ -328,6 +328,14 @@
       "label": "DeepSeek Provider",
       "description": "Enable the DeepSeek direct API provider and its models (V4 Pro, V4 Flash) in the provider picker and model selection UI",
       "defaultEnabled": false
+    },
+    {
+      "id": "provider-minimax",
+      "scope": "assistant",
+      "key": "provider-minimax",
+      "label": "MiniMax Provider",
+      "description": "Enable the MiniMax direct API provider and its models (M2.7, M2.5, M2.1, M2, and highspeed variants) in the provider picker and model selection UI",
+      "defaultEnabled": false
     }
   ]
 }
