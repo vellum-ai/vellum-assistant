@@ -107,7 +107,7 @@ describe("assistant-config", () => {
     );
   });
 
-  test("findAssistantByName resolves a unique display name", () => {
+  test("findAssistantByName only resolves assistant IDs", () => {
     writeLockfile({
       assistants: [
         makeEntry("assistant-1", "http://localhost:7821", { name: "Alice" }),
@@ -115,10 +115,26 @@ describe("assistant-config", () => {
       ],
     });
 
-    expect(findAssistantByName("Alice")?.assistantId).toBe("assistant-1");
+    expect(findAssistantByName("Alice")).toBeNull();
+    expect(findAssistantByName("assistant-1")?.assistantId).toBe("assistant-1");
   });
 
-  test("findAssistantByName resolves a unique legacy assistantName", () => {
+  test("lookupAssistantByIdentifier resolves a unique display name", () => {
+    writeLockfile({
+      assistants: [
+        makeEntry("assistant-1", "http://localhost:7821", { name: "Alice" }),
+        makeEntry("assistant-2", "http://localhost:7822", { name: "Bob" }),
+      ],
+    });
+
+    const result = lookupAssistantByIdentifier("Alice");
+    expect(result.status).toBe("found");
+    expect(result.status === "found" ? result.entry.assistantId : null).toBe(
+      "assistant-1",
+    );
+  });
+
+  test("lookupAssistantByIdentifier resolves a unique legacy assistantName", () => {
     writeLockfile({
       assistants: [
         makeEntry("assistant-1", "http://localhost:7821", {
@@ -127,7 +143,9 @@ describe("assistant-config", () => {
       ],
     });
 
-    expect(findAssistantByName("Legacy Alice")?.assistantId).toBe(
+    const result = lookupAssistantByIdentifier("Legacy Alice");
+    expect(result.status).toBe("found");
+    expect(result.status === "found" ? result.entry.assistantId : null).toBe(
       "assistant-1",
     );
   });
@@ -140,7 +158,11 @@ describe("assistant-config", () => {
       ],
     });
 
-    expect(findAssistantByName("Alice")?.assistantId).toBe("Alice");
+    const result = lookupAssistantByIdentifier("Alice");
+    expect(result.status).toBe("found");
+    expect(result.status === "found" ? result.entry.assistantId : null).toBe(
+      "Alice",
+    );
   });
 
   test("ambiguous display name lookup is explicit", () => {

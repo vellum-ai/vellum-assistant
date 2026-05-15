@@ -314,8 +314,7 @@ export function loadLatestAssistant(): AssistantEntry | null {
 }
 
 export function findAssistantByName(name: string): AssistantEntry | null {
-  const result = lookupAssistantByIdentifier(name);
-  return result.status === "found" ? result.entry : null;
+  return readAssistants().find((entry) => entry.assistantId === name) ?? null;
 }
 
 export function getAssistantDisplayName(entry: AssistantEntry): string {
