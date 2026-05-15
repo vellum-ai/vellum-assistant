@@ -177,27 +177,31 @@ useEffect(() => {
 }, []);
 ```
 
-**File workflow:** Call `app_create` first to create the app record and scaffold, use `file_write` for each source file under `src/`, then call `app_refresh` once to compile and refresh the UI.
+**File workflow:** Pass all source files inline via the `source_files` parameter of `app_create`. This writes and compiles the real app in a single call — no scaffold placeholder, no separate `file_write` or `app_refresh` needed for initial creation. For subsequent edits, use `file_edit`/`file_write` then call `app_refresh` once.
 
 **Allowed third-party packages:** `date-fns`, `chart.js`, `lodash-es`, `zod`, `clsx`, `lucide`. Import them directly - esbuild resolves them at build time. No CDN imports. Note: `lucide` is the vanilla JS icon library (not `lucide-react`). Use its `createElement` or `createIcons` API, or manually inline SVG - do not import JSX icon components.
 
-**Example - creating a multi-file project** (assuming app slug is `project-tracker`):
+**Example - creating a multi-file project:**
 
 ```
-file_write("{workspaceDir}/data/apps/project-tracker/src/index.html", `<!DOCTYPE html>
+app_create({
+  name: "Project Tracker",
+  description: "Track projects with status and priority",
+  schema_json: '{"type":"object","properties":{"title":{"type":"string"},"status":{"type":"string"}},"required":["title"]}',
+  preview: { title: "Project Tracker", icon: "📋" },
+  source_files: {
+    "src/index.html": `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Project Tracker</title></head>
 <body><div id="app"></div></body>
-</html>`)
-
-file_write("{workspaceDir}/data/apps/project-tracker/src/main.tsx", `import { render } from 'preact';
+</html>`,
+    "src/main.tsx": `import { render } from 'preact';
 import { App } from './components/App';
 import './styles.css';
 
-render(<App />, document.getElementById('app')!);`)
-
-file_write("{workspaceDir}/data/apps/project-tracker/src/components/App.tsx", `import { FunctionComponent } from 'preact';
+render(<App />, document.getElementById('app')!);`,
+    "src/components/App.tsx": `import { FunctionComponent } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
 import { Header } from './Header';
 
@@ -217,9 +221,8 @@ export const App: FunctionComponent = () => {
       {/* ... */}
     </div>
   );
-};`)
-
-file_write("{workspaceDir}/data/apps/project-tracker/src/components/Header.tsx", `import { FunctionComponent } from 'preact';
+};`,
+    "src/components/Header.tsx": `import { FunctionComponent } from 'preact';
 
 interface HeaderProps {
   title: string;
@@ -231,14 +234,12 @@ export const Header: FunctionComponent<HeaderProps> = ({ title, count }) => (
     <h1>{title}</h1>
     <span className="badge">{count} items</span>
   </header>
-);`)
-
-file_write("{workspaceDir}/data/apps/project-tracker/src/styles.css", `.app { padding: var(--v-spacing-lg); }
+);`,
+    "src/styles.css": `.app { padding: var(--v-spacing-lg); }
 .header { display: flex; justify-content: space-between; align-items: center; }
-.badge { background: var(--v-accent); color: var(--v-aux-white); padding: var(--v-spacing-xs) var(--v-spacing-sm); border-radius: var(--v-radius-pill); }`)
-
-# After all files are written, compile and refresh:
-app_refresh(app_id)
+.badge { background: var(--v-accent); color: var(--v-aux-white); padding: var(--v-spacing-xs) var(--v-spacing-sm); border-radius: var(--v-radius-pill); }`
+  }
+})
 ```
 
 **Technical constraints (multi-file):**
@@ -329,10 +330,11 @@ Call `app_create` with:
 - `name`: Short descriptive name
 - `description`: One-sentence summary
 - `schema_json`: JSON schema as string
-- `auto_open`: (optional, defaults to `true`) Shows an inline preview card in chat
+- `source_files`: Map of relative file paths to contents (e.g. `{"src/main.tsx": "...", "src/styles.css": "..."}`). **Always include this** with the complete app source — it writes, compiles, and opens the real app in a single call.
+- `auto_open`: (optional, defaults to `true`) Shows an inline preview card in chat after the app is built. Only fires when real source files are provided (not for scaffold-only apps).
 - `preview`: Always include - `title` (required), `subtitle`, `description`, `icon` (image URL preferred, emoji fallback), `metrics` (up to 3 key-value pills)
 
-Do not pass `html` or `pages` to `app_create`; those single-file shortcuts are retired. After `app_create` returns the app ID, write the real app source under `src/` and call `app_refresh`.
+Do not pass `html` or `pages` to `app_create`; those single-file shortcuts are retired.
 
 The app is NOT opened in a workspace panel automatically - users open it via the 'Open App' button on the inline card.
 

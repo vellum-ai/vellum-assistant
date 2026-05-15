@@ -64,6 +64,13 @@
             },
             "required": ["title"]
           },
+          "source_files": {
+            "type": "object",
+            "description": "Map of file paths to file contents to write under the app directory. Supply the real app source here instead of making separate file_write calls. Paths are relative to the app directory (e.g. 'src/main.tsx', 'src/components/App.tsx', 'src/styles.css'). When src/main.tsx is included, no scaffold placeholder is created and the app compiles immediately with real content.",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "change_summary": {
             "type": "string",
             "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: add coin flip app', 'fix: correct button alignment'). Used as the version history entry."

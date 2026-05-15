@@ -127,65 +127,17 @@ describe("executeAppCreate", () => {
     expect(parsed.next_steps).toContain("app_refresh");
   });
 
-  test("includes next_steps when auto_open succeeds", async () => {
+  test("skips auto_open on scaffold even when proxy resolver is available", async () => {
     const files: Record<string, string> = {};
     const app = makeMultifileApp({ name: "New App" });
     const store: AppStore = {
       ...mockStore(app, files),
       createApp: () => app,
     };
-    const proxyResolver = async () => ({
-      content: JSON.stringify({ opened: true }),
-      isError: false,
-    });
-
-    const result = await executeAppCreate(
-      { name: "New App" },
-      store,
-      proxyResolver,
-    );
-
-    expect(result.isError).toBe(false);
-    const parsed = JSON.parse(result.content);
-    expect(parsed.auto_opened).toBe(true);
-    expect(parsed.next_steps).toContain("placeholder src/main.tsx");
-    expect(parsed.next_steps).toContain("app_refresh");
-  });
-
-  test("includes next_steps when auto_open returns error", async () => {
-    const files: Record<string, string> = {};
-    const app = makeMultifileApp({ name: "New App" });
-    const store: AppStore = {
-      ...mockStore(app, files),
-      createApp: () => app,
-    };
-    const proxyResolver = async () => ({
-      content: "open failed",
-      isError: true,
-    });
-
-    const result = await executeAppCreate(
-      { name: "New App" },
-      store,
-      proxyResolver,
-    );
-
-    expect(result.isError).toBe(false);
-    const parsed = JSON.parse(result.content);
-    expect(parsed.auto_opened).toBe(false);
-    expect(parsed.next_steps).toContain("placeholder src/main.tsx");
-    expect(parsed.next_steps).toContain("app_refresh");
-  });
-
-  test("includes next_steps when auto_open proxy throws", async () => {
-    const files: Record<string, string> = {};
-    const app = makeMultifileApp({ name: "New App" });
-    const store: AppStore = {
-      ...mockStore(app, files),
-      createApp: () => app,
-    };
+    let proxyCalled = false;
     const proxyResolver = async () => {
-      throw new Error("proxy unavailable");
+      proxyCalled = true;
+      return { content: JSON.stringify({ opened: true }), isError: false };
     };
 
     const result = await executeAppCreate(
@@ -195,8 +147,9 @@ describe("executeAppCreate", () => {
     );
 
     expect(result.isError).toBe(false);
+    expect(proxyCalled).toBe(false);
     const parsed = JSON.parse(result.content);
-    expect(parsed.auto_opened).toBe(false);
+    expect(parsed.auto_opened).toBeUndefined();
     expect(parsed.next_steps).toContain("placeholder src/main.tsx");
     expect(parsed.next_steps).toContain("app_refresh");
   });
@@ -270,6 +223,100 @@ describe("executeAppCreate", () => {
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content);
     expect(parsed.compile_errors).toEqual(["unexpected token"]);
+    expect(parsed.next_steps).toBeUndefined();
+  });
+
+  test("suppresses auto_open when only scaffold exists", async () => {
+    const files: Record<string, string> = {};
+    const app = makeMultifileApp({ name: "New App" });
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: () => app,
+    };
+    let proxyCalledWith: Record<string, unknown> | undefined;
+    const proxyResolver = async (
+      toolName: string,
+      input: Record<string, unknown>,
+    ) => {
+      proxyCalledWith = { toolName, input };
+      return { content: JSON.stringify({ opened: true }), isError: false };
+    };
+
+    const result = await executeAppCreate(
+      { name: "New App" },
+      store,
+      proxyResolver,
+    );
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(proxyCalledWith).toBeUndefined();
+    expect(parsed.auto_opened).toBeUndefined();
+    expect(parsed.next_steps).toContain("placeholder src/main.tsx");
+  });
+
+  test("fires auto_open when source_files includes main.tsx", async () => {
+    const files: Record<string, string> = {};
+    const app = makeMultifileApp({ name: "Real App" });
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: () => app,
+    };
+    let proxyCalledWith: Record<string, unknown> | undefined;
+    const proxyResolver = async (
+      toolName: string,
+      input: Record<string, unknown>,
+    ) => {
+      proxyCalledWith = { toolName, input };
+      return { content: JSON.stringify({ opened: true }), isError: false };
+    };
+
+    const result = await executeAppCreate(
+      {
+        name: "Real App",
+        source_files: {
+          "src/main.tsx":
+            "import { render } from 'preact';\nrender(<div>Real</div>, document.getElementById('app')!);",
+          "src/styles.css": "body { margin: 0; }",
+        },
+      },
+      store,
+      proxyResolver,
+    );
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(proxyCalledWith).toBeDefined();
+    expect(parsed.auto_opened).toBe(true);
+    expect(parsed.next_steps).toBeUndefined();
+    expect(files["src/main.tsx"]).toContain("Real");
+    expect(files["src/styles.css"]).toContain("margin");
+  });
+
+  test("source_files are written and prevent scaffold", async () => {
+    const files: Record<string, string> = {};
+    const app = makeMultifileApp({ name: "Inline App" });
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: () => app,
+    };
+
+    const result = await executeAppCreate(
+      {
+        name: "Inline App",
+        source_files: {
+          "src/main.tsx": "// custom app code",
+          "src/components/App.tsx": "// App component",
+        },
+      },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(files["src/main.tsx"]).toBe("// custom app code");
+    expect(files["src/components/App.tsx"]).toBe("// App component");
+    expect(files["src/index.html"]).toBeDefined();
+    const parsed = JSON.parse(result.content);
     expect(parsed.next_steps).toBeUndefined();
   });
 
