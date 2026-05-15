@@ -4,6 +4,7 @@ import { Command } from "commander";
 
 import pkg from "../package.json";
 import { registerRunCommand } from "./commands/run";
+import { registerServerCommand } from "./commands/server";
 
 const program = new Command();
 program
@@ -12,5 +13,6 @@ program
   .version(pkg.version);
 
 registerRunCommand(program);
+registerServerCommand(program);
 
 await program.parseAsync(process.argv);

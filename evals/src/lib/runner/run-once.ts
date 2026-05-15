@@ -7,6 +7,8 @@ import {
   readTranscript,
   runMetrics,
   type MetricResult,
+  writeMetricResults,
+  writeRunMetadata,
   writeUsage,
 } from "../metrics";
 import type { Profile } from "../profile";
@@ -96,6 +98,15 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
     input.simulator ?? new UserSimulator({ maxTurns: input.maxTurns });
   const artifacts = await ensureRunArtifacts(input.runId);
   const assistantEvents: AgentEvent[] = [];
+  const startedAt = new Date().toISOString();
+  await writeRunMetadata(input.runId, {
+    runId: input.runId,
+    profileId: input.profile.id,
+    testId: input.test.id,
+    status: "running",
+    startedAt,
+    artifactDir: artifacts.runDir,
+  });
 
   await agent.hatch();
   try {
@@ -128,6 +139,16 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
     }
 
     const metrics = await runMetrics({ test: input.test, runId: input.runId });
+    await writeMetricResults(input.runId, metrics);
+    await writeRunMetadata(input.runId, {
+      runId: input.runId,
+      profileId: input.profile.id,
+      testId: input.test.id,
+      status: "completed",
+      startedAt,
+      completedAt: new Date().toISOString(),
+      artifactDir: artifacts.runDir,
+    });
     return {
       runId: input.runId,
       profileId: input.profile.id,
@@ -136,6 +157,18 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       transcript: await readTranscript(input.runId),
       metrics,
     };
+  } catch (err) {
+    await writeRunMetadata(input.runId, {
+      runId: input.runId,
+      profileId: input.profile.id,
+      testId: input.test.id,
+      status: "failed",
+      startedAt,
+      completedAt: new Date().toISOString(),
+      error: err instanceof Error ? err.message : String(err),
+      artifactDir: artifacts.runDir,
+    });
+    throw err;
   } finally {
     await agent.shutdown();
   }
