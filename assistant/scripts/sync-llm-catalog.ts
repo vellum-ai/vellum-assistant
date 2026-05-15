@@ -81,6 +81,8 @@ function projectModel(model: CatalogModel): Record<string, unknown> {
   if (model.supportsToolUse !== undefined)
     projected.supportsToolUse = model.supportsToolUse;
   if (model.pricing !== undefined) projected.pricing = model.pricing;
+  if (model.featureFlag !== undefined)
+    projected.featureFlag = model.featureFlag;
   return projected;
 }
 
@@ -99,6 +101,8 @@ function projectProvider(entry: ProviderCatalogEntry): Record<string, unknown> {
     projected.credentialsGuide = entry.credentialsGuide;
   if (entry.supportsPlatformAuth !== undefined)
     projected.supportsPlatformAuth = entry.supportsPlatformAuth;
+  if (entry.featureFlag !== undefined)
+    projected.featureFlag = entry.featureFlag;
   projected.defaultModel = entry.defaultModel;
   projected.models = entry.models.map(projectModel);
   // NOTE: `apiKeyUrl` intentionally omitted — clients use

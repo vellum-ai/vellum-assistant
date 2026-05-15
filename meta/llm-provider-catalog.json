@@ -888,6 +888,7 @@
         "linkLabel": "Open z.ai Platform"
       },
       "supportsPlatformAuth": false,
+      "featureFlag": "provider-zai",
       "defaultModel": "glm-5.1",
       "models": [
         {
@@ -966,6 +967,7 @@
         "linkLabel": "Open DeepSeek Platform"
       },
       "supportsPlatformAuth": false,
+      "featureFlag": "provider-deepseek",
       "defaultModel": "deepseek-v4-pro",
       "models": [
         {
@@ -1016,6 +1018,7 @@
         "linkLabel": "Open MiniMax Platform"
       },
       "supportsPlatformAuth": false,
+      "featureFlag": "provider-minimax",
       "defaultModel": "MiniMax-M2.7",
       "models": [
         {

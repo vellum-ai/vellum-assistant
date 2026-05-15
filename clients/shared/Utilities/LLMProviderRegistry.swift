@@ -91,6 +91,9 @@ public struct LLMModelEntry: Decodable {
     public let supportsToolUse: Bool?
     /// Per-1M-token pricing, if known.
     public let pricing: LLMPricing?
+    /// Feature flag key gating this model. When non-nil, the model is hidden
+    /// from the client-side seed until the daemon confirms it is enabled.
+    public let featureFlag: String?
 
     public init(
         id: String,
@@ -104,7 +107,8 @@ public struct LLMModelEntry: Decodable {
         supportsCaching: Bool? = nil,
         supportsVision: Bool? = nil,
         supportsToolUse: Bool? = nil,
-        pricing: LLMPricing? = nil
+        pricing: LLMPricing? = nil,
+        featureFlag: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -118,6 +122,7 @@ public struct LLMModelEntry: Decodable {
         self.supportsVision = supportsVision
         self.supportsToolUse = supportsToolUse
         self.pricing = pricing
+        self.featureFlag = featureFlag
     }
 }
 
@@ -157,6 +162,9 @@ public struct LLMProviderEntry: Decodable {
     /// Vellum)" option for this provider — selecting it would have no
     /// effect since there's no managed proxy route for the provider.
     public let supportsPlatformAuth: Bool?
+    /// Feature flag key gating this provider. When non-nil, the provider is
+    /// hidden from the client-side seed until the daemon confirms it is enabled.
+    public let featureFlag: String?
     /// The default model ID (must be present in `models`).
     public let defaultModel: String
     /// All models offered by this provider.
@@ -172,6 +180,7 @@ public struct LLMProviderEntry: Decodable {
         apiKeyPlaceholder: String?,
         credentialsGuide: LLMCredentialsGuide?,
         supportsPlatformAuth: Bool? = nil,
+        featureFlag: String? = nil,
         defaultModel: String,
         models: [LLMModelEntry]
     ) {
@@ -184,6 +193,7 @@ public struct LLMProviderEntry: Decodable {
         self.apiKeyPlaceholder = apiKeyPlaceholder
         self.credentialsGuide = credentialsGuide
         self.supportsPlatformAuth = supportsPlatformAuth
+        self.featureFlag = featureFlag
         self.defaultModel = defaultModel
         self.models = models
     }
@@ -213,9 +223,14 @@ public struct LLMProviderCatalog: Decodable {
 
 /// Public read accessors for the cached LLM provider catalog.
 public enum LLMProviderRegistry {
-    /// All providers in catalog order.
+    /// All providers in catalog order, excluding feature-flagged entries.
+    ///
+    /// Providers with a non-nil `featureFlag` are hidden from the client-side
+    /// seed because the client cannot resolve feature flag state. The daemon's
+    /// `model_info` response replaces this seed with the correctly filtered
+    /// list once it arrives.
     public static var providers: [LLMProviderEntry] {
-        shared.providers
+        shared.providers.filter { $0.featureFlag == nil }
     }
 
     /// The default provider (first entry).
