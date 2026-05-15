@@ -201,4 +201,56 @@ describe("queryUnreportedTurnEvents", () => {
       expect(e.conversationType).toBe("standard");
     }
   });
+
+  test("extracts interfaceId, channelId, and clientJson from messages.metadata", async () => {
+    // Three user messages with different metadata shapes to cover the
+    // realistic spectrum of attribution carried on messages.metadata:
+    //  - Full interactive: macOS surface, vellum channel, with a client
+    //    block stamped by the (forthcoming) HTTP header middleware.
+    //  - Channel inbound: Slack surface, no client headers (channel
+    //    inbound paths don't carry browser context).
+    //  - Legacy: a message persisted before metadata threading existed.
+    const conv = createConversation({ conversationType: "standard" });
+
+    const macOsMsg = await addMessage(conv.id, "user", "hi from desktop", {
+      userMessageInterface: "macos",
+      userMessageChannel: "vellum",
+      client: {
+        os: "darwin",
+        interface_version: "0.8.2",
+      },
+    });
+    const slackMsg = await addMessage(conv.id, "user", "hi from slack", {
+      userMessageInterface: "slack",
+      userMessageChannel: "slack",
+    });
+    const legacyMsg = await addMessage(conv.id, "user", "hi from the past");
+
+    const events = queryUnreportedTurnEvents(0, undefined, 100);
+    const byId = Object.fromEntries(events.map((e) => [e.id, e]));
+
+    expect(byId[macOsMsg.id]).toBeDefined();
+    expect(byId[macOsMsg.id].interfaceId).toBe("macos");
+    expect(byId[macOsMsg.id].channelId).toBe("vellum");
+    // clientJson is returned as raw JSON text -- the reporter parses it.
+    // We verify it round-trips back to the input object.
+    expect(byId[macOsMsg.id].clientJson).not.toBeNull();
+    expect(
+      JSON.parse(byId[macOsMsg.id].clientJson as string),
+    ).toMatchObject({
+      os: "darwin",
+      interface_version: "0.8.2",
+    });
+
+    expect(byId[slackMsg.id].interfaceId).toBe("slack");
+    expect(byId[slackMsg.id].channelId).toBe("slack");
+    expect(byId[slackMsg.id].clientJson).toBeNull();
+
+    // Legacy rows (no metadata threading) return null for all three
+    // attribution fields -- downstream analytics treats these as
+    // "unknown" without breaking the batch.
+    expect(byId[legacyMsg.id].interfaceId).toBeNull();
+    expect(byId[legacyMsg.id].channelId).toBeNull();
+    expect(byId[legacyMsg.id].clientJson).toBeNull();
+  });
 });

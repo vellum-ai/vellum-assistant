@@ -30,6 +30,42 @@ export interface TurnEvent {
    * partition lookup.
    */
   turnIndex: number;
+  /**
+   * Canonical `InterfaceId` enum value identifying the UI surface the user
+   * was interacting from at message-creation time (`"macos"`, `"ios"`,
+   * `"cli"`, `"web"`, `"chrome-extension"`, `"slack"`, `"telegram"`,
+   * `"whatsapp"`, `"email"`, `"phone"`). Sourced from
+   * `messages.metadata.userMessageInterface` (stamped on insert by every
+   * `persistUserMessage` path that flows through `TurnChannelContext`).
+   *
+   * Null when the metadata didn't carry the field — historical rows
+   * predating the threading, or system-initiated turns with no inbound
+   * client context. Downstream analytics should treat null as
+   * `"unknown"`.
+   */
+  interfaceId: string | null;
+  /**
+   * Canonical `ChannelId` enum value identifying the messaging fabric the
+   * user message arrived on (`"vellum"` for in-app messaging from
+   * macos/ios/web/cli; `"slack"`/`"telegram"`/`"whatsapp"`/`"email"`/
+   * `"phone"` for channel-based interfaces). Sourced from
+   * `messages.metadata.userMessageChannel`.
+   *
+   * The 7th `ChannelId` value (`"platform"`) is APNs-push outbound-only
+   * and should never appear on a user-message row.
+   */
+  channelId: string | null;
+  /**
+   * Flexible client metadata stashed under `messages.metadata.client` by
+   * the HTTP header middleware. Carries optional `browserFamily`,
+   * `browserVersion`, `os`, `interfaceVersion` (and is extensible without
+   * a migration since it lives inside the JSON column). Null when no
+   * client headers were attached.
+   *
+   * Returned as raw JSON text — the reporter parses + re-shapes for the
+   * wire format.
+   */
+  clientJson: string | null;
 }
 
 /**
@@ -87,6 +123,26 @@ export function queryUnreportedTurnEvents(
                OR (m2.created_at = ${messages.createdAt}
                    AND m2.id <= ${messages.id}))
       )`.as("turn_index"),
+      // Client attribution: extract from `messages.metadata` JSON.
+      // `userMessageInterface` and `userMessageChannel` are stamped on
+      // insert by every `persistUserMessage` path that flows through
+      // `TurnChannelContext`. `client` is the flexible namespace for
+      // browser/os/version metadata attached by HTTP header middleware.
+      // `json_extract` returns SQL NULL when the JSON path is absent —
+      // exactly the null semantics we want on the wire.
+      interfaceId: sql<
+        string | null
+      >`json_extract(${messages.metadata}, '$.userMessageInterface')`.as(
+        "interface_id",
+      ),
+      channelId: sql<
+        string | null
+      >`json_extract(${messages.metadata}, '$.userMessageChannel')`.as(
+        "channel_id",
+      ),
+      clientJson: sql<
+        string | null
+      >`json_extract(${messages.metadata}, '$.client')`.as("client_json"),
     })
     .from(messages)
     .innerJoin(conversations, eq(messages.conversationId, conversations.id))

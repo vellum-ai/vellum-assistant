@@ -41,6 +41,9 @@ const mockQueryUnreportedTurnEvents = mock(
       conversationId: string;
       conversationType: string;
       turnIndex: number;
+      interfaceId: string | null;
+      channelId: string | null;
+      clientJson: string | null;
     }[],
 );
 
@@ -548,6 +551,9 @@ describe("UsageTelemetryReporter", () => {
         conversationId: "conv-mixed",
         conversationType: "standard",
         turnIndex: 1,
+        interfaceId: null,
+        channelId: null,
+        clientJson: null,
       },
     ]);
     mockFetch.mockImplementation(() =>
@@ -593,6 +599,9 @@ describe("UsageTelemetryReporter", () => {
         conversationId: "conv-std",
         conversationType: "standard",
         turnIndex: 1,
+        interfaceId: null,
+        channelId: null,
+        clientJson: null,
       },
       {
         id: "evt-turn-background",
@@ -600,6 +609,9 @@ describe("UsageTelemetryReporter", () => {
         conversationId: "conv-bg",
         conversationType: "background",
         turnIndex: 1,
+        interfaceId: null,
+        channelId: null,
+        clientJson: null,
       },
       {
         id: "evt-turn-scheduled",
@@ -607,6 +619,9 @@ describe("UsageTelemetryReporter", () => {
         conversationId: "conv-sched",
         conversationType: "scheduled",
         turnIndex: 1,
+        interfaceId: null,
+        channelId: null,
+        clientJson: null,
       },
     ]);
     mockFetch.mockImplementation(() =>
@@ -632,6 +647,117 @@ describe("UsageTelemetryReporter", () => {
     expect(byId["evt-turn-standard"].conversation_type).toBe("standard");
     expect(byId["evt-turn-background"].conversation_type).toBe("background");
     expect(byId["evt-turn-scheduled"].conversation_type).toBe("scheduled");
+  });
+
+  test("turn events carry interface_id, channel_id, and parsed client metadata", async () => {
+    // Four turns spanning the relevant cases:
+    //  - macOS in-app turn with full client block (typical interactive user)
+    //  - slack inbound turn with no client block (channel-based, no headers)
+    //  - web turn with malformed client JSON (parsing guard: emit null,
+    //    do not break the batch)
+    //  - historical turn with no metadata at all (pre-rollout row)
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      {
+        id: "evt-turn-macos",
+        createdAt: 1700000400000,
+        conversationId: "conv-mac",
+        conversationType: "standard",
+        turnIndex: 1,
+        interfaceId: "macos",
+        channelId: "vellum",
+        clientJson: JSON.stringify({
+          browser_family: null,
+          os: "darwin",
+          interface_version: "0.8.2",
+        }),
+      },
+      {
+        id: "evt-turn-slack",
+        createdAt: 1700000500000,
+        conversationId: "conv-slack",
+        conversationType: "standard",
+        turnIndex: 1,
+        interfaceId: "slack",
+        channelId: "slack",
+        clientJson: null,
+      },
+      {
+        id: "evt-turn-web-broken",
+        createdAt: 1700000600000,
+        conversationId: "conv-web",
+        conversationType: "standard",
+        turnIndex: 1,
+        interfaceId: "web",
+        channelId: "vellum",
+        clientJson: "{not valid json",
+      },
+      {
+        id: "evt-turn-legacy",
+        createdAt: 1700000700000,
+        conversationId: "conv-legacy",
+        conversationType: "standard",
+        turnIndex: 1,
+        interfaceId: null,
+        channelId: null,
+        clientJson: null,
+      },
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":4}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+
+    const byId: Record<
+      string,
+      {
+        interface_id: string | null;
+        channel_id: string | null;
+        client: Record<string, unknown> | null;
+      }
+    > = {};
+    for (const e of body.events as Array<{
+      daemon_event_id: string;
+      interface_id: string | null;
+      channel_id: string | null;
+      client: Record<string, unknown> | null;
+    }>) {
+      byId[e.daemon_event_id] = e;
+    }
+
+    expect(byId["evt-turn-macos"]).toMatchObject({
+      interface_id: "macos",
+      channel_id: "vellum",
+      client: {
+        os: "darwin",
+        interface_version: "0.8.2",
+      },
+    });
+    expect(byId["evt-turn-slack"]).toMatchObject({
+      interface_id: "slack",
+      channel_id: "slack",
+      client: null,
+    });
+    // Malformed client JSON is downgraded to null without failing the
+    // batch — the interface_id/channel_id from the typed columns still
+    // ride through cleanly.
+    expect(byId["evt-turn-web-broken"]).toMatchObject({
+      interface_id: "web",
+      channel_id: "vellum",
+      client: null,
+    });
+    expect(byId["evt-turn-legacy"]).toMatchObject({
+      interface_id: null,
+      channel_id: null,
+      client: null,
+    });
   });
 
   test("llm_usage events carry conversation_id, conversation_type, and turn_index", async () => {
