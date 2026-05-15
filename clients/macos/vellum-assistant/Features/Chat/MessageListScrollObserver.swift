@@ -28,13 +28,22 @@ struct MessageListScrollObserver: NSViewRepresentable {
     /// compensations (content shrinks, live-scroll gates, first-layout).
     /// `nil` when no observer cares.
     var onAnchorDecision: (@MainActor (ScrollAnchorDecisionEvent) -> Void)? = nil
+    /// Fired when `contentH` changes by a small amount (< 8pt) — used by the
+    /// scroll-debug overlay to localise which descendant of the document view
+    /// actually grew or shrank. Reports only views whose frame height changed
+    /// vs. the previous emit, so the log line lists candidate sources of the
+    /// phantom 1pt-per-frame drift that the anchor preserver is compensating
+    /// for. `nil` (and the diagnostic walk is skipped entirely) when no
+    /// observer cares, so the cost is paid only with the debug overlay on.
+    var onContentHeightSourceDiagnostic: (@MainActor (ContentHeightSourceDiagnosticEvent) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onGeometryChange: onGeometryChange,
             shouldPreserveScrollAnchor: shouldPreserveScrollAnchor,
             onAnchorShift: onAnchorShift,
-            onAnchorDecision: onAnchorDecision
+            onAnchorDecision: onAnchorDecision,
+            onContentHeightSourceDiagnostic: onContentHeightSourceDiagnostic
         )
     }
 
@@ -53,6 +62,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
         context.coordinator.shouldPreserveScrollAnchor = shouldPreserveScrollAnchor
         context.coordinator.onAnchorShift = onAnchorShift
         context.coordinator.onAnchorDecision = onAnchorDecision
+        context.coordinator.onContentHeightSourceDiagnostic = onContentHeightSourceDiagnostic
         DispatchQueue.main.async { [weak nsView] in
             guard let nsView else { return }
             context.coordinator.attachIfNeeded(to: nsView)
@@ -74,8 +84,29 @@ struct MessageListScrollObserver: NSViewRepresentable {
         var shouldPreserveScrollAnchor: @MainActor () -> Bool
         var onAnchorShift: (@MainActor () -> Void)?
         var onAnchorDecision: (@MainActor (ScrollAnchorDecisionEvent) -> Void)?
+        var onContentHeightSourceDiagnostic: (@MainActor (ContentHeightSourceDiagnosticEvent) -> Void)?
         private var observers: [NSObjectProtocol] = []
         private var lastSnapshot: ScrollGeometrySnapshot?
+        /// Per-subtree height snapshot, keyed by the descendant's index path
+        /// from the document view (e.g. `"0/3/1"`). Populated only when an
+        /// `onContentHeightSourceDiagnostic` observer is wired up; cleared on
+        /// detach so a scroll-view swap can't carry stale heights across
+        /// conversations. Walking depth-first by index path gives a stable
+        /// identity across SwiftUI's view re-evaluations, where the underlying
+        /// `NSView` object identifiers shift even when the layout doesn't.
+        private var lastSubviewHeights: [String: CGFloat] = [:]
+        /// Cap on diagnostic walk depth — SwiftUI hosting hierarchies are deep
+        /// and the walk runs on every small contentH delta, so we trim the
+        /// tail to keep the per-emit cost bounded. 12 is enough to reach the
+        /// LazyVStack row level in practice.
+        private static let diagnosticWalkMaxDepth: Int = 12
+        /// Upper bound on the magnitude of a `contentHDelta` worth walking for.
+        /// Large deltas come from layout-level events (pagination snap, height
+        /// estimate corrections after a column-width change, conversation
+        /// switches) — those don't need per-frame attribution. The
+        /// instrumentation targets the steady ~1pt drift seen during
+        /// streaming.
+        private static let diagnosticContentHDeltaThreshold: CGFloat = 8
         /// Last observed `documentView.frame.height`. Used to compute the
         /// growth delta for anchor preservation. Reset to 0 on attach/detach
         /// so a stale baseline from a previous conversation cannot apply
@@ -108,12 +139,14 @@ struct MessageListScrollObserver: NSViewRepresentable {
             onGeometryChange: @escaping @MainActor (ScrollGeometrySnapshot) -> Void,
             shouldPreserveScrollAnchor: @escaping @MainActor () -> Bool,
             onAnchorShift: (@MainActor () -> Void)? = nil,
-            onAnchorDecision: (@MainActor (ScrollAnchorDecisionEvent) -> Void)? = nil
+            onAnchorDecision: (@MainActor (ScrollAnchorDecisionEvent) -> Void)? = nil,
+            onContentHeightSourceDiagnostic: (@MainActor (ContentHeightSourceDiagnosticEvent) -> Void)? = nil
         ) {
             self.onGeometryChange = onGeometryChange
             self.shouldPreserveScrollAnchor = shouldPreserveScrollAnchor
             self.onAnchorShift = onAnchorShift
             self.onAnchorDecision = onAnchorDecision
+            self.onContentHeightSourceDiagnostic = onContentHeightSourceDiagnostic
         }
 
         func attachIfNeeded(to hostView: NSView) {
@@ -143,6 +176,10 @@ struct MessageListScrollObserver: NSViewRepresentable {
             // fresh full scroll cycle.
             self.isLiveScrolling = false
             self.lastSnapshot = nil
+            // Same baseline reset for the diagnostic walk's snapshot — a
+            // conversation switch destroys the old view tree, so stale paths
+            // would no longer correspond to anything.
+            self.lastSubviewHeights = [:]
             installObservers()
         }
 
@@ -155,6 +192,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
             lastSnapshot = nil
             lastContentHeight = 0
             isLiveScrolling = false
+            lastSubviewHeights = [:]
         }
 
         func emitCurrentSnapshotIfPossible() {
@@ -208,6 +246,23 @@ struct MessageListScrollObserver: NSViewRepresentable {
                     postOffsetY: clipView.bounds.origin.y,
                     at: Date()
                 ))
+            }
+            // Diagnostic walk: when contentH changes and an observer is wired
+            // up, walk the documentView's descendant tree to identify which
+            // view(s) actually grew or shrank. Gated on the callback being
+            // non-nil so the deep walk's cost is only paid with the
+            // scroll-debug overlay on. Large deltas (pagination snap,
+            // conversation switch) refresh the snapshot but skip the report —
+            // those events don't need per-frame attribution.
+            if contentHDelta != 0, let onContentHeightSourceDiagnostic {
+                let changed = diffSubviewHeights(root: documentView)
+                if abs(contentHDelta) < Self.diagnosticContentHDeltaThreshold {
+                    onContentHeightSourceDiagnostic(ContentHeightSourceDiagnosticEvent(
+                        contentHDelta: contentHDelta,
+                        changedSubviews: changed,
+                        at: Date()
+                    ))
+                }
             }
             // Advance the baseline on every emit, including jitter-skipped
             // frames. Leaving the baseline stale on a sub-threshold skip lets
@@ -336,6 +391,56 @@ struct MessageListScrollObserver: NSViewRepresentable {
             }
             observers.removeAll()
         }
+
+        /// Walks `root`'s descendant tree depth-first by index path, skipping
+        /// `root` itself. For each descendant whose `frame.height` differs
+        /// from the value captured on the previous walk, records a
+        /// `ChangedSubview` describing where the change happened. Stores the
+        /// new heights back into `lastSubviewHeights` so the next walk diffs
+        /// against fresh state.
+        ///
+        /// `root` (the document view) is excluded from the report because its
+        /// height delta is already conveyed by `contentHDelta` — including it
+        /// would just duplicate that signal at every emit.
+        ///
+        /// The index path (`"0/3/1"`) is intentionally used as the identity
+        /// key — `NSView` object identifiers drift across SwiftUI view
+        /// re-evaluations even when the underlying layout is identical, but
+        /// the position of a subview in its parent's `subviews` array is
+        /// stable enough for short-window diagnostic comparison.
+        private func diffSubviewHeights(root: NSView) -> [ContentHeightSourceDiagnosticEvent.ChangedSubview] {
+            var current: [String: CGFloat] = [:]
+            var changed: [ContentHeightSourceDiagnosticEvent.ChangedSubview] = []
+            for (index, child) in root.subviews.enumerated() {
+                captureHeights(view: child, path: "\(index)", depth: 1, into: &current, changed: &changed)
+            }
+            lastSubviewHeights = current
+            return changed
+        }
+
+        private func captureHeights(
+            view: NSView,
+            path: String,
+            depth: Int,
+            into current: inout [String: CGFloat],
+            changed: inout [ContentHeightSourceDiagnosticEvent.ChangedSubview]
+        ) {
+            let height = view.frame.height
+            current[path] = height
+            if let previous = lastSubviewHeights[path], previous != height {
+                changed.append(ContentHeightSourceDiagnosticEvent.ChangedSubview(
+                    path: path,
+                    typeName: String(describing: type(of: view)),
+                    previousHeight: previous,
+                    currentHeight: height,
+                    minY: view.frame.minY
+                ))
+            }
+            guard depth < Self.diagnosticWalkMaxDepth else { return }
+            for (index, child) in view.subviews.enumerated() {
+                captureHeights(view: child, path: "\(path)/\(index)", depth: depth + 1, into: &current, changed: &changed)
+            }
+        }
     }
 }
 
@@ -437,4 +542,31 @@ struct ScrollAnchorDecisionEvent {
     let preOffsetY: CGFloat
     let postOffsetY: CGFloat
     let at: Date
+}
+
+/// Per-emit attribution payload describing which subviews of the document
+/// view actually changed height when `contentH` ticked by a small amount.
+/// Emitted only when the scroll-debug overlay is on (the view layer wires
+/// up `onContentHeightSourceDiagnostic` only in that case). The view layer
+/// is responsible for logging — keeping the observer free of `os.Logger`
+/// dependencies preserves its unit-testability.
+struct ContentHeightSourceDiagnosticEvent {
+    let contentHDelta: CGFloat
+    let changedSubviews: [ChangedSubview]
+    let at: Date
+
+    struct ChangedSubview {
+        /// Index path from the document view (`"0/3/1"`) — stable across
+        /// SwiftUI view re-evaluations within a single conversation.
+        let path: String
+        /// Swift type name (often a SwiftUI hosting wrapper like
+        /// `_TtGC7SwiftUI...`, occasionally a plain `NSView` subclass).
+        let typeName: String
+        let previousHeight: CGFloat
+        let currentHeight: CGFloat
+        /// Frame `minY` in the parent's coordinate space — useful for
+        /// locating the change in the inverted layout (small `minY` is near
+        /// the visual bottom / streaming end).
+        let minY: CGFloat
+    }
 }

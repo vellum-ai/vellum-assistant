@@ -6,6 +6,12 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MessageListView")
 
+/// Separate category for the scroll-anchor source diagnostic so its high-rate
+/// output (one line per small contentH tick when the overlay is on) doesn't
+/// drown out other `MessageListView` logs. Filter with
+/// `log stream --predicate 'category == "ScrollAnchorDiag"'`.
+private let scrollDiagLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollAnchorDiag")
+
 /// Compound `task(id:)` key so the daemon-message-ID resolver re-fires both
 /// when the requested daemon ID changes and when the messages list grows
 /// (the matching row may not exist yet at the time the binding is set).
@@ -268,6 +274,35 @@ extension MessageListView {
         guard message.role == .user else { return false }
         if case .queued = message.status { return false }
         return true
+    }
+
+    // MARK: - Scroll-anchor source diagnostic
+
+    /// Formats a single content-height-source diagnostic event for the
+    /// `ScrollAnchorDiag` log category. The coordinator only fires this
+    /// callback when the scroll-debug overlay is on AND `contentH` ticked by
+    /// less than 8pt — the suspect range for the drift this instrumentation
+    /// targets. Output shape (one line per emit):
+    ///
+    /// ```
+    /// contentHΔ=1.0 changed=3: NSStackView(path=0/0/2 minY=2160 h=200→201) ...
+    /// ```
+    ///
+    /// `path` is the index path from the document view; the leftmost segment
+    /// is the document view's direct subview index, so two paths with a
+    /// common prefix sit in the same subtree.
+    static func logContentHeightSource(_ event: ContentHeightSourceDiagnosticEvent) {
+        // Cap the per-line output so a single emit can't blow up the log when
+        // a layout-storm event sneaks under the 8pt threshold.
+        let maxEntries = 12
+        let displayed = event.changedSubviews.prefix(maxEntries)
+        let summary = displayed.map { c in
+            "\(c.typeName)(path=\(c.path) minY=\(Int(c.minY)) h=\(c.previousHeight)→\(c.currentHeight))"
+        }.joined(separator: " ")
+        let truncated = event.changedSubviews.count > maxEntries
+            ? " …+\(event.changedSubviews.count - maxEntries)"
+            : ""
+        scrollDiagLog.debug("contentHΔ=\(event.contentHDelta) changed=\(event.changedSubviews.count): \(summary)\(truncated)")
     }
 
     // MARK: - Confirmation focus
