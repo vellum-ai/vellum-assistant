@@ -121,63 +121,6 @@ struct HomeGallerySection: View {
                 }
             }
 
-            // MARK: - HomeRecapGroupRow
-
-            if filter == nil || filter == "homeRecapGroupRow" {
-                if filter == nil {
-                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-                }
-
-                GallerySectionHeader(
-                    title: "HomeRecapGroupRow",
-                    description: "Grouped Home feed row: parent summary header with a nested list of child rows underneath. Used when HomeFeedGrouping collapses a run of 3+ low-priority items into a single card. Production wiring uses isExpanded: .constant(true); children are individually tappable."
-                )
-
-                VCard(background: VColor.surfaceBase) {
-                    HomeRecapGroupRow(
-                        parentIcon: .bell,
-                        parentIconForeground: VColor.feedDigestStrong,
-                        parentIconBackground: VColor.feedDigestWeak,
-                        parentTitle: "There's also 4 low priority updates if you want to have a look.",
-                        children: [
-                            HomeRecapGroupRow.Child(
-                                id: "gallery-child-1",
-                                icon: .bell,
-                                iconForeground: VColor.feedDigestStrong,
-                                iconBackground: VColor.feedDigestWeak,
-                                title: "This is the First notification in the group"
-                            ),
-                            HomeRecapGroupRow.Child(
-                                id: "gallery-child-2",
-                                icon: .bell,
-                                iconForeground: VColor.feedDigestStrong,
-                                iconBackground: VColor.feedDigestWeak,
-                                title: "This is the Second notification in the group"
-                            ),
-                            HomeRecapGroupRow.Child(
-                                id: "gallery-child-3",
-                                icon: .bell,
-                                iconForeground: VColor.feedDigestStrong,
-                                iconBackground: VColor.feedDigestWeak,
-                                title: "This is the Third notification in the group"
-                            ),
-                            HomeRecapGroupRow.Child(
-                                id: "gallery-child-4",
-                                icon: .bell,
-                                iconForeground: VColor.feedDigestStrong,
-                                iconBackground: VColor.feedDigestWeak,
-                                title: "This is the Fourth notification in the group"
-                            ),
-                        ],
-                        isExpanded: .constant(true),
-                        onParentTap: {},
-                        onChildTap: { _ in },
-                        onParentDismiss: {},
-                        onChildDismiss: { _ in }
-                    )
-                }
-            }
-
             // MARK: - HomeDetailPanel
 
             if filter == nil || filter == "homeDetailPanel" {
@@ -302,7 +245,6 @@ extension HomeGallerySection {
         case "meetStatusPanel": HomeGallerySection(filter: "meetStatusPanel")
         case "homeFeedGroupHeader": HomeGallerySection(filter: "homeFeedGroupHeader")
         case "homeRecapRow": HomeGallerySection(filter: "homeRecapRow")
-        case "homeRecapGroupRow": HomeGallerySection(filter: "homeRecapGroupRow")
         case "homeDetailPanel": HomeGallerySection(filter: "homeDetailPanel")
         case "homeSuggestionPillBar": HomeGallerySection(filter: "homeSuggestionPillBar")
         case "homeGreetingHeader": HomeGallerySection(filter: "homeGreetingHeader")
