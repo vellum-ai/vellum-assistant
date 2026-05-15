@@ -191,6 +191,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "routes inspect",
   "schedules",
   "schedules list",
+  "schedules runs",
   "schedules execute",
   "sequence",
   "sequence list",
@@ -419,7 +420,8 @@ const riskOverrides: AssistantRiskOverride[] = [
   {
     path: "inference providers connections create",
     risk: "medium",
-    reason: "Inserts a provider_connection row referenced by inference profiles",
+    reason:
+      "Inserts a provider_connection row referenced by inference profiles",
   },
   {
     path: "inference providers connections update",
@@ -429,7 +431,8 @@ const riskOverrides: AssistantRiskOverride[] = [
   {
     path: "inference providers connections delete",
     risk: "medium",
-    reason: "Deletes a provider_connection row; refuses unless --force when profiles still reference it",
+    reason:
+      "Deletes a provider_connection row; refuses unless --force when profiles still reference it",
   },
   { path: "llm send", risk: "medium" },
   {

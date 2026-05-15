@@ -1027,6 +1027,14 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("low");
   });
 
+  test("assistant schedules runs → low", async () => {
+    const result = await classifier.classify({
+      command: "assistant schedules runs schedule-1",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
   test("assistant schedules execute → medium", async () => {
     const result = await classifier.classify({
       command: "assistant schedules execute schedule-1",
@@ -1677,7 +1685,7 @@ describe("generateScopeOptions with synthetic segments", () => {
     // regression: pre-fix, `app *` and `/admin/organizations/[id]/page.tsx *`
     // both leaked into the trust-rule editor's "Apply to" list.
     const cmd =
-      "cat /workspace/vellum-assistant-platform/web/src/app/(app)/admin/organizations/[id]/page.tsx | grep -A 30 -B 5 \"credit\\|Credit\" | head -80";
+      'cat /workspace/vellum-assistant-platform/web/src/app/(app)/admin/organizations/[id]/page.tsx | grep -A 30 -B 5 "credit\\|Credit" | head -80';
     const parsed = await cachedParse(cmd);
     const options = generateScopeOptions(parsed, DEFAULT_COMMAND_REGISTRY);
     const labels = options.map((o) => o.label);
