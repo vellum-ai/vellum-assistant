@@ -2,10 +2,11 @@
  * Resolves an `Auth` config into a `ResolvedAuth` that adapters consume.
  *
  * Resolution rules:
- *   - api_key  → fetch credential from vault → inject as bearer header
- *   - platform → build managed proxy URL and fetch the platform API key
- *   - none     → pass through with no auth headers
- *   - oauth_subscription / service_account → reject (v2 not yet shipped)
+ *   - api_key              → fetch credential from vault → inject as bearer header
+ *   - platform             → build managed proxy URL and fetch the platform API key
+ *   - none                 → pass through with no auth headers
+ *   - oauth_subscription   → fetch OAuth token from vault → inject as bearer header
+ *   - service_account      → reject (v2 not yet shipped)
  */
 
 import {
@@ -63,7 +64,26 @@ export async function resolveAuth(
     case "none":
       return { ok: true, resolved: { kind: "none" } };
 
-    case "oauth_subscription":
+    case "oauth_subscription": {
+      const oauthValue = await getSecureKeyAsync(auth.credential);
+      if (!oauthValue) {
+        return {
+          ok: false,
+          error: {
+            code: "credential_not_found",
+            credential: auth.credential,
+          },
+        };
+      }
+      return {
+        ok: true,
+        resolved: {
+          kind: "header",
+          headers: { Authorization: `Bearer ${oauthValue}` },
+        },
+      };
+    }
+
     case "service_account":
       return {
         ok: false,

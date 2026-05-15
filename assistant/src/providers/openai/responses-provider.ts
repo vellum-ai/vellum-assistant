@@ -23,6 +23,9 @@ export interface OpenAIResponsesProviderOptions {
   providerLabel?: string;
   streamTimeoutMs?: number;
   useNativeWebSearch?: boolean;
+  /** When true, target the Codex subscription endpoint and strip fields it
+   *  rejects (`max_output_tokens`, `metadata`). */
+  codexSubscription?: boolean;
 }
 
 /** Map our internal effort values to the Responses API reasoning.effort parameter.
@@ -103,6 +106,7 @@ export class OpenAIResponsesProvider implements Provider {
   private model: string;
   private streamTimeoutMs: number;
   private useNativeWebSearch: boolean;
+  private codexSubscription: boolean;
 
   constructor(
     apiKey: string,
@@ -111,9 +115,12 @@ export class OpenAIResponsesProvider implements Provider {
   ) {
     this.name = options.providerName ?? "openai";
     this.providerLabel = options.providerLabel ?? "OpenAI";
+    this.codexSubscription = options.codexSubscription ?? false;
     this.client = new OpenAI({
       apiKey,
-      baseURL: options.baseURL,
+      baseURL: this.codexSubscription
+        ? "https://chatgpt.com/backend-api/codex"
+        : options.baseURL,
     });
     this.model = model;
     this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
@@ -152,7 +159,7 @@ export class OpenAIResponsesProvider implements Provider {
         );
       }
 
-      if (maxTokens) {
+      if (maxTokens && !this.codexSubscription) {
         params.max_output_tokens = maxTokens;
       }
 
