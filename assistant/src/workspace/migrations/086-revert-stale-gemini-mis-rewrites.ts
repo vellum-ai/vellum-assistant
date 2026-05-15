@@ -49,14 +49,36 @@ export const revertStaleGeminiMisRewritesMigration: WorkspaceMigration = {
     const profiles = readObject(llm.profiles);
     const activeProfileName =
       typeof llm.activeProfile === "string" ? llm.activeProfile : undefined;
+
+    let changed = false;
+
+    // Pass 1: revert profile candidates first so that pass 2's call-site
+    // evaluation sees the reverted profile state. A call-site that references
+    // a profile candidate would otherwise infer `siteProfileProvider = gemini`
+    // from the profile's pre-revert rewritten model, masking the call-site's
+    // own need to revert.
+    if (profiles !== null) {
+      for (const rawProfile of Object.values(profiles)) {
+        const profile = readObject(rawProfile);
+        if (profile === null) continue;
+        if (!isRevertCandidate(profile)) continue;
+        if (isExplicitlyNonGemini(defaultProvider)) {
+          profile.model = STALE_MODEL;
+          changed = true;
+        }
+      }
+    }
+
+    // Compute the active-profile provider after pass 1 so it reflects any
+    // reversion of the active profile itself.
     const activeProfileBlock =
       profiles !== null && activeProfileName !== undefined
         ? readObject(profiles[activeProfileName])
         : null;
     const activeProfileProvider = inferLayerProvider(activeProfileBlock);
 
-    let changed = false;
-
+    // Pass 2: call-site candidates. `inferLayerProvider` is re-read from
+    // `profiles` per call site, so it observes pass 1's reversions.
     const callSites = readObject(llm.callSites);
     if (callSites !== null) {
       for (const [site, rawConfig] of Object.entries(callSites)) {
@@ -81,18 +103,6 @@ export const revertStaleGeminiMisRewritesMigration: WorkspaceMigration = {
         });
         if (isExplicitlyNonGemini(effective)) {
           callSiteConfig.model = STALE_MODEL;
-          changed = true;
-        }
-      }
-    }
-
-    if (profiles !== null) {
-      for (const rawProfile of Object.values(profiles)) {
-        const profile = readObject(rawProfile);
-        if (profile === null) continue;
-        if (!isRevertCandidate(profile)) continue;
-        if (isExplicitlyNonGemini(defaultProvider)) {
-          profile.model = STALE_MODEL;
           changed = true;
         }
       }
