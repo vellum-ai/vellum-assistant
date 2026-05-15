@@ -54,8 +54,8 @@ describe("GET /v1/config profile vision enrichment", () => {
       llm: {
         profiles: {
           "test-no-vision": {
-            provider: "minimax",
-            model: "MiniMax-M2.7",
+            provider: "zai",
+            model: "glm-5.1",
           },
         },
       },

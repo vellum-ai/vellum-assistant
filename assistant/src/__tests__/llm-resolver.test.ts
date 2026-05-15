@@ -548,14 +548,14 @@ describe("resolveCallSiteConfig", () => {
         provider_connection: "anthropic-managed",
       },
       profiles: {
-        minimax: { provider: "minimax", model: "minimax-m2.7" },
+        zai: { provider: "zai", model: "glm-5.1" },
       },
-      activeProfile: "minimax",
+      activeProfile: "zai",
     });
 
     const resolved = resolveCallSiteConfig("mainAgent", llm);
 
-    expect(resolved.provider).toBe("minimax");
+    expect(resolved.provider).toBe("zai");
     // The merge inherits the stale connection — the dispatch layer handles this.
     expect(resolved.provider_connection).toBe("anthropic-managed");
   });

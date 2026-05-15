@@ -98,20 +98,6 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       baseURL: "https://api.z.ai/api/paas/v4/",
       streamTimeoutMs,
     }),
-  deepseek: ({ apiKey, model, streamTimeoutMs }) =>
-    new OpenAIChatCompletionsProvider(apiKey, model, {
-      providerName: "deepseek",
-      providerLabel: "DeepSeek",
-      baseURL: "https://api.deepseek.com",
-      streamTimeoutMs,
-    }),
-  minimax: ({ apiKey, model, streamTimeoutMs }) =>
-    new OpenAIChatCompletionsProvider(apiKey, model, {
-      providerName: "minimax",
-      providerLabel: "MiniMax",
-      baseURL: "https://api.minimax.io/v1",
-      streamTimeoutMs,
-    }),
 };
 
 /**
