@@ -4760,7 +4760,7 @@ paths:
     post:
       operationId: conversations_cli_create_post
       summary: Create a conversation (CLI)
-      description: Create a new conversation with an optional title.
+      description: Create a new conversation with an optional title and seeded messages.
       tags:
         - conversations
       responses:
@@ -4775,9 +4775,14 @@ paths:
                     type: string
                   title:
                     type: string
+                  messagesInserted:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
                 required:
                   - id
                   - title
+                  - messagesInserted
                 additionalProperties: false
       requestBody:
         required: true
@@ -4788,6 +4793,24 @@ paths:
               properties:
                 title:
                   type: string
+                conversationKey:
+                  type: string
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      role:
+                        type: string
+                        enum:
+                          - user
+                          - assistant
+                      content:
+                        type: string
+                    required:
+                      - role
+                      - content
+                    additionalProperties: false
               additionalProperties: false
   /v1/conversations/cli/export:
     post:
