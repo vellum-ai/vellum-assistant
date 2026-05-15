@@ -23,6 +23,13 @@ import type { WorkspaceMigration } from "./types.js";
  *    dispatch on the config flag, so enqueueing for a workspace that
  *    intentionally disabled v2 would immediately re-embed pages and hit
  *    the embedding backend against the user's intent.
+ *
+ * When either gate fails, we also DELETE any pending `memory_v2_reembed`
+ * job that 075 may have enqueued in the same startup sweep. For workspaces
+ * that never checkpointed 075 (upgrades from pre-v0.8.1, first-boot sweeps),
+ * 075 runs first and unconditionally enqueues a job; without the explicit
+ * cancellation here, 075's job would survive 085's gate and execute against
+ * the user's intent.
  */
 export const memoryV2Bm25BReembedDisabledV2PagesMigration: WorkspaceMigration =
   {
@@ -31,9 +38,6 @@ export const memoryV2Bm25BReembedDisabledV2PagesMigration: WorkspaceMigration =
       "Re-enqueue memory_v2_reembed for workspaces with v2 pages, gated on v2 not being explicitly disabled",
 
     run(workspaceDir: string): void {
-      if (isMemoryV2Disabled(workspaceDir)) return;
-      if (!hasConceptPages(workspaceDir)) return;
-
       const dbPath = join(workspaceDir, "data", "db", "assistant.db");
       if (!existsSync(dbPath)) return;
 
@@ -51,6 +55,20 @@ export const memoryV2Bm25BReembedDisabledV2PagesMigration: WorkspaceMigration =
           )
           .get();
         if (!tableRow) return;
+
+        // If either gate fails, cancel any pending reembed job that 075 may
+        // have enqueued in this same startup sweep. Leave 'running' jobs
+        // alone — the worker is already mid-flight and canceling would orphan
+        // its state. Only 'pending' jobs are safe to delete here.
+        if (
+          isMemoryV2Disabled(workspaceDir) ||
+          !hasConceptPages(workspaceDir)
+        ) {
+          db.query(
+            `DELETE FROM memory_jobs WHERE type='memory_v2_reembed' AND status='pending'`,
+          ).run();
+          return;
+        }
 
         const existing = db
           .query(

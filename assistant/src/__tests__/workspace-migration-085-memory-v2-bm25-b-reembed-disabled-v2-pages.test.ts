@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { memoryV2Bm25BDefaultReembedMigration } from "../workspace/migrations/075-memory-v2-bm25-b-default-reembed.js";
 import { memoryV2Bm25BReembedDisabledV2PagesMigration } from "../workspace/migrations/085-memory-v2-bm25-b-reembed-disabled-v2-pages.js";
 
 let workspaceDir: string;
@@ -83,6 +84,34 @@ function countReembedJobs(): number {
   }
 }
 
+function insertReembedJob(id: string, status: string): void {
+  const db = new Database(dbPath);
+  try {
+    db.run(
+      `INSERT INTO memory_jobs
+         (id, type, payload, status, attempts, deferrals, run_after, last_error, created_at, updated_at)
+       VALUES (?, 'memory_v2_reembed', '{}', ?, 0, 0, 0, NULL, 0, 0)`,
+      [id, status],
+    );
+  } finally {
+    db.close();
+  }
+}
+
+function jobIdsByStatus(status: string): string[] {
+  const db = new Database(dbPath);
+  try {
+    const rows = db
+      .query(
+        `SELECT id FROM memory_jobs WHERE type='memory_v2_reembed' AND status=? ORDER BY id`,
+      )
+      .all(status) as { id: string }[];
+    return rows.map((r) => r.id);
+  } finally {
+    db.close();
+  }
+}
+
 describe("085-memory-v2-bm25-b-reembed-disabled-v2-pages migration", () => {
   test("skips enqueue when memory/concepts/ does not exist", () => {
     memoryV2Bm25BReembedDisabledV2PagesMigration.run(workspaceDir);
@@ -130,13 +159,61 @@ describe("085-memory-v2-bm25-b-reembed-disabled-v2-pages migration", () => {
 
   test("does not duplicate when a pending reembed job already exists", () => {
     seedConceptPage("alice.md");
-    const db = new Database(dbPath);
-    db.run(
-      `INSERT INTO memory_jobs
-         (id, type, payload, status, attempts, deferrals, run_after, last_error, created_at, updated_at)
-       VALUES ('pre-existing', 'memory_v2_reembed', '{}', 'pending', 0, 0, 0, NULL, 0, 0)`,
-    );
-    db.close();
+    insertReembedJob("pre-existing", "pending");
+    memoryV2Bm25BReembedDisabledV2PagesMigration.run(workspaceDir);
+    expect(countReembedJobs()).toBe(1);
+  });
+
+  test("cancels pending reembed job when memory.v2.enabled is false", () => {
+    seedConceptPage("alice.md");
+    writeConfig({ memory: { v2: { enabled: false } } });
+    insertReembedJob("from-075", "pending");
+    memoryV2Bm25BReembedDisabledV2PagesMigration.run(workspaceDir);
+    expect(countReembedJobs()).toBe(0);
+  });
+
+  test("cancels pending reembed job when no concept pages exist", () => {
+    insertReembedJob("from-075", "pending");
+    memoryV2Bm25BReembedDisabledV2PagesMigration.run(workspaceDir);
+    expect(countReembedJobs()).toBe(0);
+  });
+
+  test("leaves running reembed job alone when v2 is disabled", () => {
+    seedConceptPage("alice.md");
+    writeConfig({ memory: { v2: { enabled: false } } });
+    insertReembedJob("in-flight", "running");
+    memoryV2Bm25BReembedDisabledV2PagesMigration.run(workspaceDir);
+    expect(jobIdsByStatus("running")).toEqual(["in-flight"]);
+    expect(jobIdsByStatus("pending")).toEqual([]);
+  });
+
+  test("is idempotent when re-run with v2 disabled and no pending jobs", () => {
+    seedConceptPage("alice.md");
+    writeConfig({ memory: { v2: { enabled: false } } });
+    memoryV2Bm25BReembedDisabledV2PagesMigration.run(workspaceDir);
+    memoryV2Bm25BReembedDisabledV2PagesMigration.run(workspaceDir);
+    expect(countReembedJobs()).toBe(0);
+  });
+
+  test("end-to-end: 075 enqueues, 085 cancels when v2 disabled with concept pages", () => {
+    seedConceptPage("alice.md");
+    writeConfig({ memory: { v2: { enabled: false } } });
+    memoryV2Bm25BDefaultReembedMigration.run(workspaceDir);
+    expect(countReembedJobs()).toBe(1);
+    memoryV2Bm25BReembedDisabledV2PagesMigration.run(workspaceDir);
+    expect(countReembedJobs()).toBe(0);
+  });
+
+  test("end-to-end: 075 enqueues, 085 cancels when no concept pages exist", () => {
+    memoryV2Bm25BDefaultReembedMigration.run(workspaceDir);
+    expect(countReembedJobs()).toBe(1);
+    memoryV2Bm25BReembedDisabledV2PagesMigration.run(workspaceDir);
+    expect(countReembedJobs()).toBe(0);
+  });
+
+  test("end-to-end: 075 enqueues, 085 keeps single job when gates pass", () => {
+    seedConceptPage("alice.md");
+    memoryV2Bm25BDefaultReembedMigration.run(workspaceDir);
     memoryV2Bm25BReembedDisabledV2PagesMigration.run(workspaceDir);
     expect(countReembedJobs()).toBe(1);
   });
