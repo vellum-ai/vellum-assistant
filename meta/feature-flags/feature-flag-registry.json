@@ -336,14 +336,6 @@
       "label": "MiniMax Provider",
       "description": "Enable the MiniMax direct API provider and its models (M2.7, M2.5, M2.1, M2, and highspeed variants) in the provider picker and model selection UI",
       "defaultEnabled": false
-    },
-    {
-      "id": "provider-deepseek-openrouter",
-      "scope": "assistant",
-      "key": "provider-deepseek-openrouter",
-      "label": "DeepSeek Models on OpenRouter",
-      "description": "Enable DeepSeek V4 Pro, V4 Flash, and V3.2 Speciale models under the OpenRouter provider",
-      "defaultEnabled": false
     }
   ]
 }
