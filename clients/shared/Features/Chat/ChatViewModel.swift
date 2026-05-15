@@ -2219,7 +2219,12 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     let info = self.activeSubagents[i]
                     guard nonTerminalSubagentIds.contains(info.id) else { continue }
                     guard !info.isTerminal else { continue }
-                    if response.subagents[info.id] == nil {
+                    if let liveStatus = response.subagents[info.id] {
+                        let status = SubagentStatus(wire: liveStatus.status)
+                        if status.isTerminal {
+                            self.activeSubagents[i].status = status
+                        }
+                    } else {
                         self.activeSubagents[i].status = .failed
                         self.activeSubagents[i].error = "Connection interrupted during restart"
                     }
