@@ -19,8 +19,6 @@ import {
 } from "../runtime/command-runner";
 import { parseNdjson } from "../runtime/ndjson";
 
-async function* emptyLines(): AsyncGenerator<string> {}
-
 export interface VellumAgentOptions {
   profile: Profile;
   testId: string;
