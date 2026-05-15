@@ -25,6 +25,7 @@ const mockConfig = {
     },
   },
   permissions: { mode: "workspace" as const },
+  tools: { exclude: [] },
 };
 
 mock.module("../config/loader.js", () => ({
