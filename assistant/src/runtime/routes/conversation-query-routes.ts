@@ -62,6 +62,7 @@ import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
+import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { validateAllowlistFile } from "../../security/secret-allowlist.js";
 import { resolvePricingForUsage } from "../../util/pricing.js";
@@ -377,10 +378,39 @@ function readPlainObject(value: unknown): Record<string, unknown> | undefined {
 
 function handleGetConfig() {
   try {
-    return applyContextDefaultsToRawConfig(loadRawConfig());
+    const config = applyContextDefaultsToRawConfig(loadRawConfig());
+    enrichProfilesWithVisionFlag(config);
+    return config;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new InternalError(`Failed to read config: ${message}`);
+  }
+}
+
+/**
+ * Annotate each profile in `config.llm.profiles` with `supportsVision`
+ * resolved from the model catalog. The flag is wire-only — it is never
+ * persisted to disk. Unknown (provider, model) pairs default to `true`
+ * (fail-open) so image upload remains available for custom / unlisted models.
+ */
+function enrichProfilesWithVisionFlag(config: unknown): void {
+  const root = readPlainObject(config);
+  if (!root) return;
+  const llm = readPlainObject(root.llm);
+  if (!llm) return;
+  const profiles = readPlainObject(llm.profiles);
+  if (!profiles) return;
+
+  for (const profile of Object.values(profiles)) {
+    const entry = readPlainObject(profile);
+    if (!entry) continue;
+    const provider = entry.provider;
+    const model = entry.model;
+    if (typeof provider !== "string" || typeof model !== "string") continue;
+
+    const catalogProvider = PROVIDER_CATALOG.find((p) => p.id === provider);
+    const catalogModel = catalogProvider?.models.find((m) => m.id === model);
+    entry.supportsVision = catalogModel?.supportsVision ?? true;
   }
 }
 
