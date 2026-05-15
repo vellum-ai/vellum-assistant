@@ -181,10 +181,8 @@ import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
 import { initGatewayDb } from "./db/connection.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
-import {
-  clearManagedPublicBaseUrl,
-  createVelayTunnelClient,
-} from "./velay/client.js";
+import { createVelayTunnelClient } from "./velay/client.js";
+import { startVelayTunnelOnGatewayBoot } from "./velay/startup.js";
 import { VERSION_HEADER_NAME, VERSION_HEADER_VALUE } from "./version.js";
 
 const log = getLogger("main");
@@ -2073,15 +2071,7 @@ async function main() {
     }
   });
 
-  if (velayTunnelClient) {
-    await clearManagedPublicBaseUrl(configFileCache).catch((err) => {
-      log.error({ err }, "Failed to clear stale Velay public URL");
-    });
-    // Velay backs platform-managed webhook and WebSocket ingress broadly,
-    // so start it whenever the gateway has a VELAY_BASE_URL.
-    log.info("Starting Velay tunnel");
-    velayTunnelClient.start();
-  }
+  await startVelayTunnelOnGatewayBoot(velayTunnelClient, configFileCache);
 
   // The credential watcher callback handles credential-backed startup side
   // effects during the initial poll. Stale Velay-owned ingress is already
