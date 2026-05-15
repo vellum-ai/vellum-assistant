@@ -95,11 +95,17 @@ export class VellumAgent implements BaseAgent {
 
     let hatchStarted = false;
     try {
+      // `--build-from-source` makes the hatch build images from the local
+      // source tree before starting the container so each eval run picks
+      // up the latest CLI changes (e.g. new flags consumed by setup
+      // commands). When the source tree is unavailable (packaged install),
+      // the CLI logs a warning and falls back to pulling published images.
       const hatch = await this.runner.run(this.cliCommand, [
         "hatch",
         "vellum",
         "--remote",
         "docker",
+        "--build-from-source",
         "--name",
         this.id,
       ]);

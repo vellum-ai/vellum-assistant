@@ -2,6 +2,10 @@
 import type { Command } from "commander";
 
 import { runEvalOnce } from "../lib/runner/run-once";
+import {
+  createConsoleReporter,
+  noopEvalProgressReporter,
+} from "../lib/runner/progress";
 import { loadProfile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
 
@@ -35,8 +39,17 @@ export function registerRunCommand(program: Command): void {
     .option("--max-turns <n>", "Maximum simulator turns per run", (value) =>
       Number(value),
     )
+    .option(
+      "--quiet",
+      "Suppress per-step progress output (only emit the final JSON result)",
+    )
     .action(
-      async (opts: { profiles: string; tests: string; maxTurns?: number }) => {
+      async (opts: {
+        profiles: string;
+        tests: string;
+        maxTurns?: number;
+        quiet?: boolean;
+      }) => {
         const profiles = await Promise.all(
           splitCsv(opts.profiles).map((id) => loadProfile(id)),
         );
@@ -49,6 +62,10 @@ export function registerRunCommand(program: Command): void {
         if (tests.length === 0)
           throw new Error("--tests is empty after splitting on commas");
 
+        const progress = opts.quiet
+          ? noopEvalProgressReporter
+          : createConsoleReporter();
+
         for (const profile of profiles) {
           for (const test of tests) {
             const result = await runEvalOnce({
@@ -56,6 +73,7 @@ export function registerRunCommand(program: Command): void {
               test,
               runId: runId(profile.id, test.id),
               maxTurns: opts.maxTurns,
+              progress,
             });
             console.log(JSON.stringify(result));
           }

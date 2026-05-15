@@ -462,6 +462,37 @@ function hasFullSourceTree(root: string): boolean {
 }
 
 /**
+ * Decide which image-source path `hatchDocker` should take given the user
+ * flags and a probe result for the source tree.
+ *
+ * - `watch` always wants source-build *and* file-watcher (when the source
+ *   tree is available).
+ * - `buildFromSource` wants source-build but no watcher — used by evals so
+ *   each run picks up fresh CLI changes from the repo.
+ * - Without either flag we pull the published images.
+ * - If either flag was set but the source tree is missing (e.g. the CLI is
+ *   running from a packaged .app bundle), fall back to pulling and surface
+ *   the reason so the caller can log a warning.
+ *
+ * Returning a plain record keeps this trivially unit-testable — see
+ * `__tests__/docker.test.ts`.
+ */
+export function resolveDockerHatchMode(opts: {
+  watch: boolean;
+  buildFromSource: boolean;
+  fullSourceTreeAvailable: boolean;
+}): { build: boolean; watcher: boolean; fellBackToPull: boolean } {
+  const requested = opts.watch || opts.buildFromSource;
+  if (!requested) {
+    return { build: false, watcher: false, fellBackToPull: false };
+  }
+  if (!opts.fullSourceTreeAvailable) {
+    return { build: false, watcher: false, fellBackToPull: true };
+  }
+  return { build: true, watcher: opts.watch, fellBackToPull: false };
+}
+
+/**
  * Locate the repository root by walking up from `cli/src/lib/` until we
  * find a directory containing the expected Dockerfiles.
  */
@@ -870,12 +901,24 @@ function startFileWatcher(opts: {
   };
 }
 
+export interface HatchDockerOptions {
+  /**
+   * Build images from the local source tree before hatching, but do not
+   * start the file watcher. Used by evals so each run picks up the latest
+   * CLI changes (e.g. new flags) without keeping a long-lived watcher
+   * process around. `--watch` already implies this and additionally enables
+   * hot-reload.
+   */
+  buildFromSource?: boolean;
+}
+
 export async function hatchDocker(
   species: Species,
   detached: boolean,
   name: string | null,
   watch: boolean = false,
   configValues: Record<string, string> = {},
+  options: HatchDockerOptions = {},
 ): Promise<void> {
   resetLogFile("hatch.log");
 
@@ -898,25 +941,35 @@ export async function hatchDocker(
       gateway: "",
     };
 
+    const buildFromSource = options.buildFromSource === true;
     let repoRoot: string | undefined;
+    let fullSourceTreeAvailable = false;
 
-    if (watch) {
+    if (watch || buildFromSource) {
       repoRoot = findRepoRoot();
 
       // When running from a packaged .app bundle, the Dockerfiles are
       // present (so findRepoRoot succeeds) but the full source tree is
       // not — we can't build images locally. Fall back to pulling
       // pre-built images instead.
-      if (!hasFullSourceTree(repoRoot)) {
+      fullSourceTreeAvailable = hasFullSourceTree(repoRoot);
+      if (!fullSourceTreeAvailable) {
         log(
           "⚠️  Dockerfiles found but no source tree — falling back to image pull",
         );
-        watch = false;
         repoRoot = undefined;
       }
     }
 
-    if (watch && repoRoot) {
+    const mode = resolveDockerHatchMode({
+      watch,
+      buildFromSource,
+      fullSourceTreeAvailable,
+    });
+    // Honour the resolved mode for the rest of the flow.
+    watch = mode.watcher;
+
+    if (mode.build && repoRoot) {
       emitProgress(2, 6, "Building images...");
       const localTag = `local-${instanceName}`;
       imageTags.assistant = `vellum-assistant:${localTag}`;
@@ -926,7 +979,9 @@ export async function hatchDocker(
 
       log(`🥚 Hatching Docker assistant: ${instanceName}`);
       log(`   Species: ${species}`);
-      log(`   Mode: development (watch)`);
+      log(
+        `   Mode: ${mode.watcher ? "development (watch)" : "build-from-source"}`,
+      );
       log(`   Repo: ${repoRoot}`);
       log(`   Images (local build):`);
       log(`     assistant:            ${imageTags.assistant}`);
@@ -938,7 +993,7 @@ export async function hatchDocker(
       log("✅ Docker images built");
     }
 
-    if (!watch || !repoRoot) {
+    if (!mode.build || !repoRoot) {
       emitProgress(2, 6, "Pulling images...");
 
       // Allow explicit image overrides via environment variables.

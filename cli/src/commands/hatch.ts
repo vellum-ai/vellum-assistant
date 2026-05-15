@@ -177,6 +177,7 @@ interface HatchArgs {
   name: string | null;
   remote: RemoteHost;
   watch: boolean;
+  buildFromSource: boolean;
   configValues: Record<string, string>;
 }
 
@@ -188,6 +189,7 @@ function parseArgs(): HatchArgs {
   let name: string | null = null;
   let remote: RemoteHost = DEFAULT_REMOTE;
   let watch = false;
+  let buildFromSource = false;
   const configValues: Record<string, string> = {};
 
   for (let i = 0; i < args.length; i++) {
@@ -211,6 +213,9 @@ function parseArgs(): HatchArgs {
         "  --watch                   Run assistant and gateway in watch mode (hot reload on source changes)",
       );
       console.log(
+        "  --build-from-source       Build images from the local source tree (no watcher). Implied by --watch.",
+      );
+      console.log(
         "  --keep-alive              Stay alive after hatch, exit when gateway stops",
       );
       console.log(
@@ -221,6 +226,8 @@ function parseArgs(): HatchArgs {
       detached = true;
     } else if (arg === "--watch") {
       watch = true;
+    } else if (arg === "--build-from-source") {
+      buildFromSource = true;
     } else if (arg === "--keep-alive") {
       keepAlive = true;
     } else if (arg === "--name") {
@@ -270,7 +277,7 @@ function parseArgs(): HatchArgs {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --build-from-source, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>`,
       );
       process.exit(1);
     }
@@ -283,6 +290,7 @@ function parseArgs(): HatchArgs {
     name,
     remote,
     watch,
+    buildFromSource,
     configValues,
   };
 }
@@ -508,12 +516,27 @@ export async function hatch(): Promise<void> {
   const cliVersion = getCliVersion();
   console.log(`@vellumai/cli v${cliVersion}`);
 
-  const { species, detached, keepAlive, name, remote, watch, configValues } =
-    parseArgs();
+  const {
+    species,
+    detached,
+    keepAlive,
+    name,
+    remote,
+    watch,
+    buildFromSource,
+    configValues,
+  } = parseArgs();
 
   if (watch && remote !== "local" && remote !== "docker") {
     console.error(
       "Error: --watch is only supported for local and docker hatch targets.",
+    );
+    process.exit(1);
+  }
+
+  if (buildFromSource && remote !== "docker") {
+    console.error(
+      "Error: --build-from-source is only supported for docker hatch targets.",
     );
     process.exit(1);
   }
@@ -541,7 +564,9 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "docker") {
-    await hatchDocker(species, detached, name, watch, configValues);
+    await hatchDocker(species, detached, name, watch, configValues, {
+      buildFromSource,
+    });
     return;
   }
 
