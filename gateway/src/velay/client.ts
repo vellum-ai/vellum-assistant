@@ -93,6 +93,7 @@ export class VelayTunnelClient {
   private peerHeartbeatConfirmed = false;
   private publishedPublicBaseUrl: string | undefined;
   private unsubscribeConfigInvalidation: (() => void) | undefined;
+  private unsubscribeCredentialInvalidation: (() => void) | undefined;
 
   constructor(private readonly options: VelayTunnelClientOptions) {
     this.webSocketConstructor =
@@ -135,6 +136,10 @@ export class VelayTunnelClient {
         this.handleConfigInvalidated();
       },
     );
+    this.unsubscribeCredentialInvalidation ??=
+      this.options.credentials.onInvalidate(() => {
+        this.handleCredentialsInvalidated();
+      });
     this.startAsync().catch((err) => {
       this.connecting = false;
       log.error({ err }, "Failed to start Velay tunnel client");
@@ -147,6 +152,8 @@ export class VelayTunnelClient {
     this.connecting = false;
     this.unsubscribeConfigInvalidation?.();
     this.unsubscribeConfigInvalidation = undefined;
+    this.unsubscribeCredentialInvalidation?.();
+    this.unsubscribeCredentialInvalidation = undefined;
     if (this.reconnectTimer) {
       this.timerApi.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -518,6 +525,21 @@ export class VelayTunnelClient {
 
     log.info("Closing Velay tunnel because public ingress is disabled");
     this.disconnectActiveWebSocket(ws, 1000, "public ingress disabled");
+  }
+
+  private handleCredentialsInvalidated(): void {
+    if (!this.running || this.connecting || this.ws) return;
+
+    if (this.reconnectTimer) {
+      this.timerApi.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    this.connect().catch((err) => {
+      this.connecting = false;
+      log.error({ err }, "Velay reconnect failed after credential change");
+      this.scheduleReconnect();
+    });
   }
 
   private isPublicIngressDisabled(): boolean {

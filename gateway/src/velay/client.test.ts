@@ -42,8 +42,20 @@ const WS_OPEN = WebSocket.OPEN;
 const WS_CLOSED = WebSocket.CLOSED;
 
 function makeCredentials(values: Record<string, string | undefined>) {
+  const invalidateCallbacks = new Set<() => void>();
   return {
     get: async (key: string) => values[key],
+    invalidate: () => {
+      for (const callback of invalidateCallbacks) {
+        callback();
+      }
+    },
+    onInvalidate: (callback: () => void) => {
+      invalidateCallbacks.add(callback);
+      return () => {
+        invalidateCallbacks.delete(callback);
+      };
+    },
   } as unknown as CredentialCache;
 }
 
@@ -231,6 +243,34 @@ describe("VelayTunnelClient", () => {
 
     expect(sockets).toHaveLength(0);
     expect(reconnectDelays).toEqual([10]);
+    await client.stop();
+  });
+
+  test("connects immediately when credentials arrive after first startup attempt", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    const values: Record<string, string | undefined> = {
+      [credentialKey("vellum", "platform_assistant_id")]: "asst-123",
+    };
+    const credentials = makeCredentials(values);
+    const client = makeClient({
+      sockets,
+      reconnectDelays,
+      credentials,
+    });
+
+    client.start();
+    await flushPromises();
+
+    expect(sockets).toHaveLength(0);
+    expect(reconnectDelays).toEqual([10]);
+
+    values[credentialKey("vellum", "assistant_api_key")] = "api-key-123";
+    credentials.invalidate();
+    await flushPromises();
+
+    expect(sockets).toHaveLength(1);
+    expect(sockets[0].url).toBe("ws://velay.example.test/v1/register");
     await client.stop();
   });
 
