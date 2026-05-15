@@ -38,6 +38,7 @@ export const slackMessageMetadataSchema = z.object({
   channelTs: z.string(),
   threadTs: z.string().optional(),
   displayName: z.string().optional(),
+  actorExternalUserId: z.string().optional(),
   eventKind: z.enum(["message", "reaction"]),
   reaction: slackReactionMetadataSchema.optional(),
   editedAt: z.number().optional(),

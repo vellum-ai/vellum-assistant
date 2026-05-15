@@ -121,6 +121,8 @@ export interface SlackInboundMessageMetadata {
   threadTs?: string;
   /** Resolved sender label (display name preferred, username fallback). */
   displayName?: string;
+  /** Canonical Slack external user id for the sender, when available. */
+  actorExternalUserId?: string;
 }
 
 /**

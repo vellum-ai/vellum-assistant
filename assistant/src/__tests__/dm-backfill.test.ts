@@ -63,7 +63,10 @@ import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { messages } from "../memory/schema/conversations.js";
-import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import {
+  readSlackMetadata,
+  type SlackMessageMetadata,
+} from "../messaging/providers/slack/message-metadata.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
 initializeDb();
@@ -149,7 +152,11 @@ function readPersistedSlackRows(): Array<{
   role: string;
   content: string;
   rawContent: string;
-  metadata: string | null;
+  slackMeta: SlackMessageMetadata | null;
+  provenanceTrustClass: string | undefined;
+  provenanceSourceChannel: string | undefined;
+  provenanceGuardianExternalUserId: string | undefined;
+  provenanceRequesterIdentifier: string | undefined;
 }> {
   const db = getDb();
   return db
@@ -160,11 +167,49 @@ function readPersistedSlackRows(): Array<{
     })
     .from(messages)
     .all()
-    .map((row) => ({
-      ...row,
-      content: unwrapExternalContent(row.content),
-      rawContent: row.content,
-    }));
+    .map((row) => {
+      let envelope: Record<string, unknown> = {};
+      if (row.metadata) {
+        try {
+          const parsed = JSON.parse(row.metadata) as unknown;
+          if (
+            parsed !== null &&
+            typeof parsed === "object" &&
+            !Array.isArray(parsed)
+          ) {
+            envelope = parsed as Record<string, unknown>;
+          }
+        } catch {
+          envelope = {};
+        }
+      }
+      const slackMeta =
+        typeof envelope.slackMeta === "string"
+          ? readSlackMetadata(envelope.slackMeta)
+          : null;
+      return {
+        role: row.role,
+        content: unwrapExternalContent(row.content),
+        rawContent: row.content,
+        slackMeta,
+        provenanceTrustClass:
+          typeof envelope.provenanceTrustClass === "string"
+            ? envelope.provenanceTrustClass
+            : undefined,
+        provenanceSourceChannel:
+          typeof envelope.provenanceSourceChannel === "string"
+            ? envelope.provenanceSourceChannel
+            : undefined,
+        provenanceGuardianExternalUserId:
+          typeof envelope.provenanceGuardianExternalUserId === "string"
+            ? envelope.provenanceGuardianExternalUserId
+            : undefined,
+        provenanceRequesterIdentifier:
+          typeof envelope.provenanceRequesterIdentifier === "string"
+            ? envelope.provenanceRequesterIdentifier
+            : undefined,
+      };
+    });
 }
 
 const EXTERNAL_CONTENT_WRAPPER =
@@ -254,12 +299,15 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(rows.length).toBe(3);
 
     const persistedTs = rows.map((r) => {
-      const envelope = JSON.parse(r.metadata!) as Record<string, unknown>;
-      const meta = readSlackMetadata(envelope.slackMeta as string);
+      const meta = r.slackMeta;
       expect(meta).not.toBeNull();
       expect(meta!.source).toBe("slack");
       expect(meta!.eventKind).toBe("message");
       expect(meta!.channelId).toBe(SLACK_DM_CHANNEL_ID);
+      expect(meta!.actorExternalUserId).toBe(SLACK_DM_USER_ID);
+      expect(r.provenanceTrustClass).toBe("unknown");
+      expect(r.provenanceSourceChannel).toBe("slack");
+      expect(r.provenanceRequesterIdentifier).toBe(SLACK_DM_USER_ID);
       return meta!.channelTs;
     });
     expect(new Set(persistedTs)).toEqual(
@@ -295,6 +343,11 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(row.role).toBe("user");
     expect(row.rawContent).toBe("trusted older context");
     expect(row.rawContent).not.toContain("<external_content");
+    expect(row.slackMeta?.actorExternalUserId).toBe(SLACK_DM_USER_ID);
+    expect(row.provenanceTrustClass).toBe("guardian");
+    expect(row.provenanceSourceChannel).toBe("slack");
+    expect(row.provenanceGuardianExternalUserId).toBe(SLACK_DM_USER_ID);
+    expect(row.provenanceRequesterIdentifier).toBe(SLACK_DM_USER_ID);
   });
 
   test("warm storage prevents re-trigger on subsequent DMs", async () => {
@@ -403,7 +456,7 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(texts).toEqual(["older A", "older B"]);
   });
 
-  test("bot-authored backfilled messages are persisted as wrapped user history", async () => {
+  test("bot-authored backfilled messages are persisted raw as user history", async () => {
     // Backfilled Slack history is third-party channel replay. Even bot rows
     // must not become `assistant` messages; that role is reserved for outputs
     // produced by the local assistant loop.
@@ -433,9 +486,12 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(byText.get("user reply")).toBe("user");
     expect(byText.get("assistant reply")).toBe("user");
     const botRow = rows.find((r) => r.content === "assistant reply");
-    expect(botRow?.rawContent).toContain(
-      '<external_content source="webhook" origin="assistant-bot">',
-    );
+    expect(botRow?.rawContent).toBe("assistant reply");
+    expect(botRow?.rawContent).not.toContain("<external_content");
+    expect(botRow?.slackMeta?.actorExternalUserId).toBe("B_BOT");
+    expect(botRow?.provenanceTrustClass).toBe("unknown");
+    expect(botRow?.provenanceSourceChannel).toBe("slack");
+    expect(botRow?.provenanceRequesterIdentifier).toBe("B_BOT");
   });
 
   test("backfill skips channelTs values already stored", async () => {

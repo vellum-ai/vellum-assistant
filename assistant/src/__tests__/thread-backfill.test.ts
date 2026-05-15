@@ -268,7 +268,12 @@ interface PersistedRow {
   channelTs: string | undefined;
   threadTs: string | undefined;
   displayName: string | undefined;
+  actorExternalUserId: string | undefined;
   slackFiles: Array<{ name: string; mimetype?: string }> | undefined;
+  provenanceTrustClass: string | undefined;
+  provenanceSourceChannel: string | undefined;
+  provenanceGuardianExternalUserId: string | undefined;
+  provenanceRequesterIdentifier: string | undefined;
 }
 
 const EXTERNAL_CONTENT_WRAPPER =
@@ -290,7 +295,12 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       channelTs: undefined,
       threadTs: undefined,
       displayName: undefined,
+      actorExternalUserId: undefined,
       slackFiles: undefined,
+      provenanceTrustClass: undefined,
+      provenanceSourceChannel: undefined,
+      provenanceGuardianExternalUserId: undefined,
+      provenanceRequesterIdentifier: undefined,
     };
     if (!row.metadata) {
       out.push(blank);
@@ -325,10 +335,27 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       channelTs: slackMeta?.channelTs,
       threadTs: slackMeta?.threadTs,
       displayName: slackMeta?.displayName,
+      actorExternalUserId: slackMeta?.actorExternalUserId,
       slackFiles: slackMeta?.slackFiles?.map((file) => ({
         name: file.name,
         ...(file.mimetype ? { mimetype: file.mimetype } : {}),
       })),
+      provenanceTrustClass:
+        typeof envelope.provenanceTrustClass === "string"
+          ? envelope.provenanceTrustClass
+          : undefined,
+      provenanceSourceChannel:
+        typeof envelope.provenanceSourceChannel === "string"
+          ? envelope.provenanceSourceChannel
+          : undefined,
+      provenanceGuardianExternalUserId:
+        typeof envelope.provenanceGuardianExternalUserId === "string"
+          ? envelope.provenanceGuardianExternalUserId
+          : undefined,
+      provenanceRequesterIdentifier:
+        typeof envelope.provenanceRequesterIdentifier === "string"
+          ? envelope.provenanceRequesterIdentifier
+          : undefined,
     });
   }
   return out;
@@ -934,7 +961,8 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       ): block is Extract<Message["content"][number], { type: "image" }> =>
         block.type === "image",
     );
-    expect(textBlock?.text).toContain("uploaded the diagram");
+    expect(textBlock?.text).toBe("uploaded the diagram");
+    expect(textBlock?.text).not.toContain("<external_content");
     expect(imageBlock?.source.media_type).toBe("image/png");
     expect(imageBlock?.source.data).toBe(imageBase64);
 
@@ -1004,10 +1032,8 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       ): block is Extract<Message["content"][number], { type: "image" }> =>
         block.type === "image",
     );
-    expect(textBlock?.text).toContain(
-      '<external_content source="webhook" origin="Build Bot">',
-    );
-    expect(textBlock?.text).toContain("bot posted a diagram");
+    expect(textBlock?.text).toBe("bot posted a diagram");
+    expect(textBlock?.text).not.toContain("<external_content");
     expect(imageBlock?.source.media_type).toBe("image/png");
 
     const context = loadSlackChronologicalContext(conv.id, SLACK_CHANNEL_CAPS, {
@@ -1022,7 +1048,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(contextImage).toBeDefined();
   });
 
-  test("backfilled non-guardian text is persisted wrapped in an external_content envelope", async () => {
+  test("backfilled non-guardian text is persisted raw with actor provenance", async () => {
     const conv = createTestConversation();
 
     backfillThreadMock.mockImplementation(async () => [
@@ -1046,16 +1072,17 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     );
     expect(persisted).toBeDefined();
     expect(persisted.role).toBe("user");
-    expect(persisted.rawContent).toContain(
-      '<external_content source="webhook" origin="Anita">',
-    );
-    expect(persisted.rawContent).toContain("i can't find the credential field");
-    expect(persisted.rawContent).toContain("</external_content>");
-    // Inner text round-trips unchanged through the wrapper.
+    expect(persisted.rawContent).toBe("i can't find the credential field");
+    expect(persisted.rawContent).not.toContain("<external_content");
     expect(persisted.content).toBe("i can't find the credential field");
+    expect(persisted.actorExternalUserId).toBe("U_ANITA");
+    expect(persisted.provenanceTrustClass).toBe("unknown");
+    expect(persisted.provenanceSourceChannel).toBe("slack");
+    expect(persisted.provenanceGuardianExternalUserId).toBe("U_GUARDIAN");
+    expect(persisted.provenanceRequesterIdentifier).toBe("U_ANITA");
   });
 
-  test("backfilled guardian-authored text is persisted unwrapped", async () => {
+  test("backfilled guardian-authored text is persisted raw with guardian provenance", async () => {
     const conv = createTestConversation();
 
     backfillThreadMock.mockImplementation(async () => [
@@ -1081,9 +1108,14 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(persisted.role).toBe("user");
     expect(persisted.rawContent).toBe("here is the trusted context");
     expect(persisted.rawContent).not.toContain("<external_content");
+    expect(persisted.actorExternalUserId).toBe("U_GUARDIAN");
+    expect(persisted.provenanceTrustClass).toBe("guardian");
+    expect(persisted.provenanceSourceChannel).toBe("slack");
+    expect(persisted.provenanceGuardianExternalUserId).toBe("U_GUARDIAN");
+    expect(persisted.provenanceRequesterIdentifier).toBe("U_GUARDIAN");
   });
 
-  test("backfilled bot-authored text is persisted wrapped as user history", async () => {
+  test("backfilled bot-authored text is persisted raw as user history", async () => {
     const conv = createTestConversation();
 
     backfillThreadMock.mockImplementation(async () => [
@@ -1107,10 +1139,12 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     );
     expect(persisted).toBeDefined();
     expect(persisted.role).toBe("user");
-    expect(persisted.rawContent).toContain(
-      '<external_content source="webhook" origin="Douglas">',
-    );
-    expect(persisted.rawContent).toContain("earlier assistant reply");
+    expect(persisted.rawContent).toBe("earlier assistant reply");
+    expect(persisted.rawContent).not.toContain("<external_content");
+    expect(persisted.actorExternalUserId).toBe("U_BOT");
+    expect(persisted.provenanceTrustClass).toBe("unknown");
+    expect(persisted.provenanceSourceChannel).toBe("slack");
+    expect(persisted.provenanceRequesterIdentifier).toBe("U_BOT");
   });
 
   test("backfilled non-bot message with empty text is persisted unwrapped", async () => {
@@ -1747,6 +1781,7 @@ interface SlackInboundProcessOptions {
     channelTs: string;
     threadTs?: string;
     displayName?: string;
+    actorExternalUserId?: string;
   };
 }
 
@@ -1769,6 +1804,9 @@ function persistSlackInboundFromProcessMessage(
               : {}),
             ...(slackInbound.displayName
               ? { displayName: slackInbound.displayName }
+              : {}),
+            ...(slackInbound.actorExternalUserId
+              ? { actorExternalUserId: slackInbound.actorExternalUserId }
               : {}),
             eventKind: "message",
           }),
@@ -1959,6 +1997,9 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     expect(captured.content).not.toContain('source="webhook"');
     expect(captured.content).toContain(`\n${rawContent}\n</external_content>`);
     expect(captured.options?.displayContent).toBe(rawContent);
+    expect(captured.options?.slackInbound?.actorExternalUserId).toBe(
+      HTTP_SLACK_USER_ID,
+    );
 
     const persisted = readMessagesByConversation(captured.conversationId);
     expect(persisted).toHaveLength(1);

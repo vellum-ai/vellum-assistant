@@ -17,6 +17,10 @@
 import { createHash } from "node:crypto";
 
 import type { ContentBlock, Message } from "../../../providers/types.js";
+import {
+  parseExternalContentEnvelope,
+  wrapUntrustedContent,
+} from "../../../security/untrusted-content.js";
 import type { SlackMessageMetadata } from "./message-metadata.js";
 
 export interface RenderableSlackMessage {
@@ -47,6 +51,14 @@ export interface RenderableSlackMessage {
    * fallback tag-line text block is emitted so chronology is preserved.
    */
   readonly contentBlocks?: readonly ContentBlock[];
+  /**
+   * When true, the user-authored text body is wrapped in `<external_content>`
+   * before entering model context. The Slack tag-line attribution remains
+   * outside that envelope.
+   */
+  wrapContentForModel?: boolean;
+  /** Sender/origin detail to attach to the model-facing wrapper. */
+  externalContentOrigin?: string;
 }
 
 export interface RenderOptions {
@@ -260,7 +272,7 @@ function renderMessage(msg: RenderableSlackMessage): string {
   if (!meta) {
     // Legacy pre-upgrade row: flat render, no thread tag.
     const time = formatEpochMs(msg.createdAt);
-    return `[${time}${senderPart}]: ${msg.content}`;
+    return `[${time}${senderPart}]: ${renderModelBody(msg, msg.content)}`;
   }
 
   const time = formatSlackTs(meta.channelTs);
@@ -277,8 +289,25 @@ function renderMessage(msg: RenderableSlackMessage): string {
   if (meta.editedAt !== undefined) {
     head += `, edited ${formatEpochMs(meta.editedAt)}`;
   }
-  head += `]: ${appendSlackFileMarkers(msg.content, meta.slackFiles)}`;
+  head += `]: ${appendSlackFileMarkers(
+    renderModelBody(msg, msg.content),
+    meta.slackFiles,
+  )}`;
   return head;
+}
+
+function renderModelBody(msg: RenderableSlackMessage, body: string): string {
+  if (!msg.wrapContentForModel || body.length === 0) {
+    return body;
+  }
+  if (parseExternalContentEnvelope(body) !== null) {
+    return body;
+  }
+  const origin = msg.externalContentOrigin ?? msg.senderLabel ?? undefined;
+  return wrapUntrustedContent(body, {
+    source: "slack",
+    ...(origin ? { sourceDetail: origin } : {}),
+  });
 }
 
 /**
