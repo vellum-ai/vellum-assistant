@@ -27,6 +27,8 @@ mock.module("../config/loader.js", () => ({
   deepMergeOverwrite: () => {},
   getConfig: () => rawConfig,
   invalidateConfigCache: () => {},
+  withSuppressedConfigDiskWrites: async (fn: () => unknown) => fn(),
+  withSuppressedConfigDiskWritesSync: (fn: () => unknown) => fn(),
   // setNestedValue is also exported by loader; handleSetConfig imports the
   // real one from this module, so we re-export a thin implementation that
   // mutates in place (matches loader's behavior).
@@ -142,6 +144,84 @@ describe("config_set route - request validation", () => {
     const calls = (savedRaw as unknown as Record<string, unknown>)
       .calls as Record<string, unknown>;
     expect(calls.enabled).toBe(true);
+  });
+
+  test("preserves user profiles and custom settings when setting unrelated key", async () => {
+    rawConfig = {
+      llm: {
+        activeProfile: "my-custom-profile",
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+          },
+          "my-custom-profile": {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-opus-4-6",
+            maxTokens: 32000,
+          },
+        },
+      },
+      memory: {
+        embeddings: { provider: "openai" },
+      },
+    };
+    savedRaw = null;
+    const result = await configSetRoute.handler({
+      body: {
+        path: "memory.cleanup.llmRequestLogRetentionMs",
+        value: 86400000,
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(savedRaw).not.toBeNull();
+
+    const saved = savedRaw as unknown as Record<string, unknown>;
+    const llm = saved.llm as Record<string, unknown>;
+    expect(llm.activeProfile).toBe("my-custom-profile");
+
+    const profiles = llm.profiles as Record<string, Record<string, unknown>>;
+    expect(profiles["my-custom-profile"]).toEqual({
+      source: "user",
+      provider: "anthropic",
+      model: "claude-opus-4-6",
+      maxTokens: 32000,
+    });
+    expect(profiles.balanced).toEqual({
+      source: "managed",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+    });
+
+    const memory = saved.memory as Record<string, unknown>;
+    expect((memory.embeddings as Record<string, unknown>).provider).toBe(
+      "openai",
+    );
+    expect(
+      (memory.cleanup as Record<string, unknown>).llmRequestLogRetentionMs,
+    ).toBe(86400000);
+  });
+
+  test("preserves all top-level keys when setting a nested path", async () => {
+    rawConfig = {
+      llm: { default: { provider: "anthropic" } },
+      calls: { enabled: true },
+      heartbeat: { activeHoursStart: "09:00", activeHoursEnd: "22:00" },
+    };
+    savedRaw = null;
+    await configSetRoute.handler({
+      body: { path: "memory.cleanup.conversationRetentionDays", value: 30 },
+    });
+    expect(savedRaw).not.toBeNull();
+    const saved = savedRaw as unknown as Record<string, unknown>;
+    expect(saved.llm).toEqual({ default: { provider: "anthropic" } });
+    expect(saved.calls).toEqual({ enabled: true });
+    expect(saved.heartbeat).toEqual({
+      activeHoursStart: "09:00",
+      activeHoursEnd: "22:00",
+    });
   });
 });
 
