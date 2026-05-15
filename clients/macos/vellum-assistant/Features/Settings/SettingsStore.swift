@@ -3331,20 +3331,29 @@ public final class SettingsStore: ObservableObject {
     /// Each call captures a monotonic generation at entry. After the await,
     /// post-PATCH mutation is gated on whether a *newer* pick is still
     /// "live" — i.e. either still in flight or already successfully
-    /// confirmed. This distinguishes two race scenarios:
+    /// confirmed — and on whether the daemon-confirmed value was updated
+    /// out-of-band (e.g. by a `loadInferenceProfiles` push from another
+    /// client/session). This distinguishes three race scenarios:
     ///
     /// 1. A→B both succeed, A late: B's success advances
     ///    `lastConfirmedSetActiveProfileGen` past A. A's late success sees
     ///    that and skips entirely, so it does not stomp B.
     /// 2. A→B-fails-and-reverts→A late success: B never confirms, so
-    ///    `lastConfirmedSetActiveProfileGen` is unchanged. By the time A's
-    ///    success arrives, B is no longer in flight either. No newer pick
-    ///    is live, so A applies fully — re-syncing `activeProfile` from
-    ///    the post-revert "balanced" back to the daemon-confirmed "A".
+    ///    `lastConfirmedSetActiveProfileGen` is unchanged and
+    ///    `lastConfirmedActiveProfile` was never touched during A's call.
+    ///    By the time A's success arrives, B is no longer in flight
+    ///    either. No newer pick is live, so A applies fully — re-syncing
+    ///    `activeProfile` from the post-revert "balanced" back to the
+    ///    daemon-confirmed "A".
+    /// 3. A in flight → external load pushes "C" → A late success: the
+    ///    push updates `lastConfirmedActiveProfile` to "C". A's success
+    ///    branch detects the snapshot drift and skips, leaving the
+    ///    daemon-pushed value intact instead of stomping it back to "A".
     @discardableResult
     func setActiveProfile(_ name: String) async -> Bool {
         setActiveProfileGenerationCounter += 1
         let myGen = setActiveProfileGenerationCounter
+        let confirmedAtEntry = lastConfirmedActiveProfile
         inFlightSetActiveProfileGens.insert(myGen)
         self.activeProfile = name
         let success = await settingsClient.patchConfig([
@@ -3354,9 +3363,10 @@ public final class SettingsStore: ObservableObject {
 
         let newerPickLive = lastConfirmedSetActiveProfileGen > myGen
             || inFlightSetActiveProfileGens.contains(where: { $0 > myGen })
+        let confirmedChangedExternally = lastConfirmedActiveProfile != confirmedAtEntry
 
         if success {
-            if !newerPickLive {
+            if !newerPickLive, !confirmedChangedExternally {
                 lastConfirmedActiveProfile = name
                 self.activeProfile = name
                 lastConfirmedSetActiveProfileGen = myGen
