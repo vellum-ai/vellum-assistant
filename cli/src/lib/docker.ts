@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import { chmodSync, existsSync, mkdirSync, watch as fsWatch } from "fs";
 import { arch, platform } from "os";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 
 // Direct import — bun embeds this at compile time so it works in compiled binaries.
 import cliPkg from "../../package.json";
@@ -903,13 +903,14 @@ function startFileWatcher(opts: {
 
 export interface HatchDockerOptions {
   /**
-   * Build images from the local source tree before hatching, but do not
-   * start the file watcher. Used by evals so each run picks up the latest
-   * CLI changes (e.g. new flags) without keeping a long-lived watcher
-   * process around. `--watch` already implies this and additionally enables
-   * hot-reload.
+   * Path to a local source tree to build images from before hatching. When
+   * provided, this path is used directly as the repo root and no file
+   * watcher is started — useful for callers (e.g. evals) that want each
+   * run to pick up local CLI changes without keeping a long-lived watcher
+   * process around. `--watch` independently auto-detects the repo root and
+   * also enables hot-reload.
    */
-  buildFromSource?: boolean;
+  sourcePath?: string | null;
 }
 
 export async function hatchDocker(
@@ -941,12 +942,19 @@ export async function hatchDocker(
       gateway: "",
     };
 
-    const buildFromSource = options.buildFromSource === true;
+    const sourcePath =
+      typeof options.sourcePath === "string" && options.sourcePath.length > 0
+        ? options.sourcePath
+        : null;
+    const buildFromSource = sourcePath !== null;
     let repoRoot: string | undefined;
     let fullSourceTreeAvailable = false;
 
     if (watch || buildFromSource) {
-      repoRoot = findRepoRoot();
+      // When --source <path> is supplied, trust the caller and use it
+      // directly. Otherwise (the --watch case) walk up from known locations
+      // to find the repo root.
+      repoRoot = sourcePath ? resolve(sourcePath) : findRepoRoot();
 
       // When running from a packaged .app bundle, the Dockerfiles are
       // present (so findRepoRoot succeeds) but the full source tree is

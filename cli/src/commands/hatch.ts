@@ -177,7 +177,7 @@ interface HatchArgs {
   name: string | null;
   remote: RemoteHost;
   watch: boolean;
-  buildFromSource: boolean;
+  sourcePath: string | null;
   configValues: Record<string, string>;
 }
 
@@ -189,7 +189,7 @@ function parseArgs(): HatchArgs {
   let name: string | null = null;
   let remote: RemoteHost = DEFAULT_REMOTE;
   let watch = false;
-  let buildFromSource = false;
+  let sourcePath: string | null = null;
   const configValues: Record<string, string> = {};
 
   for (let i = 0; i < args.length; i++) {
@@ -213,7 +213,7 @@ function parseArgs(): HatchArgs {
         "  --watch                   Run assistant and gateway in watch mode (hot reload on source changes)",
       );
       console.log(
-        "  --build-from-source       Build images from the local source tree (no watcher). Implied by --watch.",
+        "  --source <path>           Build images from a local source tree at <path> (no watcher). Useful for callers (e.g. evals) that want each run to pick up local CLI changes.",
       );
       console.log(
         "  --keep-alive              Stay alive after hatch, exit when gateway stops",
@@ -226,8 +226,14 @@ function parseArgs(): HatchArgs {
       detached = true;
     } else if (arg === "--watch") {
       watch = true;
-    } else if (arg === "--build-from-source") {
-      buildFromSource = true;
+    } else if (arg === "--source") {
+      const next = args[i + 1];
+      if (!next || next.startsWith("-")) {
+        console.error("Error: --source requires a path argument");
+        process.exit(1);
+      }
+      sourcePath = next;
+      i++;
     } else if (arg === "--keep-alive") {
       keepAlive = true;
     } else if (arg === "--name") {
@@ -277,7 +283,7 @@ function parseArgs(): HatchArgs {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --build-from-source, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --source <path>, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>`,
       );
       process.exit(1);
     }
@@ -290,7 +296,7 @@ function parseArgs(): HatchArgs {
     name,
     remote,
     watch,
-    buildFromSource,
+    sourcePath,
     configValues,
   };
 }
@@ -523,7 +529,7 @@ export async function hatch(): Promise<void> {
     name,
     remote,
     watch,
-    buildFromSource,
+    sourcePath,
     configValues,
   } = parseArgs();
 
@@ -534,9 +540,9 @@ export async function hatch(): Promise<void> {
     process.exit(1);
   }
 
-  if (buildFromSource && remote !== "docker") {
+  if (sourcePath !== null && remote !== "docker") {
     console.error(
-      "Error: --build-from-source is only supported for docker hatch targets.",
+      "Error: --source is only supported for docker hatch targets.",
     );
     process.exit(1);
   }
@@ -565,7 +571,7 @@ export async function hatch(): Promise<void> {
 
   if (remote === "docker") {
     await hatchDocker(species, detached, name, watch, configValues, {
-      buildFromSource,
+      sourcePath,
     });
     return;
   }

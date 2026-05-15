@@ -1,5 +1,5 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 import type {
@@ -35,6 +35,16 @@ function setupCommands(profile: Profile): string[] {
   const setup = profile.manifest.setup;
   if (!setup) return [];
   return Array.isArray(setup) ? setup : [setup];
+}
+
+/**
+ * Absolute path to the vellum-assistant repo root, derived from this file's
+ * location (`evals/src/lib/adapters/vellum.ts` → repo root via four `..`s).
+ * Passed to `vellum hatch --source <path>` so each eval run builds CLI/daemon
+ * images from the local source tree.
+ */
+function repoRootFromAdapter(): string {
+  return resolve(import.meta.dir, "..", "..", "..", "..");
 }
 
 function shellWords(command: string): string[] {
@@ -95,17 +105,13 @@ export class VellumAgent implements BaseAgent {
 
     let hatchStarted = false;
     try {
-      // `--build-from-source` makes the hatch build images from the local
-      // source tree before starting the container so each eval run picks
-      // up the latest CLI changes (e.g. new flags consumed by setup
-      // commands). When the source tree is unavailable (packaged install),
-      // the CLI logs a warning and falls back to pulling published images.
       const hatch = await this.runner.run(this.cliCommand, [
         "hatch",
         "vellum",
         "--remote",
         "docker",
-        "--build-from-source",
+        "--source",
+        repoRootFromAdapter(),
         "--name",
         this.id,
       ]);

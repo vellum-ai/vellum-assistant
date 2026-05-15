@@ -184,7 +184,7 @@ describe("resolveDockerHatchMode", () => {
     ).toEqual({ build: false, watcher: false, fellBackToPull: false });
   });
 
-  test("--build-from-source builds without enabling the file watcher", () => {
+  test("--source <path> builds without enabling the file watcher", () => {
     expect(
       resolveDockerHatchMode({
         watch: false,
@@ -204,7 +204,7 @@ describe("resolveDockerHatchMode", () => {
     ).toEqual({ build: true, watcher: true, fellBackToPull: false });
   });
 
-  test("--watch + --build-from-source still enables the watcher (watch wins)", () => {
+  test("--watch + --source <path> still enables the watcher (watch wins)", () => {
     expect(
       resolveDockerHatchMode({
         watch: true,
