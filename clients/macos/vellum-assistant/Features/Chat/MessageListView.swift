@@ -324,14 +324,7 @@ struct MessageListView: View {
                 await handleAnchorDaemonMessageIdTask()
             }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-                if let requestId = activePendingRequestId, scrollState.lastAutoFocusedRequestId != requestId,
-                   let window = notification.object as? NSWindow,
-                   window === NSApp.keyWindow,
-                   let responder = window.firstResponder as? NSTextView,
-                   responder.isEditable {
-                    window.makeFirstResponder(nil)
-                    scrollState.lastAutoFocusedRequestId = requestId
-                }
+                handleWindowDidBecomeKey(notification)
             }
     }
 }

@@ -323,5 +323,21 @@ extension MessageListView {
             scrollState.lastAutoFocusedRequestId = nil
         }
     }
+
+    /// Window-became-key counterpart to `handleConfirmationFocusIfNeeded`:
+    /// when the app regains key window status while a pending confirmation
+    /// is active, hand focus off the composer so the bubble's key monitor
+    /// receives the next keystroke.
+    func handleWindowDidBecomeKey(_ notification: Notification) {
+        guard let requestId = activePendingRequestId,
+              scrollState.lastAutoFocusedRequestId != requestId,
+              let window = notification.object as? NSWindow,
+              window === NSApp.keyWindow,
+              let responder = window.firstResponder as? NSTextView,
+              responder.isEditable
+        else { return }
+        window.makeFirstResponder(nil)
+        scrollState.lastAutoFocusedRequestId = requestId
+    }
     #endif
 }
