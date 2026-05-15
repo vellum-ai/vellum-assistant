@@ -352,6 +352,61 @@ describe("resolvePublicBaseWssUrl", () => {
     );
   });
 
+  test("uses assistant ID from validated platform callback URL with Velay", () => {
+    const config = {
+      ...baseConfig,
+      velayBaseUrl: "https://velay-staging.vellum.ai",
+    };
+    const result = resolvePublicBaseWssUrl(
+      config,
+      undefined,
+      undefined,
+      "https://staging-platform.vellum.ai/v1/gateway/callbacks/019e2d0d-f355-744c-a12c-d7e7dcefcf1e/webhooks/twilio/voice/?callSessionId=37b47ade-2eaf-469a-bede-6f2454875e6e",
+    );
+    expect(result).toBe(
+      "wss://velay-staging.vellum.ai/019e2d0d-f355-744c-a12c-d7e7dcefcf1e",
+    );
+  });
+
+  test("prefers validated platform callback URL over stale configFile publicBaseUrl", () => {
+    const config = {
+      ...baseConfig,
+      velayBaseUrl: "https://velay-staging.vellum.ai",
+    };
+    const mockConfigFile = {
+      getString: (section: string, key: string) =>
+        section === "ingress" && key === "publicBaseUrl"
+          ? "https://stale-tunnel.example.test"
+          : undefined,
+    } as Parameters<typeof resolvePublicBaseWssUrl>[1];
+    const result = resolvePublicBaseWssUrl(
+      config,
+      mockConfigFile,
+      undefined,
+      "https://staging-platform.vellum.ai/v1/gateway/callbacks/019e2d0d-f355-744c-a12c-d7e7dcefcf1e/webhooks/twilio/voice?callSessionId=sess-1",
+    );
+    expect(result).toBe(
+      "wss://velay-staging.vellum.ai/019e2d0d-f355-744c-a12c-d7e7dcefcf1e",
+    );
+  });
+
+  test("does not use a platform callback URL as the websocket base", () => {
+    const config = {
+      ...baseConfig,
+      velayBaseUrl: "https://velay-staging.vellum.ai",
+    };
+    const mockConfigFile = {
+      getString: (section: string, key: string) =>
+        section === "ingress" && key === "publicBaseUrl"
+          ? "https://staging-platform.vellum.ai/v1/gateway/callbacks/019e2d0d-f355-744c-a12c-d7e7dcefcf1e"
+          : undefined,
+    } as Parameters<typeof resolvePublicBaseWssUrl>[1];
+    const result = resolvePublicBaseWssUrl(config, mockConfigFile, undefined);
+    expect(result).toBe(
+      "wss://velay-staging.vellum.ai/019e2d0d-f355-744c-a12c-d7e7dcefcf1e",
+    );
+  });
+
   test("strips trailing slash from velayBaseUrl before joining assistant ID", () => {
     const config = {
       ...baseConfig,

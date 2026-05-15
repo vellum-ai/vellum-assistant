@@ -826,6 +826,53 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
     });
   });
 
+  test("uses platform callback assistant ID for Twilio websocket URL", async () => {
+    const assistantId = "019e2d0d-f355-744c-a12c-d7e7dcefcf1e";
+    fetchMock = mock(
+      async () =>
+        new Response(
+          '<?xml version="1.0" encoding="UTF-8"?><Response><Connect>' +
+            '<ConversationRelay url="wss://__VELLUM_PUBLIC_BASE_URL__/webhooks/twilio/relay?token=__VELLUM_RELAY_TOKEN__"/>' +
+            "</Connect></Response>",
+          {
+            status: 200,
+            headers: { "Content-Type": "text/xml" },
+          },
+        ),
+    );
+
+    const handler = createTwilioVoiceWebhookHandler(
+      makeConfig({ velayBaseUrl: "https://velay-staging.vellum.ai" }),
+      makeCaches(),
+    );
+
+    const platformCallbackUrl =
+      `https://staging-platform.vellum.ai/v1/gateway/callbacks/${assistantId}` +
+      "/webhooks/twilio/voice?callSessionId=platform-wss-test";
+    const localUrl =
+      "http://localhost:7830/webhooks/twilio/voice?callSessionId=platform-wss-test";
+    const params = { CallSid: "CA-platform-wss" };
+    const signature = computeSignature(platformCallbackUrl, params, AUTH_TOKEN);
+    const req = new Request(localUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Twilio-Signature": signature,
+        "X-Vellum-Ingress-URL": platformCallbackUrl,
+      },
+      body: new URLSearchParams(params).toString(),
+    });
+
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain(
+      `url="wss://velay-staging.vellum.ai/${assistantId}/webhooks/twilio/relay?`,
+    );
+    expect(body).not.toContain("__VELLUM_PUBLIC_BASE_URL__");
+    expect(body).not.toContain("staging-platform.vellum.ai");
+  });
+
   test("platform proxy URL takes priority over configured ingress", async () => {
     fetchMock = mock(
       async () =>

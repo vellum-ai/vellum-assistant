@@ -503,15 +503,58 @@ export type TwilioForwardResponse = {
  * to Twilio, keeping the signing key out of the daemon for this flow.
  */
 const TWILIO_RELAY_TOKEN_PLACEHOLDER = "__VELLUM_RELAY_TOKEN__";
+const PLATFORM_CALLBACK_MARKER = "/gateway/callbacks/";
+
+function toWebSocketBaseUrl(url: string): string {
+  return url.replace(/^http(s?)/, "ws$1");
+}
+
+function extractPlatformCallbackAssistantId(
+  value: unknown,
+): string | undefined {
+  const normalized = normalizePublicBaseUrl(value);
+  if (!normalized) return undefined;
+
+  let pathname: string;
+  try {
+    pathname = new URL(normalized).pathname;
+  } catch {
+    return undefined;
+  }
+
+  const markerIndex = pathname.indexOf(PLATFORM_CALLBACK_MARKER);
+  if (markerIndex === -1) return undefined;
+
+  const assistantIdStart = markerIndex + PLATFORM_CALLBACK_MARKER.length;
+  const assistantId = pathname.slice(assistantIdStart).split("/")[0]?.trim();
+  return assistantId || undefined;
+}
+
+function resolveVelayBaseWssUrl(
+  config: GatewayConfig,
+  platformAssistantId?: string,
+): string | undefined {
+  if (!config.velayBaseUrl || !platformAssistantId) return undefined;
+
+  const withPath =
+    config.velayBaseUrl.replace(/\/+$/, "") + "/" + platformAssistantId;
+  const normalizedVelayUrl = normalizePublicBaseUrl(withPath);
+  return normalizedVelayUrl
+    ? toWebSocketBaseUrl(normalizedVelayUrl)
+    : undefined;
+}
 
 /**
  * Resolve the public base URL as a WebSocket URL (`wss://…`).
  *
  * Sources (in priority order):
- * 1. `ingress.publicBaseUrl` from the config file — written by Velay
- *    after tunnel registration, or set manually for self-hosted.
- * 2. `VELAY_BASE_URL` + platform assistant ID — fallback for platform
- *    sidecars before the config cache has observed the registered URL.
+ * 1. `VELAY_BASE_URL` + the assistant ID from the signed platform callback
+ *    URL.
+ * 2. `ingress.publicBaseUrl` from the config file when it is a real public
+ *    gateway base URL — written by Velay after tunnel registration, or set
+ *    manually for self-hosted.
+ * 3. `VELAY_BASE_URL` + the platform assistant ID from a configured callback
+ *    URL or credential cache.
  *
  * Returns `undefined` when no source provides a value — the placeholder
  * will remain in TwiML and Twilio will fail to connect, which is the
@@ -521,20 +564,29 @@ export function resolvePublicBaseWssUrl(
   config: GatewayConfig,
   configFile?: ConfigFileCache,
   platformAssistantId?: string,
+  validatedPublicUrl?: string,
 ): string | undefined {
   const raw = configFile?.getString("ingress", "publicBaseUrl");
   const normalized = normalizePublicBaseUrl(raw);
-  if (normalized) return normalized.replace(/^http(s?)/, "ws$1");
 
-  if (config.velayBaseUrl && platformAssistantId) {
-    const withPath =
-      config.velayBaseUrl.replace(/\/+$/, "") + "/" + platformAssistantId;
-    const normalizedVelayUrl = normalizePublicBaseUrl(withPath);
-    if (normalizedVelayUrl) {
-      return normalizedVelayUrl.replace(/^http(s?)/, "ws$1");
-    }
+  const validatedCallbackAssistantId =
+    extractPlatformCallbackAssistantId(validatedPublicUrl);
+  const validatedCallbackWssUrl = resolveVelayBaseWssUrl(
+    config,
+    validatedCallbackAssistantId,
+  );
+  if (validatedCallbackWssUrl) return validatedCallbackWssUrl;
+
+  const configuredCallbackAssistantId = extractPlatformCallbackAssistantId(raw);
+
+  if (normalized && !configuredCallbackAssistantId) {
+    return toWebSocketBaseUrl(normalized);
   }
-  return undefined;
+
+  return resolveVelayBaseWssUrl(
+    config,
+    configuredCallbackAssistantId ?? platformAssistantId,
+  );
 }
 
 /**

@@ -151,7 +151,10 @@ export function createTwilioVoiceWebhookHandler(
           // The display name is intentionally included: the caller registered
           // this number themselves, so disclosing their own name is expected.
           const unverifiedStatuses = new Set(["unverified", "pending"]);
-          if (callerRecord && unverifiedStatuses.has(callerRecord.channel.status)) {
+          if (
+            callerRecord &&
+            unverifiedStatuses.has(callerRecord.channel.status)
+          ) {
             const isGuardian = callerRecord.contact.role === "guardian";
             log.info(
               {
@@ -197,7 +200,12 @@ export function createTwilioVoiceWebhookHandler(
         config,
         params,
         req.url,
-        resolvePublicBaseWssUrl(config, caches?.configFile, platformAssistantId),
+        resolvePublicBaseWssUrl(
+          config,
+          caches?.configFile,
+          platformAssistantId,
+          validation.validatedCandidateUrl,
+        ),
       );
       return new Response(runtimeResponse.body, {
         status: runtimeResponse.status,
