@@ -5,7 +5,7 @@
  * matcher and send logic here.  The gateway-client consults
  * `isDirectDelivery()` before falling back to the HTTP proxy path.
  *
- * Currently supported: WhatsApp, Telegram, Slack.
+ * Currently supported: WhatsApp, Telegram, Slack, A2A.
  */
 
 import type {
@@ -15,6 +15,7 @@ import type {
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
 import { getLogger } from "../../util/logger.js";
+import { deliverA2AReply } from "./a2a/deliver.js";
 import {
   sendSlackAssistantThreadStatus,
   sendSlackAttachments,
@@ -57,6 +58,10 @@ function isSlackCallback(callbackUrl: string): boolean {
   } catch {
     return callbackUrl.endsWith("/deliver/slack");
   }
+}
+
+function isA2ACallback(callbackUrl: string): boolean {
+  return matchesPathname(callbackUrl, "/deliver/a2a");
 }
 
 function parseSlackCallbackParams(callbackUrl: string): {
@@ -233,7 +238,8 @@ export function isDirectDelivery(callbackUrl: string): boolean {
   return (
     isWhatsAppCallback(callbackUrl) ||
     isTelegramCallback(callbackUrl) ||
-    isSlackCallback(callbackUrl)
+    isSlackCallback(callbackUrl) ||
+    isA2ACallback(callbackUrl)
   );
 }
 
@@ -253,6 +259,9 @@ export async function deliverDirect(
   }
   if (isSlackCallback(callbackUrl)) {
     return deliverSlack(callbackUrl, payload);
+  }
+  if (isA2ACallback(callbackUrl)) {
+    return deliverA2AReply(callbackUrl, payload);
   }
 
   // Defensive — isDirectDelivery should have returned false.
