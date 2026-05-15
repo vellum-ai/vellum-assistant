@@ -271,6 +271,31 @@ describe("searchConversationSource", () => {
     });
   });
 
+  test("wraps raw non-guardian Slack recall evidence that mentions external_content", async () => {
+    const { conversation, message } = await seedConversation({
+      title: "Raw Slack tag mention recall",
+      role: "user",
+      content:
+        "The tagmentionrecalltoken text mentions <external_content but is raw Slack content.",
+      metadata: slackMetadata("1700000102.000000", {
+        provenanceTrustClass: "unknown",
+      }),
+    });
+
+    const result = await searchConversationSource(
+      "tagmentionrecalltoken",
+      makeContext(),
+      1,
+    );
+
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0]).toMatchObject({
+      locator: `${conversation.id}#${message.id}`,
+      excerpt:
+        '<external_content source="slack" origin="@alice">\nThe tagmentionrecalltoken text mentions <external_content but is raw Slack content.\n</external_content>',
+    });
+  });
+
   test("does not wrap guardian Slack recall evidence", async () => {
     const { conversation, message } = await seedConversation({
       title: "Guardian Slack recall",

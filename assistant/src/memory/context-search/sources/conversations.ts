@@ -1,5 +1,8 @@
 import { readSlackMetadata } from "../../../messaging/providers/slack/message-metadata.js";
-import { wrapUntrustedContent } from "../../../security/untrusted-content.js";
+import {
+  parseExternalContentEnvelope,
+  wrapUntrustedContent,
+} from "../../../security/untrusted-content.js";
 import { AUTO_ANALYSIS_SOURCE } from "../../auto-analysis-guard.js";
 import {
   buildFtsMatchQuery,
@@ -210,7 +213,7 @@ function buildRecallExcerpt(
     !slackMeta ||
     slackMeta.provenanceTrustClass === "guardian" ||
     excerpt.length === 0 ||
-    excerpt.includes("<external_content")
+    parseExternalContentEnvelope(excerpt)
   ) {
     return excerpt;
   }
