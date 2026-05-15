@@ -79,6 +79,14 @@ mock.module("../memory/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
 }));
 
+// The replace-profile handler auto-derives `provider_connection` from the
+// first active connection matching the requested provider when the body
+// omits it. That path queries the `provider_connections` table, which the
+// test doesn't migrate — stub it out so the guard logic stays the focus.
+mock.module("../providers/inference/connections.js", () => ({
+  listConnections: () => [],
+}));
+
 import { ROUTES } from "../runtime/routes/conversation-query-routes.js";
 import { BadRequestError } from "../runtime/routes/errors.js";
 
