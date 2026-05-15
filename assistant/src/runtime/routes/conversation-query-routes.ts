@@ -65,8 +65,8 @@ import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
-import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { listConnections } from "../../providers/inference/connections.js";
+import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { validateAllowlistFile } from "../../security/secret-allowlist.js";
 import { resolvePricingForUsage } from "../../util/pricing.js";
@@ -670,17 +670,9 @@ async function handleReplaceInferenceProfile({
     // here would wipe the UI-owned seed fields (provider, model, advanced
     // params) because that function assumes the body carries the full UI
     // surface.
-    patchManagedProfileFields(
-      raw,
-      name,
-      fragment,
-    );
+    patchManagedProfileFields(raw, name, fragment);
   } else {
-    replaceInferenceProfileConfig(
-      raw,
-      name,
-      fragment,
-    );
+    replaceInferenceProfileConfig(raw, name, fragment);
   }
   // Route through `commitConfigWrite` so profile edits flow through the
   // post-write side effects shared with `handlePatchConfig` /
