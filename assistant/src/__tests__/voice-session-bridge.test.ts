@@ -1311,6 +1311,76 @@ describe("voice-session-bridge", () => {
     expect(session.forcePromptSideEffects).toBe(false);
   });
 
+  test("cleanup on early persistUserMessage throw does not detach prior client sender", async () => {
+    const conversation = createConversation(
+      "voice bridge sender detach guard test",
+    );
+
+    const updateClientCalls: Array<{
+      callback: unknown;
+      replace: boolean | undefined;
+    }> = [];
+
+    const session = {
+      isProcessing: () => false,
+      forcePromptSideEffects: false,
+      callSessionId: undefined as string | undefined,
+      persistUserMessage: async () => {
+        throw new Error("persist failed before bridge installed callback");
+      },
+      memoryPolicy: {
+        scopeId: "default",
+        includeDefaultFallback: false,
+      },
+      setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setTrustContext: () => {},
+      setCommandIntent: () => {},
+      setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
+      setVoiceCallControlPrompt: () => {},
+      updateClient: (callback: unknown, replace?: boolean) => {
+        updateClientCalls.push({ callback, replace });
+      },
+      ensureActorScopedHistory: async () => {},
+      runAgentLoop: async () => {},
+      handleConfirmationResponse: () => {},
+      abort: () => {},
+    } as unknown as Conversation & {
+      forcePromptSideEffects: boolean;
+      callSessionId?: string;
+    };
+
+    injectDeps(() => session);
+
+    let caught: Error | null = null;
+    try {
+      await startVoiceTurn({
+        conversationId: conversation.id,
+        voiceSessionId: "session-sender-detach-test",
+        content: "Hello",
+        isInbound: true,
+        trustContext: {
+          sourceChannel: "phone",
+          trustClass: "trusted_contact",
+        },
+        onTextDelta: () => {},
+        onComplete: () => {},
+        onError: () => {},
+      });
+    } catch (err) {
+      caught = err as Error;
+    }
+
+    expect(caught?.message).toBe(
+      "persist failed before bridge installed callback",
+    );
+    // The bridge never reached its `conversation.updateClient(...)` install
+    // site, so cleanup must not touch updateClient — otherwise it would
+    // detach a sender installed by a prior turn on the same conversation.
+    expect(updateClientCalls).toEqual([]);
+  });
+
   test("pre-aborted signal triggers immediate abort", async () => {
     const conversation = createConversation("voice bridge pre-abort test");
     let abortCalled = false;
