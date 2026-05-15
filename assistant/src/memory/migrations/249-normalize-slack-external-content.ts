@@ -1,4 +1,7 @@
-import { readSlackMetadata } from "../../messaging/providers/slack/message-metadata.js";
+import {
+  readSlackMetadata,
+  type SlackMessageMetadata,
+} from "../../messaging/providers/slack/message-metadata.js";
 import {
   parseExternalContentEnvelope,
   unwrapExternalContentForDisplay,
@@ -12,6 +15,7 @@ const BATCH_SIZE = 100;
 interface CandidateMessageRow {
   rowid: number;
   id: string;
+  role: string;
   content: string;
   metadata: string;
 }
@@ -40,11 +44,14 @@ export function migrateNormalizeSlackExternalContent(
       const rows = raw
         .query(
           /*sql*/ `
-            SELECT rowid, id, content, metadata
+            SELECT rowid, id, role, content, metadata
             FROM messages
             WHERE rowid > ?
-              AND content LIKE '%<external_content%'
               AND metadata LIKE '%"slackMeta"%'
+              AND (
+                content LIKE '%<external_content%'
+                OR metadata NOT LIKE '%"provenanceTrustClass"%'
+              )
             ORDER BY rowid
             LIMIT ?
           `,
@@ -74,25 +81,46 @@ export function downNormalizeSlackExternalContent(_database: DrizzleDb): void {
 function normalizeSlackMessageRow(
   row: CandidateMessageRow,
 ): NormalizedMessageRow | null {
-  const metadata = parseSlackMetadataEnvelope(row.metadata);
-  if (!metadata) return null;
+  const parsed = parseSlackMetadataEnvelope(row.metadata);
+  if (!parsed) return null;
 
   const normalizedContent = normalizeMessageContent(row.content);
-  if (normalizedContent === null) return null;
+  if (normalizedContent !== null) {
+    const { metadata } = parsed;
+    if (
+      !Object.prototype.hasOwnProperty.call(metadata, "provenanceTrustClass")
+    ) {
+      metadata.provenanceTrustClass = "unknown";
+    }
 
-  if (!Object.prototype.hasOwnProperty.call(metadata, "provenanceTrustClass")) {
-    metadata.provenanceTrustClass = "unknown";
+    return {
+      content: normalizedContent,
+      metadata: JSON.stringify(metadata),
+    };
   }
 
-  return {
-    content: normalizedContent,
-    metadata: JSON.stringify(metadata),
-  };
+  if (isLegacyGuardianBackfillRow(row, parsed)) {
+    const { metadata } = parsed;
+    metadata.provenanceTrustClass = "guardian";
+    if (
+      !Object.prototype.hasOwnProperty.call(metadata, "provenanceSourceChannel")
+    ) {
+      metadata.provenanceSourceChannel = "slack";
+    }
+
+    return {
+      content: row.content,
+      metadata: JSON.stringify(metadata),
+    };
+  }
+
+  return null;
 }
 
-function parseSlackMetadataEnvelope(
-  rawMetadata: string,
-): Record<string, unknown> | null {
+function parseSlackMetadataEnvelope(rawMetadata: string): {
+  metadata: Record<string, unknown>;
+  slackMeta: SlackMessageMetadata;
+} | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawMetadata);
@@ -106,8 +134,9 @@ function parseSlackMetadataEnvelope(
 
   const metadata = parsed as Record<string, unknown>;
   if (typeof metadata.slackMeta !== "string") return null;
-  if (!readSlackMetadata(metadata.slackMeta)) return null;
-  return metadata;
+  const slackMeta = readSlackMetadata(metadata.slackMeta);
+  if (!slackMeta) return null;
+  return { metadata, slackMeta };
 }
 
 function normalizeMessageContent(content: string): string | null {
@@ -147,4 +176,65 @@ function normalizeMessageContent(content: string): string | null {
   });
 
   return changed ? JSON.stringify(normalizedBlocks) : null;
+}
+
+function isLegacyGuardianBackfillRow(
+  row: CandidateMessageRow,
+  parsed: {
+    metadata: Record<string, unknown>;
+    slackMeta: SlackMessageMetadata;
+  },
+): boolean {
+  if (row.role !== "user") return false;
+  if (parsed.slackMeta.eventKind !== "message") return false;
+  if (
+    Object.prototype.hasOwnProperty.call(
+      parsed.metadata,
+      "provenanceTrustClass",
+    )
+  ) {
+    return false;
+  }
+
+  // Old live Slack turns were written with turn-channel metadata. Old
+  // backfill rows were written directly with only `slackMeta`, and the old
+  // backfill invariant was: non-guardian non-empty text was stored wrapped,
+  // while guardian-authored non-empty text was stored raw. Only stamp the
+  // non-empty raw-text case; attachment-only / empty rows stay conservative.
+  if (
+    Object.prototype.hasOwnProperty.call(parsed.metadata, "userMessageChannel")
+  ) {
+    return false;
+  }
+
+  return hasNonEmptyRawText(row.content);
+}
+
+function hasNonEmptyRawText(content: string): boolean {
+  if (parseExternalContentEnvelope(content)) return false;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return content.trim().length > 0;
+  }
+
+  if (typeof parsed === "string") {
+    return parsed.trim().length > 0 && !parseExternalContentEnvelope(parsed);
+  }
+
+  if (!Array.isArray(parsed)) return false;
+
+  return parsed.some((block) => {
+    if (block === null || typeof block !== "object" || Array.isArray(block)) {
+      return false;
+    }
+    const text = (block as Record<string, unknown>).text;
+    return (
+      typeof text === "string" &&
+      text.trim().length > 0 &&
+      !parseExternalContentEnvelope(text)
+    );
+  });
 }

@@ -74,20 +74,39 @@ function slackEnvelope(
   });
 }
 
+function slackBackfillEnvelope(
+  channelTs: string,
+  extra: Record<string, unknown> = {},
+): string {
+  const { slackFiles, ...outerExtra } = extra;
+  return JSON.stringify({
+    slackMeta: writeSlackMetadata({
+      source: "slack",
+      channelId: "C0123",
+      channelTs,
+      eventKind: "message",
+      displayName: "@alice",
+      ...(Array.isArray(slackFiles) ? { slackFiles } : {}),
+    }),
+    ...outerExtra,
+  });
+}
+
 function insertMessage(
   raw: Database,
   id: string,
   content: string,
   metadata: string,
+  role = "user",
 ): void {
   raw
     .query(
       /*sql*/ `
         INSERT INTO messages (id, conversation_id, role, content, created_at, metadata)
-        VALUES (?, 'conv-slack', 'user', ?, 1000, ?)
+        VALUES (?, 'conv-slack', ?, ?, 1000, ?)
       `,
     )
-    .run(id, content, metadata);
+    .run(id, role, content, metadata);
 }
 
 function getRows(raw: Database): Record<string, MessageRow> {
@@ -134,6 +153,33 @@ describe("migrateNormalizeSlackExternalContent", () => {
     const guardianMetadata = slackEnvelope("1700000003.000000", {
       provenanceTrustClass: "guardian",
     });
+    const liveRawMissingProvenanceMetadata = slackEnvelope("1700000007.000000");
+    const legacyGuardianMetadata = slackBackfillEnvelope("1700000004.000000");
+    const legacyGuardianJsonContent = JSON.stringify([
+      { type: "text", text: "guardian image caption" },
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" },
+      },
+    ]);
+    const ambiguousAttachmentOnlyMetadata = slackBackfillEnvelope(
+      "1700000006.000000",
+      {
+        slackFiles: [
+          {
+            id: "F0123",
+            name: "example.png",
+            mimetype: "image/png",
+          },
+        ],
+      },
+    );
+    const ambiguousAttachmentOnlyContent = JSON.stringify([
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" },
+      },
+    ]);
 
     insertMessage(
       raw,
@@ -154,6 +200,30 @@ describe("migrateNormalizeSlackExternalContent", () => {
       JSON.stringify({ userMessageChannel: "web" }),
     );
     insertMessage(raw, "guardian-raw", "guardian Slack text", guardianMetadata);
+    insertMessage(
+      raw,
+      "live-raw-missing-provenance",
+      "live raw Slack text",
+      liveRawMissingProvenanceMetadata,
+    );
+    insertMessage(
+      raw,
+      "legacy-guardian-raw",
+      "legacy guardian Slack text",
+      legacyGuardianMetadata,
+    );
+    insertMessage(
+      raw,
+      "legacy-guardian-json",
+      legacyGuardianJsonContent,
+      slackBackfillEnvelope("1700000005.000000"),
+    );
+    insertMessage(
+      raw,
+      "ambiguous-attachment-only",
+      ambiguousAttachmentOnlyContent,
+      ambiguousAttachmentOnlyMetadata,
+    );
 
     migrateNormalizeSlackExternalContent(db);
     const afterFirstRun = getRows(raw);
@@ -190,6 +260,39 @@ describe("migrateNormalizeSlackExternalContent", () => {
 
     expect(afterFirstRun["guardian-raw"]?.content).toBe("guardian Slack text");
     expect(afterFirstRun["guardian-raw"]?.metadata).toBe(guardianMetadata);
+
+    expect(afterFirstRun["live-raw-missing-provenance"]?.content).toBe(
+      "live raw Slack text",
+    );
+    expect(afterFirstRun["live-raw-missing-provenance"]?.metadata).toBe(
+      liveRawMissingProvenanceMetadata,
+    );
+
+    expect(afterFirstRun["legacy-guardian-raw"]?.content).toBe(
+      "legacy guardian Slack text",
+    );
+    const legacyGuardianMetadataAfter = JSON.parse(
+      afterFirstRun["legacy-guardian-raw"]!.metadata!,
+    ) as Record<string, unknown>;
+    expect(legacyGuardianMetadataAfter.provenanceTrustClass).toBe("guardian");
+    expect(legacyGuardianMetadataAfter.provenanceSourceChannel).toBe("slack");
+
+    expect(afterFirstRun["legacy-guardian-json"]?.content).toBe(
+      legacyGuardianJsonContent,
+    );
+    const legacyGuardianJsonMetadataAfter = JSON.parse(
+      afterFirstRun["legacy-guardian-json"]!.metadata!,
+    ) as Record<string, unknown>;
+    expect(legacyGuardianJsonMetadataAfter.provenanceTrustClass).toBe(
+      "guardian",
+    );
+
+    expect(afterFirstRun["ambiguous-attachment-only"]?.content).toBe(
+      ambiguousAttachmentOnlyContent,
+    );
+    expect(afterFirstRun["ambiguous-attachment-only"]?.metadata).toBe(
+      ambiguousAttachmentOnlyMetadata,
+    );
 
     expect(getFtsContent(raw, "slack-plain")).toBe("plain Slack text");
     expect(getFtsContent(raw, "slack-json")).toContain("block Slack text");
