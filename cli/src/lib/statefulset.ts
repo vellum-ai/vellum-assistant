@@ -189,6 +189,36 @@ export const DOCKER_STATEFUL_SET_SPEC: DockerStatefulSetSpec = {
         ),
         { kind: "host", name: "VELLUM_ENVIRONMENT" },
         { kind: "host", name: "VELLUM_PLATFORM_URL" },
+        {
+          kind: "host",
+          name: "HTTP_PROXY",
+          hostVar: "VELLUM_ASSISTANT_HTTP_PROXY",
+        },
+        {
+          kind: "host",
+          name: "HTTPS_PROXY",
+          hostVar: "VELLUM_ASSISTANT_HTTPS_PROXY",
+        },
+        {
+          kind: "host",
+          name: "NO_PROXY",
+          hostVar: "VELLUM_ASSISTANT_NO_PROXY",
+        },
+        {
+          kind: "host",
+          name: "http_proxy",
+          hostVar: "VELLUM_ASSISTANT_HTTP_PROXY",
+        },
+        {
+          kind: "host",
+          name: "https_proxy",
+          hostVar: "VELLUM_ASSISTANT_HTTPS_PROXY",
+        },
+        {
+          kind: "host",
+          name: "no_proxy",
+          hostVar: "VELLUM_ASSISTANT_NO_PROXY",
+        },
       ],
       volumeMounts: [
         { volumeName: "assistant-workspace",  mountPath: "/workspace" },

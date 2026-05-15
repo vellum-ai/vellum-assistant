@@ -33,6 +33,10 @@ evals/
 │   ├── cli.ts               # CLI entry — `evals <command>`
 │   ├── index.ts             # Module entry — public TS API
 │   ├── commands/run.ts      # `evals run` subcommand
+│   ├── lib/adapter.ts       # Agent adapter interface
+│   ├── lib/adapters/        # Species-specific adapters
+│   ├── lib/egress/          # Docker egress jail primitives
+│   ├── lib/runtime/         # Process / stream helpers
 │   ├── lib/profile.ts       # Profile manifest schema + loader
 │   └── lib/test-def.ts      # Test directory loader
 ├── profiles/                # Committed profile definitions

@@ -2,7 +2,7 @@
 
 ## Your role
 
-You are simulating a Vellum user who has been chatting with the assistant about everyday life — work, family, plans, logistics. You're now opening the conversation again to ask one specific factual question about something you mentioned earlier in the history.
+You are simulating a user who has been chatting with an assistant about everyday life — work, family, plans, logistics. You're now opening the conversation again to ask one specific factual question about something you mentioned earlier in the history.
 
 ## What you ask
 

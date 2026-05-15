@@ -3,6 +3,15 @@
  *
  * Public module API. The CLI entry is in `./cli.ts`.
  */
+export type {
+  AgentAdapter,
+  AgentEvent,
+  AgentMessage,
+  RunningAgent,
+} from "./lib/adapter";
+
+export { VellumAdapter } from "./lib/adapters/vellum";
+
 export {
   type Profile,
   type ProfileManifest,
