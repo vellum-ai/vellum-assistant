@@ -132,14 +132,14 @@ extension MessageListView {
     // MARK: - Scroll observer
 
     var scrollObserver: MessageListScrollObserver {
-        MessageListScrollObserver(
-            onGeometryChange: enqueueScrollGeometryUpdate,
-            shouldPreserveScrollAnchor: shouldPreserveScrollAnchor,
-            onAnchorShift: handleDebugAnchorShift,
-            onAnchorDecision: handleDebugAnchorDecision,
-            onContentHeightSourceDiagnostic: isScrollDebugOverlayEnabled
-                ? MessageListView.logContentHeightSource
-                : nil
+        let debugDiagnostic: (@MainActor (ContentHeightSourceDiagnosticEvent) -> Void)? =
+            isScrollDebugOverlayEnabled ? MessageListView.logContentHeightSource : nil
+        return MessageListScrollObserver(
+            onGeometryChange: { [self] state in enqueueScrollGeometryUpdate(state) },
+            shouldPreserveScrollAnchor: { [self] in shouldPreserveScrollAnchor() },
+            onAnchorShift: { [self] in handleDebugAnchorShift() },
+            onAnchorDecision: { [self] event in handleDebugAnchorDecision(event) },
+            onContentHeightSourceDiagnostic: debugDiagnostic
         )
     }
 
