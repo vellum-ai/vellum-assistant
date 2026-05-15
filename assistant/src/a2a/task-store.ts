@@ -131,6 +131,7 @@ export function completeWithArtifacts(
   db.update(a2aTasks)
     .set({
       state: "completed",
+      statusMessage: null,
       artifactsJson: JSON.stringify(artifacts),
       updatedAt: Date.now(),
     })
