@@ -86,6 +86,7 @@ export interface AppCreateInput {
   pages?: unknown;
   auto_open?: boolean;
   preview?: Record<string, unknown>;
+  source_files?: Record<string, string>;
 }
 
 export async function executeAppCreate(
@@ -127,6 +128,31 @@ export async function executeAppCreate(
       }),
       isError: true,
     };
+  }
+
+  if (input.source_files != null) {
+    if (
+      typeof input.source_files !== "object" ||
+      Array.isArray(input.source_files)
+    ) {
+      return {
+        content: JSON.stringify({
+          error:
+            "source_files must be an object mapping relative file paths to string contents",
+        }),
+        isError: true,
+      };
+    }
+    for (const [key, val] of Object.entries(input.source_files)) {
+      if (typeof val !== "string") {
+        return {
+          content: JSON.stringify({
+            error: `source_files["${key}"] must be a string, got ${typeof val}`,
+          }),
+          isError: true,
+        };
+      }
+    }
   }
 
   // Extract icon from preview if provided - only persist emoji-like values,
@@ -172,10 +198,12 @@ function App() {
 render(<App />, document.getElementById('app')!);
 `;
 
-  // Only write scaffold files when they don't already exist on disk.
-  // The LLM may have written custom source files via file_write before
-  // calling app_create, and overwriting them would destroy the real app
-  // content, leaving only the scaffold placeholder.
+  if (input.source_files) {
+    for (const [filePath, content] of Object.entries(input.source_files)) {
+      store.writeAppFile(app.id, filePath, content);
+    }
+  }
+
   const mainTsxScaffolded = !store.appFileExists(app.id, "src/main.tsx");
   if (!store.appFileExists(app.id, "src/index.html")) {
     store.writeAppFile(app.id, "src/index.html", indexHtml);
@@ -214,7 +242,7 @@ render(<App />, document.getElementById('app')!);
 
   // Emit the inline preview card via the proxy without opening a workspace panel.
   // open_mode: "preview" signals to the client that this should be shown inline only.
-  if (autoOpen && proxyToolResolver) {
+  if (autoOpen && !mainTsxScaffolded && proxyToolResolver) {
     const createPreview = {
       ...(preview ?? {}),
       context: "app_create" as const,

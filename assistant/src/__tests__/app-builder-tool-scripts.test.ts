@@ -22,15 +22,18 @@ function makeApp(overrides: Partial<AppDefinition> = {}): AppDefinition {
 }
 
 function makeMockStore(overrides: Partial<AppStore> = {}): AppStore {
+  const files = new Set<string>();
   return {
     getApp: () => makeApp(),
     listApps: () => [makeApp()],
-    appFileExists: () => false,
+    appFileExists: (_appId: string, path: string) => files.has(path),
     createApp: (params) =>
       makeApp({ name: params.name, description: params.description }),
     updateApp: (id, updates) => makeApp({ id, ...updates }),
     deleteApp: () => {},
-    writeAppFile: () => {},
+    writeAppFile: (_appId: string, path: string) => {
+      files.add(path);
+    },
     ...overrides,
   };
 }
@@ -107,7 +110,10 @@ describe("app-builder skill tool scripts", () => {
         isError: false,
       });
       const result = await appCreateScript.run(
-        { name: "Auto App" },
+        {
+          name: "Auto App",
+          source_files: { "src/main.tsx": "// real code" },
+        },
         makeContext({ proxyToolResolver: proxy }),
       );
       expect(result.isError).toBe(false);
