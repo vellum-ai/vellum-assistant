@@ -524,6 +524,12 @@ async function processJob(
       pruneOldTraceEventsJob(job, config);
       return;
     case "build_conversation_summary":
+      // Stale rows enqueued before v2 was enabled must not consume the
+      // `conversationSummarization` LLM budget — v2 readers do not consume
+      // `memorySummaries`, mirroring the `graph_extract` gate below.
+      if (config.memory.v2.enabled) {
+        return;
+      }
       await buildConversationSummaryJob(job, config);
       return;
     case "backfill":
