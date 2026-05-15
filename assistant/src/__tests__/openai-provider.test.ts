@@ -1159,6 +1159,35 @@ describe("OpenAIProvider", () => {
     });
     expect(sent[1]).not.toHaveProperty("reasoning_content");
   });
+
+  test("skips thinking blocks with signatures (Anthropic-originated) in reasoning_content", async () => {
+    fakeChunks = [textChunk("OK"), usageChunk(10, 2)];
+
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "Anthropic thinking with signature",
+            signature: "abc123",
+          },
+          { type: "text", text: "Hi there!" },
+        ],
+      },
+      { role: "user", content: [{ type: "text", text: "How are you?" }] },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const sent = lastCreateParams!.messages as Array<Record<string, unknown>>;
+    expect(sent[1]).toEqual({
+      role: "assistant",
+      content: "Hi there!",
+    });
+    expect(sent[1]).not.toHaveProperty("reasoning_content");
+  });
 });
 
 // ---------------------------------------------------------------------------

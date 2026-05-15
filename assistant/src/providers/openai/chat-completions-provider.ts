@@ -492,7 +492,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           textParts.push(block.text);
           break;
         case "thinking":
-          thinkingParts.push(block.thinking);
+          if (!block.signature) thinkingParts.push(block.thinking);
           break;
         case "tool_use":
           toolCalls.push({
