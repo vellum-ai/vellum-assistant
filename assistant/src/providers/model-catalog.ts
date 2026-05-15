@@ -707,6 +707,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: { inputPer1mTokens: 0.435, outputPer1mTokens: 0.87 },
+        featureFlag: "provider-deepseek-openrouter",
       },
       {
         id: "deepseek/deepseek-v4-flash",
@@ -718,6 +719,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: { inputPer1mTokens: 0.14, outputPer1mTokens: 0.28 },
+        featureFlag: "provider-deepseek-openrouter",
       },
       {
         id: "deepseek/deepseek-v3.2-speciale",
@@ -729,6 +731,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: false,
         pricing: { inputPer1mTokens: 0.287, outputPer1mTokens: 0.431 },
+        featureFlag: "provider-deepseek-openrouter",
       },
       // Qwen
       {
