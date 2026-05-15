@@ -1,3 +1,5 @@
+import { readSlackMetadata } from "../../../messaging/providers/slack/message-metadata.js";
+import { wrapUntrustedContent } from "../../../security/untrusted-content.js";
 import { AUTO_ANALYSIS_SOURCE } from "../../auto-analysis-guard.js";
 import {
   buildFtsMatchQuery,
@@ -15,6 +17,7 @@ interface ConversationEvidenceRow {
   role: string;
   content: string;
   created_at: number;
+  metadata: string | null;
   title: string | null;
 }
 
@@ -118,7 +121,7 @@ export async function searchConversationSource(
       source: "conversations",
       title: row.title?.trim() || "Untitled conversation",
       locator: `${row.conversation_id}#${row.message_id}`,
-      excerpt: buildRecallEvidenceExcerpt(row.content, trimmedQuery),
+      excerpt: buildRecallExcerpt(row, trimmedQuery),
       timestampMs: row.created_at,
       score,
       metadata: {
@@ -142,6 +145,7 @@ function searchWithFts(
       m.role,
       m.content,
       m.created_at,
+      m.metadata,
       c.title
     FROM messages_fts
     JOIN messages m ON m.id = messages_fts.message_id
@@ -175,6 +179,7 @@ function searchWithLike(
       m.role,
       m.content,
       m.created_at,
+      m.metadata,
       c.title
     FROM messages m
     JOIN conversations c ON c.id = m.conversation_id
@@ -192,6 +197,58 @@ function searchWithLike(
     excludedConversationId,
     limit,
   );
+}
+
+function buildRecallExcerpt(
+  row: ConversationEvidenceRow,
+  query: string,
+): string {
+  const excerpt = buildRecallEvidenceExcerpt(row.content, query);
+  const slackMeta = parseSlackRecallMetadata(row.metadata);
+  if (
+    row.role !== "user" ||
+    !slackMeta ||
+    slackMeta.provenanceTrustClass === "guardian" ||
+    excerpt.length === 0 ||
+    excerpt.includes("<external_content")
+  ) {
+    return excerpt;
+  }
+
+  return wrapUntrustedContent(excerpt, {
+    source: "slack",
+    ...(slackMeta.displayName ? { sourceDetail: slackMeta.displayName } : {}),
+  });
+}
+
+function parseSlackRecallMetadata(rawMetadata: string | null): {
+  displayName?: string;
+  provenanceTrustClass?: string;
+} | null {
+  if (!rawMetadata) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawMetadata);
+  } catch {
+    return null;
+  }
+
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+
+  const metadata = parsed as Record<string, unknown>;
+  if (typeof metadata.slackMeta !== "string") return null;
+  const slackMeta = readSlackMetadata(metadata.slackMeta);
+  if (!slackMeta) return null;
+
+  return {
+    ...(slackMeta.displayName ? { displayName: slackMeta.displayName } : {}),
+    ...(typeof metadata.provenanceTrustClass === "string"
+      ? { provenanceTrustClass: metadata.provenanceTrustClass }
+      : {}),
+  };
 }
 
 function buildRecallFtsMatchQueries(query: string): string[] {
