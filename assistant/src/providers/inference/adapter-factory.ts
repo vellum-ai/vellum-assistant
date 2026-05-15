@@ -112,6 +112,13 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       baseURL: "https://api.minimax.io/v1",
       streamTimeoutMs,
     }),
+  "opencode-go": ({ apiKey, model, streamTimeoutMs }) =>
+    new OpenAIChatCompletionsProvider(apiKey, model, {
+      providerName: "opencode-go",
+      providerLabel: "OpenCode Go",
+      baseURL: "https://opencode.ai/zen/go/v1",
+      streamTimeoutMs,
+    }),
 };
 
 /**
