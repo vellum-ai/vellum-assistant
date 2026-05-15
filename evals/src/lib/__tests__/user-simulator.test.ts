@@ -6,7 +6,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_SIMULATOR_MODEL,
-  END_CONVERSATION_PREFIX,
   UserSimulator,
 } from "../simulator/user-simulator";
 
@@ -53,7 +52,7 @@ describe("UserSimulator", () => {
       test: {
         id: "timeline-recall",
         specPath,
-        setupPath: join(dir, "setup.json"),
+        setupPath: join(dir, "setup.ts"),
         setupCommands: [],
         metricsDir: join(dir, "metrics"),
         metricPaths: [],
@@ -74,11 +73,13 @@ describe("UserSimulator", () => {
       model: DEFAULT_SIMULATOR_MODEL,
       max_tokens: 8192,
     });
-    expect(requestBody).not.toHaveProperty("tools");
+    expect(requestBody).toMatchObject({
+      tools: [expect.objectContaining({ name: "end_conversation" })],
+    });
     expect(requestBody).not.toHaveProperty("tool_choice");
   });
 
-  test("uses explicit text prefix to end the conversation", async () => {
+  test("uses end_conversation tool to end the conversation with a reason", async () => {
     const dir = await mkdtemp(join(tmpdir(), "evals-sim-"));
     const specPath = join(dir, "SPEC.md");
     await writeFile(specPath, "# spec", "utf8");
@@ -86,7 +87,13 @@ describe("UserSimulator", () => {
     globalThis.fetch = (async () =>
       new Response(
         JSON.stringify({
-          content: [{ type: "text", text: `${END_CONVERSATION_PREFIX} done` }],
+          content: [
+            {
+              type: "tool_use",
+              name: "end_conversation",
+              input: { reason: "done" },
+            },
+          ],
         }),
         { status: 200 },
       )) as unknown as typeof fetch;
@@ -96,7 +103,7 @@ describe("UserSimulator", () => {
       test: {
         id: "timeline-recall",
         specPath,
-        setupPath: join(dir, "setup.json"),
+        setupPath: join(dir, "setup.ts"),
         setupCommands: [],
         metricsDir: join(dir, "metrics"),
         metricPaths: [],
@@ -117,7 +124,7 @@ describe("UserSimulator", () => {
       test: {
         id: "timeline-recall",
         specPath,
-        setupPath: join(dir, "setup.json"),
+        setupPath: join(dir, "setup.ts"),
         setupCommands: [],
         metricsDir: join(dir, "metrics"),
         metricPaths: [],

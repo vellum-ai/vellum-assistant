@@ -68,4 +68,4 @@ A test lives at `tests/<id>/`. The directory name is the test id.
 
 `SPEC.md` briefs the simulator agent on the role it plays and how it should interact with the assistant. It does not describe assertion behavior.
 
-`metrics/` is a directory of `.ts` files. Each file exports a default scorer that receives a metric context. Metrics receive a run id and call metric-library helpers such as readTranscript(runId), readAssistantEvents(runId), and readUsage(runId). Run artifacts are stored under .runs/<run-id>.
+`setup.ts` optionally exports deterministic setup commands. `metrics/` is a directory of `.ts` files. Each metric file exports a default scorer. Metrics receive a run id and call metric-library helpers such as readTranscript(runId), readAssistantEvents(runId), and readUsage(runId). Run artifacts are stored under .runs/<run-id>.

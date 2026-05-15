@@ -120,6 +120,43 @@ describe("VellumAgent", () => {
     ]);
   });
 
+  test("seeds deterministic conversation history through the adapter bridge", async () => {
+    const runner = new FakeRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-run-seed",
+    });
+
+    await agent.hatch();
+    await agent.runSetupCommand({
+      type: "seed-conversation",
+      messages: [
+        { role: "user", content: "remember this exact note" },
+        { role: "assistant", content: "noted" },
+      ],
+    });
+
+    expect(runner.runs.at(-1)).toEqual({
+      command: "vellum",
+      args: [
+        "exec",
+        "eval-run-seed",
+        "--",
+        "assistant",
+        "evals",
+        "seed-conversation",
+        "--conversation-key",
+        "evals:timeline-recall:eval-run-seed",
+        JSON.stringify([
+          { role: "user", content: "remember this exact note" },
+          { role: "assistant", content: "noted" },
+        ]),
+      ],
+    });
+  });
+
   test("sends through the same conversation key and shuts down resources", async () => {
     const runner = new FakeRunner();
     const agent = new VellumAgent({

@@ -130,9 +130,21 @@ export class VellumAgent implements BaseAgent {
 
   async runSetupCommand(command: TestSetupCommand): Promise<void> {
     switch (command.type) {
-      case "user-message":
-        await this.send({ content: command.content });
+      case "seed-conversation": {
+        const result = await this.runner.run(this.cliCommand, [
+          "exec",
+          this.id,
+          "--",
+          "assistant",
+          "evals",
+          "seed-conversation",
+          "--conversation-key",
+          this.conversationKey,
+          JSON.stringify(command.messages),
+        ]);
+        assertSuccess(result, `seed conversation for ${this.id}`);
         break;
+      }
     }
   }
 
