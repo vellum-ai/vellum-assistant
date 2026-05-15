@@ -283,9 +283,7 @@ struct MessageListView: View {
                 isScrollDebugOverlayEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay")
             }
             .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
-                guard let key = notification.userInfo?["key"] as? String, key == "scroll-debug-overlay" else { return }
-                let enabled: Bool = MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay")
-                isScrollDebugOverlayEnabled = enabled
+                handleFeatureFlagDidChange(notification)
             }
             .onDisappear {
                 scrollState.cancelAll()

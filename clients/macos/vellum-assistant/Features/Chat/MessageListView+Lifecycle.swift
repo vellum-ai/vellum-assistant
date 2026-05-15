@@ -324,6 +324,12 @@ extension MessageListView {
         }
     }
 
+    func handleFeatureFlagDidChange(_ notification: Notification) {
+        guard let key = notification.userInfo?["key"] as? String, key == "scroll-debug-overlay" else { return }
+        let enabled: Bool = MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay")
+        isScrollDebugOverlayEnabled = enabled
+    }
+
     /// Window-became-key counterpart to `handleConfirmationFocusIfNeeded`:
     /// when the app regains key window status while a pending confirmation
     /// is active, hand focus off the composer so the bubble's key monitor
