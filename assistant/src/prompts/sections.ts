@@ -1,7 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
+import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
@@ -106,6 +107,10 @@ interface ResolvedSection {
   enabled: string | boolean | undefined;
   body: string;
   stripPlaceholders?: string | boolean;
+  interpolate?: string | boolean;
+  templateGate?: BundledSection["templateGate"];
+  workspacePath?: string;
+  workspacePathMatchesTemplate?: boolean;
 }
 
 function resolveSection(
@@ -134,6 +139,7 @@ function resolveSection(
         | string
         | boolean
         | undefined,
+      interpolate: fields["interpolate"] as string | boolean | undefined,
     };
   }
   const bundled = BUNDLED_SYSTEM_SECTIONS.find((s) => s.id === id);
@@ -157,6 +163,12 @@ function resolveSection(
       enabled: bundled.enabled,
       body,
       stripPlaceholders: bundled.stripPlaceholders,
+      interpolate: bundled.interpolate,
+      templateGate: bundled.templateGate,
+      workspacePath: bundled.workspacePath,
+      workspacePathMatchesTemplate:
+        body.length > 0 &&
+        isBundledTemplateContent(body, bundled.workspacePath),
     };
   }
 
@@ -164,6 +176,8 @@ function resolveSection(
     enabled: bundled.enabled,
     body: bundled.body,
     stripPlaceholders: bundled.stripPlaceholders,
+    interpolate: bundled.interpolate,
+    templateGate: bundled.templateGate,
   };
 }
 
@@ -176,21 +190,78 @@ function renderSection(
   if (section === null) return null;
 
   if (!isSectionPredicateEnabled(section.enabled, ctx, "enabled")) return null;
+  if (isTemplateGateSkipped(section, ctx)) return null;
 
   let body = stripCommentLines(section.body);
-  if (
+  if (shouldStripPlaceholders(section, ctx)) {
+    body = stripPlaceholderLines(body);
+  }
+  const trimmed = body.trim();
+  if (trimmed.length === 0) return null;
+  if (!isSectionPredicateEnabled(section.interpolate, ctx, "interpolate")) {
+    return trimmed;
+  }
+  return interpolateVariables(trimmed, ctx);
+}
+
+function shouldStripPlaceholders(
+  section: ResolvedSection,
+  ctx: SectionRenderContext,
+): boolean {
+  if (section.workspacePathMatchesTemplate) return false;
+  return (
     section.stripPlaceholders !== undefined &&
     isSectionPredicateEnabled(
       section.stripPlaceholders,
       ctx,
       "stripPlaceholders",
     )
-  ) {
-    body = stripPlaceholderLines(body);
+  );
+}
+
+function isTemplateGateSkipped(
+  section: ResolvedSection,
+  ctx: SectionRenderContext,
+): boolean {
+  const gate = section.templateGate;
+  if (!gate?.skipWhenWorkspacePathMatchesTemplate) return false;
+  if (!section.workspacePathMatchesTemplate) return false;
+
+  if (gate.renderWhenWorkspacePathExists) {
+    const disabledByContext = gate.renderUnlessContextKeyTruthy
+      ? Boolean(ctx[gate.renderUnlessContextKeyTruthy])
+      : false;
+    if (!disabledByContext) {
+      const exceptionPath = getWorkspacePromptPath(
+        gate.renderWhenWorkspacePathExists,
+      );
+      if (existsSync(exceptionPath)) return false;
+    }
   }
-  const trimmed = body.trim();
-  if (trimmed.length === 0) return null;
-  return interpolateVariables(trimmed, ctx);
+
+  return true;
+}
+
+function isBundledTemplateContent(
+  content: string,
+  templateFileName: string,
+): boolean {
+  const templatesDir = resolveBundledDir(
+    import.meta.dirname ?? __dirname,
+    "templates",
+    "templates",
+  );
+  const templatePath = join(templatesDir, basename(templateFileName));
+  if (!existsSync(templatePath)) return false;
+  try {
+    const templateContent = stripCommentLines(
+      readFileSync(templatePath, "utf-8"),
+    );
+    return stripCommentLines(content) === templateContent;
+  } catch (err) {
+    log.warn({ err, templatePath }, "Failed to read bundled section template");
+    return false;
+  }
 }
 
 /**
@@ -201,7 +272,7 @@ function renderSection(
  */
 const PLACEHOLDER_LINE_REGEX = /_\(not yet (?:chosen|established)\)_/;
 
-function stripPlaceholderLines(content: string): string {
+export function stripPlaceholderLines(content: string): string {
   return content
     .split("\n")
     .filter((line) => !PLACEHOLDER_LINE_REGEX.test(line))

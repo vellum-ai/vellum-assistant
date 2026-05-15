@@ -66,16 +66,35 @@ export interface BundledSection {
    * `_(not yet established)_`) after the standard comment-line strip.
    *
    * Intended for workspace files like `IDENTITY.md` whose template ships
-   * with placeholder values the user is expected to fill in.  Stripping
-   * the unfilled lines prevents the model from treating "Name: _(not yet
-   * chosen)_" as a prompt to ask the user, while letting any fields the
-   * user *has* filled in flow through normally.
+   * with placeholder values the user is expected to fill in. Stripping the
+   * unfilled lines prevents the model from treating "Name: _(not yet chosen)_"
+   * as a prompt to ask the user, while letting any fields the user *has*
+   * filled in flow through normally. The renderer never strips placeholders
+   * from an unmodified bundled template body.
    *
-   * Accepts the same boolean / context-key predicate shape as `enabled`, so
-   * sections may strip only in specific render contexts. Workspace overrides
-   * may opt in via frontmatter `stripPlaceholders: true`.
+   * Workspace overrides may opt in via frontmatter `stripPlaceholders: true`.
    */
-  stripPlaceholders?: string | boolean;
+  stripPlaceholders?: boolean;
+  /**
+   * Whether this section body participates in mustache-style interpolation.
+   * Defaults to `true`. Set to `false` for user-authored markdown that must
+   * remain byte-for-byte literal (for example identity files that may document
+   * `{{workspaceDir}}` or `{{#flag}}...{{/flag}}` syntax).
+   */
+  interpolate?: boolean;
+  /**
+   * Generic policy for workspace-backed template files. Keeps section-specific
+   * lifecycle decisions in the registry instead of adding one-off booleans to
+   * the global render context.
+   */
+  templateGate?: {
+    /** Skip this section when its workspacePath content equals the bundled template. */
+    skipWhenWorkspacePathMatchesTemplate?: boolean;
+    /** Render the unmodified template anyway when this workspace file exists. */
+    renderWhenWorkspacePathExists?: string;
+    /** If this context key is truthy, do not apply the renderWhen exception. */
+    renderUnlessContextKeyTruthy?: string;
+  };
 }
 
 export const BUNDLED_SYSTEM_SECTIONS: readonly BundledSection[] = [
@@ -187,20 +206,22 @@ You are running as a non-interactive background job — the user is not watching
     workspacePath: "SOUL.md",
   },
   {
-    // The assistant's identity — name, emoji, role, personality fields
-    // the user fills in.  Body is read at render time from
-    // `<workspaceDir>/IDENTITY.md`.  Gated by `shouldRenderIdentity`
-    // computed in `buildSystemPrompt`, which suppresses the section when
-    // the workspace file is still the unmodified bundled template
-    // (unless BOOTSTRAP.md is also present — during first-run the model
-    // needs to see the template structure to file_write the filled-in
-    // version).  `stripPlaceholders` is gated by `stripIdentityPlaceholders`
-    // so normal prompts remove unfilled placeholders, while first-run
-    // bootstrap keeps the template fields visible for file_write.
+    // The assistant's identity — name, emoji, role, personality fields the
+    // user fills in. Body is read at render time from
+    // `<workspaceDir>/IDENTITY.md` and rendered verbatim (no mustache
+    // interpolation) because user-authored identity markdown may contain
+    // literal `{{...}}` examples. The section skips the unmodified bundled
+    // template by default, but renders it during first-run bootstrap so the
+    // model can see the exact fields it must file_write.
     id: "10-identity",
     body: "",
     workspacePath: "IDENTITY.md",
-    enabled: "shouldRenderIdentity",
-    stripPlaceholders: "stripIdentityPlaceholders",
+    interpolate: false,
+    stripPlaceholders: true,
+    templateGate: {
+      skipWhenWorkspacePathMatchesTemplate: true,
+      renderWhenWorkspacePathExists: "BOOTSTRAP.md",
+      renderUnlessContextKeyTruthy: "excludeBootstrap",
+    },
   },
 ];

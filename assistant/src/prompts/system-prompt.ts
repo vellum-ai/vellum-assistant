@@ -21,7 +21,7 @@ import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 import { normalizeOnboardingContext } from "./normalize-onboarding.js";
-import { renderWorkspaceSections } from "./sections.js";
+import { renderWorkspaceSections, stripPlaceholderLines } from "./sections.js";
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
@@ -247,36 +247,11 @@ export interface BuildSystemPromptOptions {
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // SOUL.md and IDENTITY.md both render via workspace-backed BundledSection
   // entries (`09-soul`, `10-identity`) — no inline reads of their content
-  // are needed here.  The template-skip and placeholder-stripping behavior
-  // for IDENTITY.md are decided up front and passed to the section pipeline
-  // via ctx; the bundled section reads + renders the file body itself.
-  const identityPath = getWorkspacePromptPath("IDENTITY.md");
+  // are needed here. Section-local template and interpolation policies live
+  // in the bundled section registry.
   const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
-
-  const identity = readPromptFile(identityPath);
   const bootstrap = readPromptFile(bootstrapPath);
-
   const includeBootstrap = !!bootstrap && !options?.excludeBootstrap;
-
-  // Template prompt files contain placeholder fields and meta-instructions
-  // meant for the assistant to fill in during onboarding.  When included
-  // verbatim in the system prompt, the model can leak internal details and
-  // narrate its own setup process instead of following the BOOTSTRAP.md
-  // ritual.  Detect unmodified templates by comparing against the bundled
-  // source and skip them — SOUL.md provides sufficient personality defaults
-  // until onboarding completes.  During bootstrap the model needs to see
-  // the template structure so it can produce a valid file_write with the
-  // right fields, so the gate flips back on whenever BOOTSTRAP.md is
-  // present.
-  const identityIsTemplate = isTemplateContent(identity, "IDENTITY.md");
-  const shouldRenderIdentity =
-    !!identity && (!identityIsTemplate || includeBootstrap);
-  // Non-template identity files should not leak unfilled placeholder lines
-  // (e.g. `Name: _(not yet chosen)_`) into the prompt.  But when the
-  // unmodified IDENTITY.md template is rendered during first-run bootstrap,
-  // those exact placeholder fields are the structure the model needs in
-  // order to write the filled file, so stripping must stay off there.
-  const stripIdentityPlaceholders = !identityIsTemplate;
 
   // Section render context.  Workspace section frontmatter `enabled:`
   // predicates and `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation
@@ -290,8 +265,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     ...options,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
-    shouldRenderIdentity,
-    stripIdentityPlaceholders,
   };
 
   // Single array.  Everything pushed before `dynamicStart` lands in the
@@ -447,7 +420,11 @@ export function buildCoreIdentityContext(opts?: {
     // SOUL.md is always included — it provides personality defaults even
     // before onboarding completes.  Only skip IDENTITY.md when it is still
     // an unmodified template (matching buildSystemPrompt).
-    if (file !== "SOUL.md" && isTemplateContent(content, file)) continue;
+    if (file !== "SOUL.md") {
+      if (isTemplateContent(content, file)) continue;
+      parts.push(stripPlaceholderLines(content));
+      continue;
+    }
     parts.push(content);
   }
   if (opts?.userPersona) parts.push(opts.userPersona);

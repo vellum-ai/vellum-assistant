@@ -72,6 +72,7 @@ mock.module("../prompts/user-reference.js", () => ({
 // Import after mock
 const {
   buildSystemPrompt,
+  buildCoreIdentityContext,
   ensurePromptFiles,
   stripCommentLines,
   SYSTEM_PROMPT_CACHE_BOUNDARY,
@@ -200,6 +201,39 @@ describe("buildSystemPrompt", () => {
     expect(staticBlock).not.toContain("_(not yet established)_");
   });
 
+  test("preserves literal mustache text in IDENTITY.md", () => {
+    writeFileSync(
+      join(TEST_DIR, "IDENTITY.md"),
+      [
+        "# Identity",
+        "",
+        "Documents literal {{workspaceDir}} syntax.",
+        "{{#hasNoClient}}This is documentation, not a gate.{{/hasNoClient}}",
+      ].join("\n"),
+    );
+
+    const result = buildSystemPrompt({ hasNoClient: true });
+    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+    const staticBlock = result.slice(0, boundaryIdx);
+    expect(staticBlock).toContain("{{workspaceDir}}");
+    expect(staticBlock).toContain("{{#hasNoClient}}");
+    expect(staticBlock).toContain("{{/hasNoClient}}");
+  });
+
+  test("skips unmodified IDENTITY.md template outside bootstrap", () => {
+    const bundledIdentity = readFileSync(
+      join(import.meta.dirname, "..", "prompts", "templates", "IDENTITY.md"),
+      "utf-8",
+    );
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), bundledIdentity);
+
+    const result = buildSystemPrompt();
+    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+    const staticBlock = result.slice(0, boundaryIdx);
+    expect(staticBlock).not.toContain("- **Name:** _(not yet chosen)_");
+    expect(staticBlock).not.toContain("- **Role:** _(not yet established)_");
+  });
+
   test("preserves unmodified IDENTITY.md template placeholders during bootstrap", () => {
     const bundledIdentity = readFileSync(
       join(import.meta.dirname, "..", "prompts", "templates", "IDENTITY.md"),
@@ -214,6 +248,22 @@ describe("buildSystemPrompt", () => {
     expect(staticBlock).toContain("- **Name:** _(not yet chosen)_");
     expect(staticBlock).toContain("- **Role:** _(not yet established)_");
     expect(basePrompt(result)).toContain("# First-Run Ritual");
+  });
+
+  test("skips unmodified IDENTITY.md template when bootstrap is excluded", () => {
+    const bundledIdentity = readFileSync(
+      join(import.meta.dirname, "..", "prompts", "templates", "IDENTITY.md"),
+      "utf-8",
+    );
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), bundledIdentity);
+    writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# First run");
+
+    const result = buildSystemPrompt({ excludeBootstrap: true });
+    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+    const staticBlock = result.slice(0, boundaryIdx);
+    expect(staticBlock).not.toContain("- **Name:** _(not yet chosen)_");
+    expect(staticBlock).not.toContain("- **Role:** _(not yet established)_");
+    expect(basePrompt(result)).not.toContain("# First-Run Ritual");
   });
 
   test("ignores empty SOUL.md", () => {
@@ -291,6 +341,34 @@ describe("buildSystemPrompt", () => {
   test("does not include removed memory persistence section", () => {
     const result = buildSystemPrompt();
     expect(result).not.toContain("## Memory Persistence");
+  });
+
+  test("does not leak identity-specific render flags into context", () => {
+    writeFileSync(
+      join(TEST_DIR, "IDENTITY.md"),
+      "{{shouldRenderIdentity}} {{stripIdentityPlaceholders}}",
+    );
+    const result = buildSystemPrompt();
+    expect(result).toContain("{{shouldRenderIdentity}}");
+    expect(result).toContain("{{stripIdentityPlaceholders}}");
+  });
+
+  test("buildCoreIdentityContext strips placeholder lines from IDENTITY.md", () => {
+    writeFileSync(
+      join(TEST_DIR, "IDENTITY.md"),
+      [
+        "# Identity",
+        "",
+        "- **Name:** ApolloBot",
+        "- **Emoji:** _(not yet chosen)_",
+        "- **Nature:** Cosmic helper",
+      ].join("\n"),
+    );
+
+    const result = buildCoreIdentityContext();
+    expect(result).toContain("- **Name:** ApolloBot");
+    expect(result).toContain("- **Nature:** Cosmic helper");
+    expect(result).not.toContain("_(not yet chosen)_");
   });
 
   test("omits user skills from catalog when none are configured", () => {
