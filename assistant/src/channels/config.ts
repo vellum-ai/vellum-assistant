@@ -94,6 +94,15 @@ const CHANNEL_POLICIES = {
       codeRedemptionEnabled: false,
     },
   },
+  a2a: {
+    notification: {
+      deliveryEnabled: false,
+      conversationStrategy: "continue_existing_conversation",
+    },
+    invite: {
+      codeRedemptionEnabled: false,
+    },
+  },
 } as const satisfies Record<ChannelId, ChannelNotificationPolicy>;
 
 export type ChannelPolicies = typeof CHANNEL_POLICIES;

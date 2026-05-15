@@ -20,6 +20,7 @@ import { AnalysisConfigSchema } from "./schemas/analysis.js";
 import { BackupConfigSchema } from "./schemas/backup.js";
 import { CallsConfigSchema } from "./schemas/calls.js";
 import {
+  A2AConfigSchema,
   SlackConfigSchema,
   TelegramConfigSchema,
   TwilioConfigSchema,
@@ -111,6 +112,7 @@ export const AssistantConfigSchema = z
     whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
     telegram: TelegramConfigSchema.default(TelegramConfigSchema.parse({})),
     slack: SlackConfigSchema.default(SlackConfigSchema.parse({})),
+    a2a: A2AConfigSchema.default(A2AConfigSchema.parse({})),
     ingress: IngressConfigSchema,
     platform: PlatformConfigSchema.default(PlatformConfigSchema.parse({})),
     daemon: DaemonConfigSchema.default(DaemonConfigSchema.parse({})),

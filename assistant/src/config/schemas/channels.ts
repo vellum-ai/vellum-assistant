@@ -99,6 +99,15 @@ export const TelegramConfigSchema = z
   })
   .describe("Telegram bot channel configuration");
 
+export const A2AConfigSchema = z
+  .object({
+    enabled: z
+      .boolean({ error: "a2a.enabled must be a boolean" })
+      .default(false)
+      .describe("Whether the A2A channel is enabled"),
+  })
+  .describe("Agent-to-Agent protocol channel configuration");
+
 export const SlackConfigSchema = z
   .object({
     deliverAuthBypass: z

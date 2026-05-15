@@ -6,6 +6,7 @@ export const CHANNEL_IDS = [
   "slack",
   "email",
   "platform",
+  "a2a",
 ] as const;
 
 export type ChannelId = (typeof CHANNEL_IDS)[number];
@@ -133,6 +134,17 @@ export const CHANNEL_METADATA: Partial<Record<ChannelId, ChannelInfo>> = {
         "I'd like to verify a contact's WhatsApp identity. Can you walk me through it?",
     },
   },
+  a2a: {
+    id: "a2a",
+    label: "A2A",
+    subtitle: "Agent-to-Agent protocol",
+    icon: "bot",
+    supportsVerification: false,
+    setupMessages: {
+      guardian: "Connect with other Vellum assistants via the A2A protocol.",
+      contact: "",
+    },
+  },
 };
 
 export const INTERFACE_IDS = [
@@ -146,6 +158,7 @@ export const INTERFACE_IDS = [
   "slack",
   "email",
   "chrome-extension",
+  "a2a",
 ] as const;
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];
