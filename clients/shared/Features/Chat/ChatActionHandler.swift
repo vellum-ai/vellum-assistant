@@ -755,6 +755,13 @@ final class ChatActionHandler {
                 vm.messageManager.pendingUserTurnCount -= 1
                 vm.messageManager.interactiveTurnCompletionTick &+= 1
             }
+            // A real turn end means any prior cancel batch is fully
+            // resolved, so any residual `staleCancelEventsExpected` is
+            // from echo loss (daemon emitted fewer trailing
+            // `generation_cancelled` events than primed) and would
+            // otherwise silently consume the next per-message daemon
+            // cancel's decrement. Bound the budget to the cancel batch.
+            vm.messageManager.staleCancelEventsExpected = 0
         }
     }
 
@@ -808,11 +815,21 @@ final class ChatActionHandler {
         if wasCancelling {
             vm.isSending = false
             // Prime the stale-echo budget before zeroing `pendingQueuedCount`.
-            // The in-flight cancel is the event we just handled; the daemon
-            // will emit one more for each still-queued entry, and a new
-            // send dispatched via `dispatchPendingSendDirect()` below must
-            // not have its turn count consumed by those trailing echoes.
-            vm.messageManager.staleCancelEventsExpected = vm.pendingQueuedCount
+            // The daemon emits one `generation_cancelled` per cancelled item
+            // (in-flight + still-queued). The event we just handled is one
+            // of those; the rest are trailing echoes that must not consume
+            // counts belonging to a send dispatched via
+            // `dispatchPendingSendDirect()` below.
+            //
+            // If a dequeued in-flight request exists, the first event is its
+            // cancel and the trailing echoes equal `pendingQueuedCount`.
+            // Otherwise (Codex P2 case: user cancelled after `message_queued`
+            // but before `message_dequeued`), the first event is itself one
+            // of the queued items so trailing echoes = pendingQueuedCount - 1.
+            let hadInFlight = !vm.activeRequestIdToMessageId.isEmpty
+            vm.messageManager.staleCancelEventsExpected = hadInFlight
+                ? vm.pendingQueuedCount
+                : max(0, vm.pendingQueuedCount - 1)
             vm.pendingQueuedCount = 0
             vm.pendingMessageIds = []
             vm.requestIdToMessageId = [:]
