@@ -363,6 +363,8 @@ export class ConversationGraphMemory {
       metrics: null as RetrievalMetrics | null,
     };
 
+    if (!config.memory.enabled) return noopResult;
+
     // Gate: skip for empty/tool-result-only messages — unless we need to
     // reload after compaction (needsReload) or haven't initialized yet.
     const lastMessage = messages[messages.length - 1];

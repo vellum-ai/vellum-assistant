@@ -32,11 +32,15 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 let configMemoryV2Enabled = true;
+let configMemoryEnabled = true;
 
 mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({}),
   loadConfig: () => ({
-    memory: { v2: { enabled: configMemoryV2Enabled } },
+    memory: {
+      enabled: configMemoryEnabled,
+      v2: { enabled: configMemoryV2Enabled },
+    },
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
@@ -71,6 +75,7 @@ describe("readMemoryV2StaticContent", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
     configMemoryV2Enabled = true;
+    configMemoryEnabled = true;
   });
 
   afterEach(() => {
@@ -79,6 +84,12 @@ describe("readMemoryV2StaticContent", () => {
 
   test("returns null when config.memory.v2.enabled is off", () => {
     configMemoryV2Enabled = false;
+    for (const file of MEMORY_FILES) writeMemoryFile(file, `Content ${file}`);
+    expect(readMemoryV2StaticContent()).toBeNull();
+  });
+
+  test("returns null when config.memory.enabled is off even with v2 on", () => {
+    configMemoryEnabled = false;
     for (const file of MEMORY_FILES) writeMemoryFile(file, `Content ${file}`);
     expect(readMemoryV2StaticContent()).toBeNull();
   });
