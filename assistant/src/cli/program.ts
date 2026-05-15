@@ -40,6 +40,7 @@ import { registerPendingCommand } from "./commands/pending.js";
 import { registerPlatformCommand } from "./commands/platform/index.js";
 import { registerPluginsCommand } from "./commands/plugins.js";
 import { registerRoutesCommand } from "./commands/routes.js";
+import { registerSchedulesCommand } from "./commands/schedules.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerSkillsCommand } from "./commands/skills.js";
 import { registerStatusCommand } from "./commands/status.js";
@@ -122,6 +123,7 @@ Examples:
     registerPluginsCommand(program);
   }
   registerRoutesCommand(program);
+  registerSchedulesCommand(program);
   registerSequenceCommand(program);
   registerStatusCommand(program);
   registerSkillsCommand(program);
