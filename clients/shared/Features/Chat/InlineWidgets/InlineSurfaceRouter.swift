@@ -456,6 +456,8 @@ private struct TableCopyButtonOverlay: View {
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
             .opacity(isHovered ? 1 : 0)
+            .allowsHitTesting(isHovered)
+            .accessibilityHidden(!isHovered)
             .animation(VAnimation.fast, value: isHovered)
     }
 }
