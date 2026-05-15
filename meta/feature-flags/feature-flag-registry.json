@@ -320,6 +320,14 @@
       "label": "z.ai Provider",
       "description": "Enable the z.ai (Zhipu AI) provider and its GLM models in the provider picker and model selection UI",
       "defaultEnabled": false
+    },
+    {
+      "id": "provider-deepseek",
+      "scope": "assistant",
+      "key": "provider-deepseek",
+      "label": "DeepSeek Provider",
+      "description": "Enable the DeepSeek direct API provider and its models (V4 Pro, V4 Flash) in the provider picker and model selection UI",
+      "defaultEnabled": false
     }
   ]
 }

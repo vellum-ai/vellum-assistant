@@ -949,6 +949,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     setupMode: "api-key",
     setupHint: "Enter your DeepSeek API key to enable DeepSeek models.",
     envVar: "DEEPSEEK_API_KEY",
+    featureFlag: "provider-deepseek",
     credentialsGuide: {
       description:
         "Sign in to the DeepSeek platform, navigate to API Keys, and create a new key.",
