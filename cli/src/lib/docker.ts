@@ -40,10 +40,13 @@ export const DOCKERHUB_IMAGES: Record<ServiceName, string> = {
 };
 
 /** Internal ports exposed by each service's Dockerfile. Re-exported from environments/paths.ts. */
-export { ASSISTANT_INTERNAL_PORT, GATEWAY_INTERNAL_PORT } from "./environments/paths.js";
+export {
+  ASSISTANT_INTERNAL_PORT,
+  GATEWAY_INTERNAL_PORT,
+} from "./environments/paths.js";
 
 /** Max time to wait for the assistant container to emit the readiness sentinel. */
-export const DOCKER_READY_TIMEOUT_MS = 3 * 60 * 1000;
+export const DOCKER_READY_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Default virtual-camera device path. Overridable via `VELLUM_AVATAR_DEVICE`. */
 const DEFAULT_AVATAR_DEVICE_PATH = "/dev/video10";
@@ -612,7 +615,10 @@ export async function startContainers(
   },
   log: (msg: string) => void,
 ): Promise<void> {
-  const runArgs = buildServiceRunArgs({ ...opts, avatarDevicePath: resolveAvatarDevicePath() });
+  const runArgs = buildServiceRunArgs({
+    ...opts,
+    avatarDevicePath: resolveAvatarDevicePath(),
+  });
   for (const service of SERVICE_START_ORDER) {
     log(`🚀 Starting ${service} container...`);
     await exec("docker", runArgs[service]());
