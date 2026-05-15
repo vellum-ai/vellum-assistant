@@ -2073,14 +2073,25 @@ async function generateLlmSuggestion(
         ? escapeXmlContent(priorUserText)
         : priorUserText;
 
-  const systemPrompt =
-    "You generate short, casual reply suggestions a user might type next in a chat. Match the tone and register of the preceding conversation. Output only the reply text inside the requested tags — no preamble, no commentary.";
+  const systemPrompt = [
+    "You generate short, casual reply suggestions a user might type next in a chat.",
+    "Match the tone and register of the preceding conversation.",
+    "",
+    "CRITICAL — write from the USER'S perspective only, NEVER from the assistant's:",
+    "- The suggestion is what the USER will type into the chat input",
+    "- Use first-person \"I\" only if the user has used it in their prior messages",
+    "- NEVER start with phrases like \"I can help\", \"Here's what\", \"Let me\", \"I'd suggest\" — those are assistant-voice",
+    "- Think: if you were the user reading the assistant's reply, what question or follow-up would you ask next?",
+    "",
+    "Output only the reply text inside the requested tags — no preamble, no commentary.",
+  ].join("\n");
 
   const userPrompt =
     `Here is the end of a conversation:\n\n` +
     `<user_message>${truncatedUser ?? "(no prior user message)"}</user_message>\n` +
     `<assistant_message>${truncatedAssistant}</assistant_message>\n\n` +
-    `Write the user's next reply, focusing on the LAST question or call-to-action in the assistant message. Keep it short (under 15 words), casual, and in the user's voice. Respond in this exact format:\n\n` +
+    `Write the USER'S next reply — what the user would type. Focus on the LAST question or call-to-action in the assistant message. Keep it short (under 15 words), casual, and in the user's voice. ` +
+    `The reply must read as something typed BY the user, not something the assistant would say. Respond in this exact format:\n\n` +
     `<reply>YOUR_REPLY_HERE</reply>`;
 
   // Single user message only — no assistant-role prefill. Anthropic
@@ -2139,7 +2150,44 @@ async function generateLlmSuggestion(
     );
     return null;
   }
+
+  // Reject suggestions written from the assistant's perspective
+  if (isAssistantVoiceSuggestion(firstLine)) {
+    log.debug(
+      { suggestion: firstLine },
+      "Suggestion rejected: reads as assistant-voice, not user-voice",
+    );
+    return null;
+  }
+
   return firstLine;
+}
+
+// ── Assistant-voice detection helpers ────────────────────────────────
+
+const ASSISTANT_VOICE_PATTERNS = [
+  /^I can help/i,
+  /^I('ll| will) (help|explain|show|walk|guide|break|summarize|suggest)/i,
+  /^Here('s| is) (what|how|a|the|my|some)/i,
+  /^Let me (explain|help|show|check|look|see|know|find|get|try|think|clarify)/i,
+  /^I('d| would) (suggest|recommend|say|start|check|look)/i,
+  /^That('s| is) (a |an )?(great|good|interesting|excellent|valid) (question|point)/i,
+  /^Sure,? (I|let|here)/i,
+  /^Of course,? (I|let|here)/i,
+  /^(Yes|Yeah|Absolutely),? (I|let|here)/i,
+  /^To (answer|help|clarify|address|summarize|explain) (your|the|that)/i,
+  /^(Based on|According to|Looking at|From what) (the|your|what|my)/i,
+  /^(I understand|I see|I noticed|I found|I think|I believe|I know)/i,
+];
+
+/**
+ * Detect whether a reply suggestion reads as the assistant speaking
+ * rather than the user. Patterns catch the most common LLM tendency
+ * to answer from the assistant's perspective, which is the opposite of
+ * what a tab-complete ghost-text chip should predict.
+ */
+function isAssistantVoiceSuggestion(text: string): boolean {
+  return ASSISTANT_VOICE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 export async function handleGetSuggestion(
