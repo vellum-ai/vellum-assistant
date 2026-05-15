@@ -29,7 +29,6 @@ export const LLM_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   zai: "ZAI_API_KEY",
   deepseek: "DEEPSEEK_API_KEY",
   minimax: "MINIMAX_API_KEY",
-  "opencode-go": "OPENCODE_API_KEY",
 };
 
 /** Search-provider env var names. Mirrors `SEARCH_PROVIDER_CATALOG` BYOK entries. */

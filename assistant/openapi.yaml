@@ -8745,7 +8745,6 @@ paths:
                             - zai
                             - deepseek
                             - minimax
-                            - opencode-go
                         auth:
                           oneOf:
                             - type: object
@@ -8841,7 +8840,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, zai, deepseek,
-            minimax, opencode-go"
+            minimax"
     post:
       operationId: inference_providerconnections_post
       summary: Create a provider connection
@@ -8871,7 +8870,6 @@ paths:
                       - zai
                       - deepseek
                       - minimax
-                      - opencode-go
                   auth:
                     oneOf:
                       - type: object
@@ -8982,7 +8980,6 @@ paths:
                     - zai
                     - deepseek
                     - minimax
-                    - opencode-go
                 auth:
                   oneOf:
                     - type: object
@@ -9115,7 +9112,6 @@ paths:
                       - zai
                       - deepseek
                       - minimax
-                      - opencode-go
                   auth:
                     oneOf:
                       - type: object
@@ -9240,7 +9236,6 @@ paths:
                       - zai
                       - deepseek
                       - minimax
-                      - opencode-go
                   auth:
                     oneOf:
                       - type: object
