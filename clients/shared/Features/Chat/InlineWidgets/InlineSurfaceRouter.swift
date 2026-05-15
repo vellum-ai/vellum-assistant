@@ -452,12 +452,12 @@ private struct TableCopyButtonOverlay: View {
 
     var body: some View {
         VCopyButton(text: InlineSurfaceRouter.tableAsMarkdown(tableData), size: .compact)
+            .allowsHitTesting(isHovered)
+            .accessibilityHidden(!isHovered)
             .padding(VSpacing.sm)
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
             .opacity(isHovered ? 1 : 0)
-            .allowsHitTesting(isHovered)
-            .accessibilityHidden(!isHovered)
             .animation(VAnimation.fast, value: isHovered)
     }
 }
