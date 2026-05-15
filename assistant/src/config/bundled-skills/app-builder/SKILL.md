@@ -73,7 +73,7 @@ assistant config get llm.default.profile
 If the active profile is `balanced` or `cost-optimized` (or any non-quality profile), prompt the user:
 
 ```
-assistant ui confirm "App building works best with a high-quality model — it makes better design decisions, writes cleaner components, and produces more visually polished results. Switch to the quality profile for this build? (You can switch back after.)"
+assistant ui confirm --message "App building works best with a high-quality model — it makes better design decisions, writes cleaner components, and produces more visually polished results. Switch to the quality profile for this build? (You can switch back after.)"
 ```
 
 If the user confirms (or if `assistant ui confirm` isn't available, ask in conversation), open an inference session:
