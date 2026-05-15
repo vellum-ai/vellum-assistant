@@ -3344,7 +3344,7 @@ final class ChatViewModelTests: XCTestCase {
                        "No new messages should be created during history load")
     }
 
-    func testFlushDiscardsStaleBuffer() {
+    func testFlushPromotesStaleBufferToNewMessage() {
         // Set currentAssistantMessageId to a UUID that doesn't correspond to
         // any message in the messages array (stale reference after a history
         // replacement or reconnect).
@@ -3353,14 +3353,23 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.streamingDeltaBuffer = "orphaned buffer text"
         let initialMessageCount = viewModel.messages.count
 
-        // Flush should detect the stale ID and discard the buffer instead of
-        // creating an orphan assistant message.
+        // Flush should promote the buffered text into a new assistant message
+        // rather than silently discarding it. Dropping leading chunks of a
+        // streaming response corrupts inline markup (e.g. <thinking> tags) on
+        // the rendered side, which is worse than the orphan-message risk the
+        // discard branch originally guarded against — message_complete will
+        // backfill daemonMessageId on the new message.
         viewModel.flushStreamingBuffer()
 
-        XCTAssertEqual(viewModel.messages.count, initialMessageCount,
-                       "Stale flush should not create a new message")
-        XCTAssertNil(viewModel.currentAssistantMessageId,
-                     "Stale flush should reset currentAssistantMessageId to nil")
+        XCTAssertEqual(viewModel.messages.count, initialMessageCount + 1,
+                       "Stale flush should create a new assistant message from the buffered text")
+        XCTAssertEqual(viewModel.messages.last?.text, "orphaned buffer text",
+                       "Promoted message should contain the previously-stale buffer")
+        XCTAssertEqual(viewModel.messages.last?.role, .assistant)
+        XCTAssertEqual(viewModel.currentAssistantMessageId, viewModel.messages.last?.id,
+                       "currentAssistantMessageId should reference the new message")
+        XCTAssertNotEqual(viewModel.currentAssistantMessageId, staleId,
+                          "currentAssistantMessageId should no longer reference the stale UUID")
     }
 
     // MARK: - Buffered Text Before Finalize Invariant

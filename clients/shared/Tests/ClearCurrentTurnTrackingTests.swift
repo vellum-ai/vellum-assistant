@@ -66,4 +66,26 @@ final class ClearCurrentTurnTrackingTests: XCTestCase {
         // isThinking uses a setter that may schedule/cancel watchdogs, so just verify
         // the method doesn't crash when other turn state is set.
     }
+
+    func testDiscardsStreamingBuffers() {
+        // A flush scheduled after the turn is cleared would otherwise either
+        // create an orphan message or splice dropped leading chunks into the
+        // next turn's response (corrupting inline <thinking> tags on render).
+        viewModel.currentAssistantMessageId = UUID()
+        viewModel.streamingDeltaBuffer = "buffered text from cancelled turn"
+        viewModel.streamingFlushTask = Task { @MainActor in }
+        viewModel.thinkingDeltaBuffer = "buffered thinking"
+        viewModel.thinkingFlushTask = Task { @MainActor in }
+
+        viewModel.clearCurrentTurnTracking()
+
+        XCTAssertTrue(viewModel.streamingDeltaBuffer.isEmpty,
+                      "streamingDeltaBuffer should be discarded")
+        XCTAssertNil(viewModel.streamingFlushTask,
+                     "streamingFlushTask should be cancelled and nil'd")
+        XCTAssertTrue(viewModel.thinkingDeltaBuffer.isEmpty,
+                      "thinkingDeltaBuffer should be discarded")
+        XCTAssertNil(viewModel.thinkingFlushTask,
+                     "thinkingFlushTask should be cancelled and nil'd")
+    }
 }
