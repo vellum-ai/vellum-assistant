@@ -206,9 +206,9 @@ export function createTrustRulesCreateHandler() {
       return Response.json({ rule }, { status: 201 });
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Internal server error";
+        err instanceof Error ? err.message : "Failed to create trust rule";
       log.error({ err }, "Failed to create trust rule");
-      return Response.json({ error: message }, { status: 400 });
+      return Response.json({ error: message }, { status: 500 });
     }
   };
 }
