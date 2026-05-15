@@ -14,18 +14,24 @@ struct PointerCursorModifier: ViewModifier {
     var enabled: Bool = true
     var onHover: ((Bool) -> Void)?
 
+    @ViewBuilder
     func body(content: Content) -> some View {
         #if os(macOS)
-        content
-            .pointerStyle(enabled && isEnabled ? .link : nil)
-            .onHover { hovering in
-                onHover?(hovering)
-            }
+        if let onHover {
+            content
+                .pointerStyle(enabled && isEnabled ? .link : nil)
+                .onHover { hovering in onHover(hovering) }
+        } else {
+            content
+                .pointerStyle(enabled && isEnabled ? .link : nil)
+        }
         #else
-        content
-            .onHover { hovering in
-                onHover?(hovering)
-            }
+        if let onHover {
+            content
+                .onHover { hovering in onHover(hovering) }
+        } else {
+            content
+        }
         #endif
     }
 }
