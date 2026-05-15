@@ -425,16 +425,6 @@ export async function runDaemon(): Promise<void> {
         );
       }
 
-      // Populate the managed-connection cache so buildIntegrationSection()
-      // can include platform-managed OAuth connections (e.g. Twitter) in the
-      // system prompt's "Connected Services" section from the first turn.
-      void refreshManagedConnectionCache().catch((err) =>
-        log.warn(
-          { err },
-          "Managed connection cache refresh failed — continuing startup",
-        ),
-      );
-
       // One-time backfill of `relationship-state.json` for existing or
       // upgraded users so they don't land on an empty Home page after the
       // Phase 3 ship. Runs after DB init + workspace migrations so the
@@ -519,6 +509,25 @@ export async function runDaemon(): Promise<void> {
         log.warn({ err }, "Call recovery failed — continuing startup");
       }
     } // end if (dbReady)
+
+    // Populate the managed-connection cache so buildIntegrationSection()
+    // can include platform-managed OAuth connections (e.g. Twitter) in the
+    // system prompt's "Connected Services" section from the first turn.
+    // This is an HTTP-only call with no DB dependency, so it runs regardless
+    // of dbReady. A periodic refresh keeps the cache current when users
+    // connect/disconnect managed providers while the assistant is running.
+    void refreshManagedConnectionCache().catch((err) =>
+      log.warn(
+        { err },
+        "Managed connection cache refresh failed — continuing startup",
+      ),
+    );
+    const MANAGED_CONNECTION_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+    setInterval(() => {
+      void refreshManagedConnectionCache().catch((err) =>
+        log.warn({ err }, "Periodic managed connection cache refresh failed"),
+      );
+    }, MANAGED_CONNECTION_REFRESH_INTERVAL_MS);
 
     // Merge CLI-provided default config (from VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH)
     // into the workspace config file before profile seeding and the first
