@@ -290,10 +290,13 @@ async function ensureConceptPageCollectionOnce(): Promise<{
  *     payload fields, so without this the backfill consistently fails and
  *     legacy skill points remain untagged.
  *
- * `createPayloadIndex` is idempotent in Qdrant; re-issuing on an existing
- * index is a no-op. We tolerate other failure shapes so that an upgrade of
- * a long-lived install — where the collection existed before this index
- * set — converges on the next ensure call without aborting the boot path.
+ * Same-schema `createPayloadIndex` calls are idempotent server-side in
+ * Qdrant (200 OK), so the only "already exists" failures we expect are
+ * narrow races where a concurrent caller created the same index a moment
+ * earlier. Those are benign and swallowed. Every other failure — strict-mode
+ * rejection, index-limit, transient network blip — must propagate so the
+ * caller does not latch readiness on a collection whose `slug`/`kind`
+ * filters will keep rejecting queries until the next daemon restart.
  */
 async function ensurePayloadIndexes(): Promise<void> {
   const client = getClient();
@@ -301,16 +304,30 @@ async function ensurePayloadIndexes(): Promise<void> {
     { field_name: "slug", field_schema: "keyword" as const },
     { field_name: "kind", field_schema: "keyword" as const },
   ];
-  for (const index of indexes) {
-    try {
-      await client.createPayloadIndex(MEMORY_V2_COLLECTION, index);
-    } catch (err) {
-      log.warn(
-        { err, collection: MEMORY_V2_COLLECTION, index },
-        "createPayloadIndex non-fatal — assuming index already present",
-      );
-    }
-  }
+  // Parallel so one "already exists" race on a single index doesn't stall
+  // the other create round-trip. v1's `qdrant-client.ts` uses the same
+  // Promise.all shape.
+  await Promise.all(
+    indexes.map(async (index) => {
+      try {
+        await client.createPayloadIndex(MEMORY_V2_COLLECTION, index);
+      } catch (err) {
+        if (isPayloadIndexAlreadyExists(err)) return;
+        throw err;
+      }
+    }),
+  );
+}
+
+/**
+ * True when a `createPayloadIndex` error indicates the index already
+ * exists with matching parameters — the only failure shape it is safe to
+ * swallow. Qdrant returns 4xx with messages like
+ * `"Wrong input: Payload field 'kind' already exists ..."`.
+ */
+function isPayloadIndexAlreadyExists(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /already exists/i.test(msg);
 }
 
 /**
