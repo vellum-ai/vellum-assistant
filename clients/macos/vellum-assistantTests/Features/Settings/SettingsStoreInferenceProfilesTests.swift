@@ -302,6 +302,61 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertEqual(store.activeProfile, "A")
     }
 
+    /// When `loadInferenceProfiles` pushes a remote-confirmed value (e.g.
+    /// from another client/session) while a `setActiveProfile` PATCH is in
+    /// flight, the older local PATCH must not stomp the newer daemon-pushed
+    /// value once it finally succeeds. The user picks "A"; while the PATCH
+    /// is suspended, a config push updates the authoritative value to "C";
+    /// "A"'s late success must observe the snapshot drift on
+    /// `lastConfirmedActiveProfile` and leave both `activeProfile` and
+    /// `lastConfirmedActiveProfile` set to "C".
+    func testSetActiveProfileDoesNotStompExternalConfirmedUpdate() async {
+        var continuationA: CheckedContinuation<Bool, Never>?
+        let aSuspended = expectation(description: "A PATCH suspended")
+        mockSettingsClient.patchConfigHandler = { _ in
+            return await withCheckedContinuation { cont in
+                continuationA = cont
+                aSuspended.fulfill()
+            }
+        }
+
+        async let resultA: Bool = store.setActiveProfile("A")
+
+        await fulfillment(of: [aSuspended], timeout: 1.0)
+        XCTAssertEqual(store.activeProfile, "A")
+
+        // External config push (another client/session) advances the
+        // daemon-authoritative value to "C" while A is still in flight.
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "activeProfile": "C",
+                "profiles": ["C": ["model": "claude-sonnet-4-6"]],
+            ]
+        ])
+        XCTAssertEqual(store.activeProfile, "C")
+
+        // A's late success arrives. Even though no newer local pick is
+        // live, the snapshot of `lastConfirmedActiveProfile` taken at
+        // entry no longer matches — so the success branch must skip its
+        // writes and leave the daemon-pushed value intact.
+        continuationA?.resume(returning: true)
+        let aSucceeded = await resultA
+        XCTAssertTrue(aSucceeded)
+        XCTAssertEqual(
+            store.activeProfile,
+            "C",
+            "Late local success must not stomp a newer remote-confirmed value"
+        )
+
+        // A subsequent failed pick must revert to "C", not "A",
+        // confirming `lastConfirmedActiveProfile` was preserved.
+        mockSettingsClient.patchConfigHandler = nil
+        mockSettingsClient.patchConfigResponse = false
+        let dSucceeded = await store.setActiveProfile("D")
+        XCTAssertFalse(dSucceeded)
+        XCTAssertEqual(store.activeProfile, "C")
+    }
+
     // MARK: - setProfile
 
     func testSetProfileRoundTripsAndUpdatesPublishedState() async {
