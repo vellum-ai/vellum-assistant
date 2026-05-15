@@ -889,7 +889,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 128000,
         supportsThinking: false,
         supportsCaching: false,
-        supportsVision: true,
+        supportsVision: false,
         supportsToolUse: true,
       },
       {
@@ -899,7 +899,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 128000,
         supportsThinking: false,
         supportsCaching: false,
-        supportsVision: true,
+        supportsVision: false,
         supportsToolUse: true,
       },
       {
@@ -909,7 +909,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 128000,
         supportsThinking: false,
         supportsCaching: false,
-        supportsVision: true,
+        supportsVision: false,
         supportsToolUse: true,
       },
       {
@@ -919,7 +919,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 128000,
         supportsThinking: false,
         supportsCaching: false,
-        supportsVision: true,
+        supportsVision: false,
         supportsToolUse: true,
       },
       {
@@ -929,7 +929,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 128000,
         supportsThinking: false,
         supportsCaching: false,
-        supportsVision: true,
+        supportsVision: false,
         supportsToolUse: true,
       },
     ],
