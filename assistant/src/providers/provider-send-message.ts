@@ -7,8 +7,10 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { getDb } from "../memory/db-connection.js";
 import { getLogger } from "../util/logger.js";
 import { tryResolveProviderForConnectionName } from "./connection-resolution.js";
+import { listConnections } from "./inference/connections.js";
 import { initializeProviders, listProviders } from "./registry.js";
 import type {
   ContentBlock,
@@ -110,22 +112,35 @@ export async function resolveConfiguredProvider(
 
   const resolved = resolveCallSiteConfig(callSite, config.llm, opts);
   const inferenceProvider = resolved.provider;
-  const connectionName = resolved.provider_connection;
+  let connectionName = resolved.provider_connection;
 
   // Connection-aware path: every dispatch goes through `provider_connection`.
   // The boot-time backfill ensures every profile has one in production.
-  // When unset (test envs that skip backfill, freshly-installed configs
-  // not yet backfilled, or users who manually cleared the field), we
-  // return null so callsites with deterministic fallbacks (invite
-  // instructions, telegram username resolution, etc.) keep working.
-  // Hard config errors — connection lookup failure, provider mismatch —
-  // still throw via `tryResolveProviderForConnectionName` below.
+  // When unset (profile set provider with "Any active" connection, test envs
+  // that skip backfill, freshly-installed configs not yet backfilled, or
+  // users who manually cleared the field), try to auto-resolve from the
+  // provider before falling back to null.
   if (!connectionName) {
-    log.debug(
-      { callSite, inferenceProvider },
-      "resolveCallSiteConfig yielded no provider_connection — returning null so callsite can fall back",
-    );
-    return null;
+    if (inferenceProvider) {
+      try {
+        const candidates = listConnections(getDb(), {
+          provider: inferenceProvider,
+        });
+        const active = candidates.find((c) => c.status === "active");
+        if (active) {
+          connectionName = active.name;
+        }
+      } catch {
+        // DB not available — fall through to the existing null-return path.
+      }
+    }
+    if (!connectionName) {
+      log.debug(
+        { callSite, inferenceProvider },
+        "resolveCallSiteConfig yielded no provider_connection — returning null so callsite can fall back",
+      );
+      return null;
+    }
   }
 
   const connectionProvider = await tryResolveProviderForConnectionName(

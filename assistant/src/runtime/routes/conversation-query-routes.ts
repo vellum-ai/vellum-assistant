@@ -57,11 +57,13 @@ import {
   getConversation,
   getMessageById,
 } from "../../memory/conversation-crud.js";
+import { getDb } from "../../memory/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
+import { listConnections } from "../../providers/inference/connections.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { validateAllowlistFile } from "../../security/secret-allowlist.js";
 import { resolvePricingForUsage } from "../../util/pricing.js";
@@ -616,6 +618,20 @@ async function handleReplaceInferenceProfile({
       );
     }
   }
+  // When the UI sends provider but no provider_connection ("Any active X
+  // connection"), derive the connection now so the config deep-merge doesn't
+  // inherit a stale connection from the default layer.
+  const fragment = parsed.data as Record<string, unknown>;
+  if (!isManaged && fragment.provider && !fragment.provider_connection) {
+    const candidates = listConnections(getDb(), {
+      provider: fragment.provider as string,
+    });
+    const active = candidates.find((c) => c.status === "active");
+    if (active) {
+      fragment.provider_connection = active.name;
+    }
+  }
+
   const raw = loadRawConfig();
   if (isManaged) {
     // Partial overlay: keep every existing key intact, only update label
@@ -626,13 +642,13 @@ async function handleReplaceInferenceProfile({
     patchManagedProfileFields(
       raw,
       name,
-      parsed.data as Record<string, unknown>,
+      fragment,
     );
   } else {
     replaceInferenceProfileConfig(
       raw,
       name,
-      parsed.data as Record<string, unknown>,
+      fragment,
     );
   }
   // Route through `commitConfigWrite` so profile edits flow through the

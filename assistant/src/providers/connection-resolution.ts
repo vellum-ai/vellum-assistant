@@ -30,7 +30,7 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getDb } from "../memory/db-connection.js";
 import { getLogger } from "../util/logger.js";
-import { getConnection } from "./inference/connections.js";
+import { getConnection, listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
 import { resolveProviderFromConnection } from "./registry.js";
 import type { Provider } from "./types.js";
@@ -104,11 +104,38 @@ export async function tryResolveProviderForConnectionName(
     );
   }
   if (expectedProvider && connection.provider !== expectedProvider) {
-    throw new ConnectionResolutionError(
-      connectionName,
-      "provider_mismatch",
-      `provider_connection "${connectionName}" has provider="${connection.provider}" but resolving profile declared provider="${expectedProvider}" — set the profile's provider_connection to a row matching its provider`,
-    );
+    // Mismatch usually means the config deep-merge inherited a stale
+    // provider_connection from a lower layer (e.g. profile sets
+    // provider="minimax" with "Any active" but the default layer's
+    // "anthropic-managed" leaked through). Try to find an active connection
+    // for the expected provider before giving up.
+    let resolved = false;
+    try {
+      const db = getDb();
+      const candidates = listConnections(db, { provider: expectedProvider });
+      const active = candidates.find((c) => c.status === "active");
+      if (active) {
+        log.info(
+          {
+            originalConnection: connectionName,
+            resolvedConnection: active.name,
+            expectedProvider,
+          },
+          "Auto-resolved stale provider_connection to matching active connection",
+        );
+        connection = active;
+        resolved = true;
+      }
+    } catch {
+      // DB not available — fall through to the original error.
+    }
+    if (!resolved) {
+      throw new ConnectionResolutionError(
+        connectionName,
+        "provider_mismatch",
+        `provider_connection "${connectionName}" has provider="${connection.provider}" but resolving profile declared provider="${expectedProvider}" — set the profile's provider_connection to a row matching its provider`,
+      );
+    }
   }
   if (connection.status === "disabled") {
     log.debug(
@@ -154,13 +181,36 @@ export async function resolveDefaultProvider(
   config: ProvidersConfig,
 ): Promise<Provider | null> {
   const resolved = resolveCallSiteConfig("mainAgent", config.llm);
-  const connectionName = resolved.provider_connection;
+  let connectionName = resolved.provider_connection;
   if (!connectionName) {
-    throw new ConnectionResolutionError(
-      "<llm.default>",
-      "missing_connection",
-      `llm.default.provider_connection is unset — every profile must declare a provider_connection. The boot-time backfill in lifecycle.ts populates this field; if you see this error, the backfill did not run or the field was manually cleared.`,
-    );
+    // The merged config has no provider_connection — the profile likely set
+    // provider without a connection ("Any active" selection), and the merge
+    // cleared or failed to inherit one. Try to find an active connection
+    // for the provider before giving up.
+    if (resolved.provider) {
+      try {
+        const candidates = listConnections(getDb(), {
+          provider: resolved.provider,
+        });
+        const active = candidates.find((c) => c.status === "active");
+        if (active) {
+          log.info(
+            { provider: resolved.provider, resolvedConnection: active.name },
+            "Auto-resolved missing provider_connection for default provider",
+          );
+          connectionName = active.name;
+        }
+      } catch {
+        // DB not available — fall through to the original error.
+      }
+    }
+    if (!connectionName) {
+      throw new ConnectionResolutionError(
+        "<llm.default>",
+        "missing_connection",
+        `llm.default.provider_connection is unset — every profile must declare a provider_connection. The boot-time backfill in lifecycle.ts populates this field; if you see this error, the backfill did not run or the field was manually cleared.`,
+      );
+    }
   }
   return tryResolveProviderForConnectionName(
     connectionName,

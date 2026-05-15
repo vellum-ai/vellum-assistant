@@ -71,6 +71,7 @@ import {
   memoryV2ActivationLogs,
   messages,
 } from "../../../memory/schema.js";
+import { createConnection } from "../../../providers/inference/connections.js";
 import { ROUTES } from "../conversation-query-routes.js";
 
 // Local subset: this test only exercises a single concept row.
@@ -427,7 +428,7 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     expect(savedProfile.provider_connection).toBe("personal-openai");
   });
 
-  test("clears provider_connection when omitted from body (UI-owned key)", async () => {
+  test("auto-derives provider_connection when omitted from body (Any active)", async () => {
     // Seed an existing binding so the test starts from a non-empty state.
     (
       rawConfigFixture.llm as {
@@ -441,8 +442,9 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
         provider: "openai",
         model: "gpt-5.5",
         // provider_connection deliberately omitted — the UI cleared the
-        // picker back to "Any active" and the route must wipe the saved
-        // binding, not silently round-trip it.
+        // picker back to "Any active". The route auto-derives an active
+        // connection for the provider to prevent stale inheritance during
+        // config deep-merge.
       },
     });
 
@@ -453,7 +455,36 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       }
     ).profiles.custom;
 
-    expect(savedProfile.provider_connection).toBeUndefined();
+    // The canonical "openai-managed" connection exists in the test DB;
+    // the route auto-derives it when the UI omits provider_connection.
+    expect(savedProfile.provider_connection).toBe("openai-managed");
+  });
+
+  test("auto-derives provider_connection for BYOK provider (Any active)", async () => {
+    // Seed a minimax connection in the DB.
+    createConnection(getDb(), {
+      name: "minimax",
+      provider: "minimax",
+      auth: { type: "api_key", credential: "minimax:api_key" },
+    });
+
+    const result = await replaceProfileRoute.handler({
+      pathParams: { name: "custom" },
+      body: {
+        provider: "minimax",
+        model: "minimax-m2.7",
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    const savedProfile = (
+      savedRawConfig?.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles.custom;
+
+    expect(savedProfile.provider).toBe("minimax");
+    expect(savedProfile.provider_connection).toBe("minimax");
   });
 
   describe("managed profile guard", () => {
