@@ -23,6 +23,8 @@ struct LogsAndUsagePanel: View {
     let usageDashboardStore: UsageDashboardStore
     var onClose: () -> Void
     var onSelectConversation: (String) -> Void
+    var onAnalyzeCosts: () -> Void
+    var onOptimizeCosts: () -> Void
 
     @State private var selectedTab: LogsAndUsageTab = .logs
 
@@ -98,7 +100,12 @@ struct LogsAndUsagePanel: View {
                 activeSessionId: activeSessionId
             )
         case .usage:
-            UsageTabContent(store: usageDashboardStore, onSelectConversation: onSelectConversation)
+            UsageTabContent(
+                store: usageDashboardStore,
+                onSelectConversation: onSelectConversation,
+                onAnalyzeCosts: onAnalyzeCosts,
+                onOptimizeCosts: onOptimizeCosts
+            )
         }
     }
 }
@@ -303,6 +310,8 @@ struct LogsTabContent: View {
 struct UsageTabContent: View {
     let store: UsageDashboardStore
     let onSelectConversation: (String) -> Void
+    var onAnalyzeCosts: () -> Void = {}
+    var onOptimizeCosts: () -> Void = {}
 
     @State private var refreshTask: Task<Void, Never>?
     @State private var breakdownTask: Task<Void, Never>?
@@ -316,6 +325,7 @@ struct UsageTabContent: View {
         ScrollView {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             timeRangeStrip(store: store)
+            costAssistantSection()
 
             if allFailed {
                 VStack(spacing: VSpacing.lg) {
@@ -364,6 +374,36 @@ struct UsageTabContent: View {
             refreshTask = nil
             breakdownTask?.cancel()
             breakdownTask = nil
+        }
+    }
+
+    // MARK: - Cost Assistant
+
+    @ViewBuilder
+    private func costAssistantSection() -> some View {
+        SettingsCard(
+            title: "Cost assistant",
+            subtitle: "Review recent spend and tune model profile choices."
+        ) {
+            HStack(spacing: VSpacing.sm) {
+                VButton(
+                    label: "Analyze costs with assistant",
+                    leftIcon: VIcon.sparkles.rawValue,
+                    style: .primary,
+                    accessibilityID: "usage.analyzeCostsWithAssistant"
+                ) {
+                    onAnalyzeCosts()
+                }
+                VButton(
+                    label: "Optimize settings",
+                    leftIcon: VIcon.wand.rawValue,
+                    style: .outlined,
+                    accessibilityID: "usage.optimizeCostSettings"
+                ) {
+                    onOptimizeCosts()
+                }
+                Spacer(minLength: 0)
+            }
         }
     }
 

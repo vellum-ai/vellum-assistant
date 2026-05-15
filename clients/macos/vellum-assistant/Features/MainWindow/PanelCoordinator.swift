@@ -8,6 +8,22 @@ private let panelCoordinatorLog = Logger(
     category: "PanelCoordinator"
 )
 
+private enum CostAssistantPrompt {
+    static let analyze = [
+        "Please load the llm-cost-optimizer skill.",
+        "Analyze my recent LLM usage and explain the biggest cost contributors by call site, model, and profile.",
+        "Check my current llm.default, llm.callSites, and llm.profiles.",
+        "Give me a concise summary of what is driving cost and what you would optimize first.",
+        "Do not change config yet.",
+    ].joined(separator: " ")
+
+    static let optimize = [
+        "Please load the llm-cost-optimizer skill.",
+        "Analyze my recent LLM usage and current LLM config, then recommend the safest cost-optimization changes.",
+        "If changes are clearly safe, show me the exact config commands you would run and ask for confirmation before applying them.",
+    ].joined(separator: " ")
+}
+
 // MARK: - Panel Coordination Extension
 
 extension MainWindowView {
@@ -80,6 +96,12 @@ extension MainWindowView {
                         guard found, let id = conversationManager.activeConversationId else { return }
                         windowState.selection = .conversation(id)
                     }
+                },
+                onAnalyzeCosts: {
+                    openCostAssistantConversation(message: CostAssistantPrompt.analyze)
+                },
+                onOptimizeCosts: {
+                    openCostAssistantConversation(message: CostAssistantPrompt.optimize)
                 }
             )
         case .generated:
@@ -693,6 +715,15 @@ extension MainWindowView {
         }
     }
 
+    private func openCostAssistantConversation(message: String) {
+        conversationManager.openConversation(message: message, forceNew: true)
+        if let id = conversationManager.activeConversationId {
+            windowState.selection = .conversation(id)
+        } else {
+            windowState.selection = nil
+        }
+    }
+
     @ViewBuilder
     func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
@@ -721,6 +752,12 @@ extension MainWindowView {
                         guard found, let id = conversationManager.activeConversationId else { return }
                         windowState.selection = .conversation(id)
                     }
+                },
+                onAnalyzeCosts: {
+                    openCostAssistantConversation(message: CostAssistantPrompt.analyze)
+                },
+                onOptimizeCosts: {
+                    openCostAssistantConversation(message: CostAssistantPrompt.optimize)
                 }
             )
         case .avatarCustomization:
