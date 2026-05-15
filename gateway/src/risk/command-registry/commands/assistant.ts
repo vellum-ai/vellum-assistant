@@ -195,6 +195,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "schedules enable",
   "schedules disable",
   "schedules cancel",
+  "schedules delete",
   "schedules execute",
   "sequence",
   "sequence list",
@@ -516,6 +517,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     path: "schedules cancel",
     risk: "medium",
     reason: "Cancels a pending schedule and mutates assistant schedule state",
+  },
+  {
+    path: "schedules delete",
+    risk: "medium",
+    reason:
+      "Permanently removes a schedule and its run history from assistant state",
   },
   {
     path: "schedules execute",

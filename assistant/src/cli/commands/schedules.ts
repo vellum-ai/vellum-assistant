@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { confirmPrompt } from "../lib/confirm-prompt.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
@@ -400,6 +401,83 @@ Examples:
 
           log.info(`Cancelled schedule: ${scheduleId}`);
         });
+
+      schedules
+        .command("delete <id>")
+        .description("Permanently delete a schedule and its run history")
+        .option("--force", "Skip the confirmation prompt")
+        .option("--json", "Machine-readable compact JSON output")
+        .addHelpText(
+          "after",
+          `
+Options:
+  --force  Skip the destructive y/N confirmation prompt. Required when stdin
+           is not a TTY (e.g. in scripts and CI).
+  --json   Output the updated schedule list as compact JSON.
+
+Arguments:
+  <id>   Schedule ID (UUID) — run 'assistant schedules list --all' to find it.
+
+Behavior:
+  Permanently removes the schedule and its run history. This cannot be undone.
+  To temporarily pause a recurring schedule, use
+  'assistant schedules disable <id>' instead.
+
+Examples:
+  $ assistant schedules delete 9f2c4f3a-3f1a-41e4-88e7-abc123
+  $ assistant schedules delete 9f2c4f3a-3f1a-41e4-88e7-abc123 --force
+  $ assistant schedules delete 9f2c4f3a-3f1a-41e4-88e7-abc123 --force --json`,
+        )
+        .action(
+          async (
+            id: string,
+            opts: { force?: boolean; json?: boolean },
+            cmd: Command,
+          ) => {
+            const scheduleId = id.trim();
+            if (!scheduleId) {
+              const error = "Schedule ID is required";
+              if (opts.json) {
+                writeOutput(cmd, { ok: false, error });
+              } else {
+                log.error(error);
+              }
+              process.exitCode = 1;
+              return;
+            }
+
+            if (!opts.force) {
+              const decision = await confirmPrompt({
+                question: `Delete schedule "${scheduleId}"? [y/N] `,
+                isTTY: Boolean(process.stdin.isTTY),
+                refuseNonInteractiveMessage: `Refusing to delete schedule "${scheduleId}" non-interactively. Pass --force to confirm.`,
+              });
+              if (decision === "non-interactive") {
+                process.exitCode = 1;
+                return;
+              }
+              if (decision === "denied") {
+                log.info("Delete cancelled.");
+                return;
+              }
+            }
+
+            const result = await cliIpcCall<ListSchedulesResponse>(
+              "deleteSchedule",
+              { pathParams: { id: scheduleId } },
+            );
+
+            if (!result.ok) return exitFromIpcResult(result, cmd);
+
+            const response = result.result ?? { schedules: [] };
+            if (opts.json) {
+              writeOutput(cmd, response);
+              return;
+            }
+
+            log.info(`Deleted schedule: ${scheduleId}`);
+          },
+        );
 
       schedules
         .command("execute <id>")
