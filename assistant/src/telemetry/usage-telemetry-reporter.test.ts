@@ -43,7 +43,7 @@ const mockQueryUnreportedTurnEvents = mock(
       turnIndex: number;
       interfaceId: string | null;
       channelId: string | null;
-      clientJson: string | null;
+      clientMetadata: string | null;
     }[],
 );
 
@@ -553,7 +553,7 @@ describe("UsageTelemetryReporter", () => {
         turnIndex: 1,
         interfaceId: null,
         channelId: null,
-        clientJson: null,
+        clientMetadata: null,
       },
     ]);
     mockFetch.mockImplementation(() =>
@@ -601,7 +601,7 @@ describe("UsageTelemetryReporter", () => {
         turnIndex: 1,
         interfaceId: null,
         channelId: null,
-        clientJson: null,
+        clientMetadata: null,
       },
       {
         id: "evt-turn-background",
@@ -611,7 +611,7 @@ describe("UsageTelemetryReporter", () => {
         turnIndex: 1,
         interfaceId: null,
         channelId: null,
-        clientJson: null,
+        clientMetadata: null,
       },
       {
         id: "evt-turn-scheduled",
@@ -621,7 +621,7 @@ describe("UsageTelemetryReporter", () => {
         turnIndex: 1,
         interfaceId: null,
         channelId: null,
-        clientJson: null,
+        clientMetadata: null,
       },
     ]);
     mockFetch.mockImplementation(() =>
@@ -666,7 +666,7 @@ describe("UsageTelemetryReporter", () => {
         turnIndex: 1,
         interfaceId: "macos",
         channelId: "vellum",
-        clientJson: JSON.stringify({
+        clientMetadata: JSON.stringify({
           browser_family: null,
           os: "darwin",
           interface_version: "0.8.2",
@@ -680,7 +680,7 @@ describe("UsageTelemetryReporter", () => {
         turnIndex: 1,
         interfaceId: "slack",
         channelId: "slack",
-        clientJson: null,
+        clientMetadata: null,
       },
       {
         id: "evt-turn-web-broken",
@@ -690,7 +690,7 @@ describe("UsageTelemetryReporter", () => {
         turnIndex: 1,
         interfaceId: "web",
         channelId: "vellum",
-        clientJson: "{not valid json",
+        clientMetadata: "{not valid json",
       },
       {
         id: "evt-turn-legacy",
@@ -700,7 +700,7 @@ describe("UsageTelemetryReporter", () => {
         turnIndex: 1,
         interfaceId: null,
         channelId: null,
-        clientJson: null,
+        clientMetadata: null,
       },
     ]);
     mockFetch.mockImplementation(() =>

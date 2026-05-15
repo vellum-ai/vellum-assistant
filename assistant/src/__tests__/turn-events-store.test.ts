@@ -202,7 +202,7 @@ describe("queryUnreportedTurnEvents", () => {
     }
   });
 
-  test("extracts interfaceId, channelId, and clientJson from messages.metadata", async () => {
+  test("extracts interfaceId, channelId, and clientMetadata from messages.metadata", async () => {
     // Three user messages with different metadata shapes to cover the
     // realistic spectrum of attribution carried on messages.metadata:
     //  - Full interactive: macOS surface, vellum channel, with a client
@@ -232,11 +232,11 @@ describe("queryUnreportedTurnEvents", () => {
     expect(byId[macOsMsg.id]).toBeDefined();
     expect(byId[macOsMsg.id].interfaceId).toBe("macos");
     expect(byId[macOsMsg.id].channelId).toBe("vellum");
-    // clientJson is returned as raw JSON text -- the reporter parses it.
+    // clientMetadata is returned as raw JSON text -- the reporter parses it.
     // We verify it round-trips back to the input object.
-    expect(byId[macOsMsg.id].clientJson).not.toBeNull();
+    expect(byId[macOsMsg.id].clientMetadata).not.toBeNull();
     expect(
-      JSON.parse(byId[macOsMsg.id].clientJson as string),
+      JSON.parse(byId[macOsMsg.id].clientMetadata as string),
     ).toMatchObject({
       os: "darwin",
       interface_version: "0.8.2",
@@ -244,13 +244,13 @@ describe("queryUnreportedTurnEvents", () => {
 
     expect(byId[slackMsg.id].interfaceId).toBe("slack");
     expect(byId[slackMsg.id].channelId).toBe("slack");
-    expect(byId[slackMsg.id].clientJson).toBeNull();
+    expect(byId[slackMsg.id].clientMetadata).toBeNull();
 
     // Legacy rows (no metadata threading) return null for all three
     // attribution fields -- downstream analytics treats these as
     // "unknown" without breaking the batch.
     expect(byId[legacyMsg.id].interfaceId).toBeNull();
     expect(byId[legacyMsg.id].channelId).toBeNull();
-    expect(byId[legacyMsg.id].clientJson).toBeNull();
+    expect(byId[legacyMsg.id].clientMetadata).toBeNull();
   });
 });

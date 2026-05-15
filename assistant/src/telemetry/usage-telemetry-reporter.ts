@@ -248,9 +248,9 @@ export class UsageTelemetryReporter {
           // Parse defensively — a corrupted blob in the JSON column should
           // not block the whole batch flush.
           let client: TurnTelemetryClientInfo | null = null;
-          if (e.clientJson) {
+          if (e.clientMetadata) {
             try {
-              const parsed = JSON.parse(e.clientJson) as unknown;
+              const parsed = JSON.parse(e.clientMetadata) as unknown;
               if (
                 parsed &&
                 typeof parsed === "object" &&
