@@ -1,5 +1,4 @@
-# OpenAPI spec — copied locally from platform repo for codegen, not committed
-# to avoid exposing admin routes in the open-source repo.
+# OpenAPI spec — fetched at codegen time, not committed.
 openapi-schemas/
 
 # HeyAPI generated output — regenerate locally via `bun run openapi-ts`
