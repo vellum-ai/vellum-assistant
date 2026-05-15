@@ -28,7 +28,7 @@ struct HomePageView: View {
     let onSuggestionSelected: (HomeSuggestion) -> Void
     var onDetailPanelSelected: (FeedItem) -> Void = { _ in }
 
-    @State private var suggestionsDismissed: Bool = false
+    @AppStorage("homeSuggestionsDismissed") private var suggestionsDismissed: Bool = false
     @State private var activeFilter: FeedItemCategory? = nil
 
     private let maxContentWidth: CGFloat = 960
