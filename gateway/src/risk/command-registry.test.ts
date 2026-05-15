@@ -599,6 +599,7 @@ describe("command-registry", () => {
       expect(getAssistantPath("inference session list").baseRisk).toBe("low");
       expect(getAssistantPath("schedules list").baseRisk).toBe("low");
       expect(getAssistantPath("schedules runs").baseRisk).toBe("low");
+      expect(getAssistantPath("schedules cancel").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules execute").baseRisk).toBe("medium");
     });
   });

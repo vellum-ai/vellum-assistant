@@ -60,18 +60,19 @@ export function registerSchedulesCommand(program: Command): void {
       schedules.addHelpText(
         "after",
         `
-Schedules are recurring or one-shot jobs run by the assistant daemon.
+Schedules are recurring or one-shot jobs run by the assistant.
 
 This CLI namespace is intentionally landing incrementally. Today it supports
 listing schedules, viewing recent run history, and manually executing a schedule
-one time; create, delete, enable/disable, and run inspection will follow as
-separate slices.
+one time, and cancelling pending one-shot schedules; create, delete,
+enable/disable, and run inspection will follow as separate slices.
 
 Examples:
   $ assistant schedules list
   $ assistant schedules list --all
   $ assistant schedules runs <schedule-id>
   $ assistant schedules runs <schedule-id> --limit 25 --json
+  $ assistant schedules cancel <schedule-id>
   $ assistant schedules execute <schedule-id>`,
       );
 
@@ -203,7 +204,7 @@ Examples:
           "after",
           `
 Options:
-  --limit <count>   Max runs to return. The daemon clamps values to 1-100.
+  --limit <count>   Max runs to return. The assistant clamps values to 1-100.
   --json            Output the raw run list as compact JSON.
 
 Arguments:
@@ -306,6 +307,46 @@ Examples:
             }
           },
         );
+
+      schedules
+        .command("cancel <id>")
+        .description("Cancel a pending one-shot schedule")
+        .option("--json", "Machine-readable compact JSON output")
+        .addHelpText(
+          "after",
+          `
+Options:
+  --json   Output the updated schedule list as compact JSON.
+
+Arguments:
+  <id>   Schedule ID (UUID) — run 'assistant schedules list --all' to find
+         pending one-shot/deferred schedules.
+
+Behavior:
+  Cancels a pending one-shot schedule. Recurring schedules are not cancellable;
+  use enable/disable commands once those CLI slices land.
+
+Examples:
+  $ assistant schedules cancel 9f2c4f3a-3f1a-41e4-88e7-abc123
+  $ assistant schedules cancel 9f2c4f3a-3f1a-41e4-88e7-abc123 --json`,
+        )
+        .action(async (id: string, opts: { json?: boolean }, cmd: Command) => {
+          const scheduleId = id.trim();
+          const result = await cliIpcCall<ListSchedulesResponse>(
+            "cancelSchedule",
+            { pathParams: { id: scheduleId } },
+          );
+
+          if (!result.ok) return exitFromIpcResult(result, cmd);
+
+          const response = result.result ?? { schedules: [] };
+          if (opts.json) {
+            writeOutput(cmd, response);
+            return;
+          }
+
+          log.info(`Cancelled schedule: ${scheduleId}`);
+        });
 
       schedules
         .command("execute <id>")

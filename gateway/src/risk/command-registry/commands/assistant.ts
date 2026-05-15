@@ -192,6 +192,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "schedules",
   "schedules list",
   "schedules runs",
+  "schedules cancel",
   "schedules execute",
   "sequence",
   "sequence list",
@@ -499,6 +500,11 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "platform connect", risk: "low" },
   { path: "platform disconnect", risk: "medium" },
   { path: "platform callback-routes register", risk: "low" },
+  {
+    path: "schedules cancel",
+    risk: "medium",
+    reason: "Cancels a pending schedule and mutates assistant schedule state",
+  },
   {
     path: "schedules execute",
     risk: "medium",
