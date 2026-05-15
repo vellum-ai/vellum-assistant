@@ -16,7 +16,15 @@
 
 import type { Command } from "commander";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getConfig } from "../../config/loader.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import {
+  OPENAI_DEVICE_CODE_CONFIG,
+  pollForToken,
+  requestDeviceCode,
+} from "../../security/oauth2-device-code.js";
+import { setSecureKeyAsync } from "../../security/secure-keys.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -165,7 +173,11 @@ function buildAuthInput(
     if (credential) return "--credential is not accepted with --auth none";
     return { type: "none" };
   }
-  return `Unknown auth type "${authType}". Use: api_key, platform, none`;
+  if (authType === "oauth_subscription") {
+    if (!credential) return "--credential is required when --auth oauth_subscription";
+    return { type: "oauth_subscription", credential };
+  }
+  return `Unknown auth type "${authType}". Use: api_key, platform, none, oauth_subscription`;
 }
 
 function writeCliError(msg: string, json?: boolean): void {
@@ -312,6 +324,119 @@ function attachDeleteSubcommand(connections: Command): void {
 }
 
 // ---------------------------------------------------------------------------
+// Subcommand: login-chatgpt
+// ---------------------------------------------------------------------------
+
+function attachLoginChatgptSubcommand(providers: Command): void {
+  providers
+    .command("login-chatgpt")
+    .description("Authenticate with ChatGPT via device-code OAuth flow")
+    .option("--json", "Output as JSON")
+    .action(async (opts: { json?: boolean }) => {
+      // Gate behind feature flag
+      const config = getConfig();
+      if (!isAssistantFeatureFlagEnabled("chatgpt-subscription-auth", config)) {
+        writeCliError("This feature is not yet available", opts.json);
+        return;
+      }
+
+      try {
+        // Step 1: Request device code (pure HTTP, no daemon)
+        const init = await requestDeviceCode(OPENAI_DEVICE_CODE_CONFIG);
+
+        process.stdout.write(
+          `Visit ${init.verificationUri} and enter code: ${init.userCode}\n`,
+        );
+
+        // Step 2: Poll for token (pure HTTP, no daemon)
+        const tokens = await pollForToken(
+          OPENAI_DEVICE_CODE_CONFIG,
+          init.deviceCode,
+          init.interval,
+          init.expiresIn,
+        );
+
+        // Step 3: Store tokens in CES
+        const accessStored = await setSecureKeyAsync(
+          "credential/openai-codex/access_token",
+          tokens.accessToken,
+        );
+        if (!accessStored) {
+          writeCliError("Failed to store access token", opts.json);
+          return;
+        }
+
+        if (tokens.refreshToken) {
+          const refreshStored = await setSecureKeyAsync(
+            "credential/openai-codex/refresh_token",
+            tokens.refreshToken,
+          );
+          if (!refreshStored) {
+            writeCliError("Failed to store refresh token", opts.json);
+            return;
+          }
+        }
+
+        // Step 4: Create (or update) provider connection via IPC
+        const connectionName = "openai-codex-subscription";
+        const authInput = {
+          type: "oauth_subscription",
+          credential: "credential/openai-codex/access_token",
+        };
+
+        // Try to update first; if the connection doesn't exist, create it.
+        const updateResult = await cliIpcCall<ProviderConnection>(
+          "inference_provider_connections_update",
+          {
+            pathParams: { name: connectionName },
+            body: { auth: authInput },
+          },
+        );
+
+        if (!updateResult.ok) {
+          // Connection doesn't exist yet — create it
+          const createResult = await cliIpcCall<ProviderConnection>(
+            "inference_provider_connections_create",
+            {
+              body: {
+                name: connectionName,
+                provider: "openai",
+                auth: authInput,
+              },
+            },
+          );
+
+          if (!createResult.ok) {
+            writeCliError(
+              createResult.error ?? "Failed to create provider connection",
+              opts.json,
+            );
+            return;
+          }
+        }
+
+        if (opts.json) {
+          process.stdout.write(
+            JSON.stringify({
+              ok: true,
+              connection: connectionName,
+              message: "ChatGPT subscription auth configured successfully",
+            }) + "\n",
+          );
+        } else {
+          process.stdout.write(
+            `ChatGPT subscription auth configured successfully.\n` +
+              `Connection "${connectionName}" is ready (provider=openai, auth=oauth_subscription).\n`,
+          );
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        writeCliError(message, opts.json);
+      }
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
@@ -349,4 +474,6 @@ Examples:
   attachCreateSubcommand(connections);
   attachUpdateSubcommand(connections);
   attachDeleteSubcommand(connections);
+
+  attachLoginChatgptSubcommand(providers);
 }

@@ -90,6 +90,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "chatgpt-subscription-auth",
+      "scope": "assistant",
+      "key": "chatgpt-subscription-auth",
+      "label": "ChatGPT Subscription Auth",
+      "description": "Enable ChatGPT subscription OAuth as a provider auth type for OpenAI models, using the Codex device-code flow.",
+      "defaultEnabled": false
+    },
+    {
       "id": "deploy-to-vercel",
       "scope": "assistant",
       "key": "deploy-to-vercel",
