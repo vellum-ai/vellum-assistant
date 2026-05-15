@@ -27,7 +27,7 @@ import { VellumPlatformClient } from "../platform/client.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
-import type { TelemetryEvent } from "./types.js";
+import type { TelemetryEvent, TurnTelemetryClientInfo } from "./types.js";
 
 const log = getLogger("usage-telemetry");
 
@@ -242,16 +242,43 @@ export class UsageTelemetryReporter {
             recorded_at: e.createdAt,
           }),
         ),
-        ...turnEvents.map(
-          (e): TelemetryEvent => ({
+        ...turnEvents.map((e): TelemetryEvent => {
+          // `messages.metadata.client` is a nested JSON object extracted
+          // via `json_extract`; sqlite returns it as a text representation.
+          // Parse defensively — a corrupted blob in the JSON column should
+          // not block the whole batch flush.
+          let client: TurnTelemetryClientInfo | null = null;
+          if (e.clientJson) {
+            try {
+              const parsed = JSON.parse(e.clientJson) as unknown;
+              if (
+                parsed &&
+                typeof parsed === "object" &&
+                !Array.isArray(parsed)
+              ) {
+                client = parsed as TurnTelemetryClientInfo;
+              }
+            } catch {
+              // Malformed client JSON — emit null rather than fail the
+              // batch. Logged once below for visibility.
+              log.warn(
+                { turnId: e.id, conversationId: e.conversationId },
+                "Telemetry turn: failed to parse messages.metadata.client; emitting null",
+              );
+            }
+          }
+          return {
             type: "turn",
             daemon_event_id: e.id,
             recorded_at: e.createdAt,
             conversation_id: e.conversationId,
             conversation_type: e.conversationType,
             turn_index: e.turnIndex,
-          }),
-        ),
+            interface_id: e.interfaceId,
+            channel_id: e.channelId,
+            client,
+          };
+        }),
         ...lifecycleEvents.map(
           (e): TelemetryEvent => ({
             type: "lifecycle",
