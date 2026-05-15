@@ -40,10 +40,9 @@ public struct VShortcutTag: View {
                 tagContent
             }
             .buttonStyle(.plain)
-            .onHover { hovering in
-                isHovered = hovering
-            }
-            .pointerCursor()
+            .pointerCursor(onHover: { hovering in
+                if isHovered != hovering { isHovered = hovering }
+            })
             .accessibilityLabel(text)
         } else {
             tagContent

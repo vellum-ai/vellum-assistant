@@ -213,8 +213,9 @@ public struct SubagentGroupRow: View {
         .background(isHovered ? VColor.surfaceActive : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture { onTap?() }
-        .onHover { isHovered = $0 }
-        .pointerCursor()
+        .pointerCursor(onHover: { hovering in
+            if isHovered != hovering { isHovered = hovering }
+        })
         .accessibilityLabel("Subagent: \(subagent.label), \(statusLabel)")
         .accessibilityHint("Opens subagent detail panel")
         .accessibilityAddTraits(.isButton)

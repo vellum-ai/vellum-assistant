@@ -102,10 +102,10 @@ public struct VSplitButton<MenuContent: View>: View {
                 .background(zoneBackgroundColor(isHovered: isPrimaryHovered))
             }
             .buttonStyle(.plain)
-            .onHover { hovering in
-                isPrimaryHovered = isDisabled ? false : hovering
-            }
-            .pointerCursor()
+            .pointerCursor(onHover: { hovering in
+                let newValue = isDisabled ? false : hovering
+                if isPrimaryHovered != newValue { isPrimaryHovered = newValue }
+            })
 
             // Divider
             divider
@@ -164,10 +164,10 @@ public struct VSplitButton<MenuContent: View>: View {
             .accessibilityLabel("\(label) options")
         }
         .frame(width: dropdownWidth, height: zoneHeight)
-        .onHover { hovering in
-            isDropdownHovered = isDisabled ? false : hovering
-        }
-        .pointerCursor()
+        .pointerCursor(onHover: { hovering in
+            let newValue = isDisabled ? false : hovering
+            if isDropdownHovered != newValue { isDropdownHovered = newValue }
+        })
     }
     #endif
 
@@ -200,10 +200,10 @@ public struct VSplitButton<MenuContent: View>: View {
             .accessibilityLabel("\(label) options")
         }
         .frame(width: dropdownWidth, height: zoneHeight)
-        .onHover { hovering in
-            isDropdownHovered = isDisabled ? false : hovering
-        }
-        .pointerCursor()
+        .pointerCursor(onHover: { hovering in
+            let newValue = isDisabled ? false : hovering
+            if isDropdownHovered != newValue { isDropdownHovered = newValue }
+        })
         .overlay {
             GeometryReader { geo in
                 Color.clear

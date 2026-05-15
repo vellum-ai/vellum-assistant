@@ -81,8 +81,9 @@ private struct Segment: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .pointerCursor()
+        .pointerCursor(onHover: { hovering in
+            if isHovered != hovering { isHovered = hovering }
+        })
         .accessibilityLabel(label)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }

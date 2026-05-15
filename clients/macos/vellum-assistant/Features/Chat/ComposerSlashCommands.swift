@@ -134,7 +134,8 @@ struct SlashCommandRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hovering in isHovered = hovering }
-        .pointerCursor()
+        .pointerCursor(onHover: { hovering in
+            if isHovered != hovering { isHovered = hovering }
+        })
     }
 }

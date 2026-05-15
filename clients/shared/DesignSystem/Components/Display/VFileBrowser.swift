@@ -573,8 +573,9 @@ private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .pointerCursor()
-        .onHover { isHovered = $0 }
+        .pointerCursor(onHover: { hovering in
+            if isHovered != hovering { isHovered = hovering }
+        })
         .animation(VAnimation.fast, value: isHovered)
         .accessibilityLabel(node.name)
         .accessibilityHint(directoryAccessibilityHint)

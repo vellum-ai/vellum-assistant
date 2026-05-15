@@ -170,10 +170,10 @@ struct AppSharePanelView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            hoveredServiceIndex = hovering ? index : nil
-        }
-        .pointerCursor()
+        .pointerCursor(onHover: { hovering in
+            let newValue = hovering ? index : nil
+            if hoveredServiceIndex != newValue { hoveredServiceIndex = newValue }
+        })
     }
 
     // MARK: - Helpers
