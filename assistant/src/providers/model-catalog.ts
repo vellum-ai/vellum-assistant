@@ -45,6 +45,8 @@ export interface CatalogModel {
   supportsVision?: boolean;
   supportsToolUse?: boolean;
   pricing?: CatalogModelPricing;
+  /** When set, this model is only visible when the named feature flag is enabled. */
+  featureFlag?: string;
 }
 
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 200000;
@@ -97,6 +99,8 @@ export interface ProviderCatalogEntry {
    * OpenRouter where managed keys are not available.
    */
   supportsPlatformAuth?: boolean;
+  /** When set, this provider is only visible when the named feature flag is enabled. */
+  featureFlag?: string;
 }
 
 /**
