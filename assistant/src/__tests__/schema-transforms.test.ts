@@ -157,6 +157,26 @@ describe("injectActivityField", () => {
     expect(Object.is(result[0], defs[0])).toBe(true);
   });
 
+  test("passes through undefined/null input_schema unchanged (no crash)", () => {
+    // Repro for the crash where an MCP server returned a tool with missing
+    // inputSchema and `injectActivityField` threw on `schema.type` access.
+    const defs: ToolDefinition[] = [
+      {
+        name: "missing",
+        description: "x",
+        input_schema: undefined as unknown as object,
+      },
+      {
+        name: "nullish",
+        description: "x",
+        input_schema: null as unknown as object,
+      },
+    ];
+    const result = injectActivityField(defs);
+    expect(Object.is(result[0], defs[0])).toBe(true);
+    expect(Object.is(result[1], defs[1])).toBe(true);
+  });
+
   test("does NOT add activity to top-level required when only in oneOf branch", () => {
     const defs = [
       makeDef("my_tool", {
