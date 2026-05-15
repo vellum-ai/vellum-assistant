@@ -121,6 +121,9 @@ const state = {
   // Throw queue for upsert: first call shifts and throws if non-null;
   // subsequent calls succeed once the queue is exhausted.
   upsertThrowQueue: [] as Array<Error | null>,
+  // Throw queue for createPayloadIndex: each entry maps to the next call,
+  // so tests can simulate index-creation failures (strict-mode, network).
+  createIndexThrowQueue: [] as Array<Error | null>,
 };
 
 class MockQdrantClient {
@@ -157,6 +160,10 @@ class MockQdrantClient {
     params: { field_name: string; field_schema: string },
   ) {
     state.createIndexCalls.push(params);
+    if (state.createIndexThrowQueue.length > 0) {
+      const next = state.createIndexThrowQueue.shift();
+      if (next) throw next;
+    }
     return {};
   }
   async upsert(_name: string, params: { wait: boolean; points: MockPoint[] }) {
@@ -228,6 +235,7 @@ function resetState(): void {
   state.countThrows = null;
   state.countCalls = 0;
   state.upsertThrowQueue.length = 0;
+  state.createIndexThrowQueue.length = 0;
   _resetMemoryV2QdrantForTests();
   // Drop any sentinel a prior test left behind so the no-drift default path
   // doesn't accidentally report `migrated: true`.
@@ -438,6 +446,54 @@ describe("memory v2 qdrant — collection lifecycle", () => {
     expect(existsSync(REEMBED_SENTINEL_PATH)).toBe(false);
     await clearReembedSentinel();
     expect(existsSync(REEMBED_SENTINEL_PATH)).toBe(false);
+  });
+
+  test("swallows 'already exists' on createPayloadIndex but propagates other failures without latching readiness", async () => {
+    // Existing collection that already has the full schema — the ensure
+    // path goes through `ensurePayloadIndexes` to backfill long-lived
+    // installs. The first index call hits an "already exists" race
+    // (benign; swallow); the second hits a strict-mode rejection (must
+    // propagate so readiness is not latched).
+    state.collectionExistsBeforeCreate = true;
+    state.createIndexThrowQueue.push(
+      Object.assign(
+        new Error("Wrong input: Payload field 'slug' already exists"),
+        { status: 400 },
+      ),
+      Object.assign(
+        new Error(
+          "Strict mode prohibits creating payload indexes on this deployment",
+        ),
+        { status: 400 },
+      ),
+    );
+
+    let caught: unknown = null;
+    try {
+      await ensureConceptPageCollection();
+    } catch (err) {
+      caught = err;
+    }
+    expect((caught as Error | null)?.message).toMatch(/strict mode/i);
+
+    // Both attempts ran; the strict-mode failure was not swallowed.
+    expect(state.createIndexCalls).toEqual([
+      { field_name: "slug", field_schema: "keyword" },
+      { field_name: "kind", field_schema: "keyword" },
+    ]);
+
+    // Readiness must NOT be latched after a non-benign failure — otherwise
+    // later slug/kind-filtered queries (e.g. skill backfill) would keep
+    // failing until a daemon restart. A follow-up ensure must retry.
+    const result = await ensureConceptPageCollection();
+    expect(result).toEqual({ migrated: false });
+    // Indexes attempted again on the retry (no throws queued this time).
+    expect(state.createIndexCalls).toEqual([
+      { field_name: "slug", field_schema: "keyword" },
+      { field_name: "kind", field_schema: "keyword" },
+      { field_name: "slug", field_schema: "keyword" },
+      { field_name: "kind", field_schema: "keyword" },
+    ]);
   });
 
   test("concurrent ensure during a schema rebuild only deletes/creates once", async () => {

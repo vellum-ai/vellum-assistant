@@ -17,12 +17,13 @@
  * targets the user's actual desktop application, which is a host-wide
  * resource. It is acquired optimistically when `app_control_start` is
  * dispatched (storing `(conversationId, app)`) so that the synchronous
- * guard and the asynchronous host round-trip cannot race; the prior
- * session value is snapshotted before the overwrite and restored if the
- * dispatch fails or the host returns a non-running state, so a failed
- * re-start within the same conversation does not strand the original
- * session. The lock is released outright when the owning proxy's
- * `dispose()` fires.
+ * guard and the asynchronous host round-trip cannot race. A separate
+ * `confirmedAppControlSession` tracks the last successfully-started
+ * session; the rollback path on a failed `start` restores from confirmed
+ * (not from a sibling optimistic write), so two overlapping starts that
+ * both fail cannot leave a phantom lock pointing at a never-confirmed
+ * optimistic value. The lock is released outright when the owning
+ * proxy's `dispose()` fires.
  *
  * `app_control_start` is the only tool that can acquire the lock — the
  * user's medium-risk approval at start time is the consent boundary. All
@@ -84,34 +85,47 @@ export interface ActiveAppControlSession {
 }
 
 /**
- * Currently active session, or `undefined` when no session is held.
+ * Currently active session, or `undefined` when no session is held. This
+ * is the optimistic value: it is set the moment a `start` is dispatched
+ * and only promoted to {@link confirmedAppControlSession} when the host
+ * returns `running`.
  *
  * Exported for test inspection only. Production code paths must not read
  * or mutate this directly — use the proxy methods.
  */
 let activeAppControlSession: ActiveAppControlSession | undefined;
 
-/** Test-only helper: read current session. */
+/**
+ * Last session whose `start` was confirmed by the host (`payload.state ===
+ * "running"`). Used as the rollback baseline so a failed start never
+ * restores a sibling in-flight optimistic write — only a session that was
+ * actually running can re-emerge from a rollback.
+ */
+let confirmedAppControlSession: ActiveAppControlSession | undefined;
+
+/** Test-only helper: read current (optimistic) session. */
 export function _getActiveAppControlSession():
   | ActiveAppControlSession
   | undefined {
   return activeAppControlSession;
 }
 
-/** Test-only helper: clear session between test cases. */
+/** Test-only helper: clear both session pointers between test cases. */
 export function _resetActiveAppControlSession(): void {
   activeAppControlSession = undefined;
+  confirmedAppControlSession = undefined;
 }
 
 /**
- * Test-only helper: prime the active session without a full `start` round-trip.
- * Useful for tests that exercise non-start tool paths and don't need to
- * verify the start flow itself.
+ * Test-only helper: prime both session pointers without a full `start`
+ * round-trip. Useful for tests that exercise non-start tool paths and
+ * don't need to verify the start flow itself.
  */
 export function _setActiveAppControlSession(
   session: ActiveAppControlSession,
 ): void {
   activeAppControlSession = session;
+  confirmedAppControlSession = session;
 }
 
 /**
@@ -254,11 +268,9 @@ export class HostAppControlProxy extends HostProxyBase<
           isError: true,
         };
       }
-      // Snapshot the prior session before the optimistic overwrite so a
-      // failed re-start within the same conversation can restore it rather
-      // than stranding the original session. For a first start from a
-      // clean state this is `undefined` (restore == release).
-      priorSession = activeAppControlSession;
+      // Snapshot the last confirmed session — see the module header for
+      // why we use confirmed, not the live optimistic value.
+      priorSession = confirmedAppControlSession;
       // Acquire optimistically to close the TOCTOU window between this
       // synchronous guard and the asynchronous `dispatchRequest` below. Two
       // concurrent starts from different conversations would otherwise both
@@ -291,8 +303,12 @@ export class HostAppControlProxy extends HostProxyBase<
         undefined,
         targetClientId,
       );
-      if (input.tool === "start" && payload.state !== "running") {
-        this.rollbackStartIfCurrent(attemptedSession, priorSession);
+      if (input.tool === "start") {
+        if (payload.state === "running") {
+          this.promoteStartIfCurrent(attemptedSession);
+        } else {
+          this.rollbackStartIfCurrent(attemptedSession, priorSession);
+        }
       }
       return this.handleSuccess(payload);
     } catch (err) {
@@ -336,14 +352,30 @@ export class HostAppControlProxy extends HostProxyBase<
   }
 
   /**
-   * Release the module-level session lock if this proxy is the current
-   * holder. Used by `dispose()` — distinct from `rollbackStartIfCurrent`
-   * because dispose is keyed on ownership (conversationId) rather than on
-   * a specific in-flight start.
+   * Promote this start's optimistic write to the confirmed pointer when
+   * the host returns `running`. Identity-keyed so a late success from an
+   * older overlapping start does not overwrite a newer confirmed session.
+   */
+  private promoteStartIfCurrent(
+    attempted: ActiveAppControlSession | undefined,
+  ): void {
+    if (attempted != null && activeAppControlSession === attempted) {
+      confirmedAppControlSession = attempted;
+    }
+  }
+
+  /**
+   * Release both the optimistic and confirmed module-level session
+   * pointers if this proxy is the current holder. Used by `dispose()` —
+   * distinct from `rollbackStartIfCurrent` because dispose is keyed on
+   * ownership (conversationId) rather than on a specific in-flight start.
    */
   private releaseSessionIfHeld(): void {
     if (activeAppControlSession?.conversationId === this.conversationId) {
       activeAppControlSession = undefined;
+    }
+    if (confirmedAppControlSession?.conversationId === this.conversationId) {
+      confirmedAppControlSession = undefined;
     }
   }
 

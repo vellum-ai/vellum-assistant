@@ -25,7 +25,7 @@ import type { WorkspaceMigration } from "./types.js";
  * `gemini-3-flash`, restoring the user's pre-057 state.
  */
 export const revertStaleGeminiMisRewritesMigration: WorkspaceMigration = {
-  id: "085-revert-stale-gemini-mis-rewrites",
+  id: "086-revert-stale-gemini-mis-rewrites",
   description:
     "Revert 057 mis-rewrites of gemini-3-flash in non-Gemini fragment contexts",
   run(workspaceDir: string): void {

@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { revertStaleGeminiMisRewritesMigration } from "../workspace/migrations/085-revert-stale-gemini-mis-rewrites.js";
+import { revertStaleGeminiMisRewritesMigration } from "../workspace/migrations/086-revert-stale-gemini-mis-rewrites.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 
 let workspaceDir: string;
@@ -17,7 +17,7 @@ let workspaceDir: string;
 function freshWorkspace(): void {
   workspaceDir = join(
     tmpdir(),
-    `vellum-migration-085-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `vellum-migration-086-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(workspaceDir, { recursive: true });
 }
@@ -47,7 +47,7 @@ afterEach(() => {
   }
 });
 
-describe("085-revert-stale-gemini-mis-rewrites migration", () => {
+describe("086-revert-stale-gemini-mis-rewrites migration", () => {
   test("registered in WORKSPACE_MIGRATIONS", () => {
     expect(WORKSPACE_MIGRATIONS).toContain(
       revertStaleGeminiMisRewritesMigration,

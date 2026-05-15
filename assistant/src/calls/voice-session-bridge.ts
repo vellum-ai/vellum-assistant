@@ -395,7 +395,10 @@ export async function startVoiceTurn(
   // Hoisted so the catch below can clear partially-applied turn state
   // when a setter or `persistUserMessage` throws — otherwise `trustContext`,
   // `callSessionId`, etc. leak into subsequent non-voice turns on the same
-  // conversation.
+  // conversation. The client callback is only reset when this turn actually
+  // installed it (tracked via `clientCallbackInstalled`); otherwise cleanup
+  // would detach an active sender installed by a prior turn.
+  let clientCallbackInstalled = false;
   const cleanup = () => {
     conversation.setChannelCapabilities(null);
     conversation.setTrustContext(null);
@@ -404,9 +407,11 @@ export async function startVoiceTurn(
     conversation.setVoiceCallControlPrompt(null);
     conversation.callSessionId = undefined;
     conversation.forcePromptSideEffects = false;
-    // Reset the client callback to a no-op so the stale closure doesn't
-    // intercept events from future turns on the same conversation.
-    conversation.updateClient(() => {}, true);
+    if (clientCallbackInstalled) {
+      // Reset the client callback to a no-op so the stale closure doesn't
+      // intercept events from future turns on the same conversation.
+      conversation.updateClient(() => {}, true);
+    }
   };
 
   const requestId = crypto.randomUUID();
@@ -575,6 +580,7 @@ export async function startVoiceTurn(
     }
     broadcastMessage(msg);
   });
+  clientCallbackInstalled = true;
 
   // Fire-and-forget the agent loop
   void (async () => {

@@ -177,9 +177,11 @@ final class InteractiveTurnCompletionTickTests: XCTestCase {
         viewModel.sendMessage()
         // Simulate the daemon having queued 2 items behind the in-flight.
         // `pendingQueuedCount` reflects only still-queued entries (the
-        // in-flight already triggered `message_dequeued`), so the cancel
-        // batch emits 3 events total — 1 for the in-flight (handled by the
-        // first event) and 2 trailing echoes for the queued items.
+        // in-flight already triggered `message_dequeued`, which also
+        // populates `activeRequestIdToMessageId`). The cancel batch emits
+        // 3 events total — 1 for the in-flight (handled by the first
+        // event) and 2 trailing echoes for the queued items.
+        viewModel.activeRequestIdToMessageId["req-in-flight"] = UUID()
         viewModel.pendingQueuedCount = 2
 
         // User cancels; daemon emits 3 `generation_cancelled` events. The
@@ -210,5 +212,78 @@ final class InteractiveTurnCompletionTickTests: XCTestCase {
         viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
         XCTAssertEqual(viewModel.messageManager.interactiveTurnCompletionTick, beforeTick &+ 1,
                        "New send's completion must still bump the interactive tick")
+    }
+
+    func testCancelWhileNewestSendStillQueuedDoesNotOvercountBudget() {
+        // Codex P2: user sends, `message_queued` arrives, user cancels
+        // before `message_dequeued` is processed. There is no dequeued
+        // in-flight request — the cancel batch contains only the queued
+        // item. The daemon emits exactly one `generation_cancelled`
+        // (consumed by the `wasCancelling = true` branch); no trailing
+        // echoes follow. The stale-echo budget must therefore be 0, not
+        // `pendingQueuedCount` (which would leave 1 stuck and silently
+        // absorb the next legitimate per-message daemon cancel).
+        viewModel.inputText = "First"
+        viewModel.sendMessage()
+        // Nothing has been dequeued: `activeRequestIdToMessageId` is empty
+        // and `pendingQueuedCount` includes the not-yet-dequeued send.
+        XCTAssertTrue(viewModel.activeRequestIdToMessageId.isEmpty)
+        viewModel.pendingQueuedCount = 1
+
+        viewModel.isCancelling = true
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: "test-conversation")))
+
+        XCTAssertEqual(viewModel.messageManager.staleCancelEventsExpected, 0,
+                       "No dequeued in-flight means no trailing echoes; budget must be 0 to avoid overcount")
+
+        // Confirm a subsequent legitimate per-message daemon cancel for a
+        // new send is not silently absorbed by leftover budget.
+        viewModel.inputText = "Second"
+        viewModel.sendMessage()
+        XCTAssertEqual(viewModel.messageManager.pendingUserTurnCount, 1)
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: "test-conversation")))
+        XCTAssertEqual(viewModel.messageManager.pendingUserTurnCount, 0,
+                       "Per-message daemon cancel must decrement the new send's count, not drain stale budget")
+    }
+
+    func testMessageCompleteForNewSendDrainsResidualBudgetFromEchoLoss() {
+        // Devin: if the daemon emits fewer trailing `generation_cancelled`
+        // echoes than primed (echo loss without a full stream disconnect),
+        // `staleCancelEventsExpected` would otherwise remain positive
+        // until the watchdog timeout. During that window, any legitimate
+        // per-message daemon cancel would silently drain the stale budget
+        // instead of decrementing `pendingUserTurnCount`. The fix: a real
+        // `message_complete` for a new send clears the budget, since it
+        // implies the prior cancel batch is fully resolved.
+        viewModel.inputText = "First"
+        viewModel.sendMessage()
+        viewModel.activeRequestIdToMessageId["req-in-flight"] = UUID()
+        viewModel.pendingQueuedCount = 2
+
+        viewModel.isCancelling = true
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: "test-conversation")))
+        XCTAssertEqual(viewModel.messageManager.staleCancelEventsExpected, 2)
+
+        // User dispatches a new send; only one trailing echo arrives (the
+        // other was dropped). Without the drain, residual budget = 1.
+        viewModel.inputText = "Second"
+        viewModel.sendMessage()
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: "test-conversation")))
+        XCTAssertEqual(viewModel.messageManager.staleCancelEventsExpected, 1,
+                       "Echo loss left residual budget; setup confirms preconditions for the drain")
+
+        // `message_complete` for the new send must zero the residual.
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        XCTAssertEqual(viewModel.messageManager.staleCancelEventsExpected, 0,
+                       "message_complete for a new send must drain residual budget from echo loss")
+
+        // A subsequent per-message daemon cancel for a third send must
+        // now decrement `pendingUserTurnCount` instead of being absorbed.
+        viewModel.inputText = "Third"
+        viewModel.sendMessage()
+        XCTAssertEqual(viewModel.messageManager.pendingUserTurnCount, 1)
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(conversationId: "test-conversation")))
+        XCTAssertEqual(viewModel.messageManager.pendingUserTurnCount, 0,
+                       "Without leftover budget, the daemon cancel decrements as intended")
     }
 }
