@@ -192,6 +192,8 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "schedules",
   "schedules list",
   "schedules runs",
+  "schedules enable",
+  "schedules disable",
   "schedules cancel",
   "schedules execute",
   "sequence",
@@ -500,6 +502,16 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "platform connect", risk: "low" },
   { path: "platform disconnect", risk: "medium" },
   { path: "platform callback-routes register", risk: "low" },
+  {
+    path: "schedules enable",
+    risk: "medium",
+    reason: "Enables a schedule and mutates assistant schedule state",
+  },
+  {
+    path: "schedules disable",
+    risk: "medium",
+    reason: "Disables a schedule and mutates assistant schedule state",
+  },
   {
     path: "schedules cancel",
     risk: "medium",
