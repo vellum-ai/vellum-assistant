@@ -220,7 +220,18 @@ struct MessageListView: View {
                                     // plus applies, with pre/post offsets.
                                     guard isScrollDebugOverlayEnabled else { return }
                                     scrollState.recordAnchorDecision(event)
-                                }
+                                },
+                                onContentHeightSourceDiagnostic: isScrollDebugOverlayEnabled
+                                    ? { event in
+                                        // Debug-only attribution of which subview
+                                        // grew/shrank when contentH ticked by a
+                                        // small amount. Passing the callback as
+                                        // `nil` when the flag is off short-circuits
+                                        // the coordinator's tree walk entirely,
+                                        // so we pay nothing in production.
+                                        MessageListView.logContentHeightSource(event)
+                                      }
+                                    : nil
                             )
                         )
                     Spacer(minLength: 0)
