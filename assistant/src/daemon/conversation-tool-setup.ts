@@ -13,6 +13,7 @@ import {
 } from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
+import { getConfig } from "../config/loader.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -571,7 +572,10 @@ export function createResolveToolsCallback(
     const scopedMcpDefs = ctx.subagentAllowedTools
       ? currentMcpDefs.filter((d) => ctx.subagentAllowedTools!.has(d.name))
       : currentMcpDefs;
-    const allBaseDefs = [...scopedCoreDefs, ...scopedMcpDefs];
+    const excluded = new Set(getConfig().tools.exclude);
+    const allBaseDefs = [...scopedCoreDefs, ...scopedMcpDefs].filter(
+      (d) => !excluded.has(d.name),
+    );
 
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
@@ -588,6 +592,7 @@ export function createResolveToolsCallback(
       if (ctx.subagentAllowedTools && !ctx.subagentAllowedTools.has(name)) {
         continue;
       }
+      if (excluded.has(name)) continue;
       turnAllowed.add(name);
     }
     if (ctx.diskPressureCleanupModeActive === true) {
