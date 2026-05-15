@@ -15,6 +15,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint",
     "lint:unused": "knip --include files,dependencies,unlisted",
+    "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
   },
   "author": "Vellum AI",
