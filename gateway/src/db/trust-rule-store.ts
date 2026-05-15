@@ -175,6 +175,7 @@ export class TrustRuleStore {
       ON CONFLICT (tool, pattern) DO UPDATE SET
         risk = excluded.risk,
         description = excluded.description,
+        origin = excluded.origin,
         deleted = 0,
         updated_at = excluded.updated_at
     `);

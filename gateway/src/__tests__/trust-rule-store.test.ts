@@ -134,6 +134,7 @@ describe("create()", () => {
     expect(recreated.deleted).toBe(false);
     expect(recreated.risk).toBe("medium");
     expect(recreated.description).toBe("Re-created by user");
+    expect(recreated.origin).toBe("user_defined");
   });
 });
 
