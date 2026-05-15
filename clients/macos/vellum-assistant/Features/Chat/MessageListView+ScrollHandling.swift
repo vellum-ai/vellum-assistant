@@ -129,4 +129,16 @@ extension MessageListView {
         }
     }
 
+    // MARK: - Scroll debug callbacks
+
+    func handleDebugAnchorShift() {
+        guard isScrollDebugOverlayEnabled else { return }
+        scrollState.recordDebugAnchorShift()
+    }
+
+    func handleDebugAnchorDecision(_ event: ScrollAnchorDecisionEvent) {
+        guard isScrollDebugOverlayEnabled else { return }
+        scrollState.recordAnchorDecision(event)
+    }
+
 }

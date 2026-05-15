@@ -206,31 +206,10 @@ struct MessageListView: View {
                                     // the snap.
                                     !scrollState.isPaginationInFlight && scrollState.isStreamingActive
                                 },
-                                onAnchorShift: { [scrollState, isScrollDebugOverlayEnabled] in
-                                    // Debug-only counter for anchor-preserver
-                                    // activations. Gated on the cached flag
-                                    // so the hot path doesn't take the flag
-                                    // manager's `NSLock` per shift.
-                                    guard isScrollDebugOverlayEnabled else { return }
-                                    scrollState.recordDebugAnchorShift()
-                                },
-                                onAnchorDecision: { [scrollState, isScrollDebugOverlayEnabled] event in
-                                    // Debug-only full-decision log. Captures
-                                    // skips (shrinks, live-scroll gate, etc.)
-                                    // plus applies, with pre/post offsets.
-                                    guard isScrollDebugOverlayEnabled else { return }
-                                    scrollState.recordAnchorDecision(event)
-                                },
+                                onAnchorShift: handleDebugAnchorShift,
+                                onAnchorDecision: handleDebugAnchorDecision,
                                 onContentHeightSourceDiagnostic: isScrollDebugOverlayEnabled
-                                    ? { event in
-                                        // Debug-only attribution of which subview
-                                        // grew/shrank when contentH ticked by a
-                                        // small amount. Passing the callback as
-                                        // `nil` when the flag is off short-circuits
-                                        // the coordinator's tree walk entirely,
-                                        // so we pay nothing in production.
-                                        MessageListView.logContentHeightSource(event)
-                                      }
+                                    ? MessageListView.logContentHeightSource
                                     : nil
                             )
                         )
