@@ -124,6 +124,7 @@ import {
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
+  migrateNormalizeSlackExternalContent,
   migrateNormalizeUserFileByPrincipal,
   migrateNotificationDeliveryThreadDecision,
   migrateOAuthAppsClientSecretPath,
@@ -428,6 +429,7 @@ export function initializeDb(): void {
     migrateBackfillProviderConnectionLabel,
     migrateExternalConversationBindingThreadId,
     createOnboardingEventsTable,
+    migrateNormalizeSlackExternalContent,
   ];
 
   // Run each migration step, catching and logging individual failures so one
