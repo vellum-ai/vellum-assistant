@@ -108,11 +108,11 @@ extension ChatViewModel {
             } else {
                 messages[index].textSegments[messages[index].textSegments.count - 1] += text
             }
-        } else if currentAssistantMessageId != nil {
-            log.warning("Stale currentAssistantMessageId \(self.currentAssistantMessageId!.uuidString) — discarding \(text.count) buffered chars")
-            currentAssistantMessageId = nil
-            return
         } else {
+            if let staleId = currentAssistantMessageId {
+                log.warning("Stale currentAssistantMessageId \(staleId.uuidString) — promoting buffered \(text.count) chars to new message")
+                currentAssistantMessageId = nil
+            }
             var msg = ChatMessage(role: .assistant, text: text, isStreaming: true)
             if currentTurnUserText == "/models" {
                 msg.modelList = ModelListData()

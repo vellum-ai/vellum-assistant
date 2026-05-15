@@ -276,12 +276,20 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Cancel any pending idle fallback and clear per-message turn tracking state.
     /// Every code path that sets `currentAssistantMessageId = nil` should call this
     /// instead to ensure the idle fallback timer is always cancelled.
+    ///
+    /// Also discards any in-flight streaming/partial-output buffers tied to the
+    /// turn being cleared. A scheduled flush firing after this point would
+    /// otherwise try to append to a now-nil `currentAssistantMessageId`, creating
+    /// an orphan message — or worse, append to a freshly assigned ID from the
+    /// next turn, splicing dropped leading chunks of the next response.
     func clearCurrentTurnTracking() {
         idleFallbackTask?.cancel()
         idleFallbackTask = nil
         currentAssistantMessageId = nil
         currentTurnUserText = nil
         currentAssistantHasText = false
+        discardStreamingBuffer()
+        discardPartialOutputBuffer()
     }
 
     /// Whether the assistant is actively working on a response — covers sending,
