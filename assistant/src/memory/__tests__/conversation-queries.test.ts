@@ -15,6 +15,7 @@ import {
   buildRecallEvidenceExcerpt,
   countConversations,
   listConversations,
+  listConversationsBySource,
 } from "../conversation-queries.js";
 import { getDb } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
@@ -259,5 +260,117 @@ describe("listConversations", () => {
     // AND not in the foreground list
     const fgList = listConversations(100, false);
     expect(fgList).toHaveLength(0);
+  });
+});
+
+describe("listConversationsBySource", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test("returns only conversations whose source matches exactly", () => {
+    createConversation({
+      title: "consol-1",
+      source: "memory_v2_consolidation",
+    });
+    createConversation({
+      title: "consol-2",
+      source: "memory_v2_consolidation",
+    });
+    createConversation({ title: "heartbeat-1", source: "heartbeat" });
+    createConversation({ title: "user-1", source: "user" });
+
+    const results = listConversationsBySource("memory_v2_consolidation");
+
+    expect(results).toHaveLength(2);
+    expect(results.map((r) => r.title).sort()).toEqual([
+      "consol-1",
+      "consol-2",
+    ]);
+  });
+
+  test("orders by createdAt descending", () => {
+    const a = createConversation({
+      title: "a",
+      source: "memory_v2_consolidation",
+    });
+    const b = createConversation({
+      title: "b",
+      source: "memory_v2_consolidation",
+    });
+    const c = createConversation({
+      title: "c",
+      source: "memory_v2_consolidation",
+    });
+    // Force distinct createdAt regardless of ms-clock granularity.
+    rawRun("UPDATE conversations SET created_at = ? WHERE id = ?", 1000, a.id);
+    rawRun("UPDATE conversations SET created_at = ? WHERE id = ?", 3000, b.id);
+    rawRun("UPDATE conversations SET created_at = ? WHERE id = ?", 2000, c.id);
+
+    const results = listConversationsBySource("memory_v2_consolidation");
+
+    expect(results.map((r) => r.id)).toEqual([b.id, c.id, a.id]);
+  });
+
+  test("honors the limit parameter", () => {
+    for (let i = 0; i < 5; i++) {
+      createConversation({
+        title: `consol-${i}`,
+        source: "memory_v2_consolidation",
+      });
+    }
+
+    const results = listConversationsBySource("memory_v2_consolidation", 3);
+
+    expect(results).toHaveLength(3);
+  });
+
+  test("includes archived rows by default", () => {
+    const conv = createConversation({
+      title: "archived",
+      source: "memory_v2_consolidation",
+    });
+    rawRun(
+      "UPDATE conversations SET archived_at = ? WHERE id = ?",
+      Date.now(),
+      conv.id,
+    );
+
+    const results = listConversationsBySource("memory_v2_consolidation");
+
+    expect(results).toHaveLength(1);
+    expect(results[0]!.archivedAt).not.toBeNull();
+  });
+
+  test("excludes archived rows when includeArchived is false", () => {
+    const archived = createConversation({
+      title: "archived",
+      source: "memory_v2_consolidation",
+    });
+    createConversation({ title: "live", source: "memory_v2_consolidation" });
+    rawRun(
+      "UPDATE conversations SET archived_at = ? WHERE id = ?",
+      Date.now(),
+      archived.id,
+    );
+
+    const results = listConversationsBySource("memory_v2_consolidation", 20, {
+      includeArchived: false,
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]!.title).toBe("live");
+  });
+
+  test("does not apply the subagent-exclusion that listConversations does", () => {
+    // The defensive `source != 'subagent'` carve-out in listConversations is
+    // a foreground/background bucketing concern. A caller asking for the
+    // exact `subagent` source via this query gets exactly that.
+    createConversation({ title: "sub-1", source: "subagent" });
+
+    const results = listConversationsBySource("subagent");
+
+    expect(results).toHaveLength(1);
+    expect(results[0]!.title).toBe("sub-1");
   });
 });

@@ -86,6 +86,48 @@ export function listConversations(
   return query.all().map(parseConversation);
 }
 
+/**
+ * List conversations matching an exact `source` value, ordered by `createdAt`
+ * descending. The surgical filter for "find every background run produced by
+ * job X" — heartbeat, memory_v2_consolidation, watcher-engine, etc. — since
+ * `source` is the canonical job-class distinguisher across the background
+ * bucket. `conversationType` + `group_id` only narrow to "background vs
+ * scheduled vs standard"; neither identifies which job produced the row.
+ *
+ * Filter is exact (no `LIKE`, no implicit exclusions): the route layer is
+ * responsible for knowing which source constants exist and passing one. The
+ * defensive `source != 'subagent'` carve-out applied by `listConversations`
+ * is deliberately NOT replicated here — a caller asking for an exact source
+ * gets exactly that source.
+ *
+ * @param source        Exact match against `conversations.source`. Pass the
+ *                      canonical constant (e.g. `MEMORY_V2_CONSOLIDATION_SOURCE`).
+ * @param limit         Maximum rows to return (default 20).
+ * @param opts.includeArchived  Include rows with non-null `archivedAt`.
+ *                              Defaults to `true` so callers that want a full
+ *                              run history get one; pass `false` for views
+ *                              that hide archived rows.
+ */
+export function listConversationsBySource(
+  source: string,
+  limit = 20,
+  opts?: { includeArchived?: boolean },
+): ConversationRow[] {
+  const db = getDb();
+  const includeArchived = opts?.includeArchived ?? true;
+  const where = includeArchived
+    ? sql`${conversations.source} = ${source}`
+    : sql`${conversations.source} = ${source} AND ${conversations.archivedAt} IS NULL`;
+  const rows = db
+    .select()
+    .from(conversations)
+    .where(where)
+    .orderBy(desc(conversations.createdAt))
+    .limit(limit)
+    .all();
+  return rows.map(parseConversation);
+}
+
 export function listPinnedConversations(): ConversationRow[] {
   ensureDisplayOrderMigration();
   ensureGroupMigration();

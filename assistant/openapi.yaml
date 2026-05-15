@@ -3614,6 +3614,92 @@ paths:
                   - ran
                   - jobId
                 additionalProperties: false
+  /v1/consolidation/runs:
+    get:
+      operationId: consolidation_runs_get
+      summary: List consolidation runs
+      description:
+        "Return recent memory v2 consolidation conversations as run records. Each consolidation dispatch creates
+        exactly one background conversation tagged with `source = memory_v2_consolidation`; that conversation IS the
+        run. Synthetic fields: `id` mirrors `conversationId` (no separate run row exists), `scheduledFor` and
+        `startedAt` both equal `conversation.createdAt` (no separate schedule timestamp), `finishedAt` equals
+        `conversation.lastMessageAt`, `status` is `'ok'` when `lastMessageAt` is set (agent emitted at least one
+        message) otherwise `'running'`. `skipReason` and `error` are always null — skipped runs (lock held, disabled,
+        empty buffer) never create a conversation, and run failure detail is not stored on the conversation row. Shape
+        mirrors `heartbeat/runs` so the schedules settings UI can reuse its run-row component."
+      tags:
+        - consolidation
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        scheduledFor:
+                          type: number
+                        startedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        finishedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        durationMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        status:
+                          type: string
+                          enum:
+                            - ok
+                            - running
+                        skipReason:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        error:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        conversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        createdAt:
+                          type: number
+                      required:
+                        - id
+                        - scheduledFor
+                        - startedAt
+                        - finishedAt
+                        - durationMs
+                        - status
+                        - skipReason
+                        - error
+                        - conversationId
+                        - createdAt
+                      additionalProperties: false
+                    description: Consolidation run records
+                required:
+                  - runs
+                additionalProperties: false
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max runs to return (default 20, max 100)
   /v1/contact-channels/{contactChannelId}:
     patch:
       operationId: contactchannels_by_contactChannelId_patch

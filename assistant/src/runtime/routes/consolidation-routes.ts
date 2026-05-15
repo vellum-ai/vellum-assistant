@@ -17,11 +17,13 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
+import { listConversationsBySource } from "../../memory/conversation-queries.js";
 import {
   enqueueMemoryJob,
   hasActiveJobOfType,
 } from "../../memory/jobs-store.js";
 import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../memory/jobs-worker.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -109,6 +111,81 @@ export const ROUTES: RouteDefinition[] = [
       }
       const jobId = enqueueMemoryJob("memory_v2_consolidate", {});
       return { success: true, ran: true, jobId };
+    },
+  },
+  {
+    operationId: "listConsolidationRuns",
+    endpoint: "consolidation/runs",
+    method: "GET",
+    policyKey: "consolidation",
+    summary: "List consolidation runs",
+    description:
+      "Return recent memory v2 consolidation conversations as run records. " +
+      "Each consolidation dispatch creates exactly one background conversation " +
+      "tagged with `source = memory_v2_consolidation`; that conversation IS " +
+      "the run. Synthetic fields: `id` mirrors `conversationId` (no separate " +
+      "run row exists), `scheduledFor` and `startedAt` both equal " +
+      "`conversation.createdAt` (no separate schedule timestamp), " +
+      "`finishedAt` equals `conversation.lastMessageAt`, `status` is `'ok'` " +
+      "when `lastMessageAt` is set (agent emitted at least one message) " +
+      "otherwise `'running'`. `skipReason` and `error` are always null — " +
+      "skipped runs (lock held, disabled, empty buffer) never create a " +
+      "conversation, and run failure detail is not stored on the " +
+      "conversation row. Shape mirrors `heartbeat/runs` so the schedules " +
+      "settings UI can reuse its run-row component.",
+    tags: ["consolidation"],
+    queryParams: [
+      {
+        name: "limit",
+        schema: { type: "integer" },
+        description: "Max runs to return (default 20, max 100)",
+      },
+    ],
+    responseBody: z.object({
+      runs: z
+        .array(
+          z.object({
+            id: z.string(),
+            scheduledFor: z.number(),
+            startedAt: z.number().nullable(),
+            finishedAt: z.number().nullable(),
+            durationMs: z.number().nullable(),
+            status: z.enum(["ok", "running"]),
+            skipReason: z.string().nullable(),
+            error: z.string().nullable(),
+            conversationId: z.string().nullable(),
+            createdAt: z.number(),
+          }),
+        )
+        .describe("Consolidation run records"),
+    }),
+    handler: async ({ queryParams }: RouteHandlerArgs) => {
+      const params = queryParams ?? {};
+      const rawLimit = Number(params.limit ?? 20);
+      const limit = Number.isFinite(rawLimit)
+        ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
+        : 20;
+      const rows = listConversationsBySource(
+        MEMORY_V2_CONSOLIDATION_SOURCE,
+        limit,
+      );
+      return {
+        runs: rows.map((c) => ({
+          id: c.id,
+          scheduledFor: c.createdAt,
+          startedAt: c.createdAt,
+          finishedAt: c.lastMessageAt,
+          durationMs:
+            c.lastMessageAt != null ? c.lastMessageAt - c.createdAt : null,
+          status: (c.lastMessageAt != null ? "ok" : "running") as
+            | "ok"
+            | "running",
+          skipReason: null,
+          error: null,
+          conversationId: c.id,
+          createdAt: c.createdAt,
+        })),
+      };
     },
   },
 ];
