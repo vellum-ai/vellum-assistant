@@ -211,6 +211,10 @@ export { migrateBackfillProviderConnectionLabel } from "./246-backfill-provider-
 export { migrateExternalConversationBindingThreadId } from "./247-external-conversation-binding-thread-id.js";
 export { createOnboardingEventsTable } from "./248-create-onboarding-events.js";
 export {
+  downNormalizeSlackExternalContent,
+  migrateNormalizeSlackExternalContent,
+} from "./249-normalize-slack-external-content.js";
+export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,
