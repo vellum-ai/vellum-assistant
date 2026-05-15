@@ -253,7 +253,7 @@ public final class SubagentDetailStore {
             subagentStates[subagentId] = SubagentState()
         }
         stagedObjectives[subagentId] = objective
-        if stagedEvents[subagentId] == nil {
+        if stagedEvents[subagentId] == nil && currentEvents(for: subagentId).isEmpty {
             stagedEvents[subagentId] = []
         }
         scheduleFlush()

@@ -23,10 +23,12 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
+import { getDb } from "../memory/db-connection.js";
 import {
   ConnectionResolutionError,
   tryResolveProviderForConnectionName,
 } from "./connection-resolution.js";
+import { listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
 import type {
   Message,
@@ -142,16 +144,32 @@ export class CallSiteRoutingProvider implements Provider {
       overrideProfile,
     });
 
-    if (resolved.provider_connection) {
+    let connectionName = resolved.provider_connection;
+
+    // When no connection is set and the provider differs from the default,
+    // auto-resolve to an active connection for the provider (handles the
+    // "Any active X connection" case where the profile set provider but
+    // not provider_connection, and the merge didn't inherit one).
+    if (!connectionName && resolved.provider !== this.defaultProvider.name) {
+      try {
+        const candidates = listConnections(getDb(), {
+          provider: resolved.provider,
+        });
+        const active = candidates.find((c) => c.status === "active");
+        if (active) {
+          connectionName = active.name;
+        }
+      } catch {
+        // DB not available — fall through to the original error path.
+      }
+    }
+
+    if (connectionName) {
       const connectionProvider = await this.resolveByConnection(
-        resolved.provider_connection,
+        connectionName,
         resolved.provider,
       );
       if (connectionProvider) return connectionProvider;
-      // Soft credential failure — the connection-resolution helper
-      // returned null because the underlying auth bundle yields no
-      // usable adapter (or threw transiently). Reuse the default for
-      // graceful per-call degradation.
       return this.defaultProvider;
     }
 

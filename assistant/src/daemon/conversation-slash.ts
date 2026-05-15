@@ -8,8 +8,8 @@ import {
   saveRawConfig,
 } from "../config/loader.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
-import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { getConfiguredProviders } from "../providers/provider-availability.js";
+import { getVisibleProviderCatalog } from "../providers/provider-catalog-visibility.js";
 
 export type SlashResolution =
   | { kind: "passthrough"; content: string }
@@ -132,7 +132,10 @@ function parseModelCommand(trimmed: string): ModelCommandParse | null {
 }
 
 function orderedProfileNames(
-  profiles: Record<string, { label?: string; description?: string; status?: "active" | "disabled" }>,
+  profiles: Record<
+    string,
+    { label?: string; description?: string; status?: "active" | "disabled" }
+  >,
   profileOrder: readonly string[] | undefined,
 ): string[] {
   const order = profileOrder ?? [];
@@ -177,8 +180,12 @@ async function resolveModelCommand(
       const isDisabled = profile.status === "disabled";
       const marker = isCurrent ? " **[current]**" : "";
       const disabled = isDisabled ? " *(disabled)*" : "";
-      const description = profile.description ? ` — ${profile.description}` : "";
-      lines.push(`  - \`${name}\` (${label})${marker}${disabled}${description}`);
+      const description = profile.description
+        ? ` — ${profile.description}`
+        : "";
+      lines.push(
+        `  - \`${name}\` (${label})${marker}${disabled}${description}`,
+      );
     }
     lines.push("\nSwitch with `/model <name>`.");
     return { kind: "unknown", message: lines.join("\n") };
@@ -240,7 +247,7 @@ async function resolveModelList(): Promise<SlashResolution> {
     id: provider,
     displayName: providerName,
     models,
-  } of PROVIDER_CATALOG) {
+  } of getVisibleProviderCatalog(config)) {
     const hasKey = configuredProviders.has(provider);
     const status = hasKey ? "✓" : "✗";
     lines.push(`**${providerName}** ${status}`);

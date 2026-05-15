@@ -536,4 +536,27 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.maxTokens).toBe(65536);
     expect(resolved.contextWindow.maxInputTokens).toBe(1048576);
   });
+
+  test("profile with provider but no provider_connection inherits stale default connection (JARVIS-861)", () => {
+    // This test documents the merge behavior that causes JARVIS-861: a profile
+    // overrides `provider` but not `provider_connection`, so the deep merge
+    // inherits a stale connection from the default layer. The fix is in the
+    // dispatch layer (connection-resolution auto-resolves the mismatch).
+    const llm = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider_connection: "anthropic-managed",
+      },
+      profiles: {
+        minimax: { provider: "minimax", model: "minimax-m2.7" },
+      },
+      activeProfile: "minimax",
+    });
+
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+
+    expect(resolved.provider).toBe("minimax");
+    // The merge inherits the stale connection — the dispatch layer handles this.
+    expect(resolved.provider_connection).toBe("anthropic-managed");
+  });
 });

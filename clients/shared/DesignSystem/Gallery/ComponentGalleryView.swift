@@ -112,12 +112,6 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("homeFeedGroupHeader", "HomeFeedGroupHeader", keywords: ["feed", "group", "header", "section", "today", "yesterday"], description: "Section header for time-bucketed feed groups (Today / Yesterday / Older)."),
                 GalleryComponent("homeRecapRow", "HomeRecapRow", keywords: ["recap", "row", "feed", "bucket"], description: "Compact row used in the time-bucketed Home feed with tinted icon and optional trailing action."),
                 GalleryComponent(
-                    "homeRecapGroupRow",
-                    "HomeRecapGroupRow",
-                    keywords: ["recap", "group", "row", "feed", "collapsed", "low priority"],
-                    description: "Grouped Home feed row: parent summary header with a nested list of child rows. Used when HomeFeedGrouping collapses 3+ contiguous low-priority items into a single card."
-                ),
-                GalleryComponent(
                     "homeDetailPanel",
                     "HomeDetailPanel",
                     keywords: ["detail panel", "side panel", "home", "container"],

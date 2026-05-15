@@ -312,6 +312,103 @@ Examples:
         );
 
       schedules
+        .command("create <name>")
+        .description("Create a new recurring schedule")
+        .requiredOption(
+          "-e, --expression <expr>",
+          "Cron or RRULE expression that schedules the fire times",
+        )
+        .requiredOption(
+          "-m, --message <text>",
+          "Message body sent to the assistant on each fire",
+        )
+        .option(
+          "-t, --timezone <tz>",
+          "IANA timezone for the expression (e.g. America/New_York)",
+        )
+        .option("--no-enabled", "Create the schedule in a disabled state")
+        .option("--json", "Machine-readable compact JSON output")
+        .addHelpText(
+          "after",
+          `
+Options:
+  -e, --expression <expr>   Cron (e.g. '*/30 * * * *') or RRULE expression.
+  -m, --message <text>      Message body sent on each fire.
+  -t, --timezone <tz>       IANA timezone applied to the expression.
+  --no-enabled              Create the schedule disabled. Defaults to enabled.
+  --json                    Output the updated schedule list as compact JSON.
+
+Arguments:
+  <name>   Display name for the schedule.
+
+Behavior:
+  Creates a recurring schedule in 'execute' mode. The IPC endpoint is
+  currently locked to execute mode; notify/script/wake schedules remain
+  reachable only through the in-assistant schedule_create LLM tool.
+
+Examples:
+  $ assistant schedules create "Heartbeat" \\
+      --expression '*/30 * * * *' \\
+      --message 'run heartbeat'
+  $ assistant schedules create "Morning summary" \\
+      --expression '0 9 * * MON-FRI' \\
+      --timezone America/New_York \\
+      --message 'write the morning summary'
+  $ assistant schedules create "Drafted" \\
+      --expression '0 0 * * *' \\
+      --message 'placeholder' \\
+      --no-enabled --json`,
+        )
+        .action(
+          async (
+            name: string,
+            opts: {
+              expression: string;
+              message: string;
+              timezone?: string;
+              enabled: boolean;
+              json?: boolean;
+            },
+            cmd: Command,
+          ) => {
+            const scheduleName = name.trim();
+            if (!scheduleName) {
+              const error = "name is required";
+              if (opts.json) {
+                writeOutput(cmd, { ok: false, error });
+              } else {
+                log.error(error);
+              }
+              process.exitCode = 1;
+              return;
+            }
+
+            const body: Record<string, unknown> = {
+              name: scheduleName,
+              expression: opts.expression,
+              message: opts.message,
+              enabled: opts.enabled,
+            };
+            if (opts.timezone != null) body.timezone = opts.timezone;
+
+            const result = await cliIpcCall<ListSchedulesResponse>(
+              "createSchedule",
+              { body },
+            );
+
+            if (!result.ok) return exitFromIpcResult(result, cmd);
+
+            const response = result.result ?? { schedules: [] };
+            if (opts.json) {
+              writeOutput(cmd, response);
+              return;
+            }
+
+            log.info(`Created schedule: ${scheduleName}`);
+          },
+        );
+
+      schedules
         .command("enable <id>")
         .description("Enable a schedule")
         .option("--json", "Machine-readable compact JSON output")

@@ -182,6 +182,8 @@ export type TwilioValidationSuccess = {
   rawBody: string;
   /** Parsed key-value pairs from the form body. */
   params: Record<string, string>;
+  /** Candidate URL that matched X-Twilio-Signature. */
+  validatedCandidateUrl?: string;
 };
 
 /** Options bag for optional cache injection into Twilio webhook validation. */
@@ -411,5 +413,9 @@ export async function validateTwilioWebhookRequest(
     log.info(successLogContext, "Twilio webhook signature validated");
   }
 
-  return { rawBody, params };
+  return {
+    rawBody,
+    params,
+    validatedCandidateUrl: validatingCandidate.url,
+  };
 }

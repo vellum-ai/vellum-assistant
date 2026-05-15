@@ -56,6 +56,49 @@ All new apps use `formatVersion: 2`: source files live under `src/` and compiled
 
 ## Workflow
 
+### 0. Preflight — Pin to a high-quality model
+
+App building is design-heavy judgment work — color palettes, layout decisions, component architecture, micro-interactions. A stronger model produces meaningfully better apps: more creative visual directions, cleaner component boundaries, fewer generic patterns. Before building, check whether the conversation is already pinned to the quality profile:
+
+```
+assistant inference session list
+```
+
+If no session is active, check the current default profile:
+
+```
+assistant config get llm.default.profile
+```
+
+If the profile is already `quality-optimized`, skip the rest of this step and proceed to Step 1.
+
+**If the active profile is `balanced`, `cost-optimized`, or any non-quality profile, you MUST ask the user for permission before switching. Do NOT open an inference session without explicit user confirmation.** Use `assistant ui confirm`:
+
+```
+assistant ui confirm --message "App building works best with a high-quality model — it makes better design decisions, writes cleaner components, and produces more visually polished results. Switch to the quality profile for this build? (You can switch back after.)"
+```
+
+If `assistant ui confirm` isn't available on this binary, ask the user directly in conversation instead. **Either way, wait for the user's answer before proceeding.**
+
+**Only if the user confirms**, open an inference session:
+
+```
+assistant inference session open quality-optimized --ttl 1h
+```
+
+If `quality-optimized` isn't a profile name on this workspace, list the available profiles and open against the highest-quality one:
+
+```
+assistant config get llm.profiles
+assistant inference session open <profile-name> --ttl 1h
+```
+
+The `--ttl 1h` gives comfortable headroom for a typical app build without leaving a forever-pinned session if the close in Step 6 is skipped.
+
+**If the user declines, do not switch profiles.** Proceed with the current profile — the build still works, the model just won't be pinned. Skip the close in Step 6 too.
+
+If `assistant inference session` isn't available on this binary, proceed without it.
+
 ### 1. Gather Requirements
 
 **Default: just build.** When a user says "build me a habit tracker," don't ask what colors they want or how many fields to include. Immediately:
@@ -350,6 +393,16 @@ When the user requests changes, prefer **`file_edit`** over rewriting the entire
 After making all file changes, call `app_refresh(app_id)` once to compile and refresh the UI. Do NOT call it after every individual file edit — batch your changes first.
 
 Apps should have multiple source files under `src/` (`styles.css`, components, helpers, etc.). Import CSS and modules from TSX so esbuild includes them in the compiled output.
+
+### 6. Close the inference session
+
+If you opened an inference session in Step 0, close it now:
+
+```
+assistant inference session close
+```
+
+If you skipped the open in Step 0 (because the user declined, the CLI didn't have the command, or the profile was already quality), skip this step too.
 
 ## Interaction Standards
 

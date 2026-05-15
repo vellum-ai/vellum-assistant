@@ -53,4 +53,5 @@ export const PLATFORM_PROVIDER_META: Record<string, ManagedProviderMeta> = {
   zai: { name: "zai", managed: false },
   deepseek: { name: "deepseek", managed: false },
   minimax: { name: "minimax", managed: false },
+  "opencode-go": { name: "opencode-go", managed: false },
 };

@@ -65,7 +65,7 @@ export interface TurnEvent {
    * Returned as raw JSON text — the reporter parses + re-shapes for the
    * wire format.
    */
-  clientJson: string | null;
+  clientMetadata: string | null;
 }
 
 /**
@@ -140,9 +140,9 @@ export function queryUnreportedTurnEvents(
       >`json_extract(${messages.metadata}, '$.userMessageChannel')`.as(
         "channel_id",
       ),
-      clientJson: sql<
+      clientMetadata: sql<
         string | null
-      >`json_extract(${messages.metadata}, '$.client')`.as("client_json"),
+      >`json_extract(${messages.metadata}, '$.client')`.as("client_metadata"),
     })
     .from(messages)
     .innerJoin(conversations, eq(messages.conversationId, conversations.id))

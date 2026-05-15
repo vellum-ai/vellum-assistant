@@ -45,6 +45,8 @@ export interface CatalogModel {
   supportsVision?: boolean;
   supportsToolUse?: boolean;
   pricing?: CatalogModelPricing;
+  /** When set, this model is only visible when the named feature flag is enabled. */
+  featureFlag?: string;
 }
 
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 200000;
@@ -97,6 +99,8 @@ export interface ProviderCatalogEntry {
    * OpenRouter where managed keys are not available.
    */
   supportsPlatformAuth?: boolean;
+  /** When set, this provider is only visible when the named feature flag is enabled. */
+  featureFlag?: string;
 }
 
 /**
@@ -182,6 +186,38 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           outputPer1mTokens: 15,
           cacheWritePer1mTokens: 3.75,
           cacheReadPer1mTokens: 0.3,
+        },
+      },
+      {
+        id: "claude-sonnet-4-5-20250929",
+        displayName: "Claude Sonnet 4.5",
+        contextWindowTokens: 200000,
+        maxOutputTokens: 64000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 3,
+          outputPer1mTokens: 15,
+          cacheWritePer1mTokens: 3.75,
+          cacheReadPer1mTokens: 0.3,
+        },
+      },
+      {
+        id: "claude-opus-4-5-20251101",
+        displayName: "Claude Opus 4.5",
+        contextWindowTokens: 200000,
+        maxOutputTokens: 64000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
         },
       },
       {
@@ -632,6 +668,38 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "anthropic/claude-sonnet-4.5",
+        displayName: "Claude Sonnet 4.5",
+        contextWindowTokens: 200000,
+        maxOutputTokens: 64000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 3,
+          outputPer1mTokens: 15,
+          cacheWritePer1mTokens: 3.75,
+          cacheReadPer1mTokens: 0.3,
+        },
+      },
+      {
+        id: "anthropic/claude-opus-4.5",
+        displayName: "Claude Opus 4.5",
+        contextWindowTokens: 200000,
+        maxOutputTokens: 64000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
         id: "anthropic/claude-haiku-4.5",
         displayName: "Claude Haiku 4.5",
         contextWindowTokens: 200000,
@@ -871,6 +939,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
   {
     id: "zai",
     displayName: "z.ai",
+    featureFlag: "provider-zai",
     subtitle: "GLM models from z.ai (Zhipu AI). Requires a z.ai API key.",
     setupMode: "api-key",
     setupHint: "Enter your z.ai API key to enable GLM models.",
@@ -944,6 +1013,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     setupMode: "api-key",
     setupHint: "Enter your DeepSeek API key to enable DeepSeek models.",
     envVar: "DEEPSEEK_API_KEY",
+    featureFlag: "provider-deepseek",
     credentialsGuide: {
       description:
         "Sign in to the DeepSeek platform, navigate to API Keys, and create a new key.",
@@ -987,6 +1057,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     id: "minimax",
     displayName: "MiniMax",
     subtitle: "MiniMax models. Requires a MiniMax API key.",
+    featureFlag: "provider-minimax",
     setupMode: "api-key",
     setupHint: "Enter your MiniMax API key to enable MiniMax models.",
     envVar: "MINIMAX_API_KEY",
@@ -1109,9 +1180,210 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheWritePer1mTokens: 0.375,
         },
       },
+      {
+        id: "M2-her",
+        displayName: "MiniMax M2-her",
+        contextWindowTokens: 64000,
+        maxOutputTokens: 2048,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 1.2,
+        },
+      },
     ],
     defaultModel: "MiniMax-M2.7",
     apiKeyPlaceholder: "eyJ...",
+  },
+  {
+    id: "opencode-go",
+    displayName: "OpenCode Go",
+    subtitle:
+      "Open-source models via OpenCode Go. Requires an OpenCode API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your OpenCode API key to enable open-source models.",
+    envVar: "OPENCODE_API_KEY",
+    credentialsGuide: {
+      description:
+        "Sign in to OpenCode, navigate to Settings, and create an API key.",
+      url: "https://opencode.ai/go",
+      linkLabel: "Open OpenCode Go",
+    },
+    models: [
+      {
+        id: "opencode-go/deepseek-v4-flash",
+        displayName: "DeepSeek V4 Flash",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 384000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.14,
+          outputPer1mTokens: 0.28,
+        },
+      },
+      {
+        id: "opencode-go/deepseek-v4-pro",
+        displayName: "DeepSeek V4 Pro",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 384000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.74,
+          outputPer1mTokens: 3.48,
+        },
+      },
+      {
+        id: "opencode-go/glm-5",
+        displayName: "GLM-5",
+        contextWindowTokens: 203000,
+        maxOutputTokens: 33000,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 3.2,
+        },
+      },
+      {
+        id: "opencode-go/glm-5.1",
+        displayName: "GLM-5.1",
+        contextWindowTokens: 203000,
+        maxOutputTokens: 33000,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.4,
+          outputPer1mTokens: 4.4,
+        },
+      },
+      {
+        id: "opencode-go/kimi-k2.5",
+        displayName: "Kimi K2.5",
+        contextWindowTokens: 262000,
+        maxOutputTokens: 66000,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.6,
+          outputPer1mTokens: 3.0,
+        },
+      },
+      {
+        id: "opencode-go/kimi-k2.6",
+        displayName: "Kimi K2.6",
+        contextWindowTokens: 262000,
+        maxOutputTokens: 66000,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.95,
+          outputPer1mTokens: 4.0,
+        },
+      },
+      {
+        id: "opencode-go/mimo-v2-omni",
+        displayName: "MiMo V2 Omni",
+        contextWindowTokens: 262000,
+        maxOutputTokens: 128000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.4,
+          outputPer1mTokens: 2.0,
+        },
+      },
+      {
+        id: "opencode-go/mimo-v2-pro",
+        displayName: "MiMo V2 Pro",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 3.0,
+        },
+      },
+      {
+        id: "opencode-go/mimo-v2.5",
+        displayName: "MiMo V2.5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.4,
+          outputPer1mTokens: 2.0,
+        },
+      },
+      {
+        id: "opencode-go/mimo-v2.5-pro",
+        displayName: "MiMo V2.5 Pro",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 3.0,
+        },
+      },
+      {
+        id: "opencode-go/qwen3.5-plus",
+        displayName: "Qwen3.5 Plus",
+        contextWindowTokens: 262000,
+        maxOutputTokens: 66000,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.2,
+          outputPer1mTokens: 1.2,
+        },
+      },
+      {
+        id: "opencode-go/qwen3.6-plus",
+        displayName: "Qwen3.6 Plus",
+        contextWindowTokens: 262000,
+        maxOutputTokens: 66000,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.5,
+          outputPer1mTokens: 3.0,
+        },
+      },
+    ],
+    defaultModel: "opencode-go/deepseek-v4-flash",
+    apiKeyPlaceholder: "your-api-key",
   },
 ];
 

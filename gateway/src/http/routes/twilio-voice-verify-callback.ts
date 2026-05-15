@@ -78,14 +78,17 @@ export function createTwilioVoiceVerifyCallbackHandler(
         { callSid, fromNumber },
         "No pending verification session found on callback — forwarding to assistant",
       );
-      return forwardToAssistant(config, params, req.url, caches);
+      return forwardToAssistant(
+        config,
+        params,
+        req.url,
+        validation.validatedCandidateUrl,
+        caches,
+      );
     }
 
     if (!digits) {
-      log.info(
-        { callSid, fromNumber },
-        "No digits entered — re-prompting",
-      );
+      log.info({ callSid, fromNumber }, "No digits entered — re-prompting");
       const actionUrl = buildActionUrl(url, attempt);
       return twimlResponse(
         gatherVerificationTwiml(actionUrl, attempt, session.codeDigits ?? 6),
@@ -113,7 +116,11 @@ export function createTwilioVoiceVerifyCallbackHandler(
       const nextAttempt = attempt + 1;
       const actionUrl = buildActionUrl(url, nextAttempt);
       return twimlResponse(
-        gatherVerificationTwiml(actionUrl, nextAttempt, session.codeDigits ?? 6),
+        gatherVerificationTwiml(
+          actionUrl,
+          nextAttempt,
+          session.codeDigits ?? 6,
+        ),
       );
     }
 
@@ -147,7 +154,10 @@ export function createTwilioVoiceVerifyCallbackHandler(
         );
 
         const existingGuardian = existingPhoneGuardians[0];
-        if (existingGuardian && existingGuardian.externalUserId !== fromNumber) {
+        if (
+          existingGuardian &&
+          existingGuardian.externalUserId !== fromNumber
+        ) {
           log.warn(
             {
               callSid,
@@ -209,7 +219,13 @@ export function createTwilioVoiceVerifyCallbackHandler(
       { callSid, fromNumber },
       "Voice verification complete — forwarding to assistant for call setup",
     );
-    return forwardToAssistant(config, params, req.url, caches);
+    return forwardToAssistant(
+      config,
+      params,
+      req.url,
+      validation.validatedCandidateUrl,
+      caches,
+    );
   };
 }
 
@@ -248,13 +264,17 @@ async function revokeExistingPhoneGuardian(): Promise<void> {
   try {
     const gwDb = getGatewayDb();
     for (const id of ids) {
-      gwDb.update(gwContactChannels)
+      gwDb
+        .update(gwContactChannels)
         .set({ status: "revoked", policy: "deny", updatedAt: now })
         .where(eq(gwContactChannels.id, id))
         .run();
     }
   } catch (gwErr) {
-    log.warn({ err: gwErr }, "Gateway DB revoke dual-write failed (best-effort)");
+    log.warn(
+      { err: gwErr },
+      "Gateway DB revoke dual-write failed (best-effort)",
+    );
   }
 }
 
@@ -276,6 +296,7 @@ async function forwardToAssistant(
   config: GatewayConfig,
   params: Record<string, string>,
   originalUrl: string,
+  validatedPublicUrl?: string,
   caches?: TwilioValidationCaches,
 ): Promise<Response> {
   try {
@@ -288,7 +309,12 @@ async function forwardToAssistant(
       config,
       params,
       originalUrl,
-      resolvePublicBaseWssUrl(config, caches?.configFile, platformAssistantId),
+      resolvePublicBaseWssUrl(
+        config,
+        caches?.configFile,
+        platformAssistantId,
+        validatedPublicUrl,
+      ),
     );
     return new Response(runtimeResponse.body, {
       status: runtimeResponse.status,
@@ -304,7 +330,10 @@ async function forwardToAssistant(
         },
       );
     }
-    log.error({ err }, "Failed to forward voice webhook to runtime after verification");
+    log.error(
+      { err },
+      "Failed to forward voice webhook to runtime after verification",
+    );
     return Response.json({ error: "Internal server error" }, { status: 502 });
   }
 }

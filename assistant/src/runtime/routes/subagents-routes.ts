@@ -189,6 +189,47 @@ function getSubagentDetail(
 
 export const ROUTES: RouteDefinition[] = [
   {
+    operationId: "reconcileSubagents",
+    endpoint: "subagents/reconcile",
+    method: "GET",
+    policyKey: "subagents",
+    summary: "Reconcile subagent live status",
+    description:
+      "Returns the live in-memory status of all subagents known to the daemon for a given parent conversation. Subagents not in the response are orphaned.",
+    tags: ["subagents"],
+    queryParams: [
+      {
+        name: "parentConversationId",
+        schema: { type: "string" },
+        description: "Parent conversation ID",
+      },
+    ],
+    responseBody: z.object({
+      subagents: z.record(
+        z.string(),
+        z.object({
+          status: z.string(),
+        }),
+      ),
+    }),
+    handler: ({ queryParams }) => {
+      const parentConversationId = queryParams?.parentConversationId;
+      if (!parentConversationId) {
+        throw new BadRequestError(
+          "parentConversationId query parameter is required",
+        );
+      }
+      const manager = getSubagentManager();
+      const children = manager.getChildrenOf(parentConversationId);
+      const subagents: Record<string, { status: string }> = {};
+      for (const child of children) {
+        subagents[child.config.id] = { status: child.status };
+      }
+      return { subagents };
+    },
+  },
+
+  {
     operationId: "getSubagentDetail",
     endpoint: "subagents/:id",
     method: "GET",

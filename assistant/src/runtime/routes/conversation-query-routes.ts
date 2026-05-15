@@ -28,6 +28,8 @@ import {
   loadRawConfig,
   saveRawConfig,
   setNestedValue,
+  withSuppressedConfigDiskWrites,
+  withSuppressedConfigDiskWritesSync,
 } from "../../config/loader.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
@@ -57,12 +59,14 @@ import {
   getConversation,
   getMessageById,
 } from "../../memory/conversation-crud.js";
+import { getDb } from "../../memory/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
+import { listConnections } from "../../providers/inference/connections.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { validateAllowlistFile } from "../../security/secret-allowlist.js";
 import { resolvePricingForUsage } from "../../util/pricing.js";
@@ -230,7 +234,7 @@ function getModelSetContext(): ModelSetContext {
       watcher.suppressConfigReload = value;
     },
     updateConfigFingerprint() {
-      watcher.updateFingerprint();
+      withSuppressedConfigDiskWritesSync(() => watcher.updateFingerprint());
     },
     debounceTimers: watcher.timers,
   };
@@ -501,15 +505,14 @@ async function commitConfigWrite(
 
   clearEmbeddingBackendCache();
   invalidateConfigCache();
-  // Reinitialize providers so the live registry reflects the new config
-  // (e.g. a mode flip between managed and your-own). Isolated try/catch so
-  // a provider reinit failure doesn't mask the successful config save.
-  // Only advance the config fingerprint on success - if reinit failed, leave
-  // it stale so the watcher can detect the saved config on the next event
-  // and retry provider initialization.
+  // Reinitialize providers so the live registry reflects the new config.
+  // Suppress disk writes inside loadConfig() — we just wrote the raw config
+  // and the first-launch seed path would overwrite it with full defaults.
   try {
-    await initializeProviders(getConfig());
-    configWatcher.updateFingerprint();
+    await withSuppressedConfigDiskWrites(async () => {
+      await initializeProviders(getConfig());
+      configWatcher.updateFingerprint();
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, `${opLabel} config: provider reinit failed: ${message}`);
@@ -646,6 +649,20 @@ async function handleReplaceInferenceProfile({
       );
     }
   }
+  // When the UI sends provider but no provider_connection ("Any active X
+  // connection"), derive the connection now so the config deep-merge doesn't
+  // inherit a stale connection from the default layer.
+  const fragment = parsed.data as Record<string, unknown>;
+  if (!isManaged && fragment.provider && !fragment.provider_connection) {
+    const candidates = listConnections(getDb(), {
+      provider: fragment.provider as string,
+    });
+    const active = candidates.find((c) => c.status === "active");
+    if (active) {
+      fragment.provider_connection = active.name;
+    }
+  }
+
   const raw = loadRawConfig();
   if (isManaged) {
     // Partial overlay: keep every existing key intact, only update label
@@ -656,13 +673,13 @@ async function handleReplaceInferenceProfile({
     patchManagedProfileFields(
       raw,
       name,
-      parsed.data as Record<string, unknown>,
+      fragment,
     );
   } else {
     replaceInferenceProfileConfig(
       raw,
       name,
-      parsed.data as Record<string, unknown>,
+      fragment,
     );
   }
   // Route through `commitConfigWrite` so profile edits flow through the

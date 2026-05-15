@@ -25,6 +25,7 @@ const log = getLogger("config");
 let cached: AssistantConfig | null = null;
 let cachedFileSignature: ConfigFileSignature | null = null;
 let loading = false;
+let suppressConfigDiskWritesDepth = 0;
 
 type ConfigFileSignature =
   | {
@@ -683,49 +684,54 @@ export function loadConfig(): AssistantConfig {
       configFileExisted = false;
     }
 
-    // Warn about and strip deprecated config fields so users know their
-    // settings are no longer honored rather than silently dropping them.
-    warnAndStripDeprecatedFields(fileConfig, configPath);
+    if (suppressConfigDiskWritesDepth === 0) {
+      warnAndStripDeprecatedFields(fileConfig, configPath);
+    }
 
     // Validate and apply defaults via Zod schema
     let config = validateWithSchema(fileConfig);
 
-    // Managed Gemini embedding defaults migration.
-    // When on a managed platform (IS_PLATFORM=true) with the feature flag
-    // enabled and no explicit embedding provider chosen (provider=auto),
-    // persist Gemini embedding defaults into the raw config file.
-    // Idempotent: once provider=gemini is written, subsequent loads skip this.
-    if (config.memory.embeddings.provider === "auto") {
-      try {
-        if (
-          (process.env.IS_PLATFORM === "true" ||
-            process.env.IS_PLATFORM === "1") &&
-          isManagedGeminiFFEnabled(config)
-        ) {
-          setNestedValue(fileConfig, "memory.embeddings.provider", "gemini");
-          setNestedValue(
-            fileConfig,
-            "memory.embeddings.geminiModel",
-            "gemini-embedding-2",
+    if (suppressConfigDiskWritesDepth === 0) {
+      // Managed Gemini embedding defaults migration.
+      // When on a managed platform (IS_PLATFORM=true) with the feature flag
+      // enabled and no explicit embedding provider chosen (provider=auto),
+      // persist Gemini embedding defaults into the raw config file.
+      // Idempotent: once provider=gemini is written, subsequent loads skip this.
+      if (config.memory.embeddings.provider === "auto") {
+        try {
+          if (
+            (process.env.IS_PLATFORM === "true" ||
+              process.env.IS_PLATFORM === "1") &&
+            isManagedGeminiFFEnabled(config)
+          ) {
+            setNestedValue(fileConfig, "memory.embeddings.provider", "gemini");
+            setNestedValue(
+              fileConfig,
+              "memory.embeddings.geminiModel",
+              "gemini-embedding-2",
+            );
+            setNestedValue(
+              fileConfig,
+              "memory.embeddings.geminiDimensions",
+              3072,
+            );
+            setNestedValue(fileConfig, "memory.qdrant.vectorSize", 3072);
+            writeFileSync(
+              configPath,
+              JSON.stringify(fileConfig, null, 2) + "\n",
+            );
+            log.info(
+              "Applied managed Gemini embedding defaults (provider=gemini, model=gemini-embedding-2, dimensions=3072, vectorSize=3072)",
+            );
+            // Re-validate so the returned config reflects the migration.
+            config = validateWithSchema(fileConfig);
+          }
+        } catch (err) {
+          log.warn(
+            { err },
+            "Managed Gemini defaults migration failed — continuing with existing config",
           );
-          setNestedValue(
-            fileConfig,
-            "memory.embeddings.geminiDimensions",
-            3072,
-          );
-          setNestedValue(fileConfig, "memory.qdrant.vectorSize", 3072);
-          writeFileSync(configPath, JSON.stringify(fileConfig, null, 2) + "\n");
-          log.info(
-            "Applied managed Gemini embedding defaults (provider=gemini, model=gemini-embedding-2, dimensions=3072, vectorSize=3072)",
-          );
-          // Re-validate so the returned config reflects the migration.
-          config = validateWithSchema(fileConfig);
         }
-      } catch (err) {
-        log.warn(
-          { err },
-          "Managed Gemini defaults migration failed — continuing with existing config",
-        );
       }
     }
 
@@ -763,7 +769,7 @@ export function loadConfig(): AssistantConfig {
     // changes were inert because the merge only filled absent keys and never
     // reconciled existing values. Contract: disk = user intent, in-memory
     // cache = effective values.
-    if (!configFileExisted) {
+    if (!configFileExisted && suppressConfigDiskWritesDepth === 0) {
       try {
         const dir = dirname(configPath);
         if (!existsSync(dir)) {
@@ -840,6 +846,26 @@ export function invalidateConfigCache(): void {
   cached = null;
   cachedFileSignature = null;
   loading = false;
+}
+
+export async function withSuppressedConfigDiskWrites<T>(
+  fn: () => T | Promise<T>,
+): Promise<T> {
+  suppressConfigDiskWritesDepth++;
+  try {
+    return await fn();
+  } finally {
+    suppressConfigDiskWritesDepth--;
+  }
+}
+
+export function withSuppressedConfigDiskWritesSync<T>(fn: () => T): T {
+  suppressConfigDiskWritesDepth++;
+  try {
+    return fn();
+  } finally {
+    suppressConfigDiskWritesDepth--;
+  }
 }
 
 /**

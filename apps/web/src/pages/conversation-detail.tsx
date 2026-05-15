@@ -1,4 +1,4 @@
-import { useParams } from 'react-router';
+import { useParams } from "react-router";
 
 export function ConversationDetail() {
   const { id } = useParams<{ id: string }>();

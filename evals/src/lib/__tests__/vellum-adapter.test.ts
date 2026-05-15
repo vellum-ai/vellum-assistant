@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import { describe, expect, test } from "bun:test";
 
 import { VellumAgent } from "../adapters/vellum";
@@ -7,6 +9,11 @@ import type {
   CommandRunner,
   SpawnedProcess,
 } from "../runtime/command-runner";
+
+// Adapter computes the repo root the same way: four `..`s up from its own
+// file. `__tests__/` sits at the same depth as `adapters/` so the same
+// expression yields the same path here.
+const ADAPTER_REPO_ROOT = resolve(import.meta.dir, "..", "..", "..", "..");
 
 function lines(values: string[]): AsyncIterable<string> {
   return (async function* () {
@@ -29,13 +36,23 @@ class FakeProcess implements SpawnedProcess {
   }
 }
 
+interface RunCall {
+  command: string;
+  args: string[];
+  opts?: { env?: Record<string, string>; cwd?: string };
+}
+
 class FakeRunner implements CommandRunner {
-  readonly runs: Array<{ command: string; args: string[] }> = [];
+  readonly runs: RunCall[] = [];
   readonly spawns: Array<{ command: string; args: string[] }> = [];
   readonly process = new FakeProcess();
 
-  async run(command: string, args: string[]): Promise<CommandResult> {
-    this.runs.push({ command, args });
+  async run(
+    command: string,
+    args: string[],
+    opts?: { env?: Record<string, string>; cwd?: string },
+  ): Promise<CommandResult> {
+    this.runs.push({ command, args, opts });
     const script = args.at(-1) ?? "";
     const stdout = script.includes("assistant conversations new")
       ? "Created conversation: New Conversation (conv-123), conversation key: generated-key-123, seeded 2 messages\n"
@@ -80,7 +97,8 @@ describe("VellumAgent", () => {
         "vellum",
         "--remote",
         "docker",
-        "--build-from-source",
+        "--source",
+        ADAPTER_REPO_ROOT,
         "--name",
         "eval-run-1",
       ],
@@ -124,6 +142,50 @@ describe("VellumAgent", () => {
     expect(events).toEqual([
       { message: { type: "assistant_text_delta", text: "hi" } },
     ]);
+  });
+
+  test("forwards LLM provider API keys from process env into the hatch subprocess", async () => {
+    const runner = new FakeRunner();
+    // Mix recognized provider vars (should be forwarded), an empty provider
+    // var (should be dropped, not propagated as ""), and an unrelated var
+    // (should be ignored — the adapter only forwards the explicit allowlist).
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-run-env",
+      processEnv: {
+        ANTHROPIC_API_KEY: "sk-ant-test",
+        OPENAI_API_KEY: "sk-openai-test",
+        FIREWORKS_API_KEY: "",
+        SHELL: "/bin/zsh",
+      },
+    });
+
+    await agent.hatch();
+
+    const hatchCall = runner.runs.find((r) => r.args[0] === "hatch");
+    expect(hatchCall).toBeDefined();
+    expect(hatchCall?.opts?.env).toEqual({
+      ANTHROPIC_API_KEY: "sk-ant-test",
+      OPENAI_API_KEY: "sk-openai-test",
+    });
+  });
+
+  test("forwards an empty env to hatch when no provider keys are set", async () => {
+    const runner = new FakeRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-run-noenv",
+      processEnv: { PATH: "/usr/bin" },
+    });
+
+    await agent.hatch();
+
+    const hatchCall = runner.runs.find((r) => r.args[0] === "hatch");
+    expect(hatchCall?.opts?.env).toEqual({});
   });
 
   test("seeds deterministic conversation history through the adapter bridge", async () => {
@@ -208,8 +270,9 @@ describe("VellumAgent", () => {
       override async run(
         command: string,
         args: string[],
+        opts?: { env?: Record<string, string>; cwd?: string },
       ): Promise<CommandResult> {
-        this.runs.push({ command, args });
+        this.runs.push({ command, args, opts });
         if (args[0] === "hatch") {
           return { exitCode: 1, stdout: "", stderr: "name already exists" };
         }
@@ -233,7 +296,8 @@ describe("VellumAgent", () => {
         "vellum",
         "--remote",
         "docker",
-        "--build-from-source",
+        "--source",
+        ADAPTER_REPO_ROOT,
         "--name",
         "preexisting",
       ],

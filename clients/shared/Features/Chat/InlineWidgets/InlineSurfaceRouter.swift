@@ -15,7 +15,6 @@ public struct InlineSurfaceRouter: View {
 
     @State private var selectionPayload: [String: AnyCodable]?
     @State private var clickedActionLabel: String?
-    @State private var isCardHovered = false
 
     public init(
         surface: InlineSurfaceData,
@@ -152,10 +151,7 @@ public struct InlineSurfaceRouter: View {
                 .padding(VSpacing.sm)
             } else if isTableSurface, case .table(let tableData) = surface.data {
                 #if os(macOS)
-                VCopyButton(text: Self.tableAsMarkdown(tableData), size: .compact)
-                    .opacity(isCardHovered ? 1 : 0)
-                    .animation(VAnimation.fast, value: isCardHovered)
-                    .padding(VSpacing.sm)
+                TableCopyButtonOverlay(tableData: tableData)
                 #endif
             } else if isDocumentPreview {
                 if case .documentPreview(let data) = surface.data {
@@ -179,9 +175,6 @@ public struct InlineSurfaceRouter: View {
                 }
             }
         }
-        #if os(macOS)
-        .onHover { isCardHovered = $0 }
-        #endif
         // Dynamic page/document previews stay compact; tables can grow to the chat bubble max width.
         .widthCap(isAppCreated ? 400 : (isDynamicPreview || isDocumentPreview ? 350 : standardWidgetMaxWidth))
         }
@@ -429,7 +422,7 @@ public struct InlineSurfaceRouter: View {
     }
 
     /// Builds a markdown table string from TableSurfaceData for clipboard copy.
-    static func tableAsMarkdown(_ data: TableSurfaceData) -> String {
+    public static func tableAsMarkdown(_ data: TableSurfaceData) -> String {
         func escapeCell(_ text: String) -> String {
             text.replacingOccurrences(of: "|", with: "\\|")
                 .replacingOccurrences(of: "\n", with: " ")
@@ -445,3 +438,27 @@ public struct InlineSurfaceRouter: View {
         return ([headerLine, separatorLine] + rowLines).joined(separator: "\n")
     }
 }
+
+// MARK: - TableCopyButtonOverlay
+
+#if os(macOS)
+/// Self-contained hover overlay for the table copy button. Owns its own
+/// `@State` so hover changes only re-render this small view — not the
+/// parent `InlineSurfaceRouter` and its expensive `InlineTableWidget`.
+private struct TableCopyButtonOverlay: View {
+    let tableData: TableSurfaceData
+
+    @State private var isHovered = false
+
+    var body: some View {
+        VCopyButton(text: InlineSurfaceRouter.tableAsMarkdown(tableData), size: .compact)
+            .allowsHitTesting(isHovered)
+            .accessibilityHidden(!isHovered)
+            .padding(VSpacing.sm)
+            .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
+            .opacity(isHovered ? 1 : 0)
+            .animation(VAnimation.fast, value: isHovered)
+    }
+}
+#endif

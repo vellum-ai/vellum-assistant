@@ -91,7 +91,20 @@ async function sendAndPersistSimulatorMessage(input: {
 }
 
 export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
-  const progress = input.progress ?? (() => undefined);
+  // Wrap the caller's reporter so a buggy reporter (stream write error,
+  // throwing custom reporter, etc.) can never interrupt the run — most
+  // importantly, it cannot prevent `agent.shutdown()` in the `finally`
+  // block from running and leaking a hatched container.
+  const userProgress = input.progress;
+  const progress: EvalProgressReporter = userProgress
+    ? (event) => {
+        try {
+          userProgress(event);
+        } catch {
+          // Progress reporting is best-effort; swallow.
+        }
+      }
+    : () => undefined;
   const agent = createAgent({
     profile: input.profile,
     testId: input.test.id,

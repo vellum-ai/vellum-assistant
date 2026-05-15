@@ -215,9 +215,9 @@ function createTestDb(): DrizzleDb {
   return db;
 }
 
-function makeConfig(v2Enabled: boolean): AssistantConfig {
+function makeConfig(v2Enabled: boolean, memoryEnabled = true): AssistantConfig {
   return applyNestedDefaults({
-    memory: { v2: { enabled: v2Enabled } },
+    memory: { enabled: memoryEnabled, v2: { enabled: v2Enabled } },
   }) as AssistantConfig;
 }
 
@@ -515,6 +515,50 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (context-load pat
 
     expect(result.mode).toBe("context-load");
     expect(result.injectedBlockText).toBeNull();
+  });
+});
+
+describe("ConversationGraphMemory.prepareMemory — memory.enabled gate", () => {
+  test("memory.enabled=false short-circuits per-turn path: mode=none, no injection, v2/v1 not called", async () => {
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+
+    const memory = makeMemory();
+    const config = makeConfig(true, false);
+    const messages = makeMessages();
+
+    const result = await memory.prepareMemory(
+      messages,
+      config,
+      new AbortController().signal,
+      noopEvent,
+    );
+
+    expect(result.mode).toBe("none");
+    expect(result.injectedBlockText).toBeNull();
+    expect(result.runMessages).toEqual(messages);
+    expect(retrieveForTurnMock).not.toHaveBeenCalled();
+    expect(loadContextMemoryMock).not.toHaveBeenCalled();
+  });
+
+  test("memory.enabled=false short-circuits context-load path: mode=none, no injection, v2/v1 not called", async () => {
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+
+    const memory = new ConversationGraphMemory("conv-test-master-off");
+    const config = makeConfig(true, false);
+    const messages = makeMessages("first message of the conversation here");
+
+    const result = await memory.prepareMemory(
+      messages,
+      config,
+      new AbortController().signal,
+      noopEvent,
+    );
+
+    expect(result.mode).toBe("none");
+    expect(result.injectedBlockText).toBeNull();
+    expect(result.runMessages).toEqual(messages);
+    expect(loadContextMemoryMock).not.toHaveBeenCalled();
+    expect(retrieveForTurnMock).not.toHaveBeenCalled();
   });
 });
 
