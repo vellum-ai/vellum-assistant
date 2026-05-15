@@ -8,19 +8,19 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "evals": "./src/index.ts"
+    "evals": "./src/cli.ts"
   },
   "scripts": {
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint",
     "lint:unused": "knip --include files,dependencies,unlisted",
-    "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
   },
   "author": "Vellum AI",
   "license": "MIT",
   "dependencies": {
+    "commander": "13.1.0",
     "zod": "4.3.6"
   },
   "devDependencies": {
