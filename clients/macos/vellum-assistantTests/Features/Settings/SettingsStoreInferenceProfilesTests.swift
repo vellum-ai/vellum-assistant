@@ -236,6 +236,72 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         )
     }
 
+    /// When the newer in-flight pick fails and reverts before the older
+    /// pick's success arrives, the older success must still apply — the
+    /// daemon has it and no live newer intent remains. The user picks A
+    /// then B; B's PATCH fails first (UI reverts to "balanced"); A's
+    /// delayed success then arrives. Because B is no longer in flight and
+    /// never confirmed, A is the only "live" intent and must drive both
+    /// `activeProfile` and `lastConfirmedActiveProfile` back to "A".
+    ///
+    /// Regression test for the previous guard (`self.activeProfile ==
+    /// name` only) which would early-return here and leave the UI stuck
+    /// on "balanced" while the daemon held "A".
+    func testSetActiveProfileAppliesLateSuccessWhenNewerPickFailed() async {
+        var continuationA: CheckedContinuation<Bool, Never>?
+        var continuationB: CheckedContinuation<Bool, Never>?
+        let bothSuspended = expectation(description: "both PATCH calls suspended")
+        bothSuspended.expectedFulfillmentCount = 2
+        mockSettingsClient.patchConfigHandler = { partial in
+            let name = (partial["llm"] as? [String: Any])?["activeProfile"] as? String
+            return await withCheckedContinuation { cont in
+                if name == "A" {
+                    continuationA = cont
+                } else {
+                    continuationB = cont
+                }
+                bothSuspended.fulfill()
+            }
+        }
+
+        async let resultA: Bool = store.setActiveProfile("A")
+        async let resultB: Bool = store.setActiveProfile("B")
+
+        await fulfillment(of: [bothSuspended], timeout: 1.0)
+
+        // Optimistic writes ran synchronously; the later pick (B) is current.
+        XCTAssertEqual(store.activeProfile, "B")
+
+        // Resolve B first as a failure — UI must revert to the last
+        // daemon-confirmed value ("balanced") since A's PATCH has not
+        // returned yet and B was the only newer-than-A in flight.
+        continuationB?.resume(returning: false)
+        let bSucceeded = await resultB
+        XCTAssertFalse(bSucceeded)
+        XCTAssertEqual(store.activeProfile, "balanced")
+
+        // Resolve A's late success. No newer pick is live (B failed and
+        // reverted; nothing newer in flight). Both `activeProfile` and
+        // `lastConfirmedActiveProfile` must advance to "A" so the UI
+        // matches the daemon-persisted value.
+        continuationA?.resume(returning: true)
+        let aSucceeded = await resultA
+        XCTAssertTrue(aSucceeded)
+        XCTAssertEqual(
+            store.activeProfile,
+            "A",
+            "Late success must apply when the newer pick failed and reverted"
+        )
+
+        // A subsequent failed pick must revert to "A", not "balanced",
+        // confirming `lastConfirmedActiveProfile` was also updated.
+        mockSettingsClient.patchConfigHandler = nil
+        mockSettingsClient.patchConfigResponse = false
+        let cSucceeded = await store.setActiveProfile("C")
+        XCTAssertFalse(cSucceeded)
+        XCTAssertEqual(store.activeProfile, "A")
+    }
+
     // MARK: - setProfile
 
     func testSetProfileRoundTripsAndUpdatesPublishedState() async {
