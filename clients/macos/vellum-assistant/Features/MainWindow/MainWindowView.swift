@@ -493,7 +493,7 @@ struct MainWindowView: View {
                     conversationManager.activeViewModel?.activeSurfaceId = surfaceId
                 }
             }
-            .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
+            .preferredColorScheme(themePreference == "light" ? .light : (themePreference == "dark" || themePreference == "velvet") ? .dark : systemIsDark ? .dark : .light)
     }
 
     private var isSettingsOpen: Bool {
@@ -624,7 +624,7 @@ struct MainWindowView: View {
             .overlay(alignment: .bottomLeading) { preferencesDrawerLayer }
             .sheet(isPresented: $showEarnCreditsModal) {
                 EarnCreditsModal()
-                    .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
+                    .preferredColorScheme(themePreference == "light" ? .light : (themePreference == "dark" || themePreference == "velvet") ? .dark : systemIsDark ? .dark : .light)
             }
             .overlay { conversationSwitcherDismissLayer }
             .overlay(alignment: .topLeading) { conversationSwitcherDrawerLayer }
