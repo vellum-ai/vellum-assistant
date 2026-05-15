@@ -6,15 +6,18 @@
  * used by the macOS / web clients.
  */
 
+import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
 import { clearAllConversations as clearAllActive } from "../../daemon/handlers/conversations.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import {
+  addMessage,
   createConversation,
   getConversation,
   getMessages,
 } from "../../memory/conversation-crud.js";
+import { setConversationKey } from "../../memory/conversation-key-store.js";
 import { listConversations } from "../../memory/conversation-queries.js";
 import { getLogger } from "../../util/logger.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
@@ -45,12 +48,43 @@ function handleListCli({ body = {} }: RouteHandlerArgs) {
 // create (CLI)
 // ---------------------------------------------------------------------------
 
-function handleCreateCli({ body = {} }: RouteHandlerArgs) {
+const seededConversationMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string(),
+});
+
+type SeededConversationMessage = z.infer<
+  typeof seededConversationMessageSchema
+>;
+
+function textContentJson(text: string): string {
+  return JSON.stringify([{ type: "text", text }]);
+}
+
+async function handleCreateCli({ body = {} }: RouteHandlerArgs) {
   const title = body.title as string | undefined;
+  const messages =
+    (body.messages as SeededConversationMessage[] | undefined) ?? [];
+
   const conversation = createConversation(title);
+  const conversationKey = uuid();
+  setConversationKey(conversationKey, conversation.id);
+
+  for (const message of messages) {
+    await addMessage(
+      conversation.id,
+      message.role,
+      textContentJson(message.content),
+      undefined,
+      { skipIndexing: true },
+    );
+  }
+
   return {
     id: conversation.id,
     title: conversation.title ?? "New Conversation",
+    conversationKey,
+    messagesInserted: messages.length,
   };
 }
 
@@ -109,7 +143,10 @@ function handleExportCli({ body = {} }: RouteHandlerArgs) {
 async function handleClearCli(_args: RouteHandlerArgs) {
   // Tear down in-memory conversation state before DB clear.
   const cleared = clearAllActive();
-  log.info({ cleared }, "CLI conversations clear: active conversations torn down");
+  log.info(
+    { cleared },
+    "CLI conversations clear: active conversations torn down",
+  );
   return { cleared };
 }
 
@@ -146,14 +183,18 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "conversations/cli/create",
     method: "POST",
     summary: "Create a conversation (CLI)",
-    description: "Create a new conversation with an optional title.",
+    description:
+      "Create a new conversation with an optional title and seeded messages.",
     tags: ["conversations"],
     requestBody: z.object({
       title: z.string().optional(),
+      messages: z.array(seededConversationMessageSchema).optional(),
     }),
     responseBody: z.object({
       id: z.string(),
       title: z.string(),
+      conversationKey: z.string(),
+      messagesInserted: z.number().int().nonnegative(),
     }),
     handler: handleCreateCli,
   },

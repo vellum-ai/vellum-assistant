@@ -19,8 +19,6 @@ import {
 } from "../runtime/command-runner";
 import { parseNdjson } from "../runtime/ndjson";
 
-async function* emptyLines(): AsyncGenerator<string> {}
-
 export interface VellumAgentOptions {
   profile: Profile;
   testId: string;
@@ -39,9 +37,30 @@ function shellWords(command: string): string[] {
   return ["sh", "-lc", command];
 }
 
+function seedConversationCommand(
+  messages: TestSetupCommand & { type: "seed-conversation" },
+): string {
+  const content = JSON.stringify(messages.messages);
+  return [
+    "set -e",
+    "seed_file=$(mktemp)",
+    'cleanup() { rm -f "$seed_file"; }',
+    "trap cleanup EXIT",
+    "cat > \"$seed_file\" <<'__VELLUM_EVALS_SEED__'",
+    content,
+    "__VELLUM_EVALS_SEED__",
+    'assistant conversations new --content-file "$seed_file"',
+  ].join("\n");
+}
+
+function parseConversationKey(output: string): string | null {
+  const match = output.match(/conversation key: ([^\s,]+)/);
+  return match?.[1] ?? null;
+}
+
 export class VellumAgent implements BaseAgent {
   readonly id: string;
-  readonly conversationKey: string;
+  conversationKey: string;
 
   private readonly profile: Profile;
   private readonly runner: CommandRunner;
@@ -97,13 +116,6 @@ export class VellumAgent implements BaseAgent {
         assertSuccess(setup, `setup command for profile ${this.profile.id}`);
       }
 
-      this.eventsProcess = this.runner.spawn(this.cliCommand, [
-        "events",
-        this.id,
-        "--conversation-key",
-        this.conversationKey,
-        "--json",
-      ]);
       this.hatched = true;
     } catch (err) {
       await this.jail?.stop().catch(() => undefined);
@@ -135,14 +147,16 @@ export class VellumAgent implements BaseAgent {
           "exec",
           this.id,
           "--",
-          "assistant",
-          "evals",
-          "seed-conversation",
-          "--conversation-key",
-          this.conversationKey,
-          JSON.stringify(command.messages),
+          ...shellWords(seedConversationCommand(command)),
         ]);
         assertSuccess(result, `seed conversation for ${this.id}`);
+        const conversationKey = parseConversationKey(result.stdout);
+        if (!conversationKey) {
+          throw new Error(
+            `seed conversation for ${this.id} did not return a conversation key`,
+          );
+        }
+        this.conversationKey = conversationKey;
         break;
       }
     }
@@ -150,7 +164,14 @@ export class VellumAgent implements BaseAgent {
 
   events(): AsyncIterable<AgentEvent> {
     this.assertHatched();
-    return parseNdjson<AgentEvent>(this.eventsProcess?.stdout ?? emptyLines());
+    this.eventsProcess ??= this.runner.spawn(this.cliCommand, [
+      "events",
+      this.id,
+      "--conversation-key",
+      this.conversationKey,
+      "--json",
+    ]);
+    return parseNdjson<AgentEvent>(this.eventsProcess.stdout);
   }
 
   async shutdown(): Promise<void> {
@@ -166,7 +187,7 @@ export class VellumAgent implements BaseAgent {
   }
 
   private assertHatched(): void {
-    if (!this.hatched || !this.eventsProcess) {
+    if (!this.hatched) {
       throw new Error(`Agent ${this.id} has not been hatched`);
     }
   }

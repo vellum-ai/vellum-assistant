@@ -99,19 +99,13 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
 
   await agent.hatch();
   try {
+    for (const command of input.test.setupCommands) {
+      await agent.runSetupCommand(command);
+    }
+
     const collector = new AgentEventCollector(
       agent.events()[Symbol.asyncIterator](),
     );
-
-    for (const command of input.test.setupCommands) {
-      await agent.runSetupCommand(command);
-      await collectAndPersistEvents({
-        runId: input.runId,
-        collector,
-        assistantEvents,
-        includeInTranscript: false,
-      });
-    }
 
     for (;;) {
       const decision = await simulator.decide({

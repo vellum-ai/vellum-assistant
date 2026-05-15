@@ -36,7 +36,11 @@ class FakeRunner implements CommandRunner {
 
   async run(command: string, args: string[]): Promise<CommandResult> {
     this.runs.push({ command, args });
-    return { exitCode: 0, stdout: "ok", stderr: "" };
+    const script = args.at(-1) ?? "";
+    const stdout = script.includes("assistant conversations new")
+      ? "Created conversation: New Conversation (conv-123), conversation key: generated-key-123, seeded 2 messages\n"
+      : "ok";
+    return { exitCode: 0, stdout, stderr: "" };
   }
 
   spawn(command: string, args: string[]): SpawnedProcess {
@@ -100,6 +104,10 @@ describe("VellumAgent", () => {
       ],
     ]);
     expect(runner.runs[2].args).toContain("--cap-add");
+    expect(runner.spawns).toEqual([]);
+
+    const events = [];
+    for await (const event of agent.events()) events.push(event);
     expect(runner.spawns).toEqual([
       {
         command: "vellum",
@@ -112,9 +120,6 @@ describe("VellumAgent", () => {
         ],
       },
     ]);
-
-    const events = [];
-    for await (const event of agent.events()) events.push(event);
     expect(events).toEqual([
       { message: { type: "assistant_text_delta", text: "hi" } },
     ]);
@@ -138,23 +143,23 @@ describe("VellumAgent", () => {
       ],
     });
 
-    expect(runner.runs.at(-1)).toEqual({
-      command: "vellum",
-      args: [
-        "exec",
-        "eval-run-seed",
-        "--",
-        "assistant",
-        "evals",
-        "seed-conversation",
-        "--conversation-key",
-        "evals:timeline-recall:eval-run-seed",
-        JSON.stringify([
-          { role: "user", content: "remember this exact note" },
-          { role: "assistant", content: "noted" },
-        ]),
-      ],
-    });
+    const seedRun = runner.runs.at(-1)!;
+    expect(seedRun.command).toBe("vellum");
+    expect(seedRun.args.slice(0, 4)).toEqual([
+      "exec",
+      "eval-run-seed",
+      "--",
+      "sh",
+    ]);
+    expect(seedRun.args[4]).toBe("-lc");
+    expect(seedRun.args[5]).toContain("set -e");
+    expect(seedRun.args[5]).toContain("trap cleanup EXIT");
+    expect(seedRun.args[5]).toContain("assistant conversations new");
+    expect(seedRun.args[5]).not.toContain("--conversation-key");
+    expect(seedRun.args[5]).toContain('--content-file "$seed_file"');
+    expect(seedRun.args[5]).toContain("remember this exact note");
+    expect(seedRun.args[5]).toContain("noted");
+    expect(agent.conversationKey).toBe("generated-key-123");
   });
 
   test("sends through the same conversation key and shuts down resources", async () => {
@@ -167,6 +172,7 @@ describe("VellumAgent", () => {
     });
 
     await agent.hatch();
+    agent.events();
     await agent.send({ content: "hello" });
     await agent.shutdown();
 
