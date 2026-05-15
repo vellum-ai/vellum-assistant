@@ -2206,6 +2206,27 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             }
         }
 
+        // Reconcile non-terminal subagents with the daemon to detect orphans.
+        // After a daemon restart the SubagentManager is empty, so subagents
+        // reconstructed from the DB as "running" are actually dead.
+        let nonTerminalSubagentIds = activeSubagents.filter { !$0.isTerminal }.map(\.id)
+        if !nonTerminalSubagentIds.isEmpty, let parentConvId = conversationId {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let client = SubagentClient()
+                guard let response = await client.reconcile(parentConversationId: parentConvId) else { return }
+                for i in self.activeSubagents.indices {
+                    let info = self.activeSubagents[i]
+                    guard !info.isTerminal else { continue }
+                    if response.subagents[info.id] == nil {
+                        // Daemon has no knowledge of this subagent — it's orphaned
+                        self.activeSubagents[i].status = .failed
+                        self.activeSubagents[i].error = "Connection interrupted during restart"
+                    }
+                }
+            }
+        }
+
         // Update daemon pagination cursor from the response metadata.
         self.hasMoreHistory = hasMore
         self.historyCursor = oldestTimestamp

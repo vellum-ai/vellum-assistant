@@ -141,6 +141,7 @@ export async function regenerateResponse(
   const conversation = await getOrCreateConversation(conversationId);
   touchConversation(conversationId);
   conversation.updateClient(broadcastMessage, false);
+  getSubagentManager().updateParentSender(conversationId, broadcastMessage);
   const requestId = uuid();
   conversation.traceEmitter.emit("request_received", "Regenerate requested", {
     requestId,

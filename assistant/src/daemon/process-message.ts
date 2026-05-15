@@ -31,6 +31,7 @@ import { updateMetaFile } from "../memory/conversation-disk-view.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
+import { getSubagentManager } from "../subagent/index.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import {
@@ -455,6 +456,7 @@ export async function processMessage(
 
   if (options?.isInteractive === true) {
     conversation.updateClient(broadcastMessage, false);
+    getSubagentManager().updateParentSender(conversationId, broadcastMessage);
   }
 
   try {
@@ -521,6 +523,7 @@ export async function processMessageInBackground(
 
   if (options?.isInteractive === true) {
     conversation.updateClient(broadcastMessage, false);
+    getSubagentManager().updateParentSender(conversationId, broadcastMessage);
   }
 
   conversation.setSlackRuntimeContextNotice(options?.slackRuntimeContextNotice);

@@ -101,6 +101,7 @@ import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
+import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getInterfacesDir,
@@ -1492,6 +1493,12 @@ export async function handleSendMessage(
   // that can service host_browser_request events; we restore that single
   // proxy explicitly below without relaxing `hasNoClient`.
   conversation.updateClient(broadcastMessage, !isInteractive);
+  if (isInteractive) {
+    getSubagentManager().updateParentSender(
+      mapping.conversationId,
+      broadcastMessage,
+    );
+  }
 
   // ── Canned first-greeting fast path ──
   // On a completely fresh workspace, skip LLM inference for the macOS
