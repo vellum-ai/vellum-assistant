@@ -46,13 +46,14 @@ export function registerSchedulesCommand(program: Command): void {
 Schedules are recurring or one-shot jobs run by the assistant daemon.
 
 This CLI namespace is intentionally landing incrementally. Today it supports
-listing schedules; run/execute, create, delete, enable/disable, run history,
-and run inspection will follow as separate slices.
+listing schedules and manually executing a schedule one time; create, delete,
+enable/disable, run history, and run inspection will follow as separate slices.
 
 Examples:
   $ assistant schedules list
   $ assistant schedules list --include-all
-  $ assistant schedules list --json`,
+  $ assistant schedules execute <schedule-id>
+  $ assistant schedules execute <schedule-id> --json`,
       );
 
       schedules
@@ -176,6 +177,74 @@ Examples:
             }
           },
         );
+
+      schedules
+        .command("execute <id>")
+        .description("Execute a schedule one time immediately")
+        .option("--json", "Machine-readable compact JSON output")
+        .addHelpText(
+          "after",
+          `
+Options:
+  --json   Output the run-now result as compact JSON.
+
+Examples:
+  $ assistant schedules execute 9f2c4f3a-3f1a-41e4-88e7-abc123
+  $ assistant schedules execute 9f2c4f3a-3f1a-41e4-88e7-abc123 --json`,
+        )
+        .action(async (id: string, opts: { json?: boolean }, cmd: Command) => {
+          const scheduleId = id.trim();
+          if (!scheduleId) {
+            const error = "Schedule ID is required";
+            if (opts.json) {
+              writeOutput(cmd, { ok: false, error });
+            } else {
+              log.error(error);
+            }
+            process.exitCode = 1;
+            return;
+          }
+
+          const result = await cliIpcCall<ListSchedulesResponse>(
+            "runScheduleNow",
+            { pathParams: { id: scheduleId } },
+          );
+
+          if (!result.ok) {
+            if (opts.json) {
+              writeOutput(cmd, { ok: false, error: result.error });
+            } else {
+              log.error(result.error ?? "Failed to execute schedule");
+            }
+            process.exitCode = 1;
+            return;
+          }
+
+          const response = result.result ?? { schedules: [] };
+          const schedule = response.schedules.find(
+            (entry) => entry.id === scheduleId,
+          );
+
+          if (opts.json) {
+            writeOutput(cmd, {
+              ok: true,
+              scheduleId,
+              schedule: schedule ?? null,
+              schedules: response.schedules,
+            });
+            return;
+          }
+
+          if (schedule) {
+            log.info(`Executed schedule: ${schedule.name} (${schedule.id})`);
+            if (schedule.lastStatus) {
+              log.info(`Last status: ${schedule.lastStatus}`);
+            }
+            return;
+          }
+
+          log.info(`Executed schedule: ${scheduleId}`);
+        });
     },
   });
 }

@@ -81,7 +81,7 @@ beforeEach(() => {
 });
 
 describe("schedules command", () => {
-  test("registers the list subcommand only", () => {
+  test("registers the current schedules subcommands", () => {
     const program = new Command();
     registerSchedulesCommand(program);
 
@@ -91,6 +91,7 @@ describe("schedules command", () => {
     expect(schedules).toBeDefined();
     expect(schedules!.commands.map((command) => command.name())).toEqual([
       "list",
+      "execute",
     ]);
   });
 });
@@ -229,6 +230,139 @@ describe("schedules list", () => {
     expect(JSON.parse(stdout)).toEqual({
       ok: false,
       error: "daemon unavailable",
+    });
+  });
+});
+
+describe("schedules execute", () => {
+  test("calls runScheduleNow with the schedule ID path param", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        schedules: [
+          {
+            id: "schedule-1",
+            name: "Heartbeat",
+            enabled: true,
+            syntax: "cron",
+            expression: "*/30 * * * *",
+            cronExpression: "*/30 * * * *",
+            timezone: "UTC",
+            message: "run heartbeat",
+            script: null,
+            nextRunAt: 1_778_800_000_000,
+            lastRunAt: 1_778_799_000_000,
+            lastStatus: "ok",
+            retryCount: 0,
+            maxRetries: 3,
+            retryBackoffMs: 60_000,
+            description: "Every 30 minutes",
+            mode: "execute",
+            status: "active",
+            routingIntent: "all_channels",
+            reuseConversation: false,
+            wakeConversationId: null,
+            isOneShot: false,
+          },
+        ],
+      },
+    };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "execute",
+      "schedule-1",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "runScheduleNow",
+        params: { pathParams: { id: "schedule-1" } },
+      },
+    ]);
+    expect(logLines.join("\n")).toContain(
+      "Executed schedule: Heartbeat (schedule-1)",
+    );
+    expect(logLines.join("\n")).toContain("Last status: ok");
+  });
+
+  test("emits JSON result when --json is set", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        schedules: [
+          {
+            id: "schedule-1",
+            name: "Heartbeat",
+            enabled: true,
+            syntax: "cron",
+            expression: "*/30 * * * *",
+            cronExpression: "*/30 * * * *",
+            timezone: "UTC",
+            message: "run heartbeat",
+            script: null,
+            nextRunAt: 1_778_800_000_000,
+            lastRunAt: 1_778_799_000_000,
+            lastStatus: "ok",
+            retryCount: 0,
+            maxRetries: 3,
+            retryBackoffMs: 60_000,
+            description: "Every 30 minutes",
+            mode: "execute",
+            status: "active",
+            routingIntent: "all_channels",
+            reuseConversation: false,
+            wakeConversationId: null,
+            isOneShot: false,
+          },
+        ],
+      },
+    };
+
+    const { stdout, exitCode } = await runCommand([
+      "schedules",
+      "execute",
+      "schedule-1",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: true,
+      scheduleId: "schedule-1",
+      schedule: expect.objectContaining({ id: "schedule-1" }),
+      schedules: [expect.objectContaining({ id: "schedule-1" })],
+    });
+  });
+
+  test("sets exit code on IPC failure", async () => {
+    mockIpcResult = { ok: false, error: "Schedule not found" };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "execute",
+      "missing-schedule",
+    ]);
+
+    expect(exitCode).not.toBe(0);
+    expect(errorLines).toEqual(["Schedule not found"]);
+  });
+
+  test("emits JSON error on IPC failure with --json", async () => {
+    mockIpcResult = { ok: false, error: "Schedule not found" };
+
+    const { stdout, exitCode } = await runCommand([
+      "schedules",
+      "execute",
+      "missing-schedule",
+      "--json",
+    ]);
+
+    expect(exitCode).not.toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      error: "Schedule not found",
     });
   });
 });
