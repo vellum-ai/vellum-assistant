@@ -45,6 +45,8 @@ export interface CatalogModel {
   supportsVision?: boolean;
   supportsToolUse?: boolean;
   pricing?: CatalogModelPricing;
+  /** When set, this model is only visible when the named feature flag is enabled. */
+  featureFlag?: string;
 }
 
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 200000;
@@ -97,6 +99,8 @@ export interface ProviderCatalogEntry {
    * OpenRouter where managed keys are not available.
    */
   supportsPlatformAuth?: boolean;
+  /** When set, this provider is only visible when the named feature flag is enabled. */
+  featureFlag?: string;
 }
 
 /**
@@ -871,6 +875,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
   {
     id: "zai",
     displayName: "z.ai",
+    featureFlag: "provider-zai",
     subtitle: "GLM models from z.ai (Zhipu AI). Requires a z.ai API key.",
     setupMode: "api-key",
     setupHint: "Enter your z.ai API key to enable GLM models.",
@@ -944,6 +949,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     setupMode: "api-key",
     setupHint: "Enter your DeepSeek API key to enable DeepSeek models.",
     envVar: "DEEPSEEK_API_KEY",
+    featureFlag: "provider-deepseek",
     credentialsGuide: {
       description:
         "Sign in to the DeepSeek platform, navigate to API Keys, and create a new key.",
@@ -987,6 +993,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     id: "minimax",
     displayName: "MiniMax",
     subtitle: "MiniMax models. Requires a MiniMax API key.",
+    featureFlag: "provider-minimax",
     setupMode: "api-key",
     setupHint: "Enter your MiniMax API key to enable MiniMax models.",
     envVar: "MINIMAX_API_KEY",

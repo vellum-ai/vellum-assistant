@@ -7,8 +7,8 @@ import {
 import { setServiceField } from "../../config/raw-config-utils.js";
 import { providerForImageModelPrefix } from "../../media/types.js";
 import type { ProviderCatalogEntry } from "../../providers/model-catalog.js";
-import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { getConfiguredProviders } from "../../providers/provider-availability.js";
+import { getVisibleProviderCatalog } from "../../providers/provider-catalog-visibility.js";
 import { CONFIG_RELOAD_DEBOUNCE_MS, log } from "./shared.js";
 
 // ---------------------------------------------------------------------------
@@ -65,15 +65,16 @@ export async function getModelInfo(): Promise<ModelInfo> {
   const config = getConfig();
   const resolved = resolveCallSiteConfig("mainAgent", config.llm);
   const provider = resolved.provider;
+  const visibleCatalog = getVisibleProviderCatalog(config);
 
   return {
     model: resolved.model,
     provider,
     configuredProviders: await getConfiguredProviders(),
-    availableModels: PROVIDER_CATALOG.find(
-      (p) => p.id === provider,
-    )?.models?.map((m) => ({ id: m.id, displayName: m.displayName })),
-    allProviders: PROVIDER_CATALOG.map(projectProviderForWire),
+    availableModels: visibleCatalog
+      .find((p) => p.id === provider)
+      ?.models?.map((m) => ({ id: m.id, displayName: m.displayName })),
+    allProviders: visibleCatalog.map(projectProviderForWire),
   };
 }
 

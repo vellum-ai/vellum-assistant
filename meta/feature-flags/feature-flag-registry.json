@@ -312,6 +312,30 @@
       "label": "External Plugins",
       "description": "Enable the external-plugin install path: the `assistant plugins` CLI subcommand and the declarative external-plugin loader convention (`<workspaceDir>/plugins/<name>/` directories containing `package.json` plus interface dirs). Gates an unstable surface that may change shape before stabilizing.",
       "defaultEnabled": false
+    },
+    {
+      "id": "provider-zai",
+      "scope": "assistant",
+      "key": "provider-zai",
+      "label": "z.ai Provider",
+      "description": "Enable the z.ai (Zhipu AI) provider and its GLM models in the provider picker and model selection UI",
+      "defaultEnabled": false
+    },
+    {
+      "id": "provider-deepseek",
+      "scope": "assistant",
+      "key": "provider-deepseek",
+      "label": "DeepSeek Provider",
+      "description": "Enable the DeepSeek direct API provider and its models (V4 Pro, V4 Flash) in the provider picker and model selection UI",
+      "defaultEnabled": false
+    },
+    {
+      "id": "provider-minimax",
+      "scope": "assistant",
+      "key": "provider-minimax",
+      "label": "MiniMax Provider",
+      "description": "Enable the MiniMax direct API provider and its models (M2.7, M2.5, M2.1, M2, and highspeed variants) in the provider picker and model selection UI",
+      "defaultEnabled": false
     }
   ]
 }
