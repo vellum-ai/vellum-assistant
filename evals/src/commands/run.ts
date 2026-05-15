@@ -1,12 +1,7 @@
-/**
- * `evals run` — Cartesian profile × test runner.
- *
- * Loads each profile and test definition, then steps through each (profile,
- * test) pair. The execution path lands as the agent adapter, simulator, and
- * scorers come online.
- */
+/** `evals run` — Cartesian profile × test runner. */
 import type { Command } from "commander";
 
+import { runEvalOnce } from "../lib/runner/run-once";
 import { loadProfile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
 
@@ -15,6 +10,14 @@ function splitCsv(raw: string): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+function runId(profileId: string, testId: string): string {
+  const suffix = new Date()
+    .toISOString()
+    .replace(/[^0-9]/g, "")
+    .slice(0, 14);
+  return `eval-${profileId}-${testId}-${suffix}`;
 }
 
 export function registerRunCommand(program: Command): void {
@@ -29,20 +32,34 @@ export function registerRunCommand(program: Command): void {
       "--tests <ids>",
       "Comma-separated test ids (each maps to tests/<id>/SPEC.md)",
     )
-    .action(async (opts: { profiles: string; tests: string }) => {
-      const profileIds = splitCsv(opts.profiles);
-      const testIds = splitCsv(opts.tests);
+    .option("--max-turns <n>", "Maximum simulator turns per run", (value) =>
+      Number(value),
+    )
+    .action(
+      async (opts: { profiles: string; tests: string; maxTurns?: number }) => {
+        const profiles = await Promise.all(
+          splitCsv(opts.profiles).map((id) => loadProfile(id)),
+        );
+        const tests = await Promise.all(
+          splitCsv(opts.tests).map((id) => loadTestDef(id)),
+        );
 
-      if (profileIds.length === 0) {
-        console.error("Error: --profiles is empty after splitting on commas");
-        process.exit(1);
-      }
-      if (testIds.length === 0) {
-        console.error("Error: --tests is empty after splitting on commas");
-        process.exit(1);
-      }
+        if (profiles.length === 0)
+          throw new Error("--profiles is empty after splitting on commas");
+        if (tests.length === 0)
+          throw new Error("--tests is empty after splitting on commas");
 
-      for (const id of profileIds) await loadProfile(id);
-      for (const id of testIds) await loadTestDef(id);
-    });
+        for (const profile of profiles) {
+          for (const test of tests) {
+            const result = await runEvalOnce({
+              profile,
+              test,
+              runId: runId(profile.id, test.id),
+              maxTurns: opts.maxTurns,
+            });
+            console.log(JSON.stringify(result));
+          }
+        }
+      },
+    );
 }

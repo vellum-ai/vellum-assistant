@@ -1,11 +1,11 @@
-name: CI Main Evals Checks
+name: CI PR Evals Checks
 
 on:
   workflow_dispatch:
   pull_request:
     paths:
       - 'evals/**'
-      - '.github/workflows/ci-main-evals.yaml'
+      - '.github/workflows/ci-pr-evals.yaml'
 
 jobs:
   evals-checks:
