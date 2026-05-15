@@ -42,7 +42,7 @@ function shellWords(command: string): string[] {
 }
 
 function shellSingleQuote(value: string): string {
-  return `'${value.replaceAll("'", `'\''`)}'`;
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function seedConversationCommand(containerSeedPath: string): string {

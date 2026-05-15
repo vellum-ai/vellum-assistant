@@ -15,15 +15,18 @@ cp .env.example .env
 # edit .env with your ANTHROPIC_API_KEY (required by the user simulator)
 
 bun run src/cli.ts run \
-  --profiles vellum-bare,vellum-simple-memory \
-  --tests timeline-recall
+  --profiles p1,p2 \
+  --tests t1
+
+bun run src/cli.ts server
 ```
 
 ## Commands
 
-| Command                                    | Description                      |
-| ------------------------------------------ | -------------------------------- |
-| `evals run --profiles <ids> --tests <ids>` | Cartesian profile × test runner. |
+| Command                                    | Description                                               |
+| ------------------------------------------ | --------------------------------------------------------- |
+| `evals run --profiles <ids> --tests <ids>` | Cartesian profile × test runner.                          |
+| `evals server`                             | Local report-card server for `.runs` at `localhost:3005`. |
 
 ## Layout
 
@@ -35,10 +38,10 @@ evals/
 │   ├── commands/run.ts      # `evals run` subcommand
 │   └── lib/                 # Harness library modules
 ├── profiles/                # Committed profile definitions
-│   ├── vellum-bare/
-│   │   └── manifest.json    # baseline Vellum assistant
-│   └── vellum-simple-memory/
-│       └── manifest.json    # Vellum with Simple Memory installed
+│   ├── p1/
+│   │   └── manifest.json
+│   └── p2/
+│       └── manifest.json
 ├── tests/                   # Committed test definitions
 │   └── timeline-recall/
 │       ├── SPEC.md          # simulator briefing

@@ -16,10 +16,23 @@ export interface UsageSummary {
 
 export interface RunArtifacts {
   runDir: string;
+  metadataPath: string;
   transcriptPath: string;
   assistantEventsPath: string;
   simulatorMessagesPath: string;
   usagePath: string;
+  metricsPath: string;
+}
+
+export interface RunMetadata {
+  runId: string;
+  profileId: string;
+  testId: string;
+  status: "running" | "completed" | "failed" | "unknown";
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+  artifactDir: string;
 }
 
 export interface MetricInput {
@@ -54,10 +67,12 @@ export function runArtifacts(runId: string): RunArtifacts {
   const runDir = join(RUNS_DIR, runId);
   return {
     runDir,
+    metadataPath: join(runDir, "run.json"),
     transcriptPath: join(runDir, "transcript.json"),
     assistantEventsPath: join(runDir, "assistant-events.json"),
     simulatorMessagesPath: join(runDir, "simulator-messages.json"),
     usagePath: join(runDir, "usage.json"),
+    metricsPath: join(runDir, "metrics.json"),
   };
 }
 
@@ -69,8 +84,25 @@ export async function ensureRunArtifacts(runId: string): Promise<RunArtifacts> {
     writeJson(artifacts.assistantEventsPath, []),
     writeJson(artifacts.simulatorMessagesPath, []),
     writeJson(artifacts.usagePath, { requests: [] } satisfies UsageSummary),
+    writeJson(artifacts.metricsPath, []),
   ]);
   return artifacts;
+}
+
+export async function readRunMetadata(
+  runId: string,
+): Promise<RunMetadata | undefined> {
+  return readJson<RunMetadata | undefined>(
+    runArtifacts(runId).metadataPath,
+    undefined,
+  );
+}
+
+export async function writeRunMetadata(
+  runId: string,
+  metadata: RunMetadata,
+): Promise<void> {
+  await writeJson(runArtifacts(runId).metadataPath, metadata);
 }
 
 export async function readTranscript(runId: string): Promise<TranscriptTurn[]> {
@@ -138,6 +170,19 @@ export async function writeUsage(
   usage: UsageSummary,
 ): Promise<void> {
   await writeJson(runArtifacts(runId).usagePath, usage);
+}
+
+export async function readMetricResults(
+  runId: string,
+): Promise<MetricResult[]> {
+  return readJson<MetricResult[]>(runArtifacts(runId).metricsPath, []);
+}
+
+export async function writeMetricResults(
+  runId: string,
+  metrics: MetricResult[],
+): Promise<void> {
+  await writeJson(runArtifacts(runId).metricsPath, metrics);
 }
 
 export async function runMetricFile(
