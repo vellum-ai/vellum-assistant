@@ -10,11 +10,17 @@ let mockIpcResult: {
 } = { ok: true, result: { schedules: [] } };
 let logLines: string[] = [];
 let errorLines: string[] = [];
+let exitFromIpcResultCalls: unknown[] = [];
 
 mock.module("../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
     ipcCalls.push({ method, params });
     return mockIpcResult;
+  },
+  exitFromIpcResult: (result: unknown) => {
+    exitFromIpcResultCalls.push(result);
+    process.exitCode = 10;
+    throw new Error("exitFromIpcResult called");
   },
 }));
 
@@ -76,6 +82,7 @@ beforeEach(() => {
   ipcCalls = [];
   logLines = [];
   errorLines = [];
+  exitFromIpcResultCalls = [];
   mockIpcResult = { ok: true, result: { schedules: [] } };
   process.exitCode = 0;
 });
@@ -106,8 +113,8 @@ describe("schedules list", () => {
     ]);
   });
 
-  test("passes include_all when --include-all is set", async () => {
-    await runCommand(["schedules", "list", "--include-all"]);
+  test("passes include_all when --all is set", async () => {
+    await runCommand(["schedules", "list", "--all"]);
 
     expect(ipcCalls).toEqual([
       {
@@ -329,14 +336,11 @@ describe("schedules execute", () => {
 
     expect(exitCode).toBe(0);
     expect(JSON.parse(stdout)).toEqual({
-      ok: true,
-      scheduleId: "schedule-1",
-      schedule: expect.objectContaining({ id: "schedule-1" }),
       schedules: [expect.objectContaining({ id: "schedule-1" })],
     });
   });
 
-  test("sets exit code on IPC failure", async () => {
+  test("routes IPC failure through exitFromIpcResult", async () => {
     mockIpcResult = { ok: false, error: "Schedule not found" };
 
     const { exitCode } = await runCommand([
@@ -345,11 +349,12 @@ describe("schedules execute", () => {
       "missing-schedule",
     ]);
 
-    expect(exitCode).not.toBe(0);
-    expect(errorLines).toEqual(["Schedule not found"]);
+    expect(exitCode).toBe(10);
+    expect(exitFromIpcResultCalls).toEqual([mockIpcResult]);
+    expect(errorLines).toEqual([]);
   });
 
-  test("emits JSON error on IPC failure with --json", async () => {
+  test("routes JSON IPC failure through exitFromIpcResult", async () => {
     mockIpcResult = { ok: false, error: "Schedule not found" };
 
     const { stdout, exitCode } = await runCommand([
@@ -359,10 +364,8 @@ describe("schedules execute", () => {
       "--json",
     ]);
 
-    expect(exitCode).not.toBe(0);
-    expect(JSON.parse(stdout)).toEqual({
-      ok: false,
-      error: "Schedule not found",
-    });
+    expect(exitCode).toBe(10);
+    expect(stdout).toBe("");
+    expect(exitFromIpcResultCalls).toEqual([mockIpcResult]);
   });
 });
