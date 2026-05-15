@@ -325,7 +325,6 @@ struct UsageTabContent: View {
         ScrollView {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             timeRangeStrip(store: store)
-            costAssistantSection()
 
             if allFailed {
                 VStack(spacing: VSpacing.lg) {
@@ -349,6 +348,8 @@ struct UsageTabContent: View {
                 dailySection(store: store)
                 breakdownSection(store: store)
             }
+
+            costAssistantSection()
         }
         .frame(maxWidth: 900, alignment: .top)
         .frame(maxWidth: .infinity)
