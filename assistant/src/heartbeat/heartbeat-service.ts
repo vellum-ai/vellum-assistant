@@ -202,6 +202,9 @@ export class HeartbeatService {
   // Reset by resetTimer (guardian message), reconfigure, and stop. Force runs
   // bypass the cap and do not increment.
   private _consecutiveRuns = 0;
+  // Bumped every time the counter is reset so an in-flight run that finishes
+  // after a guardian message can detect the reset and skip its increment.
+  private _resetGeneration = 0;
 
   constructor(deps: HeartbeatDeps) {
     this.deps = deps;
@@ -360,6 +363,7 @@ export class HeartbeatService {
   /** Restart the timer with the latest config (e.g. after settings change). */
   reconfigure(): void {
     this._consecutiveRuns = 0;
+    this._resetGeneration++;
     this.configEpoch++;
     if (this._pendingRunId) {
       supersedePendingRun(this._pendingRunId);
@@ -384,6 +388,7 @@ export class HeartbeatService {
     // Counter resets even when the timer is null so a guardian message during
     // a stopped window still clears the count.
     this._consecutiveRuns = 0;
+    this._resetGeneration++;
     if (!this.timer) return;
     if (this.cronMode) {
       clearTimeout(this.timer as ReturnType<typeof setTimeout>);
@@ -404,6 +409,7 @@ export class HeartbeatService {
 
   async stop(): Promise<void> {
     this._consecutiveRuns = 0;
+    this._resetGeneration++;
     this.stopped = true;
     if (this.timer) {
       clearTimeout(this.timer as ReturnType<typeof setTimeout>);
@@ -552,6 +558,11 @@ export class HeartbeatService {
     }
     const run = this.executeRun(runId, scheduledFor);
     this.activeRun = run;
+    // Snapshot the reset generation so we can detect whether a reset (guardian
+    // message, reconfigure, stop) happened while this run was in flight. If it
+    // did, the counter was already zeroed and we must not undo that reset by
+    // incrementing in `finally`.
+    const startGeneration = this._resetGeneration;
     try {
       await run;
     } catch (err) {
@@ -561,7 +572,7 @@ export class HeartbeatService {
         this.activeRun = null;
       }
       this._lastRunAt = Date.now();
-      if (!force) {
+      if (!force && this._resetGeneration === startGeneration) {
         this._consecutiveRuns++;
       }
       if (!this.cronMode) {
