@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   createConsoleReporter,
   formatEvalProgressLine,
+  formatProgressTimestamp,
   noopEvalProgressReporter,
   type EvalProgressEvent,
 } from "../runner/progress";
@@ -14,6 +15,21 @@ class CaptureStream {
     return true;
   }
 }
+
+describe("formatProgressTimestamp", () => {
+  test("formats a Date as YYYY-MM-DD HH:MM:SS using the local time zone", () => {
+    // Construct the date using local-time constructor args so the test
+    // doesn't depend on the host's TZ — the formatter reads local time, so
+    // we feed it local-time inputs and expect the same components back.
+    const date = new Date(2026, 4, 15, 15, 31, 54);
+    expect(formatProgressTimestamp(date)).toBe("2026-05-15 15:31:54");
+  });
+
+  test("pads single-digit components to two characters", () => {
+    const date = new Date(2026, 0, 3, 4, 5, 6);
+    expect(formatProgressTimestamp(date)).toBe("2026-01-03 04:05:06");
+  });
+});
 
 describe("formatEvalProgressLine", () => {
   test("aligns step labels to a fixed width and uses the right glyph per status", () => {
@@ -48,7 +64,7 @@ describe("formatEvalProgressLine", () => {
     expect(glyphColumn(done)).toBe(glyphColumn(info));
   });
 
-  test("folds turn numbers and details into a single parenthesised suffix", () => {
+  test("folds turn numbers and details into a single space-separated suffix with no parens", () => {
     const turnOnly = formatEvalProgressLine({
       step: "simulator",
       status: "start",
@@ -74,17 +90,43 @@ describe("formatEvalProgressLine", () => {
       message: "Assistant shut down",
     });
 
-    expect(turnOnly).toBe("[simulator] ▶ Asking simulator  (turn 3)");
-    expect(detailOnly).toBe("[metrics]   ✓ Metrics complete  (2 result(s))");
-    expect(both).toBe("[send]      ✓ Simulator message sent  (turn 2 · ok)");
+    expect(turnOnly).toBe("[simulator] ▶ Asking simulator  turn 3");
+    expect(detailOnly).toBe("[metrics]   ✓ Metrics complete  2 result(s)");
+    expect(both).toBe("[send]      ✓ Simulator message sent  turn 2 · ok");
     expect(none).toBe("[shutdown]  ✓ Assistant shut down");
+  });
+
+  test("prefixes lines with [YYYY-MM-DD HH:MM:SS] when a timestamp is supplied", () => {
+    const ts = new Date(2026, 4, 15, 15, 31, 54);
+    const line = formatEvalProgressLine(
+      {
+        step: "artifacts",
+        status: "start",
+        message: "Preparing run artifacts",
+        detail: "eval-vellum-bare-timeline-recall-20260515153154",
+      },
+      { timestamp: ts },
+    );
+    expect(line).toBe(
+      "[2026-05-15 15:31:54] [artifacts] ▶ Preparing run artifacts  eval-vellum-bare-timeline-recall-20260515153154",
+    );
   });
 });
 
 describe("createConsoleReporter", () => {
-  test("writes one newline-terminated line per event to the configured stream", () => {
+  test("writes one timestamped, newline-terminated line per event to the configured stream", () => {
     const stream = new CaptureStream();
-    const reporter = createConsoleReporter({ stream });
+    // Inject a fixed clock so the test is deterministic. Each call returns
+    // a different epoch ms so we can assert the prefix advances per line.
+    let tick = new Date(2026, 4, 15, 15, 31, 54).getTime();
+    const reporter = createConsoleReporter({
+      stream,
+      now: () => {
+        const value = tick;
+        tick += 1_000;
+        return value;
+      },
+    });
 
     const events: EvalProgressEvent[] = [
       {
@@ -109,9 +151,9 @@ describe("createConsoleReporter", () => {
     for (const event of events) reporter(event);
 
     expect(stream.chunks).toEqual([
-      "[artifacts] ▶ Preparing run artifacts  (eval-1)\n",
-      "[artifacts] ✓ Run artifacts ready  (artifacts/eval-1)\n",
-      "[simulator] ▶ Asking simulator  (turn 1)\n",
+      "[2026-05-15 15:31:54] [artifacts] ▶ Preparing run artifacts  eval-1\n",
+      "[2026-05-15 15:31:55] [artifacts] ✓ Run artifacts ready  artifacts/eval-1\n",
+      "[2026-05-15 15:31:56] [simulator] ▶ Asking simulator  turn 1\n",
     ]);
   });
 

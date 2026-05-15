@@ -29,12 +29,58 @@ export interface VellumAgentOptions {
   runId?: string;
   runner?: CommandRunner;
   cliCommand?: string;
+  /**
+   * Environment to read provider API keys from before invoking the hatch
+   * subprocess. Defaults to `process.env`. Injected for tests so we can
+   * assert env forwarding without mutating the host environment.
+   */
+  processEnv?: NodeJS.ProcessEnv;
 }
 
 function setupCommands(profile: Profile): string[] {
   const setup = profile.manifest.setup;
   if (!setup) return [];
   return Array.isArray(setup) ? setup : [setup];
+}
+
+/**
+ * Canonical environment variable names for LLM provider API keys.
+ *
+ * Mirrors the LLM half of `cli/src/shared/provider-env-vars.ts`. Duplicated
+ * here on purpose: this package's adapters are CLI-boundary-oriented and do
+ * not import from `cli/src/` internals (see `evals/AGENTS.md`). Drift is
+ * unlikely to matter — the Vellum docker StatefulSet spec is what ultimately
+ * forwards each of these into the assistant container, and the assistant
+ * runtime falls back to `process.env[<NAME>]` when the secure store is empty.
+ * If a new LLM provider is added the worst case is that its eval runs need a
+ * `keys set` setup step until this list is widened.
+ */
+const LLM_PROVIDER_ENV_VARS = [
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "GEMINI_API_KEY",
+  "FIREWORKS_API_KEY",
+  "OPENROUTER_API_KEY",
+  "ZAI_API_KEY",
+  "DEEPSEEK_API_KEY",
+  "MINIMAX_API_KEY",
+] as const;
+
+/**
+ * Pick LLM provider API keys from the given env and return them as a flat
+ * record suitable for `CommandRunner.run({ env })`. Only keys with a
+ * non-empty value are included so absent vars don't get propagated as empty
+ * strings (which the assistant runtime treats as "configured but invalid").
+ */
+function selectProviderEnv(source: NodeJS.ProcessEnv): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const name of LLM_PROVIDER_ENV_VARS) {
+    const value = source[name];
+    if (value && value.length > 0) {
+      out[name] = value;
+    }
+  }
+  return out;
 }
 
 /**
@@ -79,6 +125,7 @@ export class VellumAgent implements BaseAgent {
   private readonly cliCommand: string;
   private readonly testId: string;
   private readonly assistantContainerName: string;
+  private readonly processEnv: NodeJS.ProcessEnv;
   private eventsProcess?: SpawnedProcess;
   private jail?: DockerEgressJail;
   private hatched = false;
@@ -89,6 +136,7 @@ export class VellumAgent implements BaseAgent {
     this.testId = opts.testId;
     this.runner = opts.runner ?? new NodeCommandRunner();
     this.cliCommand = opts.cliCommand ?? "vellum";
+    this.processEnv = opts.processEnv ?? process.env;
     this.id =
       opts.runId ?? `eval-${opts.profile.id}-${opts.testId}-${Date.now()}`;
     this.conversationKey = `evals:${opts.testId}:${this.id}`;
@@ -105,16 +153,27 @@ export class VellumAgent implements BaseAgent {
 
     let hatchStarted = false;
     try {
-      const hatch = await this.runner.run(this.cliCommand, [
-        "hatch",
-        "vellum",
-        "--remote",
-        "docker",
-        "--source",
-        repoRootFromAdapter(),
-        "--name",
-        this.id,
-      ]);
+      // Forward LLM provider API keys from the eval process env into the
+      // hatch subprocess explicitly. The Vellum docker StatefulSet spec
+      // conditionally re-forwards each of these from `vellum hatch`'s env
+      // into the assistant container (see `cli/src/lib/statefulset.ts`),
+      // and the assistant runtime falls back to `process.env[<NAME>]` when
+      // the secure store is empty. Without this, runs would fail with
+      // `HTTP 422: No API key configured for anthropic` on the first send.
+      const hatch = await this.runner.run(
+        this.cliCommand,
+        [
+          "hatch",
+          "vellum",
+          "--remote",
+          "docker",
+          "--source",
+          repoRootFromAdapter(),
+          "--name",
+          this.id,
+        ],
+        { env: selectProviderEnv(this.processEnv) },
+      );
       assertSuccess(hatch, `hatch Vellum profile ${this.profile.id}`);
       hatchStarted = true;
 
