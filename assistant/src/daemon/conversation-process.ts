@@ -33,7 +33,10 @@ import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
-import { persistQueuedMessageBody } from "./conversation-messaging.js";
+import {
+  persistQueuedMessageBody,
+  serializePersistedUserMessageContent,
+} from "./conversation-messaging.js";
 import type {
   MessageQueue,
   QueuedMessage,
@@ -514,11 +517,11 @@ async function drainSingleMessage(
       // When displayContent is provided (e.g. original text before recording
       // intent stripping), persist that to DB so users see the full message.
       // The in-memory userMessage (sent to the LLM) still uses the stripped content.
-      const contentToPersist = next.displayContent
-        ? JSON.stringify(
-            createUserMessage(next.displayContent, next.attachments).content,
-          )
-        : JSON.stringify(cleanUserMsg.content);
+      const contentToPersist = serializePersistedUserMessageContent(
+        next.content,
+        next.attachments,
+        next.displayContent,
+      );
       await addMessage(
         conversation.conversationId,
         "user",
@@ -1401,9 +1404,11 @@ export async function processMessage(
     // When displayContent is provided (e.g. original text before recording
     // intent stripping), persist that to DB so users see the full message.
     // The in-memory userMessage (sent to the LLM) still uses the stripped content.
-    const contentToPersist = displayContent
-      ? JSON.stringify(createUserMessage(displayContent, attachments).content)
-      : JSON.stringify(cleanUserMsg.content);
+    const contentToPersist = serializePersistedUserMessageContent(
+      content,
+      attachments,
+      displayContent,
+    );
     const persisted = await addMessage(
       conversation.conversationId,
       "user",

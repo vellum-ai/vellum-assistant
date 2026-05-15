@@ -204,7 +204,31 @@ function makeTestConversation() {
   return conversation;
 }
 
-async function expectEmptyDisplayContentFallsBackToModelContent(
+async function expectEmptyDisplayContentHonored(modelContent: string) {
+  const conversation = makeTestConversation();
+  activeConversation = conversation;
+
+  const result = await processMessage(
+    "conv-display-content",
+    modelContent,
+    undefined,
+    { displayContent: "" },
+    "slack",
+    "slack",
+  );
+
+  expect(result.messageId).toBe("persisted-1");
+  expect(addMessageCalls).toHaveLength(2);
+  expect(JSON.parse(addMessageCalls[0]!.content)).toEqual([]);
+  expect(conversation.getMessages()[0]).toEqual({
+    role: "user",
+    content: [{ type: "text", text: modelContent }],
+  });
+
+  return conversation;
+}
+
+async function expectOmittedDisplayContentPersistsModelContent(
   modelContent: string,
 ) {
   const conversation = makeTestConversation();
@@ -214,7 +238,7 @@ async function expectEmptyDisplayContentFallsBackToModelContent(
     "conv-display-content",
     modelContent,
     undefined,
-    { displayContent: "" },
+    undefined,
     "slack",
     "slack",
   );
@@ -267,7 +291,104 @@ describe("processMessage displayContent", () => {
     expect(conversation.runAgentLoop.mock.calls[0]![0]).toBe(modelContent);
   });
 
-  test("empty displayContent falls back to model content for unknown slash results", async () => {
+  test("persists explicit empty displayContent while keeping model content in memory", async () => {
+    const conversation = makeTestConversation();
+    activeConversation = conversation;
+    const modelContent =
+      '<external_content source="slack">\n\n</external_content>';
+
+    const result = await processMessage(
+      "conv-display-content",
+      modelContent,
+      undefined,
+      { displayContent: "" },
+      "slack",
+      "slack",
+    );
+
+    expect(result.messageId).toBe("persisted-1");
+    expect(addMessageCalls).toHaveLength(1);
+    expect(JSON.parse(addMessageCalls[0]!.content)).toEqual([]);
+    expect(conversation.getMessages()).toEqual([
+      { role: "user", content: [{ type: "text", text: modelContent }] },
+    ]);
+  });
+
+  test("omitted displayContent persists model content", async () => {
+    const conversation = makeTestConversation();
+    activeConversation = conversation;
+    const modelContent =
+      '<external_content source="webhook">wrapped content</external_content>';
+
+    const result = await processMessage(
+      "conv-display-content",
+      modelContent,
+      undefined,
+      undefined,
+      "slack",
+      "slack",
+    );
+
+    expect(result.messageId).toBe("persisted-1");
+    expect(addMessageCalls).toHaveLength(1);
+    expect(JSON.parse(addMessageCalls[0]!.content)).toEqual([
+      { type: "text", text: modelContent },
+    ]);
+  });
+
+  test("persists attachment blocks without wrapped text when displayContent is empty", async () => {
+    const conversation = makeTestConversation();
+    const modelContent =
+      '<external_content source="slack">\n\n</external_content>';
+
+    await conversation.persistUserMessage(
+      modelContent,
+      [
+        {
+          id: "att-1",
+          filename: "attachment.pdf",
+          mimeType: "application/pdf",
+          data: Buffer.from("pdf bytes").toString("base64"),
+        },
+      ],
+      "req-display-content",
+      undefined,
+      "",
+    );
+
+    expect(addMessageCalls).toHaveLength(1);
+    const persistedBlocks = JSON.parse(addMessageCalls[0]!.content);
+    expect(persistedBlocks).toEqual([
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          data: Buffer.from("pdf bytes").toString("base64"),
+          filename: "attachment.pdf",
+        },
+      },
+    ]);
+    expect(addMessageCalls[0]!.content).not.toContain("<external_content");
+    expect(conversation.getMessages()[0]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: modelContent },
+        {
+          type: "file",
+          source: {
+            type: "base64",
+            media_type: "application/pdf",
+            data: Buffer.from("pdf bytes").toString("base64"),
+            filename: "attachment.pdf",
+          },
+          extracted_text: undefined,
+        },
+      ],
+    });
+  });
+
+  test("empty displayContent is honored for unknown slash results", async () => {
     resolveSlashForTest = () => ({
       kind: "unknown",
       message: "Unknown slash command.",
@@ -275,16 +396,26 @@ describe("processMessage displayContent", () => {
     const modelContent =
       '<external_content source="webhook">/missing-command</external_content>';
 
-    await expectEmptyDisplayContentFallsBackToModelContent(modelContent);
+    await expectEmptyDisplayContentHonored(modelContent);
   });
 
-  test("empty displayContent falls back to model content for compact slash results", async () => {
+  test("omitted displayContent persists model content for unknown slash results", async () => {
+    resolveSlashForTest = () => ({
+      kind: "unknown",
+      message: "Unknown slash command.",
+    });
+    const modelContent =
+      '<external_content source="webhook">/missing-command</external_content>';
+
+    await expectOmittedDisplayContentPersistsModelContent(modelContent);
+  });
+
+  test("empty displayContent is honored for compact slash results", async () => {
     resolveSlashForTest = () => ({ kind: "compact" });
     const modelContent =
       '<external_content source="webhook">/compact</external_content>';
 
-    const conversation =
-      await expectEmptyDisplayContentFallsBackToModelContent(modelContent);
+    const conversation = await expectEmptyDisplayContentHonored(modelContent);
     expect(conversation.forceCompact).toHaveBeenCalledTimes(1);
   });
 });

@@ -1836,7 +1836,27 @@ function flattenText(messages: Message[]): string {
 interface CapturedSlackProcessMessage {
   conversationId: string;
   content: string;
+  attachmentIds?: string[];
   options?: SlackInboundProcessOptions;
+}
+
+function seedAttachment(id: string): void {
+  getDb()
+    .$client.prepare(
+      `INSERT INTO attachments (
+          id, original_filename, mime_type, size_bytes, kind, data_base64, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      "attachment.pdf",
+      "application/pdf",
+      Buffer.byteLength("pdf bytes"),
+      "upload",
+      Buffer.from("pdf bytes").toString("base64"),
+      Date.now(),
+    );
 }
 
 async function handleAndCaptureLiveSlackProcessMessage(
@@ -1851,10 +1871,10 @@ async function handleAndCaptureLiveSlackProcessMessage(
   const processMessage = async (
     conversationId: string,
     content: string,
-    _attachmentIds?: string[],
+    attachmentIds?: string[],
     options?: SlackInboundProcessOptions,
   ): Promise<{ messageId: string }> => {
-    captured = { conversationId, content, options };
+    captured = { conversationId, content, attachmentIds, options };
     const messageId = persistSlackInboundFromProcessMessage(
       conversationId,
       content,
@@ -2004,6 +2024,28 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     const persisted = readMessagesByConversation(captured.conversationId);
     expect(persisted).toHaveLength(1);
     expect(persisted[0].content).toBe(rawContent);
+  });
+
+  test("live Slack attachment-only passes empty raw displayContent for persistence", async () => {
+    seedAttachment("att-slack-file");
+
+    const captured = await handleAndCaptureLiveSlackProcessMessage(
+      buildSlackChannelRequest("1700000000.000350", {
+        content: "",
+        attachmentIds: ["att-slack-file"],
+      }),
+    );
+
+    expect(captured.content.match(/<external_content/g)?.length).toBe(1);
+    expect(captured.content).toContain('<external_content source="slack"');
+    expect(captured.content).toContain("\n\n</external_content>");
+    expect(captured.attachmentIds).toEqual(["att-slack-file"]);
+    expect(captured.options?.displayContent).toBe("");
+
+    const persisted = readMessagesByConversation(captured.conversationId);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].content).toBe("");
+    expect(persisted[0].content).not.toContain("<external_content");
   });
 
   test("live Slack guardian keeps raw content without displayContent", async () => {
