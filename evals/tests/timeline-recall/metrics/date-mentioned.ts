@@ -1,13 +1,17 @@
-import type { MetricContext, MetricResult } from "../../../src/lib/metrics";
+import {
+  readTranscript,
+  type MetricInput,
+  type MetricResult,
+} from "../../../src/lib/metrics";
 
 const EXPECTED_DATE = "March 14";
 
 export default async function scoreDateMentioned(
-  context: MetricContext,
+  input: MetricInput,
 ): Promise<MetricResult> {
-  const transcript = await context.readTranscript();
+  const transcript = await readTranscript(input.runId);
   const assistantText = transcript
-    .filter((turn) => turn.role === "assistant" && turn.phase === "eval")
+    .filter((turn) => turn.role === "assistant")
     .map((turn) => turn.content)
     .join("\n");
   const score = new RegExp("\\bMarch\\s+14\\b", "i").test(assistantText)

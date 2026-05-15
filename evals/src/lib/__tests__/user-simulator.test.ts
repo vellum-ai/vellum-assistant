@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { UserSimulator } from "../simulator/user-simulator";
+import {
+  DEFAULT_SIMULATOR_MODEL,
+  END_CONVERSATION_PREFIX,
+  UserSimulator,
+} from "../simulator/user-simulator";
 
 const originalFetch = globalThis.fetch;
 
@@ -20,7 +24,7 @@ describe("UserSimulator", () => {
     if (previous) process.env.ANTHROPIC_API_KEY = previous;
   });
 
-  test("uses tool calls and counts simulator turns only", async () => {
+  test("sends plain simulator text as the next agent message", async () => {
     const dir = await mkdtemp(join(tmpdir(), "evals-sim-"));
     const specPath = join(dir, "SPEC.md");
     await writeFile(specPath, "# spec", "utf8");
@@ -35,11 +39,8 @@ describe("UserSimulator", () => {
         JSON.stringify({
           content: [
             {
-              type: "tool_use",
-              name: "send_agent_message",
-              input: {
-                content: "What date did I mention my partner's peanut allergy?",
-              },
+              type: "text",
+              text: "What date did I mention my partner's peanut allergy?",
             },
           ],
         }),
@@ -53,7 +54,7 @@ describe("UserSimulator", () => {
         id: "timeline-recall",
         specPath,
         setupPath: join(dir, "setup.json"),
-        setupMessages: [],
+        setupCommands: [],
         metricsDir: join(dir, "metrics"),
         metricPaths: [],
       },
@@ -63,12 +64,47 @@ describe("UserSimulator", () => {
       ],
     });
 
-    expect(decision.action).toBe("send");
-    expect(requestBody).toMatchObject({
-      model: "claude-3-5-haiku-latest",
-      max_tokens: 8192,
-      tool_choice: { type: "any" },
+    expect(decision).toEqual({
+      action: "send",
+      message: {
+        content: "What date did I mention my partner's peanut allergy?",
+      },
     });
+    expect(requestBody).toMatchObject({
+      model: DEFAULT_SIMULATOR_MODEL,
+      max_tokens: 8192,
+    });
+    expect(requestBody).not.toHaveProperty("tools");
+    expect(requestBody).not.toHaveProperty("tool_choice");
+  });
+
+  test("uses explicit text prefix to end the conversation", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "evals-sim-"));
+    const specPath = join(dir, "SPEC.md");
+    await writeFile(specPath, "# spec", "utf8");
+
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          content: [{ type: "text", text: `${END_CONVERSATION_PREFIX} done` }],
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 2 });
+    const decision = await simulator.decide({
+      test: {
+        id: "timeline-recall",
+        specPath,
+        setupPath: join(dir, "setup.json"),
+        setupCommands: [],
+        metricsDir: join(dir, "metrics"),
+        metricPaths: [],
+      },
+      transcript: [],
+    });
+
+    expect(decision).toEqual({ action: "end", reason: "done" });
   });
 
   test("ends when max simulator turns are reached", async () => {
@@ -82,13 +118,13 @@ describe("UserSimulator", () => {
         id: "timeline-recall",
         specPath,
         setupPath: join(dir, "setup.json"),
-        setupMessages: [],
+        setupCommands: [],
         metricsDir: join(dir, "metrics"),
         metricPaths: [],
       },
       transcript: [
-        { role: "simulator", content: "one", emittedAt: "t1", phase: "eval" },
-        { role: "assistant", content: "reply", emittedAt: "t2", phase: "eval" },
+        { role: "simulator", content: "one", emittedAt: "t1" },
+        { role: "assistant", content: "reply", emittedAt: "t2" },
       ],
     });
 

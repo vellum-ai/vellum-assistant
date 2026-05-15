@@ -3,5 +3,4 @@ export interface TranscriptTurn {
   role: "simulator" | "assistant";
   content: string;
   emittedAt: string;
-  phase?: "setup" | "eval";
 }

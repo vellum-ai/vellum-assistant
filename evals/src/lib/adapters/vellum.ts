@@ -5,6 +5,7 @@ import type {
   BaseAgent,
 } from "../adapter";
 import type { Profile } from "../profile";
+import type { TestSetupCommand } from "../setup-command";
 import {
   applyDockerEgressJail,
   type DockerEgressJail,
@@ -125,6 +126,14 @@ export class VellumAgent implements BaseAgent {
       message.content,
     ]);
     assertSuccess(result, `send message to ${this.id}`);
+  }
+
+  async runSetupCommand(command: TestSetupCommand): Promise<void> {
+    switch (command.type) {
+      case "user-message":
+        await this.send({ content: command.content });
+        break;
+    }
   }
 
   events(): AsyncIterable<AgentEvent> {

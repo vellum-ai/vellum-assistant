@@ -1,4 +1,5 @@
 import type { Profile } from "./profile";
+import type { TestSetupCommand } from "./setup-command";
 
 export interface AgentMessage {
   content: string;
@@ -34,6 +35,7 @@ export interface BaseAgent {
   readonly conversationKey: string;
   hatch(): Promise<void>;
   send(message: AgentMessage): Promise<void>;
+  runSetupCommand(command: TestSetupCommand): Promise<void>;
   events(): AsyncIterable<AgentEvent>;
   shutdown(): Promise<void>;
 }

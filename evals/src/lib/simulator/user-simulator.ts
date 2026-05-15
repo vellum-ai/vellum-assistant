@@ -3,9 +3,10 @@ import { readFile } from "node:fs/promises";
 import type { Simulator, SimulatorDecision, SimulatorInput } from "./types";
 import type { TranscriptTurn } from "../transcript";
 
-const DEFAULT_MODEL = "claude-3-5-haiku-latest";
-const DEFAULT_MAX_TURNS = 100;
-const MAX_OUTPUT_TOKENS = 8192;
+export const DEFAULT_SIMULATOR_MODEL = "claude-haiku-4-5-20251001";
+export const DEFAULT_MAX_TURNS = 100;
+export const MAX_OUTPUT_TOKENS = 8192;
+export const END_CONVERSATION_PREFIX = "<END_CONVERSATION>";
 
 interface AnthropicMessage {
   role: "user" | "assistant";
@@ -18,16 +19,13 @@ interface UserSimulatorOptions {
   maxTurns?: number;
 }
 
-interface ToolUsePart {
-  type: "tool_use";
-  name: string;
-  input?: Record<string, unknown>;
+interface TextPart {
+  type: "text";
+  text: string;
 }
 
 function simulatorTurnCount(transcript: TranscriptTurn[]): number {
-  return transcript.filter(
-    (turn) => turn.role === "simulator" && turn.phase !== "setup",
-  ).length;
+  return transcript.filter((turn) => turn.role === "simulator").length;
 }
 
 function coalesceMessages(messages: AnthropicMessage[]): AnthropicMessage[] {
@@ -49,49 +47,38 @@ function transcriptToSimulatorMessages(
   const messages = transcript.map((turn) => ({
     role:
       turn.role === "assistant" ? ("user" as const) : ("assistant" as const),
-    content: `[${turn.emittedAt}${turn.phase ? ` ${turn.phase}` : ""}] ${turn.content}`,
+    content: `[${turn.emittedAt}] ${turn.content}`,
   }));
 
   if (messages.length === 0 || messages[0].role !== "user") {
     messages.unshift({
       role: "user",
       content:
-        "The eval conversation is starting. Choose the first user message to send to the tested agent.",
+        "The eval conversation is starting. Write the first user message to send to the tested agent.",
     });
   }
 
   return coalesceMessages(messages);
 }
 
-function parseToolDecision(parts: ToolUsePart[]): SimulatorDecision {
-  const tool = parts.find(
-    (part) =>
-      part.name === "send_agent_message" || part.name === "end_conversation",
-  );
-  if (!tool)
-    throw new Error(
-      "User simulator response did not include a supported tool call",
-    );
+function extractText(parts: TextPart[]): string {
+  return parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
+}
 
-  if (tool.name === "end_conversation") {
+function parseTextDecision(text: string): SimulatorDecision {
+  if (!text) throw new Error("User simulator response did not include text");
+  if (text.startsWith(END_CONVERSATION_PREFIX)) {
+    const reason = text.slice(END_CONVERSATION_PREFIX.length).trim();
     return {
       action: "end",
-      reason: String(tool.input?.reason ?? "simulator ended the conversation"),
+      reason: reason || "simulator ended the conversation",
     };
   }
-
-  const content = tool.input?.content;
-  if (typeof content !== "string" || !content.trim()) {
-    throw new Error(
-      "send_agent_message tool call must include non-empty content",
-    );
-  }
-  return {
-    action: "send",
-    message: { content },
-    reason:
-      typeof tool.input?.reason === "string" ? tool.input.reason : undefined,
-  };
+  return { action: "send", message: { content: text } };
 }
 
 export class UserSimulator implements Simulator {
@@ -107,10 +94,8 @@ export class UserSimulator implements Simulator {
       );
     }
     this.apiKey = apiKey;
-    this.model =
-      opts.model ?? process.env.EVALS_SIMULATOR_MODEL ?? DEFAULT_MODEL;
-    this.maxTurns =
-      opts.maxTurns ?? Number(process.env.EVALS_MAX_TURNS ?? DEFAULT_MAX_TURNS);
+    this.model = opts.model ?? DEFAULT_SIMULATOR_MODEL;
+    this.maxTurns = opts.maxTurns ?? DEFAULT_MAX_TURNS;
   }
 
   async decide(input: SimulatorInput): Promise<SimulatorDecision> {
@@ -138,39 +123,14 @@ export class UserSimulator implements Simulator {
           "You are the user simulator in an eval harness.",
           "You are controlling the user side of a conversation with the tested agent.",
           "Follow the test SPEC exactly.",
-          "Use send_agent_message when the tested agent should receive another user message.",
-          "Use end_conversation when the SPEC end condition is met.",
+          "Your assistant message is sent verbatim as the next user message to the tested agent.",
+          `When the SPEC end condition is met, respond with '${END_CONVERSATION_PREFIX} <short reason>' and nothing else.`,
           "Do not reveal hidden test answers unless the SPEC explicitly says to reveal them.",
           "",
           "SPEC:",
           spec,
         ].join("\n"),
         messages: transcriptToSimulatorMessages(input.transcript),
-        tools: [
-          {
-            name: "send_agent_message",
-            description: "Send the next user message to the tested agent.",
-            input_schema: {
-              type: "object",
-              properties: {
-                content: { type: "string" },
-                reason: { type: "string" },
-              },
-              required: ["content"],
-            },
-          },
-          {
-            name: "end_conversation",
-            description:
-              "End the eval conversation because the SPEC end condition has been met.",
-            input_schema: {
-              type: "object",
-              properties: { reason: { type: "string" } },
-              required: ["reason"],
-            },
-          },
-        ],
-        tool_choice: { type: "any" },
       }),
     });
 
@@ -180,7 +140,7 @@ export class UserSimulator implements Simulator {
       );
     }
 
-    const body = (await response.json()) as { content?: ToolUsePart[] };
-    return parseToolDecision(body.content ?? []);
+    const body = (await response.json()) as { content?: TextPart[] };
+    return parseTextDecision(extractText(body.content ?? []));
   }
 }
