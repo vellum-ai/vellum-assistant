@@ -971,7 +971,7 @@
           "longContextMode": "unsupported",
           "supportsThinking": false,
           "supportsCaching": false,
-          "supportsVision": true,
+          "supportsVision": false,
           "supportsToolUse": true
         },
         {
@@ -983,7 +983,7 @@
           "longContextMode": "unsupported",
           "supportsThinking": false,
           "supportsCaching": false,
-          "supportsVision": true,
+          "supportsVision": false,
           "supportsToolUse": true
         },
         {
@@ -995,7 +995,7 @@
           "longContextMode": "unsupported",
           "supportsThinking": false,
           "supportsCaching": false,
-          "supportsVision": true,
+          "supportsVision": false,
           "supportsToolUse": true
         },
         {
@@ -1007,7 +1007,7 @@
           "longContextMode": "unsupported",
           "supportsThinking": false,
           "supportsCaching": false,
-          "supportsVision": true,
+          "supportsVision": false,
           "supportsToolUse": true
         },
         {
@@ -1019,7 +1019,7 @@
           "longContextMode": "unsupported",
           "supportsThinking": false,
           "supportsCaching": false,
-          "supportsVision": true,
+          "supportsVision": false,
           "supportsToolUse": true
         }
       ]
