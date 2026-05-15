@@ -287,10 +287,9 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
 /**
  * Build a {@link Plugin} from `pluginDir` with the same timeout +
  * per-plugin isolation contract as {@link loadExternalPlugin}, but
- * without registering it. The post-boot install path consumes this so it
- * can decide between fresh-install (path A: register + init) and
- * hot-reload (path B: replace + skip init) based on what's already in the
- * registry.
+ * without registering it. The plugin-source watcher consumes this so it
+ * can decide between first-time registration (init once, then publish) and
+ * hot-reload (replace + skip init) based on what's already in the registry.
  *
  * Returns `undefined` on timeout, build failure, or abandoned surface
  * import. Never throws — failures are logged with directory attribution.

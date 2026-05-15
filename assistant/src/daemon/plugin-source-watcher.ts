@@ -4,7 +4,7 @@
  * Watches `<workspaceDir>/plugins/` recursively using fs.watch (FSEvents on
  * macOS). When a plugin directory is created or modified, debounces per
  * top-level directory name (= the plugin name) and dispatches to the
- * watcher's internal change handler so the daemon can install + initialize
+ * watcher's internal change handler so the daemon can register or reload
  * the plugin without a restart.
  *
  * Mirrors `app-source-watcher.ts` (same DebouncerMap shape, same start/stop
@@ -16,16 +16,14 @@
 
 import { type FSWatcher, mkdirSync, watch } from "node:fs";
 
-import { getConfig } from "../config/loader.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
-import { APP_VERSION } from "../version.js";
-import { installPluginPostBoot } from "./external-plugins-bootstrap.js";
+import { reregisterExternalPlugin } from "./external-plugins-bootstrap.js";
 
 const log = getLogger("plugin-source-watcher");
 
-const PLUGIN_INSTALL_DEBOUNCE_MS = 500;
+const PLUGIN_SOURCE_DEBOUNCE_MS = 500;
 
 /**
  * Extract the plugin's top-level directory name from a relative path within
@@ -69,7 +67,7 @@ export class PluginSourceWatcher {
   private watcher: FSWatcher | null = null;
   private started = false;
   private debouncer = new DebouncerMap({
-    defaultDelayMs: PLUGIN_INSTALL_DEBOUNCE_MS,
+    defaultDelayMs: PLUGIN_SOURCE_DEBOUNCE_MS,
     maxEntries: 50,
   });
 
@@ -97,23 +95,8 @@ export class PluginSourceWatcher {
     }
   }
 
-  /**
-   * Route a detected plugin source change into the daemon-side install
-   * path. {@link installPluginPostBoot} gates on the in-memory registry,
-   * so repeated fires for an already-loaded plugin are cheap no-ops, and
-   * partial writes (package.json missing) are tolerated — the next
-   * debounced fire catches the complete state.
-   *
-   * The promise is returned so the debouncer awaits it and any throw
-   * surfaces at the watcher boundary. `installPluginPostBoot` itself
-   * catches and logs its own failures, so this is belt-and-suspenders
-   * against an unhandled rejection if the install path ever evolves.
-   */
   private onChange(pluginName: string): Promise<void> {
-    return installPluginPostBoot(pluginName, {
-      config: getConfig(),
-      assistantVersion: APP_VERSION,
-    });
+    return reregisterExternalPlugin(pluginName);
   }
 
   private tryWatch(): void {
@@ -129,13 +112,6 @@ export class PluginSourceWatcher {
       return;
     }
 
-    // Ensure the plugins directory exists so the watcher always has a
-    // target to attach to. Without this, a fresh workspace (no plugins/
-    // dir yet) would leave the watcher detached forever — fs.watch
-    // cannot attach to a non-existent path, and the CLI install path
-    // doesn't signal the daemon over IPC. `recursive: true` is
-    // idempotent and the side effect (an empty `plugins/` dir for users
-    // who never install a plugin) is negligible.
     try {
       mkdirSync(pluginsDir, { recursive: true });
     } catch (err) {

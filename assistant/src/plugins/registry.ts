@@ -235,72 +235,12 @@ export function unregisterPlugin(name: string): void {
   registeredPlugins.delete(name);
 }
 
-/**
- * Look up a single plugin by manifest name. Returns `undefined` when the
- * name is not registered. Used by the post-boot install path to branch
- * on fresh-install vs hot-reload semantics — see
- * {@link registerPluginPostBoot}.
- */
 export function getRegisteredPlugin(name: string): Plugin | undefined {
   return registeredPlugins.get(name);
 }
 
-/**
- * Register or REPLACE a plugin from the post-boot install / hot-reload
- * path. Unlike {@link registerPlugin}, this bypasses two guards:
- *
- *   1. **Duplicate-name guard.** Replacing an existing entry IS the
- *      intended behavior — a plugin source change should swap the live
- *      registry slot so hooks, middleware, and injectors pick up the
- *      new code on the next iteration. `Map.set` on an existing key
- *      preserves the slot's insertion-order position, so middleware
- *      composition order stays stable across hot-reloads.
- *
- *   2. **Closed-registration latch.** {@link closeRegistration} closes
- *      the boot-time window so a user plugin whose dynamic `import()`
- *      timed out cannot land in the registry after `bootstrapPlugins()`
- *      has already walked it. The post-boot install path is the
- *      canonical caller for adding plugins after that window closed
- *      and must proceed regardless of latch state.
- *
- * Shape validation (manifest object, kebab-case name, non-empty
- * version) is duplicated inline from {@link registerPlugin} rather than
- * extracted into a shared helper so the two registration paths can
- * diverge in their duplicate / latch behavior without entangling the
- * validation contract.
- */
-export function registerPluginPostBoot(plugin: Plugin): void {
-  if (!plugin || typeof plugin !== "object") {
-    throw new PluginExecutionError(
-      "registerPluginPostBoot requires a Plugin object",
-      undefined,
-    );
-  }
-  const manifest = plugin.manifest;
-  if (!manifest || typeof manifest !== "object") {
-    throw new PluginExecutionError("plugin manifest is missing", undefined);
-  }
-  const name = manifest.name;
-  if (typeof name !== "string" || name.length === 0) {
-    throw new PluginExecutionError(
-      "plugin manifest.name is required",
-      undefined,
-    );
-  }
-  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) {
-    throw new PluginExecutionError(
-      `plugin manifest.name "${name}" must be kebab-case (lowercase letters, digits, and single hyphens)`,
-      name,
-    );
-  }
-  if (typeof manifest.version !== "string" || manifest.version.length === 0) {
-    throw new PluginExecutionError(
-      `plugin ${name} manifest.version is required`,
-      name,
-    );
-  }
-  // Replace if exists (preserves Map insertion order), append otherwise.
-  registeredPlugins.set(name, plugin);
+export function setRegisteredPlugin(plugin: Plugin): void {
+  registeredPlugins.set(plugin.manifest.name, plugin);
 }
 
 // ─── Test hooks ──────────────────────────────────────────────────────────────
