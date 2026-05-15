@@ -130,6 +130,31 @@ export async function executeAppCreate(
     };
   }
 
+  if (input.source_files != null) {
+    if (
+      typeof input.source_files !== "object" ||
+      Array.isArray(input.source_files)
+    ) {
+      return {
+        content: JSON.stringify({
+          error:
+            "source_files must be an object mapping relative file paths to string contents",
+        }),
+        isError: true,
+      };
+    }
+    for (const [key, val] of Object.entries(input.source_files)) {
+      if (typeof val !== "string") {
+        return {
+          content: JSON.stringify({
+            error: `source_files["${key}"] must be a string, got ${typeof val}`,
+          }),
+          isError: true,
+        };
+      }
+    }
+  }
+
   // Extract icon from preview if provided - only persist emoji-like values,
   // not URLs which would render as raw strings in UI and bundle manifests.
   const rawIcon = preview?.icon as string | undefined;
