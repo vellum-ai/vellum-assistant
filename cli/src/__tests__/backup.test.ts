@@ -81,12 +81,20 @@ const localRuntimePollJobStatusMock = spyOn(
 
 // Mode 1 (runtime-direct local backup) uses guardian tokens. Don't exercise
 // it here, but the spies need to exist so the module under test can import
-// them without surprises.
-spyOn(guardianToken, "loadGuardianToken").mockReturnValue({
+// them without surprises. Saved to variables so afterAll can restore them —
+// otherwise the spied loadGuardianToken leaks into guardian-token.test.ts and
+// setup.test.ts when they run later in the same `bun test` invocation.
+const loadGuardianTokenSpy = spyOn(
+  guardianToken,
+  "loadGuardianToken",
+).mockReturnValue({
   accessToken: "local-token",
   accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
 } as unknown as ReturnType<typeof guardianToken.loadGuardianToken>);
-spyOn(guardianToken, "leaseGuardianToken").mockResolvedValue({
+const leaseGuardianTokenSpy = spyOn(
+  guardianToken,
+  "leaseGuardianToken",
+).mockResolvedValue({
   accessToken: "leased-token",
   accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
 } as unknown as Awaited<ReturnType<typeof guardianToken.leaseGuardianToken>>);
@@ -177,6 +185,8 @@ afterAll(() => {
   getBackupsDirMock.mockRestore();
   mkdirSyncMock.mockRestore();
   writeFileSyncMock.mockRestore();
+  loadGuardianTokenSpy.mockRestore();
+  leaseGuardianTokenSpy.mockRestore();
   rmSync(testDir, { recursive: true, force: true });
 });
 
