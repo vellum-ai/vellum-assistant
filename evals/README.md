@@ -12,7 +12,7 @@ Runs profiles (species + setup commands + initial workspace) against tests (memo
 cd evals
 bun install
 cp .env.example .env
-# edit .env with your ANTHROPIC_API_KEY (used by the simulator)
+# edit .env with your ANTHROPIC_API_KEY (required by the user simulator)
 
 bun run src/cli.ts run \
   --profiles vellum-bare \
@@ -68,4 +68,4 @@ A test lives at `tests/<id>/`. The directory name is the test id.
 
 `SPEC.md` briefs the simulator agent on the role it plays and how it should interact with the assistant. It does not describe assertion behavior.
 
-`metrics/` is a directory of `.ts` files. Each file exports a default scorer that receives the transcript and returns one report-card cell.
+`metrics/` is a directory of `.ts` files. Each file exports a default scorer that receives a metric context. The context exposes artifact readers for transcript, assistant events, simulator messages, and usage.

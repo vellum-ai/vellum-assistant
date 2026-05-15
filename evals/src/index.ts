@@ -12,13 +12,15 @@ export {
   vellumDockerAssistantContainer,
 } from "./lib/egress/docker-jail";
 export type {
-  MetricInput,
+  MetricContext,
   MetricResult,
   MetricScorer,
-  TranscriptTurn,
+  UsageSummary,
 } from "./lib/metrics";
-export { runMetrics } from "./lib/metrics";
+export { createMetricContext, runMetrics } from "./lib/metrics";
 export { loadProfile, ProfileManifestSchema } from "./lib/profile";
+export { AgentEventCollector } from "./lib/runner/event-collector";
 export { runEvalOnce } from "./lib/runner/run-once";
-export { HaikuSimulator } from "./lib/simulator/haiku";
+export { UserSimulator } from "./lib/simulator/user-simulator";
 export { loadTestDef } from "./lib/test-def";
+export type { TranscriptTurn } from "./lib/transcript";

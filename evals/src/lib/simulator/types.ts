@@ -1,10 +1,10 @@
-import type { AgentEvent, AgentMessage } from "../adapter";
+import type { AgentMessage } from "../adapter";
 import type { TestDef } from "../test-def";
+import type { TranscriptTurn } from "../transcript";
 
 export interface SimulatorInput {
   test: TestDef;
-  assistantEvents: AgentEvent[];
-  transcript: Array<{ role: "simulator" | "assistant"; content: string }>;
+  transcript: TranscriptTurn[];
 }
 
 export type SimulatorDecision =

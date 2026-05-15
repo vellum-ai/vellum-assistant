@@ -1,10 +1,22 @@
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+
 import type { AgentEvent, AgentMessage } from "../adapter";
-import { runMetrics, type MetricResult, type TranscriptTurn } from "../metrics";
+import {
+  createMetricContext,
+  metricArtifactPaths,
+  runMetrics,
+  type MetricResult,
+  writeMetricArtifacts,
+} from "../metrics";
 import type { Profile } from "../profile";
 import type { TestDef } from "../test-def";
-import { createAgent } from "./create-agent";
-import { HaikuSimulator } from "../simulator/haiku";
+import type { TranscriptTurn } from "../transcript";
+import { summarizeAssistantUsage } from "../usage";
+import { UserSimulator } from "../simulator/user-simulator";
 import type { Simulator } from "../simulator/types";
+import { createAgent } from "./create-agent";
+import { AgentEventCollector } from "./event-collector";
 
 export interface EvalRunInput {
   profile: Profile;
@@ -12,12 +24,14 @@ export interface EvalRunInput {
   runId: string;
   simulator?: Simulator;
   maxTurns?: number;
+  artifactDir?: string;
 }
 
 export interface EvalRunResult {
   runId: string;
   profileId: string;
   testId: string;
+  artifactDir: string;
   transcript: TranscriptTurn[];
   metrics: MetricResult[];
 }
@@ -27,27 +41,40 @@ function assistantContent(event: AgentEvent): string | undefined {
   return message.text ?? message.content ?? message.message ?? message.chunk;
 }
 
-async function collectAvailableEvents(
-  agentEvents: AsyncIterator<AgentEvent>,
-  timeoutMs: number,
-): Promise<AgentEvent[]> {
-  const events: AgentEvent[] = [];
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const remaining = deadline - Date.now();
-    const next = await Promise.race([
-      agentEvents.next(),
-      new Promise<IteratorResult<AgentEvent>>((resolve) =>
-        setTimeout(
-          () => resolve({ done: true, value: undefined }),
-          Math.min(remaining, 250),
-        ),
-      ),
-    ]);
-    if (next.done) break;
-    events.push(next.value);
+function defaultArtifactDir(runId: string): string {
+  return join(process.env.EVALS_RUNS_DIR ?? ".eval-runs", runId);
+}
+
+function settleMs(): number {
+  return Number(process.env.EVALS_EVENT_SETTLE_MS ?? 5_000);
+}
+
+function maxEventCollectionMs(): number {
+  return Number(process.env.EVALS_EVENT_MAX_MS ?? settleMs() * 6);
+}
+
+async function appendEventsToTranscript(input: {
+  collector: AgentEventCollector;
+  assistantEvents: AgentEvent[];
+  transcript: TranscriptTurn[];
+  phase: "setup" | "eval";
+}): Promise<void> {
+  const events = await input.collector.collectUntilQuiet({
+    quietMs: settleMs(),
+    maxMs: maxEventCollectionMs(),
+  });
+  input.assistantEvents.push(...events);
+  for (const event of events) {
+    const content = assistantContent(event);
+    if (content?.trim()) {
+      input.transcript.push({
+        role: "assistant",
+        content: content.trim(),
+        emittedAt: event.emittedAt ?? new Date().toISOString(),
+        phase: input.phase,
+      });
+    }
   }
-  return events;
 }
 
 export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
@@ -57,19 +84,40 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
     runId: input.runId,
   });
   const simulator =
-    input.simulator ?? new HaikuSimulator({ maxTurns: input.maxTurns });
+    input.simulator ?? new UserSimulator({ maxTurns: input.maxTurns });
+  const artifactDir = input.artifactDir ?? defaultArtifactDir(input.runId);
   const transcript: TranscriptTurn[] = [];
   const simulatorMessages: AgentMessage[] = [];
   const assistantEvents: AgentEvent[] = [];
 
+  await mkdir(artifactDir, { recursive: true });
   await agent.hatch();
   try {
-    const eventIterator = agent.events()[Symbol.asyncIterator]();
+    const collector = new AgentEventCollector(
+      agent.events()[Symbol.asyncIterator](),
+    );
+
+    for (const message of input.test.setupMessages) {
+      simulatorMessages.push(message);
+      transcript.push({
+        role: "simulator",
+        content: message.content,
+        emittedAt: new Date().toISOString(),
+        phase: "setup",
+      });
+      await agent.send(message);
+      await appendEventsToTranscript({
+        collector,
+        assistantEvents,
+        transcript,
+        phase: "setup",
+      });
+    }
+
     for (;;) {
       const decision = await simulator.decide({
         test: input.test,
-        assistantEvents,
-        transcript: transcript.map(({ role, content }) => ({ role, content })),
+        transcript,
       });
       if (decision.action === "end") break;
 
@@ -78,37 +126,39 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         role: "simulator",
         content: decision.message.content,
         emittedAt: new Date().toISOString(),
+        phase: "eval",
       });
       await agent.send(decision.message);
-
-      const events = await collectAvailableEvents(
-        eventIterator,
-        Number(process.env.EVALS_EVENT_SETTLE_MS ?? 5_000),
-      );
-      assistantEvents.push(...events);
-      for (const event of events) {
-        const content = assistantContent(event);
-        if (content?.trim()) {
-          transcript.push({
-            role: "assistant",
-            content: content.trim(),
-            emittedAt: event.emittedAt ?? new Date().toISOString(),
-          });
-        }
-      }
+      await appendEventsToTranscript({
+        collector,
+        assistantEvents,
+        transcript,
+        phase: "eval",
+      });
     }
 
-    const metrics = await runMetrics({
-      profile: input.profile,
-      test: input.test,
+    const usage = summarizeAssistantUsage(assistantEvents);
+    const artifacts = metricArtifactPaths(artifactDir);
+    await writeMetricArtifacts(artifacts, {
       transcript,
       assistantEvents,
       simulatorMessages,
+      usage,
     });
+
+    const metrics = await runMetrics(
+      createMetricContext({
+        profile: input.profile,
+        test: input.test,
+        runId: input.runId,
+        artifactDir,
+      }),
+    );
     return {
       runId: input.runId,
       profileId: input.profile.id,
       testId: input.test.id,
+      artifactDir,
       transcript,
       metrics,
     };

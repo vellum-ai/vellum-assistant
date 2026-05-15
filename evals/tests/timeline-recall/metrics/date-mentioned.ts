@@ -1,20 +1,25 @@
-import type { MetricInput, MetricResult } from "../../../src/lib/metrics";
+import type { MetricContext, MetricResult } from "../../../src/lib/metrics";
 
 const EXPECTED_DATE = "March 14";
 
-export default function scoreTimelineRecall(input: MetricInput): MetricResult {
-  const assistantText = input.transcript
-    .filter((turn) => turn.role === "assistant")
+export default async function scoreDateMentioned(
+  context: MetricContext,
+): Promise<MetricResult> {
+  const transcript = await context.readTranscript();
+  const assistantText = transcript
+    .filter((turn) => turn.role === "assistant" && turn.phase === "eval")
     .map((turn) => turn.content)
     .join("\n");
-  const passed = new RegExp("\\bMarch\\s+14\\b", "i").test(assistantText);
+  const score = new RegExp("\\bMarch\\s+14\\b", "i").test(assistantText)
+    ? 1
+    : 0;
   return {
-    name: "timeline-recall-date-mentioned",
-    score: passed ? 1 : 0,
-    passed,
-    reason: passed
-      ? `Assistant recovered the expected date (${EXPECTED_DATE}).`
-      : `Assistant did not recover the expected date (${EXPECTED_DATE}).`,
+    name: "date-mentioned",
+    score,
+    reason:
+      score === 1
+        ? `Assistant recovered the expected date (${EXPECTED_DATE}).`
+        : `Assistant did not recover the expected date (${EXPECTED_DATE}).`,
     metadata: { expectedDate: EXPECTED_DATE },
   };
 }

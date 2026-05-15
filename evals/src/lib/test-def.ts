@@ -2,29 +2,37 @@
  * Test definition — directory layout describing what the harness runs.
  *
  * Each test lives at `tests/<id>/` with:
- *   - `SPEC.md`  — markdown briefing for the simulator agent. Describes the
- *                  role the simulator plays and how it should interact with
- *                  the assistant. Does NOT describe assertion behavior;
- *                  metrics own that.
- *   - `metrics/` — directory of `.ts` files. Each file exports a scorer for
- *                  one cell on the report card.
+ *   - `SPEC.md`    — markdown briefing for the simulator agent.
+ *   - `setup.json` — optional array of user messages that seed prior history.
+ *   - `metrics/`   — directory of `.ts` files. Each file exports a scorer.
  *
  * The test id is the directory name.
  */
-import { readdir, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { z } from "zod";
+
+import type { AgentMessage } from "./adapter";
 
 export interface TestDef {
   /** Directory name under `tests/`. */
   id: string;
   /** Absolute path to `tests/<id>/SPEC.md`. */
   specPath: string;
+  /** Absolute path to optional `tests/<id>/setup.json`. */
+  setupPath: string;
+  /** User messages sent before the simulator starts, to seed test history. */
+  setupMessages: AgentMessage[];
   /** Absolute path to `tests/<id>/metrics/` — may be empty or absent. */
   metricsDir: string;
   /** Absolute paths to each `.ts` file in the metrics directory, sorted. */
   metricPaths: string[];
 }
+
+const SetupMessageSchema = z.object({ content: z.string().min(1) });
+const SetupSchema = z.array(SetupMessageSchema);
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_TESTS_DIR = join(HERE, "..", "..", "tests");
@@ -52,10 +60,41 @@ function resolveUnder(baseDir: string, ...segments: string[]): string {
   return target;
 }
 
+async function loadSetupMessages(setupPath: string): Promise<AgentMessage[]> {
+  let raw: string;
+  try {
+    raw = await readFile(setupPath, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `Test setup at ${setupPath} is not valid JSON: ${(err as Error).message}`,
+    );
+  }
+
+  const result = SetupSchema.safeParse(parsed);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((i) => `  - ${i.path.join(".") || "<root>"}: ${i.message}`)
+      .join("\n");
+    throw new Error(
+      `Test setup at ${setupPath} failed schema validation:\n${issues}`,
+    );
+  }
+  return result.data;
+}
+
 export async function loadTestDef(id: string): Promise<TestDef> {
   assertSafeId("test", id);
   const base = testsDir();
   const specPath = resolveUnder(base, id, "SPEC.md");
+  const setupPath = resolveUnder(base, id, "setup.json");
   const metricsDir = resolveUnder(base, id, "metrics");
 
   try {
@@ -80,8 +119,14 @@ export async function loadTestDef(id: string): Promise<TestDef> {
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code !== "ENOENT") throw err;
-    // No metrics directory yet — empty list is acceptable.
   }
 
-  return { id, specPath, metricsDir, metricPaths };
+  return {
+    id,
+    specPath,
+    setupPath,
+    setupMessages: await loadSetupMessages(setupPath),
+    metricsDir,
+    metricPaths,
+  };
 }
