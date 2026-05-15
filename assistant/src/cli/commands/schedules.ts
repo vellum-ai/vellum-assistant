@@ -34,6 +34,23 @@ interface ListSchedulesResponse {
   schedules: ScheduleRecord[];
 }
 
+interface ScheduleRunRecord {
+  id: string;
+  jobId: string;
+  status: string;
+  startedAt: number;
+  finishedAt: number | null;
+  durationMs: number | null;
+  output: string | null;
+  error: string | null;
+  conversationId: string | null;
+  createdAt: number;
+}
+
+interface ListScheduleRunsResponse {
+  runs: ScheduleRunRecord[];
+}
+
 export function registerSchedulesCommand(program: Command): void {
   registerCommand(program, {
     name: "schedules",
@@ -46,20 +63,25 @@ export function registerSchedulesCommand(program: Command): void {
 Schedules are recurring or one-shot jobs run by the assistant daemon.
 
 This CLI namespace is intentionally landing incrementally. Today it supports
-listing schedules and manually executing a schedule one time; create, delete,
-enable/disable, run history, and run inspection will follow as separate slices.
+listing schedules, viewing recent run history, and manually executing a schedule
+one time; create, delete, enable/disable, and run inspection will follow as
+separate slices.
 
 Examples:
   $ assistant schedules list
   $ assistant schedules list --all
-  $ assistant schedules execute <schedule-id>
-  $ assistant schedules execute <schedule-id> --json`,
+  $ assistant schedules runs <schedule-id>
+  $ assistant schedules runs <schedule-id> --limit 25 --json
+  $ assistant schedules execute <schedule-id>`,
       );
 
       schedules
         .command("list")
         .description("List assistant schedules")
-        .option("--all", "Include deferred schedules that are hidden by default")
+        .option(
+          "--all",
+          "Include deferred schedules that are hidden by default",
+        )
         .option("--json", "Machine-readable compact JSON output")
         .addHelpText(
           "after",
@@ -74,10 +96,7 @@ Examples:
   $ assistant schedules list --json`,
         )
         .action(
-          async (
-            opts: { all?: boolean; json?: boolean },
-            cmd: Command,
-          ) => {
+          async (opts: { all?: boolean; json?: boolean }, cmd: Command) => {
             const queryParams: Record<string, string> = {};
             if (opts.all) queryParams.include_all = "true";
 
@@ -176,6 +195,119 @@ Examples:
         );
 
       schedules
+        .command("runs <id>")
+        .description("List recent runs for a schedule")
+        .option("--limit <count>", "Max runs to return (default 10, max 100)")
+        .option("--json", "Machine-readable compact JSON output")
+        .addHelpText(
+          "after",
+          `
+Options:
+  --limit <count>   Max runs to return. The daemon clamps values to 1-100.
+  --json            Output the raw run list as compact JSON.
+
+Arguments:
+  <id>   Schedule ID (UUID) — run 'assistant schedules list' to find it.
+
+Examples:
+  $ assistant schedules runs 9f2c4f3a-3f1a-41e4-88e7-abc123
+  $ assistant schedules runs 9f2c4f3a-3f1a-41e4-88e7-abc123 --limit 25
+  $ assistant schedules runs 9f2c4f3a-3f1a-41e4-88e7-abc123 --json`,
+        )
+        .action(
+          async (
+            id: string,
+            opts: { limit?: string; json?: boolean },
+            cmd: Command,
+          ) => {
+            const scheduleId = id.trim();
+            const queryParams: Record<string, string> = {};
+            if (opts.limit != null) queryParams.limit = opts.limit;
+
+            const result = await cliIpcCall<ListScheduleRunsResponse>(
+              "listScheduleRuns",
+              { pathParams: { id: scheduleId }, queryParams },
+            );
+
+            if (!result.ok) return exitFromIpcResult(result, cmd);
+
+            const response = result.result ?? { runs: [] };
+            if (opts.json) {
+              writeOutput(cmd, response);
+              return;
+            }
+
+            const runs = response.runs;
+            if (runs.length === 0) {
+              log.info(`No runs found for schedule ${scheduleId}.`);
+              return;
+            }
+
+            const rows = runs.map((run) => ({
+              id: run.id,
+              status: run.status,
+              startedAt: formatTimestamp(run.startedAt),
+              finishedAt: formatNullableTimestamp(run.finishedAt),
+              duration: formatDuration(run.durationMs),
+              conversation: run.conversationId ?? "—",
+              error: run.error ?? "—",
+            }));
+
+            const headers = [
+              "ID",
+              "STATUS",
+              "STARTED",
+              "FINISHED",
+              "DURATION",
+              "CONVERSATION",
+              "ERROR",
+            ];
+            const widths = [
+              headers[0].length,
+              headers[1].length,
+              headers[2].length,
+              headers[3].length,
+              headers[4].length,
+              headers[5].length,
+              headers[6].length,
+            ];
+
+            for (const row of rows) {
+              widths[0] = Math.max(widths[0], row.id.length);
+              widths[1] = Math.max(widths[1], row.status.length);
+              widths[2] = Math.max(widths[2], row.startedAt.length);
+              widths[3] = Math.max(widths[3], row.finishedAt.length);
+              widths[4] = Math.max(widths[4], row.duration.length);
+              widths[5] = Math.max(widths[5], row.conversation.length);
+              widths[6] = Math.max(widths[6], row.error.length);
+            }
+
+            const pad = (value: string, width: number) => value.padEnd(width);
+            log.info(
+              headers
+                .map((header, index) => pad(header, widths[index]!))
+                .join("  "),
+            );
+            log.info(widths.map((width) => "─".repeat(width)).join("  "));
+            for (const row of rows) {
+              log.info(
+                [
+                  row.id,
+                  row.status,
+                  row.startedAt,
+                  row.finishedAt,
+                  row.duration,
+                  row.conversation,
+                  row.error,
+                ]
+                  .map((value, index) => pad(value, widths[index]!))
+                  .join("  "),
+              );
+            }
+          },
+        );
+
+      schedules
         .command("execute <id>")
         .description("Execute a schedule one time immediately")
         .option("--json", "Machine-readable compact JSON output")
@@ -247,4 +379,13 @@ function describeSchedule(schedule: ScheduleRecord): string {
 function formatTimestamp(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "—";
   return new Date(value).toISOString();
+}
+
+function formatNullableTimestamp(value: number | null): string {
+  return value == null ? "—" : formatTimestamp(value);
+}
+
+function formatDuration(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${value}ms`;
 }

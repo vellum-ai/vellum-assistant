@@ -98,6 +98,7 @@ describe("schedules command", () => {
     expect(schedules).toBeDefined();
     expect(schedules!.commands.map((command) => command.name())).toEqual([
       "list",
+      "runs",
       "execute",
     ]);
   });
@@ -238,6 +239,125 @@ describe("schedules list", () => {
       ok: false,
       error: "daemon unavailable",
     });
+  });
+});
+
+describe("schedules runs", () => {
+  test("calls listScheduleRuns with the schedule ID path param", async () => {
+    mockIpcResult = { ok: true, result: { runs: [] } };
+
+    const { exitCode } = await runCommand(["schedules", "runs", "schedule-1"]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "listScheduleRuns",
+        params: { pathParams: { id: "schedule-1" }, queryParams: {} },
+      },
+    ]);
+  });
+
+  test("passes limit query param when --limit is set", async () => {
+    mockIpcResult = { ok: true, result: { runs: [] } };
+
+    await runCommand(["schedules", "runs", "schedule-1", "--limit", "25"]);
+
+    expect(ipcCalls).toEqual([
+      {
+        method: "listScheduleRuns",
+        params: {
+          pathParams: { id: "schedule-1" },
+          queryParams: { limit: "25" },
+        },
+      },
+    ]);
+  });
+
+  test("emits JSON result when --json is set", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        runs: [
+          {
+            id: "run-1",
+            jobId: "schedule-1",
+            status: "ok",
+            startedAt: 1_778_799_000_000,
+            finishedAt: 1_778_799_002_500,
+            durationMs: 2_500,
+            output: "done",
+            error: null,
+            conversationId: "conversation-1",
+            createdAt: 1_778_799_000_000,
+          },
+        ],
+      },
+    };
+
+    const { stdout, exitCode } = await runCommand([
+      "schedules",
+      "runs",
+      "schedule-1",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      runs: [expect.objectContaining({ id: "run-1", jobId: "schedule-1" })],
+    });
+  });
+
+  test("renders a table for human output", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        runs: [
+          {
+            id: "run-1",
+            jobId: "schedule-1",
+            status: "ok",
+            startedAt: 1_778_799_000_000,
+            finishedAt: 1_778_799_002_500,
+            durationMs: 2_500,
+            output: "done",
+            error: null,
+            conversationId: "conversation-1",
+            createdAt: 1_778_799_000_000,
+          },
+        ],
+      },
+    };
+
+    const { exitCode } = await runCommand(["schedules", "runs", "schedule-1"]);
+
+    expect(exitCode).toBe(0);
+    expect(logLines.join("\n")).toContain("STATUS");
+    expect(logLines.join("\n")).toContain("run-1");
+    expect(logLines.join("\n")).toContain("2500ms");
+    expect(logLines.join("\n")).toContain("conversation-1");
+  });
+
+  test("prints an empty message when no runs are found", async () => {
+    mockIpcResult = { ok: true, result: { runs: [] } };
+
+    const { exitCode } = await runCommand(["schedules", "runs", "schedule-1"]);
+
+    expect(exitCode).toBe(0);
+    expect(logLines).toEqual(["No runs found for schedule schedule-1."]);
+  });
+
+  test("routes IPC failure through exitFromIpcResult", async () => {
+    mockIpcResult = { ok: false, error: "Schedule not found" };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "runs",
+      "missing-schedule",
+    ]);
+
+    expect(exitCode).toBe(10);
+    expect(exitFromIpcResultCalls).toEqual([mockIpcResult]);
+    expect(errorLines).toEqual([]);
   });
 });
 
