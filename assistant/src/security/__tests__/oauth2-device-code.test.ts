@@ -22,13 +22,13 @@ mock.module("../../util/logger.js", () => ({
 // Imports under test
 // ---------------------------------------------------------------------------
 
+import type { DeviceCodeConfig } from "../oauth2-device-code.js";
 import {
   DeviceCodeError,
   OPENAI_DEVICE_CODE_CONFIG,
   pollForToken,
   requestDeviceCode,
   startDeviceCodeFlow,
-  type DeviceCodeConfig,
 } from "../oauth2-device-code.js";
 
 // ---------------------------------------------------------------------------
