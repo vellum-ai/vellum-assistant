@@ -1,3 +1,7 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
 import type {
   AgentEvent,
   AgentHatchInput,
@@ -37,19 +41,17 @@ function shellWords(command: string): string[] {
   return ["sh", "-lc", command];
 }
 
-function seedConversationCommand(
-  messages: TestSetupCommand & { type: "seed-conversation" },
-): string {
-  const content = JSON.stringify(messages.messages);
+function shellSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\''`)}'`;
+}
+
+function seedConversationCommand(containerSeedPath: string): string {
+  const quotedSeedPath = shellSingleQuote(containerSeedPath);
   return [
     "set -e",
-    "seed_file=$(mktemp)",
-    'cleanup() { rm -f "$seed_file"; }',
+    `cleanup() { rm -f ${quotedSeedPath}; }`,
     "trap cleanup EXIT",
-    "cat > \"$seed_file\" <<'__VELLUM_EVALS_SEED__'",
-    content,
-    "__VELLUM_EVALS_SEED__",
-    'assistant conversations new --content-file "$seed_file"',
+    `assistant conversations new --content-file ${quotedSeedPath}`,
   ].join("\n");
 }
 
@@ -66,6 +68,7 @@ export class VellumAgent implements BaseAgent {
   private readonly runner: CommandRunner;
   private readonly cliCommand: string;
   private readonly testId: string;
+  private readonly assistantContainerName: string;
   private eventsProcess?: SpawnedProcess;
   private jail?: DockerEgressJail;
   private hatched = false;
@@ -79,6 +82,7 @@ export class VellumAgent implements BaseAgent {
     this.id =
       opts.runId ?? `eval-${opts.profile.id}-${opts.testId}-${Date.now()}`;
     this.conversationKey = `evals:${opts.testId}:${this.id}`;
+    this.assistantContainerName = vellumDockerAssistantContainer(this.id);
   }
 
   async hatch(): Promise<void> {
@@ -103,7 +107,7 @@ export class VellumAgent implements BaseAgent {
       hatchStarted = true;
 
       this.jail = await applyDockerEgressJail(this.runner, {
-        containerName: vellumDockerAssistantContainer(this.id),
+        containerName: this.assistantContainerName,
       });
 
       for (const command of setupCommands(this.profile)) {
@@ -143,20 +147,35 @@ export class VellumAgent implements BaseAgent {
   async runSetupCommand(command: TestSetupCommand): Promise<void> {
     switch (command.type) {
       case "seed-conversation": {
-        const result = await this.runner.run(this.cliCommand, [
-          "exec",
-          this.id,
-          "--",
-          ...shellWords(seedConversationCommand(command)),
-        ]);
-        assertSuccess(result, `seed conversation for ${this.id}`);
-        const conversationKey = parseConversationKey(result.stdout);
-        if (!conversationKey) {
-          throw new Error(
-            `seed conversation for ${this.id} did not return a conversation key`,
-          );
+        const seedDir = await mkdtemp(join(tmpdir(), "vellum-evals-seed-"));
+        const seedFile = join(seedDir, "conversation.json");
+        const containerSeedPath = `/tmp/${this.id}-conversation-seed.json`;
+        try {
+          await writeFile(seedFile, JSON.stringify(command.messages), "utf8");
+          const copy = await this.runner.run("docker", [
+            "cp",
+            seedFile,
+            `${this.assistantContainerName}:${containerSeedPath}`,
+          ]);
+          assertSuccess(copy, `copy seed conversation for ${this.id}`);
+
+          const result = await this.runner.run(this.cliCommand, [
+            "exec",
+            this.id,
+            "--",
+            ...shellWords(seedConversationCommand(containerSeedPath)),
+          ]);
+          assertSuccess(result, `seed conversation for ${this.id}`);
+          const conversationKey = parseConversationKey(result.stdout);
+          if (!conversationKey) {
+            throw new Error(
+              `seed conversation for ${this.id} did not return a conversation key`,
+            );
+          }
+          this.conversationKey = conversationKey;
+        } finally {
+          await rm(seedDir, { recursive: true, force: true });
         }
-        this.conversationKey = conversationKey;
         break;
       }
     }
