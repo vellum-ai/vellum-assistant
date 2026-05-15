@@ -102,6 +102,7 @@ describe("schedules command", () => {
       "enable",
       "disable",
       "cancel",
+      "delete",
       "execute",
     ]);
   });
@@ -555,6 +556,110 @@ describe("schedules cancel", () => {
     expect(exitCode).toBe(10);
     expect(exitFromIpcResultCalls).toEqual([mockIpcResult]);
     expect(errorLines).toEqual([]);
+  });
+});
+
+describe("schedules delete", () => {
+  test("calls deleteSchedule with the schedule ID path param when --force is set", async () => {
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "delete",
+      "schedule-1",
+      "--force",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "deleteSchedule",
+        params: { pathParams: { id: "schedule-1" } },
+      },
+    ]);
+    expect(logLines).toEqual(["Deleted schedule: schedule-1"]);
+  });
+
+  test("emits JSON result when --json is set with --force", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        schedules: [
+          {
+            id: "remaining-schedule",
+            name: "Heartbeat",
+            enabled: true,
+            syntax: "cron",
+            expression: "*/30 * * * *",
+            cronExpression: "*/30 * * * *",
+            timezone: "UTC",
+            message: "run heartbeat",
+            script: null,
+            nextRunAt: 1_778_800_000_000,
+            lastRunAt: null,
+            lastStatus: "ok",
+            retryCount: 0,
+            maxRetries: 3,
+            retryBackoffMs: 60_000,
+            description: "Every 30 minutes",
+            mode: "execute",
+            status: "active",
+            routingIntent: "all_channels",
+            reuseConversation: false,
+            wakeConversationId: null,
+            isOneShot: false,
+          },
+        ],
+      },
+    };
+
+    const { stdout, exitCode } = await runCommand([
+      "schedules",
+      "delete",
+      "schedule-1",
+      "--force",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      schedules: [expect.objectContaining({ id: "remaining-schedule" })],
+    });
+    expect(logLines).toEqual([]);
+  });
+
+  test("routes IPC failure through exitFromIpcResult", async () => {
+    mockIpcResult = {
+      ok: false,
+      error: "Schedule not found",
+    };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "delete",
+      "missing-schedule",
+      "--force",
+    ]);
+
+    expect(exitCode).toBe(10);
+    expect(exitFromIpcResultCalls).toEqual([mockIpcResult]);
+    expect(errorLines).toEqual([]);
+  });
+
+  test("refuses to delete non-interactively without --force", async () => {
+    // bun's test runner attaches a non-TTY stdin, so confirmPrompt takes the
+    // non-interactive branch and the IPC is never invoked. This locks in the
+    // safety guarantee that scripts must opt in via --force.
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "delete",
+      "schedule-1",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(ipcCalls).toEqual([]);
   });
 });
 
