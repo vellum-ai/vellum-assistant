@@ -23,11 +23,21 @@ public enum SubagentAbortResult: Equatable, Sendable {
     case failed
 }
 
+/// Response from the subagent reconciliation endpoint.
+public struct SubagentReconcileResponse: Codable, Sendable {
+    public let subagents: [String: SubagentLiveStatus]
+
+    public struct SubagentLiveStatus: Codable, Sendable {
+        public let status: String
+    }
+}
+
 /// Focused client for subagent operations routed through the gateway.
 public protocol SubagentClientProtocol {
     func abort(subagentId: String, conversationId: String?) async -> SubagentAbortResult
     func fetchDetail(subagentId: String, conversationId: String) async -> SubagentDetailResponse?
     func sendMessage(subagentId: String, content: String, conversationId: String?) async -> Bool
+    func reconcile(parentConversationId: String) async -> SubagentReconcileResponse?
 }
 
 /// Gateway-backed implementation of ``SubagentClientProtocol``.
@@ -103,6 +113,25 @@ public struct SubagentClient: SubagentClientProtocol {
         } catch {
             log.error("sendMessage error: \(error.localizedDescription)")
             return false
+        }
+    }
+
+    public func reconcile(parentConversationId: String) async -> SubagentReconcileResponse? {
+        do {
+            let params: [String: String] = ["parentConversationId": parentConversationId]
+            let response = try await GatewayHTTPClient.get(
+                path: "subagents/reconcile",
+                params: params,
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("reconcile failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            return try JSONDecoder().decode(SubagentReconcileResponse.self, from: response.data)
+        } catch {
+            log.error("reconcile error: \(error.localizedDescription)")
+            return nil
         }
     }
 

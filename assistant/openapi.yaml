@@ -14512,6 +14512,45 @@ paths:
                 - conversationId
                 - content
               additionalProperties: false
+  /v1/subagents/reconcile:
+    get:
+      operationId: subagents_reconcile_get
+      summary: Reconcile subagent live status
+      description:
+        Returns the live in-memory status of all subagents known to the daemon for a given parent conversation.
+        Subagents not in the response are orphaned.
+      tags:
+        - subagents
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subagents:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      properties:
+                        status:
+                          type: string
+                      required:
+                        - status
+                      additionalProperties: false
+                required:
+                  - subagents
+                additionalProperties: false
+      parameters:
+        - name: parentConversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Parent conversation ID
   /v1/suggestion:
     get:
       operationId: suggestion_get
