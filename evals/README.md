@@ -68,4 +68,4 @@ A test lives at `tests/<id>/`. The directory name is the test id.
 
 `SPEC.md` briefs the simulator agent on the role it plays and how it should interact with the assistant. It does not describe assertion behavior.
 
-`metrics/` (optional) is a directory of `.ts` files; each file exports a scorer for one report-card cell.
+`metrics/` is a directory of `.ts` files. Each file exports a default scorer that receives the transcript and returns one report-card cell.

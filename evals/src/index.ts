@@ -11,5 +11,14 @@ export {
   dockerEgressJailContainerName,
   vellumDockerAssistantContainer,
 } from "./lib/egress/docker-jail";
+export type {
+  MetricInput,
+  MetricResult,
+  MetricScorer,
+  TranscriptTurn,
+} from "./lib/metrics";
+export { runMetrics } from "./lib/metrics";
 export { loadProfile, ProfileManifestSchema } from "./lib/profile";
+export { runEvalOnce } from "./lib/runner/run-once";
+export { HaikuSimulator } from "./lib/simulator/haiku";
 export { loadTestDef } from "./lib/test-def";
