@@ -468,7 +468,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-14T12:47:52-05:00"
+      "updatedAt": "2026-05-14T19:52:02-05:00"
     },
     {
       "id": "outlook",
@@ -746,7 +746,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-05T17:21:43-06:00"
+      "updatedAt": "2026-05-15T15:10:58-06:00"
     },
     {
       "id": "typescript-eval",
