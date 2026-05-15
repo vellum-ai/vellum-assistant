@@ -39,6 +39,25 @@ function shellWords(command: string): string[] {
   return ["sh", "-lc", command];
 }
 
+function shellSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\''`)}'`;
+}
+
+function seedConversationCommand(
+  conversationKey: string,
+  messages: TestSetupCommand & { type: "seed-conversation" },
+): string {
+  const content = JSON.stringify(messages.messages);
+  return [
+    "seed_file=$(mktemp)",
+    "cat > \"$seed_file\" <<'__VELLUM_EVALS_SEED__'",
+    content,
+    "__VELLUM_EVALS_SEED__",
+    `assistant conversations create --conversation-key ${shellSingleQuote(conversationKey)} --content-file "$seed_file"`,
+    'rm -f "$seed_file"',
+  ].join("\n");
+}
+
 export class VellumAgent implements BaseAgent {
   readonly id: string;
   readonly conversationKey: string;
@@ -135,12 +154,7 @@ export class VellumAgent implements BaseAgent {
           "exec",
           this.id,
           "--",
-          "assistant",
-          "evals",
-          "seed-conversation",
-          "--conversation-key",
-          this.conversationKey,
-          JSON.stringify(command.messages),
+          ...shellWords(seedConversationCommand(this.conversationKey, command)),
         ]);
         assertSuccess(result, `seed conversation for ${this.id}`);
         break;

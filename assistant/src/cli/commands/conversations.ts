@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
@@ -6,6 +8,98 @@ import { timeAgo } from "../lib/time-ago.js";
 import { log } from "../logger.js";
 import { registerConversationsDeferCommand } from "./conversations-defer.js";
 import { registerConversationsImportCommand } from "./conversations-import.js";
+
+type ConversationSeedMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+function readSeedMessages(
+  contentFile?: string,
+): ConversationSeedMessage[] | undefined {
+  if (!contentFile) return undefined;
+  if (!existsSync(contentFile)) {
+    log.error(`Error: content file not found: ${contentFile}`);
+    process.exitCode = 1;
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(contentFile, "utf-8"));
+  } catch (err) {
+    log.error(
+      `Error: failed to read content file: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exitCode = 1;
+    return undefined;
+  }
+
+  if (!Array.isArray(parsed)) {
+    log.error("Error: content file must contain an array of messages");
+    process.exitCode = 1;
+    return undefined;
+  }
+
+  const messages: ConversationSeedMessage[] = [];
+  for (const [index, value] of parsed.entries()) {
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      !("role" in value) ||
+      !("content" in value)
+    ) {
+      log.error(`Error: message ${index} must include role and content`);
+      process.exitCode = 1;
+      return undefined;
+    }
+    const role = (value as { role?: unknown }).role;
+    const content = (value as { content?: unknown }).content;
+    if (
+      (role !== "user" && role !== "assistant") ||
+      typeof content !== "string"
+    ) {
+      log.error(
+        `Error: message ${index} must have role user|assistant and string content`,
+      );
+      process.exitCode = 1;
+      return undefined;
+    }
+    messages.push({ role, content });
+  }
+
+  return messages;
+}
+
+async function createConversationCli(
+  title: string | undefined,
+  opts?: { conversationKey?: string; contentFile?: string },
+): Promise<void> {
+  const messages = readSeedMessages(opts?.contentFile);
+  if (process.exitCode) return;
+
+  const result = await cliIpcCall<{
+    id: string;
+    title: string;
+    messagesInserted: number;
+  }>("conversation_create_cli", {
+    body: {
+      title,
+      conversationKey: opts?.conversationKey,
+      messages,
+    },
+  });
+
+  if (!result.ok) return exitFromIpcResult(result);
+
+  const conversation = result.result!;
+  const suffix = conversation.messagesInserted
+    ? `, seeded ${conversation.messagesInserted} messages`
+    : "";
+  log.info(
+    `Created conversation: ${conversation.title} (${conversation.id})${suffix}`,
+  );
+}
 
 export function registerConversationsCommand(program: Command): void {
   registerCommand(program, {
@@ -83,6 +177,30 @@ Examples:
       // -------------------------------------------------------------------
 
       conversations
+        .command("create [title]")
+        .description("Create a new conversation")
+        .option(
+          "--conversation-key <key>",
+          "Map a conversation key to the new conversation",
+        )
+        .option("--content-file <path>", "Seed messages from a JSON file")
+        .addHelpText(
+          "after",
+          `
+Arguments:
+  title   Optional conversation title (string). If omitted, a default title is
+          assigned by the assistant.
+
+The content file must be a JSON array of { role, content } messages.
+
+Examples:
+  $ assistant conversations create
+  $ assistant conversations create "Project planning"
+  $ assistant conversations create --conversation-key evals:timeline --content-file /tmp/seed.json`,
+        )
+        .action(createConversationCli);
+
+      conversations
         .command("new [title]")
         .description("Create a new conversation")
         .addHelpText(
@@ -99,19 +217,7 @@ Examples:
   $ assistant conversations new "Project planning"
   $ assistant conversations new "Bug triage 2026-03-05"`,
         )
-        .action(async (title?: string) => {
-          const result = await cliIpcCall<{ id: string; title: string }>(
-            "conversation_create_cli",
-            { body: { title } },
-          );
-
-          if (!result.ok) return exitFromIpcResult(result);
-
-          const conversation = result.result!;
-          log.info(
-            `Created conversation: ${conversation.title} (${conversation.id})`,
-          );
-        });
+        .action((title?: string) => createConversationCli(title));
 
       // -------------------------------------------------------------------
       // rename
@@ -278,9 +384,7 @@ Examples:
 
           if (!result.ok) return exitFromIpcResult(result);
 
-          log.info(
-            `Cleared ${result.result!.cleared} conversations. Done.`,
-          );
+          log.info(`Cleared ${result.result!.cleared} conversations. Done.`);
         });
 
       // -------------------------------------------------------------------

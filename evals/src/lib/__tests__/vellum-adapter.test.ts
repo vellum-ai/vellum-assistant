@@ -138,23 +138,22 @@ describe("VellumAgent", () => {
       ],
     });
 
-    expect(runner.runs.at(-1)).toEqual({
-      command: "vellum",
-      args: [
-        "exec",
-        "eval-run-seed",
-        "--",
-        "assistant",
-        "evals",
-        "seed-conversation",
-        "--conversation-key",
-        "evals:timeline-recall:eval-run-seed",
-        JSON.stringify([
-          { role: "user", content: "remember this exact note" },
-          { role: "assistant", content: "noted" },
-        ]),
-      ],
-    });
+    const seedRun = runner.runs.at(-1)!;
+    expect(seedRun.command).toBe("vellum");
+    expect(seedRun.args.slice(0, 4)).toEqual([
+      "exec",
+      "eval-run-seed",
+      "--",
+      "sh",
+    ]);
+    expect(seedRun.args[4]).toBe("-lc");
+    expect(seedRun.args[5]).toContain("assistant conversations create");
+    expect(seedRun.args[5]).toContain(
+      "--conversation-key 'evals:timeline-recall:eval-run-seed'",
+    );
+    expect(seedRun.args[5]).toContain('--content-file "$seed_file"');
+    expect(seedRun.args[5]).toContain("remember this exact note");
+    expect(seedRun.args[5]).toContain("noted");
   });
 
   test("sends through the same conversation key and shuts down resources", async () => {
