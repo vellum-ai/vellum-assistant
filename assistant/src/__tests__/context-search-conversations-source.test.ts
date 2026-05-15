@@ -225,6 +225,27 @@ describe("searchConversationSource", () => {
     );
   });
 
+  test("preserves external_content boundaries in recall evidence", async () => {
+    const { conversation, message } = await seedConversation({
+      title: "Slack recall",
+      content:
+        '<external_content source="slack" origin="@alice">\nThe recalltoken decision came from Slack.\n</external_content>',
+    });
+
+    const result = await searchConversationSource(
+      "recalltoken",
+      makeContext(),
+      1,
+    );
+
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0]).toMatchObject({
+      locator: `${conversation.id}#${message.id}`,
+      excerpt:
+        '<external_content source="slack" origin="@alice">\nThe recalltoken decision came from Slack.\n</external_content>',
+    });
+  });
+
   test("broadens overconstrained recall queries to salient terms", async () => {
     const specific = await seedConversation({
       title: "Birthday cake plan",

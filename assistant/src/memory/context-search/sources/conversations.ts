@@ -1,7 +1,7 @@
 import { AUTO_ANALYSIS_SOURCE } from "../../auto-analysis-guard.js";
 import {
-  buildExcerpt,
   buildFtsMatchQuery,
+  buildRecallEvidenceExcerpt,
 } from "../../conversation-queries.js";
 import { rawAll } from "../../raw-query.js";
 import type { RecallSearchContext, RecallSearchResult } from "../types.js";
@@ -118,7 +118,7 @@ export async function searchConversationSource(
       source: "conversations",
       title: row.title?.trim() || "Untitled conversation",
       locator: `${row.conversation_id}#${row.message_id}`,
-      excerpt: buildExcerpt(row.content, trimmedQuery),
+      excerpt: buildRecallEvidenceExcerpt(row.content, trimmedQuery),
       timestampMs: row.created_at,
       score,
       metadata: {
