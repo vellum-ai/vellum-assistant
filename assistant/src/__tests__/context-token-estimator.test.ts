@@ -33,6 +33,7 @@ function makePngBase64(width: number, height: number): string {
 describe("token estimator", () => {
   test("estimates text tokens from character length", () => {
     expect(estimateTextTokens("")).toBe(0);
+    expect(estimateTextTokens(undefined)).toBe(0);
     expect(estimateTextTokens("abcd")).toBe(1);
     expect(estimateTextTokens("abcde")).toBe(2);
   });

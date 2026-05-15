@@ -65,8 +65,8 @@ export interface TokenEstimatorOptions {
   toolTokenBudget?: number;
 }
 
-export function estimateTextTokens(text: string): number {
-  if (text.length === 0) return 0;
+export function estimateTextTokens(text: string | undefined): number {
+  if (!text) return 0;
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
