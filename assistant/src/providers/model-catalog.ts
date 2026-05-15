@@ -993,6 +993,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     id: "minimax",
     displayName: "MiniMax",
     subtitle: "MiniMax models. Requires a MiniMax API key.",
+    featureFlag: "provider-minimax",
     setupMode: "api-key",
     setupHint: "Enter your MiniMax API key to enable MiniMax models.",
     envVar: "MINIMAX_API_KEY",
