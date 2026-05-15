@@ -143,6 +143,13 @@ describe("VellumAgent", () => {
       ],
     });
 
+    const copyRun = runner.runs.at(-2)!;
+    expect(copyRun.command).toBe("docker");
+    expect(copyRun.args[0]).toBe("cp");
+    expect(copyRun.args[2]).toBe(
+      "eval-run-seed-assistant:/tmp/eval-run-seed-conversation-seed.json",
+    );
+
     const seedRun = runner.runs.at(-1)!;
     expect(seedRun.command).toBe("vellum");
     expect(seedRun.args.slice(0, 4)).toEqual([
@@ -153,12 +160,16 @@ describe("VellumAgent", () => {
     ]);
     expect(seedRun.args[4]).toBe("-lc");
     expect(seedRun.args[5]).toContain("set -e");
-    expect(seedRun.args[5]).toContain("trap cleanup EXIT");
     expect(seedRun.args[5]).toContain("assistant conversations new");
     expect(seedRun.args[5]).not.toContain("--conversation-key");
-    expect(seedRun.args[5]).toContain('--content-file "$seed_file"');
-    expect(seedRun.args[5]).toContain("remember this exact note");
-    expect(seedRun.args[5]).toContain("noted");
+    expect(seedRun.args[5]).toContain(
+      "--content-file '/tmp/eval-run-seed-conversation-seed.json'",
+    );
+    expect(seedRun.args[5]).toContain(
+      "rm -f '/tmp/eval-run-seed-conversation-seed.json'",
+    );
+    expect(seedRun.args[5]).not.toContain("remember this exact note");
+    expect(seedRun.args[5]).not.toContain("noted");
     expect(agent.conversationKey).toBe("generated-key-123");
   });
 

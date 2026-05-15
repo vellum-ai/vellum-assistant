@@ -15,7 +15,7 @@ cp .env.example .env
 # edit .env with your ANTHROPIC_API_KEY (required by the user simulator)
 
 bun run src/cli.ts run \
-  --profiles vellum-bare \
+  --profiles vellum-bare,vellum-simple-memory \
   --tests timeline-recall
 ```
 
@@ -35,9 +35,10 @@ evals/
 │   ├── commands/run.ts      # `evals run` subcommand
 │   └── lib/                 # Harness library modules
 ├── profiles/                # Committed profile definitions
-│   └── vellum-bare/
-│       ├── manifest.json    # species + optional version + optional setup
-│       └── workspace/       # (optional) files dropped into agent workspace
+│   ├── vellum-bare/
+│   │   └── manifest.json    # baseline Vellum assistant
+│   └── vellum-simple-memory/
+│       └── manifest.json    # Vellum with Simple Memory installed
 ├── tests/                   # Committed test definitions
 │   └── timeline-recall/
 │       ├── SPEC.md          # simulator briefing
@@ -56,9 +57,14 @@ A profile lives at `profiles/<id>/`. The directory name is the profile id.
 ```json
 {
   "species": "vellum",
-  "setup": ["vellum exec -- assistant plugins install simple-memory"]
+  "setup": ["assistant plugins install simple-memory"]
 }
 ```
+
+Committed profiles currently include:
+
+- `vellum-bare` — baseline Vellum assistant.
+- `vellum-simple-memory` — Vellum with the Simple Memory plugin installed before the run starts.
 
 `workspace/` (optional) holds files dropped into the agent's workspace before the run starts.
 
