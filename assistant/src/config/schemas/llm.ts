@@ -21,8 +21,6 @@ const LLMProvider = z.enum([
   "fireworks",
   "openrouter",
   "zai",
-  "deepseek",
-  "minimax",
 ]);
 type LLMProvider = z.infer<typeof LLMProvider>;
 

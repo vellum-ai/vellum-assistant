@@ -8743,8 +8743,6 @@ paths:
                             - fireworks
                             - openrouter
                             - zai
-                            - deepseek
-                            - minimax
                         auth:
                           oneOf:
                             - type: object
@@ -8838,9 +8836,7 @@ paths:
           required: false
           schema:
             type: string
-          description:
-            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, zai, deepseek,
-            minimax"
+          description: "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, zai"
     post:
       operationId: inference_providerconnections_post
       summary: Create a provider connection
@@ -8868,8 +8864,6 @@ paths:
                       - fireworks
                       - openrouter
                       - zai
-                      - deepseek
-                      - minimax
                   auth:
                     oneOf:
                       - type: object
@@ -8978,8 +8972,6 @@ paths:
                     - fireworks
                     - openrouter
                     - zai
-                    - deepseek
-                    - minimax
                 auth:
                   oneOf:
                     - type: object
@@ -9110,8 +9102,6 @@ paths:
                       - fireworks
                       - openrouter
                       - zai
-                      - deepseek
-                      - minimax
                   auth:
                     oneOf:
                       - type: object
@@ -9234,8 +9224,6 @@ paths:
                       - fireworks
                       - openrouter
                       - zai
-                      - deepseek
-                      - minimax
                   auth:
                     oneOf:
                       - type: object
