@@ -19,6 +19,7 @@
  */
 
 import { AnthropicProvider } from "../anthropic/client.js";
+import { DeepSeekProvider } from "../deepseek/client.js";
 import { FireworksProvider } from "../fireworks/client.js";
 import { GeminiProvider } from "../gemini/client.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
@@ -98,12 +99,10 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       baseURL: "https://api.z.ai/api/paas/v4/",
       streamTimeoutMs,
     }),
-  deepseek: ({ apiKey, model, streamTimeoutMs }) =>
-    new OpenAIChatCompletionsProvider(apiKey, model, {
-      providerName: "deepseek",
-      providerLabel: "DeepSeek",
-      baseURL: "https://api.deepseek.com",
+  deepseek: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new DeepSeekProvider(apiKey, model, {
       streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
     }),
   minimax: ({ apiKey, model, streamTimeoutMs }) =>
     new OpenAIChatCompletionsProvider(apiKey, model, {

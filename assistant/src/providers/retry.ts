@@ -42,6 +42,7 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "openai",
   "openrouter",
   "fireworks",
+  "deepseek",
 ]);
 
 /**
@@ -49,7 +50,7 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
  * the wire; OpenRouter either forwards it to its Anthropic-compatible path or
  * translates it into the unified `reasoning` parameter on OpenAI-compat calls.
  */
-const THINKING_AWARE_PROVIDERS = new Set(["anthropic", "openrouter"]);
+const THINKING_AWARE_PROVIDERS = new Set(["anthropic", "openrouter", "deepseek"]);
 
 /**
  * Providers that consume the `verbosity` config. Currently OpenAI (mapped to

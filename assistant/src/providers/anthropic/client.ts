@@ -1544,6 +1544,7 @@ export class AnthropicProvider implements Provider {
       case "text":
         return { type: "text", text: block.text };
       case "thinking":
+        if (!block.signature) return null;
         return {
           type: "thinking",
           thinking: block.thinking,

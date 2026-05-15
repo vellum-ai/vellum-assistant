@@ -189,6 +189,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
       // Accumulate the response from chunks
       let contentText = "";
+      let reasoningText = "";
       const toolCallMap = new Map<
         number,
         { id: string; name: string; args: string }
@@ -215,6 +216,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
         for await (const chunk of stream) {
           const choice = chunk.choices[0];
           if (choice) {
+            const reasoningDelta = (
+              choice.delta as { reasoning_content?: string }
+            ).reasoning_content;
+            if (reasoningDelta) {
+              reasoningText += reasoningDelta;
+              onEvent?.({ type: "thinking_delta", thinking: reasoningDelta });
+            }
+
             if (choice.delta.content) {
               contentText += choice.delta.content;
               onEvent?.({ type: "text_delta", text: choice.delta.content });
@@ -262,6 +271,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
       // Build content blocks
       const content: ContentBlock[] = [];
+      if (reasoningText) {
+        content.push({ type: "thinking", thinking: reasoningText });
+      }
       if (contentText) {
         content.push({ type: "text", text: contentText });
       }
@@ -468,6 +480,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     msg: Message,
   ): OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam {
     const textParts: string[] = [];
+    const thinkingParts: string[] = [];
     const toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] =
       [];
 
@@ -475,6 +488,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
       switch (block.type) {
         case "text":
           textParts.push(block.text);
+          break;
+        case "thinking":
+          if (!block.signature) thinkingParts.push(block.thinking);
           break;
         case "tool_use":
           toolCalls.push({
@@ -492,7 +508,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         case "web_search_tool_result":
           textParts.push("[Web search results]");
           break;
-        // thinking, redacted_thinking, image — not applicable for OpenAI assistant messages
+        // redacted_thinking, image — not applicable for OpenAI assistant messages
       }
     }
 
@@ -501,6 +517,12 @@ export class OpenAIChatCompletionsProvider implements Provider {
         role: "assistant",
         content: textParts.length > 0 ? textParts.join("") : null,
       };
+
+    if (thinkingParts.length > 0) {
+      Object.assign(result, {
+        reasoning_content: thinkingParts.join(""),
+      });
+    }
 
     if (toolCalls.length > 0) {
       result.tool_calls = toolCalls;

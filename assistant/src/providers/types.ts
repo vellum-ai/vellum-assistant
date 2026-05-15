@@ -44,7 +44,8 @@ export interface ToolUseContent {
 export interface ThinkingContent {
   type: "thinking";
   thinking: string;
-  signature: string;
+  /** Anthropic-specific cryptographic signature. Absent for non-Anthropic providers (e.g. DeepSeek). */
+  signature?: string;
 }
 
 export interface RedactedThinkingContent {

@@ -21,6 +21,7 @@ interface FakeChunk {
   choices: Array<{
     delta: {
       content?: string | null;
+      reasoning_content?: string | null;
       tool_calls?: Array<{
         index: number;
         id?: string;
@@ -94,6 +95,7 @@ mock.module("openai", () => ({
 }));
 
 // Import after mocking
+import { DeepSeekProvider } from "../providers/deepseek/client.js";
 import { FireworksProvider } from "../providers/fireworks/client.js";
 import { OllamaProvider } from "../providers/ollama/client.js";
 import { OpenAIChatCompletionsProvider } from "../providers/openai/chat-completions-provider.js";
@@ -103,6 +105,17 @@ import { OpenRouterProvider } from "../providers/openrouter/client.js";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function reasoningChunk(
+  reasoning_content: string,
+  finish: string | null = null,
+): FakeChunk {
+  return {
+    choices: [{ delta: { reasoning_content }, finish_reason: finish }],
+    usage: null,
+    model: "gpt-5.2",
+  };
+}
 
 function textChunk(content: string, finish: string | null = null): FakeChunk {
   return {
@@ -1068,6 +1081,139 @@ describe("OpenAIProvider", () => {
       ],
     });
   });
+
+  // -----------------------------------------------------------------------
+  // reasoning_content (DeepSeek-style thinking) streaming & round-trip
+  // -----------------------------------------------------------------------
+  test("captures reasoning_content from stream as thinking block", async () => {
+    fakeChunks = [
+      reasoningChunk("Let me think"),
+      reasoningChunk(" about this."),
+      textChunk("Hello!"),
+      usageChunk(10, 5),
+    ];
+
+    const events: Array<{ type: string }> = [];
+    const result = await provider.sendMessage(
+      [userMsg("Hi")],
+      undefined,
+      undefined,
+      {
+        onEvent: (e) => events.push(e),
+      },
+    );
+
+    expect(result.content).toHaveLength(2);
+    expect(result.content[0]).toEqual({
+      type: "thinking",
+      thinking: "Let me think about this.",
+    });
+    expect(result.content[1]).toEqual({ type: "text", text: "Hello!" });
+
+    const thinkingDeltas = events.filter((e) => e.type === "thinking_delta");
+    expect(thinkingDeltas).toHaveLength(2);
+  });
+
+  test("reasoning + tool calls orders correctly (thinking -> tool_use)", async () => {
+    fakeChunks = [
+      reasoningChunk("Planning..."),
+      ...toolCallChunks([
+        { id: "call_1", name: "file_read", args: '{"path":"/a"}' },
+      ]),
+      usageChunk(10, 30),
+    ];
+
+    const result = await provider.sendMessage([userMsg("Read /a")]);
+
+    expect(result.content).toHaveLength(2);
+    expect(result.content[0].type).toBe("thinking");
+    expect(result.content[1].type).toBe("tool_use");
+  });
+
+  test("no thinking block when reasoning_content is absent", async () => {
+    fakeChunks = [textChunk("Just text"), usageChunk(10, 5)];
+
+    const result = await provider.sendMessage([userMsg("Hi")]);
+
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0].type).toBe("text");
+  });
+
+  test("includes reasoning_content on assistant messages in conversation history", async () => {
+    fakeChunks = [textChunk("OK"), usageChunk(10, 2)];
+
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "User said hello." },
+          { type: "text", text: "Hi there!" },
+        ],
+      },
+      { role: "user", content: [{ type: "text", text: "How are you?" }] },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const sent = lastCreateParams!.messages as Array<Record<string, unknown>>;
+    expect(sent[1]).toEqual({
+      role: "assistant",
+      content: "Hi there!",
+      reasoning_content: "User said hello.",
+    });
+  });
+
+  test("omits reasoning_content when no thinking blocks exist", async () => {
+    fakeChunks = [textChunk("OK"), usageChunk(10, 2)];
+
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Hi there!" }],
+      },
+      { role: "user", content: [{ type: "text", text: "How are you?" }] },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const sent = lastCreateParams!.messages as Array<Record<string, unknown>>;
+    expect(sent[1]).toEqual({
+      role: "assistant",
+      content: "Hi there!",
+    });
+    expect(sent[1]).not.toHaveProperty("reasoning_content");
+  });
+
+  test("skips thinking blocks with signatures (Anthropic-originated) in reasoning_content", async () => {
+    fakeChunks = [textChunk("OK"), usageChunk(10, 2)];
+
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Hello" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "Anthropic thinking with signature",
+            signature: "abc123",
+          },
+          { type: "text", text: "Hi there!" },
+        ],
+      },
+      { role: "user", content: [{ type: "text", text: "How are you?" }] },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const sent = lastCreateParams!.messages as Array<Record<string, unknown>>;
+    expect(sent[1]).toEqual({
+      role: "assistant",
+      content: "Hi there!",
+    });
+    expect(sent[1]).not.toHaveProperty("reasoning_content");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1528,5 +1674,123 @@ describe("OpenAIProvider reasoning_effort", () => {
       config: { effort: "medium" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("medium");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DeepSeekProvider thinking config
+// ---------------------------------------------------------------------------
+
+describe("DeepSeekProvider thinking config", () => {
+  let deepseek: DeepSeekProvider;
+
+  beforeEach(() => {
+    fakeChunks = [textChunk("OK"), usageChunk(10, 2)];
+    lastCreateParams = null;
+    deepseek = new DeepSeekProvider("test-key", "deepseek-v4-pro");
+  });
+
+  test("sends thinking.type=enabled when thinking config is enabled", async () => {
+    await deepseek.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: { thinking: { type: "adaptive" } },
+    });
+    expect(lastCreateParams!.thinking).toEqual({ type: "enabled" });
+  });
+
+  test("sends thinking.type=disabled when thinking config is disabled", async () => {
+    await deepseek.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: { thinking: { type: "disabled" } },
+    });
+    expect(lastCreateParams!.thinking).toEqual({ type: "disabled" });
+  });
+
+  test("omits thinking param when thinking config is absent", async () => {
+    await deepseek.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: {},
+    });
+    expect(lastCreateParams!.thinking).toBeUndefined();
+  });
+
+  test("translates { enabled: true } to { type: enabled }", async () => {
+    await deepseek.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: { thinking: { enabled: true } },
+    });
+    expect(lastCreateParams!.thinking).toEqual({ type: "enabled" });
+  });
+
+  test("translates { enabled: false } to { type: disabled }", async () => {
+    await deepseek.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: { thinking: { enabled: false } },
+    });
+    expect(lastCreateParams!.thinking).toEqual({ type: "disabled" });
+  });
+
+  test("provider name is deepseek", () => {
+    expect(deepseek.name).toBe("deepseek");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// effort config passthrough — DeepSeek
+// ---------------------------------------------------------------------------
+
+describe("effort config passthrough — DeepSeek", () => {
+  function makeProvider(
+    providerName: string,
+    captureOptions: (opts: SendMessageOptions) => void,
+  ): Provider {
+    return {
+      name: providerName,
+      sendMessage: async (
+        _msgs: Message[],
+        _tools?: ToolDefinition[],
+        _sys?: string,
+        opts?: SendMessageOptions,
+      ): Promise<ProviderResponse> => {
+        if (opts) captureOptions(opts);
+        return {
+          content: [],
+          model: "test",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          stopReason: "stop",
+        };
+      },
+    };
+  }
+
+  test("effort is preserved for deepseek provider", async () => {
+    let capturedOptions: SendMessageOptions | undefined;
+    const inner = makeProvider("deepseek", (opts) => {
+      capturedOptions = opts;
+    });
+    const retry = new RetryProvider(inner);
+
+    await retry.sendMessage(
+      [userMsg("hi")],
+      undefined,
+      undefined,
+      { config: { effort: "high" } },
+    );
+
+    const config = capturedOptions?.config as Record<string, unknown>;
+    expect(config.effort).toBe("high");
+  });
+
+  test("thinking is preserved for deepseek provider", async () => {
+    let capturedOptions: SendMessageOptions | undefined;
+    const inner = makeProvider("deepseek", (opts) => {
+      capturedOptions = opts;
+    });
+    const retry = new RetryProvider(inner);
+
+    await retry.sendMessage(
+      [userMsg("hi")],
+      undefined,
+      undefined,
+      { config: { thinking: { enabled: true } } },
+    );
+
+    const config = capturedOptions?.config as Record<string, unknown>;
+    expect(config.thinking).toEqual({ type: "adaptive" });
   });
 });
