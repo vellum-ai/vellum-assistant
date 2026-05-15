@@ -22,10 +22,14 @@
   "license": "MIT",
   "dependencies": {
     "commander": "13.1.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
     "zod": "4.3.6"
   },
   "devDependencies": {
     "@types/bun": "1.3.11",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
     "eslint": "10.1.0",
     "knip": "5.88.1",
     "prettier": "3.8.1",
