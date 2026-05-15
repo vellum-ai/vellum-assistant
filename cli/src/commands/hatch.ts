@@ -8,7 +8,6 @@ import {
   saveAssistantEntry,
   setActiveAssistant,
 } from "../lib/assistant-config";
-import { hatchAws } from "../lib/aws";
 import {
   SPECIES_CONFIG,
   VALID_REMOTE_HOSTS,
@@ -17,7 +16,6 @@ import {
 import type { RemoteHost, Species } from "../lib/constants";
 import { buildNestedConfig } from "../lib/config-utils";
 import { hatchDocker } from "../lib/docker";
-import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import { hatchLocal } from "../lib/hatch-local";
 import {
@@ -169,6 +167,7 @@ source ${INSTALL_SCRIPT_REMOTE_PATH}
 }
 
 const DEFAULT_REMOTE: RemoteHost = "local";
+const UNSUPPORTED_REMOTE_HATCH_TARGETS = new Set<RemoteHost>(["aws", "gcp"]);
 
 interface HatchArgs {
   species: Species;
@@ -547,25 +546,18 @@ export async function hatch(): Promise<void> {
     process.exit(1);
   }
 
+  if (UNSUPPORTED_REMOTE_HATCH_TARGETS.has(remote)) {
+    console.error(
+      `Error: \`vellum hatch --remote ${remote}\` is not a supported provisioning target yet.`,
+    );
+    console.error(
+      "No cloud resources were created. To self-host on AWS/GCP, SSH into the VM and run `vellum hatch` or `vellum hatch --remote docker` there.",
+    );
+    process.exit(1);
+  }
+
   if (remote === "local") {
     await hatchLocal(species, name, watch, keepAlive, configValues);
-    return;
-  }
-
-  if (remote === "gcp") {
-    await hatchGcp(
-      species,
-      detached,
-      name,
-      buildStartupScript,
-      watchHatching,
-      configValues,
-    );
-    return;
-  }
-
-  if (remote === "aws") {
-    await hatchAws(species, detached, name, configValues);
     return;
   }
 
