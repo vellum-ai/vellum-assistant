@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 
-import { cliIpcCall } from "../../ipc/cli-client.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
@@ -46,42 +46,40 @@ export function registerSchedulesCommand(program: Command): void {
 Schedules are recurring or one-shot jobs run by the assistant daemon.
 
 This CLI namespace is intentionally landing incrementally. Today it supports
-listing schedules; run/execute, create, delete, enable/disable, run history,
-and run inspection will follow as separate slices.
+listing schedules and manually executing a schedule one time; create, delete,
+enable/disable, run history, and run inspection will follow as separate slices.
 
 Examples:
   $ assistant schedules list
-  $ assistant schedules list --include-all
-  $ assistant schedules list --json`,
+  $ assistant schedules list --all
+  $ assistant schedules execute <schedule-id>
+  $ assistant schedules execute <schedule-id> --json`,
       );
 
       schedules
         .command("list")
         .description("List assistant schedules")
-        .option(
-          "--include-all",
-          "Include deferred schedules that are hidden by default",
-        )
+        .option("--all", "Include deferred schedules that are hidden by default")
         .option("--json", "Machine-readable compact JSON output")
         .addHelpText(
           "after",
           `
 Options:
-  --include-all   Include deferred schedules that are normally hidden.
-  --json          Output the raw schedule list as compact JSON.
+  --all    Include deferred schedules that are normally hidden.
+  --json   Output the raw schedule list as compact JSON.
 
 Examples:
   $ assistant schedules list
-  $ assistant schedules list --include-all
+  $ assistant schedules list --all
   $ assistant schedules list --json`,
         )
         .action(
           async (
-            opts: { includeAll?: boolean; json?: boolean },
+            opts: { all?: boolean; json?: boolean },
             cmd: Command,
           ) => {
             const queryParams: Record<string, string> = {};
-            if (opts.includeAll) queryParams.include_all = "true";
+            if (opts.all) queryParams.include_all = "true";
 
             const result = await cliIpcCall<ListSchedulesResponse>(
               "listSchedules",
@@ -176,6 +174,64 @@ Examples:
             }
           },
         );
+
+      schedules
+        .command("execute <id>")
+        .description("Execute a schedule one time immediately")
+        .option("--json", "Machine-readable compact JSON output")
+        .addHelpText(
+          "after",
+          `
+Options:
+  --json   Output the run-now result as compact JSON.
+
+Arguments:
+  <id>   Schedule ID (UUID) — run 'assistant schedules list' to find it.
+
+Examples:
+  $ assistant schedules execute 9f2c4f3a-3f1a-41e4-88e7-abc123
+  $ assistant schedules execute 9f2c4f3a-3f1a-41e4-88e7-abc123 --json`,
+        )
+        .action(async (id: string, opts: { json?: boolean }, cmd: Command) => {
+          const scheduleId = id.trim();
+          if (!scheduleId) {
+            const error = "Schedule ID is required";
+            if (opts.json) {
+              writeOutput(cmd, { ok: false, error });
+            } else {
+              log.error(error);
+            }
+            process.exitCode = 1;
+            return;
+          }
+
+          const result = await cliIpcCall<ListSchedulesResponse>(
+            "runScheduleNow",
+            { pathParams: { id: scheduleId } },
+          );
+
+          if (!result.ok) return exitFromIpcResult(result, cmd);
+
+          const response = result.result ?? { schedules: [] };
+          const schedule = response.schedules.find(
+            (entry) => entry.id === scheduleId,
+          );
+
+          if (opts.json) {
+            writeOutput(cmd, response);
+            return;
+          }
+
+          if (schedule) {
+            log.info(`Executed schedule: ${schedule.name} (${schedule.id})`);
+            if (schedule.lastStatus) {
+              log.info(`Last status: ${schedule.lastStatus}`);
+            }
+            return;
+          }
+
+          log.info(`Executed schedule: ${scheduleId}`);
+        });
     },
   });
 }

@@ -1019,6 +1019,22 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("low");
   });
 
+  test("assistant schedules list → low", async () => {
+    const result = await classifier.classify({
+      command: "assistant schedules list",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("assistant schedules execute → medium", async () => {
+    const result = await classifier.classify({
+      command: "assistant schedules execute schedule-1",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
   test("assistant bash ls → high", async () => {
     const result = await classifier.classify({
       command: "assistant bash ls",
