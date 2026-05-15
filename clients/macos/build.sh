@@ -1165,6 +1165,83 @@ FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 KATA_KERNEL_BUNDLE_DIR="$RESOURCES_DIR/DeveloperVM"
 echo "BUNDLE_DISPLAY_NAME=$BUNDLE_DISPLAY_NAME"
 
+stop_running_bundle_instances() {
+    local bundle_id="$1"
+    local bundle_path="${2:-}"
+    local _kill_targets=""
+    while IFS= read -r line; do
+        read -r pid exe_path <<< "$line"
+        [ -n "$pid" ] || continue
+        if [ -n "$bundle_path" ]; then
+            case "$exe_path" in
+                "$bundle_path"/Contents/MacOS/*) ;;
+                *) continue ;;
+            esac
+        fi
+        case "$exe_path" in
+            */Contents/MacOS/*) ;;
+            *) continue ;;
+        esac
+        bundle_root=${exe_path%/Contents/MacOS/*}
+        other_id=$(plutil -extract CFBundleIdentifier raw "$bundle_root/Contents/Info.plist" 2>/dev/null || true)
+        [ "$other_id" = "$bundle_id" ] || continue
+        _kill_targets+="$pid $exe_path"$'\n'
+    done < <(ps -ax -o pid=,comm=)
+    _kill_targets=${_kill_targets%$'\n'}
+
+    if [ -z "$_kill_targets" ]; then
+        return 0
+    fi
+
+    echo "Stopping existing instance(s) (bundle ID $bundle_id):"
+    echo "$_kill_targets" | sed 's/^/  /'
+    echo "$_kill_targets" | awk '{print $1}' | xargs kill 2>/dev/null || true
+    # Wait for clean exit (max 2 seconds)
+    for i in {1..20}; do
+        still_running=false
+        while IFS= read -r pid_line; do
+            read -r _pid _ <<< "$pid_line"
+            kill -0 "$_pid" 2>/dev/null && still_running=true && break
+        done <<< "$_kill_targets"
+        $still_running || break
+        sleep 0.1
+    done
+    # Force-kill any stragglers — re-read ps and re-match the bundle
+    # ID so we never SIGKILL a PID that was reused by an unrelated
+    # process since the original snapshot.
+    if $still_running; then
+        echo "Force-killing remaining instance(s)..."
+        survivors=""
+        while IFS= read -r line; do
+            read -r pid exe_path <<< "$line"
+            [ -n "$pid" ] || continue
+            if [ -n "$bundle_path" ]; then
+                case "$exe_path" in
+                    "$bundle_path"/Contents/MacOS/*) ;;
+                    *) continue ;;
+                esac
+            fi
+            case "$exe_path" in
+                */Contents/MacOS/*) ;;
+                *) continue ;;
+            esac
+            bundle_root=${exe_path%/Contents/MacOS/*}
+            other_id=$(plutil -extract CFBundleIdentifier raw "$bundle_root/Contents/Info.plist" 2>/dev/null || true)
+            [ "$other_id" = "$bundle_id" ] || continue
+            survivors+="$pid "
+        done < <(ps -ax -o pid=,comm=)
+        if [ -n "$survivors" ]; then
+            echo "$survivors" | xargs kill -9 2>/dev/null || true
+        fi
+        sleep 0.3
+    fi
+}
+
+# A running app maps executable pages from dist/<name>.app. Rebuilding that
+# bundle in place while it is alive can make macOS kill it with
+# CODESIGNING/Invalid Page, so stop it before any bundle mutation.
+stop_running_bundle_instances "$BUNDLE_ID" "$APP_DIR"
+
 # ---------------------------------------------------------------------------
 # Defense in depth: remove sibling .app bundles in dist/ that share our
 # bundle ID. Different `BUNDLE_DISPLAY_NAME` values produce different bundle
@@ -2681,65 +2758,8 @@ if [ "$CMD" = "run" ]; then
         done
     fi
 
-    # Kill any running instance that shares our bundle ID (SIGTERM for
-    # clean shutdown). We match by reading each candidate's Info.plist
-    # rather than by process name, so a production app
-    # (com.vellum.vellum-assistant) is never killed by a dev build
-    # (com.vellum.vellum-assistant-dev), and vice versa. An unrelated
-    # third-party app named "Vellum" (e.g. vellum.pub) is also ignored.
-    _kill_targets=""
-    while IFS= read -r line; do
-        read -r pid exe_path <<< "$line"
-        [ -n "$pid" ] || continue
-        case "$exe_path" in
-            */Contents/MacOS/*) ;;
-            *) continue ;;
-        esac
-        bundle_root=${exe_path%/Contents/MacOS/*}
-        other_id=$(plutil -extract CFBundleIdentifier raw "$bundle_root/Contents/Info.plist" 2>/dev/null || true)
-        [ "$other_id" = "$BUNDLE_ID" ] || continue
-        _kill_targets+="$pid $exe_path"$'\n'
-    done < <(ps -ax -o pid=,comm=)
-    _kill_targets=${_kill_targets%$'\n'}
-
-    if [ -n "$_kill_targets" ]; then
-        echo "Stopping existing instance(s) (bundle ID $BUNDLE_ID):"
-        echo "$_kill_targets" | sed 's/^/  /'
-        echo "$_kill_targets" | awk '{print $1}' | xargs kill 2>/dev/null || true
-        # Wait for clean exit (max 2 seconds)
-        for i in {1..20}; do
-            still_running=false
-            while IFS= read -r pid_line; do
-                read -r _pid _ <<< "$pid_line"
-                kill -0 "$_pid" 2>/dev/null && still_running=true && break
-            done <<< "$_kill_targets"
-            $still_running || break
-            sleep 0.1
-        done
-        # Force-kill any stragglers — re-read ps and re-match the bundle
-        # ID so we never SIGKILL a PID that was reused by an unrelated
-        # process since the original snapshot.
-        if $still_running; then
-            echo "Force-killing remaining instance(s)..."
-            survivors=""
-            while IFS= read -r line; do
-                read -r pid exe_path <<< "$line"
-                [ -n "$pid" ] || continue
-                case "$exe_path" in
-                    */Contents/MacOS/*) ;;
-                    *) continue ;;
-                esac
-                bundle_root=${exe_path%/Contents/MacOS/*}
-                other_id=$(plutil -extract CFBundleIdentifier raw "$bundle_root/Contents/Info.plist" 2>/dev/null || true)
-                [ "$other_id" = "$BUNDLE_ID" ] || continue
-                survivors+="$pid "
-            done < <(ps -ax -o pid=,comm=)
-            if [ -n "$survivors" ]; then
-                echo "$survivors" | xargs kill -9 2>/dev/null || true
-            fi
-            sleep 0.3
-        fi
-    fi
+    # Re-check before launch in case an app was opened during the build.
+    stop_running_bundle_instances "$BUNDLE_ID"
 
     # Launch via `open` so Launch Services registers the bundle —
     # this is required for macOS TCC to associate the app with its
