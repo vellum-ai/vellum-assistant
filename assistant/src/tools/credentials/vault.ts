@@ -88,7 +88,7 @@ class CredentialStoreTool implements Tool {
             type: "string",
             enum: ["store", "list", "delete", "prompt"],
             description:
-              'The operation to perform. Use "prompt" to ask the user for a secret via secure UI - the value never enters the conversation.',
+              'The operation to perform. Use "prompt" to request a secret via secure UI - the value never enters the conversation.',
           },
           service: {
             type: "string",

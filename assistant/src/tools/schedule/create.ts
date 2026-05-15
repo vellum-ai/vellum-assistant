@@ -150,7 +150,7 @@ export async function executeScheduleCreate(
           `  Status: ${job.status}`,
           ``,
           `Integrations: ${integrations}`,
-          `\u26a0 If this schedule requires an integration that isn't connected, it will fail at runtime. Warn the user about any missing capabilities before confirming the schedule is ready.`,
+          `\u26a0 If this schedule requires an integration that isn't connected, it will fail at runtime. Warn about any missing capabilities before confirming the schedule is ready.`,
         ].join("\n"),
         isError: false,
       };
@@ -239,7 +239,7 @@ export async function executeScheduleCreate(
         `  Next run: ${nextRunDate}`,
         ``,
         `Integrations: ${integrations}`,
-        `\u26a0 If this schedule requires an integration that isn't connected, it will fail at runtime. Warn the user about any missing capabilities before confirming the schedule is ready.`,
+        `\u26a0 If this schedule requires an integration that isn't connected, it will fail at runtime. Warn about any missing capabilities before confirming the schedule is ready.`,
       ].join("\n"),
       isError: false,
     };

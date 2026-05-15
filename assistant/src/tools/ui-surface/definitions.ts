@@ -28,7 +28,7 @@ function proxyExecute(): Promise<ToolExecutionResult> {
 export const uiShowTool: Tool = {
   name: "ui_show",
   description:
-    "Show structured data or UI to the user. For long-form writing use the document skill; for interactive apps use the app-builder skill.\n\n" +
+    "Surface structured data or UI in the conversation. For long-form writing use the document skill; for interactive apps use the app-builder skill.\n\n" +
     "Surface types (data shapes):\n" +
     '- card: { title, subtitle?, body, metadata?: [{ label, value }], template?, templateData? }. Templates: "weather_forecast" (native weather widget), "task_progress" (live step tracker - update via ui_update on data.templateData; shape: { title, status: "in_progress"|"completed"|"failed", steps: [{ label, status: "pending"|"in_progress"|"completed"|"failed", detail? }] })\n' +
     '- table: { columns: [{ id, label }], rows: [{ id, cells: Record<id, string | { text, icon?, iconColor?: "success"|"warning"|"error"|"muted" }>, selectable?, selected? }], selectionMode?: "none"|"single"|"multiple", caption? }\n' +
@@ -92,17 +92,17 @@ export const uiShowTool: Tool = {
             type: "string",
             enum: ["inline", "panel"],
             description:
-              'Where to render the surface. "inline" embeds it in the chat message. "panel" shows a floating window. Defaults to "inline". Prefer inline — only use panel when the user explicitly asks for a separate window.',
+              'Where to render the surface. "inline" embeds it in the chat message. "panel" shows a floating window. Defaults to "inline". Prefer inline — only use panel when a separate window is explicitly requested.',
           },
           await_action: {
             type: "boolean",
             description:
-              "Whether to block until the user interacts with an action. Defaults to true when actions are provided.",
+              "Whether to block until an action is selected. Defaults to true when actions are provided.",
           },
           persistent: {
             type: "boolean",
             description:
-              "When true, clicking an action does not dismiss the surface — the card stays visible and only the clicked action is marked as spent. Use for launcher or menu-style cards where the user may click multiple buttons. Defaults to false.",
+              "When true, clicking an action does not dismiss the surface — the card stays visible and only the clicked action is marked as spent. Use for launcher or menu-style cards where multiple buttons may be clicked. Defaults to false.",
           },
         },
         required: ["surface_type", "data"],

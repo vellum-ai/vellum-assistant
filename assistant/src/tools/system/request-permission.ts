@@ -53,7 +53,7 @@ const FRIENDLY_NAMES: Record<PermissionType, string> = {
 class RequestSystemPermissionTool implements Tool {
   name = "request_system_permission";
   description =
-    "Ask the user to grant a macOS system permission via System Settings. " +
+    "Request a macOS system permission via System Settings. " +
     "Use when a tool fails with a permission/access error (e.g. 'Operation not permitted', 'EACCES', sandbox denial). " +
     "Do not explain how to open System Settings manually - this tool handles it with a clickable button.";
   category = "system";
@@ -74,7 +74,7 @@ class RequestSystemPermissionTool implements Tool {
           activity: {
             type: "string",
             description:
-              "Short explanation of why this permission is needed (shown to the user)",
+              "Short explanation of why this permission is needed (shown in the prompt)",
           },
         },
         required: ["permission_type", "activity"],

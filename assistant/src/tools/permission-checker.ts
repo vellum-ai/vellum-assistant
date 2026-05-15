@@ -402,7 +402,7 @@ export class PermissionChecker {
           const denialMessage =
             contextualDenial.length > 0
               ? contextualDenial
-              : `Permission denied by user. The user chose not to allow the "${name}" tool. Do NOT retry this tool call immediately. Instead, tell the user that the action was not performed because they denied permission, and ask if they would like you to try again or take a different approach. Wait for the user to explicitly respond before retrying.`;
+              : `Permission denied. The "${name}" tool was not allowed. Do NOT retry this tool call immediately. Instead, explain that the action was not performed because permission was denied, and ask whether to try again or take a different approach. Wait for an explicit response before retrying.`;
           const denialReason =
             contextualDenial.length > 0
               ? `Permission denied (${name}): contextual policy`

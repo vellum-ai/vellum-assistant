@@ -30,7 +30,7 @@ class SkillExecuteTool implements Tool {
           activity: {
             type: "string",
             description:
-              "Brief non-technical explanation of what you are doing and why, shown to the user as a progress update.",
+              "Brief non-technical explanation of what you are doing and why, shown as a progress update.",
           },
         },
         required: ["tool", "input", "activity"],
