@@ -25,6 +25,8 @@ Help the creator migrate from another assistant species into Vellum. Preserve as
 - Do not pretend opaque runtime state is portable. If a file, database row, binary blob, or generated artifact cannot be confidently understood, mark it for review or rebuild.
 - Never import secrets from chat, logs, config dumps, browser profiles, or exported files. Secrets must be reconnected through Vellum's credential vault, OAuth flows, or setup skills.
 - Do not create scripts or deterministic code that encode assumptions about another species' private filesystem or database schema.
+- Be inviting. Migration can feel sensitive because the creator may have a real relationship with the source assistant; acknowledge that directly, move at the creator's pace, and keep them in control of what is inspected, imported, reviewed, or left alone.
+- Treat every source assistant, source machine, and source export as read-only unless the creator explicitly authorizes a specific write. Before accessing a source machine, say plainly that you will not modify anything there.
 - Be transparent with the creator: identify what will be ported, what needs review, what should be disregarded, and what must be re-set up from scratch.
 
 ## Getting Access to Source Internals
@@ -35,20 +37,22 @@ Start with low-risk discovery:
 
 - Ask whether the source assistant offers an official export, backup, workspace folder, settings page, or CLI command.
 - If the source runs locally, help locate likely workspace/config directories, but avoid scraping browser profiles or secret stores.
+- If the source is on another machine, walk the creator through a safe access path such as an archive, read-only share, or temporary SSH access. Make clear that source-machine work is for inspection and copying only: do not install packages, change config, stop services, delete files, write marker files, or run source-assistant commands that mutate state without explicit approval.
 - If the source is hosted, guide the creator toward official data export, account settings, project download, repository access, or support-provided archive paths.
 - If there is no export path, ask the source assistant to produce portable summaries of its memory, instructions, active workflows, skills, apps, contacts, and integration setup.
 - If access requires admin privileges, organization approval, or another person's account, stop and tell the creator what permission they need rather than trying to bypass it.
 
 When internals are hard to access, fall back to an interview-style migration: ask the creator and source assistant for high-signal summaries, then rebuild in Vellum with review.
 
+Before copying large folders or attachments, estimate source size and check available space in the current Vellum workspace. Use available storage diagnostics or shell filesystem probes when available, migrate large assets in batches, and pause for the creator if the import could crowd the workspace or trigger disk-pressure cleanup.
+
 ## Migration Workflow
 
-### 1. Establish the Source and Target
+### 1. Establish the Source and Migration Goal
 
 Ask only for missing essentials:
 
 - Source species and artifact location: export file, workspace directory, repository, archive, screenshots, or copied text.
-- Target Vellum home: managed, local, Docker, or other self-hosted environment.
 - Desired fidelity: quick usable migration, careful review-first migration, or exhaustive salvage.
 
 If the user already provided enough context, start inspecting.
