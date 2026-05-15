@@ -298,9 +298,11 @@ function buildTitleSystemPrompt(): string {
     "You generate ultra-concise conversation titles. Output ONLY the title text — no explanation, no quotes, no markdown, no preamble.",
     "",
     "Rules:",
-    "- 2–6 words. Titles longer than 6 words are unacceptable — ruthlessly compress",
-    "- Summarize the TOPIC, not the request or instructions",
-    "- Noun phrases are ideal (e.g. 'Auth Middleware Rewrite', 'Docker Volume Mounts')",
+    "- 2–5 words maximum. Titles longer than 5 words are unacceptable — ruthlessly compress to a short noun phrase",
+    "- 40 characters absolute maximum — if your title exceeds 40 characters it will be truncated and look broken",
+    "- Summarize only the TOPIC, not the request or instructions",
+    "- Noun phrases are ideal (e.g. 'Auth Middleware Rewrite', 'Docker Volume Mounts', 'Onboarding Flow')",
+    "- Think: what would make a scannable sidebar label?",
     "- Do NOT echo back what the user asked you to do",
     "- Do NOT respond to the conversation content",
     "- Do NOT assess feasibility or comment on capabilities",
@@ -353,13 +355,33 @@ const META_FAILURE_TITLES = new Set([
   "no content",
 ]);
 
+const MAX_TITLE_LENGTH = 40;
+const MAX_TITLE_WORDS = 7;
+
+function truncateTitle(title: string): string {
+  if (title.length <= MAX_TITLE_LENGTH) return title;
+  const words = title.split(/\s+/);
+  if (words.length <= MAX_TITLE_WORDS) {
+    // Long words but few of them — truncate to char limit at word boundary
+    let result = "";
+    for (const word of words) {
+      const candidate = result ? result + " " + word : word;
+      if (candidate.length > MAX_TITLE_LENGTH) break;
+      result = candidate;
+    }
+    return result || title.slice(0, MAX_TITLE_LENGTH);
+  }
+  // Too many words — trim to 5 words
+  return words.slice(0, 5).join(" ");
+}
+
 function normalizeTitle(raw: string): string {
   let title = raw.trim().replace(/^["']|["']$/g, "");
   title = stripMarkdown(title);
   if (META_FAILURE_TITLES.has(title.toLowerCase())) {
     return "";
   }
-  return title;
+  return truncateTitle(title);
 }
 
 /** Strip common markdown formatting so titles render as plain text. */
