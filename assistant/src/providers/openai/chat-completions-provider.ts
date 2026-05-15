@@ -189,6 +189,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
       // Accumulate the response from chunks
       let contentText = "";
+      let reasoningText = "";
       const toolCallMap = new Map<
         number,
         { id: string; name: string; args: string }
@@ -218,6 +219,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
             if (choice.delta.content) {
               contentText += choice.delta.content;
               onEvent?.({ type: "text_delta", text: choice.delta.content });
+            }
+
+            const reasoningContent = (
+              choice.delta as { reasoning_content?: string | null }
+            ).reasoning_content;
+            if (reasoningContent) {
+              reasoningText += reasoningContent;
+              onEvent?.({ type: "thinking_delta", thinking: reasoningContent });
             }
 
             if (choice.delta.tool_calls) {
@@ -262,6 +271,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
       // Build content blocks
       const content: ContentBlock[] = [];
+      if (reasoningText) {
+        content.push({ type: "thinking", thinking: reasoningText, signature: "" });
+      }
       if (contentText) {
         content.push({ type: "text", text: contentText });
       }
