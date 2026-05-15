@@ -19,17 +19,31 @@ function makeConfig(): AssistantConfig {
 }
 
 describe("getVisibleProviderCatalog", () => {
-  test("returns the full catalog when no feature flags are set", () => {
+  test("returns the full catalog when all feature flags are enabled", () => {
+    const allFlags: Record<string, boolean> = {};
+    for (const entry of PROVIDER_CATALOG) {
+      if (entry.featureFlag) allFlags[entry.featureFlag] = true;
+      for (const model of entry.models) {
+        if (model.featureFlag) allFlags[model.featureFlag] = true;
+      }
+    }
+    _setOverridesForTesting(allFlags);
+
     const visible = getVisibleProviderCatalog(makeConfig());
     expect(visible.length).toBe(PROVIDER_CATALOG.length);
     expect(visible.map((p) => p.id)).toEqual(PROVIDER_CATALOG.map((p) => p.id));
   });
 
   test("hides a provider whose featureFlag is disabled", () => {
-    _setOverridesForTesting({ "test-provider-flag": false });
+    const allFlags: Record<string, boolean> = {};
+    for (const entry of PROVIDER_CATALOG) {
+      if (entry.featureFlag) allFlags[entry.featureFlag] = true;
+      for (const model of entry.models) {
+        if (model.featureFlag) allFlags[model.featureFlag] = true;
+      }
+    }
+    _setOverridesForTesting({ ...allFlags, "test-provider-flag": false });
 
-    // Temporarily patch the catalog to add a flagged provider — we test
-    // against the real catalog array so we mutate-and-restore.
     const original = [...PROVIDER_CATALOG];
     PROVIDER_CATALOG.push({
       id: "__test_flagged_provider__",
@@ -49,7 +63,6 @@ describe("getVisibleProviderCatalog", () => {
       expect(
         visible.find((p) => p.id === "__test_flagged_provider__"),
       ).toBeUndefined();
-      // All original providers should still be present
       expect(visible.length).toBe(original.length);
     } finally {
       PROVIDER_CATALOG.length = 0;

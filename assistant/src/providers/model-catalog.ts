@@ -875,6 +875,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
   {
     id: "zai",
     displayName: "z.ai",
+    featureFlag: "provider-zai",
     subtitle: "GLM models from z.ai (Zhipu AI). Requires a z.ai API key.",
     setupMode: "api-key",
     setupHint: "Enter your z.ai API key to enable GLM models.",
