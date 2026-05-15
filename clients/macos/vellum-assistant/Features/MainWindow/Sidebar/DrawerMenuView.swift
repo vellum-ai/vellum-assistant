@@ -75,7 +75,7 @@ struct DrawerMenuView: View {
 
             VMenuItem(icon: VIcon.settings.rawValue, label: String(localized: "Settings"), action: onSettings)
 
-            VMenuItem(icon: VIcon.barChart.rawValue, label: String(localized: "Logs & Usage"), action: onLogsAndUsage)
+            VMenuItem(icon: VIcon.barChart.rawValue, label: String(localized: "Usage"), action: onLogsAndUsage)
             VMenuItem(icon: VIcon.messageCircle.rawValue, label: String(localized: "Share Feedback"), action: onShareFeedback)
 
             if authManager.isAuthenticated {

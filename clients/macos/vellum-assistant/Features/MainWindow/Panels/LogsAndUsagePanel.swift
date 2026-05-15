@@ -12,7 +12,7 @@ enum LogsAndUsageTab: String {
         }
     }
 
-    static var allTabs: [LogsAndUsageTab] { [.logs, .usage] }
+    static var allTabs: [LogsAndUsageTab] { [.usage, .logs] }
 }
 
 @MainActor
@@ -26,7 +26,7 @@ struct LogsAndUsagePanel: View {
     var onAnalyzeCosts: () -> Void
     var onOptimizeCosts: () -> Void
 
-    @State private var selectedTab: LogsAndUsageTab = .logs
+    @State private var selectedTab: LogsAndUsageTab = .usage
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,7 +41,7 @@ struct LogsAndUsagePanel: View {
                     onClose()
                 }
 
-                Text("Logs & Usage")
+                Text("Usage")
                     .font(VFont.titleLarge)
                     .foregroundStyle(VColor.contentEmphasized)
 
