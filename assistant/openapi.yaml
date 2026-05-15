@@ -4775,6 +4775,8 @@ paths:
                     type: string
                   title:
                     type: string
+                  conversationKey:
+                    type: string
                   messagesInserted:
                     type: integer
                     minimum: 0
@@ -4782,6 +4784,7 @@ paths:
                 required:
                   - id
                   - title
+                  - conversationKey
                   - messagesInserted
                 additionalProperties: false
       requestBody:
@@ -4792,8 +4795,6 @@ paths:
               type: object
               properties:
                 title:
-                  type: string
-                conversationKey:
                   type: string
                 messages:
                   type: array

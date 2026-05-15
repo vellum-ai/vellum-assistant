@@ -73,7 +73,7 @@ function readSeedMessages(
 
 async function createConversationCli(
   title: string | undefined,
-  opts?: { conversationKey?: string; contentFile?: string },
+  opts?: { contentFile?: string },
 ): Promise<void> {
   const messages = readSeedMessages(opts?.contentFile);
   if (process.exitCode) return;
@@ -81,11 +81,11 @@ async function createConversationCli(
   const result = await cliIpcCall<{
     id: string;
     title: string;
+    conversationKey: string;
     messagesInserted: number;
   }>("conversation_create_cli", {
     body: {
       title,
-      conversationKey: opts?.conversationKey,
       messages,
     },
   });
@@ -93,11 +93,11 @@ async function createConversationCli(
   if (!result.ok) return exitFromIpcResult(result);
 
   const conversation = result.result!;
-  const suffix = conversation.messagesInserted
+  const seedSuffix = conversation.messagesInserted
     ? `, seeded ${conversation.messagesInserted} messages`
     : "";
   log.info(
-    `Created conversation: ${conversation.title} (${conversation.id})${suffix}`,
+    `Created conversation: ${conversation.title} (${conversation.id}), conversation key: ${conversation.conversationKey}${seedSuffix}`,
   );
 }
 
@@ -177,12 +177,8 @@ Examples:
       // -------------------------------------------------------------------
 
       conversations
-        .command("create [title]")
+        .command("new [title]")
         .description("Create a new conversation")
-        .option(
-          "--conversation-key <key>",
-          "Map a conversation key to the new conversation",
-        )
         .option("--content-file <path>", "Seed messages from a JSON file")
         .addHelpText(
           "after",
@@ -193,31 +189,16 @@ Arguments:
 
 The content file must be a JSON array of { role, content } messages.
 
-Examples:
-  $ assistant conversations create
-  $ assistant conversations create "Project planning"
-  $ assistant conversations create --conversation-key evals:timeline --content-file /tmp/seed.json`,
-        )
-        .action(createConversationCli);
-
-      conversations
-        .command("new [title]")
-        .description("Create a new conversation")
-        .addHelpText(
-          "after",
-          `
-Arguments:
-  title   Optional conversation title (string). If omitted, a default title is
-          assigned by the assistant.
-
-Creates a new conversation and prints its title and ID.
+Creates a new conversation and prints its title, ID, and generated conversation
+key.
 
 Examples:
   $ assistant conversations new
   $ assistant conversations new "Project planning"
+  $ assistant conversations new --content-file /tmp/seed.json
   $ assistant conversations new "Bug triage 2026-03-05"`,
         )
-        .action((title?: string) => createConversationCli(title));
+        .action(createConversationCli);
 
       // -------------------------------------------------------------------
       // rename

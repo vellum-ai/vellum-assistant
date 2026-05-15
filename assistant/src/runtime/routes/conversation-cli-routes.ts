@@ -6,6 +6,7 @@
  * used by the macOS / web clients.
  */
 
+import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
 import { clearAllConversations as clearAllActive } from "../../daemon/handlers/conversations.js";
@@ -16,7 +17,7 @@ import {
   getConversation,
   getMessages,
 } from "../../memory/conversation-crud.js";
-import { setConversationKeyIfAbsent } from "../../memory/conversation-key-store.js";
+import { setConversationKey } from "../../memory/conversation-key-store.js";
 import { listConversations } from "../../memory/conversation-queries.js";
 import { getLogger } from "../../util/logger.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
@@ -62,14 +63,12 @@ function textContentJson(text: string): string {
 
 async function handleCreateCli({ body = {} }: RouteHandlerArgs) {
   const title = body.title as string | undefined;
-  const conversationKey = body.conversationKey as string | undefined;
   const messages =
     (body.messages as SeededConversationMessage[] | undefined) ?? [];
 
   const conversation = createConversation(title);
-  if (conversationKey) {
-    setConversationKeyIfAbsent(conversationKey, conversation.id);
-  }
+  const conversationKey = uuid();
+  setConversationKey(conversationKey, conversation.id);
 
   for (const message of messages) {
     await addMessage(
@@ -84,6 +83,7 @@ async function handleCreateCli({ body = {} }: RouteHandlerArgs) {
   return {
     id: conversation.id,
     title: conversation.title ?? "New Conversation",
+    conversationKey,
     messagesInserted: messages.length,
   };
 }
@@ -188,12 +188,12 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["conversations"],
     requestBody: z.object({
       title: z.string().optional(),
-      conversationKey: z.string().optional(),
       messages: z.array(seededConversationMessageSchema).optional(),
     }),
     responseBody: z.object({
       id: z.string(),
       title: z.string(),
+      conversationKey: z.string(),
       messagesInserted: z.number().int().nonnegative(),
     }),
     handler: handleCreateCli,
