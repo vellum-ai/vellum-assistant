@@ -377,6 +377,14 @@ function attachLoginChatgptSubcommand(providers: Command): void {
           }
         }
 
+        if (tokens.expiresIn) {
+          const expiresAt = Math.floor(Date.now() / 1000 + tokens.expiresIn);
+          await setSecureKeyAsync(
+            "credential/openai-codex/expires_at",
+            String(expiresAt),
+          );
+        }
+
         // Step 4: Create (or update) provider connection via IPC
         const connectionName = "openai-codex-subscription";
         const authInput = {

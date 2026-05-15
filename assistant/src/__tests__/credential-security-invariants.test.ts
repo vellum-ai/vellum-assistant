@@ -209,6 +209,8 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "config/bundled-skills/media-processing/tools/analyze-keyframes.ts", // keyframe analysis tool API key lookup
       "providers/registry.ts", // provider registry API key lookup for initialization
       "providers/inference/resolve-auth.ts", // provider_connection auth resolver (api_key path reads vault, mirrors registry.ts)
+      "providers/inference/codex-token-refresh.ts", // Codex OAuth token refresh (reads/writes access_token, refresh_token, expires_at)
+      "cli/commands/inference-providers.ts", // ChatGPT subscription OAuth token storage
       "providers/provider-availability.ts", // provider availability API key check
       "media/image-credentials.ts", // shared image-gen credential resolver (provider API key lookup)
       "memory/embedding-backend.ts", // embedding backend API key lookup
@@ -236,7 +238,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/avatar-routes.ts", // avatar generate route reads platform_base_url from credential store
       "cli/commands/keys.ts", // CLI provider key management
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification
-      "cli/commands/inference-providers.ts", // ChatGPT subscription OAuth token storage
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

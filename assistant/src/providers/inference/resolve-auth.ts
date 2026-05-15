@@ -5,7 +5,7 @@
  *   - api_key              → fetch credential from vault → inject as bearer header
  *   - platform             → build managed proxy URL and fetch the platform API key
  *   - none                 → pass through with no auth headers
- *   - oauth_subscription   → fetch OAuth token from vault → inject as bearer header
+ *   - oauth_subscription   → fetch OAuth token from vault (with auto-refresh) → inject as bearer header
  *   - service_account      → reject (v2 not yet shipped)
  */
 
@@ -65,21 +65,27 @@ export async function resolveAuth(
       return { ok: true, resolved: { kind: "none" } };
 
     case "oauth_subscription": {
-      const oauthValue = await getSecureKeyAsync(auth.credential);
-      if (!oauthValue) {
+      // Extract the credential prefix from the credential key.
+      // The credential field stores "credential/openai-codex/access_token";
+      // we need the prefix "credential/openai-codex" for the refresh logic.
+      const credentialPrefix = auth.credential.replace(/\/access_token$/, "");
+
+      const { getValidCodexAccessToken } = await import(
+        "./codex-token-refresh.js"
+      );
+      const token = await getValidCodexAccessToken(credentialPrefix);
+
+      if (!token) {
         return {
           ok: false,
-          error: {
-            code: "credential_not_found",
-            credential: auth.credential,
-          },
+          error: { code: "credential_not_found", credential: auth.credential },
         };
       }
       return {
         ok: true,
         resolved: {
           kind: "header",
-          headers: { Authorization: `Bearer ${oauthValue}` },
+          headers: { Authorization: `Bearer ${token}` },
         },
       };
     }
