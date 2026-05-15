@@ -23,8 +23,13 @@ export function injectActivityField(
       return def;
     }
 
-    const schema = def.input_schema as Record<string, unknown>;
-    if (schema.type !== "object" || !schema.properties) {
+    const schema = def.input_schema as Record<string, unknown> | undefined;
+    if (
+      schema == null ||
+      typeof schema !== "object" ||
+      schema.type !== "object" ||
+      !schema.properties
+    ) {
       return def;
     }
 
