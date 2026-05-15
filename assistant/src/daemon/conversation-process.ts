@@ -633,7 +633,11 @@ async function drainSingleMessage(
       await addMessage(
         conversation.conversationId,
         "user",
-        JSON.stringify(cleanUserMsg.content),
+        serializePersistedUserMessageContent(
+          next.content,
+          next.attachments,
+          next.displayContent,
+        ),
         drainChannelMeta,
       );
       persistedCompactMessage = true;
@@ -1319,7 +1323,11 @@ export async function processMessage(
       const persisted = await addMessage(
         conversation.conversationId,
         "user",
-        JSON.stringify(cleanUserMsg.content),
+        serializePersistedUserMessageContent(
+          content,
+          attachments,
+          displayContent,
+        ),
         routerChannelMeta,
       );
       conversation.messages.push(llmUserMsg);
@@ -1495,7 +1503,11 @@ export async function processMessage(
       const persisted = await addMessage(
         conversation.conversationId,
         "user",
-        JSON.stringify(cleanUserMsg.content),
+        serializePersistedUserMessageContent(
+          content,
+          attachments,
+          displayContent,
+        ),
         pmChannelMeta,
       );
       persistedCompactMessage = true;
