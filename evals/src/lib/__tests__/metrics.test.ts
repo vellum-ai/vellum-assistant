@@ -17,7 +17,7 @@ import scoreDateMentioned from "../../../tests/timeline-recall/metrics/date-ment
 const testDef: TestDef = {
   id: "timeline-recall",
   specPath: "/tmp/SPEC.md",
-  setupPath: "/tmp/setup.json",
+  setupPath: "/tmp/setup.ts",
   setupCommands: [],
   metricsDir: "/tmp/metrics",
   metricPaths: [],

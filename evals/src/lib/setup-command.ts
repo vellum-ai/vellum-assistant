@@ -1,8 +1,13 @@
+export type SeededConversationMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 export type TestSetupCommand = {
   /**
-   * Deterministic user-history seed. Adapters decide how to bridge this into
-   * their runtime; the simulator is not involved in setup.
+   * Seed pre-existing conversation history without asking the live agent LLM to
+   * respond. Each adapter bridges this into its own runtime representation.
    */
-  type: "user-message";
-  content: string;
+  type: "seed-conversation";
+  messages: SeededConversationMessage[];
 };

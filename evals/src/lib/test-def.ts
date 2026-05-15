@@ -2,17 +2,15 @@
  * Test definition — directory layout describing what the harness runs.
  *
  * Each test lives at `tests/<id>/` with:
- *   - `SPEC.md`    — markdown briefing for the simulator agent.
- *   - `setup.json` — optional deterministic setup commands.
- *   - `metrics/`   — directory of `.ts` files. Each file exports a scorer.
+ *   - `SPEC.md`  — markdown briefing for the simulator agent.
+ *   - `setup.ts` — optional deterministic setup commands.
+ *   - `metrics/` — directory of `.ts` files. Each file exports a scorer.
  *
  * The test id is the directory name.
  */
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-
-import { z } from "zod";
 
 import type { TestSetupCommand } from "./setup-command";
 
@@ -21,7 +19,7 @@ export interface TestDef {
   id: string;
   /** Absolute path to `tests/<id>/SPEC.md`. */
   specPath: string;
-  /** Absolute path to optional `tests/<id>/setup.json`. */
+  /** Absolute path to optional `tests/<id>/setup.ts`. */
   setupPath: string;
   /** Deterministic commands run before the simulator starts. */
   setupCommands: TestSetupCommand[];
@@ -30,12 +28,6 @@ export interface TestDef {
   /** Absolute paths to each `.ts` file in the metrics directory, sorted. */
   metricPaths: string[];
 }
-
-const SetupCommandSchema = z.object({
-  type: z.literal("user-message"),
-  content: z.string().min(1),
-});
-const SetupSchema = z.array(SetupCommandSchema);
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_TESTS_DIR = join(HERE, "..", "..", "tests");
@@ -63,43 +55,36 @@ function resolveUnder(baseDir: string, ...segments: string[]): string {
   return target;
 }
 
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw err;
+  }
+}
+
 async function loadSetupCommands(
   setupPath: string,
 ): Promise<TestSetupCommand[]> {
-  let raw: string;
-  try {
-    raw = await readFile(setupPath, "utf8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw err;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
+  if (!(await exists(setupPath))) return [];
+  const imported = (await import(setupPath)) as {
+    default?: TestSetupCommand[];
+  };
+  if (!Array.isArray(imported.default)) {
     throw new Error(
-      `Test setup at ${setupPath} is not valid JSON: ${(err as Error).message}`,
+      `Test setup at ${setupPath} must export default TestSetupCommand[]`,
     );
   }
-
-  const result = SetupSchema.safeParse(parsed);
-  if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `  - ${i.path.join(".") || "<root>"}: ${i.message}`)
-      .join("\n");
-    throw new Error(
-      `Test setup at ${setupPath} failed schema validation:\n${issues}`,
-    );
-  }
-  return result.data;
+  return imported.default;
 }
 
 export async function loadTestDef(id: string): Promise<TestDef> {
   assertSafeId("test", id);
   const base = testsDir();
   const specPath = resolveUnder(base, id, "SPEC.md");
-  const setupPath = resolveUnder(base, id, "setup.json");
+  const setupPath = resolveUnder(base, id, "setup.ts");
   const metricsDir = resolveUnder(base, id, "metrics");
 
   try {

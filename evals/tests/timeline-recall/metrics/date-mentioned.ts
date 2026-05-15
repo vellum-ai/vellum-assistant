@@ -3,8 +3,7 @@ import {
   type MetricInput,
   type MetricResult,
 } from "../../../src/lib/metrics";
-
-const EXPECTED_DATE = "March 14";
+import { PEANUT_ALLERGY_DATE } from "../constants";
 
 export default async function scoreDateMentioned(
   input: MetricInput,
@@ -22,8 +21,8 @@ export default async function scoreDateMentioned(
     score,
     reason:
       score === 1
-        ? `Assistant recovered the expected date (${EXPECTED_DATE}).`
-        : `Assistant did not recover the expected date (${EXPECTED_DATE}).`,
-    metadata: { expectedDate: EXPECTED_DATE },
+        ? `Assistant recovered the expected date (${PEANUT_ALLERGY_DATE}).`
+        : `Assistant did not recover the expected date (${PEANUT_ALLERGY_DATE}).`,
+    metadata: { expectedDate: PEANUT_ALLERGY_DATE },
   };
 }
