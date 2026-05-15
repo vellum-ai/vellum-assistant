@@ -52,4 +52,47 @@ struct ConversationListStoreReflectionsGroupTests {
         #expect(customIds == ["custom:work"])
         #expect(store.sidebarGroupEntries.count == systemIds.count + customIds.count)
     }
+
+    @Test
+    func slackConversationsGetConditionalSystemSection() {
+        let store = ConversationListStore()
+        store.groups = systemGroups()
+        store.conversations = [
+            ConversationModel(title: "Regular", conversationId: "regular", groupId: ConversationGroup.all.id),
+            ConversationModel(title: "Slack", conversationId: "slack", groupId: ConversationGroup.all.id, originChannel: "slack"),
+            ConversationModel(title: "Pinned Slack", conversationId: "pinned-slack", groupId: ConversationGroup.pinned.id, originChannel: "slack"),
+        ]
+
+        let systemIds = store.systemSidebarGroupEntries.map(\.group.id)
+        let slackConversationIds = store.sidebarGroupEntries
+            .first { $0.group.id == ConversationGroup.slack.id }?
+            .conversations.compactMap(\.conversationId) ?? []
+        let recentsConversationIds = store.sidebarGroupEntries
+            .first { $0.group.id == ConversationGroup.all.id }?
+            .conversations.compactMap(\.conversationId) ?? []
+        let pinnedConversationIds = store.sidebarGroupEntries
+            .first { $0.group.id == ConversationGroup.pinned.id }?
+            .conversations.compactMap(\.conversationId) ?? []
+
+        #expect(systemIds == [
+            ConversationGroup.pinned.id,
+            ConversationGroup.background.id,
+            ConversationGroup.slack.id,
+            ConversationGroup.all.id,
+        ])
+        #expect(slackConversationIds == ["slack"])
+        #expect(recentsConversationIds == ["regular"])
+        #expect(pinnedConversationIds == ["pinned-slack"])
+    }
+
+    @Test
+    func slackSectionIsOmittedWhenNoSlackConversationsExist() {
+        let store = ConversationListStore()
+        store.groups = systemGroups()
+        store.conversations = [
+            ConversationModel(title: "Regular", conversationId: "regular", groupId: ConversationGroup.all.id),
+        ]
+
+        #expect(!store.systemSidebarGroupEntries.contains { $0.group.id == ConversationGroup.slack.id })
+    }
 }

@@ -19,7 +19,8 @@ struct ConversationModel: Identifiable, Hashable {
     var conversationId: String?
     var isArchived: Bool
     /// The conversation group this conversation belongs to.
-    /// nil means ungrouped. System groups: "system:pinned", "system:scheduled", "system:background".
+    /// nil means ungrouped. System groups: "system:pinned", "system:scheduled",
+    /// "system:background", "system:slack", and "system:all".
     var groupId: String?
     /// Whether this conversation is pinned. Computed from `groupId`.
     var isPinned: Bool {
@@ -127,6 +128,10 @@ struct ConversationModel: Identifiable, Hashable {
         // (archive, mark-as-unread, drag-to-reorder, analyze).
         if originChannel.hasPrefix("notification:") { return false }
         return true
+    }
+
+    var isSlackConversation: Bool {
+        originChannel == "slack"
     }
 
     /// Derive the groupId for a conversation from server metadata when the server

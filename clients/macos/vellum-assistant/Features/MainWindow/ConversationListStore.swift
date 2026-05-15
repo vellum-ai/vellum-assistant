@@ -347,11 +347,16 @@ final class ConversationListStore {
         _ visible: [ConversationModel],
         sortedGroups: [ConversationGroup]
     ) -> [GroupedConversations] {
-        let knownGroupIds = Set(groups.map(\.id))
+        let knownGroupIds = Set(sortedGroups.map(\.id))
         var buckets: [String: [ConversationModel]] = [:]
+        var slack: [ConversationModel] = []
         var ungrouped: [ConversationModel] = []
         var orphaned: [ConversationModel] = []
         for conversation in visible {
+            if shouldBucketInSlackSection(conversation) {
+                slack.append(conversation)
+                continue
+            }
             if let gid = conversation.groupId {
                 if knownGroupIds.contains(gid) {
                     buckets[gid, default: []].append(conversation)
@@ -363,10 +368,18 @@ final class ConversationListStore {
             }
         }
 
+        var effectiveGroups = sortedGroups
+        if !slack.isEmpty && !effectiveGroups.contains(where: { $0.id == ConversationGroup.slack.id }) {
+            effectiveGroups.append(ConversationGroup.slack)
+            effectiveGroups.sort { $0.sortPosition < $1.sortPosition }
+        }
+
         var grouped: [GroupedConversations] = []
         var didFoldIntoAll = false
-        for group in sortedGroups {
-            if group.id == ConversationGroup.all.id {
+        for group in effectiveGroups {
+            if group.id == ConversationGroup.slack.id {
+                grouped.append(GroupedConversations(group: group, conversations: slack))
+            } else if group.id == ConversationGroup.all.id {
                 grouped.append(GroupedConversations(
                     group: group,
                     conversations: (buckets[group.id] ?? []) + ungrouped + orphaned
@@ -381,6 +394,11 @@ final class ConversationListStore {
             grouped.append(GroupedConversations(group: ConversationGroup.all, conversations: ungrouped + orphaned))
         }
         return grouped
+    }
+
+    private func shouldBucketInSlackSection(_ conversation: ConversationModel) -> Bool {
+        conversation.isSlackConversation &&
+            (conversation.groupId == nil || conversation.groupId == ConversationGroup.all.id)
     }
 
     /// Recompute the cached `archivedConversations` array. Invoked from
