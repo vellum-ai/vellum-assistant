@@ -115,24 +115,34 @@ struct MessageListScrollObserver: NSViewRepresentable {
         /// that doesn't propagate up the materialized subtree). Use
         /// `lastReferenceY` for the actual compensation baseline.
         private var lastContentHeight: CGFloat = 0
-        /// Weak reference to a stable visible `NSView` whose movement we
-        /// compensate against. Picked on each emit when the previous
-        /// reference is invalidated (removed from the tree, scrolled out
-        /// of the viewport, or zero-height). Re-used otherwise.
+        /// Index-path to a stable visible descendant of `documentView` whose
+        /// `minY` movement we compensate against (e.g. `"0/2"` is the third
+        /// subview of `documentView`'s first child). Picked when the
+        /// previous path no longer resolves to a usable view in the current
+        /// tree (e.g. LazyVStack reflowed and the slot is gone or out of
+        /// the viewport).
         ///
-        /// Compensating against this view's `minY` in `documentView` coords
-        /// — instead of the global `contentHDelta` — eliminates the failure
-        /// mode where `contentH` grows without visible rows shifting. The
-        /// recorded scroll-debug CSVs show this regularly: streaming
-        /// response below the viewport grows by 1 pt/token, `contentH`
-        /// follows, but the materialized rows in the viewport hold their
-        /// `minY` constant. The old anchor would still apply `+1` per
-        /// token, walking the user away from latest at ~120 pt/sec.
-        private weak var anchorReferenceView: NSView?
-        /// Cached `convert(.zero, to: documentView).y` of `anchorReferenceView`
-        /// from the last emit. The next emit's `Δref` is `currentY -
-        /// lastReferenceY`, which is what we pass to
-        /// `ScrollAnchorPreserver.decide`.
+        /// Compensating against this descendant's `minY` in `documentView`
+        /// coords — instead of the global `contentHDelta` — eliminates the
+        /// "streaming response below the viewport grows by 1 pt/token, but
+        /// no visible row shifts" failure mode the recorded CSVs show.
+        ///
+        /// We track by index path rather than a weak `NSView` reference
+        /// because LazyVStack reflows destroy and recreate the underlying
+        /// `NSView` at the same logical position. A weak reference becomes
+        /// `nil` across that destruction, forcing us to re-pick on every
+        /// reflow and miss the chunky `+25–100 pt` `minY` shift that
+        /// reflow actually represents (recorded CSV shows only 1 of 4
+        /// chunky shifts firing the anchor under the weak-reference
+        /// scheme, leaving the other three to SwiftUI's late offset
+        /// adjustment and producing a "jump back and forth" flicker).
+        /// Paths survive the destruction; the resolved view at that path
+        /// post-reflow is what we diff against.
+        private var anchorReferencePath: String?
+        /// Cached `convert(.zero, to: documentView).y` of the view at
+        /// `anchorReferencePath` from the last emit. The next emit's
+        /// `Δref` is `currentY - lastReferenceY`, which is what we pass
+        /// to `ScrollAnchorPreserver.decide`.
         private var lastReferenceY: CGFloat = 0
         /// Tracks whether an AppKit live scroll (trackpad/wheel gesture plus
         /// momentum decay) is currently in progress. Bracketed by
@@ -203,10 +213,10 @@ struct MessageListScrollObserver: NSViewRepresentable {
             // would no longer correspond to anything.
             self.lastSubviewHeights = [:]
             // Re-attach destroys the old view tree, so any prior reference
-            // is now dangling (weak ref will be nil shortly). Reset
-            // explicitly so the first emit picks a fresh reference from
-            // the new tree without computing a delta against a stale Y.
-            self.anchorReferenceView = nil
+            // is now dangling. Reset explicitly so the first emit picks a
+            // fresh reference from the new tree without computing a delta
+            // against a stale Y.
+            self.anchorReferencePath = nil
             self.lastReferenceY = 0
             installObservers()
         }
@@ -221,7 +231,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
             lastContentHeight = 0
             isLiveScrolling = false
             lastSubviewHeights = [:]
-            anchorReferenceView = nil
+            anchorReferencePath = nil
             lastReferenceY = 0
         }
 
@@ -420,7 +430,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
                     // it out of the viewport, so the next emit will pick
                     // a fresh one from the post-gesture viewport.
                     self.lastContentHeight = self.documentView?.frame.height ?? 0
-                    self.anchorReferenceView = nil
+                    self.anchorReferencePath = nil
                     self.lastReferenceY = 0
                     self.emitCurrentSnapshotIfPossible()
                 }
@@ -437,20 +447,23 @@ struct MessageListScrollObserver: NSViewRepresentable {
             observers.removeAll()
         }
 
-        /// Resolves the anchor reference view for this emit and returns the
-        /// signed delta (in points) that the visible reference has moved
-        /// since the previous emit. The Coordinator passes this delta to
-        /// `ScrollAnchorPreserver.decide` as `compensationDelta`.
+        /// Resolves the anchor reference for this emit and returns the
+        /// signed delta (in points) that the reference's `minY` in
+        /// `documentView` coords has moved since the previous emit. The
+        /// Coordinator passes this delta to `ScrollAnchorPreserver.decide`
+        /// as `compensationDelta`.
         ///
-        /// If the previous reference is still in the tree and intersects
-        /// the viewport, it's reused and the delta is its `minY` movement
-        /// in `documentView` coords. If invalidated (removed, scrolled out,
-        /// shrunk to zero height), a new reference is picked from the
-        /// current viewport and `0` is returned — no compensation on the
-        /// pick-frame, because there's no previous-Y to diff against.
+        /// Reference identity is stored as an *index path* from
+        /// `documentView` (e.g. `"0/2"`). On each emit we re-resolve the
+        /// path to whatever `NSView` is currently there. If it still
+        /// intersects the viewport and has non-zero height, we diff its
+        /// `minY` against the cached value. If the path no longer
+        /// resolves (LazyVStack removed a slot, structure shifted) or the
+        /// view at the path no longer intersects the viewport, we pick a
+        /// new path and return `0` — no compensation on the pick-frame.
         ///
         /// Returning `0` is also what's expected on the first emit after
-        /// attach: `anchorReferenceView` is `nil`, we pick one, and the
+        /// attach: `anchorReferencePath` is `nil`, we pick one, and the
         /// decide function skips with `.noVisibleShift`.
         private func updateAndReadReferenceDelta(
             documentView: NSView,
@@ -463,34 +476,48 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 width: documentView.bounds.width,
                 height: viewportHeight
             )
-            if let reference = anchorReferenceView, isReferenceStillUsable(reference, in: documentView, viewport: viewport) {
-                let currentY = reference.convert(.zero, to: documentView).y
+            if let path = anchorReferencePath,
+               let view = resolvePath(path, from: documentView),
+               isViewUsable(view, in: documentView, viewport: viewport) {
+                let currentY = view.convert(.zero, to: documentView).y
                 let delta = currentY - lastReferenceY
                 lastReferenceY = currentY
                 return delta
             }
-            // Reference invalid — pick a new one. No delta on this emit
-            // since there's no previous-Y to diff against.
-            let newReference = pickAnchorReference(in: documentView, viewport: viewport)
-            anchorReferenceView = newReference
-            lastReferenceY = newReference?.convert(.zero, to: documentView).y ?? 0
+            // Path invalid — pick a new one. No delta on this emit since
+            // there's no previous-Y to diff against.
+            let pick = pickAnchorReferencePath(in: documentView, viewport: viewport)
+            anchorReferencePath = pick?.path
+            lastReferenceY = pick?.view.convert(.zero, to: documentView).y ?? 0
             return 0
         }
 
-        /// A reference is still usable when it's still in the document
-        /// view's subtree, still has a non-zero frame, and still intersects
-        /// the viewport. Anything else means it was recycled, hidden, or
-        /// scrolled fully out — pick a new one rather than tracking a stale
-        /// position that could spike the delta when the view is finally
-        /// destroyed.
-        private func isReferenceStillUsable(_ view: NSView, in documentView: NSView, viewport: CGRect) -> Bool {
-            guard view.isDescendant(of: documentView) else { return false }
+        /// Walks `path` (e.g. `"0/2"`) from `root`, returning the resolved
+        /// descendant or `nil` if any index is out of bounds. Paths are
+        /// expected to be small (depth ≤ `diagnosticWalkMaxDepth`), so the
+        /// allocation overhead of splitting is negligible.
+        private func resolvePath(_ path: String, from root: NSView) -> NSView? {
+            var current: NSView = root
+            for segment in path.split(separator: "/") {
+                guard let index = Int(segment), index >= 0, index < current.subviews.count else {
+                    return nil
+                }
+                current = current.subviews[index]
+            }
+            return current === root ? nil : current
+        }
+
+        /// A view at the resolved path is still usable when it has a
+        /// non-zero height and still intersects the viewport. Anything
+        /// else means the LazyVStack pushed it offscreen — pick a new
+        /// reference rather than tracking a stale position.
+        private func isViewUsable(_ view: NSView, in documentView: NSView, viewport: CGRect) -> Bool {
             guard view.frame.height > 0 else { return false }
             let frameInDoc = view.convert(view.bounds, to: documentView)
             return frameInDoc.intersects(viewport)
         }
 
-        /// Picks an anchor reference from the materialized subtree of
+        /// Picks an anchor reference path from the materialized subtree of
         /// `documentView`. Walks depth-first and returns the deepest
         /// descendant whose frame intersects the viewport and has non-zero
         /// height. We prefer the deepest match so we land on a concrete
@@ -503,43 +530,53 @@ struct MessageListScrollObserver: NSViewRepresentable {
         /// reject those and leave us with no reference. The deepest-match
         /// preference still bypasses the wrapper chain even when the
         /// outer rows are tall.
-        private func pickAnchorReference(in documentView: NSView, viewport: CGRect) -> NSView? {
-            var best: NSView?
+        private func pickAnchorReferencePath(in documentView: NSView, viewport: CGRect) -> (path: String, view: NSView)? {
+            var bestPath: String?
+            var bestView: NSView?
             var bestDepth = -1
-            walkForReference(
+            walkForReferencePath(
                 in: documentView,
+                path: "",
                 depth: 0,
                 documentView: documentView,
                 viewport: viewport,
-                best: &best,
+                bestPath: &bestPath,
+                bestView: &bestView,
                 bestDepth: &bestDepth
             )
-            return best
+            guard let path = bestPath, let view = bestView else { return nil }
+            return (path, view)
         }
 
-        private func walkForReference(
+        private func walkForReferencePath(
             in parent: NSView,
+            path: String,
             depth: Int,
             documentView: NSView,
             viewport: CGRect,
-            best: inout NSView?,
+            bestPath: inout String?,
+            bestView: inout NSView?,
             bestDepth: inout Int
         ) {
             guard depth < Self.diagnosticWalkMaxDepth else { return }
-            for child in parent.subviews {
+            for (index, child) in parent.subviews.enumerated() {
                 guard child.frame.height > 0 else { continue }
                 let frameInDoc = child.convert(child.bounds, to: documentView)
                 guard frameInDoc.intersects(viewport) else { continue }
+                let childPath = path.isEmpty ? "\(index)" : "\(path)/\(index)"
                 if depth > bestDepth {
-                    best = child
+                    bestPath = childPath
+                    bestView = child
                     bestDepth = depth
                 }
-                walkForReference(
+                walkForReferencePath(
                     in: child,
+                    path: childPath,
                     depth: depth + 1,
                     documentView: documentView,
                     viewport: viewport,
-                    best: &best,
+                    bestPath: &bestPath,
+                    bestView: &bestView,
                     bestDepth: &bestDepth
                 )
             }
