@@ -1256,8 +1256,6 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
     contentBlocks = [{ type: "text", text: plainText }, ...contentBlocks];
   }
 
-  const externalContentOrigin = slackMeta?.displayName ?? senderLabel ?? null;
-
   return {
     role: row.role,
     content: plainText,
@@ -1267,7 +1265,6 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
     contentBlocks,
     wrapContentForModel:
       row.role === "user" && !isReaction && provenanceTrustClass !== "guardian",
-    ...(externalContentOrigin ? { externalContentOrigin } : {}),
   };
 }
 
