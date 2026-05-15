@@ -286,19 +286,18 @@ async function copyFile(
 
 /**
  * Wraps `fetchFn` with the headers we want to send to GitHub for every
- * request. Honors `GITHUB_TOKEN` when present so users who hit the
- * unauthenticated rate limit can opt into a higher cap.
+ * request. Unauthenticated — the canonical source is a public repo, so
+ * there is nothing for an `Authorization` header to do.
  */
 async function githubFetch(
   url: string,
   accept: string,
   fetchFn: FetchLike,
 ): Promise<Response> {
-  const headers: Record<string, string> = {
-    Accept: accept,
-    "User-Agent": "vellum-assistant-cli",
-  };
-  const token = process.env.GITHUB_TOKEN?.trim();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  return fetchFn(url, { headers });
+  return fetchFn(url, {
+    headers: {
+      Accept: accept,
+      "User-Agent": "vellum-assistant-cli",
+    },
+  });
 }

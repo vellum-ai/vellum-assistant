@@ -266,6 +266,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "plugins",
   "plugins install",
   "plugins list",
+  "plugins search",
   "plugins uninstall",
 ] as const;
 
