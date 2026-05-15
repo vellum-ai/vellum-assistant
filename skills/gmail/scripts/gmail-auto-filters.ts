@@ -128,14 +128,42 @@ async function requestConfirmation(opts: {
 // ---------------------------------------------------------------------------
 
 /**
+ * Extract sender information from an op-log entry.
+ * Falls back to parsing the `reason` field when `from` is not populated,
+ * since cleanup archive logs may not always include sender metadata directly.
+ */
+function extractSenderFromEntry(entry: OpEntry): string {
+  if (entry.from) return entry.from.toLowerCase();
+
+  // Try to extract sender/domain from the reason field
+  if (entry.reason) {
+    // Reason may contain an email address or domain
+    const emailMatch = entry.reason.match(/[\w.+-]+@[\w.-]+\.\w+/);
+    if (emailMatch) return emailMatch[0].toLowerCase();
+
+    // Try to extract a domain reference (e.g. "from example.com")
+    const domainMatch = entry.reason.match(/(?:from|domain[:\s]+)([\w.-]+\.\w+)/i);
+    if (domainMatch) return `@${domainMatch[1].toLowerCase()}`;
+  }
+
+  return "";
+}
+
+/**
  * Derive filter candidates from a cleanup run's op-log entries.
  *
  * Only extracts patterns that the SKILL.md explicitly marks as safe for
  * permanent auto-archiving. Patterns like generic phrases or name/company
  * subject patterns are intentionally excluded — they're too broad.
+ *
+ * Cross-references the user's safelist to exclude safe-listed senders/domains.
  */
 function deriveFilterCandidates(entries: OpEntry[]): FilterCandidate[] {
   const candidates: FilterCandidate[] = [];
+
+  // Load safelist to exclude protected senders
+  const prefs = loadPreferences();
+  const safelist = new Set(prefs.safelist.map((s) => s.toLowerCase()));
 
   const noReplySenders = new Set<string>();
   let calendarCount = 0;
@@ -146,7 +174,10 @@ function deriveFilterCandidates(entries: OpEntry[]): FilterCandidate[] {
     if (entry.status !== "staged" || entry.op !== "archive") continue;
 
     const phase = entry.phase ?? "";
-    const from = entry.from?.toLowerCase() ?? "";
+    const from = extractSenderFromEntry(entry);
+
+    // Skip safe-listed senders
+    if (from && isSafeListed(from, safelist)) continue;
 
     // Track no-reply senders (Pass 4)
     if (
@@ -256,6 +287,15 @@ function extractDomain(email: string): string | undefined {
   return email.slice(atIndex + 1).toLowerCase();
 }
 
+/** Check if a sender is on the safelist (matches exact email or domain). */
+function isSafeListed(sender: string, safelist: Set<string>): boolean {
+  if (safelist.has(sender)) return true;
+  const domain = extractDomain(sender);
+  if (domain && safelist.has(domain)) return true;
+  if (domain && safelist.has(`@${domain}`)) return true;
+  return false;
+}
+
 const SKETCHY_TLDS = new Set([
   ".shop",
   ".biz",
@@ -347,12 +387,44 @@ async function getOrCreateLabel(
 // Find latest completed cleanup run
 // ---------------------------------------------------------------------------
 
+/** Phases that indicate a genuine inbox-cleanup run (not a filter-creation run). */
+const ARCHIVE_PHASES = new Set([
+  "noise_archive",
+  "cold_outreach",
+  "no_reply",
+  "noreply",
+  "calendar",
+  "sketchy",
+  "tld",
+  "newsletter",
+  "digest",
+  "bulk",
+  "promo",
+  "social",
+]);
+
+/** Check if a run contains archive operations (i.e. is a cleanup run, not a filter-creation run). */
+function isCleanupRun(summary: NonNullable<ReturnType<typeof summarizeRun>>): boolean {
+  const phases = Object.keys(summary.phases);
+  // A cleanup run has at least one phase that isn't "auto_filter" or "unknown"
+  return phases.some(
+    (phase) =>
+      ARCHIVE_PHASES.has(phase) ||
+      // Fallback: any phase that isn't the auto_filter phase itself
+      (phase !== "auto_filter" && phase !== "unknown"),
+  );
+}
+
 function findLatestCleanupRun(): string | null {
   const runs = listRuns();
   for (const runId of runs) {
     const summary = summarizeRun(runId);
     if (!summary) continue;
-    if (summary.status === "completed" && summary.total_committed > 0) {
+    if (
+      summary.status === "completed" &&
+      summary.total_committed > 0 &&
+      isCleanupRun(summary)
+    ) {
       return runId;
     }
   }
