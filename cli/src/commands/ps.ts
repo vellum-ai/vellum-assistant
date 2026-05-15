@@ -2,9 +2,13 @@ import { join } from "path";
 
 import {
   findAssistantByName,
+  formatAssistantLookupError,
+  formatAssistantReference,
   getActiveAssistant,
+  getAssistantDisplayName,
   getDaemonPidPath,
   loadAllAssistants,
+  lookupAssistantByIdentifier,
   type AssistantEntry,
 } from "../lib/assistant-config";
 import { resolveEnvironmentSource } from "../lib/environments/resolve";
@@ -377,7 +381,7 @@ async function getDockerProcesses(entry: AssistantEntry): Promise<TableRow[]> {
 async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
   const cloud = resolveCloud(entry);
 
-  console.log(`Processes for ${entry.assistantId} (${cloud}):\n`);
+  console.log(`Processes for ${formatAssistantReference(entry)} (${cloud}):\n`);
 
   if (cloud === "local") {
     const rows = await getLocalProcesses(entry);
@@ -519,6 +523,9 @@ export async function listAllAssistants(verbose: boolean): Promise<void> {
 
   const assistants = loadAllAssistants();
   const activeId = getActiveAssistant();
+  const activeAssistantId = activeId
+    ? (findAssistantByName(activeId)?.assistantId ?? activeId)
+    : null;
 
   if (assistants.length === 0) {
     console.log("No assistants found.");
@@ -542,13 +549,14 @@ export async function listAllAssistants(verbose: boolean): Promise<void> {
 
   const rows: TableRow[] = assistants.map((a) => {
     const infoParts: string[] = [];
+    infoParts.push(`id: ${a.assistantId}`);
     if (a.runtimeUrl) infoParts.push(a.runtimeUrl);
     if (a.cloud) infoParts.push(`cloud: ${a.cloud}`);
     if (a.species) infoParts.push(`species: ${a.species}`);
-    const prefix = a.assistantId === activeId ? "* " : "  ";
+    const prefix = a.assistantId === activeAssistantId ? "* " : "  ";
 
     return {
-      name: prefix + a.assistantId,
+      name: prefix + getAssistantDisplayName(a),
       status: withStatusEmoji("checking..."),
       info: infoParts.join(" | "),
     };
@@ -609,14 +617,15 @@ export async function listAllAssistants(verbose: boolean): Promise<void> {
       }
 
       const infoParts: string[] = [];
+      infoParts.push(`id: ${a.assistantId}`);
       if (a.runtimeUrl) infoParts.push(a.runtimeUrl);
       if (a.cloud) infoParts.push(`cloud: ${a.cloud}`);
       if (a.species) infoParts.push(`species: ${a.species}`);
       if (health.detail) infoParts.push(health.detail);
 
-      const prefix = a.assistantId === activeId ? "* " : "  ";
+      const prefix = a.assistantId === activeAssistantId ? "* " : "  ";
       const updatedRow: TableRow = {
-        name: prefix + a.assistantId,
+        name: prefix + getAssistantDisplayName(a),
         status: withStatusEmoji(health.status),
         info: infoParts.join(" | "),
       };
@@ -638,14 +647,16 @@ export async function listAllAssistants(verbose: boolean): Promise<void> {
 export async function ps(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum ps [<name>] [--verbose]");
+    console.log("Usage: vellum ps [<name-or-id>] [--verbose]");
     console.log("");
     console.log(
       "List all assistants, or show processes for a specific assistant.",
     );
     console.log("");
     console.log("Arguments:");
-    console.log("  <name>       Show processes for the named assistant");
+    console.log(
+      "  <name-or-id> Show processes for the assistant display name or ID",
+    );
     console.log("");
     console.log("Options:");
     console.log(
@@ -656,18 +667,18 @@ export async function ps(): Promise<void> {
 
   const verbose = args.includes("--verbose");
   const positional = args.filter((a) => !a.startsWith("--"));
-  const assistantId = positional[0];
+  const assistantIdentifier = positional[0];
 
-  if (!assistantId) {
+  if (!assistantIdentifier) {
     await listAllAssistants(verbose);
     return;
   }
 
-  const entry = findAssistantByName(assistantId);
-  if (!entry) {
-    console.error(`No assistant found with name '${assistantId}'.`);
+  const result = lookupAssistantByIdentifier(assistantIdentifier);
+  if (result.status !== "found") {
+    console.error(formatAssistantLookupError(assistantIdentifier, result));
     process.exit(1);
   }
 
-  await showAssistantProcesses(entry);
+  await showAssistantProcesses(result.entry);
 }

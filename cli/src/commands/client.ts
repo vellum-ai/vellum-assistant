@@ -4,9 +4,12 @@ import path from "node:path";
 
 import {
   findAssistantByName,
+  formatAssistantLookupError,
   getActiveAssistant,
+  lookupAssistantByIdentifier,
   resolveAssistant,
   saveAssistantEntry,
+  type AssistantEntry,
 } from "../lib/assistant-config";
 import {
   DAEMON_INTERNAL_ASSISTANT_ID,
@@ -55,9 +58,7 @@ interface ParsedArgs {
   zone?: string;
 }
 
-function readAssistantName(
-  entry: ReturnType<typeof findAssistantByName>,
-): string | undefined {
+function readAssistantName(entry: AssistantEntry | null): string | undefined {
   const rawName = entry?.name ?? entry?.assistantName;
   return typeof rawName === "string" && rawName.trim()
     ? rawName.trim()
@@ -89,24 +90,26 @@ function parseArgs(): ParsedArgs {
     }
   }
 
-  let entry: ReturnType<typeof findAssistantByName> = null;
+  let entry: AssistantEntry | null = null;
   if (positionalName) {
-    entry = findAssistantByName(positionalName);
-    if (!entry) {
-      console.error(
-        `No assistant instance found with name '${positionalName}'.`,
-      );
+    const result = lookupAssistantByIdentifier(positionalName);
+    if (result.status !== "found") {
+      console.error(formatAssistantLookupError(positionalName, result));
       process.exit(1);
     }
+    entry = result.entry;
   } else {
     const hasExplicitUrl =
       flagArgs.includes("--url") || flagArgs.includes("-u");
     const active = getActiveAssistant();
     if (active) {
-      entry = findAssistantByName(active);
+      const result = lookupAssistantByIdentifier(active);
+      if (result.status === "found") {
+        entry = result.entry;
+      }
       if (!entry && !hasExplicitUrl) {
         console.error(
-          `Active assistant '${active}' not found in lockfile. Set an active assistant with 'vellum use <name>'.`,
+          `Active assistant '${active}' not found in lockfile. Set an active assistant with 'vellum use <name-or-id>'.`,
         );
         process.exit(1);
       }
@@ -116,7 +119,7 @@ function parseArgs(): ParsedArgs {
       entry = resolveAssistant();
     } else if (!entry) {
       console.error(
-        "No active assistant set. Set one with 'vellum use <name>' or specify a name: 'vellum client <name>'.",
+        "No active assistant set. Set one with 'vellum use <name-or-id>' or specify one: 'vellum client <name-or-id>'.",
       );
       process.exit(1);
     }
@@ -217,10 +220,10 @@ function printUsage(): void {
   console.log(`${ANSI.bold}vellum client${ANSI.reset} - Connect to a hatched assistant
 
 ${ANSI.bold}USAGE:${ANSI.reset}
-    vellum client [name] [options]
+    vellum client [name-or-id] [options]
 
 ${ANSI.bold}ARGUMENTS:${ANSI.reset}
-    [name]                     Instance name (default: active)
+    [name-or-id]               Assistant display name or ID (default: active)
 
 ${ANSI.bold}OPTIONS:${ANSI.reset}
     -u, --url <url>            Runtime URL
