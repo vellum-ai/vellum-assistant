@@ -389,9 +389,27 @@ async function checkManagedProvider(
           baseUrl: undefined,
         });
 
+        // Decompose the absolute pingUrl into base URL + relative path.
+        // OAuthConnectionRequest.path is documented as relative, but
+        // provider definitions store full absolute URLs.
+        const parsedPingUrl = new URL(providerRow.pingUrl);
+        const pingBaseUrl = `${parsedPingUrl.protocol}//${parsedPingUrl.host}`;
+        const pingPath = parsedPingUrl.pathname + parsedPingUrl.search;
+
+        const parsedHeaders = safeJsonParse<Record<string, string>>(
+          providerRow.pingHeaders,
+          {},
+        );
+        const parsedBody = safeJsonParse<unknown>(providerRow.pingBody, null);
+
         const pingResp = await platformConn.request({
           method: providerRow.pingMethod ?? "GET",
-          path: providerRow.pingUrl,
+          path: pingPath,
+          baseUrl: pingBaseUrl,
+          ...(Object.keys(parsedHeaders).length > 0
+            ? { headers: parsedHeaders }
+            : {}),
+          ...(parsedBody != null ? { body: parsedBody } : {}),
           signal: AbortSignal.timeout(PING_TIMEOUT_MS),
         });
 
@@ -526,10 +544,24 @@ export async function checkAllCredentials(): Promise<CredentialHealthReport> {
     }
   }
 
-  // Check managed connections for providers without BYO connections.
+  // Check managed connections. If a provider is currently in managed mode,
+  // evaluate it via the managed path even if stale BYO rows exist — the
+  // user may have switched from BYO to managed.
   for (const providerRow of providers) {
-    if (byoProviders.has(providerRow.provider)) continue;
     if (!(await isManagedProvider(providerRow))) continue;
+
+    // If the provider is in managed mode and also has BYO connections,
+    // remove the stale BYO results — managed mode takes priority.
+    if (byoProviders.has(providerRow.provider)) {
+      const beforeLen = results.length;
+      const filtered = results.filter(
+        (r) => r.provider !== providerRow.provider,
+      );
+      if (filtered.length !== beforeLen) {
+        results.length = 0;
+        results.push(...filtered);
+      }
+    }
 
     try {
       const managedResults = await checkManagedProvider(providerRow);
@@ -572,6 +604,18 @@ export async function checkAllCredentials(): Promise<CredentialHealthReport> {
 export async function checkCredentialForProvider(
   provider: string,
 ): Promise<CredentialHealthResult | null> {
+  const providerRow = getProvider(provider);
+  if (!providerRow) return null;
+
+  // Check managed mode first — if the provider is currently configured for
+  // managed mode, evaluate via the platform regardless of stale BYO rows.
+  if (await isManagedProvider(providerRow)) {
+    const managedResults = await checkManagedProvider(providerRow);
+    if (managedResults.length > 0) return managedResults[0]!;
+    return null;
+  }
+
+  // Fall back to BYO (local) connection check.
   let connections: OAuthConnectionRow[];
   try {
     connections = listActiveConnectionsByProvider(provider);
@@ -581,8 +625,6 @@ export async function checkCredentialForProvider(
 
   if (connections.length > 0) {
     const conn = connections[0]!;
-    const providerRow = getProvider(conn.provider);
-    if (!providerRow) return null;
 
     return checkConnection({
       connectionId: conn.id,
@@ -599,12 +641,5 @@ export async function checkCredentialForProvider(
     });
   }
 
-  // No local connections — check if provider is managed and query the
-  // platform for connection health.
-  const providerRow = getProvider(provider);
-  if (!providerRow) return null;
-  if (!(await isManagedProvider(providerRow))) return null;
-
-  const managedResults = await checkManagedProvider(providerRow);
-  return managedResults.length > 0 ? managedResults[0] : null;
+  return null;
 }
