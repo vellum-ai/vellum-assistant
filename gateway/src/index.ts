@@ -119,12 +119,6 @@ import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js
 import { createLogExportHandler } from "./http/routes/log-export.js";
 import { createLogTailHandler } from "./http/routes/log-tail.js";
 import {
-  createAgentCardHandler,
-  createSendMessageHandler,
-  createPushWebhookHandler,
-  A2A_AGENT_CARD_PATH,
-} from "./http/routes/a2a-routes.js";
-import {
   createTrustRulesListHandler,
   createTrustRulesCreateHandler,
   createTrustRulesUpdateHandler,
@@ -473,13 +467,6 @@ async function main() {
   const handleTrustRulesReset = createTrustRulesResetHandler();
   const handleTrustRulesSuggest = createTrustRulesSuggestHandler();
 
-  const handleAgentCard = createAgentCardHandler(configFileCache);
-  const handleA2ASendMessage = createSendMessageHandler(
-    config,
-    configFileCache,
-  );
-  const handleA2APush = createPushWebhookHandler(config, configFileCache);
-
   const audioProxy = createAudioProxyHandler(config);
 
   const backupDeps = {
@@ -518,23 +505,6 @@ async function main() {
   // Auth middleware is applied declaratively per route — no manual
   // requireEdgeAuth/wrapWithAuthFailureTracking calls needed.
   const routes: RouteDefinition[] = [
-    // ── A2A protocol endpoints (unauthenticated — peer-to-peer discovery and messaging) ──
-    {
-      path: A2A_AGENT_CARD_PATH,
-      method: "GET",
-      handler: (req) => handleAgentCard(req),
-    },
-    {
-      path: "/a2a/message:send",
-      method: "POST",
-      handler: (req) => handleA2ASendMessage(req),
-    },
-    {
-      path: "/a2a/push",
-      method: "POST",
-      handler: (req) => handleA2APush(req),
-    },
-
     // ── Webhooks (unauthenticated, validated by provider-specific mechanisms) ──
     {
       path: "/webhooks/telegram",
