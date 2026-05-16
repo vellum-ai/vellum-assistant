@@ -532,6 +532,7 @@ struct MainWindowView: View {
 
     private var coreLayoutGeometryView: some View {
         coreLayoutContent(windowSize: windowSize)
+            .id(themePreference)
     }
 
     private var coreLayoutDecoratedView: some View {

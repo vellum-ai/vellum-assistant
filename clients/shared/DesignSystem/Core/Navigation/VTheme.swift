@@ -18,7 +18,6 @@ public enum VTheme {
         let effective = (preference == "velvet" && !MacOSClientFeatureFlagManager.shared.isEnabled("velvet-theme"))
             ? "dark"
             : preference
-        let wasVelvet = isVelvet
         let appearance: NSAppearance?
         switch effective {
         case "light":
@@ -39,26 +38,6 @@ public enum VTheme {
             window.appearance = appearance
             window.invalidateShadow()
             window.contentView?.needsDisplay = true
-        }
-        // When switching between dark↔velvet the underlying NSAppearance stays
-        // .darkAqua, so AppKit won't re-resolve dynamic NSColors. Force a full
-        // re-resolution by briefly assigning a different dark appearance variant;
-        // our dynamic providers check VTheme.isVelvet before the appearance name,
-        // so the intermediate frame renders with the correct (new) colors.
-        if wasVelvet != isVelvet && appearance?.name == .darkAqua {
-            let transient = NSAppearance(named: .accessibilityHighContrastDarkAqua)
-            for window in NSApp.windows {
-                window.appearance = transient
-            }
-            DispatchQueue.main.async {
-                let dark = NSAppearance(named: .darkAqua)
-                NSApp.appearance = dark
-                for window in NSApp.windows {
-                    window.appearance = dark
-                    window.invalidateShadow()
-                    window.contentView?.needsDisplay = true
-                }
-            }
         }
         #endif
     }
