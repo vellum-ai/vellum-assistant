@@ -95,6 +95,7 @@ import {
   migrateDropSetupSkillIdColumn,
   migrateDropSimplifiedMemory,
   migrateDropUsageCompositeIndexes,
+  migrateExternalConversationBindingChatName,
   migrateExternalConversationBindingThreadId,
   migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
@@ -430,6 +431,7 @@ export function initializeDb(): void {
     migrateExternalConversationBindingThreadId,
     createOnboardingEventsTable,
     migrateNormalizeSlackExternalContent,
+    migrateExternalConversationBindingChatName,
   ];
 
   // Run each migration step, catching and logging individual failures so one

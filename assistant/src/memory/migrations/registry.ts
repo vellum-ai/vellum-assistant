@@ -49,6 +49,7 @@ import { downSlackCompactionWatermark } from "./235-slack-compaction-watermark.j
 import { downToolInvocationsMatchedRuleId } from "./236-tool-invocations-matched-rule-id.js";
 import { downHeartbeatRuns } from "./237-heartbeat-runs.js";
 import { downNormalizeSlackExternalContent } from "./249-normalize-slack-external-content.js";
+import { downExternalConversationBindingChatName } from "./250-external-conversation-binding-chat-name.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -419,6 +420,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Normalize legacy persisted Slack external_content wrappers back to raw message content",
     down: downNormalizeSlackExternalContent,
+  },
+  {
+    key: "migration_external_conversation_binding_chat_name_v1",
+    version: 49,
+    description:
+      "Add external_chat_name to external conversation bindings for channel footer metadata",
+    down: downExternalConversationBindingChatName,
   },
 ];
 

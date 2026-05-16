@@ -215,6 +215,10 @@ export {
   migrateNormalizeSlackExternalContent,
 } from "./249-normalize-slack-external-content.js";
 export {
+  downExternalConversationBindingChatName,
+  migrateExternalConversationBindingChatName,
+} from "./250-external-conversation-binding-chat-name.js";
+export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,

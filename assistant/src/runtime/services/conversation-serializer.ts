@@ -23,7 +23,10 @@ import {
 } from "../../memory/conversation-crud.js";
 import type { ExternalConversationBinding } from "../../memory/external-conversation-store.js";
 import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
-import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
+import {
+  buildSlackMessageDeepLinks,
+  buildSlackWebChannelUrl,
+} from "../../messaging/providers/slack/deep-link.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -91,10 +94,11 @@ function buildForkParent(
 }
 
 function buildChannelBinding(binding: ExternalConversationBinding) {
+  const externalChatName =
+    binding.externalChatName?.trim() ||
+    (binding.sourceChannel === "slack" ? binding.externalChatId : undefined);
   const slackConfig =
-    binding.sourceChannel === "slack" && binding.externalThreadId
-      ? getConfig().slack
-      : undefined;
+    binding.sourceChannel === "slack" ? getConfig().slack : undefined;
   const slackThreadLink =
     slackConfig && binding.externalThreadId
       ? buildSlackMessageDeepLinks({
@@ -112,10 +116,31 @@ function buildChannelBinding(binding: ExternalConversationBinding) {
           ...(slackThreadLink ? { link: slackThreadLink } : {}),
         }
       : undefined;
+  const slackChannelWebUrl = slackConfig
+    ? buildSlackWebChannelUrl({
+        teamUrl: slackConfig.teamUrl,
+        channelId: binding.externalChatId,
+      })
+    : undefined;
+  const slackChannel =
+    binding.sourceChannel === "slack"
+      ? {
+          channelId: binding.externalChatId,
+          name: externalChatName,
+          ...(slackChannelWebUrl
+            ? {
+                link: {
+                  webUrl: slackChannelWebUrl,
+                },
+              }
+            : {}),
+        }
+      : undefined;
 
   return {
     sourceChannel: binding.sourceChannel,
     externalChatId: binding.externalChatId,
+    ...(externalChatName ? { externalChatName } : {}),
     ...(binding.externalThreadId
       ? { externalThreadId: binding.externalThreadId }
       : {}),
@@ -123,6 +148,7 @@ function buildChannelBinding(binding: ExternalConversationBinding) {
     displayName: binding.displayName,
     username: binding.username,
     ...(slackThread ? { slackThread } : {}),
+    ...(slackChannel ? { slackChannel } : {}),
   };
 }
 
