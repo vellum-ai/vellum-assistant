@@ -115,6 +115,8 @@ export interface RenderedHistoryContent {
 export interface SlackInboundMessageMetadata {
   /** Slack channel id (conversation external id) — recorded as `channelId`. */
   channelId: string;
+  /** Human-readable Slack channel name, when the gateway supplied it. */
+  channelName?: string;
   /** Slack `ts` for this message — required so persistence can record `channelTs`. */
   channelTs: string;
   /** Parent `thread_ts` when the message lives inside a thread; absent for top-level. */

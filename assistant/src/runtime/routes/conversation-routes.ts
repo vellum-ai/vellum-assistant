@@ -159,6 +159,7 @@ function buildSlackHistoryMessage(
     teamUrl: slackConfig?.teamUrl,
     channelId: slackMeta.channelId,
     messageTs: slackMeta.channelTs,
+    ...(slackMeta.threadTs ? { threadTs: slackMeta.threadTs } : {}),
   });
   const threadLink = slackMeta.threadTs
     ? buildSlackMessageDeepLinks({
@@ -171,8 +172,21 @@ function buildSlackHistoryMessage(
 
   return {
     channelId: slackMeta.channelId,
+    ...(slackMeta.channelName ? { channelName: slackMeta.channelName } : {}),
     channelTs: slackMeta.channelTs,
     ...(slackMeta.threadTs ? { threadTs: slackMeta.threadTs } : {}),
+    ...(slackMeta.displayName || slackMeta.actorExternalUserId
+      ? {
+          sender: {
+            ...(slackMeta.displayName
+              ? { displayName: slackMeta.displayName }
+              : {}),
+            ...(slackMeta.actorExternalUserId
+              ? { externalUserId: slackMeta.actorExternalUserId }
+              : {}),
+          },
+        }
+      : {}),
     ...(messageLink ? { messageLink } : {}),
     ...(threadLink ? { threadLink } : {}),
   };
