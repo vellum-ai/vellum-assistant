@@ -22,9 +22,9 @@ import type { DrizzleDb } from "../../memory/db-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
 import {
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   createConnection,
   getConnection,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   seedCanonicalConnections,
 } from "./connections.js";
 

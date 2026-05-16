@@ -1,9 +1,9 @@
 import type { DrizzleDb } from "../memory/db-connection.js";
 import {
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   createConnection,
   disableManagedConnectionsForByokHatch,
   getConnection,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
 } from "../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
