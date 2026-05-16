@@ -51,6 +51,7 @@ interface InboundEventBase<C extends InboundChannelId> {
      * `In-Reply-To`, etc.) can reuse the field later.
      */
     threadId?: string;
+    channelName?: string;
   };
   raw: Record<string, unknown>;
 }
