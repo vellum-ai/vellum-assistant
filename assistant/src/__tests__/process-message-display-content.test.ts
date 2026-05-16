@@ -314,6 +314,30 @@ describe("processMessage displayContent", () => {
     ]);
   });
 
+  test("honors whitespace-only displayContent without falling back to model content", async () => {
+    const conversation = makeTestConversation();
+    activeConversation = conversation;
+    const modelContent =
+      '<external_content source="slack">\n  \t  \n</external_content>';
+
+    const result = await processMessage(
+      "conv-display-content",
+      modelContent,
+      undefined,
+      { displayContent: "  \t  " },
+      "slack",
+      "slack",
+    );
+
+    expect(result.messageId).toBe("persisted-1");
+    expect(addMessageCalls).toHaveLength(1);
+    expect(JSON.parse(addMessageCalls[0]!.content)).toEqual([]);
+    expect(addMessageCalls[0]!.content).not.toContain("<external_content");
+    expect(conversation.getMessages()).toEqual([
+      { role: "user", content: [{ type: "text", text: modelContent }] },
+    ]);
+  });
+
   test("omitted displayContent persists model content", async () => {
     const conversation = makeTestConversation();
     activeConversation = conversation;
@@ -325,6 +349,28 @@ describe("processMessage displayContent", () => {
       modelContent,
       undefined,
       undefined,
+      "slack",
+      "slack",
+    );
+
+    expect(result.messageId).toBe("persisted-1");
+    expect(addMessageCalls).toHaveLength(1);
+    expect(JSON.parse(addMessageCalls[0]!.content)).toEqual([
+      { type: "text", text: modelContent },
+    ]);
+  });
+
+  test("explicit undefined displayContent persists model content", async () => {
+    const conversation = makeTestConversation();
+    activeConversation = conversation;
+    const modelContent =
+      '<external_content source="webhook">wrapped content</external_content>';
+
+    const result = await processMessage(
+      "conv-display-content",
+      modelContent,
+      undefined,
+      { displayContent: undefined },
       "slack",
       "slack",
     );
