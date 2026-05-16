@@ -12,8 +12,9 @@
  *   6. `description` constraints: 1-1024 chars, non-empty.
  *   7. Optional `compatibility`: 1-500 chars if present.
  *   8. Required `metadata.emoji` (Vellum extension).
- *   9. Frontmatter is followed by Markdown body content.
- *  10. Non-standard top-level fields emit migration guidance:
+ *   9. Hyphenated skill names require `metadata.vellum.display-name`.
+ *  10. Frontmatter is followed by Markdown body content.
+ *  11. Non-standard top-level fields emit migration guidance:
  *      - Vellum-specific fields → move to `metadata.vellum`
  *      - Environment requirements → move to `compatibility`
  *
@@ -158,40 +159,57 @@ function validateCompatibility(compatibility) {
   return errors;
 }
 
-function validateMetadataEmoji(metadata) {
-  const errors = [];
-
-  // Handle JSON string metadata (used by bundled skills)
+function parseMetadata(metadata) {
   if (typeof metadata === "string") {
     try {
-      const parsed = JSON.parse(metadata);
-      // Check for top-level emoji or emoji nested in vellum namespace
-      if (
-        (typeof parsed.emoji === "string" && parsed.emoji.length > 0) ||
-        (typeof parsed.vellum?.emoji === "string" && parsed.vellum.emoji.length > 0)
-      ) {
-        return errors; // emoji found
-      }
+      return JSON.parse(metadata);
     } catch {
-      // JSON parsing failed — fall through to report missing emoji
+      return null;
     }
-    errors.push(
-      'Required field "metadata.emoji" is missing. Skills must have an emoji in metadata.',
-    );
-    return errors;
   }
 
   if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+
+  return metadata;
+}
+
+function validateMetadataEmoji(metadata) {
+  const errors = [];
+  const parsed = parseMetadata(metadata);
+
+  if (!parsed) {
     errors.push(
       'Required field "metadata.emoji" is missing. Skills must have an emoji in metadata.',
     );
     return errors;
   }
 
-  const emoji = metadata.emoji;
-  if (typeof emoji !== "string" || emoji.length === 0) {
+  const hasEmoji =
+    (typeof parsed.emoji === "string" && parsed.emoji.length > 0) ||
+    (typeof parsed.vellum?.emoji === "string" && parsed.vellum.emoji.length > 0);
+  if (!hasEmoji) {
     errors.push(
       'Required field "metadata.emoji" is missing or empty. Skills must have an emoji in metadata.',
+    );
+  }
+
+  return errors;
+}
+
+function validateMetadataDisplayName(name, metadata) {
+  const errors = [];
+
+  if (typeof name !== "string" || !name.includes("-")) {
+    return errors;
+  }
+
+  const parsed = parseMetadata(metadata);
+  const displayName = parsed?.vellum?.["display-name"];
+  if (typeof displayName !== "string" || displayName.length === 0) {
+    errors.push(
+      'Hyphenated skill names must define metadata.vellum.display-name with a human-readable catalog label.',
     );
   }
 
@@ -306,7 +324,14 @@ function validateSkill(skillName, { skillsDir, skipEmoji, allowToolsJson }) {
     );
   }
 
-  // 6. Check for non-standard fields and recommend migration
+  // 6. Validate metadata.vellum.display-name for hyphenated first-party slugs
+  errors.push(
+    ...validateMetadataDisplayName(frontmatter.name, frontmatter.metadata).map(
+      (e) => `${prefix}: ${e}`,
+    ),
+  );
+
+  // 7. Check for non-standard fields and recommend migration
   errors.push(
     ...validateNonStandardFields(frontmatter).map(
       (e) => `${prefix}: ${e}`,

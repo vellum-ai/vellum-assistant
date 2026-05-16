@@ -12,8 +12,10 @@
 - **Follow the [Agent Skills specification](https://agentskills.io/specification)**
   - All skills must conform to the spec's SKILL.md format: required YAML frontmatter (`name`, `description`), optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`), and Markdown body
   - The `name` field must match the parent directory name, use only lowercase alphanumeric characters and hyphens (1-64 chars), and must not start/end with a hyphen or contain consecutive hyphens
+  - Hyphenated skill names must include `metadata.vellum.display-name` with a human-readable catalog label
   - Use the spec's directory structure: `SKILL.md` at root, `scripts/` for executable code, `references/` for supplementary docs, `assets/` for static resources
   - Follow progressive disclosure: keep `description` keyword-rich for discovery (~100 tokens), keep `SKILL.md` body under 500 lines (< 5000 tokens recommended), and move detailed reference material to `references/`
+  - After editing skills, run `node scripts/skills/generate-catalog.mjs`, `node scripts/skills/lint-skill-spec.mjs`, and `node scripts/skills/check-catalog.mjs`
 
 - **API interactions use Vellum's outbound proxy**
   - Outbound network traffic from the bash tool is automatically intercepted by an outbound proxy in a manner that's transparent to the assistant
