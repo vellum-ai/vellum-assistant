@@ -25,6 +25,7 @@ import { ROUTES as BROWSER_ROUTES } from "./browser-routes.js";
 import { ROUTES as BTW_ROUTES } from "./btw-routes.js";
 import { ROUTES as CACHE_ROUTES } from "./cache-routes.js";
 import { ROUTES as CALL_ROUTES } from "./call-routes.js";
+import { ROUTES as CHATGPT_SUBSCRIPTION_AUTH_ROUTES } from "./chatgpt-subscription-auth-routes.js";
 import { ROUTES as CHANNEL_AVAILABILITY_ROUTES } from "./channel-availability-routes.js";
 import { ROUTES as CHANNEL_READINESS_ROUTES } from "./channel-readiness-routes.js";
 import { CHANNEL_ROUTES } from "./channel-route-definitions.js";
@@ -145,6 +146,7 @@ export const ROUTES: RouteDefinition[] = [
   ...BOOKMARK_ROUTES,
   ...CACHE_ROUTES,
   ...CALL_ROUTES,
+  ...CHATGPT_SUBSCRIPTION_AUTH_ROUTES,
   ...CHANNEL_ROUTES,
   ...CHANNEL_VERIFICATION_ROUTES,
   ...CHANNEL_AVAILABILITY_ROUTES,

@@ -505,7 +505,11 @@ export async function prepareOAuth2Flow(
   const transport = options?.callbackTransport ?? "loopback";
 
   if (transport === "loopback") {
-    return prepareLoopbackFlow(config, options?.loopbackPort);
+    return prepareLoopbackFlow(
+      config,
+      options?.loopbackPort,
+      options?.loopbackCallbackPath,
+    );
   }
 
   // Dynamic imports required here to avoid circular dependencies with
@@ -563,6 +567,7 @@ export async function prepareOAuth2Flow(
 async function prepareLoopbackFlow(
   config: OAuth2Config,
   loopbackPort?: number,
+  callbackPath?: string,
 ): Promise<OAuth2PreparedFlow> {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
@@ -571,6 +576,7 @@ async function prepareLoopbackFlow(
   const { redirectUri, codePromise } = await startLoopbackServerForPreparedFlow(
     state,
     loopbackPort,
+    callbackPath,
   );
 
   const authParams = new URLSearchParams({
@@ -607,7 +613,9 @@ async function prepareLoopbackFlow(
 function startLoopbackServerForPreparedFlow(
   state: string,
   loopbackPort?: number,
+  callbackPath?: string,
 ): Promise<{ redirectUri: string; codePromise: Promise<string> }> {
+  const effectiveCallbackPath = callbackPath ?? LOOPBACK_CALLBACK_PATH;
   return new Promise((resolveSetup, rejectSetup) => {
     let settled = false;
     let listening = false;
@@ -627,7 +635,7 @@ function startLoopbackServerForPreparedFlow(
 
       const url = new URL(req.url ?? "/", `http://127.0.0.1`);
 
-      if (url.pathname !== LOOPBACK_CALLBACK_PATH) {
+      if (url.pathname !== effectiveCallbackPath) {
         res.writeHead(404, { "Content-Type": "text/plain" });
         res.end("Not found");
         return;
@@ -691,7 +699,7 @@ function startLoopbackServerForPreparedFlow(
 
     server.listen(loopbackPort ?? 0, "localhost", () => {
       const addr = server.address() as { port: number };
-      const redirectUri = `http://localhost:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
+      const redirectUri = `http://localhost:${addr.port}${effectiveCallbackPath}`;
       listening = true;
       resolveSetup({ redirectUri, codePromise });
     });
