@@ -88,6 +88,7 @@ function resetTables(): void {
 function setConfigEnabled(enabled: boolean): void {
   const raw = loadRawConfig();
   setNestedValue(raw, "a2a.enabled", enabled);
+  setNestedValue(raw, "ingress.publicBaseUrl", "https://self.example.com");
   saveRawConfig(raw);
   invalidateConfigCache();
 }
@@ -537,14 +538,14 @@ describe("e2e: push notification failure graceful degradation", () => {
     });
 
     // Wait for push retry attempts to fully settle (3 retries with exponential backoff)
-    await new Promise((r) => setTimeout(r, 5000));
+    await new Promise((r) => setTimeout(r, 10_000));
 
     // Push was attempted (initial + retries)
     const pushCalls = fetchCalls.filter((c) =>
       c.url.includes("failing-push.example.com"),
     );
     expect(pushCalls.length).toBeGreaterThanOrEqual(1);
-  });
+  }, 15_000);
 
   test("task completes when no push URL is configured", async () => {
     const task = createTask({

@@ -3108,6 +3108,7 @@ paths:
                             - slack
                             - email
                             - platform
+                            - a2a
                         label:
                           type: string
                         subtitle:
@@ -9469,6 +9470,44 @@ paths:
               required:
                 - message
               additionalProperties: false
+  /v1/integrations/a2a/config:
+    delete:
+      operationId: integrations_a2a_config_delete
+      summary: Disable A2A channel
+      description: Disable the A2A channel.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
+    get:
+      operationId: integrations_a2a_config_get
+      summary: Get A2A config
+      description: Check current A2A channel configuration status.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: integrations_a2a_config_post
+      summary: Enable A2A channel
+      description: Enable the A2A channel for inter-assistant communication.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
+  /v1/integrations/a2a/connect:
+    post:
+      operationId: integrations_a2a_connect_post
+      summary: Connect to assistant
+      description: Initiate an A2A connection to a peer assistant by guardian handle.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
   /v1/integrations/ingress/config:
     get:
       operationId: integrations_ingress_config_get

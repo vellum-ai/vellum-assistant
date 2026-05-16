@@ -13,7 +13,7 @@ const assistantDbRunMock = mock((_sql: string, _bind?: unknown[]) =>
 );
 
 const assistantDbQueryMock = mock((_sql: string, _bind?: unknown[]) =>
-  Promise.resolve([]),
+  Promise.resolve([] as Record<string, unknown>[]),
 );
 
 mock.module("../../handlers/handle-inbound.js", () => ({
@@ -154,7 +154,7 @@ describe("Agent Card", () => {
     };
     expect(card.name).toBe("Vellum Assistant");
     expect(card.supported_interfaces[0].url).toBe(
-      "https://my-assistant.example.com/a2a",
+      "https://my-assistant.example.com/a2a/message:send",
     );
     expect(card.capabilities.push_notifications).toBe(true);
   });

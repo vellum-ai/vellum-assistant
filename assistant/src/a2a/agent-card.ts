@@ -26,7 +26,7 @@ export function buildAgentCard(params: BuildAgentCardParams): AgentCard {
     version: "1.0.0",
     supported_interfaces: [
       {
-        url: `${params.baseUrl}/a2a`,
+        url: `${params.baseUrl}/a2a/message:send`,
         protocol_binding: "JSONRPC",
         protocol_version: "1.0",
       },

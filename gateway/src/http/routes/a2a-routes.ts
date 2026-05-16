@@ -149,7 +149,7 @@ async function getTaskFromDb(taskId: string): Promise<A2ATask | null> {
       state: row.state,
       message: row.status_message
         ? {
-            message_id: "",
+            message_id: crypto.randomUUID(),
             role: "agent",
             parts: [{ kind: "text", text: row.status_message }],
           }

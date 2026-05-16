@@ -108,8 +108,8 @@ export async function resolveGuardianHandle(
 ): Promise<ResolvedAssistant> {
   if (!gatewayUrl) {
     throw new Error(
-      `Platform handle resolution is not yet available. ` +
-        `Please provide the gatewayUrl directly for handle "${guardianHandle}".`,
+      `A2A connection requires the peer's gatewayUrl. ` +
+        `Please provide gatewayUrl for handle "${guardianHandle}".`,
     );
   }
 

@@ -50,7 +50,7 @@ function rowToTask(row: A2ATaskRow): A2ATask {
       state: row.state as TaskState,
       message: row.statusMessage
         ? {
-            message_id: "",
+            message_id: crypto.randomUUID(),
             role: "agent",
             parts: [{ kind: "text", text: row.statusMessage }],
           }
