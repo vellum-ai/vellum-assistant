@@ -89,8 +89,10 @@ interface MessagePayload {
   timestamp: string;
   slackMessage?: {
     channelId: string;
+    channelName?: string;
     channelTs: string;
     threadTs?: string;
+    sender?: { displayName?: string; externalUserId?: string };
     messageLink?: { appUrl?: string; webUrl?: string };
     threadLink?: { appUrl?: string; webUrl?: string };
   };
@@ -219,8 +221,11 @@ describe("handleListMessages page=latest", () => {
           slackMeta: writeSlackMetadata({
             source: "slack",
             channelId: "C123ABCDEF",
+            channelName: "engineering",
             channelTs: "1710000000.000200",
             threadTs: "1710000000.000100",
+            displayName: "Alice",
+            actorExternalUserId: "U_ALICE",
             eventKind: "message",
           }),
         }),
@@ -232,13 +237,18 @@ describe("handleListMessages page=latest", () => {
 
     expect(body.messages[0].slackMessage).toEqual({
       channelId: "C123ABCDEF",
+      channelName: "engineering",
       channelTs: "1710000000.000200",
       threadTs: "1710000000.000100",
+      sender: {
+        displayName: "Alice",
+        externalUserId: "U_ALICE",
+      },
       messageLink: {
         appUrl:
           "slack://channel?team=T123&id=C123ABCDEF&message=1710000000.000200",
         webUrl:
-          "https://example.slack.com/archives/C123ABCDEF/p1710000000000200",
+          "https://example.slack.com/archives/C123ABCDEF/p1710000000000200?thread_ts=1710000000.000100&cid=C123ABCDEF",
       },
       threadLink: {
         appUrl:

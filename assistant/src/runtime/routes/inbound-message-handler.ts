@@ -1047,6 +1047,10 @@ export async function handleChannelInbound({
         sourceChannel === "slack"
           ? {
               channelId: conversationExternalId,
+              ...(typeof sourceMetadata?.channelName === "string" &&
+              sourceMetadata.channelName.trim().length > 0
+                ? { channelName: sourceMetadata.channelName.trim() }
+                : {}),
               channelTs: sourceMessageId ?? externalMessageId,
               ...(slackThreadTs ? { threadTs: slackThreadTs } : {}),
               ...((body.actorDisplayName ?? body.actorUsername)
