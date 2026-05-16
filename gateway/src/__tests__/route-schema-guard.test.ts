@@ -8,6 +8,7 @@ import {
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
+import { A2A_AGENT_CARD_PATH } from "../http/routes/a2a-routes.js";
 import { buildSchema } from "../schema.js";
 
 /** A route extracted from source: path + optional HTTP method. */
@@ -17,6 +18,7 @@ interface ExtractedRoute {
 }
 
 const ROUTE_PATH_CONSTANTS: Record<string, string> = {
+  A2A_AGENT_CARD_PATH,
   TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
   TWILIO_RELAY_WEBHOOK_PATH,
