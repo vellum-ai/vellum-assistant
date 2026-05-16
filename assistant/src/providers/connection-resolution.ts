@@ -105,8 +105,8 @@ export async function tryResolveProviderForConnectionName(
   }
   if (expectedProvider && connection.provider !== expectedProvider) {
     // Mismatch usually means the config deep-merge inherited a stale
-    // provider_connection from a lower layer (e.g. profile sets
-    // provider="minimax" with "Any active" but the default layer's
+    // provider_connection from a lower layer (e.g. profile sets a BYOK
+    // provider with "Any active" but the default layer's
     // "anthropic-managed" leaked through). Try to find an active connection
     // for the expected provider before giving up.
     let resolved = false;

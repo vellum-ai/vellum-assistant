@@ -71,9 +71,6 @@ const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   gemini: "Gemini",
   fireworks: "Fireworks",
   openrouter: "OpenRouter",
-  zai: "z.ai",
-  deepseek: "DeepSeek",
-  minimax: "MiniMax",
 };
 
 export function formatProviderName(provider: LlmProviderId): string {
@@ -160,9 +157,6 @@ function inferProviderFromModel(model: string): string | undefined {
   if (model.startsWith("gemini-")) return "gemini";
   if (model.startsWith("accounts/fireworks/models/")) return "fireworks";
   if (model.includes("/")) return "openrouter";
-  if (model.startsWith("glm-")) return "zai";
-  if (model.startsWith("deepseek-")) return "deepseek";
-  if (model.startsWith("MiniMax-")) return "minimax";
   if (model === "llama3.2" || model === "mistral") return "ollama";
   return undefined;
 }

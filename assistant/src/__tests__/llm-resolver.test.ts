@@ -548,14 +548,14 @@ describe("resolveCallSiteConfig", () => {
         provider_connection: "anthropic-managed",
       },
       profiles: {
-        minimax: { provider: "minimax", model: "minimax-m2.7" },
+        fireworks: { provider: "fireworks", model: "accounts/fireworks/models/kimi-k2p5" },
       },
-      activeProfile: "minimax",
+      activeProfile: "fireworks",
     });
 
     const resolved = resolveCallSiteConfig("mainAgent", llm);
 
-    expect(resolved.provider).toBe("minimax");
+    expect(resolved.provider).toBe("fireworks");
     // The merge inherits the stale connection — the dispatch layer handles this.
     expect(resolved.provider_connection).toBe("anthropic-managed");
   });

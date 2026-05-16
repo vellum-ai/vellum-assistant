@@ -31,21 +31,23 @@ public extension Color {
 /// every time AppKit asks the color for a component value.
 private let adaptiveColorAppearanceMatchList: [NSAppearance.Name] = [.darkAqua, .aqua]
 
-/// Creates a `Color` that automatically resolves to `light` or `dark` based on
-/// the current system / window appearance.
+/// Creates a `Color` that automatically resolves to `light`, `dark`, or
+/// `velvet` based on the current system appearance and `VTheme.isVelvet`.
 ///
-/// The light and dark `Color` arguments are bridged to `NSColor` once at
-/// token-init time, each under the appropriate drawing appearance via
-/// `NSAppearance.performAsCurrentDrawingAppearance(_:)`, so the dynamic
-/// provider closure only has to pick between two captured references on each
-/// invocation. AppKit calls the provider whenever a method on the color needs
-/// component values (per Apple's NSColor(name:dynamicProvider:) docs), which
-/// is the SwiftUI render hot path, so the body needs to stay trivial.
-public func adaptiveColor(light: Color, dark: Color) -> Color {
+/// The light, dark, and optional velvet `Color` arguments are bridged to
+/// `NSColor` once at token-init time, each under the appropriate drawing
+/// appearance via `NSAppearance.performAsCurrentDrawingAppearance(_:)`, so the
+/// dynamic provider closure only has to pick between captured references on
+/// each invocation. AppKit calls the provider whenever a method on the color
+/// needs component values (per Apple's NSColor(name:dynamicProvider:) docs),
+/// which is the SwiftUI render hot path, so the body needs to stay trivial.
+public func adaptiveColor(light: Color, dark: Color, velvet: Color? = nil) -> Color {
     let lightNS = resolveSwiftUIColor(light, appearance: .aqua)
     let darkNS = resolveSwiftUIColor(dark, appearance: .darkAqua)
+    let velvetNS: NSColor? = velvet.map { resolveSwiftUIColor($0, appearance: .darkAqua) }
     return Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        appearance.bestMatch(from: adaptiveColorAppearanceMatchList) == .darkAqua ? darkNS : lightNS
+        if VTheme.isVelvet, let velvetNS { return velvetNS }
+        return appearance.bestMatch(from: adaptiveColorAppearanceMatchList) == .darkAqua ? darkNS : lightNS
     }))
 }
 
@@ -132,26 +134,36 @@ private enum FigmaRawColor {
     // Primary
     static let primaryLightDisabled = Color(hex: 0xF6F5F4)
     static let primaryDarkDisabled = Color(hex: 0x2D3339)
+    static let primaryVelvetDisabled = Color(hex: 0x30252B)
     static let primaryLightBase = Color(hex: 0x17191C)
     static let primaryDarkBase = Color(hex: 0xFDFDFC)
+    static let primaryVelvetBase = Color(hex: 0xE83F5B)
     static let primaryLightHover = Color(hex: 0x24292E)
     static let primaryDarkHover = Color(hex: 0xF2F0EE)
+    static let primaryVelvetHover = Color(hex: 0xF45A73)
     static let primaryLightActive = Color(hex: 0x2D3339)
     static let primaryDarkActive = Color(hex: 0xE9E6E2)
+    static let primaryVelvetActive = Color(hex: 0xC92E48)
     static let primaryLightSecondHover = Color(hex: 0xB9B4AC)
     static let primaryDarkSecondHover = Color(hex: 0xE9E6E2)
+    static let primaryVelvetSecondHover = Color(hex: 0xF43F5E)
 
     // Surface
     static let surfaceLightBase = Color(hex: 0xF6F5F4)
     static let surfaceDarkBase = Color(hex: 0x17191C)
+    static let surfaceVelvetBase = Color(hex: 0x121214)
     static let surfaceLightOverlay = Color(hex: 0xFDFDFC)
     static let surfaceDarkOverlay = Color(hex: 0x1C2024)
+    static let surfaceVelvetOverlay = Color(hex: 0x1A171B)
     static let surfaceLightActive = Color(hex: 0xF2F0EE)
     static let surfaceDarkActive = Color(hex: 0x444D56)
+    static let surfaceVelvetActive = Color(hex: 0x30252B)
     static let surfaceLightLift = Color(hex: 0xFFFFFF)
     static let surfaceDarkLift = Color(hex: 0x24292E)
+    static let surfaceVelvetLift = Color(hex: 0x211D22)
     static let surfaceLightHover = Color(hex: 0xB9B4AC)
     static let surfaceDarkHover = Color(hex: 0xE9E6E2)
+    static let surfaceVelvetHover = Color(.sRGB, red: 244/255, green: 63/255, blue: 94/255, opacity: 0.08)
 
     // Border
     static let borderLightDisabled = Color(hex: 0xE9E6E2)
@@ -160,44 +172,59 @@ private enum FigmaRawColor {
     static let borderDarkBase = Color(hex: 0x24292E)
     static let borderLightHover = Color(hex: 0xF6F5F4)
     static let borderDarkHover = Color(hex: 0x2D3339)
+    static let borderVelvetHover = Color(hex: 0x30252B)
     static let borderLightActive = Color(hex: 0x2D3339)
     static let borderDarkActive = Color(hex: 0xF6F5F4)
+    static let borderVelvetActive = Color(hex: 0xFFB3C7)
     static let borderLightElement = Color(hex: 0xCFCCC9)
     static let borderDarkElement = Color(hex: 0x5A6672)
+    static let borderVelvetElement = Color(hex: 0x735261)
     static let borderLightOverlay = Color(hex: 0xE9E6E2)
     static let borderDarkOverlay = Color(hex: 0x2D3339)
+    static let borderVelvetOverlay = Color(hex: 0x30252B)
 
     // Content
     static let contentLightEmphasized = Color(hex: 0x161616)
     static let contentDarkEmphasized = Color(hex: 0xFDFDFC)
+    static let contentVelvetEmphasized = Color(hex: 0xFFF7FA)
     static let contentLightDefault = Color(hex: 0x24292E)
     static let contentDarkDefault = Color(hex: 0xF6F5F4)
     static let contentLightSecondary = Color(hex: 0x5A6672)
     static let contentDarkSecondary = Color(hex: 0xA9B2BB)
+    static let contentVelvetSecondary = Color(hex: 0xC8B6BE)
     static let contentLightTertiary = Color(hex: 0x71808E)
     static let contentDarkTertiary = Color(hex: 0x8D99A5)
+    static let contentVelvetTertiary = Color(hex: 0xA98695)
     static let contentLightDisabled = Color(hex: 0xCFCCC9)
     static let contentDarkDisabled = Color(hex: 0x5A6672)
+    static let contentVelvetDisabled = Color(hex: 0x6B5962)
     static let contentLightBackground = Color(hex: 0xF2F0EE)
     static let contentDarkBackground = Color(hex: 0x2D3339)
     static let contentLightInset = Color(hex: 0xFDFDFC)
     static let contentDarkInset = Color(hex: 0x17191C)
+    static let contentVelvetInset = Color(hex: 0xFFF7FA)
 
     // System
     static let systemLightPositiveStrong = Color(hex: 0x277E41)
     static let systemDarkPositiveStrong = Color(hex: 0x277E41)
+    static let systemVelvetPositiveStrong = Color(hex: 0xE83F5B)
     static let systemLightPositiveWeak = Color(hex: 0xE9F2EC)
     static let systemDarkPositiveWeak = Color(hex: 0x1C251F)
+    static let systemVelvetPositiveWeak = Color(hex: 0x382027)
     static let systemLightNegativeStrong = Color(hex: 0xDA491A)
     static let systemDarkNegativeStrong = Color(hex: 0xDA491A)
+    static let systemVelvetNegativeStrong = Color(hex: 0xEF4444)
     static let systemLightNegativeHover = Color(hex: 0xE86B40)
     static let systemDarkNegativeHover = Color(hex: 0xAB3F1C)
+    static let systemVelvetNegativeHover = Color(hex: 0xF87171)
     static let systemLightNegativeWeak = Color(hex: 0xF7DAC9)
     static let systemDarkNegativeWeak = Color(hex: 0x4E281D)
+    static let systemVelvetNegativeWeak = Color(hex: 0x3A2024)
     static let systemLightMidStrong = Color(hex: 0xF1B21E)
     static let systemDarkMidStrong = Color(hex: 0xF1B21E)
     static let systemLightMidWeak = Color(hex: 0xFCF3DD)
     static let systemDarkMidWeak = Color(hex: 0x4B3D1E)
+    static let systemVelvetMidWeak = Color(hex: 0x42321C)
     static let systemLightInfoStrong = Color(hex: 0x467CC8)
     static let systemDarkInfoStrong = Color(hex: 0x467CC8)
     static let systemLightInfoWeak = Color(hex: 0xCEDAEC)
@@ -268,44 +295,44 @@ public enum VColor {
     ]
 
     // Primary
-    public static let primaryDisabled = adaptiveColor(light: FigmaRawColor.primaryLightDisabled, dark: FigmaRawColor.primaryDarkDisabled)
-    public static let primaryBase = adaptiveColor(light: FigmaRawColor.primaryLightBase, dark: FigmaRawColor.primaryDarkBase)
-    public static let primaryHover = adaptiveColor(light: FigmaRawColor.primaryLightHover, dark: FigmaRawColor.primaryDarkHover)
-    public static let primaryActive = adaptiveColor(light: FigmaRawColor.primaryLightActive, dark: FigmaRawColor.primaryDarkActive)
-    public static let primarySecondHover = adaptiveColor(light: FigmaRawColor.primaryLightSecondHover, dark: FigmaRawColor.primaryDarkSecondHover)
+    public static let primaryDisabled = adaptiveColor(light: FigmaRawColor.primaryLightDisabled, dark: FigmaRawColor.primaryDarkDisabled, velvet: FigmaRawColor.primaryVelvetDisabled)
+    public static let primaryBase = adaptiveColor(light: FigmaRawColor.primaryLightBase, dark: FigmaRawColor.primaryDarkBase, velvet: FigmaRawColor.primaryVelvetBase)
+    public static let primaryHover = adaptiveColor(light: FigmaRawColor.primaryLightHover, dark: FigmaRawColor.primaryDarkHover, velvet: FigmaRawColor.primaryVelvetHover)
+    public static let primaryActive = adaptiveColor(light: FigmaRawColor.primaryLightActive, dark: FigmaRawColor.primaryDarkActive, velvet: FigmaRawColor.primaryVelvetActive)
+    public static let primarySecondHover = adaptiveColor(light: FigmaRawColor.primaryLightSecondHover, dark: FigmaRawColor.primaryDarkSecondHover, velvet: FigmaRawColor.primaryVelvetSecondHover)
 
     // Surface
-    public static let surfaceBase = adaptiveColor(light: FigmaRawColor.surfaceLightBase, dark: FigmaRawColor.surfaceDarkBase)
-    public static let surfaceOverlay = adaptiveColor(light: FigmaRawColor.surfaceLightOverlay, dark: FigmaRawColor.surfaceDarkOverlay)
-    public static let surfaceActive = adaptiveColor(light: FigmaRawColor.surfaceLightActive, dark: FigmaRawColor.surfaceDarkActive)
-    public static let surfaceLift = adaptiveColor(light: FigmaRawColor.surfaceLightLift, dark: FigmaRawColor.surfaceDarkLift)
-    public static let surfaceHover = adaptiveColor(light: FigmaRawColor.surfaceLightHover, dark: FigmaRawColor.surfaceDarkHover)
+    public static let surfaceBase = adaptiveColor(light: FigmaRawColor.surfaceLightBase, dark: FigmaRawColor.surfaceDarkBase, velvet: FigmaRawColor.surfaceVelvetBase)
+    public static let surfaceOverlay = adaptiveColor(light: FigmaRawColor.surfaceLightOverlay, dark: FigmaRawColor.surfaceDarkOverlay, velvet: FigmaRawColor.surfaceVelvetOverlay)
+    public static let surfaceActive = adaptiveColor(light: FigmaRawColor.surfaceLightActive, dark: FigmaRawColor.surfaceDarkActive, velvet: FigmaRawColor.surfaceVelvetActive)
+    public static let surfaceLift = adaptiveColor(light: FigmaRawColor.surfaceLightLift, dark: FigmaRawColor.surfaceDarkLift, velvet: FigmaRawColor.surfaceVelvetLift)
+    public static let surfaceHover = adaptiveColor(light: FigmaRawColor.surfaceLightHover, dark: FigmaRawColor.surfaceDarkHover, velvet: FigmaRawColor.surfaceVelvetHover)
 
     // Border
     public static let borderDisabled = adaptiveColor(light: FigmaRawColor.borderLightDisabled, dark: FigmaRawColor.borderDarkDisabled)
     public static let borderBase = adaptiveColor(light: FigmaRawColor.borderLightBase, dark: FigmaRawColor.borderDarkBase)
-    public static let borderHover = adaptiveColor(light: FigmaRawColor.borderLightHover, dark: FigmaRawColor.borderDarkHover)
-    public static let borderActive = adaptiveColor(light: FigmaRawColor.borderLightActive, dark: FigmaRawColor.borderDarkActive)
-    public static let borderElement = adaptiveColor(light: FigmaRawColor.borderLightElement, dark: FigmaRawColor.borderDarkElement)
-    public static let borderOverlay = adaptiveColor(light: FigmaRawColor.borderLightOverlay, dark: FigmaRawColor.borderDarkOverlay)
+    public static let borderHover = adaptiveColor(light: FigmaRawColor.borderLightHover, dark: FigmaRawColor.borderDarkHover, velvet: FigmaRawColor.borderVelvetHover)
+    public static let borderActive = adaptiveColor(light: FigmaRawColor.borderLightActive, dark: FigmaRawColor.borderDarkActive, velvet: FigmaRawColor.borderVelvetActive)
+    public static let borderElement = adaptiveColor(light: FigmaRawColor.borderLightElement, dark: FigmaRawColor.borderDarkElement, velvet: FigmaRawColor.borderVelvetElement)
+    public static let borderOverlay = adaptiveColor(light: FigmaRawColor.borderLightOverlay, dark: FigmaRawColor.borderDarkOverlay, velvet: FigmaRawColor.borderVelvetOverlay)
 
     // Content
-    public static let contentEmphasized = adaptiveColor(light: FigmaRawColor.contentLightEmphasized, dark: FigmaRawColor.contentDarkEmphasized)
+    public static let contentEmphasized = adaptiveColor(light: FigmaRawColor.contentLightEmphasized, dark: FigmaRawColor.contentDarkEmphasized, velvet: FigmaRawColor.contentVelvetEmphasized)
     public static let contentDefault = adaptiveColor(light: FigmaRawColor.contentLightDefault, dark: FigmaRawColor.contentDarkDefault)
-    public static let contentSecondary = adaptiveColor(light: FigmaRawColor.contentLightSecondary, dark: FigmaRawColor.contentDarkSecondary)
-    public static let contentTertiary = adaptiveColor(light: FigmaRawColor.contentLightTertiary, dark: FigmaRawColor.contentDarkTertiary)
-    public static let contentDisabled = adaptiveColor(light: FigmaRawColor.contentLightDisabled, dark: FigmaRawColor.contentDarkDisabled)
+    public static let contentSecondary = adaptiveColor(light: FigmaRawColor.contentLightSecondary, dark: FigmaRawColor.contentDarkSecondary, velvet: FigmaRawColor.contentVelvetSecondary)
+    public static let contentTertiary = adaptiveColor(light: FigmaRawColor.contentLightTertiary, dark: FigmaRawColor.contentDarkTertiary, velvet: FigmaRawColor.contentVelvetTertiary)
+    public static let contentDisabled = adaptiveColor(light: FigmaRawColor.contentLightDisabled, dark: FigmaRawColor.contentDarkDisabled, velvet: FigmaRawColor.contentVelvetDisabled)
     public static let contentBackground = adaptiveColor(light: FigmaRawColor.contentLightBackground, dark: FigmaRawColor.contentDarkBackground)
-    public static let contentInset = adaptiveColor(light: FigmaRawColor.contentLightInset, dark: FigmaRawColor.contentDarkInset)
+    public static let contentInset = adaptiveColor(light: FigmaRawColor.contentLightInset, dark: FigmaRawColor.contentDarkInset, velvet: FigmaRawColor.contentVelvetInset)
 
     // System
-    public static let systemPositiveStrong = adaptiveColor(light: FigmaRawColor.systemLightPositiveStrong, dark: FigmaRawColor.systemDarkPositiveStrong)
-    public static let systemPositiveWeak = adaptiveColor(light: FigmaRawColor.systemLightPositiveWeak, dark: FigmaRawColor.systemDarkPositiveWeak)
-    public static let systemNegativeStrong = adaptiveColor(light: FigmaRawColor.systemLightNegativeStrong, dark: FigmaRawColor.systemDarkNegativeStrong)
-    public static let systemNegativeHover = adaptiveColor(light: FigmaRawColor.systemLightNegativeHover, dark: FigmaRawColor.systemDarkNegativeHover)
-    public static let systemNegativeWeak = adaptiveColor(light: FigmaRawColor.systemLightNegativeWeak, dark: FigmaRawColor.systemDarkNegativeWeak)
+    public static let systemPositiveStrong = adaptiveColor(light: FigmaRawColor.systemLightPositiveStrong, dark: FigmaRawColor.systemDarkPositiveStrong, velvet: FigmaRawColor.systemVelvetPositiveStrong)
+    public static let systemPositiveWeak = adaptiveColor(light: FigmaRawColor.systemLightPositiveWeak, dark: FigmaRawColor.systemDarkPositiveWeak, velvet: FigmaRawColor.systemVelvetPositiveWeak)
+    public static let systemNegativeStrong = adaptiveColor(light: FigmaRawColor.systemLightNegativeStrong, dark: FigmaRawColor.systemDarkNegativeStrong, velvet: FigmaRawColor.systemVelvetNegativeStrong)
+    public static let systemNegativeHover = adaptiveColor(light: FigmaRawColor.systemLightNegativeHover, dark: FigmaRawColor.systemDarkNegativeHover, velvet: FigmaRawColor.systemVelvetNegativeHover)
+    public static let systemNegativeWeak = adaptiveColor(light: FigmaRawColor.systemLightNegativeWeak, dark: FigmaRawColor.systemDarkNegativeWeak, velvet: FigmaRawColor.systemVelvetNegativeWeak)
     public static let systemMidStrong = adaptiveColor(light: FigmaRawColor.systemLightMidStrong, dark: FigmaRawColor.systemDarkMidStrong)
-    public static let systemMidWeak = adaptiveColor(light: FigmaRawColor.systemLightMidWeak, dark: FigmaRawColor.systemDarkMidWeak)
+    public static let systemMidWeak = adaptiveColor(light: FigmaRawColor.systemLightMidWeak, dark: FigmaRawColor.systemDarkMidWeak, velvet: FigmaRawColor.systemVelvetMidWeak)
     public static let systemInfoStrong = adaptiveColor(light: FigmaRawColor.systemLightInfoStrong, dark: FigmaRawColor.systemDarkInfoStrong)
     public static let systemInfoWeak = adaptiveColor(light: FigmaRawColor.systemLightInfoWeak, dark: FigmaRawColor.systemDarkInfoWeak)
 

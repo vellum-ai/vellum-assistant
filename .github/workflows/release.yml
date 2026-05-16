@@ -2641,7 +2641,7 @@ jobs:
         && needs.push-assistant-manifest.result == 'success'
         && needs.push-gateway-manifest.result == 'success'
         && needs.push-credential-executor-manifest.result == 'success'
-        && needs.build-chrome-extension.result == 'success'
+        && (needs.build-chrome-extension.result == 'success' || needs.build-chrome-extension.result == 'skipped')
         && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped')
         && (needs.publish-meta.result == 'success' || needs.publish-meta.result == 'skipped')
         && (needs.push-dockerhub-image.result == 'success' || needs.push-dockerhub-image.result == 'skipped')

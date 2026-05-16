@@ -21,7 +21,12 @@ import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type { DrizzleDb } from "../../memory/db-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
-import { createConnection, getConnection, seedCanonicalConnections } from "./connections.js";
+import {
+  createConnection,
+  getConnection,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+  seedCanonicalConnections,
+} from "./connections.js";
 
 const log = getLogger("provider-connections-backfill");
 
@@ -148,6 +153,14 @@ function ensureProviderConnection(
 
   const provider = entry.provider as string | undefined;
   if (!provider) return false;
+
+  if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
+    log.warn(
+      { entry: entryLabel, provider },
+      "Skipping backfill for provider that requires per-connection base_url/models",
+    );
+    return false;
+  }
 
   let connectionName: string;
 

@@ -49,7 +49,7 @@ import { downSlackCompactionWatermark } from "./235-slack-compaction-watermark.j
 import { downToolInvocationsMatchedRuleId } from "./236-tool-invocations-matched-rule-id.js";
 import { downHeartbeatRuns } from "./237-heartbeat-runs.js";
 import { downNormalizeSlackExternalContent } from "./249-normalize-slack-external-content.js";
-import { downA2ATasks } from "./250-a2a-tasks.js";
+import { downA2ATasks } from "./251-a2a-tasks.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */

@@ -143,6 +143,7 @@ import {
   migrateOAuthProvidersScopeSeparator,
   migrateOAuthProvidersTokenAuthMethodDefault,
   migrateOAuthProvidersTokenExchangeBodyFormat,
+  migrateProviderConnectionBaseUrlAndModels,
   migrateProviderConnectionStatusLabel,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
@@ -431,6 +432,7 @@ export function initializeDb(): void {
     migrateExternalConversationBindingThreadId,
     createOnboardingEventsTable,
     migrateNormalizeSlackExternalContent,
+    migrateProviderConnectionBaseUrlAndModels,
     migrateA2ATasks,
   ];
 

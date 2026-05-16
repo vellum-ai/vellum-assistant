@@ -47,19 +47,30 @@ struct SettingsAppearanceTab: View {
         )
     }
 
+    private var isVelvetEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("velvet-theme")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // THEME section
             SettingsCard(title: "Theme") {
                 VSegmentControl(
-                    items: [
-                        (label: "System", tag: "system"),
-                        (label: "Light", tag: "light"),
-                        (label: "Dark", tag: "dark"),
-                    ],
+                    items: isVelvetEnabled
+                        ? [
+                            (label: "System", tag: "system"),
+                            (label: "Light", tag: "light"),
+                            (label: "Dark", tag: "dark"),
+                            (label: "Velvet", tag: "velvet"),
+                        ]
+                        : [
+                            (label: "System", tag: "system"),
+                            (label: "Light", tag: "light"),
+                            (label: "Dark", tag: "dark"),
+                        ],
                     selection: themeBinding
                 )
-                .frame(width: 248)
+                .frame(width: isVelvetEnabled ? 320 : 248)
             }
 
             // TIMEZONE section
