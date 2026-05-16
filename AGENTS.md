@@ -93,15 +93,15 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 
 ## PR Workflow
 
-- **Every PR closes a GitHub issue.** Each PR uses `Closes #N` (or `Fixes` / `Resolves`) in its body and commit message so GitHub auto-closes the issue on merge. See GitHub's [linking a pull request to an issue](https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue) for the full list of closing keywords. If no issue exists yet, [open one](https://github.com/vellum-ai/vellum-assistant/issues/new/choose) before submitting the PR — retroactive issues are fine — so the work is traceable.
-- **One PR = one issue.** Each PR is a distinct, mergeable unit of work. The resulting timeline reads as one issue → one merged change, which keeps review history easy to follow.
-- **Multi-step efforts.** Break the work into either [sub-issues under a parent](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues) (one coherent effort with phased steps) or sibling issues (independent efforts sharing a goal). Each PR still closes its own issue. To link a PR to a related issue without auto-closing it, use plain prose: `Part of #N` or `Related to #N` — GitHub renders the link but won't auto-close.
-- **Branch name**: include the issue number, e.g. `123-fix-stale-approvals`.
+- **One PR = one logical change.** Each PR is a distinct, mergeable unit of work. Keep diffs reviewable.
+- **GitHub issues are for planned work, not paperwork.** When a GitHub issue already exists or the work is non-trivial enough to benefit from a separate planning artifact, link it with `Closes #N` (or `Fixes` / `Resolves`) in the PR body and commit message so GitHub [auto-closes the issue on merge](https://docs.github.com/en/issues/tracking-your-work-with-issues/linking-a-pull-request-to-an-issue). Don't create retroactive issues just to satisfy a process — if the PR description already captures the *why*, that's the trace.
+- **Multi-step efforts.** Use a parent issue with [sub-issues](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues) or sibling issues when the effort has multiple phases. Link intermediate PRs with `Part of #N` or `Related to #N` (no auto-close). Issues earn their keep here — they're the tracking artifact across multiple PRs.
+- **Branch name**: include the issue number when one exists, e.g. `123-fix-stale-approvals`.
 - **Human attention comments**: After creating a PR with non-routine changes (architectural decisions, security, complex logic, deletions, low confidence), leave a `gh pr comment` highlighting where to focus review and the risk level. Skip for routine changes.
 
 ### Notes for Vellum team members
 
-When a Vellum [Linear](https://linear.app/) ticket also exists for the work, link it in the PR body and include the identifier in the branch name (e.g. `lum-nnn-fix-foo`). Linear's [GitHub integration](https://linear.app/docs/github#link-using-magic-words) recognizes the same closing keywords plus non-closing words like `Part of` and `Related to` — see the linked docs for the full magic-word list and status-sync behavior. Internal slash-command and tracking-file conventions live in [`.claude/`](./.claude/) docs, not here.
+When a Vellum [Linear](https://linear.app/) ticket exists for the work, link it in the PR body and include the identifier in the branch name (e.g. `lum-nnn-fix-foo`). Linear's [GitHub integration](https://linear.app/docs/github#link-using-magic-words) recognizes the same closing keywords plus non-closing words like `Part of` and `Related to` — see the linked docs for the full magic-word list and status-sync behavior. Internal slash-command and tracking-file conventions live in [`.claude/`](./.claude/) docs, not here.
 
 ## Keep Docs Up to Date
 
