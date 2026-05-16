@@ -148,6 +148,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       {
         slackInbound: {
           channelId: "C0123CHANNEL",
+          channelName: "engineering",
           channelTs: "1700000001.111111",
           threadTs: "1700000000.000001",
           displayName: "Alice",
@@ -162,6 +163,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
     expect(slackMeta!.source).toBe("slack");
     expect(slackMeta!.eventKind).toBe("message");
     expect(slackMeta!.channelId).toBe("C0123CHANNEL");
+    expect(slackMeta!.channelName).toBe("engineering");
     expect(slackMeta!.channelTs).toBe("1700000001.111111");
     expect(slackMeta!.threadTs).toBe("1700000000.000001");
     expect(slackMeta!.displayName).toBe("Alice");
@@ -194,6 +196,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
     expect(slackMeta!.channelTs).toBe("1700000010.222222");
     expect(slackMeta!.threadTs).toBeUndefined();
     expect(slackMeta!.displayName).toBe("Bob");
+    expect(slackMeta!.channelName).toBeUndefined();
   });
 
   test("Slack normalized content is persisted with raw channelTs in slackMeta", async () => {

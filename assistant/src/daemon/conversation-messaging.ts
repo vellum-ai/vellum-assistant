@@ -270,6 +270,7 @@ export function buildSlackMetaForPersistence(params: {
   const slackMeta: SlackMessageMetadata = {
     source: "slack",
     channelId: candidate.channelId,
+    ...(candidate.channelName ? { channelName: candidate.channelName } : {}),
     channelTs: candidate.channelTs,
     eventKind: "message",
     ...(candidate.threadTs ? { threadTs: candidate.threadTs } : {}),

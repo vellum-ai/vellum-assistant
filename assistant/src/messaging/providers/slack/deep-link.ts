@@ -40,13 +40,21 @@ export function buildSlackWebMessageUrl(params: {
   teamUrl?: string | null;
   channelId: string;
   messageTs: string;
+  threadTs?: string;
 }): string | undefined {
   const teamUrl = normalizeSlackTeamUrl(params.teamUrl);
   if (!teamUrl) return undefined;
 
-  return `${teamUrl}/archives/${encodeURIComponent(
+  const baseUrl = `${teamUrl}/archives/${encodeURIComponent(
     params.channelId,
   )}/p${formatSlackPermalinkTimestamp(params.messageTs)}`;
+  if (!params.threadTs) return baseUrl;
+
+  const search = new URLSearchParams({
+    thread_ts: params.threadTs,
+    cid: params.channelId,
+  });
+  return `${baseUrl}?${search.toString()}`;
 }
 
 export function buildSlackMessageDeepLinks(params: {
@@ -54,6 +62,7 @@ export function buildSlackMessageDeepLinks(params: {
   teamUrl?: string | null;
   channelId: string;
   messageTs: string;
+  threadTs?: string;
 }): SlackMessageDeepLinks | undefined {
   const appUrl = buildSlackAppMessageUrl(params);
   const webUrl = buildSlackWebMessageUrl(params);
