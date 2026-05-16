@@ -91,13 +91,6 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       useNativeWebSearch,
       streamTimeoutMs,
     }),
-  zai: ({ apiKey, model, streamTimeoutMs }) =>
-    new OpenAIChatCompletionsProvider(apiKey, model, {
-      providerName: "zai",
-      providerLabel: "z.ai",
-      baseURL: "https://api.z.ai/api/paas/v4/",
-      streamTimeoutMs,
-    }),
   "openai-compatible": ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new OpenAIChatCompletionsProvider(apiKey, model, {
       providerName: "openai-compatible",

@@ -50,6 +50,5 @@ export const PLATFORM_PROVIDER_META: Record<string, ManagedProviderMeta> = {
     managed: false,
   },
   ollama: { name: "ollama", managed: false },
-  zai: { name: "zai", managed: false },
   "openai-compatible": { name: "openai-compatible", managed: false },
 };

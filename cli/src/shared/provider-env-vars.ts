@@ -26,7 +26,6 @@ export const LLM_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   gemini: "GEMINI_API_KEY",
   fireworks: "FIREWORKS_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
-  zai: "ZAI_API_KEY",
 };
 
 /** Search-provider env var names. Mirrors `SEARCH_PROVIDER_CATALOG` BYOK entries. */

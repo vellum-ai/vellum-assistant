@@ -92,8 +92,8 @@ describe("OpenAI Responses API cutover guard", () => {
 
     // The factory must NOT instantiate OpenAIChatCompletionsProvider or
     // OpenAIProvider (the backward-compatible alias) inside the `openai:`
-    // factory entry. Other entries (e.g. `zai:`) may legitimately use
-    // OpenAIChatCompletionsProvider since that's the OpenAI Chat Completions
+    // factory entry. Other entries (e.g. `openai-compatible:`) may legitimately
+    // use OpenAIChatCompletionsProvider since that's the OpenAI Chat Completions
     // transport for third-party endpoints.
     const openaiEntryRegion =
       /(?:^|\s)openai\s*:\s*\([^)]*\)\s*=>\s*[\s\S]{0,400}?(?=\}\s*,\s*[a-z-]+\s*:|\}\s*;)/m.exec(
