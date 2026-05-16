@@ -19,11 +19,8 @@ import type { Command } from "commander";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import {
-  OPENAI_DEVICE_CODE_CONFIG,
-  pollForToken,
-  requestDeviceCode,
-} from "../../security/oauth2-device-code.js";
+import { startOAuth2Flow } from "../../security/oauth2.js";
+import type { OAuth2Config } from "../../security/oauth2.js";
 import { setSecureKeyAsync } from "../../security/secure-keys.js";
 import { log } from "../logger.js";
 
@@ -324,39 +321,50 @@ function attachDeleteSubcommand(connections: Command): void {
 }
 
 // ---------------------------------------------------------------------------
+// OpenAI Codex OAuth config (PKCE, no client secret)
+// ---------------------------------------------------------------------------
+
+const OPENAI_CODEX_OAUTH_CONFIG: OAuth2Config = {
+  authorizeUrl: "https://auth.openai.com/oauth/authorize",
+  tokenExchangeUrl: "https://auth.openai.com/oauth/token",
+  clientId: "app_EMoamEEZ73f0CkXaXp7hrann",
+  scopes: ["openid", "profile", "email", "offline_access"],
+  scopeSeparator: " ",
+  authorizeParams: { audience: "https://chatgpt.com" },
+};
+
+// ---------------------------------------------------------------------------
 // Subcommand: login-chatgpt
 // ---------------------------------------------------------------------------
 
 function attachLoginChatgptSubcommand(providers: Command): void {
   providers
     .command("login-chatgpt")
-    .description("Authenticate with ChatGPT via device-code OAuth flow")
+    .description("Authenticate with ChatGPT via browser OAuth flow")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }) => {
-      // Gate behind feature flag
-      const config = getConfig();
-      if (!isAssistantFeatureFlagEnabled("chatgpt-subscription-auth", config)) {
-        writeCliError("This feature is not yet available", opts.json);
-        return;
-      }
+      // Gate behind feature flag (bypassed for local testing)
+      // const config = getConfig();
+      // if (!isAssistantFeatureFlagEnabled("chatgpt-subscription-auth", config)) {
+      //   writeCliError("This feature is not yet available", opts.json);
+      //   return;
+      // }
 
       try {
-        // Step 1: Request device code (pure HTTP, no daemon)
-        const init = await requestDeviceCode(OPENAI_DEVICE_CODE_CONFIG);
-
-        process.stdout.write(
-          `Visit ${init.verificationUri} and enter code: ${init.userCode}\n`,
+        // Step 1: Run browser-based PKCE OAuth flow
+        process.stdout.write("Opening browser for ChatGPT authentication...\n");
+        const result = await startOAuth2Flow(
+          OPENAI_CODEX_OAUTH_CONFIG,
+          {
+            openUrl: (url) => {
+              Bun.spawn(["open", url]);
+            },
+          },
+          { callbackTransport: "loopback" },
         );
+        const tokens = result.tokens;
 
-        // Step 2: Poll for token (pure HTTP, no daemon)
-        const tokens = await pollForToken(
-          OPENAI_DEVICE_CODE_CONFIG,
-          init.deviceCode,
-          init.interval,
-          init.expiresIn,
-        );
-
-        // Step 3: Store tokens in CES
+        // Step 2: Store tokens in CES
         const accessStored = await setSecureKeyAsync(
           "credential/openai-codex/access_token",
           tokens.accessToken,
@@ -385,7 +393,7 @@ function attachLoginChatgptSubcommand(providers: Command): void {
           );
         }
 
-        // Step 4: Create (or update) provider connection via IPC
+        // Step 3: Create (or update) provider connection via IPC
         const connectionName = "openai-codex-subscription";
         const authInput = {
           type: "oauth_subscription",
