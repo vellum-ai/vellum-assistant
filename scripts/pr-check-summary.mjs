@@ -66,12 +66,18 @@ function getPr() {
 
 function getChecks() {
   const result = runGh(["pr", "checks", prRef, "--json", checkFields.join(",")]);
-  if (result.status === 0) {
-    const checks = parseJson(result.stdout, "checks");
-    if (!Array.isArray(checks)) {
-      throw new Error("Could not inspect checks: gh returned non-array JSON.");
+  if (result.status === 0 || result.stdout?.trim()) {
+    try {
+      const checks = parseJson(result.stdout, "checks");
+      if (!Array.isArray(checks)) {
+        throw new Error("Could not inspect checks: gh returned non-array JSON.");
+      }
+      return checks;
+    } catch (error) {
+      if (result.status === 0) {
+        throw error;
+      }
     }
-    return checks;
   }
 
   const message = resultMessage(result, `gh pr checks exited ${result.status}`);
