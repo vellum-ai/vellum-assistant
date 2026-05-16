@@ -2026,6 +2026,28 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     expect(persisted[0].content).toBe(rawContent);
   });
 
+  test("live Slack raw content trims surrounding whitespace before persistence", async () => {
+    const rawContent = "  live Slack padded raw text\t ";
+    const trimmedContent = "live Slack padded raw text";
+    const captured = await handleAndCaptureLiveSlackProcessMessage(
+      buildSlackChannelRequest("1700000000.000325", {
+        content: rawContent,
+      }),
+    );
+
+    expect(captured.content.match(/<external_content/g)?.length).toBe(1);
+    expect(captured.content).toContain('<external_content source="slack"');
+    expect(captured.content).toContain(
+      `\n${trimmedContent}\n</external_content>`,
+    );
+    expect(captured.options?.displayContent).toBe(trimmedContent);
+
+    const persisted = readMessagesByConversation(captured.conversationId);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].content).toBe(trimmedContent);
+    expect(persisted[0].content).not.toContain("<external_content");
+  });
+
   test("live Slack attachment-only passes empty raw displayContent for persistence", async () => {
     seedAttachment("att-slack-file");
 
