@@ -98,6 +98,13 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       baseURL: "https://api.z.ai/api/paas/v4/",
       streamTimeoutMs,
     }),
+  "openai-compatible": ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new OpenAIChatCompletionsProvider(apiKey, model, {
+      providerName: "openai-compatible",
+      providerLabel: "OpenAI-compatible",
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
 };
 
 /**

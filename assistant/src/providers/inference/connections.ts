@@ -1,4 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm";
+import { z } from "zod";
 
 import type { DrizzleDb } from "../../memory/db-connection.js";
 import { providerConnections } from "../../memory/schema/inference.js";
@@ -6,6 +7,8 @@ import { clearConnectionProviderCache } from "../registry.js";
 import {
   type Auth,
   AuthSchema,
+  type ConnectionModel,
+  ConnectionModelSchema,
   type ConnectionProvider,
   ConnectionProviderSchema,
   type ConnectionStatus,
@@ -13,6 +16,23 @@ import {
   type ProviderConnection,
   VALID_CONNECTION_PROVIDERS,
 } from "./auth.js";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function parseModelsColumn(raw: string | null): ConnectionModel[] | null {
+  if (raw === null || raw === "") return null;
+  try {
+    const parsed = z.array(ConnectionModelSchema).safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+export const PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: ReadonlySet<string> =
+  new Set(["openai-compatible"]);
 
 // ---------------------------------------------------------------------------
 // Read
@@ -46,6 +66,8 @@ export function listConnections(
         provider: provider.data,
         status,
         label: row.label ?? null,
+        baseUrl: row.baseUrl ?? null,
+        models: parseModelsColumn(row.models),
         isManaged: MANAGED_CONNECTION_NAMES.has(row.name),
       },
     ];
@@ -77,6 +99,8 @@ export function getConnection(
     provider: provider.data,
     status,
     label: row.label ?? null,
+    baseUrl: row.baseUrl ?? null,
+    models: parseModelsColumn(row.models),
     isManaged: MANAGED_CONNECTION_NAMES.has(row.name),
   };
 }
@@ -91,22 +115,30 @@ export type CreateConnectionInput = {
   auth: Auth;
   status?: ConnectionStatus;
   label?: string | null;
+  baseUrl?: string | null;
+  models?: ConnectionModel[] | null;
 };
 
 export type UpdateConnectionInput = {
   auth: Auth;
   status?: ConnectionStatus;
   label?: string | null;
+  baseUrl?: string | null;
+  models?: ConnectionModel[] | null;
 };
 
 export type ConnectionCreateError =
   | { code: "already_exists" }
   | { code: "invalid_provider"; provider: string }
-  | { code: "invalid_auth" };
+  | { code: "invalid_auth" }
+  | { code: "base_url_required" }
+  | { code: "models_required" };
 
 export type ConnectionUpdateError =
   | { code: "not_found" }
-  | { code: "invalid_auth" };
+  | { code: "invalid_auth" }
+  | { code: "base_url_required" }
+  | { code: "models_required" };
 
 export type ConnectionDeleteError =
   | { code: "not_found" }
@@ -143,6 +175,15 @@ export function createConnection(
 
   const status = input.status ?? "active";
   const label = input.label ?? null;
+  const baseUrl = input.baseUrl ?? null;
+  const models = input.models ?? null;
+
+  if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
+    if (!baseUrl) return { ok: false, error: { code: "base_url_required" } };
+    if (!models || models.length === 0) {
+      return { ok: false, error: { code: "models_required" } };
+    }
+  }
 
   const now = Date.now();
   db.insert(providerConnections)
@@ -152,6 +193,8 @@ export function createConnection(
       auth: JSON.stringify(authResult.data),
       status,
       label,
+      baseUrl,
+      models: models === null ? null : JSON.stringify(models),
       createdAt: now,
       updatedAt: now,
     })
@@ -169,6 +212,8 @@ export function createConnection(
       auth: authResult.data,
       status,
       label,
+      baseUrl,
+      models,
       createdAt: now,
       updatedAt: now,
       isManaged: MANAGED_CONNECTION_NAMES.has(input.name),
@@ -193,15 +238,34 @@ export function updateConnection(
     return { ok: false, error: { code: "invalid_auth" } };
   }
 
+  const nextBaseUrl =
+    input.baseUrl !== undefined ? input.baseUrl : existing.baseUrl;
+  const nextModels =
+    input.models !== undefined ? input.models : existing.models;
+
+  if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(existing.provider)) {
+    if (!nextBaseUrl)
+      return { ok: false, error: { code: "base_url_required" } };
+    if (!nextModels || nextModels.length === 0) {
+      return { ok: false, error: { code: "models_required" } };
+    }
+  }
+
   const now = Date.now();
   const setClause: {
     auth: string;
     updatedAt: number;
     status?: string;
     label?: string | null;
+    baseUrl?: string | null;
+    models?: string | null;
   } = { auth: JSON.stringify(authResult.data), updatedAt: now };
   if (input.status !== undefined) setClause.status = input.status;
   if (input.label !== undefined) setClause.label = input.label;
+  if (input.baseUrl !== undefined) setClause.baseUrl = input.baseUrl;
+  if (input.models !== undefined)
+    setClause.models =
+      input.models === null ? null : JSON.stringify(input.models);
 
   db.update(providerConnections)
     .set(setClause)
@@ -218,6 +282,8 @@ export function updateConnection(
       auth: authResult.data,
       status: input.status !== undefined ? input.status : existing.status,
       label: input.label !== undefined ? input.label : existing.label,
+      baseUrl: nextBaseUrl,
+      models: nextModels,
       updatedAt: now,
     },
   };

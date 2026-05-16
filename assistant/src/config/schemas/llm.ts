@@ -21,6 +21,7 @@ const LLMProvider = z.enum([
   "fireworks",
   "openrouter",
   "zai",
+  "openai-compatible",
 ]);
 type LLMProvider = z.infer<typeof LLMProvider>;
 

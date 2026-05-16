@@ -3,6 +3,7 @@ import {
   createConnection,
   disableManagedConnectionsForByokHatch,
   getConnection,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
 } from "../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
@@ -248,7 +249,11 @@ export function seedInferenceProfiles(
     }
 
     const hatchProvider = readString(readObject(llm.default)?.provider);
-    if (hatchProvider && hatchProvider !== "ollama") {
+    if (
+      hatchProvider &&
+      hatchProvider !== "ollama" &&
+      !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(hatchProvider)
+    ) {
       userConnectionName = `${hatchProvider}-personal`;
 
       if (options.db) {
