@@ -7,7 +7,7 @@
  * list APIs.
  */
 
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb } from "./db-connection.js";
 import { externalConversationBindings } from "./schema.js";
@@ -99,7 +99,9 @@ export function upsertBinding(input: UpsertBindingInput): void {
       set: {
         sourceChannel: input.sourceChannel,
         externalChatId: input.externalChatId,
-        externalChatName,
+        externalChatName:
+          externalChatName ??
+          sql`${externalConversationBindings.externalChatName}`,
         externalThreadId,
         externalUserId: input.externalUserId ?? null,
         displayName: input.displayName ?? null,
