@@ -52,6 +52,7 @@ extension MessageListView {
         if !isSending {
             scrollState.lastActivityPhaseWhenIdle = assistantActivityPhase
         }
+        recordTranscriptDiagnosticsSnapshot(reason: "appear", force: true)
         // Handle pending anchor if already set.
         if let id = anchorMessageId,
            let displayId = TranscriptItems.displayId(for: id, in: messages) {
@@ -109,9 +110,12 @@ extension MessageListView {
                 UserDefaults.standard.set(true, forKey: "hasEverSentMessage")
             }
         }
+        recordTranscriptDiagnosticsSnapshot(reason: isSending ? "sending_started" : "sending_stopped", force: true)
     }
 
     func handleMessagesRevisionChanged() {
+        recordTranscriptDiagnosticsSnapshot(reason: "messages_revision")
+
         // Queued-turn handoff updates message status without changing count.
         // Re-check the pin anchor so it advances to the dequeued user message.
         guard conversationId == scrollState.currentConversationId,
@@ -124,6 +128,8 @@ extension MessageListView {
     func handleMessagesCountChanged() {
         // Guard against stale fires during a conversation switch.
         guard conversationId == scrollState.currentConversationId else { return }
+        recordTranscriptDiagnosticsSnapshot(reason: "messages_count", force: true)
+
         // --- Anchor message resolution ---
         if let id = anchorMessageId,
            let displayId = TranscriptItems.displayId(for: id, in: messages) {
@@ -214,6 +220,86 @@ extension MessageListView {
         // With inverted scroll, the latest messages appear at the visual
         // bottom naturally — no imperative scroll needed.
         scrollState.lastMessageId = paginatedVisibleMessages.last?.id
+        recordTranscriptDiagnosticsSnapshot(reason: "conversation_switched", force: true)
+    }
+
+    // MARK: - Transcript Diagnostics
+
+    /// Updates the content-safe snapshot used by hang diagnostics and log
+    /// exports. This intentionally records only identifiers, counts, flags,
+    /// and geometry - never message text, tool bodies, or attachment content.
+    func recordTranscriptDiagnosticsSnapshot(
+        reason: String,
+        force: Bool = false,
+        isLiveScrolling: Bool? = nil
+    ) {
+        guard let conversationId else { return }
+        if let currentConversationId = scrollState.currentConversationId,
+           currentConversationId != conversationId {
+            return
+        }
+
+        let now = Date()
+        if !force && now.timeIntervalSince(scrollState.lastTranscriptDiagnosticsAt) < 1.0 {
+            return
+        }
+        scrollState.lastTranscriptDiagnosticsAt = now
+
+        var sanitizer = NumericSanitizer()
+        let offsetY = sanitizer.sanitize(scrollState.lastContentOffsetY, field: "scrollOffsetY")
+        let contentHeight = sanitizer.sanitize(scrollState.scrollContentHeight, field: "contentHeight")
+        let containerHeight = sanitizer.sanitize(scrollState.scrollContainerHeight, field: "viewportHeight")
+        let scrollViewportHeight = sanitizer.sanitize(viewportHeight, field: "scrollViewportHeight")
+        let currentContainerWidth = sanitizer.sanitize(containerWidth, field: "containerWidth")
+        let distanceFromBottom = scrollState.distanceFromBottom
+        let isNearBottom = distanceFromBottom.isFinite
+            ? distanceFromBottom <= MessageListScrollState.hideScrollToLatestThreshold
+            : nil
+        let toolCallCount = messages.reduce(0) { total, message in
+            total + message.toolCalls.count
+        }
+
+        let snapshot = ChatTranscriptSnapshot(
+            conversationId: conversationId.uuidString,
+            capturedAt: now,
+            messageCount: messages.count,
+            toolCallCount: toolCallCount,
+            isPinnedToBottom: isNearBottom ?? false,
+            isUserScrolling: isLiveScrolling ?? false,
+            scrollOffsetY: offsetY,
+            contentHeight: contentHeight,
+            viewportHeight: containerHeight,
+            isNearBottom: isNearBottom,
+            hasBeenInteracted: scrollState.scrollContentHeight > 0 || scrollState.lastContentOffsetY > 0,
+            isPaginationInFlight: scrollState.isPaginationInFlight,
+            scrollMode: scrollState.isStreamingActive ? "streaming" : "idle",
+            anchorMessageId: scrollState.pinnedLatestTurnAnchorMessageId?.uuidString,
+            highlightedMessageId: highlightedMessageId?.uuidString,
+            scrollViewportHeight: scrollViewportHeight,
+            containerWidth: currentContainerWidth,
+            lastScrollToReason: reason,
+            source: .messageList,
+            scrollIntentSource: scrollState.isStreamingActive ? .followBottom : nil,
+            nonFiniteFields: sanitizer.nonFiniteFields
+        )
+        ChatDiagnosticsStore.shared.updateSnapshot(snapshot)
+
+        ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
+            kind: .transcriptSnapshotCaptured,
+            conversationId: conversationId.uuidString,
+            reason: reason,
+            messageCount: messages.count,
+            toolCallCount: toolCallCount,
+            isPinnedToBottom: isNearBottom,
+            isUserScrolling: isLiveScrolling,
+            scrollOffsetY: offsetY,
+            contentHeight: contentHeight,
+            viewportHeight: containerHeight,
+            source: .messageList,
+            interaction: scrollState.isStreamingActive ? .stream : nil,
+            scrollIntentSource: scrollState.isStreamingActive ? .followBottom : nil,
+            nonFiniteFields: sanitizer.nonFiniteFields
+        ))
     }
 
     func handleAnchorMessageTask() async {

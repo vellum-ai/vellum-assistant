@@ -30,6 +30,7 @@ final class MessageListScrollState {
     @ObservationIgnored var scrollContainerHeight: CGFloat = 0
     @ObservationIgnored var lastContentOffsetY: CGFloat = 0
     @ObservationIgnored var viewportHeight: CGFloat = .infinity
+    @ObservationIgnored var lastTranscriptDiagnosticsAt: Date = .distantPast
 
     // MARK: - State
 
@@ -178,6 +179,7 @@ final class MessageListScrollState {
         scrollContainerHeight = 0
         lastContentOffsetY = 0
         viewportHeight = .infinity
+        lastTranscriptDiagnosticsAt = .distantPast
         showScrollToLatest = false
         anchorSetTime = nil
         anchorTimeoutTask?.cancel()
@@ -219,6 +221,7 @@ final class MessageListScrollState {
         scrollContainerHeight = 0
         lastContentOffsetY = 0
         viewportHeight = .infinity
+        lastTranscriptDiagnosticsAt = .distantPast
         showScrollToLatest = false
         scrollIndicatorsHidden = false
         lastPaginationCompletedAt = .distantPast

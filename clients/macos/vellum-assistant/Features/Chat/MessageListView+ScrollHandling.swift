@@ -59,6 +59,12 @@ extension MessageListView {
         // --- Distance-based scroll-to-latest CTA ---
         scrollState.updateScrollToLatest()
 
+        // --- Content-safe hang diagnostics ---
+        recordTranscriptDiagnosticsSnapshot(
+            reason: "scroll_geometry",
+            isLiveScrolling: newState.isLiveScrolling
+        )
+
         // --- Pagination ---
         // With inverted scroll the visual top (oldest messages) is where
         // distanceFromTop approaches 0. Negate so the sentinel's

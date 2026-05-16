@@ -19,25 +19,30 @@ public struct TopAlignedMinHeightLayout: Layout {
         self.minHeight = minHeight
     }
 
-    public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    public func makeCache(subviews: Subviews) -> SingleSubviewLayoutCache {
+        SingleSubviewLayoutCache()
+    }
+
+    public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout SingleSubviewLayoutCache) -> CGSize {
         guard let child = subviews.first else {
             return CGSize(width: proposal.replacingUnspecifiedDimensions().width, height: minHeight)
         }
         let childSize = child.sizeThatFits(proposal)
+        cache.store(proposal: proposal, childSize: childSize)
         return CGSize(
             width: childSize.width,
             height: max(childSize.height, minHeight)
         )
     }
 
-    public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout SingleSubviewLayoutCache) {
         guard let child = subviews.first else { return }
-        // Re-measure with the SAME proposal that sizeThatFits received.
-        // Using bounds.height would propose the expanded min-height to the
-        // child, which can return a different size than during measurement
-        // — causing SwiftUI to detect a layout inconsistency and
-        // re-evaluate the layout every frame.
-        let childSize = child.sizeThatFits(proposal)
+        // Reuse the measurement from sizeThatFits. Falling back to the same
+        // proposal preserves layout consistency without forcing a second
+        // subtree-wide measurement during placement.
+        let childSize = cache.childSize(for: proposal) {
+            child.sizeThatFits(proposal)
+        }
         // Pin child to top of bounds (same as alignment: .top).
         child.place(
             at: bounds.origin,
