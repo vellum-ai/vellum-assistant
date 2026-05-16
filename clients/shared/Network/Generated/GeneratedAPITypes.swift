@@ -576,19 +576,69 @@ public struct CancelRequest: Codable, Sendable {
 }
 
 /// Channel binding metadata exposed in conversation list APIs.
+public struct ChannelBindingSlackThreadLink: Codable, Sendable {
+    public let appUrl: String?
+    public let webUrl: String?
+
+    public init(appUrl: String? = nil, webUrl: String? = nil) {
+        self.appUrl = appUrl
+        self.webUrl = webUrl
+    }
+}
+
+public struct ChannelBindingSlackThread: Codable, Sendable {
+    public let channelId: String
+    public let threadTs: String
+    public let link: ChannelBindingSlackThreadLink?
+
+    public init(channelId: String, threadTs: String, link: ChannelBindingSlackThreadLink? = nil) {
+        self.channelId = channelId
+        self.threadTs = threadTs
+        self.link = link
+    }
+}
+
+public struct ChannelBindingSlackChannelLink: Codable, Sendable {
+    public let webUrl: String?
+
+    public init(webUrl: String? = nil) {
+        self.webUrl = webUrl
+    }
+}
+
+public struct ChannelBindingSlackChannel: Codable, Sendable {
+    public let channelId: String
+    public let name: String?
+    public let link: ChannelBindingSlackChannelLink?
+
+    public init(channelId: String, name: String? = nil, link: ChannelBindingSlackChannelLink? = nil) {
+        self.channelId = channelId
+        self.name = name
+        self.link = link
+    }
+}
+
 public struct ChannelBinding: Codable, Sendable {
     public let sourceChannel: String
     public let externalChatId: String
+    public let externalChatName: String?
+    public let externalThreadId: String?
     public let externalUserId: String?
     public let displayName: String?
     public let username: String?
+    public let slackThread: ChannelBindingSlackThread?
+    public let slackChannel: ChannelBindingSlackChannel?
 
-    public init(sourceChannel: String, externalChatId: String, externalUserId: String? = nil, displayName: String? = nil, username: String? = nil) {
+    public init(sourceChannel: String, externalChatId: String, externalChatName: String? = nil, externalThreadId: String? = nil, externalUserId: String? = nil, displayName: String? = nil, username: String? = nil, slackThread: ChannelBindingSlackThread? = nil, slackChannel: ChannelBindingSlackChannel? = nil) {
         self.sourceChannel = sourceChannel
         self.externalChatId = externalChatId
+        self.externalChatName = externalChatName
+        self.externalThreadId = externalThreadId
         self.externalUserId = externalUserId
         self.displayName = displayName
         self.username = username
+        self.slackThread = slackThread
+        self.slackChannel = slackChannel
     }
 }
 
