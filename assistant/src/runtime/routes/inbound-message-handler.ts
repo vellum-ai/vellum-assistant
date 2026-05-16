@@ -543,10 +543,17 @@ export async function handleChannelInbound({
   // self so assistant-scoped legacy routes do not overwrite each other's
   // channel binding metadata for the same chat.
   if (canonicalAssistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
+    const slackChannelName =
+      sourceChannel === "slack" &&
+      typeof sourceMetadata?.channelName === "string"
+        ? sourceMetadata.channelName
+        : null;
+
     upsertBinding({
       conversationId: result.conversationId,
       sourceChannel,
       externalChatId: conversationExternalId,
+      externalChatName: slackChannelName,
       externalThreadId: slackThreadTs ?? null,
       externalUserId: canonicalSenderId ?? rawSenderId ?? null,
       displayName: body.actorDisplayName ?? null,

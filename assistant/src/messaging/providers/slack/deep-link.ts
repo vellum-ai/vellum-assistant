@@ -57,6 +57,16 @@ export function buildSlackWebMessageUrl(params: {
   return `${baseUrl}?${search.toString()}`;
 }
 
+export function buildSlackWebChannelUrl(params: {
+  teamUrl?: string | null;
+  channelId: string;
+}): string | undefined {
+  const teamUrl = normalizeSlackTeamUrl(params.teamUrl);
+  if (!teamUrl) return undefined;
+
+  return `${teamUrl}/archives/${encodeURIComponent(params.channelId)}`;
+}
+
 export function buildSlackMessageDeepLinks(params: {
   teamId?: string | null;
   teamUrl?: string | null;
