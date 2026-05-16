@@ -330,7 +330,7 @@ const OPENAI_CODEX_OAUTH_CONFIG: OAuth2Config = {
   clientId: "app_EMoamEEZ73f0CkXaXp7hrann",
   scopes: ["openid", "profile", "email", "offline_access"],
   scopeSeparator: " ",
-  authorizeParams: { audience: "https://chatgpt.com" },
+  authorizeParams: { id_token_add_organizations: "true" },
 };
 
 // ---------------------------------------------------------------------------
@@ -343,12 +343,11 @@ function attachLoginChatgptSubcommand(providers: Command): void {
     .description("Authenticate with ChatGPT via browser OAuth flow")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }) => {
-      // Gate behind feature flag (bypassed for local testing)
-      // const config = getConfig();
-      // if (!isAssistantFeatureFlagEnabled("chatgpt-subscription-auth", config)) {
-      //   writeCliError("This feature is not yet available", opts.json);
-      //   return;
-      // }
+      const config = getConfig();
+      if (!isAssistantFeatureFlagEnabled("chatgpt-subscription-auth", config)) {
+        writeCliError("This feature is not yet available", opts.json);
+        return;
+      }
 
       try {
         // Step 1: Run browser-based PKCE OAuth flow
@@ -360,7 +359,11 @@ function attachLoginChatgptSubcommand(providers: Command): void {
               Bun.spawn(["open", url]);
             },
           },
-          { callbackTransport: "loopback" },
+          {
+            callbackTransport: "loopback",
+            loopbackPort: 1455,
+            loopbackCallbackPath: "/auth/callback",
+          },
         );
         const tokens = result.tokens;
 

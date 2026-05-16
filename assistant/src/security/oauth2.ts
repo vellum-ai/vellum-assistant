@@ -86,6 +86,10 @@ export interface OAuth2FlowOptions {
    *  instead of an OS-assigned random port. Required for providers like Slack that
    *  need pre-registered redirect URIs. */
   loopbackPort?: number;
+  /** Override the loopback callback path. Defaults to `/oauth/callback`.
+   *  Required for providers with pre-registered redirect URIs that use a
+   *  different path (e.g. OpenAI Codex uses `/auth/callback`). */
+  loopbackCallbackPath?: string;
 }
 
 export interface OAuth2FlowResult {
@@ -293,6 +297,7 @@ async function runLoopbackFlow(
   codeChallenge: string,
   state: string,
   loopbackPort?: number,
+  callbackPath?: string,
 ): Promise<OAuth2FlowResult> {
   const { code, redirectUri } = await startLoopbackServerAndWaitForCode(
     config,
@@ -300,6 +305,7 @@ async function runLoopbackFlow(
     codeChallenge,
     state,
     loopbackPort,
+    callbackPath,
   );
 
   return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
@@ -317,7 +323,9 @@ function startLoopbackServerAndWaitForCode(
   codeChallenge: string,
   state: string,
   loopbackPort?: number,
+  callbackPath?: string,
 ): Promise<{ code: string; redirectUri: string }> {
+  const effectiveCallbackPath = callbackPath ?? LOOPBACK_CALLBACK_PATH;
   return new Promise((resolve, reject) => {
     let settled = false;
     let boundRedirectUri = "";
@@ -340,7 +348,7 @@ function startLoopbackServerAndWaitForCode(
 
       const url = new URL(req.url ?? "/", `http://127.0.0.1`);
 
-      if (url.pathname !== LOOPBACK_CALLBACK_PATH) {
+      if (url.pathname !== effectiveCallbackPath) {
         log.info(
           { pathname: url.pathname },
           "oauth2 loopback: non-callback path, returning 404",
@@ -426,7 +434,7 @@ function startLoopbackServerAndWaitForCode(
 
     server.listen(loopbackPort ?? 0, "localhost", () => {
       const addr = server.address() as { port: number };
-      boundRedirectUri = `http://localhost:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
+      boundRedirectUri = `http://localhost:${addr.port}${effectiveCallbackPath}`;
 
       log.info(
         { port: addr.port, redirectUri: boundRedirectUri },
@@ -784,6 +792,7 @@ export async function startOAuth2Flow(
     codeChallenge,
     state,
     options?.loopbackPort,
+    options?.loopbackCallbackPath,
   );
 }
 
