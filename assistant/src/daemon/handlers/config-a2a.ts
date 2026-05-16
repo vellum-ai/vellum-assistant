@@ -5,14 +5,10 @@
  * - getA2AConfig()       — read a2a.enabled, count active a2a contact_channels
  * - setA2AConfig()       — set a2a.enabled = true, register callback routes
  * - clearA2AConfig()     — set a2a.enabled = false
- * - connectToAssistant() — resolve handle, create contact + channel, send initial message
+ * - connectToAssistant() — resolve handle, create contact + channel
  */
 
-import { v4 as uuid } from "uuid";
-
-import { buildAgentCard } from "../../a2a/agent-card.js";
 import { AGENT_CARD_PATH } from "../../a2a/protocol-constants.js";
-import type { SendMessageRequest } from "../../a2a/protocol-types.js";
 import {
   getConfig,
   invalidateConfigCache,
@@ -26,14 +22,8 @@ import {
   upsertContact,
 } from "../../contacts/contact-store.js";
 import type { VellumAssistantMetadata } from "../../contacts/types.js";
-import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { getDb } from "../../memory/db-connection.js";
 import { assistantContactMetadata } from "../../memory/schema.js";
-import { getLogger } from "../../util/logger.js";
-import { getAssistantName } from "../identity-helpers.js";
-
-const log = getLogger("config-a2a");
-
 // ── Result types ────────────────────────────────────────────────────
 
 export interface A2AConfigResult {
@@ -208,70 +198,5 @@ export async function connectToAssistant(params: {
     })
     .run();
 
-  // 4. Send initial A2A message to the peer
-  try {
-    await sendInitialA2AMessage(resolved);
-  } catch (err) {
-    log.warn(
-      { error: err instanceof Error ? err.message : String(err) },
-      "Failed to send initial A2A message (contact created, peer may not be notified)",
-    );
-  }
-
   return { success: true, contactId: contact.id };
-}
-
-// ── Initial message sending ─────────────────────────────────────────
-
-async function sendInitialA2AMessage(peer: ResolvedAssistant): Promise<void> {
-  const config = getConfig();
-  const assistantName = getAssistantName() ?? "Vellum Assistant";
-
-  let senderBaseUrl: string;
-  try {
-    senderBaseUrl = getPublicBaseUrl(config);
-  } catch {
-    log.warn("No public base URL configured; skipping initial A2A message");
-    return;
-  }
-
-  const senderCard = buildAgentCard({
-    assistantName,
-    baseUrl: senderBaseUrl,
-  });
-
-  const messageId = uuid();
-  const body: SendMessageRequest = {
-    message: {
-      message_id: messageId,
-      role: "user",
-      parts: [
-        {
-          kind: "text",
-          text: `Hello! I'm ${assistantName}. I'd like to connect with you via A2A.`,
-        },
-      ],
-      metadata: {
-        sender_agent_card: senderCard,
-      },
-    },
-    configuration: {
-      return_immediately: true,
-    },
-  };
-
-  const url = `${peer.gatewayUrl}/a2a/message:send`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Sender-Assistant-Id": assistantName,
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`A2A message:send failed (${res.status}): ${text}`);
-  }
 }

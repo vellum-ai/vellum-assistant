@@ -150,21 +150,14 @@ afterEach(() => {
 // ===========================================================================
 
 describe("e2e: connection initiation -> trusted contact flow", () => {
-  test("connectToAssistant creates local contact and sends initial A2A message", async () => {
+  test("connectToAssistant creates local contact with a2a channel", async () => {
     setConfigEnabled(true);
 
-    // Mock the agent card endpoint and message:send on the peer gateway
+    // Mock the agent card endpoint on the peer gateway
     fetchResponseMap["agent-card.json"] = {
       ok: true,
       status: 200,
       body: JSON.stringify({ name: "Peer Assistant" }),
-    };
-    fetchResponseMap["message:send"] = {
-      ok: true,
-      status: 200,
-      body: JSON.stringify({
-        task: { id: "remote-task-1", status: { state: "submitted" } },
-      }),
     };
 
     const { connectToAssistant } =
@@ -196,22 +189,6 @@ describe("e2e: connection initiation -> trusted contact flow", () => {
     expect(agentCardFetch!.url).toBe(
       "https://peer.example.com/.well-known/agent-card.json",
     );
-
-    // Initial A2A message was sent to peer's gateway
-    const messageSendFetch = fetchCalls.find((c) =>
-      c.url.includes("message:send"),
-    );
-    expect(messageSendFetch).toBeTruthy();
-    expect(messageSendFetch!.url).toBe(
-      "https://peer.example.com/a2a/message:send",
-    );
-    expect(messageSendFetch!.init.method).toBe("POST");
-
-    // Verify message body contains sender agent card metadata
-    const body = JSON.parse(messageSendFetch!.init.body as string);
-    expect(body.message.role).toBe("user");
-    expect(body.message.metadata.sender_agent_card).toBeDefined();
-    expect(body.configuration.return_immediately).toBe(true);
   });
 
   test("connectToAssistant is idempotent for existing connection", async () => {
@@ -221,13 +198,6 @@ describe("e2e: connection initiation -> trusted contact flow", () => {
       ok: true,
       status: 200,
       body: JSON.stringify({ name: "Peer Assistant" }),
-    };
-    fetchResponseMap["message:send"] = {
-      ok: true,
-      status: 200,
-      body: JSON.stringify({
-        task: { id: "remote-task-1", status: { state: "submitted" } },
-      }),
     };
 
     const { connectToAssistant } =
@@ -590,14 +560,6 @@ describe("e2e: full A2A round-trip", () => {
       status: 200,
       body: JSON.stringify({ name: "Assistant B" }),
     };
-    fetchResponseMap["message:send"] = {
-      ok: true,
-      status: 200,
-      body: JSON.stringify({
-        task: { id: "init-task", status: { state: "submitted" } },
-      }),
-    };
-
     const { connectToAssistant } =
       await import("../../daemon/handlers/config-a2a.js");
 
