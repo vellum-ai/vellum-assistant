@@ -1,4 +1,15 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// --- Workspace dir mock -----------------------------------------------------
+
+let testWorkspaceDir: string;
+
+mock.module("../../credential-reader.js", () => ({
+  getWorkspaceDir: () => testWorkspaceDir,
+}));
 
 // Import after mocks are registered
 const { createAgentCardHandler } = await import("./a2a-routes.js");
@@ -28,6 +39,16 @@ function makeConfigFileCache(overrides?: {
   } as import("../../config-file-cache.js").ConfigFileCache;
 }
 
+// --- Setup / teardown -------------------------------------------------------
+
+beforeEach(() => {
+  testWorkspaceDir = mkdtempSync(join(tmpdir(), "a2a-test-"));
+});
+
+afterEach(() => {
+  rmSync(testWorkspaceDir, { recursive: true, force: true });
+});
+
 // --- Tests -----------------------------------------------------------------
 
 describe("Agent Card", () => {
@@ -44,7 +65,7 @@ describe("Agent Card", () => {
     expect(body.error).toContain("not enabled");
   });
 
-  it("serves agent card when enabled", async () => {
+  it("serves agent card with fallback name when no IDENTITY.md", async () => {
     const configFile = makeConfigFileCache({
       a2aEnabled: true,
       publicBaseUrl: "https://my-assistant.example.com",
@@ -66,6 +87,30 @@ describe("Agent Card", () => {
       "https://my-assistant.example.com/a2a/message:send",
     );
     expect(card.capabilities.push_notifications).toBe(true);
+  });
+
+  it("reads assistant name from IDENTITY.md", async () => {
+    const promptsDir = join(testWorkspaceDir, "prompts");
+    mkdirSync(promptsDir, { recursive: true });
+    writeFileSync(
+      join(promptsDir, "IDENTITY.md"),
+      "**Name:** Alice\n\nA helpful research assistant.",
+    );
+
+    const configFile = makeConfigFileCache({
+      a2aEnabled: true,
+      publicBaseUrl: "https://alice.example.com",
+    });
+    const handler = createAgentCardHandler(configFile);
+
+    const res = await handler(
+      new Request("http://localhost:7830/.well-known/agent-card.json"),
+    );
+
+    expect(res.status).toBe(200);
+    const card = (await res.json()) as { name: string; description: string };
+    expect(card.name).toBe("Alice");
+    expect(card.description).toBe("Alice — a Vellum AI assistant");
   });
 
   it("returns 503 when no public base URL is configured", async () => {

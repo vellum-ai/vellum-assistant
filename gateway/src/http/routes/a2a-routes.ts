@@ -3,7 +3,11 @@
  * - GET /.well-known/agent-card.json — agent card for peer discovery
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { ConfigFileCache } from "../../config-file-cache.js";
+import { getWorkspaceDir } from "../../credential-reader.js";
 import { getLogger } from "../../logger.js";
 
 const log = getLogger("a2a-routes");
@@ -68,6 +72,21 @@ function buildAgentCard(baseUrl: string, assistantName: string): AgentCard {
   };
 }
 
+// ── Identity helpers ───────────────────────────────────────────────
+
+function readAssistantName(): string {
+  try {
+    const wsDir = getWorkspaceDir();
+    const identityPath = join(wsDir, "prompts", "IDENTITY.md");
+    if (!existsSync(identityPath)) return "Vellum Assistant";
+    const content = readFileSync(identityPath, "utf-8");
+    const match = content.match(/\*\*Name:\*\*\s*(.+)/);
+    return match?.[1]?.trim() || "Vellum Assistant";
+  } catch {
+    return "Vellum Assistant";
+  }
+}
+
 // ── Route handler factory ──────────────────────────────────────────
 
 export function createAgentCardHandler(configFile: ConfigFileCache) {
@@ -90,7 +109,7 @@ export function createAgentCardHandler(configFile: ConfigFileCache) {
       );
     }
 
-    const assistantName = "Vellum Assistant";
+    const assistantName = readAssistantName();
     const card = buildAgentCard(publicBaseUrl, assistantName);
 
     return Response.json(card, {
