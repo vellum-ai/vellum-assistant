@@ -61,6 +61,7 @@ function resetTables() {
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversation_keys");
+  db.run("DELETE FROM external_conversation_bindings");
   db.run("DELETE FROM conversations");
 }
 
@@ -487,6 +488,57 @@ describe("channel-delivery-store", () => {
         },
       },
     });
+  });
+
+  test("binding upsert preserves existing chat name when incoming name is missing", () => {
+    const result = recordInbound("slack", "C0123ABCDEF", "msg-1", {
+      sourceThreadId: "1710000000.000100",
+    });
+
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalChatName: "engineering",
+      externalThreadId: "1710000000.000100",
+    });
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalThreadId: "1710000000.000100",
+    });
+
+    expect(
+      getBindingByChannelChatThread("slack", "C0123ABCDEF", "1710000000.000100")
+        ?.externalChatName,
+    ).toBe("engineering");
+  });
+
+  test("binding upsert preserves existing chat name when incoming name is blank", () => {
+    const result = recordInbound("slack", "C0123ABCDEF", "msg-1", {
+      sourceThreadId: "1710000000.000100",
+    });
+
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalChatName: "engineering",
+      externalThreadId: "1710000000.000100",
+    });
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalChatName: "   ",
+      externalThreadId: "1710000000.000100",
+    });
+
+    expect(
+      getBindingByChannelChatThread("slack", "C0123ABCDEF", "1710000000.000100")
+        ?.externalChatName,
+    ).toBe("engineering");
   });
 
   // ── Deduplication ─────────────────────────────────────────────────

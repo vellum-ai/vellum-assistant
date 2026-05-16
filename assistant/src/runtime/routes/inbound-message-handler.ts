@@ -168,6 +168,10 @@ export async function handleChannelInbound({
   }
 
   const sourceChannel = body.sourceChannel;
+  const slackChannelName =
+    sourceChannel === "slack" && typeof sourceMetadata?.channelName === "string"
+      ? sourceMetadata.channelName.trim() || null
+      : null;
 
   if (!body.interface || typeof body.interface !== "string") {
     throw new BadRequestError("interface is required");
@@ -543,12 +547,6 @@ export async function handleChannelInbound({
   // self so assistant-scoped legacy routes do not overwrite each other's
   // channel binding metadata for the same chat.
   if (canonicalAssistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
-    const slackChannelName =
-      sourceChannel === "slack" &&
-      typeof sourceMetadata?.channelName === "string"
-        ? sourceMetadata.channelName
-        : null;
-
     upsertBinding({
       conversationId: result.conversationId,
       sourceChannel,
@@ -1054,10 +1052,7 @@ export async function handleChannelInbound({
         sourceChannel === "slack"
           ? {
               channelId: conversationExternalId,
-              ...(typeof sourceMetadata?.channelName === "string" &&
-              sourceMetadata.channelName.trim().length > 0
-                ? { channelName: sourceMetadata.channelName.trim() }
-                : {}),
+              ...(slackChannelName ? { channelName: slackChannelName } : {}),
               channelTs: sourceMessageId ?? externalMessageId,
               ...(slackThreadTs ? { threadTs: slackThreadTs } : {}),
               ...((body.actorDisplayName ?? body.actorUsername)
