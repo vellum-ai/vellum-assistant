@@ -8710,6 +8710,29 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/inference/chatgpt-subscription/auth:
+    post:
+      operationId: inference_chatgptsubscription_auth_post
+      summary: Start ChatGPT subscription OAuth flow
+      description:
+        Initiate a PKCE OAuth flow against OpenAI for ChatGPT subscription auth. Returns an authorize URL for the
+        client to open in a popup. The callback handling, token exchange, and connection creation happen in the
+        background.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authorize_url:
+                    type: string
+                required:
+                  - authorize_url
+                additionalProperties: false
   /v1/inference/provider-connections:
     get:
       operationId: inference_providerconnections_get

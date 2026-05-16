@@ -19,8 +19,8 @@ import type { Command } from "commander";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import { startOAuth2Flow } from "../../security/oauth2.js";
 import type { OAuth2Config } from "../../security/oauth2.js";
+import { startOAuth2Flow } from "../../security/oauth2.js";
 import { setSecureKeyAsync } from "../../security/secure-keys.js";
 import { log } from "../logger.js";
 

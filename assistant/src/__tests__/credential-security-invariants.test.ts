@@ -211,6 +211,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "providers/inference/resolve-auth.ts", // provider_connection auth resolver (api_key path reads vault, mirrors registry.ts)
       "providers/inference/codex-token-refresh.ts", // Codex OAuth token refresh (reads/writes access_token, refresh_token, expires_at)
       "cli/commands/inference-providers.ts", // ChatGPT subscription OAuth token storage
+      "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription daemon OAuth flow (stores tokens in CES)
       "providers/provider-availability.ts", // provider availability API key check
       "media/image-credentials.ts", // shared image-gen credential resolver (provider API key lookup)
       "memory/embedding-backend.ts", // embedding backend API key lookup
