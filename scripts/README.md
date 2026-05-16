@@ -13,3 +13,16 @@ repo.
 The script exits non-zero only when hard requirements fail. Warnings call out
 optional setup gaps or degraded helper availability without mutating the
 checkout.
+
+## PR check summary
+
+Run `node scripts/pr-check-summary.mjs <pr-number-or-url>` from the repo root
+when inspecting review state or CI on a pull request. It uses stable `gh pr view`
+and `gh pr checks` JSON fields, then prints concise `PR`, `Checks`, `Review`,
+and `Next steps` sections.
+
+The helper exits 0 when inspection succeeds, even if checks are failing. It exits
+non-zero only when it cannot inspect the PR. Pending or in-progress checks are
+called out because logs may not be available yet. For fresh worktrees, run
+`node scripts/agent-preflight.mjs` first to catch missing GitHub CLI auth or
+helper setup.
