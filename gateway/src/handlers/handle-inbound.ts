@@ -15,7 +15,6 @@ import type { RuntimeInboundResponse } from "../runtime/client.js";
 import type { GatewayInboundEvent } from "../types.js";
 import { tryTextVerificationIntercept } from "../verification/text-verification.js";
 
-
 const log = getLogger("handle-inbound");
 
 export type InboundResult = {
@@ -119,6 +118,7 @@ export async function handleInbound(
     options?.transportMetadata?.hints,
   );
   const transportUxBrief = options?.transportMetadata?.uxBrief?.trim();
+  const sourceChannelName = event.source.channelName?.trim();
 
   try {
     const response = await forwardToRuntime(
@@ -144,6 +144,7 @@ export async function handleInbound(
           messageId: event.source.messageId,
           chatType: event.source.chatType,
           ...(event.source.threadId ? { threadId: event.source.threadId } : {}),
+          ...(sourceChannelName ? { channelName: sourceChannelName } : {}),
           languageCode: event.actor.languageCode,
           isBot: event.actor.isBot,
           ...(transportHints.length > 0 ? { hints: transportHints } : {}),
@@ -176,9 +177,7 @@ export async function handleInbound(
     // writes to both assistant DB and gateway DB. Fire-and-forget so
     // IPC failures here cannot leak as unhandled rejections.
     if (!response.denied) {
-      void touchContactChannelStats(event, response.duplicate).catch(
-        () => {},
-      );
+      void touchContactChannelStats(event, response.duplicate).catch(() => {});
     }
 
     return { forwarded: true, rejected: false, runtimeResponse: response };
