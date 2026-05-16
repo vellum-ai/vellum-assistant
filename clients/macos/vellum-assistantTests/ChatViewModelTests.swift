@@ -3885,4 +3885,5 @@ private struct FakeSubagentClient: SubagentClientProtocol {
     func abort(subagentId: String, conversationId: String?) async -> SubagentAbortResult { abortResult }
     func fetchDetail(subagentId: String, conversationId: String) async -> SubagentDetailResponse? { nil }
     func sendMessage(subagentId: String, content: String, conversationId: String?) async -> Bool { true }
+    func reconcile(parentConversationId: String) async -> SubagentReconcileResponse? { nil }
 }

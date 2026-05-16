@@ -69,6 +69,10 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  document `low|medium|high` (e.g. Fireworks) should set this to "high" so
    *  Vellum's `xhigh`/`max` tiers don't 4xx upstream. */
   maxReasoningEffort?: "high" | "xhigh";
+  /** Parse `<think>...</think>` tags from the content stream into thinking
+   *  blocks. MiniMax and similar providers embed reasoning inside XML-style
+   *  tags in the regular content field rather than using `reasoning_content`. */
+  parseThinkTags?: boolean;
 }
 
 /** Map our internal effort values to OpenAI's reasoning_effort parameter.
@@ -97,6 +101,13 @@ const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
   "image/webp",
 ]);
 
+function partialTagSuffix(text: string, tag: string): number {
+  for (let len = Math.min(text.length, tag.length - 1); len > 0; len--) {
+    if (text.endsWith(tag.substring(0, len))) return len;
+  }
+  return 0;
+}
+
 /**
  * OpenAI-compatible chat-completions transport.
  *
@@ -113,6 +124,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private extraCreateParams: Record<string, unknown>;
   private maxReasoningEffort: "high" | "xhigh";
   private requestHeaders: Record<string, string>;
+  private parseThinkTags: boolean;
 
   constructor(
     apiKey: string,
@@ -130,6 +142,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     this.extraCreateParams = options.extraCreateParams ?? {};
     this.maxReasoningEffort = options.maxReasoningEffort ?? "xhigh";
     this.requestHeaders = options.requestHeaders ?? {};
+    this.parseThinkTags = options.parseThinkTags ?? false;
   }
 
   async sendMessage(
@@ -189,6 +202,58 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
       // Accumulate the response from chunks
       let contentText = "";
+      let reasoningText = "";
+      let insideThinkBlock = false;
+      let pendingContent = "";
+
+      const flushPendingContent = (final: boolean): void => {
+        while (pendingContent.length > 0) {
+          if (insideThinkBlock) {
+            const closeIdx = pendingContent.indexOf("</think>");
+            if (closeIdx >= 0) {
+              const thinking = pendingContent.substring(0, closeIdx);
+              if (thinking) {
+                reasoningText += thinking;
+                onEvent?.({ type: "thinking_delta", thinking });
+              }
+              insideThinkBlock = false;
+              pendingContent = pendingContent.substring(closeIdx + "</think>".length);
+            } else {
+              const partial = final ? 0 : partialTagSuffix(pendingContent, "</think>");
+              const safeLen = pendingContent.length - partial;
+              if (safeLen > 0) {
+                const thinking = pendingContent.substring(0, safeLen);
+                reasoningText += thinking;
+                onEvent?.({ type: "thinking_delta", thinking });
+              }
+              pendingContent = partial > 0 ? pendingContent.substring(safeLen) : "";
+              break;
+            }
+          } else {
+            const openIdx = pendingContent.indexOf("<think>");
+            if (openIdx >= 0) {
+              const text = pendingContent.substring(0, openIdx);
+              if (text) {
+                contentText += text;
+                onEvent?.({ type: "text_delta", text });
+              }
+              insideThinkBlock = true;
+              pendingContent = pendingContent.substring(openIdx + "<think>".length);
+            } else {
+              const partial = final ? 0 : partialTagSuffix(pendingContent, "<think>");
+              const safeLen = pendingContent.length - partial;
+              if (safeLen > 0) {
+                const t = pendingContent.substring(0, safeLen);
+                contentText += t;
+                onEvent?.({ type: "text_delta", text: t });
+              }
+              pendingContent = partial > 0 ? pendingContent.substring(safeLen) : "";
+              break;
+            }
+          }
+        }
+      };
+
       const toolCallMap = new Map<
         number,
         { id: string; name: string; args: string }
@@ -216,8 +281,21 @@ export class OpenAIChatCompletionsProvider implements Provider {
           const choice = chunk.choices[0];
           if (choice) {
             if (choice.delta.content) {
-              contentText += choice.delta.content;
-              onEvent?.({ type: "text_delta", text: choice.delta.content });
+              if (this.parseThinkTags) {
+                pendingContent += choice.delta.content;
+                flushPendingContent(false);
+              } else {
+                contentText += choice.delta.content;
+                onEvent?.({ type: "text_delta", text: choice.delta.content });
+              }
+            }
+
+            const reasoningContent = (
+              choice.delta as { reasoning_content?: string | null }
+            ).reasoning_content;
+            if (reasoningContent) {
+              reasoningText += reasoningContent;
+              onEvent?.({ type: "thinking_delta", thinking: reasoningContent });
             }
 
             if (choice.delta.tool_calls) {
@@ -260,10 +338,19 @@ export class OpenAIChatCompletionsProvider implements Provider {
         cleanupTimeout();
       }
 
+      if (this.parseThinkTags && pendingContent) {
+        flushPendingContent(true);
+      }
+
       // Build content blocks
+      const finalReasoning = this.parseThinkTags ? reasoningText.trim() : reasoningText;
+      const finalContent = this.parseThinkTags ? contentText.trim() : contentText;
       const content: ContentBlock[] = [];
-      if (contentText) {
-        content.push({ type: "text", text: contentText });
+      if (finalReasoning) {
+        content.push({ type: "thinking", thinking: finalReasoning, signature: "" });
+      }
+      if (finalContent) {
+        content.push({ type: "text", text: finalContent });
       }
       for (const [, tc] of toolCallMap) {
         let input: Record<string, unknown>;

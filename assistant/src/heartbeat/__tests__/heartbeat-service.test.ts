@@ -395,6 +395,48 @@ describe("HeartbeatService", () => {
       }
     });
 
+    test("resetTimer() during an in-flight run is not undone by that run's increment", async () => {
+      // Regression: if a guardian message arrives mid-run, `resetTimer()`
+      // zeroes the counter but the in-flight run's `finally` block used to
+      // unconditionally `_consecutiveRuns++`, leaving the counter at 1 and
+      // tripping the cap-at-1 path one auto run too early.
+      stubConfig.heartbeat.maxConsecutiveRuns = 1;
+
+      let releaseInflight: () => void = () => {};
+      const inflight = new Promise<void>((resolve) => {
+        releaseInflight = resolve;
+      });
+      runBackgroundJobImpl = async () => {
+        await inflight;
+        return { conversationId: STUB_CONVERSATION_ID, ok: true };
+      };
+
+      const service = new HeartbeatService({ alerter: () => {} });
+      service.start();
+      try {
+        const runPromise = service.runOnce({ force: false });
+        // Guardian message arrives while the run is still executing.
+        service.resetTimer();
+        releaseInflight();
+        expect(await runPromise).toBe(true);
+
+        // The reset during the in-flight run must survive: the next auto run
+        // should proceed because the counter is still 0, not 1.
+        runBackgroundJobImpl = async () => ({
+          conversationId: STUB_CONVERSATION_ID,
+          ok: true,
+        });
+        expect(await service.runOnce({ force: false })).toBe(true);
+        expect(
+          skipHeartbeatRunCalls.some(
+            (c) => c.reason === "max_consecutive_runs",
+          ),
+        ).toBe(false);
+      } finally {
+        await service.stop();
+      }
+    });
+
     test("null disables the cap entirely", async () => {
       stubConfig.heartbeat.maxConsecutiveRuns = null;
       const service = new HeartbeatService({ alerter: () => {} });

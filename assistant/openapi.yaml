@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.8.1
+  version: 0.8.2
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -8742,10 +8742,7 @@ paths:
                             - ollama
                             - fireworks
                             - openrouter
-                            - zai
-                            - deepseek
-                            - minimax
-                            - opencode-go
+                            - openai-compatible
                         auth:
                           oneOf:
                             - type: object
@@ -8810,6 +8807,27 @@ paths:
                             - type: string
                               minLength: 1
                             - type: "null"
+                        baseUrl:
+                          anyOf:
+                            - type: string
+                              format: uri
+                            - type: "null"
+                        models:
+                          anyOf:
+                            - type: array
+                              items:
+                                type: object
+                                properties:
+                                  id:
+                                    type: string
+                                    minLength: 1
+                                  displayName:
+                                    type: string
+                                    minLength: 1
+                                required:
+                                  - id
+                                additionalProperties: false
+                            - type: "null"
                         createdAt:
                           type: integer
                           minimum: -9007199254740991
@@ -8826,6 +8844,8 @@ paths:
                         - auth
                         - status
                         - label
+                        - baseUrl
+                        - models
                         - createdAt
                         - updatedAt
                         - isManaged
@@ -8839,9 +8859,7 @@ paths:
           required: false
           schema:
             type: string
-          description:
-            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, zai, deepseek,
-            minimax, opencode-go"
+          description: "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, openai-compatible"
     post:
       operationId: inference_providerconnections_post
       summary: Create a provider connection
@@ -8868,10 +8886,7 @@ paths:
                       - ollama
                       - fireworks
                       - openrouter
-                      - zai
-                      - deepseek
-                      - minimax
-                      - opencode-go
+                      - openai-compatible
                   auth:
                     oneOf:
                       - type: object
@@ -8936,6 +8951,27 @@ paths:
                       - type: string
                         minLength: 1
                       - type: "null"
+                  baseUrl:
+                    anyOf:
+                      - type: string
+                        format: uri
+                      - type: "null"
+                  models:
+                    anyOf:
+                      - type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              minLength: 1
+                            displayName:
+                              type: string
+                              minLength: 1
+                          required:
+                            - id
+                          additionalProperties: false
+                      - type: "null"
                   createdAt:
                     type: integer
                     minimum: -9007199254740991
@@ -8952,6 +8988,8 @@ paths:
                   - auth
                   - status
                   - label
+                  - baseUrl
+                  - models
                   - createdAt
                   - updatedAt
                   - isManaged
@@ -8979,10 +9017,7 @@ paths:
                     - ollama
                     - fireworks
                     - openrouter
-                    - zai
-                    - deepseek
-                    - minimax
-                    - opencode-go
+                    - openai-compatible
                 auth:
                   oneOf:
                     - type: object
@@ -9045,6 +9080,27 @@ paths:
                   enum:
                     - active
                     - disabled
+                base_url:
+                  anyOf:
+                    - type: string
+                      format: uri
+                    - type: "null"
+                models:
+                  anyOf:
+                    - type: array
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            minLength: 1
+                          displayName:
+                            type: string
+                            minLength: 1
+                        required:
+                          - id
+                        additionalProperties: false
+                    - type: "null"
               required:
                 - name
                 - provider
@@ -9112,10 +9168,7 @@ paths:
                       - ollama
                       - fireworks
                       - openrouter
-                      - zai
-                      - deepseek
-                      - minimax
-                      - opencode-go
+                      - openai-compatible
                   auth:
                     oneOf:
                       - type: object
@@ -9180,6 +9233,27 @@ paths:
                       - type: string
                         minLength: 1
                       - type: "null"
+                  baseUrl:
+                    anyOf:
+                      - type: string
+                        format: uri
+                      - type: "null"
+                  models:
+                    anyOf:
+                      - type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              minLength: 1
+                            displayName:
+                              type: string
+                              minLength: 1
+                          required:
+                            - id
+                          additionalProperties: false
+                      - type: "null"
                   createdAt:
                     type: integer
                     minimum: -9007199254740991
@@ -9196,6 +9270,8 @@ paths:
                   - auth
                   - status
                   - label
+                  - baseUrl
+                  - models
                   - createdAt
                   - updatedAt
                   - isManaged
@@ -9237,10 +9313,7 @@ paths:
                       - ollama
                       - fireworks
                       - openrouter
-                      - zai
-                      - deepseek
-                      - minimax
-                      - opencode-go
+                      - openai-compatible
                   auth:
                     oneOf:
                       - type: object
@@ -9305,6 +9378,27 @@ paths:
                       - type: string
                         minLength: 1
                       - type: "null"
+                  baseUrl:
+                    anyOf:
+                      - type: string
+                        format: uri
+                      - type: "null"
+                  models:
+                    anyOf:
+                      - type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              minLength: 1
+                            displayName:
+                              type: string
+                              minLength: 1
+                          required:
+                            - id
+                          additionalProperties: false
+                      - type: "null"
                   createdAt:
                     type: integer
                     minimum: -9007199254740991
@@ -9321,6 +9415,8 @@ paths:
                   - auth
                   - status
                   - label
+                  - baseUrl
+                  - models
                   - createdAt
                   - updatedAt
                   - isManaged
@@ -9405,6 +9501,27 @@ paths:
                   anyOf:
                     - type: string
                       minLength: 1
+                    - type: "null"
+                base_url:
+                  anyOf:
+                    - type: string
+                      format: uri
+                    - type: "null"
+                models:
+                  anyOf:
+                    - type: array
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                            minLength: 1
+                          displayName:
+                            type: string
+                            minLength: 1
+                        required:
+                          - id
+                        additionalProperties: false
                     - type: "null"
               required:
                 - auth

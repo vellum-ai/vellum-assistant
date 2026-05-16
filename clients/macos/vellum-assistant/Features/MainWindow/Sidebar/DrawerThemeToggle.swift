@@ -1,7 +1,8 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Three-way theme toggle for the control center drawer.
+/// Theme toggle for the control center drawer. Shows three options (System/Light/Dark)
+/// by default, plus a fourth Velvet option when the velvet-theme feature flag is enabled.
 struct DrawerThemeToggle: View {
     @AppStorage("themePreference") private var themePreference: String = "system"
 
@@ -12,6 +13,10 @@ struct DrawerThemeToggle: View {
         )
     }
 
+    private var isVelvetEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("velvet-theme")
+    }
+
     var body: some View {
         HStack(spacing: VSpacing.xs) {
             Text("Theme")
@@ -19,14 +24,21 @@ struct DrawerThemeToggle: View {
                 .foregroundStyle(VColor.contentDisabled)
             Spacer()
             VSegmentControl(
-                items: [
-                    (label: "System", icon: VIcon.monitor.rawValue, tag: "system"),
-                    (label: "Light", icon: VIcon.sun.rawValue, tag: "light"),
-                    (label: "Dark", icon: VIcon.moon.rawValue, tag: "dark"),
-                ],
+                items: isVelvetEnabled
+                    ? [
+                        (label: "System", icon: VIcon.monitor.rawValue, tag: "system"),
+                        (label: "Light", icon: VIcon.sun.rawValue, tag: "light"),
+                        (label: "Dark", icon: VIcon.moon.rawValue, tag: "dark"),
+                        (label: "Velvet", icon: VIcon.sparkle.rawValue, tag: "velvet"),
+                    ]
+                    : [
+                        (label: "System", icon: VIcon.monitor.rawValue, tag: "system"),
+                        (label: "Light", icon: VIcon.sun.rawValue, tag: "light"),
+                        (label: "Dark", icon: VIcon.moon.rawValue, tag: "dark"),
+                    ],
                 selection: themeBinding
             )
-            .frame(width: 104)
+            .frame(width: isVelvetEnabled ? 140 : 104)
         }
     }
 }

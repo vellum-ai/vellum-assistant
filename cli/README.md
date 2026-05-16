@@ -54,27 +54,25 @@ vellum hatch [species] [options]
 
 #### Options
 
-| Option              | Description                                                                                    |
-| ------------------- | ---------------------------------------------------------------------------------------------- |
-| `-d`                | Detached mode. Start the instance in the background without watching startup progress.         |
-| `--name <name>`     | Use a specific instance name instead of an auto-generated one.                                 |
-| `--remote <target>` | Where to provision the instance. One of: `local`, `gcp`, `aws`, `custom`. Defaults to `local`. |
+| Option              | Description                                                                                                        |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `-d`                | Detached mode. Start the instance in the background without watching startup progress.                             |
+| `--name <name>`     | Use a specific instance name instead of an auto-generated one.                                                     |
+| `--remote <target>` | Where to provision the instance. One of: `local`, `docker`, `vellum`, `gcp`, `aws`, `custom`. Defaults to `local`. |
 
 #### Remote Targets
 
 - **`local`** -- Starts the local assistant and local gateway. Gateway source resolution order is: repo source tree, then installed `@vellumai/vellum-gateway` package.
-- **`gcp`** -- Creates a GCP Compute Engine VM (`e2-standard-4`: 4 vCPUs, 16 GB) with a startup script that bootstraps the assistant. Requires `gcloud` authentication and `GCP_PROJECT` / `GCP_DEFAULT_ZONE` environment variables.
-- **`aws`** -- Provisions an AWS instance.
-- **`custom`** -- Provisions on an arbitrary SSH host. Set `VELLUM_CUSTOM_HOST` (e.g. `user@hostname`) to specify the target.
+- **`docker`** -- Starts the assistant, gateway, and credential service in Docker containers.
+- **`vellum`** -- Hatches an assistant on the Vellum platform.
+- **`gcp`** and **`aws`** -- Recognized but not supported as provisioning targets yet. The CLI exits before creating cloud resources. To self-host on AWS/GCP, SSH into the VM and run `vellum hatch` or `vellum hatch --remote docker` there.
+- **`custom`** -- Recognized but not yet implemented.
 
 #### Environment Variables
 
-| Variable             | Required For | Description                                                |
-| -------------------- | ------------ | ---------------------------------------------------------- |
-| `ANTHROPIC_API_KEY`  | All          | Anthropic API key passed to the assistant runtime.         |
-| `GCP_PROJECT`        | `gcp`        | GCP project ID. Falls back to the active `gcloud` project. |
-| `GCP_DEFAULT_ZONE`   | `gcp`        | GCP zone for the compute instance.                         |
-| `VELLUM_CUSTOM_HOST` | `custom`     | SSH host in `user@hostname` format.                        |
+| Variable            | Required For | Description                                                                |
+| ------------------- | ------------ | -------------------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY` | Optional     | Used during setup when no Anthropic API key is already stored or prompted. |
 
 #### Examples
 
@@ -82,20 +80,14 @@ vellum hatch [species] [options]
 # Hatch a local assistant (default)
 vellum hatch
 
-# Hatch a vellum assistant on GCP
-vellum hatch vellum --remote gcp
-
-# Hatch an openclaw assistant on GCP in detached mode
-vellum hatch openclaw --remote gcp -d
+# Hatch a Docker assistant
+vellum hatch --remote docker
 
 # Hatch with a specific instance name
-vellum hatch --name my-assistant --remote gcp
-
-# Hatch on a custom SSH host
-VELLUM_CUSTOM_HOST=user@10.0.0.1 vellum hatch --remote custom
+vellum hatch --name my-assistant --remote docker
 ```
 
-When hatching on GCP in interactive mode (without `-d`), the CLI displays an animated progress TUI that polls the instance's startup script output in real time. Press `Ctrl+C` to detach -- the instance will continue running in the background.
+AWS and GCP hatch targets are recognized so users receive an explicit unsupported-target error instead of an unknown-option error. They currently exit without creating cloud resources; self-hosting on an AWS/GCP VM still works by running `vellum hatch` from inside that machine.
 
 ### `terminal`
 
@@ -111,18 +103,18 @@ Only available for managed assistants (those running in a Vellum Cloud container
 
 #### Subcommands
 
-| Subcommand         | Description                                                              |
-| ------------------ | ------------------------------------------------------------------------ |
-| _(none)_           | Open an interactive shell session inside the container.                  |
-| `attach <session>` | Attach to an existing `tmux` session by name inside the container.       |
-| `list`             | List the `tmux` sessions currently running inside the container.         |
+| Subcommand         | Description                                                        |
+| ------------------ | ------------------------------------------------------------------ |
+| _(none)_           | Open an interactive shell session inside the container.            |
+| `attach <session>` | Attach to an existing `tmux` session by name inside the container. |
+| `list`             | List the `tmux` sessions currently running inside the container.   |
 
 #### Options
 
-| Option               | Description                                                                                  |
-| -------------------- | -------------------------------------------------------------------------------------------- |
+| Option               | Description                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------------- |
 | `[name]`             | Positional. Name of the assistant to target. Defaults to the active assistant set via `vellum use`. |
-| `--assistant <name>` | Explicit form of the assistant name. Equivalent to the positional argument.                  |
+| `--assistant <name>` | Explicit form of the assistant name. Equivalent to the positional argument.                         |
 
 If no assistant is named and no active assistant is set, the CLI uses the only managed assistant in the lockfile -- or errors out if there's more than one. Use `vellum ps` to see your assistants and `vellum use <name>` to set the active one.
 

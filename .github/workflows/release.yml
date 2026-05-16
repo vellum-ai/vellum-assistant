@@ -2477,7 +2477,7 @@ jobs:
 
           # Add Chrome extension zip if available
           if [ -d "chrome-extension-artifacts" ]; then
-            CRX_ZIP=$(find chrome-extension-artifacts -name "vellum-browser-relay-*.zip" -type f | sort | head -1)
+            CRX_ZIP=$(find chrome-extension-artifacts -name "vellum-browser-relay.zip" -type f | head -1)
             [ -n "$CRX_ZIP" ] && ASSETS+=("$CRX_ZIP#vellum-browser-relay-${VERSION}.zip")
           fi
 
