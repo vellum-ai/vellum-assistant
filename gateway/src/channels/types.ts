@@ -5,6 +5,7 @@ export const CHANNEL_IDS = [
   "whatsapp",
   "slack",
   "email",
+  "a2a",
 ] as const;
 
 export type ChannelId = (typeof CHANNEL_IDS)[number];
@@ -30,6 +31,7 @@ export const INTERFACE_IDS = [
   "whatsapp",
   "slack",
   "email",
+  "a2a",
 ] as const;
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];
