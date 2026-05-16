@@ -10,7 +10,7 @@ import type { ChannelId } from "./types.js";
 
 export type InboundChannelId = Extract<
   ChannelId,
-  "telegram" | "whatsapp" | "slack" | "email"
+  "telegram" | "whatsapp" | "slack" | "email" | "a2a"
 >;
 
 interface InboundEventBase<C extends InboundChannelId> {
@@ -59,9 +59,11 @@ export type TelegramInboundEvent = InboundEventBase<"telegram">;
 export type WhatsAppInboundEvent = InboundEventBase<"whatsapp">;
 export type SlackInboundEvent = InboundEventBase<"slack">;
 export type EmailInboundEvent = InboundEventBase<"email">;
+export type A2aInboundEvent = InboundEventBase<"a2a">;
 
 export type GatewayInboundEvent =
   | TelegramInboundEvent
   | WhatsAppInboundEvent
   | SlackInboundEvent
-  | EmailInboundEvent;
+  | EmailInboundEvent
+  | A2aInboundEvent;
