@@ -169,6 +169,10 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   "catch-all",
   // Loopback-only pairing endpoint — not part of the public gateway API
   "/v1/pair",
+  // A2A protocol endpoints — unauthenticated peer-to-peer discovery and messaging
+  "/.well-known/agent-card.json",
+  "/a2a/message:send",
+  "/a2a/push",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──

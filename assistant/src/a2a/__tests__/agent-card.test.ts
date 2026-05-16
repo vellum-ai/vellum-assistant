@@ -21,11 +21,13 @@ describe("buildAgentCard", () => {
     expect(card.skills).toBeDefined();
   });
 
-  test("interface URL is baseUrl + /a2a", () => {
+  test("interface URL is baseUrl + /a2a/message:send", () => {
     const card = buildAgentCard(BASE_PARAMS);
 
     expect(card.supported_interfaces).toHaveLength(1);
-    expect(card.supported_interfaces[0].url).toBe("https://example.com/a2a");
+    expect(card.supported_interfaces[0].url).toBe(
+      "https://example.com/a2a/message:send",
+    );
     expect(card.supported_interfaces[0].protocol_binding).toBe("JSONRPC");
     expect(card.supported_interfaces[0].protocol_version).toBe("1.0");
   });
@@ -89,6 +91,8 @@ describe("buildAgentCard", () => {
     });
 
     // The URL is constructed by simple concatenation; callers normalize the base.
-    expect(card.supported_interfaces[0].url).toBe("https://example.com//a2a");
+    expect(card.supported_interfaces[0].url).toBe(
+      "https://example.com//a2a/message:send",
+    );
   });
 });
