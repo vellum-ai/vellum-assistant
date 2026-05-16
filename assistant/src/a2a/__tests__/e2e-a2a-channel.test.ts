@@ -536,10 +536,10 @@ describe("e2e: push notification failure graceful degradation", () => {
       text: "Here is your response",
     });
 
-    // Wait for the push retry attempts to settle
-    await new Promise((r) => setTimeout(r, 200));
+    // Wait for push retry attempts to fully settle (3 retries with exponential backoff)
+    await new Promise((r) => setTimeout(r, 5000));
 
-    // Push was attempted (at least once)
+    // Push was attempted (initial + retries)
     const pushCalls = fetchCalls.filter((c) =>
       c.url.includes("failing-push.example.com"),
     );
