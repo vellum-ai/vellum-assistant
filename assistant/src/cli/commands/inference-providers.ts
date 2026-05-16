@@ -369,7 +369,7 @@ function attachLoginChatgptSubcommand(providers: Command): void {
 
         // Step 2: Store tokens in CES
         const accessStored = await setSecureKeyAsync(
-          "credential/openai-codex/access_token",
+          "credential/chatgpt/access_token",
           tokens.accessToken,
         );
         if (!accessStored) {
@@ -379,7 +379,7 @@ function attachLoginChatgptSubcommand(providers: Command): void {
 
         if (tokens.refreshToken) {
           const refreshStored = await setSecureKeyAsync(
-            "credential/openai-codex/refresh_token",
+            "credential/chatgpt/refresh_token",
             tokens.refreshToken,
           );
           if (!refreshStored) {
@@ -391,16 +391,16 @@ function attachLoginChatgptSubcommand(providers: Command): void {
         if (tokens.expiresIn) {
           const expiresAt = Math.floor(Date.now() / 1000 + tokens.expiresIn);
           await setSecureKeyAsync(
-            "credential/openai-codex/expires_at",
+            "credential/chatgpt/expires_at",
             String(expiresAt),
           );
         }
 
         // Step 3: Create (or update) provider connection via IPC
-        const connectionName = "openai-codex-subscription";
+        const connectionName = "chatgpt-subscription";
         const authInput = {
           type: "oauth_subscription",
-          credential: "credential/openai-codex/access_token",
+          credential: "credential/chatgpt/access_token",
         };
 
         // Try to update first; if the connection doesn't exist, create it.

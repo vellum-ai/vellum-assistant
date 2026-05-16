@@ -30,7 +30,7 @@ let refreshInFlight: Promise<string | null> | null = null;
 /**
  * Return a valid Codex access token, refreshing transparently if expired.
  *
- * @param credentialPrefix - Credential key prefix, e.g. `"credential/openai-codex"`.
+ * @param credentialPrefix - Credential key prefix, e.g. `"credential/chatgpt"`.
  *   The function reads `<prefix>/access_token`, `<prefix>/refresh_token`,
  *   and `<prefix>/expires_at` from the credential store.
  * @returns The access token string, or `null` if no token is stored.
