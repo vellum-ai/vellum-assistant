@@ -711,16 +711,19 @@ describe("SlackSocketModeClient thread tracking", () => {
     const emitted: NormalizedSlackEvent[] = [];
     const client = createHarness(store, (event) => emitted.push(event));
     const ws = makeOpenSocket();
-    let conversationInfoCalls = 0;
+    const conversationInfoChannels: string[] = [];
 
     fetchMock = mock(async (input) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/conversations.info")) {
-        conversationInfoCalls++;
+        const channelId = url.searchParams.get("channel");
+        if (channelId) {
+          conversationInfoChannels.push(channelId);
+        }
         return new Response(
           JSON.stringify({
             ok: true,
-            channel: { id: "CFEEDBACK", name: "private-name" },
+            channel: { id: channelId, name: "private-name" },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
@@ -752,7 +755,7 @@ describe("SlackSocketModeClient thread tracking", () => {
       expect(emitted[0].event.message.content).toBe(
         "@Example User continue in #visible-name",
       );
-      expect(conversationInfoCalls).toBe(0);
+      expect(conversationInfoChannels).toEqual(["C-thread"]);
     } finally {
       rawDb.close();
     }
