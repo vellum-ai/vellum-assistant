@@ -135,7 +135,13 @@ export async function connectToAssistant(params: {
 }): Promise<ConnectToAssistantResult> {
   const { guardianHandle, gatewayUrl } = params;
 
-  // 1. Resolve the peer assistant's identity
+  // 1. Ensure A2A channel is enabled (auto-enable on first connect)
+  const config = getA2AConfig();
+  if (!config.enabled) {
+    setA2AConfig();
+  }
+
+  // 2. Resolve the peer assistant's identity
   let resolved: ResolvedAssistant;
   try {
     resolved = await resolveGuardianHandle(guardianHandle, gatewayUrl);
@@ -146,7 +152,7 @@ export async function connectToAssistant(params: {
     };
   }
 
-  // 2. Check for existing connection (idempotent)
+  // 3. Check for existing connection (idempotent)
   const existing = findContactByAddress("a2a", resolved.assistantId);
   if (existing) {
     const activeChannel = existing.channels.find(
@@ -161,7 +167,7 @@ export async function connectToAssistant(params: {
     }
   }
 
-  // 3. Create local contact + channel + assistant_contact_metadata
+  // 4. Create local contact + channel + assistant_contact_metadata
   const contact = upsertContact({
     displayName: resolved.displayName,
     contactType: "assistant",
