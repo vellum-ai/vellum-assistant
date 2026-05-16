@@ -8743,9 +8743,6 @@ paths:
                             - fireworks
                             - openrouter
                             - zai
-                            - deepseek
-                            - minimax
-                            - opencode-go
                             - openai-compatible
                         auth:
                           oneOf:
@@ -8864,8 +8861,8 @@ paths:
           schema:
             type: string
           description:
-            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, zai, deepseek,
-            minimax, opencode-go, openai-compatible"
+            "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, openrouter, zai,
+            openai-compatible"
     post:
       operationId: inference_providerconnections_post
       summary: Create a provider connection
@@ -8893,9 +8890,6 @@ paths:
                       - fireworks
                       - openrouter
                       - zai
-                      - deepseek
-                      - minimax
-                      - opencode-go
                       - openai-compatible
                   auth:
                     oneOf:
@@ -9028,9 +9022,6 @@ paths:
                     - fireworks
                     - openrouter
                     - zai
-                    - deepseek
-                    - minimax
-                    - opencode-go
                     - openai-compatible
                 auth:
                   oneOf:
@@ -9183,9 +9174,6 @@ paths:
                       - fireworks
                       - openrouter
                       - zai
-                      - deepseek
-                      - minimax
-                      - opencode-go
                       - openai-compatible
                   auth:
                     oneOf:
@@ -9332,9 +9320,6 @@ paths:
                       - fireworks
                       - openrouter
                       - zai
-                      - deepseek
-                      - minimax
-                      - opencode-go
                       - openai-compatible
                   auth:
                     oneOf:

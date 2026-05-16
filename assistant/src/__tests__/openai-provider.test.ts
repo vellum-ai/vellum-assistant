@@ -21,6 +21,7 @@ interface FakeChunk {
   choices: Array<{
     delta: {
       content?: string | null;
+      reasoning_content?: string | null;
       tool_calls?: Array<{
         index: number;
         id?: string;
@@ -209,6 +210,17 @@ function cachedUsageChunk(
   };
 }
 
+function reasoningChunk(
+  reasoning: string,
+  finish: string | null = null,
+): FakeChunk {
+  return {
+    choices: [{ delta: { reasoning_content: reasoning }, finish_reason: finish }],
+    usage: null,
+    model: "gpt-5.2",
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Class extraction sanity checks
 // ---------------------------------------------------------------------------
@@ -337,6 +349,76 @@ describe("OpenAIProvider", () => {
     expect(events).toHaveLength(2);
     expect(events[0]).toEqual({ type: "text_delta", text: "Hello" });
     expect(events[1]).toEqual({ type: "text_delta", text: ", world!" });
+  });
+
+  // -----------------------------------------------------------------------
+  // Reasoning content (MiniMax / DeepSeek extension)
+  // -----------------------------------------------------------------------
+  test("parses reasoning_content into thinking block", async () => {
+    fakeChunks = [
+      reasoningChunk("Let me think..."),
+      textChunk("The answer is 42."),
+      usageChunk(10, 20),
+    ];
+
+    const result = await provider.sendMessage([userMsg("Hi")]);
+
+    expect(result.content).toHaveLength(2);
+    expect(result.content[0]).toEqual({
+      type: "thinking",
+      thinking: "Let me think...",
+      signature: "",
+    });
+    expect(result.content[1]).toEqual({
+      type: "text",
+      text: "The answer is 42.",
+    });
+    expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 20 });
+  });
+
+  test("fires thinking_delta events during streaming", async () => {
+    fakeChunks = [
+      reasoningChunk("Let me think..."),
+      textChunk("The answer is 42."),
+      usageChunk(10, 20),
+    ];
+
+    const events: ProviderEvent[] = [];
+    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+      onEvent: (e) => events.push(e),
+    });
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toEqual({
+      type: "thinking_delta",
+      thinking: "Let me think...",
+    });
+    expect(events[1]).toEqual({ type: "text_delta", text: "The answer is 42." });
+  });
+
+  test("reasoning + tool calls orders correctly (thinking → tool_use)", async () => {
+    fakeChunks = [
+      reasoningChunk("Planning..."),
+      ...toolCallChunks([
+        { id: "call_1", name: "file_read", args: '{"path":"/a"}' },
+      ]),
+      usageChunk(10, 30),
+    ];
+
+    const result = await provider.sendMessage([userMsg("Read /a")]);
+
+    expect(result.content).toHaveLength(2);
+    expect(result.content[0].type).toBe("thinking");
+    expect(result.content[1].type).toBe("tool_use");
+  });
+
+  test("no thinking block when reasoning_content is absent", async () => {
+    fakeChunks = [textChunk("Just text"), usageChunk(10, 5)];
+
+    const result = await provider.sendMessage([userMsg("Hi")]);
+
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0].type).toBe("text");
   });
 
   // -----------------------------------------------------------------------

@@ -461,18 +461,18 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
   });
 
   test("auto-derives provider_connection for BYOK provider (Any active)", async () => {
-    // Seed a minimax connection in the DB.
+    // Seed a fireworks connection in the DB.
     createConnection(getDb(), {
-      name: "minimax",
-      provider: "minimax",
-      auth: { type: "api_key", credential: "minimax:api_key" },
+      name: "fireworks",
+      provider: "fireworks",
+      auth: { type: "api_key", credential: "fireworks:api_key" },
     });
 
     const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
       body: {
-        provider: "minimax",
-        model: "minimax-m2.7",
+        provider: "fireworks",
+        model: "accounts/fireworks/models/llama-v3p1-8b-instruct",
       },
     });
 
@@ -483,8 +483,8 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       }
     ).profiles.custom;
 
-    expect(savedProfile.provider).toBe("minimax");
-    expect(savedProfile.provider_connection).toBe("minimax");
+    expect(savedProfile.provider).toBe("fireworks");
+    expect(savedProfile.provider_connection).toBe("fireworks");
   });
 
   describe("managed profile guard", () => {
