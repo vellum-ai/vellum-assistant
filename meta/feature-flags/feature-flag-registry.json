@@ -34,6 +34,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "a2a-channel",
+      "scope": "assistant",
+      "key": "a2a-channel",
+      "label": "A2A Channel",
+      "description": "Enable the A2A (Agent-to-Agent) channel for inter-assistant communication via the open A2A protocol",
+      "defaultEnabled": false
+    },
+    {
       "id": "email-channel",
       "scope": "assistant",
       "key": "email-channel",

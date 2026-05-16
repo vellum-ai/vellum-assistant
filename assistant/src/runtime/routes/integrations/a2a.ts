@@ -7,6 +7,8 @@
  * POST   /v1/integrations/a2a/connect   — initiate connection to a peer assistant
  */
 
+import { isA2AEnabled } from "../../../a2a/feature-gate.js";
+import { getConfig } from "../../../config/loader.js";
 import {
   clearA2AConfig,
   connectToAssistant,
@@ -17,14 +19,26 @@ import { BadRequestError } from "../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function assertA2AFlag(): void {
+  if (!isA2AEnabled(getConfig())) {
+    throw new BadRequestError("A2A channel is not available");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
 function handleGetA2AConfig() {
+  assertA2AFlag();
   return getA2AConfig();
 }
 
 function handleSetA2AConfig() {
+  assertA2AFlag();
   const result = setA2AConfig();
   if (!result.success) {
     throw new BadRequestError(result.error ?? "Failed to enable A2A");
@@ -33,10 +47,12 @@ function handleSetA2AConfig() {
 }
 
 function handleClearA2AConfig() {
+  assertA2AFlag();
   return clearA2AConfig();
 }
 
 async function handleConnectToAssistant({ body = {} }: RouteHandlerArgs) {
+  assertA2AFlag();
   const { guardianHandle, gatewayUrl } = body as {
     guardianHandle?: string;
     gatewayUrl?: string;

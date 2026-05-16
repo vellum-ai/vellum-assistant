@@ -17,12 +17,14 @@
 
 import { z } from "zod";
 
+import { isA2AEnabled } from "../../a2a/feature-gate.js";
 import {
   CHANNEL_IDS,
   CHANNEL_METADATA,
   type ChannelId,
   type ChannelInfo,
 } from "../../channels/types.js";
+import { getConfig } from "../../config/loader.js";
 import { VellumPlatformClient } from "../../platform/client.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -74,6 +76,9 @@ async function handleGetChannelAvailability(
   const ids: ChannelId[] = [...BASE_AVAILABLE_CHANNELS];
   if (await hasRegisteredInbox()) {
     ids.push("email");
+  }
+  if (isA2AEnabled(getConfig())) {
+    ids.push("a2a");
   }
   // CHANNEL_METADATA is `Partial<Record<ChannelId, ChannelInfo>>` because
   // unsurfaced channels deliberately have no metadata. `ids` only ever
