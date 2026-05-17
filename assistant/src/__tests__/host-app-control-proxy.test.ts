@@ -42,6 +42,7 @@ mock.module("../runtime/pending-interactions.js", () => ({
 const {
   HostAppControlProxy,
   _getActiveAppControlSession,
+  _getConfirmedAppControlSession,
   _resetActiveAppControlSession,
   _setActiveAppControlSession,
 } = await import("../daemon/host-app-control-proxy.js");
@@ -822,6 +823,71 @@ describe("HostAppControlProxy", () => {
       const session = _getActiveAppControlSession();
       expect(session?.conversationId).toBe("conv-1");
       expect(session?.app).toBe("com.example.a");
+
+      proxy.dispose();
+    });
+
+    test("both-succeed older-arrives-last does not overwrite newer confirmed session", async () => {
+      // Two same-conversation starts both succeed, but the older one's
+      // `running` response arrives AFTER the newer one's. With a
+      // conversation-only ownership guard, the older response would
+      // overwrite the newer confirmed session — a latent bug that surfaces
+      // on a subsequent rollback. Verify the confirmed pointer stays on the
+      // newer session (C), and that a later rollback restores to C, not A.
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+
+      const pA = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.a" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdA = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+
+      sentMessages.length = 0;
+      const pC = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.c" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdC = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.c");
+
+      // C succeeds first → active = C, confirmed = C.
+      proxy.resolve(reqIdC, payload({ pngBase64: PNG_A }));
+      await pC;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.c");
+      expect(_getConfirmedAppControlSession()?.app).toBe("com.example.c");
+
+      // A succeeds second (older arrives last). The conversation-ownership
+      // check passes for A, but A is no longer the live optimistic write
+      // and a session is already confirmed — must NOT overwrite confirmed.
+      proxy.resolve(reqIdA, payload({ pngBase64: PNG_B }));
+      await pA;
+      expect(_getConfirmedAppControlSession()?.app).toBe("com.example.c");
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.c");
+
+      // A later restart D that fails must roll back to C (the true
+      // confirmed), not to A — guards against the latent-bug case.
+      sentMessages.length = 0;
+      const pD = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.d" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdD = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.resolve(reqIdD, payload({ state: "missing" }));
+      await pD;
+
+      const session = _getActiveAppControlSession();
+      expect(session?.conversationId).toBe("conv-1");
+      expect(session?.app).toBe("com.example.c");
 
       proxy.dispose();
     });
