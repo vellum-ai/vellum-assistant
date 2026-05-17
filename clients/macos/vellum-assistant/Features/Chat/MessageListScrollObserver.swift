@@ -455,12 +455,17 @@ struct MessageListScrollObserver: NSViewRepresentable {
         ///
         /// Reference identity is stored as an *index path* from
         /// `documentView` (e.g. `"0/2"`). On each emit we re-resolve the
-        /// path to whatever `NSView` is currently there. If it still
-        /// intersects the viewport and has non-zero height, we diff its
-        /// `minY` against the cached value. If the path no longer
-        /// resolves (LazyVStack removed a slot, structure shifted) or the
-        /// view at the path no longer intersects the viewport, we pick a
-        /// new path and return `0` — no compensation on the pick-frame.
+        /// path to whatever `NSView` is currently there. While the
+        /// resolved view still has non-zero height we diff its `minY`
+        /// against the cached value — even if it has been pushed outside
+        /// the viewport by a large upstream reflow, since that final
+        /// delta is exactly the shift we need to compensate for. When the
+        /// reference no longer intersects the viewport we still report
+        /// the delta, then pick a fresh in-viewport reference so the
+        /// next emit can keep tracking. If the path no longer resolves
+        /// (LazyVStack removed a slot, structure shifted) or the view
+        /// collapsed to zero height, we have no reliable previous-Y to
+        /// diff against, so we pick a new path and return `0`.
         ///
         /// Returning `0` is also what's expected on the first emit after
         /// attach: `anchorReferencePath` is `nil`, we pick one, and the
@@ -478,18 +483,32 @@ struct MessageListScrollObserver: NSViewRepresentable {
             )
             if let path = anchorReferencePath,
                let view = resolvePath(path, from: documentView),
-               isViewUsable(view, in: documentView, viewport: viewport) {
+               view.frame.height > 0 {
                 let currentY = view.convert(.zero, to: documentView).y
                 let delta = currentY - lastReferenceY
-                lastReferenceY = currentY
+                let frameInDoc = view.convert(view.bounds, to: documentView)
+                if frameInDoc.intersects(viewport) {
+                    lastReferenceY = currentY
+                    return delta
+                }
+                // Reference was pushed outside the viewport on this emit
+                // (large upstream reflow — image load, thinking-block
+                // expansion, history correction). Apply its final delta
+                // as compensation, then pick a new in-viewport reference
+                // so subsequent emits keep tracking visible content.
+                pickAndStoreReference(in: documentView, viewport: viewport)
                 return delta
             }
             // Path invalid — pick a new one. No delta on this emit since
             // there's no previous-Y to diff against.
+            pickAndStoreReference(in: documentView, viewport: viewport)
+            return 0
+        }
+
+        private func pickAndStoreReference(in documentView: NSView, viewport: CGRect) {
             let pick = pickAnchorReferencePath(in: documentView, viewport: viewport)
             anchorReferencePath = pick?.path
             lastReferenceY = pick?.view.convert(.zero, to: documentView).y ?? 0
-            return 0
         }
 
         /// Walks `path` (e.g. `"0/2"`) from `root`, returning the resolved
@@ -505,16 +524,6 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 current = current.subviews[index]
             }
             return current === root ? nil : current
-        }
-
-        /// A view at the resolved path is still usable when it has a
-        /// non-zero height and still intersects the viewport. Anything
-        /// else means the LazyVStack pushed it offscreen — pick a new
-        /// reference rather than tracking a stale position.
-        private func isViewUsable(_ view: NSView, in documentView: NSView, viewport: CGRect) -> Bool {
-            guard view.frame.height > 0 else { return false }
-            let frameInDoc = view.convert(view.bounds, to: documentView)
-            return frameInDoc.intersects(viewport)
         }
 
         /// Picks an anchor reference path from the materialized subtree of

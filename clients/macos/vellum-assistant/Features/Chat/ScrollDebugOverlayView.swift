@@ -266,9 +266,20 @@ struct ScrollDebugOverlayView: View {
 
     /// A skip that accompanied a real content-height change is a compensation
     /// we missed — this is the class of event the telemetry is meant to flag.
+    ///
+    /// `.noVisibleShift` skips are explicitly excluded: under the
+    /// reference-based compensation model, streaming tokens grow
+    /// `contentHDelta` without moving any visible row, and the preserver
+    /// correctly skips those frames. Flagging them red would make the HUD
+    /// flash on every streaming token — i.e. precisely during the scenario
+    /// the reference-based formulation is designed to handle correctly.
     static func isMissedCompensation(_ event: ScrollAnchorDecisionEvent?) -> Bool {
         guard let event else { return false }
-        if case .skipped = event.outcome, event.contentHDelta != 0 { return true }
+        if case .skipped(let reason) = event.outcome,
+           reason != .noVisibleShift,
+           event.contentHDelta != 0 {
+            return true
+        }
         return false
     }
 }
