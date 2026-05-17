@@ -42,11 +42,11 @@ extension ChatViewModel {
                 messages[index].thinkingSegments.append(text)
                 messages[index].contentOrder.append(.thinking(segIdx))
             }
-        } else if currentAssistantMessageId != nil {
-            log.warning("Stale currentAssistantMessageId \(self.currentAssistantMessageId!.uuidString) — discarding \(text.count) buffered thinking chars")
-            currentAssistantMessageId = nil
-            return
         } else {
+            if let staleId = currentAssistantMessageId {
+                log.warning("Stale currentAssistantMessageId \(staleId.uuidString) — promoting buffered \(text.count) thinking chars to new message")
+                currentAssistantMessageId = nil
+            }
             var msg = ChatMessage(role: .assistant, text: "", isStreaming: true)
             msg.thinkingSegments = [text]
             msg.contentOrder = [.thinking(0)]
