@@ -127,18 +127,22 @@ struct MessageListScrollObserver: NSViewRepresentable {
         /// "streaming response below the viewport grows by 1 pt/token, but
         /// no visible row shifts" failure mode the recorded CSVs show.
         ///
-        /// We track by index path rather than a weak `NSView` reference
-        /// because LazyVStack reflows destroy and recreate the underlying
-        /// `NSView` at the same logical position. A weak reference becomes
-        /// `nil` across that destruction, forcing us to re-pick on every
-        /// reflow and miss the chunky `+25–100 pt` `minY` shift that
-        /// reflow actually represents (recorded CSV shows only 1 of 4
-        /// chunky shifts firing the anchor under the weak-reference
-        /// scheme, leaving the other three to SwiftUI's late offset
-        /// adjustment and producing a "jump back and forth" flicker).
-        /// Paths survive the destruction; the resolved view at that path
-        /// post-reflow is what we diff against.
+        /// Path resolution is paired with a weak `NSView` reference
+        /// (`anchorReferenceView`) so we can detect path aliasing — during
+        /// streaming sessions a row insert/remove/reorder can leave the old
+        /// path resolvable but pointing at a *different* descendant. Using
+        /// only the path in that case would let `updateAndReadReferenceDelta`
+        /// diff the Y of two unrelated views and apply the result as
+        /// compensation, producing a visible jump. We require both the path
+        /// to resolve and the resolved view to be `===` the stored weak
+        /// reference before trusting the delta; otherwise we re-pick.
         private var anchorReferencePath: String?
+        /// Weak identity guard for `anchorReferencePath`. When the underlying
+        /// `NSView` is destroyed (LazyVStack reflow) or the path now resolves
+        /// to a different descendant (row insert/remove/reorder), this
+        /// pointer fails to match and we re-pick instead of computing a
+        /// delta between unrelated views.
+        private weak var anchorReferenceView: NSView?
         /// Cached `convert(.zero, to: documentView).y` of the view at
         /// `anchorReferencePath` from the last emit. The next emit's
         /// `Δref` is `currentY - lastReferenceY`, which is what we pass
@@ -217,6 +221,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
             // fresh reference from the new tree without computing a delta
             // against a stale Y.
             self.anchorReferencePath = nil
+            self.anchorReferenceView = nil
             self.lastReferenceY = 0
             installObservers()
         }
@@ -232,6 +237,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
             isLiveScrolling = false
             lastSubviewHeights = [:]
             anchorReferencePath = nil
+            anchorReferenceView = nil
             lastReferenceY = 0
         }
 
@@ -431,6 +437,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
                     // a fresh one from the post-gesture viewport.
                     self.lastContentHeight = self.documentView?.frame.height ?? 0
                     self.anchorReferencePath = nil
+                    self.anchorReferenceView = nil
                     self.lastReferenceY = 0
                     self.emitCurrentSnapshotIfPossible()
                 }
@@ -453,19 +460,25 @@ struct MessageListScrollObserver: NSViewRepresentable {
         /// Coordinator passes this delta to `ScrollAnchorPreserver.decide`
         /// as `compensationDelta`.
         ///
-        /// Reference identity is stored as an *index path* from
-        /// `documentView` (e.g. `"0/2"`). On each emit we re-resolve the
-        /// path to whatever `NSView` is currently there. While the
-        /// resolved view still has non-zero height we diff its `minY`
-        /// against the cached value — even if it has been pushed outside
-        /// the viewport by a large upstream reflow, since that final
+        /// Reference identity is stored as an index path from `documentView`
+        /// (e.g. `"0/2"`) **paired with a weak `NSView` reference**. On each
+        /// emit we re-resolve the path and require the resolved view to be
+        /// `===` the cached weak reference before trusting the delta. Path
+        /// alone is not enough: during streaming, a row insert/remove/reorder
+        /// can leave the old path resolvable but pointing at a *different*
+        /// descendant, and diffing those Ys produces a visible jump. Pairing
+        /// with the weak reference catches that aliasing — when the NSView is
+        /// destroyed (reflow) or replaced (reorder), the identity check fails
+        /// and we re-pick rather than apply a bogus delta.
+        ///
+        /// While identity holds and the view has non-zero height we diff its
+        /// `minY` against the cached value — even if it has been pushed
+        /// outside the viewport by a large upstream reflow, since that final
         /// delta is exactly the shift we need to compensate for. When the
-        /// reference no longer intersects the viewport we still report
-        /// the delta, then pick a fresh in-viewport reference so the
-        /// next emit can keep tracking. If the path no longer resolves
-        /// (LazyVStack removed a slot, structure shifted) or the view
-        /// collapsed to zero height, we have no reliable previous-Y to
-        /// diff against, so we pick a new path and return `0`.
+        /// reference no longer intersects the viewport we still report the
+        /// delta, then pick a fresh in-viewport reference so the next emit
+        /// can keep tracking. If identity fails or the view collapsed to zero
+        /// height, we pick a new reference and return `0`.
         ///
         /// Returning `0` is also what's expected on the first emit after
         /// attach: `anchorReferencePath` is `nil`, we pick one, and the
@@ -483,6 +496,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
             )
             if let path = anchorReferencePath,
                let view = resolvePath(path, from: documentView),
+               view === anchorReferenceView,
                view.frame.height > 0 {
                 let currentY = view.convert(.zero, to: documentView).y
                 let delta = currentY - lastReferenceY
@@ -499,8 +513,10 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 pickAndStoreReference(in: documentView, viewport: viewport)
                 return delta
             }
-            // Path invalid — pick a new one. No delta on this emit since
-            // there's no previous-Y to diff against.
+            // Identity check failed (path missing, resolves to a different
+            // view, or the original NSView was destroyed) — pick a new
+            // reference. No delta on this emit since there's no trustworthy
+            // previous-Y to diff against.
             pickAndStoreReference(in: documentView, viewport: viewport)
             return 0
         }
@@ -508,6 +524,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
         private func pickAndStoreReference(in documentView: NSView, viewport: CGRect) {
             let pick = pickAnchorReferencePath(in: documentView, viewport: viewport)
             anchorReferencePath = pick?.path
+            anchorReferenceView = pick?.view
             lastReferenceY = pick?.view.convert(.zero, to: documentView).y ?? 0
         }
 
