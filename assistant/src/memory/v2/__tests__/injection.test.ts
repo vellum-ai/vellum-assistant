@@ -357,7 +357,7 @@ const { getSqliteFrom } = await import("../../db-connection.js");
 const { migrateActivationState } =
   await import("../../migrations/232-activation-state.js");
 const schema = await import("../../schema.js");
-const { evictCompactedTurns, hydrate, save } =
+const { clearEverInjected, hydrate, save } =
   await import("../activation-store.js");
 const { injectMemoryV2Block } = await import("../injection.js");
 const { _resetMemoryV2QdrantForTests } = await import("../qdrant.js");
@@ -653,10 +653,10 @@ describe("injectMemoryV2Block", () => {
       config: makeConfig(),
     });
 
-    // Simulate compaction: drop all everInjected entries with turn <= 1.
+    // Simulate compaction: clear the entire everInjected list.
     const beforeEvict = await hydrate(db, "conv-1");
     expect(beforeEvict).not.toBeNull();
-    const afterEvict = evictCompactedTurns(beforeEvict!, 1);
+    const afterEvict = clearEverInjected(beforeEvict!);
     expect(afterEvict.everInjected).toEqual([]);
     await save(db, "conv-1", afterEvict);
 

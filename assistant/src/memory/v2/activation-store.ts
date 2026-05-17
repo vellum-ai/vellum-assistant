@@ -11,11 +11,7 @@ import { eq } from "drizzle-orm";
 
 import type { DrizzleDb } from "../db-connection.js";
 import { activationState } from "../schema.js";
-import {
-  type ActivationState,
-  ActivationStateSchema,
-  type EverInjectedEntry,
-} from "./types.js";
+import { type ActivationState, ActivationStateSchema } from "./types.js";
 
 /**
  * Load the activation state for a conversation, or `null` if no row exists.
@@ -123,16 +119,18 @@ export function forkActivationState(
 }
 
 /**
- * Drop `everInjected` entries whose `turn` is at or below `upToTurn`.
- * Used after compaction evicts older turns — slugs that lived only on those
- * turns become eligible for re-injection on the next turn.
+ * Clear all `everInjected` entries. Used after compaction: the cached
+ * `<memory>` attachments those slugs lived on are gone, so future turns
+ * should be free to re-inject them.
+ *
+ * Unconditionally empties the list rather than filtering by turn number.
+ * `everInjected` is persisted on every turn while the in-memory tracker's
+ * `currentTurn` is only snapshotted on graceful conversation dispose, so a
+ * non-graceful shutdown (SIGKILL, crash) followed by a reload can leave
+ * `everInjected` entries with `turn` values above the restored tracker's
+ * `currentTurn`. A turn-bounded filter misses those stale entries and they
+ * dedupe forever; a full clear is robust to that drift.
  */
-export function evictCompactedTurns(
-  state: ActivationState,
-  upToTurn: number,
-): ActivationState {
-  const everInjected: EverInjectedEntry[] = state.everInjected.filter(
-    (entry) => entry.turn > upToTurn,
-  );
-  return { ...state, everInjected };
+export function clearEverInjected(state: ActivationState): ActivationState {
+  return { ...state, everInjected: [] };
 }
