@@ -471,6 +471,16 @@ struct MessageListScrollObserver: NSViewRepresentable {
         /// destroyed (reflow) or replaced (reorder), the identity check fails
         /// and we re-pick rather than apply a bogus delta.
         ///
+        /// When the identity check fails but the original `NSView` is still
+        /// alive in the document tree (a row was inserted/removed/reordered
+        /// *above* the viewport, shifting subview indices while leaving our
+        /// anchor view intact), we locate the view at its new index path,
+        /// update `anchorReferencePath`, and compute the real delta. Without
+        /// this fallback, the same visible row moving by an inserted row's
+        /// height would be reported as zero and `ScrollAnchorPreserver.decide`
+        /// would skip with `.noVisibleShift` — the transcript would jump by
+        /// the inserted row's height.
+        ///
         /// While identity holds and the view has non-zero height we diff its
         /// `minY` against the cached value — even if it has been pushed
         /// outside the viewport by a large upstream reflow, since that final
@@ -481,8 +491,9 @@ struct MessageListScrollObserver: NSViewRepresentable {
         /// path against the pre-compensation viewport, which is almost
         /// always off-screen after `setBoundsOrigin(preOffsetY + delta)` —
         /// leaving subsequent emits diffing a stale, non-visible row. If
-        /// identity fails or the view collapsed to zero height, we pick a
-        /// new reference and return `0`.
+        /// the anchor view was destroyed (or collapsed to zero height) and
+        /// we can no longer locate it, we pick a new reference and return
+        /// `0`.
         ///
         /// Returning `0` is also what's expected on the first emit after
         /// attach: `anchorReferencePath` is `nil`, we pick one, and the
@@ -525,13 +536,39 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 lastReferenceY = 0
                 return delta
             }
-            // Identity check failed (path missing, resolves to a different
-            // view, or the original NSView was destroyed) — pick a new
-            // reference. No delta on this emit since there's no trustworthy
-            // previous-Y to diff against. This branch also handles the
-            // emit following an out-of-viewport delta, where the prior
-            // emit cleared the anchor so we re-pick against the now
-            // post-compensation viewport.
+            // Identity check failed (path missing or now resolves to a
+            // different descendant). Before discarding the delta, check
+            // whether the originally-picked NSView is still alive in the
+            // document tree under a *different* index path — a row
+            // insert/remove/reorder above the viewport can shift subview
+            // indices while leaving our anchor view intact. In that case
+            // the same visible view did move, so compute the real delta
+            // against `lastReferenceY` and update the cached path.
+            if let view = anchorReferenceView,
+               view.frame.height > 0,
+               let newPath = findPath(of: view, in: documentView) {
+                let currentY = view.convert(.zero, to: documentView).y
+                let delta = currentY - lastReferenceY
+                let frameInDoc = view.convert(view.bounds, to: documentView)
+                if frameInDoc.intersects(viewport) {
+                    anchorReferencePath = newPath
+                    lastReferenceY = currentY
+                    return delta
+                }
+                // Same out-of-viewport handling as the in-band case above:
+                // report the delta, then clear so the next emit re-picks
+                // against the post-compensation viewport.
+                anchorReferencePath = nil
+                anchorReferenceView = nil
+                lastReferenceY = 0
+                return delta
+            }
+            // The anchor view was destroyed, collapsed, or is no longer in
+            // the document tree — pick a new reference. No delta on this
+            // emit since there's no trustworthy previous-Y to diff against.
+            // This branch also handles the emit following an out-of-viewport
+            // delta, where the prior emit cleared the anchor so we re-pick
+            // against the now post-compensation viewport.
             let pick = pickAnchorReferencePath(in: documentView, viewport: viewport)
             anchorReferencePath = pick?.path
             anchorReferenceView = pick?.view
@@ -552,6 +589,26 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 current = current.subviews[index]
             }
             return current === root ? nil : current
+        }
+
+        /// Inverse of `resolvePath`: returns `target`'s index path within
+        /// `root`'s subtree (e.g. `"0/2/1"`), or `nil` if `target` is not a
+        /// descendant of `root`. Walks up `target.superview` rather than
+        /// DFSing `root`'s subtree, so the cost is O(depth) regardless of the
+        /// subtree's fan-out.
+        private func findPath(of target: NSView, in root: NSView) -> String? {
+            var indices: [Int] = []
+            var current: NSView = target
+            while current !== root {
+                guard let parent = current.superview,
+                      let index = parent.subviews.firstIndex(where: { $0 === current }) else {
+                    return nil
+                }
+                indices.append(index)
+                current = parent
+            }
+            guard !indices.isEmpty else { return nil }
+            return indices.reversed().map(String.init).joined(separator: "/")
         }
 
         /// Picks an anchor reference path from the materialized subtree of
