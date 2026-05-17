@@ -34,10 +34,15 @@
 
 import type { AssistantConfig } from "../config/types.js";
 import { resolveTurnTimezoneContext } from "../daemon/date-context.js";
+import {
+  getAssistantName,
+  resolveUserName,
+} from "../daemon/identity-helpers.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { formatMessageSliceForTranscript } from "../export/transcript-formatter.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { bootstrapConversation } from "./conversation-bootstrap.js";
 import {
   deleteConversation,
@@ -126,13 +131,16 @@ export async function memoryRetrospectiveJob(
   // 4. Build prompt. Render message timestamps in the user's clock, not UTC,
   // so the assistant's reasoning about relative times in the slice
   // ("yesterday afternoon", "around dinnertime") matches what the user
-  // actually experienced.
+  // actually experienced. Resolve the assistant and user display names so the
+  // transcript reads as the conversation it was, not as generic role labels.
   const timezoneContext = resolveTurnTimezoneContext({
     configuredUserTimeZone: config.ui.userTimezone ?? null,
     detectedTimezone: config.ui.detectedTimezone ?? null,
   });
   const transcript = formatMessageSliceForTranscript(newMessages, {
     timeZone: timezoneContext.effectiveTimezone,
+    assistantName: getAssistantName(),
+    userName: resolveUserName(getWorkspaceDir()),
   });
   const prompt = buildPrompt({
     transcript,

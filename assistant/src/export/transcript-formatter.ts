@@ -64,18 +64,36 @@ function extractAnalysisText(blocks: ContentBlock[]): string {
   return parts.join("\n");
 }
 
-function formatRole(role: string): string {
-  return role === "user" ? "User" : "Assistant";
+export interface TranscriptFormatOptions {
+  timeZone?: string;
+  assistantName?: string | null;
+  userName?: string | null;
+}
+
+function resolveName(
+  name: string | null | undefined,
+  fallback: string,
+): string {
+  return name && name.length > 0 ? name : fallback;
+}
+
+function formatRole(
+  role: string,
+  options: TranscriptFormatOptions = {},
+): string {
+  return role === "user"
+    ? resolveName(options.userName, "User")
+    : resolveName(options.assistantName, "Assistant");
 }
 
 function formatSubagentMessages(
   msgs: ReturnType<typeof getMessages>,
-  timeZone?: string,
+  options: TranscriptFormatOptions = {},
 ): string {
   const lines: string[] = [];
   for (const msg of msgs) {
-    const role = formatRole(msg.role);
-    const time = formatLocalTimestamp(msg.createdAt, timeZone);
+    const role = formatRole(msg.role, options);
+    const time = formatLocalTimestamp(msg.createdAt, options.timeZone);
     const content = parseContent(msg.content);
     const text = extractAnalysisText(content);
     if (text) {
@@ -110,11 +128,11 @@ type TranscriptMessage = ReturnType<typeof getMessages>[number];
  */
 export function formatMessageSliceForTranscript(
   messages: TranscriptMessage[],
-  options: { timeZone?: string } = {},
+  options: TranscriptFormatOptions = {},
 ): string {
   const lines: string[] = [];
   for (const msg of messages) {
-    appendMessageBlock(lines, msg, options.timeZone);
+    appendMessageBlock(lines, msg, options);
   }
   return lines.join("\n");
 }
@@ -122,10 +140,10 @@ export function formatMessageSliceForTranscript(
 function appendMessageBlock(
   lines: string[],
   msg: TranscriptMessage,
-  timeZone?: string,
+  options: TranscriptFormatOptions = {},
 ): void {
-  const role = formatRole(msg.role);
-  const time = formatLocalTimestamp(msg.createdAt, timeZone);
+  const role = formatRole(msg.role, options);
+  const time = formatLocalTimestamp(msg.createdAt, options.timeZone);
   const content = parseContent(msg.content);
   const text = extractAnalysisText(content);
 
@@ -147,7 +165,7 @@ function appendMessageBlock(
           const subMessages = getMessages(notif.conversationId);
           lines.push(`### Subagent: ${notif.label} (${notif.status})`);
           lines.push("");
-          lines.push(formatSubagentMessages(subMessages, timeZone));
+          lines.push(formatSubagentMessages(subMessages, options));
           lines.push("");
         }
       }
