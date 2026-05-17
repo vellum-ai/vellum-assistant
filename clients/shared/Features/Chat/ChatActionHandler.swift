@@ -854,9 +854,8 @@ final class ChatActionHandler {
                 }
             }
         }
-        vm.clearCurrentTurnTracking()
-        vm.discardStreamingBuffer()
         vm.flushPartialOutputBuffer()
+        vm.clearCurrentTurnTracking()
         vm.dispatchPendingSendDirect()
     }
 
@@ -1369,8 +1368,8 @@ final class ChatActionHandler {
                 }
             }
         }
-        vm.clearCurrentTurnTracking()
         vm.flushPartialOutputBuffer()
+        vm.clearCurrentTurnTracking()
         // When the user intentionally cancelled, suppress the error.
         // Otherwise, set error state so the UI shows the error banner.
         if !wasCancelling {
