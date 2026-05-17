@@ -476,9 +476,13 @@ struct MessageListScrollObserver: NSViewRepresentable {
         /// outside the viewport by a large upstream reflow, since that final
         /// delta is exactly the shift we need to compensate for. When the
         /// reference no longer intersects the viewport we still report the
-        /// delta, then pick a fresh in-viewport reference so the next emit
-        /// can keep tracking. If identity fails or the view collapsed to zero
-        /// height, we pick a new reference and return `0`.
+        /// delta, then clear the anchor so the *next* emit re-picks against
+        /// the already-compensated viewport. Re-picking here would store a
+        /// path against the pre-compensation viewport, which is almost
+        /// always off-screen after `setBoundsOrigin(preOffsetY + delta)` —
+        /// leaving subsequent emits diffing a stale, non-visible row. If
+        /// identity fails or the view collapsed to zero height, we pick a
+        /// new reference and return `0`.
         ///
         /// Returning `0` is also what's expected on the first emit after
         /// attach: `anchorReferencePath` is `nil`, we pick one, and the
@@ -508,24 +512,31 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 // Reference was pushed outside the viewport on this emit
                 // (large upstream reflow — image load, thinking-block
                 // expansion, history correction). Apply its final delta
-                // as compensation, then pick a new in-viewport reference
-                // so subsequent emits keep tracking visible content.
-                pickAndStoreReference(in: documentView, viewport: viewport)
+                // as compensation, then clear the anchor so the next emit
+                // re-picks against the post-compensation viewport. The
+                // caller is about to scroll by `delta`, which restores the
+                // old reference to its prior screen position; picking a
+                // new reference here against the *pre-compensation*
+                // viewport would almost always land on a row that ends up
+                // off-screen, leaving the next emit diffing a stale,
+                // non-visible row.
+                anchorReferencePath = nil
+                anchorReferenceView = nil
+                lastReferenceY = 0
                 return delta
             }
             // Identity check failed (path missing, resolves to a different
             // view, or the original NSView was destroyed) — pick a new
             // reference. No delta on this emit since there's no trustworthy
-            // previous-Y to diff against.
-            pickAndStoreReference(in: documentView, viewport: viewport)
-            return 0
-        }
-
-        private func pickAndStoreReference(in documentView: NSView, viewport: CGRect) {
+            // previous-Y to diff against. This branch also handles the
+            // emit following an out-of-viewport delta, where the prior
+            // emit cleared the anchor so we re-pick against the now
+            // post-compensation viewport.
             let pick = pickAnchorReferencePath(in: documentView, viewport: viewport)
             anchorReferencePath = pick?.path
             anchorReferenceView = pick?.view
             lastReferenceY = pick?.view.convert(.zero, to: documentView).y ?? 0
+            return 0
         }
 
         /// Walks `path` (e.g. `"0/2"`) from `root`, returning the resolved
