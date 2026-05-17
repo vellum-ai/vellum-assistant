@@ -112,6 +112,13 @@ export function _getActiveAppControlSession():
   return activeAppControlSession;
 }
 
+/** Test-only helper: read the last host-confirmed session. */
+export function _getConfirmedAppControlSession():
+  | ActiveAppControlSession
+  | undefined {
+  return confirmedAppControlSession;
+}
+
 /** Test-only helper: clear both session pointers between test cases. */
 export function _resetActiveAppControlSession(): void {
   activeAppControlSession = undefined;
@@ -373,7 +380,19 @@ export class HostAppControlProxy extends HostProxyBase<
     if (activeAppControlSession?.conversationId !== attempted.conversationId) {
       return;
     }
-    confirmedAppControlSession = attempted;
+    // Promote when this start is still the live optimistic write (normal
+    // path) OR when no session has been confirmed yet — the latter covers
+    // a late-arriving `running` for an older overlapping start whose
+    // optimistic write was superseded but whose host confirmation is
+    // still ground-truth. Without the `confirmedAppControlSession == null`
+    // branch, two overlapping starts that both succeed would let the
+    // later-arriving older response overwrite the newer confirmed session.
+    if (
+      activeAppControlSession === attempted ||
+      confirmedAppControlSession == null
+    ) {
+      confirmedAppControlSession = attempted;
+    }
   }
 
   /**
