@@ -116,7 +116,7 @@ describe("OpenRouter provider.only plumbing", () => {
       expect(extras.provider).toBe(undefined);
     });
 
-    test("still carries reasoning flag alongside provider.only", () => {
+    test("enables thinking with default detailed summary alongside provider.only", () => {
       const provider = new ProbeOpenRouterProvider(
         "fake-key",
         "x-ai/grok-4.20-beta",
@@ -128,12 +128,12 @@ describe("OpenRouter provider.only plumbing", () => {
         },
       });
       expect(extras).toEqual({
-        reasoning: { enabled: true },
+        reasoning: { enabled: true, summary: "detailed" },
         provider: { only: ["xAI"] },
       });
     });
 
-    test("disabled thinking keeps reasoning disabled alongside provider.only", () => {
+    test("disabled thinking keeps reasoning disabled and omits summary", () => {
       const provider = new ProbeOpenRouterProvider(
         "fake-key",
         "x-ai/grok-4.20-beta",
@@ -147,6 +147,54 @@ describe("OpenRouter provider.only plumbing", () => {
       expect(extras).toEqual({
         reasoning: { enabled: false },
         provider: { only: ["xAI"] },
+      });
+    });
+
+    test("nests effort under reasoning and maps `max` to xhigh", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "moonshotai/kimi-k2.6",
+      );
+      const extras = provider.probeExtras({
+        config: {
+          thinking: { enabled: true },
+          effort: "max",
+        },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, effort: "xhigh", summary: "detailed" },
+      });
+    });
+
+    test("honors a per-call summary override", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "moonshotai/kimi-k2.6",
+      );
+      const extras = provider.probeExtras({
+        config: {
+          thinking: { enabled: true },
+          openrouter: { reasoning: { summary: "concise" } },
+        },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, summary: "concise" },
+      });
+    });
+
+    test("ignores an invalid summary override and falls back to detailed", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "moonshotai/kimi-k2.6",
+      );
+      const extras = provider.probeExtras({
+        config: {
+          thinking: { enabled: true },
+          openrouter: { reasoning: { summary: "verbose" } },
+        },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, summary: "detailed" },
       });
     });
   });
