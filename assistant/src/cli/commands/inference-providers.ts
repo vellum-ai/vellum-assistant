@@ -21,6 +21,12 @@ import { getConfig } from "../../config/loader.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import type { OAuth2Config } from "../../security/oauth2.js";
 import { startOAuth2Flow } from "../../security/oauth2.js";
+import {
+  DeviceCodeError,
+  OPENAI_DEVICE_CODE_CONFIG,
+  pollForToken,
+  requestDeviceCode,
+} from "../../security/oauth2-device-code.js";
 import { setSecureKeyAsync } from "../../security/secure-keys.js";
 import { log } from "../logger.js";
 
@@ -88,7 +94,9 @@ function attachListSubcommand(connections: Command): void {
       const rows = ipcResult.result!.connections;
 
       if (opts.json) {
-        process.stdout.write(JSON.stringify({ ok: true, connections: rows }) + "\n");
+        process.stdout.write(
+          JSON.stringify({ ok: true, connections: rows }) + "\n",
+        );
         return;
       }
 
@@ -130,7 +138,9 @@ function attachGetSubcommand(connections: Command): void {
       const conn = ipcResult.result!;
 
       if (opts.json) {
-        process.stdout.write(JSON.stringify({ ok: true, connection: conn }) + "\n");
+        process.stdout.write(
+          JSON.stringify({ ok: true, connection: conn }) + "\n",
+        );
         return;
       }
 
@@ -171,7 +181,8 @@ function buildAuthInput(
     return { type: "none" };
   }
   if (authType === "oauth_subscription") {
-    if (!credential) return "--credential is required when --auth oauth_subscription";
+    if (!credential)
+      return "--credential is required when --auth oauth_subscription";
     return { type: "oauth_subscription", credential };
   }
   return `Unknown auth type "${authType}". Use: api_key, platform, none, oauth_subscription`;
@@ -194,14 +205,25 @@ function attachCreateSubcommand(connections: Command): void {
   connections
     .command("create <name>")
     .description("Create a new provider connection")
-    .requiredOption("--provider <p>", "Provider (anthropic|openai|gemini|ollama|...)")
+    .requiredOption(
+      "--provider <p>",
+      "Provider (anthropic|openai|gemini|ollama|...)",
+    )
     .requiredOption("--auth <type>", "Auth type: api_key|platform|none")
-    .option("--credential <vault-key>", "Vault credential name (required for --auth api_key)")
+    .option(
+      "--credential <vault-key>",
+      "Vault credential name (required for --auth api_key)",
+    )
     .option("--json", "Output as JSON")
     .action(
       async (
         name: string,
-        opts: { provider: string; auth: string; credential?: string; json?: boolean },
+        opts: {
+          provider: string;
+          auth: string;
+          credential?: string;
+          json?: boolean;
+        },
       ) => {
         const authInput = buildAuthInput(opts.auth, opts.credential);
         if (typeof authInput === "string") {
@@ -249,7 +271,10 @@ function attachUpdateSubcommand(connections: Command): void {
     .command("update <name>")
     .description("Update a connection's auth")
     .requiredOption("--auth <type>", "Auth type: api_key|platform|none")
-    .option("--credential <vault-key>", "Vault credential name (required for --auth api_key)")
+    .option(
+      "--credential <vault-key>",
+      "Vault credential name (required for --auth api_key)",
+    )
     .option("--json", "Output as JSON")
     .action(
       async (
@@ -334,6 +359,54 @@ const OPENAI_CODEX_OAUTH_CONFIG: OAuth2Config = {
 };
 
 // ---------------------------------------------------------------------------
+// Device-code login helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Run the OAuth 2.0 device authorization grant against OpenAI. Prints the
+ * verification URL and user code, then polls until the user completes
+ * authorization or the device code expires.
+ *
+ * Returns null on failure (after writing the error via writeCliError).
+ */
+async function runDeviceCodeLogin(json: boolean | undefined): Promise<{
+  accessToken: string;
+  refreshToken?: string;
+  expiresIn?: number;
+} | null> {
+  try {
+    process.stdout.write("Requesting device code from OpenAI...\n");
+    const init = await requestDeviceCode(OPENAI_DEVICE_CODE_CONFIG);
+
+    const url = init.verificationUriComplete ?? init.verificationUri;
+    process.stdout.write(
+      `\nOpen this URL in any browser and enter the code below:\n` +
+        `  URL:  ${url}\n` +
+        `  Code: ${init.userCode}\n\n` +
+        `Waiting for authorization (expires in ${init.expiresIn}s)...\n`,
+    );
+
+    const tokens = await pollForToken(
+      OPENAI_DEVICE_CODE_CONFIG,
+      init.deviceCode,
+      init.interval,
+      init.expiresIn,
+    );
+
+    process.stdout.write("Authorization completed.\n");
+    return tokens;
+  } catch (err) {
+    if (err instanceof DeviceCodeError) {
+      writeCliError(`Device-code login failed: ${err.message}`, json);
+    } else {
+      const message = err instanceof Error ? err.message : String(err);
+      writeCliError(message, json);
+    }
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Subcommand: login-chatgpt
 // ---------------------------------------------------------------------------
 
@@ -341,8 +414,12 @@ function attachLoginChatgptSubcommand(providers: Command): void {
   providers
     .command("login-chatgpt")
     .description("Authenticate with ChatGPT via browser OAuth flow")
+    .option(
+      "--device-auth",
+      "Use the OAuth device-code flow (no browser callback). Required for headless or cloud-hosted environments.",
+    )
     .option("--json", "Output as JSON")
-    .action(async (opts: { json?: boolean }) => {
+    .action(async (opts: { deviceAuth?: boolean; json?: boolean }) => {
       const config = getConfig();
       if (!isAssistantFeatureFlagEnabled("chatgpt-subscription-auth", config)) {
         writeCliError("This feature is not yet available", opts.json);
@@ -350,22 +427,33 @@ function attachLoginChatgptSubcommand(providers: Command): void {
       }
 
       try {
-        // Step 1: Run browser-based PKCE OAuth flow
-        process.stdout.write("Opening browser for ChatGPT authentication...\n");
-        const result = await startOAuth2Flow(
-          OPENAI_CODEX_OAUTH_CONFIG,
-          {
-            openUrl: (url) => {
-              Bun.spawn(["open", url]);
+        // Step 1: Acquire tokens. Default is the browser-based PKCE loopback
+        // flow; --device-auth uses RFC 8628 device code, which works when
+        // the daemon (or CLI) cannot bind a loopback port reachable from
+        // the user's browser (e.g. SSH session, container).
+        let tokens;
+        if (opts.deviceAuth) {
+          tokens = await runDeviceCodeLogin(opts.json);
+          if (!tokens) return;
+        } else {
+          process.stdout.write(
+            "Opening browser for ChatGPT authentication...\n",
+          );
+          const result = await startOAuth2Flow(
+            OPENAI_CODEX_OAUTH_CONFIG,
+            {
+              openUrl: (url) => {
+                Bun.spawn(["open", url]);
+              },
             },
-          },
-          {
-            callbackTransport: "loopback",
-            loopbackPort: 1455,
-            loopbackCallbackPath: "/auth/callback",
-          },
-        );
-        const tokens = result.tokens;
+            {
+              callbackTransport: "loopback",
+              loopbackPort: 1455,
+              loopbackCallbackPath: "/auth/callback",
+            },
+          );
+          tokens = result.tokens;
+        }
 
         // Step 2: Store tokens in CES
         const accessStored = await setSecureKeyAsync(

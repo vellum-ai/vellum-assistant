@@ -8713,11 +8713,11 @@ paths:
   /v1/inference/chatgpt-subscription/auth:
     post:
       operationId: inference_chatgptsubscription_auth_post
-      summary: Start ChatGPT subscription OAuth flow
+      summary: Start ChatGPT subscription device-code OAuth flow
       description:
-        Initiate a PKCE OAuth flow against OpenAI for ChatGPT subscription auth. Returns an authorize URL for the
-        client to open in a popup. The callback handling, token exchange, and connection creation happen in the
-        background.
+        Initiate an OAuth 2.0 device authorization grant against OpenAI. Returns the user code and verification URI
+        for the client to display. Token polling, CES storage, and connection upsert happen in the background — poll GET
+        /v1/inference/chatgpt-subscription/auth/status to observe completion.
       tags:
         - inference
       responses:
@@ -8728,10 +8728,66 @@ paths:
               schema:
                 type: object
                 properties:
-                  authorize_url:
+                  device_code:
+                    type: string
+                  user_code:
+                    type: string
+                  verification_uri:
+                    type: string
+                  verification_uri_complete:
+                    type: string
+                  expires_in:
+                    type: number
+                  interval:
+                    type: number
+                required:
+                  - device_code
+                  - user_code
+                  - verification_uri
+                  - expires_in
+                  - interval
+                additionalProperties: false
+  /v1/inference/chatgpt-subscription/auth/status:
+    get:
+      operationId: inference_chatgptsubscription_auth_status_get
+      summary: Get current ChatGPT subscription auth flow status
+      description:
+        Returns the state of the in-flight (or most recently completed) ChatGPT subscription device-code flow.
+        Clients poll this endpoint after POST /v1/inference/chatgpt-subscription/auth to detect when the user has
+        completed authorization on their browser.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - idle
+                      - pending
+                      - completed
+                      - failed
+                  user_code:
+                    type: string
+                  verification_uri:
+                    type: string
+                  verification_uri_complete:
+                    type: string
+                  expires_at:
+                    type: number
+                  started_at:
+                    type: number
+                  error_code:
+                    type: string
+                  error_message:
                     type: string
                 required:
-                  - authorize_url
+                  - status
                 additionalProperties: false
   /v1/inference/provider-connections:
     get:
