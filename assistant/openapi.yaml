@@ -8713,10 +8713,10 @@ paths:
   /v1/inference/chatgpt-subscription/auth:
     post:
       operationId: inference_chatgptsubscription_auth_post
-      summary: Start ChatGPT subscription OAuth flow
+      summary: Start ChatGPT subscription OAuth device-code flow
       description:
-        Initiate a PKCE OAuth flow against OpenAI for ChatGPT subscription auth. Returns an authorize URL for the
-        client to open in a popup. The callback handling, token exchange, and connection creation happen in the
+        Initiate a device-code OAuth flow against OpenAI for ChatGPT subscription auth. Returns a verification URI
+        and user code for the client to display. The token polling, exchange, and connection creation happen in the
         background.
       tags:
         - inference
@@ -8728,10 +8728,53 @@ paths:
               schema:
                 type: object
                 properties:
-                  authorize_url:
+                  device_code:
+                    type: string
+                  user_code:
+                    type: string
+                  verification_uri:
+                    type: string
+                  verification_uri_complete:
+                    type: string
+                  expires_in:
+                    type: number
+                  interval:
+                    type: number
+                required:
+                  - device_code
+                  - user_code
+                  - verification_uri
+                  - expires_in
+                  - interval
+                additionalProperties: false
+  /v1/inference/chatgpt-subscription/auth/status:
+    get:
+      operationId: inference_chatgptsubscription_auth_status_get
+      summary: Poll ChatGPT subscription OAuth flow status
+      description:
+        "Returns the current status of the device-code OAuth flow: idle, pending, completed, or failed. Terminal
+        states (completed/failed) reset to idle after being read."
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - idle
+                      - pending
+                      - completed
+                      - failed
+                  error:
                     type: string
                 required:
-                  - authorize_url
+                  - status
                 additionalProperties: false
   /v1/inference/provider-connections:
     get:
