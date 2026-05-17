@@ -7,7 +7,7 @@ import { type DrizzleDb, getSqliteFrom } from "../../db-connection.js";
 import { migrateActivationState } from "../../migrations/232-activation-state.js";
 import * as schema from "../../schema.js";
 import {
-  evictCompactedTurns,
+  clearEverInjected,
   forkActivationState,
   hydrate,
   save,
@@ -146,23 +146,37 @@ describe("activation-store", () => {
     });
   });
 
-  describe("evictCompactedTurns", () => {
-    test("drops entries with turn <= upToTurn and preserves the rest", () => {
+  describe("clearEverInjected", () => {
+    test("empties the everInjected list", () => {
       const state = buildState({
         everInjected: [
           { slug: "slug-a", turn: 1 },
           { slug: "slug-b", turn: 2 },
           { slug: "slug-c", turn: 3 },
-          { slug: "slug-d", turn: 5 },
         ],
       });
 
-      const result = evictCompactedTurns(state, 2);
+      const result = clearEverInjected(state);
 
-      expect(result.everInjected).toEqual([
-        { slug: "slug-c", turn: 3 },
-        { slug: "slug-d", turn: 5 },
-      ]);
+      expect(result.everInjected).toEqual([]);
+    });
+
+    test("clears entries even when their turn exceeds currentTurn — the SIGKILL drift case", () => {
+      // Regression: under turn-bounded eviction, entries with turn >
+      // currentTurn survived forever. A non-graceful shutdown can persist
+      // everInjected entries with high turn values, then a restart restores
+      // the tracker from an older snapshot with a lower currentTurn.
+      const state = buildState({
+        currentTurn: 5,
+        everInjected: [
+          { slug: "slug-a", turn: 10 },
+          { slug: "slug-b", turn: 20 },
+        ],
+      });
+
+      const result = clearEverInjected(state);
+
+      expect(result.everInjected).toEqual([]);
     });
 
     test("returns a new object — does not mutate the input", () => {
@@ -170,7 +184,7 @@ describe("activation-store", () => {
         everInjected: [{ slug: "slug-a", turn: 1 }],
       });
 
-      const result = evictCompactedTurns(state, 1);
+      const result = clearEverInjected(state);
 
       expect(result.everInjected).toEqual([]);
       expect(state.everInjected).toEqual([{ slug: "slug-a", turn: 1 }]);
@@ -179,24 +193,12 @@ describe("activation-store", () => {
 
     test("preserves every other field on the state", () => {
       const state = buildState();
-      const result = evictCompactedTurns(state, 0);
+      const result = clearEverInjected(state);
 
       expect(result.messageId).toBe(state.messageId);
       expect(result.state).toEqual(state.state);
       expect(result.currentTurn).toBe(state.currentTurn);
       expect(result.updatedAt).toBe(state.updatedAt);
-    });
-
-    test("evicts everything when upToTurn covers the entire list", () => {
-      const state = buildState({
-        everInjected: [
-          { slug: "slug-a", turn: 1 },
-          { slug: "slug-b", turn: 2 },
-        ],
-      });
-
-      const result = evictCompactedTurns(state, 5);
-      expect(result.everInjected).toEqual([]);
     });
   });
 });

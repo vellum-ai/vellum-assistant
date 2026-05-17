@@ -177,7 +177,7 @@ const { migrateActivationState } =
   await import("../../migrations/232-activation-state.js");
 const schema = await import("../../schema.js");
 const { _resetMemoryV2QdrantForTests } = await import("../../v2/qdrant.js");
-const { hydrate: hydrateActivationState } =
+const { hydrate: hydrateActivationState, save: saveActivationState } =
   await import("../../v2/activation-store.js");
 
 // The wiring layer calls `getDb()` to fetch the SQLite handle. We mock
@@ -604,5 +604,37 @@ describe("ConversationGraphMemory.onCompacted — v2 activation eviction", () =>
     expect(next.injectedBlockText).toContain(
       "# memory/concepts/alice-vscode.md",
     );
+  });
+
+  test("clears everInjected entries whose turn exceeds the tracker's currentTurn (zombie drift)", async () => {
+    // Regression: under the prior turn-bounded eviction, entries with `turn >
+    // tracker.currentTurn` survived `onCompacted` forever. This can happen
+    // after a non-graceful shutdown: `everInjected` is persisted every turn
+    // while the tracker snapshot is only persisted on graceful dispose, so a
+    // SIGKILL'd session followed by a reload restores the tracker from an
+    // older snapshot with a lower currentTurn while keeping the high-turn
+    // entries on disk.
+    const conversationId = "conv-test-zombie-drift";
+    const memory = new ConversationGraphMemory(conversationId);
+
+    // Seed the simulated post-crash state directly: tracker stays at
+    // currentTurn=0 (default for a fresh ConversationGraphMemory), while the
+    // persisted row carries everInjected entries from turns 10 and 20 (left
+    // over from a prior session that never disposed cleanly).
+    await saveActivationState(testDbHandle!, conversationId, {
+      messageId: "msg-zombie",
+      state: {},
+      everInjected: [
+        { slug: "alice-vscode", turn: 10 },
+        { slug: "bob-pkg-mgr", turn: 20 },
+      ],
+      currentTurn: 0,
+      updatedAt: 1,
+    });
+
+    await memory.onCompacted(0);
+
+    const after = await hydrateActivationState(testDbHandle!, conversationId);
+    expect(after?.everInjected).toEqual([]);
   });
 });
