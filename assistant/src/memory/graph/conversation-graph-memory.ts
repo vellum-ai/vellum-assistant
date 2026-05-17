@@ -363,7 +363,14 @@ export class ConversationGraphMemory {
       metrics: null as RetrievalMetrics | null,
     };
 
-    if (!config.memory.enabled) return noopResult;
+    if (!config.memory.enabled) {
+      // Clear any cached injection so a later overflow-reduction
+      // re-injection via `reinjectCachedMemory()` cannot reintroduce a
+      // stale <memory> block after the user disables memory.
+      this.lastInjectedBlock = null;
+      this.lastInjectedNodeIds = [];
+      return noopResult;
+    }
 
     // Gate: skip for empty/tool-result-only messages — unless we need to
     // reload after compaction (needsReload) or haven't initialized yet.
