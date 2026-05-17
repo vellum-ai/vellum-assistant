@@ -5,6 +5,7 @@
  * subagent conversation sections when present in message metadata.
  */
 
+import { formatLocalTimestamp } from "../daemon/date-context.js";
 import {
   getConversation,
   getMessages,
@@ -21,10 +22,6 @@ interface ContentBlock {
   tool_use_id?: string;
   is_error?: boolean;
   source?: { media_type?: string; filename?: string };
-}
-
-function formatTimestamp(ms: number): string {
-  return new Date(ms).toISOString().replace("T", " ").slice(0, 19);
 }
 
 function extractAnalysisText(blocks: ContentBlock[]): string {
@@ -71,11 +68,14 @@ function formatRole(role: string): string {
   return role === "user" ? "User" : "Assistant";
 }
 
-function formatSubagentMessages(msgs: ReturnType<typeof getMessages>): string {
+function formatSubagentMessages(
+  msgs: ReturnType<typeof getMessages>,
+  timeZone?: string,
+): string {
   const lines: string[] = [];
   for (const msg of msgs) {
     const role = formatRole(msg.role);
-    const time = formatTimestamp(msg.createdAt);
+    const time = formatLocalTimestamp(msg.createdAt, timeZone);
     const content = parseContent(msg.content);
     const text = extractAnalysisText(content);
     if (text) {
@@ -110,17 +110,22 @@ type TranscriptMessage = ReturnType<typeof getMessages>[number];
  */
 export function formatMessageSliceForTranscript(
   messages: TranscriptMessage[],
+  options: { timeZone?: string } = {},
 ): string {
   const lines: string[] = [];
   for (const msg of messages) {
-    appendMessageBlock(lines, msg);
+    appendMessageBlock(lines, msg, options.timeZone);
   }
   return lines.join("\n");
 }
 
-function appendMessageBlock(lines: string[], msg: TranscriptMessage): void {
+function appendMessageBlock(
+  lines: string[],
+  msg: TranscriptMessage,
+  timeZone?: string,
+): void {
   const role = formatRole(msg.role);
-  const time = formatTimestamp(msg.createdAt);
+  const time = formatLocalTimestamp(msg.createdAt, timeZone);
   const content = parseContent(msg.content);
   const text = extractAnalysisText(content);
 
@@ -142,7 +147,7 @@ function appendMessageBlock(lines: string[], msg: TranscriptMessage): void {
           const subMessages = getMessages(notif.conversationId);
           lines.push(`### Subagent: ${notif.label} (${notif.status})`);
           lines.push("");
-          lines.push(formatSubagentMessages(subMessages));
+          lines.push(formatSubagentMessages(subMessages, timeZone));
           lines.push("");
         }
       }
@@ -163,12 +168,12 @@ export function buildAnalysisTranscript(conversationId: string): string {
   const lines: string[] = [];
 
   lines.push(`# Conversation: ${title}`);
-  lines.push(`Created: ${formatTimestamp(conversation.createdAt)}`);
+  lines.push(`Created: ${formatLocalTimestamp(conversation.createdAt)}`);
   lines.push("");
 
   for (const msg of allMessages) {
     const role = formatRole(msg.role);
-    const time = formatTimestamp(msg.createdAt);
+    const time = formatLocalTimestamp(msg.createdAt);
     const content = parseContent(msg.content);
     const text = extractAnalysisText(content);
 
