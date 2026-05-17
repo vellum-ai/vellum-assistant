@@ -1,6 +1,9 @@
 import { ProviderError } from "../../util/errors.js";
 import { AnthropicProvider } from "../anthropic/client.js";
-import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
+import {
+  EFFORT_TO_REASONING_EFFORT,
+  OpenAIChatCompletionsProvider,
+} from "../openai/chat-completions-provider.js";
 import { isThinkingConfigEnabled } from "../thinking-config.js";
 import type {
   Message,
@@ -51,6 +54,25 @@ export function extractOnlyList(config: unknown): string[] {
   const only = cfg?.openrouter?.only;
   if (!Array.isArray(only)) return [];
   return only.filter((x): x is string => typeof x === "string" && x.length > 0);
+}
+
+// OpenRouter's `reasoning.summary` field controls whether reasoning models emit
+// a human-readable summary alongside (or instead of) encrypted reasoning blocks.
+// Models like Kimi K2.6 return only encrypted `reasoning_details` unless a
+// summary level is requested, so the stream carries no visible thinking content.
+// Default to "detailed" so users see thinking by default; allow per-call
+// override via `config.openrouter.reasoning.summary`. Per OpenRouter's
+// ChatRequestReasoning schema, valid values are "auto" | "concise" | "detailed".
+const VALID_REASONING_SUMMARIES = new Set(["auto", "concise", "detailed"]);
+
+function extractReasoningSummaryOverride(config: unknown): string | undefined {
+  const cfg = config as
+    | { openrouter?: { reasoning?: { summary?: unknown } } }
+    | undefined;
+  const summary = cfg?.openrouter?.reasoning?.summary;
+  return typeof summary === "string" && VALID_REASONING_SUMMARIES.has(summary)
+    ? summary
+    : undefined;
 }
 
 /**
@@ -160,14 +182,30 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
   // OpenRouter's unified `reasoning` parameter controls extended thinking on
   // its OpenAI-compatible endpoint. Anthropic models skip this path entirely and
   // go through AnthropicProvider, which receives the native `thinking` object.
+  //
+  // `effort` nests under `reasoning` here (rather than flat `reasoning_effort`)
+  // because OpenRouter's documented `ChatRequestReasoning` shape is the union of
+  // { effort, summary }. `summary` is required for models like Kimi K2.6 that
+  // would otherwise return only encrypted reasoning blocks; we default to
+  // "detailed" and let callers override via `config.openrouter.reasoning.summary`.
   protected override buildExtraCreateParams(
     options?: SendMessageOptions,
   ): Record<string, unknown> {
     const config = options?.config as Record<string, unknown> | undefined;
     const thinkingEnabled = isThinkingConfigEnabled(config?.thinking);
-    const extras: Record<string, unknown> = {
-      reasoning: { enabled: thinkingEnabled },
-    };
+    const effort = config?.effort as string | undefined;
+    const mappedEffort = effort
+      ? EFFORT_TO_REASONING_EFFORT[effort]
+      : undefined;
+    const summaryOverride = extractReasoningSummaryOverride(config);
+    const reasoning: Record<string, unknown> = { enabled: thinkingEnabled };
+    if (mappedEffort) {
+      reasoning.effort = mappedEffort;
+    }
+    if (thinkingEnabled) {
+      reasoning.summary = summaryOverride ?? "detailed";
+    }
+    const extras: Record<string, unknown> = { reasoning };
     const only = extractOnlyList(config);
     if (only.length > 0) {
       const existingProvider = (config?.provider ?? {}) as Record<

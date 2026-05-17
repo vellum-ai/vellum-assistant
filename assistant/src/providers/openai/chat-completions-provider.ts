@@ -80,7 +80,7 @@ export interface OpenAIChatCompletionsProviderOptions {
  *  passed through explicitly because OpenAI defaults `reasoning_effort` to
  *  "medium" when the field is omitted — the user's opt-out is only honored
  *  when we send it on the wire. */
-const EFFORT_TO_REASONING_EFFORT: Record<
+export const EFFORT_TO_REASONING_EFFORT: Record<
   string,
   NonNullable<
     OpenAI.Chat.Completions.ChatCompletionCreateParams["reasoning_effort"]
@@ -217,16 +217,21 @@ export class OpenAIChatCompletionsProvider implements Provider {
                 onEvent?.({ type: "thinking_delta", thinking });
               }
               insideThinkBlock = false;
-              pendingContent = pendingContent.substring(closeIdx + "</think>".length);
+              pendingContent = pendingContent.substring(
+                closeIdx + "</think>".length,
+              );
             } else {
-              const partial = final ? 0 : partialTagSuffix(pendingContent, "</think>");
+              const partial = final
+                ? 0
+                : partialTagSuffix(pendingContent, "</think>");
               const safeLen = pendingContent.length - partial;
               if (safeLen > 0) {
                 const thinking = pendingContent.substring(0, safeLen);
                 reasoningText += thinking;
                 onEvent?.({ type: "thinking_delta", thinking });
               }
-              pendingContent = partial > 0 ? pendingContent.substring(safeLen) : "";
+              pendingContent =
+                partial > 0 ? pendingContent.substring(safeLen) : "";
               break;
             }
           } else {
@@ -238,16 +243,21 @@ export class OpenAIChatCompletionsProvider implements Provider {
                 onEvent?.({ type: "text_delta", text });
               }
               insideThinkBlock = true;
-              pendingContent = pendingContent.substring(openIdx + "<think>".length);
+              pendingContent = pendingContent.substring(
+                openIdx + "<think>".length,
+              );
             } else {
-              const partial = final ? 0 : partialTagSuffix(pendingContent, "<think>");
+              const partial = final
+                ? 0
+                : partialTagSuffix(pendingContent, "<think>");
               const safeLen = pendingContent.length - partial;
               if (safeLen > 0) {
                 const t = pendingContent.substring(0, safeLen);
                 contentText += t;
                 onEvent?.({ type: "text_delta", text: t });
               }
-              pendingContent = partial > 0 ? pendingContent.substring(safeLen) : "";
+              pendingContent =
+                partial > 0 ? pendingContent.substring(safeLen) : "";
               break;
             }
           }
@@ -290,9 +300,17 @@ export class OpenAIChatCompletionsProvider implements Provider {
               }
             }
 
-            const reasoningContent = (
-              choice.delta as { reasoning_content?: string | null }
-            ).reasoning_content;
+            // Compatibility providers disagree on the field name: Fireworks /
+            // DeepSeek / Together / Groq stream `reasoning_content`; OpenRouter
+            // (per its ChatAssistantMessage spec) streams `reasoning`. Accept
+            // both so we don't silently drop thinking from either family.
+            const deltaWithReasoning = choice.delta as {
+              reasoning?: string | null;
+              reasoning_content?: string | null;
+            };
+            const reasoningContent =
+              deltaWithReasoning.reasoning_content ??
+              deltaWithReasoning.reasoning;
             if (reasoningContent) {
               reasoningText += reasoningContent;
               onEvent?.({ type: "thinking_delta", thinking: reasoningContent });
@@ -343,11 +361,19 @@ export class OpenAIChatCompletionsProvider implements Provider {
       }
 
       // Build content blocks
-      const finalReasoning = this.parseThinkTags ? reasoningText.trim() : reasoningText;
-      const finalContent = this.parseThinkTags ? contentText.trim() : contentText;
+      const finalReasoning = this.parseThinkTags
+        ? reasoningText.trim()
+        : reasoningText;
+      const finalContent = this.parseThinkTags
+        ? contentText.trim()
+        : contentText;
       const content: ContentBlock[] = [];
       if (finalReasoning) {
-        content.push({ type: "thinking", thinking: finalReasoning, signature: "" });
+        content.push({
+          type: "thinking",
+          thinking: finalReasoning,
+          signature: "",
+        });
       }
       if (finalContent) {
         content.push({ type: "text", text: finalContent });

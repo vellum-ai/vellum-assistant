@@ -22,6 +22,7 @@ interface FakeChunk {
     delta: {
       content?: string | null;
       reasoning_content?: string | null;
+      reasoning?: string | null;
       tool_calls?: Array<{
         index: number;
         id?: string;
@@ -215,7 +216,21 @@ function reasoningChunk(
   finish: string | null = null,
 ): FakeChunk {
   return {
-    choices: [{ delta: { reasoning_content: reasoning }, finish_reason: finish }],
+    choices: [
+      { delta: { reasoning_content: reasoning }, finish_reason: finish },
+    ],
+    usage: null,
+    model: "gpt-5.2",
+  };
+}
+
+// OpenRouter spec uses `delta.reasoning` rather than `delta.reasoning_content`.
+function openRouterReasoningChunk(
+  reasoning: string,
+  finish: string | null = null,
+): FakeChunk {
+  return {
+    choices: [{ delta: { reasoning }, finish_reason: finish }],
     usage: null,
     model: "gpt-5.2",
   };
@@ -393,7 +408,10 @@ describe("OpenAIProvider", () => {
       type: "thinking_delta",
       thinking: "Let me think...",
     });
-    expect(events[1]).toEqual({ type: "text_delta", text: "The answer is 42." });
+    expect(events[1]).toEqual({
+      type: "text_delta",
+      text: "The answer is 42.",
+    });
   });
 
   test("reasoning + tool calls orders correctly (thinking → tool_use)", async () => {
@@ -419,6 +437,36 @@ describe("OpenAIProvider", () => {
 
     expect(result.content).toHaveLength(1);
     expect(result.content[0].type).toBe("text");
+  });
+
+  test("parses OpenRouter's `delta.reasoning` field into thinking block", async () => {
+    fakeChunks = [
+      openRouterReasoningChunk("Hmm, let me think..."),
+      textChunk("Final answer."),
+      usageChunk(10, 8),
+    ];
+
+    const events: ProviderEvent[] = [];
+    const result = await provider.sendMessage(
+      [userMsg("Hi")],
+      undefined,
+      undefined,
+      {
+        onEvent: (e) => events.push(e),
+      },
+    );
+
+    expect(result.content).toHaveLength(2);
+    expect(result.content[0]).toEqual({
+      type: "thinking",
+      thinking: "Hmm, let me think...",
+      signature: "",
+    });
+    expect(result.content[1]).toEqual({ type: "text", text: "Final answer." });
+    expect(events).toContainEqual({
+      type: "thinking_delta",
+      thinking: "Hmm, let me think...",
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -1388,14 +1436,17 @@ describe("OpenRouterProvider reasoning", () => {
     shouldThrow = null;
   });
 
-  test("sends reasoning.enabled=true when thinking config is present", async () => {
+  test("sends reasoning.enabled=true with default detailed summary when thinking config is present", async () => {
     const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
     await provider.sendMessage([userMsg("hi")], undefined, undefined, {
       config: { thinking: { type: "adaptive" } },
     });
 
     expect(lastCreateParams).toBeTruthy();
-    expect(lastCreateParams!.reasoning).toEqual({ enabled: true });
+    expect(lastCreateParams!.reasoning).toEqual({
+      enabled: true,
+      summary: "detailed",
+    });
   });
 
   test("sends reasoning.enabled=false when thinking is explicitly disabled", async () => {
@@ -1458,7 +1509,10 @@ describe("OpenRouterProvider reasoning", () => {
     await retry.sendMessage([userMsg("hi")], undefined, undefined, {
       config: { thinking: { type: "adaptive" } },
     });
-    expect(lastCreateParams!.reasoning).toEqual({ enabled: true });
+    expect(lastCreateParams!.reasoning).toEqual({
+      enabled: true,
+      summary: "detailed",
+    });
   });
 
   test("RetryProvider + OpenRouterProvider disables thinking end-to-end", async () => {
