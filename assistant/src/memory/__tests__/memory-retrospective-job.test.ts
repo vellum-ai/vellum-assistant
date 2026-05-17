@@ -68,19 +68,39 @@ mock.module("../conversation-crud.js", () => ({
 let transcriptFormatterCalls: Array<{
   messageIds: string[];
   timeZone?: string;
+  assistantName?: string | null;
+  userName?: string | null;
 }> = [];
 
 mock.module("../../export/transcript-formatter.js", () => ({
   formatMessageSliceForTranscript: (
     messages: Array<{ id: string; createdAt: number }>,
-    options: { timeZone?: string } = {},
+    options: {
+      timeZone?: string;
+      assistantName?: string | null;
+      userName?: string | null;
+    } = {},
   ) => {
     transcriptFormatterCalls.push({
       messageIds: messages.map((m) => m.id),
       timeZone: options.timeZone,
+      assistantName: options.assistantName,
+      userName: options.userName,
     });
     return messages.map((m) => `[msg ${m.id}]`).join("\n");
   },
+}));
+
+let mockAssistantName: string | null = "Bob";
+let mockUserName: string | null = "Alice";
+
+mock.module("../../daemon/identity-helpers.js", () => ({
+  getAssistantName: () => mockAssistantName,
+  resolveUserName: (_workspaceDir: string) => mockUserName,
+}));
+
+mock.module("../../util/platform.js", () => ({
+  getWorkspaceDir: () => "/tmp/test-workspace",
 }));
 
 mock.module("../conversation-bootstrap.js", () => ({
@@ -178,6 +198,8 @@ describe("memoryRetrospectiveJob", () => {
     bootstrapCalls = [];
     deletedConversationIds = [];
     transcriptFormatterCalls = [];
+    mockAssistantName = "Bob";
+    mockUserName = "Alice";
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -316,6 +338,23 @@ describe("memoryRetrospectiveJob", () => {
 
     const hint = wakeCalls[0]!.hint;
     expect(hint).toContain("Timestamps are in Europe/Berlin.");
+  });
+
+  test("resolved assistant and user display names are passed to the transcript formatter", async () => {
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(transcriptFormatterCalls).toHaveLength(1);
+    expect(transcriptFormatterCalls[0]!.assistantName).toBe("Bob");
+    expect(transcriptFormatterCalls[0]!.userName).toBe("Alice");
+  });
+
+  test("formatter receives null names when identity files are missing — formatter handles fallback", async () => {
+    mockAssistantName = null;
+    mockUserName = null;
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(transcriptFormatterCalls[0]!.assistantName).toBeNull();
+    expect(transcriptFormatterCalls[0]!.userName).toBeNull();
   });
 
   test("non-remember tool_use blocks in the prior retro are ignored", async () => {
