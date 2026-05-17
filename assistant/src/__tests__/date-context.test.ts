@@ -4,6 +4,7 @@ import { UiConfigSchema } from "../config/schemas/platform.js";
 import {
   canonicalizeTimeZone,
   extractUserTimeZoneFromRecall,
+  formatLocalTimestamp,
   formatTurnTimestamp,
   resolveTurnTimezoneContext,
 } from "../daemon/date-context.js";
@@ -319,5 +320,49 @@ describe("formatTurnTimestamp", () => {
     });
     expect(result).toContain("00:00:15");
     expect(result).not.toContain("24:");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatLocalTimestamp
+// ---------------------------------------------------------------------------
+
+describe("formatLocalTimestamp", () => {
+  // 2026-05-11T17:30:00Z is 10:30 PDT (UTC-7, DST in effect).
+  const utcMidday = Date.parse("2026-05-11T17:30:00Z");
+
+  test("defaults to UTC when no timeZone is provided", () => {
+    expect(formatLocalTimestamp(utcMidday)).toBe("2026-05-11 17:30:00");
+  });
+
+  test("explicit UTC matches the no-timezone default", () => {
+    expect(formatLocalTimestamp(utcMidday, "UTC")).toBe("2026-05-11 17:30:00");
+  });
+
+  test("renders in America/Los_Angeles when configured", () => {
+    expect(formatLocalTimestamp(utcMidday, "America/Los_Angeles")).toBe(
+      "2026-05-11 10:30:00",
+    );
+  });
+
+  test("renders in Asia/Tokyo when configured", () => {
+    // UTC+9 — 17:30 UTC is 02:30 next-day local.
+    expect(formatLocalTimestamp(utcMidday, "Asia/Tokyo")).toBe(
+      "2026-05-12 02:30:00",
+    );
+  });
+
+  test("handles a DST spring-forward boundary correctly", () => {
+    // 2026-03-08 06:30:00Z is 01:30 EST. The 02:00 → 03:00 spring-forward
+    // in America/New_York happens at 07:00 UTC. 07:30 UTC is 03:30 EDT.
+    const beforeJump = Date.parse("2026-03-08T06:30:00Z");
+    const afterJump = Date.parse("2026-03-08T07:30:00Z");
+
+    expect(formatLocalTimestamp(beforeJump, "America/New_York")).toBe(
+      "2026-03-08 01:30:00",
+    );
+    expect(formatLocalTimestamp(afterJump, "America/New_York")).toBe(
+      "2026-03-08 03:30:00",
+    );
   });
 });

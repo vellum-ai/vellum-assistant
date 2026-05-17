@@ -326,6 +326,46 @@ function formatLocalDate(date: Date, timeZone: string): string {
   ).padStart(2, "0")}`;
 }
 
+const localTimestampFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getLocalTimestampFormatter(timeZone: string): Intl.DateTimeFormat {
+  let fmt = localTimestampFormatterCache.get(timeZone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    });
+    localTimestampFormatterCache.set(timeZone, fmt);
+  }
+  return fmt;
+}
+
+/**
+ * Format an epoch-millis instant as `YYYY-MM-DD HH:MM:SS` in the given
+ * IANA timezone. When `timeZone` is omitted or `"UTC"`, falls back to a
+ * pure-UTC `toISOString` slice so callers can opt in incrementally.
+ *
+ * The internal `Intl.DateTimeFormat` is memoized by `timeZone` because
+ * constructing it is ~1ms in V8 — material when rendering long transcripts.
+ */
+export function formatLocalTimestamp(ms: number, timeZone?: string): string {
+  if (!timeZone || timeZone === "UTC") {
+    return new Date(ms).toISOString().replace("T", " ").slice(0, 19);
+  }
+  const parts = getLocalTimestampFormatter(timeZone).formatToParts(
+    new Date(ms),
+  );
+  const v: Record<string, string> = {};
+  for (const p of parts) v[p.type] = p.value;
+  return `${v.year}-${v.month}-${v.day} ${v.hour}:${v.minute}:${v.second}`;
+}
+
 export function resolveTurnTimezoneContext(
   options: TemporalContextOptions = {},
 ): TurnTimezoneContext {

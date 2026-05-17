@@ -65,10 +65,22 @@ mock.module("../conversation-crud.js", () => ({
   },
 }));
 
+let transcriptFormatterCalls: Array<{
+  messageIds: string[];
+  timeZone?: string;
+}> = [];
+
 mock.module("../../export/transcript-formatter.js", () => ({
   formatMessageSliceForTranscript: (
     messages: Array<{ id: string; createdAt: number }>,
-  ) => messages.map((m) => `[msg ${m.id}]`).join("\n"),
+    options: { timeZone?: string } = {},
+  ) => {
+    transcriptFormatterCalls.push({
+      messageIds: messages.map((m) => m.id),
+      timeZone: options.timeZone,
+    });
+    return messages.map((m) => `[msg ${m.id}]`).join("\n");
+  },
 }));
 
 mock.module("../conversation-bootstrap.js", () => ({
@@ -102,9 +114,19 @@ mock.module("../jobs-store.js", () => ({
 import type { MemoryJob } from "../jobs-store.js";
 import { memoryRetrospectiveJob } from "../memory-retrospective-job.js";
 
-const stubConfig = {
-  memory: { v2: { enabled: true } },
-} as unknown as Parameters<typeof memoryRetrospectiveJob>[1];
+function makeConfig(
+  overrides: { userTimezone?: string; detectedTimezone?: string } = {},
+): Parameters<typeof memoryRetrospectiveJob>[1] {
+  return {
+    memory: { v2: { enabled: true } },
+    ui: {
+      userTimezone: overrides.userTimezone,
+      detectedTimezone: overrides.detectedTimezone,
+    },
+  } as unknown as Parameters<typeof memoryRetrospectiveJob>[1];
+}
+
+const stubConfig = makeConfig();
 
 function makeJob(conversationId = "src-conv-1"): MemoryJob<{
   conversationId?: string;
@@ -155,6 +177,7 @@ describe("memoryRetrospectiveJob", () => {
     bootstrappedConversationId = "bg-conv-new";
     bootstrapCalls = [];
     deletedConversationIds = [];
+    transcriptFormatterCalls = [];
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -272,6 +295,27 @@ describe("memoryRetrospectiveJob", () => {
 
     const hint = wakeCalls[0]!.hint;
     expect(hint).toContain("- a real save");
+  });
+
+  test("transcript is formatted in the configured user timezone and the prompt discloses it", async () => {
+    const config = makeConfig({ userTimezone: "America/Los_Angeles" });
+    await memoryRetrospectiveJob(makeJob(), config);
+
+    expect(transcriptFormatterCalls).toHaveLength(1);
+    expect(transcriptFormatterCalls[0]!.timeZone).toBe("America/Los_Angeles");
+
+    const hint = wakeCalls[0]!.hint;
+    expect(hint).toContain("Timestamps are in America/Los_Angeles.");
+  });
+
+  test("detected timezone is used when no manual override is set", async () => {
+    const config = makeConfig({ detectedTimezone: "Europe/Berlin" });
+    await memoryRetrospectiveJob(makeJob(), config);
+
+    expect(transcriptFormatterCalls[0]!.timeZone).toBe("Europe/Berlin");
+
+    const hint = wakeCalls[0]!.hint;
+    expect(hint).toContain("Timestamps are in Europe/Berlin.");
   });
 
   test("non-remember tool_use blocks in the prior retro are ignored", async () => {
