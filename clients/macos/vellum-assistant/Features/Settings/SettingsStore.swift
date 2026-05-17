@@ -139,6 +139,15 @@ public final class SettingsStore: ObservableObject {
     /// re-apply over this confirmed value.
     private var lastConfirmedSetActiveProfileGen: Int = 0
 
+    /// Monotonic counter incremented every time `loadInferenceProfiles`
+    /// updates `lastConfirmedActiveProfile` from a daemon-pushed config.
+    /// Each `setActiveProfile` call captures this at entry; if it advances
+    /// during the await, an external confirmation landed mid-flight and
+    /// the success branch must defer to it. Counting events rather than
+    /// comparing values catches no-op-looking drifts (e.g. X→Y→X) that a
+    /// value-equality check would miss.
+    private var externalActiveProfileConfirmationGen: Int = 0
+
     static let availableImageGenModels: [String] = [
         "gemini-3.1-flash-image-preview",
         "gemini-3-pro-image-preview",
@@ -3296,6 +3305,7 @@ public final class SettingsStore: ObservableObject {
         if let active = (llm?["activeProfile"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) {
             self.activeProfile = active
             self.lastConfirmedActiveProfile = active
+            externalActiveProfileConfirmationGen += 1
         }
     }
 
@@ -3331,29 +3341,33 @@ public final class SettingsStore: ObservableObject {
     /// Each call captures a monotonic generation at entry. After the await,
     /// post-PATCH mutation is gated on whether a *newer* pick is still
     /// "live" — i.e. either still in flight or already successfully
-    /// confirmed — and on whether the daemon-confirmed value was updated
-    /// out-of-band (e.g. by a `loadInferenceProfiles` push from another
-    /// client/session). This distinguishes three race scenarios:
+    /// confirmed — and on whether an external daemon push confirmed a
+    /// value mid-flight (tracked by `externalActiveProfileConfirmationGen`,
+    /// which advances every time `loadInferenceProfiles` lands an
+    /// authoritative `activeProfile`). This distinguishes three race
+    /// scenarios:
     ///
     /// 1. A→B both succeed, A late: B's success advances
     ///    `lastConfirmedSetActiveProfileGen` past A. A's late success sees
     ///    that and skips entirely, so it does not stomp B.
     /// 2. A→B-fails-and-reverts→A late success: B never confirms, so
-    ///    `lastConfirmedSetActiveProfileGen` is unchanged and
-    ///    `lastConfirmedActiveProfile` was never touched during A's call.
-    ///    By the time A's success arrives, B is no longer in flight
-    ///    either. No newer pick is live, so A applies fully — re-syncing
-    ///    `activeProfile` from the post-revert "balanced" back to the
-    ///    daemon-confirmed "A".
-    /// 3. A in flight → external load pushes "C" → A late success: the
-    ///    push updates `lastConfirmedActiveProfile` to "C". A's success
-    ///    branch detects the snapshot drift and skips, leaving the
-    ///    daemon-pushed value intact instead of stomping it back to "A".
+    ///    `lastConfirmedSetActiveProfileGen` is unchanged and no external
+    ///    confirmation arrived during A's call. By the time A's success
+    ///    arrives, B is no longer in flight either. No newer pick is live,
+    ///    so A applies fully — re-syncing `activeProfile` from the
+    ///    post-revert "balanced" back to the daemon-confirmed "A".
+    /// 3. A in flight → external load confirms a daemon-pushed value → A
+    ///    late success: the push advances
+    ///    `externalActiveProfileConfirmationGen`. A's success branch
+    ///    detects the bump and skips, leaving the daemon-pushed value
+    ///    intact. The counter catches the drift even when the external
+    ///    push happens to land the same string twice (X→Y→X) where a
+    ///    value-equality check would miss it.
     @discardableResult
     func setActiveProfile(_ name: String) async -> Bool {
         setActiveProfileGenerationCounter += 1
         let myGen = setActiveProfileGenerationCounter
-        let confirmedAtEntry = lastConfirmedActiveProfile
+        let externalConfirmationGenAtEntry = externalActiveProfileConfirmationGen
         inFlightSetActiveProfileGens.insert(myGen)
         self.activeProfile = name
         let success = await settingsClient.patchConfig([
@@ -3363,10 +3377,11 @@ public final class SettingsStore: ObservableObject {
 
         let newerPickLive = lastConfirmedSetActiveProfileGen > myGen
             || inFlightSetActiveProfileGens.contains(where: { $0 > myGen })
-        let confirmedChangedExternally = lastConfirmedActiveProfile != confirmedAtEntry
+        let externalConfirmationArrived =
+            externalActiveProfileConfirmationGen != externalConfirmationGenAtEntry
 
         if success {
-            if !newerPickLive, !confirmedChangedExternally {
+            if !newerPickLive, !externalConfirmationArrived {
                 lastConfirmedActiveProfile = name
                 self.activeProfile = name
                 lastConfirmedSetActiveProfileGen = myGen

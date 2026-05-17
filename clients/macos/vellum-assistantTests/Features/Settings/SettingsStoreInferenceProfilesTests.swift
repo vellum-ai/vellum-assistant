@@ -307,9 +307,9 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
     /// flight, the older local PATCH must not stomp the newer daemon-pushed
     /// value once it finally succeeds. The user picks "A"; while the PATCH
     /// is suspended, a config push updates the authoritative value to "C";
-    /// "A"'s late success must observe the snapshot drift on
-    /// `lastConfirmedActiveProfile` and leave both `activeProfile` and
-    /// `lastConfirmedActiveProfile` set to "C".
+    /// "A"'s late success must observe the external-confirmation generation
+    /// bump and leave both `activeProfile` and `lastConfirmedActiveProfile`
+    /// set to "C".
     func testSetActiveProfileDoesNotStompExternalConfirmedUpdate() async {
         var continuationA: CheckedContinuation<Bool, Never>?
         let aSuspended = expectation(description: "A PATCH suspended")
@@ -336,9 +336,9 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertEqual(store.activeProfile, "C")
 
         // A's late success arrives. Even though no newer local pick is
-        // live, the snapshot of `lastConfirmedActiveProfile` taken at
-        // entry no longer matches — so the success branch must skip its
-        // writes and leave the daemon-pushed value intact.
+        // live, the external-confirmation generation captured at entry no
+        // longer matches — so the success branch must skip its writes and
+        // leave the daemon-pushed value intact.
         continuationA?.resume(returning: true)
         let aSucceeded = await resultA
         XCTAssertTrue(aSucceeded)
@@ -355,6 +355,58 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         let dSucceeded = await store.setActiveProfile("D")
         XCTAssertFalse(dSucceeded)
         XCTAssertEqual(store.activeProfile, "C")
+    }
+
+    /// Generation-counter drift detection must trigger even when the
+    /// external push lands the same string twice during the await — a
+    /// value-equality check (the predecessor of this guard) would miss
+    /// the drift entirely because `lastConfirmedActiveProfile` ends up
+    /// matching the snapshot taken at entry. The user picks "A"; while
+    /// suspended, the daemon pushes "C" then "A"; A's late success must
+    /// still defer to the external confirmations rather than re-asserting
+    /// its own write.
+    func testSetActiveProfileDefersToExternalConfirmationsEvenWhenValueRoundtrips() async {
+        var continuationA: CheckedContinuation<Bool, Never>?
+        let aSuspended = expectation(description: "A PATCH suspended")
+        mockSettingsClient.patchConfigHandler = { _ in
+            return await withCheckedContinuation { cont in
+                continuationA = cont
+                aSuspended.fulfill()
+            }
+        }
+
+        async let resultA: Bool = store.setActiveProfile("A")
+        await fulfillment(of: [aSuspended], timeout: 1.0)
+
+        // Two external confirmations land while A is in flight; the
+        // second restores the same string A was originally writing.
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "activeProfile": "C",
+                "profiles": ["C": ["model": "claude-sonnet-4-6"]],
+            ]
+        ])
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "activeProfile": "A",
+                "profiles": ["A": ["model": "claude-haiku-4-5"]],
+            ]
+        ])
+
+        continuationA?.resume(returning: true)
+        let aSucceeded = await resultA
+        XCTAssertTrue(aSucceeded)
+        XCTAssertEqual(store.activeProfile, "A")
+
+        // A failed pick must revert to the externally-confirmed "A"
+        // (preserved by the daemon's push), not to a stale value the
+        // success branch might have re-confirmed had drift detection
+        // relied on string equality.
+        mockSettingsClient.patchConfigHandler = nil
+        mockSettingsClient.patchConfigResponse = false
+        let bSucceeded = await store.setActiveProfile("B")
+        XCTAssertFalse(bSucceeded)
+        XCTAssertEqual(store.activeProfile, "A")
     }
 
     // MARK: - setProfile
