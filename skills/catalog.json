@@ -68,7 +68,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-13T15:32:36-04:00"
+      "updatedAt": "2026-05-18T19:39:07+05:30"
     },
     {
       "id": "deploy-fullstack-vercel",
@@ -239,6 +239,28 @@
       },
       "compatibility": "Any environment running Claude Code headlessly",
       "updatedAt": "2026-04-23T20:58:01-04:00"
+    },
+    {
+      "id": "hermes-migration",
+      "name": "hermes-migration",
+      "description": "Migrate a Hermes Agent (Nous Research) installation into a Vellum personal assistant by inspecting its workspace, SQLite store, skills, memories, schedules, channels, and provider configuration, then mapping each piece into the closest Vellum primitive without porting opaque internals.",
+      "metadata": {
+        "emoji": "🦅",
+        "vellum": {
+          "display-name": "Hermes Migration",
+          "feature-flag": "species-migration",
+          "activation-hints": [
+            "User wants to migrate from Hermes Agent (Nous Research) into Vellum",
+            "User mentions ~/.hermes, hermes setup, hermes gateway, Nous Portal, or a Hermes export",
+            "User asks what carries over from Hermes when switching to Vellum"
+          ],
+          "avoid-when": [
+            "User is migrating from a different species (OpenClaw, Manus, etc.) — defer to species-migration",
+            "User is moving an existing Vellum assistant between homes — use backup/restore or teleport flows"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
     },
     {
       "id": "inbox-cleanup",
@@ -426,7 +448,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-23T10:06:58-04:00"
+      "updatedAt": "2026-05-18T03:34:58-04:00"
     },
     {
       "id": "notion",
@@ -468,7 +490,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-14T12:47:52-05:00"
+      "updatedAt": "2026-05-14T19:52:02-05:00"
     },
     {
       "id": "outlook",
