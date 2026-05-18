@@ -178,6 +178,62 @@ extension AppDelegate {
         }
     }
 
+    /// Returns `true` if `candidate` matches `sourceEventName` either raw
+    /// (e.g. `"user.send_notification"`) or after `.`/`_` are replaced with
+    /// spaces (e.g. `"user send notification"`). Case-insensitive.
+    /// Used by the sanitize helpers below to detect event-name fallback leaks.
+    nonisolated static func isEventNameLeak(
+        _ candidate: String,
+        sourceEventName: String
+    ) -> Bool {
+        let trimmedCandidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let rawEvent = sourceEventName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !rawEvent.isEmpty, !trimmedCandidate.isEmpty else { return false }
+        if trimmedCandidate == rawEvent { return true }
+        let normalizedEvent = rawEvent
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: ".", with: " ")
+        return trimmedCandidate == normalizedEvent
+    }
+
+    /// Sanitize a user-visible notification title. Returns `"Notification"`
+    /// when the title is empty/whitespace or matches the source event name.
+    /// Server-side checks should already suppress these, but this guard
+    /// ensures users never see raw event-name strings like
+    /// `"user.send_notification"` in the sidebar or notification banner.
+    /// Logs a warning when substitution fires so regressions remain visible.
+    nonisolated static func sanitizeNotificationTitle(
+        _ title: String,
+        sourceEventName: String
+    ) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let leak = isEventNameLeak(trimmed, sourceEventName: sourceEventName)
+        guard trimmed.isEmpty || leak else { return title }
+        log.warning("""
+        Sanitized notification title (source: \(sourceEventName, privacy: .public)): \
+        empty=\(trimmed.isEmpty, privacy: .public), leak=\(leak, privacy: .public)
+        """)
+        return "Notification"
+    }
+
+    /// Sanitize a user-visible notification body. Returns
+    /// `"(no preview available)"` when the body is empty/whitespace or
+    /// matches the source event name. See ``sanitizeNotificationTitle``
+    /// for rationale.
+    nonisolated static func sanitizeNotificationBody(
+        _ body: String,
+        sourceEventName: String
+    ) -> String {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let leak = isEventNameLeak(trimmed, sourceEventName: sourceEventName)
+        guard trimmed.isEmpty || leak else { return body }
+        log.warning("""
+        Sanitized notification body (source: \(sourceEventName, privacy: .public)): \
+        empty=\(trimmed.isEmpty, privacy: .public), leak=\(leak, privacy: .public)
+        """)
+        return "(no preview available)"
+    }
+
     private func conversationId(from deepLinkMetadata: [String: AnyCodable]?) -> String? {
         if let direct = deepLinkMetadata?["conversationId"]?.value as? String {
             return direct
@@ -234,8 +290,8 @@ extension AppDelegate {
         deliveryId: String? = nil
     ) {
         let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
+        content.title = Self.sanitizeNotificationTitle(title, sourceEventName: sourceEventName)
+        content.body = Self.sanitizeNotificationBody(body, sourceEventName: sourceEventName)
         content.sound = .default
         content.categoryIdentifier = "NOTIFICATION_INTENT"
 
