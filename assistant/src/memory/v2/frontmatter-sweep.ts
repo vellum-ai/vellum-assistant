@@ -22,6 +22,7 @@ import { join } from "node:path";
 
 import { parse as parseYaml } from "yaml";
 
+import type { AssistantConfig } from "../../config/schema.js";
 import { FRONTMATTER_REGEX } from "../../skills/frontmatter.js";
 import { getLogger } from "../../util/logger.js";
 import { listPages } from "./page-store.js";
@@ -32,11 +33,16 @@ const log = getLogger("memory-v2-frontmatter-sweep");
 /**
  * Validate every concept page's frontmatter against the strict schema and
  * emit a `warn` per offender. Never throws — daemon startup must not block
- * on this safety net.
+ * on this safety net. Self-gates on `config.memory.v2.enabled`: when v2
+ * is off, concept pages never enter a retrieval top-K so any warns here
+ * would be pure noise.
  */
 export async function sweepConceptPageFrontmatter(
+  config: AssistantConfig,
   workspaceDir: string,
 ): Promise<void> {
+  if (!config.memory.v2.enabled) return;
+
   let slugs: string[];
   try {
     slugs = await listPages(workspaceDir);
