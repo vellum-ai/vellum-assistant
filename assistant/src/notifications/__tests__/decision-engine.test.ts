@@ -188,10 +188,10 @@ describe("assistant_tool pass-through in notification decision engine", () => {
     expect(decision.deepLinkTarget).toBeUndefined();
   });
 
-  test("preferredChannels narrows selection but renderedCopy covers all available channels", async () => {
+  test("preferredChannels adds to the default channel set (additive, not replacement)", async () => {
     const signal = makeAssistantToolSignal({
       contextPayload: {
-        requestedMessage: "fyi only to telegram",
+        requestedMessage: "also push to telegram",
         preferredChannels: ["telegram"],
       },
     });
@@ -200,46 +200,43 @@ describe("assistant_tool pass-through in notification decision engine", () => {
       "telegram",
     ] as NotificationChannel[]);
 
-    expect(decision.selectedChannels).toEqual(["telegram"]);
-    expect(decision.renderedCopy.telegram?.body).toBe("fyi only to telegram");
-    // Even though vellum is not selected, its rendered copy must be
-    // populated so downstream guards that may force-prepend vellum
-    // (e.g. urgency forcing in emit-signal) still have the verbatim copy.
-    expect(decision.renderedCopy.vellum?.body).toBe("fyi only to telegram");
+    // Vellum (canonical inbox) stays in selectedChannels; telegram is
+    // added on top. `--preferred-channels` is additive push, never a
+    // replacement for the inbox.
+    expect(decision.selectedChannels).toContain("vellum");
+    expect(decision.selectedChannels).toContain("telegram");
+    expect(decision.selectedChannels.length).toBe(2);
+    expect(decision.renderedCopy.vellum?.body).toBe("also push to telegram");
+    expect(decision.renderedCopy.telegram?.body).toBe("also push to telegram");
   });
 
-  test("urgent + preferredChannels excluding vellum still leaves renderedCopy.vellum populated", async () => {
+  test("urgent + preferredChannels keeps urgent's full broadcast intact", async () => {
     const signal = makeAssistantToolSignal({
       contextPayload: {
-        requestedMessage: "urgent telegram-preferred message",
+        requestedMessage: "urgent broadcast",
         requestedTitle: "Heads up",
         preferredChannels: ["telegram"],
       },
       attentionHints: {
         requiresAction: true,
-        urgency: "high",
+        urgency: "critical",
         isAsyncBackground: false,
         visibleInSourceNow: false,
       },
     });
-    const decision = await evaluateSignal(signal, [
-      "vellum",
-      "telegram",
-    ] as NotificationChannel[]);
+    const available = ["vellum", "telegram", "slack"] as NotificationChannel[];
+    const decision = await evaluateSignal(signal, available);
 
-    // Decision engine selects telegram (the preferred channel). The
-    // urgency-forced vellum prepend happens later in emit-signal; what
-    // matters here is that renderedCopy for vellum is already prepared
-    // with the verbatim copy so the prepend doesn't lose the message.
-    expect(decision.selectedChannels).toEqual(["telegram"]);
-    expect(decision.renderedCopy.telegram?.body).toBe(
-      "urgent telegram-preferred message",
+    // Urgent broadcasts to every available channel; the additive union
+    // with preferredChannels is idempotent (telegram already included).
+    expect(decision.selectedChannels).toEqual(
+      expect.arrayContaining(available),
     );
-    expect(decision.renderedCopy.telegram?.title).toBe("Heads up");
-    expect(decision.renderedCopy.vellum?.body).toBe(
-      "urgent telegram-preferred message",
-    );
-    expect(decision.renderedCopy.vellum?.title).toBe("Heads up");
+    expect(decision.selectedChannels.length).toBe(available.length);
+    for (const ch of available) {
+      expect(decision.renderedCopy[ch]?.body).toBe("urgent broadcast");
+      expect(decision.renderedCopy[ch]?.title).toBe("Heads up");
+    }
   });
 
   test("routing-intent expansion to all_channels preserves verbatim copy on added channels", async () => {
