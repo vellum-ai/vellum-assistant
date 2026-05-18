@@ -134,9 +134,7 @@ plugin.
 // hooks/init.ts
 import type { PluginInitContext } from "@vellumai/plugin-api";
 
-export default async function init(
-  ctx: PluginInitContext
-): Promise<void> {
+export default async function init(ctx: PluginInitContext): Promise<void> {
   // ctx.config            — your validated config (typed `unknown` for now)
   // ctx.credentials       — resolved credential values, keyed by manifest entry
   // ctx.logger            — pino child, bound to { plugin: <name> }
@@ -213,9 +211,11 @@ that const is best-effort scaffolding for forward-compat.
 
 ## Tools
 
-A tool is a default-exported object from `tools/<name>.ts`. Plugin
-tools land in the same registry as built-in tools and are visible to
-the model through the standard tool catalog.
+A tool is a default-exported object from `tools/<name>.ts`. The loader
+derives the model-visible tool name from the file basename (for example,
+`tools/recall.ts` becomes `recall`). Plugin tools land in the same registry
+as built-in tools and are visible to the model through the standard tool
+catalog.
 
 ```ts
 // tools/my_tool.ts
@@ -252,6 +252,20 @@ export default {
 - **`execute(input, ctx)`** — the runtime invocation. Always return
   `{ content, isError }`.
 - **`description`** — short string used for catalog grouping.
+
+Every field on a plugin tool is optional — the loader fills documented
+defaults when an author omits a field:
+
+| Field              | Default                                                                |
+| ------------------ | ---------------------------------------------------------------------- |
+| `description`      | `""`                                                                   |
+| `defaultRiskLevel` | `"medium"` (prompt-then-allow on first invocation)                     |
+| `input_schema`     | `{ type: "object", properties: {}, additionalProperties: false }`      |
+| `execute`          | Returns an error result naming the tool as unimplemented                |
+
+`export default {}` is therefore a valid (if useless) tool — broken
+individual tools never block plugin load; misconfigurations surface at
+call time.
 
 ---
 

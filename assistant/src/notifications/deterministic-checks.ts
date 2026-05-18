@@ -12,6 +12,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../memory/db-connection.js";
 import { notificationEvents } from "../memory/schema.js";
 import { getLogger } from "../util/logger.js";
+import { composeFallbackCopy } from "./copy-composer.js";
 import type { NotificationSignal } from "./signal.js";
 import type { NotificationChannel, NotificationDecision } from "./types.js";
 
@@ -254,6 +255,13 @@ function checkDedupe(
  * in `renderedCopy` and are left for the broadcaster's
  * `composeFallbackCopy` rescue at delivery time.
  *
+ * If `renderedCopy` is empty for every selected channel, the
+ * broadcaster's fallback must produce a usable body — otherwise the
+ * signal would be silently dropped at delivery (broadcaster skips
+ * empty-body channels, `dispatchDecision` reports 0/N sent). In that
+ * case, require `composeFallbackCopy` to yield a non-empty body for
+ * at least one selected channel; otherwise fail-closed.
+ *
  * The event-name-match branch is skipped for `assistant_tool`
  * pass-through decisions because the producer supplied the body
  * verbatim — a coincidental match with the event name is the user's
@@ -275,11 +283,13 @@ function checkRenderedCopyQuality(
     .trim();
   const rawEventName = signal.sourceEventName.toLowerCase();
 
+  let anyChannelHasCopy = false;
   for (const channel of decision.selectedChannels) {
     const copy = decision.renderedCopy[channel];
     if (!copy) {
       continue;
     }
+    anyChannelHasCopy = true;
     const trimmedBody = copy.body.trim();
     if (trimmedBody.length === 0) {
       return {
@@ -298,6 +308,20 @@ function checkRenderedCopyQuality(
       return {
         passed: false,
         reason: "rendered copy body is the source event name (fallback leak)",
+      };
+    }
+  }
+
+  if (!anyChannelHasCopy && decision.selectedChannels.length > 0) {
+    const fallback = composeFallbackCopy(signal, decision.selectedChannels);
+    const fallbackUsable = decision.selectedChannels.some(
+      (ch) => (fallback[ch]?.body ?? "").trim().length > 0,
+    );
+    if (!fallbackUsable) {
+      return {
+        passed: false,
+        reason:
+          "rendered copy missing for all selected channels and fallback body is empty (would silently drop)",
       };
     }
   }

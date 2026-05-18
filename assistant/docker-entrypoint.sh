@@ -5,10 +5,21 @@ set -eu
 # processes (the `assistant` user, bun's tmpdir, scratch writes) can use it.
 chmod 1777 /tmp 2>/dev/null || true
 
+KATA_APT_INIT_PID=""
 if [ "${VELLUM_SANDBOX_RUNTIME:-}" = "kata" ] && [ -x /app/assistant/docker-init-apt-root.sh ]; then
+  export VELLUM_APT_DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"
   . /app/assistant/docker-kata-apt-env.sh
-  /app/assistant/docker-init-apt-root.sh
+  # Warm the chroot used by kata apt wrappers without blocking assistant readiness.
+  /app/assistant/docker-init-apt-root.sh &
+  KATA_APT_INIT_PID="$!"
 fi
+
+wait_for_kata_apt_root() {
+  if [ -n "${KATA_APT_INIT_PID}" ]; then
+    wait "${KATA_APT_INIT_PID}"
+    KATA_APT_INIT_PID=""
+  fi
+}
 
 if [ "$(id -u)" = "0" ] && [ "${VELLUM_WORKSPACE_DIR:-}" = "/workspace" ] && [ -d /workspace ]; then
   git config --global --add safe.directory /workspace >/dev/null 2>&1 || true
@@ -23,6 +34,7 @@ fi
 if [ -d /workspace/.entrypoint.d ]; then
   for hook in /workspace/.entrypoint.d/*.sh; do
     [ -r "$hook" ] || continue
+    wait_for_kata_apt_root
     . "$hook" || echo "Warning: workspace hook $hook exited $?" >&2
   done
 fi

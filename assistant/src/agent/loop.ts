@@ -67,6 +67,43 @@ export interface CheckpointInfo {
 
 export type CheckpointDecision = "continue" | "yield";
 
+/**
+ * Why an {@link AgentLoop.run} invocation exited its `while (true)` body.
+ *
+ * Emitted exactly once per run as part of an {@link AgentEvent} of type
+ * `agent_loop_exit`, then persisted onto the **final** `llm_request_logs`
+ * row of the run. Rows from intermediate turns keep a NULL
+ * `agent_loop_exit_reason`, which is how downstream tooling (and the LLM
+ * Context Inspector) distinguishes "loop kept going" from "loop is done".
+ *
+ * Values are stable wire/DB strings — they are written to SQLite and
+ * surfaced over the inspector wire format, so renaming any of them is a
+ * breaking change.
+ *
+ * Cardinality matches the nine `break;`/`throw` sites currently inside the
+ * loop body. Keep in sync with `emitExit` call sites in
+ * {@link AgentLoop.run}.
+ */
+export type AgentLoopExitReason =
+  /** `if (signal?.aborted) break;` at the top of the loop. */
+  | "aborted_pre_call"
+  /** Empty assistant response after the configured retry budget. */
+  | "empty_response_exhausted"
+  /** Assistant message has no tool-use blocks (or no tool executor). */
+  | "no_tool_calls"
+  /** Signal aborted while building the user-side tool-results message. */
+  | "aborted_post_response"
+  /** Signal aborted mid-tool-execution; completed results were pushed. */
+  | "aborted_during_tools"
+  /** A tool result requested handing back to the user. */
+  | "yield_to_user"
+  /** The orchestrator's `onCheckpoint` callback returned `"yield"`. */
+  | "checkpoint_yield"
+  /** Signal aborted while the catch handler was synthesizing an error turn. */
+  | "aborted_via_error"
+  /** Catch-block fallback: an unhandled error broke the loop. */
+  | "error";
+
 export type AgentEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; thinking: string }
@@ -170,6 +207,18 @@ export type AgentEvent =
        * for this call (e.g. legacy/stubbed code paths).
        */
       estimatedInputTokens?: number;
+    }
+  | {
+      /**
+       * Emitted exactly once at the end of {@link AgentLoop.run}, after the
+       * loop body has exited (whether via `break;`, an unhandled error in
+       * the catch block, or the empty-response throw path). Consumers
+       * persist `reason` onto the final `llm_request_logs` row for the run;
+       * intermediate rows keep `agent_loop_exit_reason = NULL`, which is the
+       * canonical "loop kept going" signal.
+       */
+      type: "agent_loop_exit";
+      reason: AgentLoopExitReason;
     };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
@@ -424,8 +473,24 @@ export class AgentLoop {
     const substitutionMap = new Map<string, string>();
     let streamingPending = "";
 
+    // Idempotency guard for `emitExit`. Used so the throw path in the
+    // empty-response branch can stamp its reason ("empty_response_exhausted")
+    // before throwing — the catch handler that observes the rethrow will
+    // then attempt to stamp "error" and harmlessly no-op, preserving the
+    // more specific reason. Also defends against accidental future
+    // double-emits if a new break site is added without checking this.
+    let exitReasonEmitted = false;
+    const emitExit = async (reason: AgentLoopExitReason): Promise<void> => {
+      if (exitReasonEmitted) return;
+      exitReasonEmitted = true;
+      await onEvent({ type: "agent_loop_exit", reason });
+    };
+
     while (true) {
-      if (signal?.aborted) break;
+      if (signal?.aborted) {
+        await emitExit("aborted_pre_call");
+        break;
+      }
 
       rlog.info(
         { turn: toolUseTurns, messageCount: history.length },
@@ -852,6 +917,11 @@ export class AgentLoop {
             { turn: toolUseTurns, retries: emptyResponseRetries },
             "emptyResponse pipeline requested error surface",
           );
+          // Stamp the specific exit reason *before* throwing. The catch
+          // handler below will see the rethrown error and attempt to stamp
+          // "error" — guarded by `exitReasonEmitted`, that becomes a no-op
+          // and the more specific reason wins.
+          await emitExit("empty_response_exhausted");
           throw new AssistantError(
             "Model returned empty response after tool results",
             ErrorCode.INTERNAL_ERROR,
@@ -878,6 +948,7 @@ export class AgentLoop {
         await onEvent({ type: "message_complete", message: assistantMessage });
 
         if (toolUseBlocks.length === 0 || !this.toolExecutor) {
+          await emitExit("no_tool_calls");
           break;
         }
 
@@ -902,6 +973,7 @@ export class AgentLoop {
             }),
           );
           history.push({ role: "user", content: cancelledBlocks });
+          await emitExit("aborted_post_response");
           break;
         }
 
@@ -1089,6 +1161,7 @@ export class AgentLoop {
         // If cancelled during execution, push completed results and stop
         if (signal?.aborted) {
           history.push({ role: "user", content: resultBlocks });
+          await emitExit("aborted_during_tools");
           break;
         }
 
@@ -1096,6 +1169,7 @@ export class AgentLoop {
         // surface awaiting a button click), push results and stop the loop.
         if (toolResults.some(({ result }) => result.yieldToUser)) {
           history.push({ role: "user", content: resultBlocks });
+          await emitExit("yield_to_user");
           break;
         }
 
@@ -1162,6 +1236,7 @@ export class AgentLoop {
             history,
           });
           if (decision === "yield") {
+            await emitExit("checkpoint_yield");
             break;
           }
         }
@@ -1181,6 +1256,7 @@ export class AgentLoop {
             );
             history.push({ role: "user", content: cancelledBlocks });
           }
+          await emitExit("aborted_via_error");
           break;
         }
         const err = error instanceof Error ? error : new Error(String(error));
@@ -1192,6 +1268,12 @@ export class AgentLoop {
           Sentry.captureException(err);
         }
         onEvent({ type: "error", error: err });
+        // Catch-block fallback. If the rethrow came from the
+        // empty-response throw path above, `emitExit("error")` no-ops
+        // because `emitExit("empty_response_exhausted")` already ran
+        // before the throw. Otherwise, this is the genuine
+        // unhandled-error exit.
+        await emitExit("error");
         break;
       }
     }

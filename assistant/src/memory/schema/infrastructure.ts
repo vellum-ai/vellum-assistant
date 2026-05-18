@@ -137,6 +137,7 @@ export const llmRequestLogs = sqliteTable(
     requestPayload: text("request_payload").notNull(),
     responsePayload: text("response_payload").notNull(),
     createdAt: integer("created_at").notNull(),
+    agentLoopExitReason: text("agent_loop_exit_reason"),
   },
   (table) => [
     index("idx_llm_request_logs_message_id").on(table.messageId),

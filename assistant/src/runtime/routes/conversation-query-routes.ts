@@ -65,9 +65,14 @@ import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
-import { listConnections } from "../../providers/inference/connections.js";
+import {
+  createConnection,
+  listConnections,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+} from "../../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
+import { credentialKey } from "../../security/credential-key.js";
 import { validateAllowlistFile } from "../../security/secret-allowlist.js";
 import { resolvePricingForUsage } from "../../util/pricing.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
@@ -654,12 +659,28 @@ async function handleReplaceInferenceProfile({
   // inherit a stale connection from the default layer.
   const fragment = parsed.data as Record<string, unknown>;
   if (!isManaged && fragment.provider && !fragment.provider_connection) {
-    const candidates = listConnections(getDb(), {
-      provider: fragment.provider as string,
-    });
+    const provider = fragment.provider as string;
+    const db = getDb();
+    const candidates = listConnections(db, { provider });
     const active = candidates.find((c) => c.status === "active");
     if (active) {
       fragment.provider_connection = active.name;
+    } else if (!PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
+      const connectionName = `${provider}-personal`;
+      const isKeyless = provider === "ollama";
+      const result = createConnection(db, {
+        name: connectionName,
+        provider,
+        auth: isKeyless
+          ? { type: "none" }
+          : {
+              type: "api_key",
+              credential: credentialKey(provider, "api_key"),
+            },
+      });
+      if (result.ok) {
+        fragment.provider_connection = connectionName;
+      }
     }
   }
 

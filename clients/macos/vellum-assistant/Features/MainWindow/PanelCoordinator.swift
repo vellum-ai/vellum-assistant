@@ -216,8 +216,6 @@ extension MainWindowView {
             feedStore: feedStore,
             meetStatusViewModel: meetStatusViewModel,
             onFeedConversationOpened: { daemonConversationId in
-                activeHomeDetailPanel = nil
-                onDismiss()
                 Task { @MainActor in
                     let found = await conversationManager.selectConversationByConversationIdAsync(daemonConversationId)
                     let activeLocalId = conversationManager.activeConversationId
@@ -228,6 +226,8 @@ extension MainWindowView {
                         windowState.showToast(message: "Couldn't open the conversation.", style: .error)
                         return
                     }
+                    activeHomeDetailPanel = nil
+                    onDismiss()
                     windowState.selection = .conversation(id)
                 }
             },
@@ -297,14 +297,17 @@ extension MainWindowView {
     private func goToThreadHandler(for item: FeedItem) -> (() -> Void)? {
         guard let daemonConversationId = item.conversationId else { return nil }
         return {
-            activeHomeDetailPanel = nil
             Task { @MainActor in
                 let found = await conversationManager.selectConversationByConversationIdAsync(daemonConversationId)
                 let activeLocalId = conversationManager.activeConversationId
                 panelCoordinatorLog.info(
                     "Go to Thread: daemonConversationId=\(daemonConversationId, privacy: .public) feedItemId=\(item.id, privacy: .public) found=\(found, privacy: .public) activeLocalId=\(activeLocalId?.uuidString ?? "<nil>", privacy: .public)"
                 )
-                guard found, let id = activeLocalId else { return }
+                guard found, let id = activeLocalId else {
+                    windowState.showToast(message: "Couldn't open the conversation.", style: .error)
+                    return
+                }
+                activeHomeDetailPanel = nil
                 windowState.selection = .conversation(id)
             }
         }

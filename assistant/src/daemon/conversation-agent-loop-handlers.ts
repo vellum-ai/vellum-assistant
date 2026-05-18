@@ -25,6 +25,7 @@ import {
   backfillMessageIdOnLogs,
   buildProviderErrorResponsePayload,
   recordRequestLog,
+  setAgentLoopExitReasonOnLatestLog,
 } from "../memory/llm-request-log-store.js";
 import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
 import { backfillMemoryV2ActivationMessageId } from "../memory/memory-v2-activation-log-store.js";
@@ -1309,6 +1310,33 @@ export async function dispatchAgentEvent(
         break;
       case "usage":
         handleUsage(state, deps, event);
+        break;
+      case "agent_loop_exit":
+        // Stamp the exit reason onto the most-recent llm_request_logs
+        // row for this conversation. The final `usage` event of the run
+        // lands its row immediately before this event arrives (in the
+        // normal-dispatch path; the wake path handles ordering
+        // explicitly via `pendingExitReason`).
+        //
+        // Wrapped in try/catch so a DB hiccup here can't tear down the
+        // surrounding dispatch — the outer try/catch already swallows
+        // errors, but logging here gives the diagnosis hook a clear
+        // attribution to the exit handler specifically.
+        try {
+          setAgentLoopExitReasonOnLatestLog(
+            deps.ctx.conversationId,
+            event.reason,
+          );
+        } catch (err) {
+          log.warn(
+            {
+              err,
+              conversationId: deps.ctx.conversationId,
+              reason: event.reason,
+            },
+            "Failed to persist agent_loop_exit_reason (non-fatal)",
+          );
+        }
         break;
     }
   } catch (err) {

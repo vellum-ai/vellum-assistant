@@ -11,25 +11,11 @@ mock.module("../../util/logger.js", () => ({
 // Mock state — reset between tests.
 // ---------------------------------------------------------------------------
 
-let flagEnabled = true;
 let sourceTag: string | null = null;
-let getConfigThrows = false;
 const upsertCalls: Array<{
   payload: { conversationId: string };
   runAfter: number;
 }> = [];
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => {
-    if (getConfigThrows) throw new Error("boom");
-    return {};
-  },
-}));
-
-mock.module("../../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (_key: string, _config: unknown) =>
-    flagEnabled,
-}));
 
 mock.module("../conversation-crud.js", () => ({
   getConversationSource: (_id: string) => sourceTag,
@@ -59,26 +45,11 @@ import {
 
 describe("enqueueMemoryRetrospectiveIfEnabled", () => {
   beforeEach(() => {
-    flagEnabled = true;
     sourceTag = null;
-    getConfigThrows = false;
     upsertCalls.length = 0;
   });
 
-  test("flag off — no upsert for any trigger", () => {
-    flagEnabled = false;
-    for (const trigger of [
-      "interval",
-      "message_count",
-      "compaction",
-      "lifecycle",
-    ] as const) {
-      enqueueMemoryRetrospectiveIfEnabled({ conversationId: "c1", trigger });
-    }
-    expect(upsertCalls).toHaveLength(0);
-  });
-
-  test("flag on, standard source — interval trigger enqueues with runAfter ≈ now", () => {
+  test("standard source — interval trigger enqueues with runAfter ≈ now", () => {
     const before = Date.now();
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
@@ -113,17 +84,6 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
     });
     expect(upsertCalls).toHaveLength(0);
   });
-
-  test("getConfig throws — no enqueue, no propagation", () => {
-    getConfigThrows = true;
-    expect(() =>
-      enqueueMemoryRetrospectiveIfEnabled({
-        conversationId: "c1",
-        trigger: "interval",
-      }),
-    ).not.toThrow();
-    expect(upsertCalls).toHaveLength(0);
-  });
 });
 
 describe("isMemoryRetrospectiveConversation", () => {
@@ -149,9 +109,7 @@ describe("isMemoryRetrospectiveConversation", () => {
 
 describe("enqueueMemoryRetrospectiveOnCompaction", () => {
   beforeEach(() => {
-    flagEnabled = true;
     sourceTag = null;
-    getConfigThrows = false;
     upsertCalls.length = 0;
   });
 
@@ -162,16 +120,10 @@ describe("enqueueMemoryRetrospectiveOnCompaction", () => {
     expect(upsertCalls).toHaveLength(0);
   });
 
-  test("guardian trust + flag on — enqueues with compaction debounce", () => {
+  test("guardian trust — enqueues with compaction debounce", () => {
     const before = Date.now();
     enqueueMemoryRetrospectiveOnCompaction("c1", "guardian");
     expect(upsertCalls).toHaveLength(1);
     expect(upsertCalls[0]!.runAfter).toBeGreaterThan(before + 100);
-  });
-
-  test("guardian trust + flag off — no enqueue", () => {
-    flagEnabled = false;
-    enqueueMemoryRetrospectiveOnCompaction("c1", "guardian");
-    expect(upsertCalls).toHaveLength(0);
   });
 });

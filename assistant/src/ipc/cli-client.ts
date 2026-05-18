@@ -135,19 +135,26 @@ export async function cliIpcCall<T = unknown>(
 
     const reqId = crypto.randomUUID();
 
-    opts?.signal?.addEventListener("abort", () => {
-      finish({ ok: false, error: "Request aborted" });
-    }, { once: true });
+    opts?.signal?.addEventListener(
+      "abort",
+      () => {
+        finish({ ok: false, error: "Request aborted" });
+      },
+      { once: true },
+    );
 
     const reader = new IpcFrameReader(
       (envelope) => {
         if (envelope.id !== reqId) return;
         const msg = envelope as IpcResponse;
         if (msg.error) {
-          finish({ ok: false, error: msg.error,
+          finish({
+            ok: false,
+            error: msg.error,
             ...(msg.statusCode != null && { statusCode: msg.statusCode }),
             ...(msg.errorCode != null && { errorCode: msg.errorCode }),
-            ...(msg.errorDetails != null && { errorDetails: msg.errorDetails }) });
+            ...(msg.errorDetails != null && { errorDetails: msg.errorDetails }),
+          });
         } else {
           finish({ ok: true, result: msg.result as T });
         }
@@ -199,7 +206,13 @@ export async function cliIpcCallBinary(
   opts?: { timeoutMs?: number; signal?: AbortSignal },
 ): Promise<
   | { ok: true; headers: Record<string, string>; bytes: Uint8Array }
-  | { ok: false; error: string; statusCode?: number; errorCode?: string; errorDetails?: unknown }
+  | {
+      ok: false;
+      error: string;
+      statusCode?: number;
+      errorCode?: string;
+      errorDetails?: unknown;
+    }
 > {
   if (opts?.signal?.aborted) {
     throw opts.signal.reason ?? new DOMException("Aborted", "AbortError");
@@ -215,7 +228,13 @@ export async function cliIpcCallBinary(
     const finish = (
       result:
         | { ok: true; headers: Record<string, string>; bytes: Uint8Array }
-        | { ok: false; error: string; statusCode?: number; errorCode?: string; errorDetails?: unknown },
+        | {
+            ok: false;
+            error: string;
+            statusCode?: number;
+            errorCode?: string;
+            errorDetails?: unknown;
+          },
     ) => {
       if (settled) return;
       settled = true;
@@ -226,8 +245,14 @@ export async function cliIpcCallBinary(
     };
 
     const connectTimer = setTimeout(() => {
-      log.debug({ method, socketPath, timeoutMs: CONNECT_TIMEOUT_MS }, "CLI IPC binary connect timed out");
-      finish({ ok: false, error: `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.` });
+      log.debug(
+        { method, socketPath, timeoutMs: CONNECT_TIMEOUT_MS },
+        "CLI IPC binary connect timed out",
+      );
+      finish({
+        ok: false,
+        error: `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.`,
+      });
     }, CONNECT_TIMEOUT_MS);
 
     const socket = new Socket();
@@ -235,7 +260,10 @@ export async function cliIpcCallBinary(
 
     socket.on("error", (err) => {
       const code = (err as NodeJS.ErrnoException).code;
-      log.debug({ err, code, method, socketPath }, "CLI IPC binary socket error");
+      log.debug(
+        { err, code, method, socketPath },
+        "CLI IPC binary socket error",
+      );
       finish({
         ok: false,
         error:
@@ -258,23 +286,37 @@ export async function cliIpcCallBinary(
 
     const reqId = crypto.randomUUID();
 
-    opts?.signal?.addEventListener("abort", () => {
-      finish({ ok: false, error: "Request aborted" });
-    }, { once: true });
+    opts?.signal?.addEventListener(
+      "abort",
+      () => {
+        finish({ ok: false, error: "Request aborted" });
+      },
+      { once: true },
+    );
 
     const reader = new IpcFrameReader(
       (envelope, binary) => {
         if (envelope.id !== reqId) return;
         const msg = envelope as IpcResponse;
         if (msg.error) {
-          finish({ ok: false, error: msg.error,
+          finish({
+            ok: false,
+            error: msg.error,
             ...(msg.statusCode != null && { statusCode: msg.statusCode }),
             ...(msg.errorCode != null && { errorCode: msg.errorCode }),
-            ...(msg.errorDetails != null && { errorDetails: msg.errorDetails }) });
+            ...(msg.errorDetails != null && { errorDetails: msg.errorDetails }),
+          });
         } else if (binary === undefined) {
-          finish({ ok: false, error: "Expected binary frame but received JSON-only response" });
+          finish({
+            ok: false,
+            error: "Expected binary frame but received JSON-only response",
+          });
         } else {
-          finish({ ok: true, headers: (envelope.headers ?? {}) as Record<string, string>, bytes: binary });
+          finish({
+            ok: true,
+            headers: (envelope.headers ?? {}) as Record<string, string>,
+            bytes: binary,
+          });
         }
       },
       (err) => finish({ ok: false, error: err.message }),
@@ -285,7 +327,10 @@ export async function cliIpcCallBinary(
       writeMessage(socket, { id: reqId, method, params });
 
       callTimer = setTimeout(() => {
-        log.debug({ method, socketPath, timeoutMs: callTimeoutMs }, "CLI IPC binary call timed out");
+        log.debug(
+          { method, socketPath, timeoutMs: callTimeoutMs },
+          "CLI IPC binary call timed out",
+        );
         finish({ ok: false, error: "Request timed out" });
       }, callTimeoutMs);
 
@@ -323,24 +368,42 @@ export async function cliIpcCallStream(
   params?: Record<string, unknown>,
   opts?: { firstByteTimeoutMs?: number; signal?: AbortSignal },
 ): Promise<
-  | { ok: true; headers: Record<string, string>; body: ReadableStream<Uint8Array>; abort: () => void }
-  | { ok: false; error: string; statusCode?: number; errorCode?: string; errorDetails?: unknown }
+  | {
+      ok: true;
+      headers: Record<string, string>;
+      body: ReadableStream<Uint8Array>;
+      abort: () => void;
+    }
+  | {
+      ok: false;
+      error: string;
+      statusCode?: number;
+      errorCode?: string;
+      errorDetails?: unknown;
+    }
 > {
   if (opts?.signal?.aborted) {
     throw opts.signal.reason ?? new DOMException("Aborted", "AbortError");
   }
 
   const socketPath = getAssistantSocketPath();
-  const firstByteTimeoutMs = opts?.firstByteTimeoutMs ?? DEFAULT_FIRST_BYTE_TIMEOUT_MS;
+  const firstByteTimeoutMs =
+    opts?.firstByteTimeoutMs ?? DEFAULT_FIRST_BYTE_TIMEOUT_MS;
 
   return new Promise((resolve) => {
     let settled = false;
     let firstByteTimer: ReturnType<typeof setTimeout> | undefined;
-    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    let streamController:
+      | ReadableStreamDefaultController<Uint8Array>
+      | undefined;
 
-    const finishError = (
-      result: { ok: false; error: string; statusCode?: number; errorCode?: string; errorDetails?: unknown },
-    ) => {
+    const finishError = (result: {
+      ok: false;
+      error: string;
+      statusCode?: number;
+      errorCode?: string;
+      errorDetails?: unknown;
+    }) => {
       if (settled) return;
       settled = true;
       clearTimeout(connectTimer);
@@ -366,8 +429,14 @@ export async function cliIpcCallStream(
     };
 
     const connectTimer = setTimeout(() => {
-      log.debug({ method, socketPath, timeoutMs: CONNECT_TIMEOUT_MS }, "CLI IPC stream connect timed out");
-      finishError({ ok: false, error: `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.` });
+      log.debug(
+        { method, socketPath, timeoutMs: CONNECT_TIMEOUT_MS },
+        "CLI IPC stream connect timed out",
+      );
+      finishError({
+        ok: false,
+        error: `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.`,
+      });
     }, CONNECT_TIMEOUT_MS);
 
     const socket = new Socket();
@@ -375,7 +444,10 @@ export async function cliIpcCallStream(
 
     socket.on("error", (err) => {
       const code = (err as NodeJS.ErrnoException).code;
-      log.debug({ err, code, method, socketPath }, "CLI IPC stream socket error");
+      log.debug(
+        { err, code, method, socketPath },
+        "CLI IPC stream socket error",
+      );
       if (!settled) {
         finishError({
           ok: false,
@@ -399,24 +471,35 @@ export async function cliIpcCallStream(
             : "Connection closed before response",
         });
       } else if (streamController) {
-        streamController.error(new Error("Connection closed before stream ended"));
+        streamController.error(
+          new Error("Connection closed before stream ended"),
+        );
         streamController = undefined;
       }
     });
 
     const reqId = crypto.randomUUID();
 
-    opts?.signal?.addEventListener("abort", () => { abort(); }, { once: true });
+    opts?.signal?.addEventListener(
+      "abort",
+      () => {
+        abort();
+      },
+      { once: true },
+    );
 
     const reader = new IpcFrameReader(
       (envelope) => {
         // Non-streaming envelope with error (e.g. method not found, auth failure)
         if (envelope.id !== reqId) return;
         const msg = envelope as IpcResponse;
-        finishError({ ok: false, error: msg.error ?? "Unexpected non-streaming response",
+        finishError({
+          ok: false,
+          error: msg.error ?? "Unexpected non-streaming response",
           ...(msg.statusCode != null && { statusCode: msg.statusCode }),
           ...(msg.errorCode != null && { errorCode: msg.errorCode }),
-          ...(msg.errorDetails != null && { errorDetails: msg.errorDetails }) });
+          ...(msg.errorDetails != null && { errorDetails: msg.errorDetails }),
+        });
       },
       (err) => finishError({ ok: false, error: err.message }),
       {
@@ -437,7 +520,12 @@ export async function cliIpcCallStream(
           });
           settled = true;
           clearTimeout(connectTimer);
-          resolve({ ok: true, headers: (envelope.headers ?? {}) as Record<string, string>, body, abort });
+          resolve({
+            ok: true,
+            headers: (envelope.headers ?? {}) as Record<string, string>,
+            body,
+            abort,
+          });
         },
         onStreamChunk: (chunk) => {
           streamController?.enqueue(chunk);
@@ -455,8 +543,14 @@ export async function cliIpcCallStream(
       writeMessage(socket, { id: reqId, method, params });
 
       firstByteTimer = setTimeout(() => {
-        log.debug({ method, socketPath, timeoutMs: firstByteTimeoutMs }, "CLI IPC stream first-byte timeout");
-        finishError({ ok: false, error: "Stream timed out waiting for first byte" });
+        log.debug(
+          { method, socketPath, timeoutMs: firstByteTimeoutMs },
+          "CLI IPC stream first-byte timeout",
+        );
+        finishError({
+          ok: false,
+          error: "Stream timed out waiting for first byte",
+        });
       }, firstByteTimeoutMs);
 
       socket.on("data", (chunk) => {
@@ -491,13 +585,21 @@ export function exitFromIpcResult(
   _cmd?: unknown,
 ): never {
   process.stderr.write((r.error ?? "Unknown error") + "\n");
-  if (r.statusCode === undefined) {
-    process.exit(10);
-  } else if (r.statusCode >= 500) {
-    process.exit(3);
-  } else if (r.statusCode >= 400) {
-    process.exit(2);
-  } else {
-    process.exit(1);
-  }
+  process.exit(exitCodeFromIpcResult(r));
+}
+
+/**
+ * Map an IPC error result to its CLI process exit code without exiting.
+ *
+ * Use this when callers want to emit a structured response (e.g. a JSON
+ * error envelope in `--json` mode) before terminating with the same status
+ * code that {@link exitFromIpcResult} would produce.
+ *
+ * Exit code matrix matches {@link exitFromIpcResult}.
+ */
+export function exitCodeFromIpcResult(r: { statusCode?: number }): number {
+  if (r.statusCode === undefined) return 10;
+  if (r.statusCode >= 500) return 3;
+  if (r.statusCode >= 400) return 2;
+  return 1;
 }

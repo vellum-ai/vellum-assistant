@@ -35,8 +35,8 @@ public struct GuardianDecisionBubble: View {
         }
     }
 
-    /// Maps `decision.riskLevel` to a semantic color for badges and accents.
-    private var riskColor: Color {
+    /// Strong semantic color for card accents (border tint, header icon).
+    private var riskAccentColor: Color {
         switch decision.riskLevel?.lowercased() {
         case "high":
             return VColor.systemNegativeStrong
@@ -44,6 +44,34 @@ public struct GuardianDecisionBubble: View {
             return VColor.systemMidStrong
         default:
             return VColor.systemPositiveStrong
+        }
+    }
+
+    /// Muted background for the inline risk badge pill.
+    private var riskBadgeBackgroundColor: Color {
+        switch decision.riskLevel?.lowercased() {
+        case "low":
+            return VColor.systemPositiveWeak
+        case "medium":
+            return VColor.systemMidWeak
+        case "high":
+            return VColor.systemNegativeWeak
+        default:
+            return VColor.surfaceBase
+        }
+    }
+
+    /// Text color for the inline risk badge pill.
+    private var riskBadgeTextColor: Color {
+        switch decision.riskLevel?.lowercased() {
+        case "low":
+            return VColor.systemPositiveStrong
+        case "medium":
+            return VColor.systemMidStrong
+        case "high":
+            return VColor.systemNegativeStrong
+        default:
+            return VColor.contentSecondary
         }
     }
 
@@ -57,12 +85,12 @@ public struct GuardianDecisionBubble: View {
 
     // MARK: - Pending (actionable)
 
-    /// The accent color for the card border and header icon. Uses `riskColor`
-    /// when a risk level is present on a tool_approval; otherwise falls back to
-    /// the kind-derived accent from `headerConfig`.
+    /// The accent color for the card border and header icon. Uses the strong
+    /// risk semantic color when a risk level is present on a tool_approval;
+    /// otherwise falls back to the kind-derived accent from `headerConfig`.
     private var cardAccent: Color {
         if decision.kind == "tool_approval", decision.riskLevel != nil {
-            return riskColor
+            return riskAccentColor
         }
         return headerConfig.accent
     }
@@ -88,12 +116,12 @@ public struct GuardianDecisionBubble: View {
                     if let risk = decision.riskLevel {
                         Text(risk.uppercased())
                             .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.auxWhite)
+                            .foregroundStyle(riskBadgeTextColor)
                             .padding(.horizontal, VSpacing.sm)
                             .padding(.vertical, VSpacing.xxs)
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.sm)
-                                    .fill(riskColor)
+                                    .fill(riskBadgeBackgroundColor)
                             )
                     }
 

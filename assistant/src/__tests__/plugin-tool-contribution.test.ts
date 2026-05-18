@@ -59,7 +59,7 @@ import {
   unregisterPluginTools,
 } from "../tools/registry.js";
 import type {
-  PluginTool,
+  LoadedPluginTool,
   ToolContext,
   ToolExecutionResult,
 } from "../tools/types.js";
@@ -81,8 +81,8 @@ const fakeCtx: DaemonContext = {
 
 function makeFakeTool(
   name: string,
-  extras: Partial<PluginTool> = {},
-): PluginTool {
+  extras: Partial<LoadedPluginTool> = {},
+): LoadedPluginTool {
   return {
     name,
     description: `Fake ${name}`,

@@ -112,6 +112,7 @@ import {
   migrateHeartbeatRuns,
   migrateInviteCodeHashColumn,
   migrateInviteContactId,
+  migrateLlmRequestLogAgentLoopExitReason,
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
   migrateLlmRequestLogsCreatedAtIndex,
@@ -434,6 +435,7 @@ export function initializeDb(): void {
     migrateNormalizeSlackExternalContent,
     migrateProviderConnectionBaseUrlAndModels,
     migrateA2ATasks,
+    migrateLlmRequestLogAgentLoopExitReason,
   ];
 
   // Run each migration step, catching and logging individual failures so one

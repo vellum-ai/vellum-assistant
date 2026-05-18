@@ -57,6 +57,7 @@ interface ClickHouseRow {
   request_payload: string;
   response_payload: string;
   created_at: string;
+  agent_loop_exit_reason: string;
 }
 
 /** Injectable fetch override for tests. Defaults to globalThis.fetch. */
@@ -123,7 +124,8 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
         provider,
         request_payload,
         response_payload,
-        toUnixTimestamp64Milli(created_at) AS created_at
+        toUnixTimestamp64Milli(created_at) AS created_at,
+        agent_loop_exit_reason
       FROM ${this.tableRef()}
       WHERE assistant_id = {assistant_id:String}
         AND id = {log_id:String}
@@ -194,7 +196,8 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
         provider,
         request_payload,
         response_payload,
-        toUnixTimestamp64Milli(created_at) AS created_at
+        toUnixTimestamp64Milli(created_at) AS created_at,
+        agent_loop_exit_reason
       FROM ${this.tableRef()}
       WHERE assistant_id = {assistant_id:String}
         AND message_id IN (${placeholders.join(",")})
@@ -283,6 +286,8 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       requestPayload: row.request_payload,
       responsePayload: row.response_payload,
       createdAt: Number(row.created_at),
+      agentLoopExitReason:
+        row.agent_loop_exit_reason === "" ? null : row.agent_loop_exit_reason,
     };
   }
 

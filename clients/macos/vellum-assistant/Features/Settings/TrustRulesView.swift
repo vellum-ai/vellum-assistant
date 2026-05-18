@@ -153,12 +153,21 @@ private struct V3TrustRuleRow: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
 
-    private func riskColor(_ risk: String) -> Color {
+    private func riskBackgroundColor(_ risk: String) -> Color {
+        switch risk.lowercased() {
+        case "low": return VColor.systemPositiveWeak
+        case "medium": return VColor.systemMidWeak
+        case "high": return VColor.systemNegativeWeak
+        default: return VColor.surfaceBase
+        }
+    }
+
+    private func riskTextColor(_ risk: String) -> Color {
         switch risk.lowercased() {
         case "low": return VColor.systemPositiveStrong
         case "medium": return VColor.systemMidStrong
         case "high": return VColor.systemNegativeStrong
-        default: return VColor.contentTertiary
+        default: return VColor.contentSecondary
         }
     }
 
@@ -185,8 +194,8 @@ private struct V3TrustRuleRow: View {
             Text(rule.risk.lowercased())
                 .font(VFont.labelDefault)
                 .padding(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
-                .background(riskColor(rule.risk).opacity(0.15))
-                .foregroundStyle(riskColor(rule.risk))
+                .background(riskBackgroundColor(rule.risk))
+                .foregroundStyle(riskTextColor(rule.risk))
                 .clipShape(Capsule())
 
             // Origin / modified indicators

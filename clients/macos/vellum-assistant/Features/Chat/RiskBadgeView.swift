@@ -3,11 +3,9 @@ import VellumAssistantShared
 
 /// A small colored pill that displays a risk level label.
 ///
-/// Color-coded by risk level:
-/// - `"low"` — green (`VColor.systemPositiveStrong`)
-/// - `"medium"` — amber (`VColor.systemMidStrong`)
-/// - `"high"` — red (`VColor.systemNegativeStrong`)
-/// - Any other value — gray (`VColor.contentSecondary`)
+/// Uses the design system's "weak" palette — muted pastel backgrounds with
+/// the corresponding strong semantic color for text — so the badge conveys
+/// risk without visually competing with chat content.
 ///
 /// When `onTap` is provided the badge renders as a tappable button with a
 /// tooltip; otherwise it is a plain, non-interactive label.
@@ -53,6 +51,19 @@ struct RiskBadgeView: View {
     private var backgroundColor: Color {
         switch riskLevel.lowercased() {
         case "low":
+            VColor.systemPositiveWeak
+        case "medium":
+            VColor.systemMidWeak
+        case "high":
+            VColor.systemNegativeWeak
+        default:
+            VColor.surfaceBase
+        }
+    }
+
+    private var textColor: Color {
+        switch riskLevel.lowercased() {
+        case "low":
             VColor.systemPositiveStrong
         case "medium":
             VColor.systemMidStrong
@@ -60,16 +71,6 @@ struct RiskBadgeView: View {
             VColor.systemNegativeStrong
         default:
             VColor.contentSecondary
-        }
-    }
-
-    private var textColor: Color {
-        switch riskLevel.lowercased() {
-        case "medium":
-            // Amber background is light — use dark text for contrast.
-            VColor.auxBlack
-        default:
-            VColor.auxWhite
         }
     }
 }

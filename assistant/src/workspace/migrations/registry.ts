@@ -84,6 +84,7 @@ import { systemPromptPrefixToFileMigration } from "./083-system-prompt-prefix-to
 import { removeLegacySkillsIndexMigration } from "./084-remove-legacy-skills-index.js";
 import { memoryV2Bm25BReembedDisabledV2PagesMigration } from "./085-memory-v2-bm25-b-reembed-disabled-v2-pages.js";
 import { revertStaleGeminiMisRewritesMigration } from "./086-revert-stale-gemini-mis-rewrites.js";
+import { memoryRouterBalancedProfileMigration } from "./087-memory-router-balanced-profile.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -179,4 +180,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   removeLegacySkillsIndexMigration,
   memoryV2Bm25BReembedDisabledV2PagesMigration,
   revertStaleGeminiMisRewritesMigration,
+  memoryRouterBalancedProfileMigration,
 ];

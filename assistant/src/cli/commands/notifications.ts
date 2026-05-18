@@ -1,6 +1,10 @@
 import type { Command } from "commander";
 
-import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import {
+  cliIpcCall,
+  exitCodeFromIpcResult,
+  exitFromIpcResult,
+} from "../../ipc/cli-client.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
@@ -289,7 +293,14 @@ Examples:
                 },
               });
 
-              if (!result.ok) return exitFromIpcResult(result);
+              if (!result.ok) {
+                if (shouldOutputJson(cmd)) {
+                  writeOutput(cmd, { ok: false, error: result.error });
+                  process.exitCode = exitCodeFromIpcResult(result);
+                  return;
+                }
+                return exitFromIpcResult(result);
+              }
 
               const signal = result.result!;
 

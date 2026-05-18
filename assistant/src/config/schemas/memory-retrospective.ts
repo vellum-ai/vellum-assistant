@@ -40,7 +40,7 @@ export const MemoryRetrospectiveConfigSchema = z
       ),
   })
   .describe(
-    "Controls the memory-retrospective background pass triggered by the `memory-retrospective` feature flag. Model selection lives under llm.callSites.memoryRetrospective.",
+    "Controls the memory-retrospective background pass. Model selection lives under llm.callSites.memoryRetrospective.",
   );
 
 export type MemoryRetrospectiveConfig = z.infer<

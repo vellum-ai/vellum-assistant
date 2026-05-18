@@ -71,7 +71,10 @@ import {
   memoryV2ActivationLogs,
   messages,
 } from "../../../memory/schema.js";
-import { createConnection } from "../../../providers/inference/connections.js";
+import {
+  createConnection,
+  getConnection,
+} from "../../../providers/inference/connections.js";
 import { ROUTES } from "../conversation-query-routes.js";
 
 // Local subset: this test only exercises a single concept row.
@@ -485,6 +488,34 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
     expect(savedProfile.provider).toBe("fireworks");
     expect(savedProfile.provider_connection).toBe("fireworks");
+  });
+
+  test("auto-creates provider_connection when no connection exists for provider", async () => {
+    const result = await replaceProfileRoute.handler({
+      pathParams: { name: "custom" },
+      body: {
+        provider: "openrouter",
+        model: "anthropic/claude-sonnet-4-6",
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    const savedProfile = (
+      savedRawConfig?.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles.custom;
+
+    expect(savedProfile.provider).toBe("openrouter");
+    expect(savedProfile.provider_connection).toBe("openrouter-personal");
+
+    const conn = getConnection(getDb(), "openrouter-personal");
+    expect(conn).not.toBeNull();
+    expect(conn!.provider).toBe("openrouter");
+    expect(conn!.auth).toEqual({
+      type: "api_key",
+      credential: "credential/openrouter/api_key",
+    });
   });
 
   describe("managed profile guard", () => {

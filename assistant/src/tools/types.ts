@@ -376,16 +376,51 @@ export interface Tool {
 
 /**
  * Plugin-facing tool shape. The narrow surface plugin authors implement;
- * differs from {@link Tool} in three ways:
+ * differs from {@link Tool} in four ways:
  * - Plugins declare `input_schema` as a top-level field instead of
  *   implementing `getDefinition()`. The registration boundary synthesizes
  *   `getDefinition()` from `{name, description, input_schema}` before the
  *   tool enters the internal registry.
+ * - `name` is derived from the tool file's basename by the external plugin
+ *   loader.
  * - `category` is registry-owned and stamped to `"plugin"` when the tool is
  *   registered.
  * - All ownership stamps (`origin`, `ownerPluginId`, etc.) are set
  *   authoritatively by the bootstrap; plugin authors leave them blank.
+ *
+ * Every author-visible field is optional. The loader fills the four
+ * normally-required slots (`description`, `defaultRiskLevel`,
+ * `input_schema`, `execute`) with documented defaults when a plugin omits
+ * them — see `applyPluginToolDefaults` in `external-plugin-loader.ts`.
+ * A nameless, body-less `export default {}` is a valid (if useless) tool;
+ * misconfigured tools surface at call time rather than blocking plugin
+ * load.
  */
-export type PluginTool = Omit<Tool, "category" | "getDefinition"> & {
+export type PluginTool = Omit<
+  Tool,
+  "category" | "getDefinition" | "name" | "description" | "defaultRiskLevel"
+> & {
+  description?: string;
+  defaultRiskLevel?: RiskLevel;
+  input_schema?: object;
+  execute?: (
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ) => Promise<ToolExecutionResult>;
+};
+
+/**
+ * Plugin tool after the external loader has derived its registry name and
+ * filled defaults for any author-omitted fields. All four normally-required
+ * slots are guaranteed present.
+ */
+export type LoadedPluginTool = PluginTool & {
+  name: string;
+  description: string;
+  defaultRiskLevel: RiskLevel;
   input_schema: object;
+  execute: (
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ) => Promise<ToolExecutionResult>;
 };

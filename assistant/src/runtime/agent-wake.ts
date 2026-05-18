@@ -60,6 +60,7 @@ import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import {
   buildProviderErrorResponsePayload,
   recordRequestLog,
+  setAgentLoopExitReasonOnLatestLog,
 } from "../memory/llm-request-log-store.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
@@ -551,6 +552,12 @@ export async function wakeAgentForOpportunity(
       provider?: string;
     };
     const pendingLogs: PendingLog[] = [];
+    // Exit reason deferred alongside pendingLogs. Same drop-on-silent-
+    // wake guarantee: if the wake never goes live, this stays null and
+    // no DB row is touched. Applied after pendingLogs flush in goLive
+    // so the latest-row lookup in `setAgentLoopExitReasonOnLatestLog`
+    // can see the freshly-persisted final usage row.
+    let pendingExitReason: string | null = null;
     const persistLog = (record: PendingLog): void => {
       try {
         recordRequestLog(
@@ -564,6 +571,16 @@ export async function wakeAgentForOpportunity(
         log.warn(
           { err, conversationId, source },
           "agent-wake: failed to persist LLM request log (non-fatal)",
+        );
+      }
+    };
+    const persistExitReason = (reason: string): void => {
+      try {
+        setAgentLoopExitReasonOnLatestLog(conversationId, reason);
+      } catch (err) {
+        log.warn(
+          { err, conversationId, source, reason },
+          "agent-wake: failed to persist agent_loop_exit_reason (non-fatal)",
         );
       }
     };
@@ -610,6 +627,19 @@ export async function wakeAgentForOpportunity(
           pendingLogs.push(record);
         } else {
           persistLog(record);
+        }
+      }
+      // Replicates the setAgentLoopExitReasonOnLatestLog side-effect that
+      // `dispatchAgentEvent` does for the normal path. In live mode the
+      // final usage event of the run has already landed its row, so the
+      // latest-row lookup hits the right target. In buffering mode the
+      // reason is stashed and applied in `goLive` after pendingLogs are
+      // persisted, preserving the same ordering guarantee.
+      if (event.type === "agent_loop_exit") {
+        if (mode === "buffering") {
+          pendingExitReason = event.reason;
+        } else {
+          persistExitReason(event.reason);
         }
       }
       if (mode === "buffering") {
@@ -670,6 +700,14 @@ export async function wakeAgentForOpportunity(
         persistLog(record);
       }
       pendingLogs.length = 0;
+      // Apply the deferred exit reason after pendingLogs are persisted —
+      // the latest-row lookup in `setAgentLoopExitReasonOnLatestLog`
+      // needs the final usage row to already exist. Cleared after use so
+      // an extremely unlikely double-goLive can't double-stamp.
+      if (pendingExitReason !== null) {
+        persistExitReason(pendingExitReason);
+        pendingExitReason = null;
+      }
       mode = "live";
     };
 
