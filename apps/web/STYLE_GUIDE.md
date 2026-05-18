@@ -121,16 +121,16 @@ Reference: [Vite — resolve.alias](https://vite.dev/config/shared-options.html#
 
 Group imports in this order, separated by blank lines:
 
-1. **External packages** (`react`, `react-router`, `zustand`, etc.)
+1. **External packages** (`react`, `react-router`, `@vellum/design-library`, etc.)
 2. **Alias imports** (`@/domains/...`, `@/components/...`, `@/lib/...`)
 3. **Relative imports** (`./`, `../`)
 
 ```ts
 import { useCallback, useMemo } from "react";
 import { useParams } from "react-router";
+import { Button } from "@vellum/design-library";
 
 import { useMessageStore } from "@/domains/messages/use-message-store.js";
-import { Button } from "@vellum/design-library/button.js";
 
 import { messageReducer } from "./message-reducer.js";
 ```

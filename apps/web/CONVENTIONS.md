@@ -438,23 +438,21 @@ Reference: [Vite — SSR guidance](https://vite.dev/guide/ssr.html)
 
 ### `packages/design-library/`
 
-Domain-agnostic UI primitives (Button, Card, Modal, Menu, Toast,
-Inputs, etc.) live in `packages/design-library/` outside `apps/web/`.
-The package is aliased as `@vellum/design-library` via Vite
-`resolve.alias` + tsconfig `paths` for monorepo HMR during
-development, with a clean path to npm publishing later.
+Domain-agnostic UI primitives (Button, Card, Modal, Typography, etc.)
+live in `packages/design-library/` outside `apps/web/`. The package is
+consumed as a `file:` dependency and resolved via its `exports` field
+in `package.json` — no Vite alias or tsconfig `paths` needed.
 
 ```ts
-import { Button } from "@vellum/design-library/button.js";
-import { Modal } from "@vellum/design-library/modal.js";
+import { Button, Typography } from "@vellum/design-library";
 ```
 
 Design system components accept props and render UI. They must not
 import domain state, feature hooks, or application-specific logic.
 
 References:
-- [Vite — resolve.alias](https://vite.dev/config/shared-options.html#resolve-alias)
-- [TypeScript — paths](https://www.typescriptlang.org/tsconfig/#paths)
+- [Node.js — Package exports](https://nodejs.org/api/packages.html#exports)
+- [Bun — Workspaces](https://bun.sh/docs/install/workspaces)
 
 ---
 

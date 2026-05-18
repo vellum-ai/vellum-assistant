@@ -40,10 +40,17 @@ scanner can detect them.
 
 ## Usage
 
-Components are imported via the `exports` map:
+Import from the package root:
+
+```ts
+import { Button, Typography, cn } from "@vellum/design-library";
+```
+
+Subpath imports are also available for targeted imports:
 
 ```ts
 import { Button } from "@vellum/design-library/components/button";
+import { cn } from "@vellum/design-library/utils/cn";
 ```
 
 The consuming app must include this package's source in its Tailwind source
