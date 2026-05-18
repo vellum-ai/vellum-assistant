@@ -489,12 +489,13 @@ The API client is generated from the platform's OpenAPI spec using
 this repo — the platform publishes the spec, we generate the client
 locally.
 
-Plugins:
+Plugins (configured in `openapi-ts.config.ts`):
+- `@hey-api/client-fetch` — Fetch-based HTTP client, bundled inline
+  in the generated output ([no runtime dep needed](https://github.com/hey-api/openapi-ts/pull/790))
 - `@tanstack/react-query` — generates `*Options()` helpers for
   `useQuery` / `useMutation` / `useInfiniteQuery`
-- `@hey-api/client-fetch` — Fetch-based HTTP client (no Axios/Node
-  dependency)
 - `@hey-api/typescript` — generates TypeScript types from schemas
+  (included by default, does not need explicit config)
 
 Generated output lives in `src/generated/api/`. This directory is
 fully auto-generated — do not hand-edit files in it. Run
