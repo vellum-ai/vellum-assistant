@@ -67,10 +67,19 @@ extension AppDelegate {
             }
         }
 
+        // Sanitize the title before it reaches sidebar display or the fallback
+        // notification banner. Server-side checks should prevent empty or
+        // event-name-leak titles, but this guard ensures the sidebar never
+        // shows a raw event name like "user.send_notification".
+        let sanitizedTitle = AppDelegate.sanitizeNotificationTitle(
+            msg.title,
+            sourceEventName: msg.sourceEventName
+        )
+
         ensureMainWindowExists()
         mainWindow?.conversationManager.createNotificationConversation(
             conversationId: msg.conversationId,
-            title: msg.title,
+            title: sanitizedTitle,
             sourceEventName: msg.sourceEventName,
             groupId: msg.groupId,
             source: msg.source
@@ -95,7 +104,7 @@ extension AppDelegate {
 
         scheduleNotificationFallback(
             conversationId: msg.conversationId,
-            title: msg.title,
+            title: sanitizedTitle,
             sourceEventName: msg.sourceEventName
         )
     }
