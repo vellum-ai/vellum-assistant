@@ -57,13 +57,14 @@ body:
       required: false
 
   - type: dropdown
-    id: install-method
+    id: hosting
     attributes:
-      label: Install method
+      label: Where is your assistant hosted?
       options:
-        - CLI (bun install -g vellum)
-        - Built from source
-        - macOS Desktop App
+        - Vellum Cloud (vellum.ai)
+        - Self-hosted — macOS Desktop App
+        - Self-hosted — CLI / daemon
+        - Self-hosted — built from source
         - Other
     validations:
       required: false
