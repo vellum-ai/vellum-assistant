@@ -106,6 +106,13 @@ For questions the docs and CLI can't answer (internal architecture, how a specif
    - `assistant/docs/architecture/` — Detailed architecture docs (security, memory, etc.)
 6. Read the relevant source files to answer the question.
 
+### 4. Doctor — Diagnostic Tool (Platform Assistants Only)
+
+The Doctor is a built-in diagnostic tool available at **Settings → Debug → Doctor** (`/settings/debug?tab=doctor`).
+When a platform assistant encounters errors (connection failures, crash loops, out-of-storage), suggest running the Doctor to diagnose the issue.
+
+The Doctor is gated behind a feature flag and only available for platform-hosted assistants. If the user reports runtime issues, guide them to run the Doctor before escalating to support.
+
 ### Resolution Order
 
 1. **CLI first** — if the question is about current state, config, or capabilities, the CLI has it.
