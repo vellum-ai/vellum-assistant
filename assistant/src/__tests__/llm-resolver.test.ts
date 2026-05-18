@@ -369,8 +369,9 @@ describe("resolveCallSiteConfig", () => {
     const resolved = resolveCallSiteConfig("mainAgent", llm, {
       overrideProfile: "nonexistent",
     });
-    // Falls through to default — the missing override contributes nothing.
-    expect(resolved.effort).toBe("max");
+    // mainAgent's shipped default references the `balanced` profile, which
+    // contributes effort: "medium". The nonexistent overrideProfile adds nothing.
+    expect(resolved.effort).toBe("medium");
     expect(resolved.model).toBe("claude-opus-4-7");
   });
 
@@ -535,6 +536,40 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.model).toBe("gemini-2.5-pro");
     expect(resolved.maxTokens).toBe(65536);
     expect(resolved.contextWindow.maxInputTokens).toBe(1048576);
+  });
+
+  test("call site with no explicit config falls back to CALL_SITE_DEFAULTS", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        "cost-optimized": {
+          model: "claude-haiku-4-5-20251001",
+          effort: "low",
+        },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.model).toBe("claude-haiku-4-5-20251001");
+    expect(resolved.effort).toBe("low");
+  });
+
+  test("explicit callSites config overrides CALL_SITE_DEFAULTS", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        "cost-optimized": {
+          model: "claude-haiku-4-5-20251001",
+          effort: "low",
+        },
+        "quality-optimized": { model: "claude-opus-4-7", effort: "max" },
+      },
+      callSites: {
+        memoryExtraction: { profile: "quality-optimized" },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.model).toBe("claude-opus-4-7");
+    expect(resolved.effort).toBe("max");
   });
 
   test("profile with provider but no provider_connection inherits stale default connection (JARVIS-861)", () => {
