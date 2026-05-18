@@ -260,7 +260,8 @@
           ]
         }
       },
-      "compatibility": "Designed for Vellum personal assistants"
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-05-18T16:05:02Z"
     },
     {
       "id": "inbox-cleanup",
