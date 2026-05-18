@@ -260,9 +260,9 @@ export const MemoryV2ConfigSchema = z
       .object({
         enabled: z
           .boolean()
-          .default(false)
+          .default(true)
           .describe(
-            "Whether to use the LLM router as the per-turn page-selection mechanism in place of spreading activation. Disabled by default — opt in once the router orchestration and dispatcher land.",
+            "Whether to use the LLM router as the per-turn page-selection mechanism in place of spreading activation. Enabled by default.",
           ),
         max_page_ids: z
           .number()
@@ -283,9 +283,9 @@ export const MemoryV2ConfigSchema = z
             "Optional path to a file whose contents replace the bundled router prompt. Absolute paths are used as-is, a leading `~/` is expanded to the home directory, otherwise the path is resolved under the workspace root. The loaded contents may include `{{ASSISTANT_NAME}}`, `{{USER_NAME}}`, and `{{PAGE_INDEX}}`, which are substituted at runtime. If the file is missing, unreadable, or empty, the bundled prompt is used and a warning is logged.",
           ),
       })
-      .default({ enabled: false, max_page_ids: 25, router_prompt_path: null })
+      .default({ enabled: true, max_page_ids: 25, router_prompt_path: null })
       .describe(
-        "LLM router configuration. When enabled, a single Sonnet router call replaces spreading activation for per-turn page selection.",
+        "LLM router configuration. When enabled, a single router LLM call replaces spreading activation for per-turn page selection.",
       ),
   })
   .describe(

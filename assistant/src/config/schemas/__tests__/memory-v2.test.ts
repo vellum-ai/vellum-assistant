@@ -33,7 +33,7 @@ describe("MemoryV2ConfigSchema", () => {
         dtype: "q8",
       },
       router: {
-        enabled: false,
+        enabled: true,
         max_page_ids: 25,
         router_prompt_path: null,
       },
@@ -161,9 +161,9 @@ describe("MemoryV2ConfigSchema", () => {
     expect(() => MemoryV2ConfigSchema.parse({ epsilon: 1.5 })).toThrow();
   });
 
-  test("router defaults to disabled with max_page_ids=25", () => {
+  test("router defaults to enabled with max_page_ids=25", () => {
     const parsed = MemoryV2ConfigSchema.parse({});
-    expect(parsed.router.enabled).toBe(false);
+    expect(parsed.router.enabled).toBe(true);
     expect(parsed.router.max_page_ids).toBe(25);
   });
 
