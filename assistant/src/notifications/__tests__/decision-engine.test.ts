@@ -188,7 +188,7 @@ describe("assistant_tool pass-through in notification decision engine", () => {
     expect(decision.deepLinkTarget).toBeUndefined();
   });
 
-  test("preferredChannels narrows selection to the intersection with availableChannels", async () => {
+  test("preferredChannels narrows selection but renderedCopy covers all available channels", async () => {
     const signal = makeAssistantToolSignal({
       contextPayload: {
         requestedMessage: "fyi only to telegram",
@@ -202,7 +202,44 @@ describe("assistant_tool pass-through in notification decision engine", () => {
 
     expect(decision.selectedChannels).toEqual(["telegram"]);
     expect(decision.renderedCopy.telegram?.body).toBe("fyi only to telegram");
-    expect(decision.renderedCopy.vellum).toBeUndefined();
+    // Even though vellum is not selected, its rendered copy must be
+    // populated so downstream guards that may force-prepend vellum
+    // (e.g. urgency forcing in emit-signal) still have the verbatim copy.
+    expect(decision.renderedCopy.vellum?.body).toBe("fyi only to telegram");
+  });
+
+  test("urgent + preferredChannels excluding vellum still leaves renderedCopy.vellum populated", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "urgent telegram-preferred message",
+        requestedTitle: "Heads up",
+        preferredChannels: ["telegram"],
+      },
+      attentionHints: {
+        requiresAction: true,
+        urgency: "high",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+      "telegram",
+    ] as NotificationChannel[]);
+
+    // Decision engine selects telegram (the preferred channel). The
+    // urgency-forced vellum prepend happens later in emit-signal; what
+    // matters here is that renderedCopy for vellum is already prepared
+    // with the verbatim copy so the prepend doesn't lose the message.
+    expect(decision.selectedChannels).toEqual(["telegram"]);
+    expect(decision.renderedCopy.telegram?.body).toBe(
+      "urgent telegram-preferred message",
+    );
+    expect(decision.renderedCopy.telegram?.title).toBe("Heads up");
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      "urgent telegram-preferred message",
+    );
+    expect(decision.renderedCopy.vellum?.title).toBe("Heads up");
   });
 
   test("preferredChannels falls back to default channel set when no overlap with availableChannels", async () => {
