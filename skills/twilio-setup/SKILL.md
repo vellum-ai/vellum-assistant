@@ -52,6 +52,15 @@ Follow the steps below in order to fully configure Twilio in preparation to make
 
 ## Step 1: Check Current Configuration
 
+Mark setup as started before doing any read-only checks. This lets a managed gateway begin opening the Velay tunnel WebSocket immediately, so the public Twilio HTTP and WebSocket routes are warming up while the user finishes entering credentials and selecting a phone number:
+
+```bash
+assistant config set twilio.setupStarted true
+assistant platform status --json
+```
+
+If `assistant platform status --json` reports an available platform assistant but `velayTunnel.connected` is `false`, continue with setup and check status again before configuring webhooks. Do not treat this as an ngrok setup problem unless the assistant is local/self-hosted without Velay.
+
 Refer to "Checking Current Configuration" above to see the current state of the user's Twilio setup. If Twilio appears to be fully configured. Offer to show status or reconfigure. Otherwise, continue to the missing steps below.
 
 ## Step 2: Collect and Store Credentials

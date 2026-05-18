@@ -2117,6 +2117,7 @@ async function main() {
     // Fires on initial credential load and whenever vellum credentials change
     // (key rotation, late provisioning).
     if (changed.has("vellum")) {
+      velayTunnelClient?.refreshCredentials("vellum credentials changed");
       registerEmailCallbackRoute({
         credentials: credentialCache,
         configFile: configFileCache,

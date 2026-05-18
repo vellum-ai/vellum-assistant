@@ -92,6 +92,7 @@ export class VelayTunnelClient {
   private readTimeoutTimer: unknown = null;
   private peerHeartbeatConfirmed = false;
   private publishedPublicBaseUrl: string | undefined;
+  private credentialRefreshPending = false;
   private unsubscribeConfigInvalidation: (() => void) | undefined;
 
   constructor(private readonly options: VelayTunnelClientOptions) {
@@ -127,6 +128,37 @@ export class VelayTunnelClient {
     };
   }
 
+  refreshCredentials(reason = "credentials changed"): void {
+    if (!this.running) return;
+
+    this.reconnectAttempt = 0;
+    if (this.reconnectTimer) {
+      this.timerApi.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    const ws = this.ws;
+    if (ws) {
+      log.info(
+        { reason },
+        "Restarting Velay tunnel with refreshed credentials",
+      );
+      this.disconnectActiveWebSocket(ws, 1000, "credentials changed");
+      return;
+    }
+
+    if (this.connecting) {
+      this.credentialRefreshPending = true;
+      log.info(
+        { reason },
+        "Queued Velay credential refresh behind active connect",
+      );
+      return;
+    }
+
+    this.connectForCredentialRefresh(reason);
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -145,6 +177,7 @@ export class VelayTunnelClient {
   async stop(): Promise<void> {
     this.running = false;
     this.connecting = false;
+    this.credentialRefreshPending = false;
     this.unsubscribeConfigInvalidation?.();
     this.unsubscribeConfigInvalidation = undefined;
     if (this.reconnectTimer) {
@@ -192,6 +225,9 @@ export class VelayTunnelClient {
     } catch (err) {
       this.connecting = false;
       log.warn({ err }, "Failed to read Velay tunnel credentials");
+      if (this.consumePendingCredentialRefresh("credentials read failed")) {
+        return;
+      }
       this.scheduleReconnect();
       return;
     }
@@ -205,6 +241,9 @@ export class VelayTunnelClient {
     const platformAssistantId = platformAssistantIdRaw?.trim() || undefined;
     if (!apiKey) {
       this.connecting = false;
+      if (this.consumePendingCredentialRefresh("assistant API key missing")) {
+        return;
+      }
       log.info("Velay tunnel waiting for assistant API key");
       this.scheduleReconnect();
       return;
@@ -217,6 +256,9 @@ export class VelayTunnelClient {
     } catch (err) {
       this.connecting = false;
       log.error({ err }, "Invalid Velay base URL");
+      if (this.consumePendingCredentialRefresh("Velay base URL invalid")) {
+        return;
+      }
       this.scheduleReconnect();
       return;
     }
@@ -261,12 +303,43 @@ export class VelayTunnelClient {
           this.disconnectActiveWebSocket(ws);
         }
       });
+
+      if (this.credentialRefreshPending) {
+        this.credentialRefreshPending = false;
+        log.info(
+          "Restarting Velay tunnel because credentials changed during connect",
+        );
+        this.disconnectActiveWebSocket(ws, 1000, "credentials changed");
+      }
     } catch (err) {
       this.ws = null;
       this.connecting = false;
       log.warn({ err }, "Failed to connect Velay tunnel");
+      if (this.consumePendingCredentialRefresh("WebSocket connect failed")) {
+        return;
+      }
       this.scheduleReconnect();
     }
+  }
+
+  private connectForCredentialRefresh(reason: string): void {
+    this.connect().catch((err) => {
+      this.connecting = false;
+      log.error({ err, reason }, "Velay credential refresh reconnect failed");
+      this.scheduleReconnect();
+    });
+  }
+
+  private consumePendingCredentialRefresh(reason: string): boolean {
+    if (!this.credentialRefreshPending || !this.running) return false;
+
+    this.credentialRefreshPending = false;
+    log.info(
+      { reason },
+      "Retrying Velay tunnel connect with refreshed credentials",
+    );
+    this.connectForCredentialRefresh(reason);
+    return true;
   }
 
   private async handleMessage(
