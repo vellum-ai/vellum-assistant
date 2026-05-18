@@ -59,6 +59,21 @@ const DECISION_TIMEOUT_MS = 15_000;
 const PROMPT_VERSION = "v4";
 
 /**
+ * Derive a short notification title from a message body. Used when an
+ * assistant_tool-sourced signal supplies `requestedMessage` without an
+ * explicit `requestedTitle`: trims to the first sentence terminator when
+ * present, then caps the result at 60 characters with an ellipsis.
+ */
+function deriveTitle(body: string): string {
+  const firstSentenceEnd = body.search(/[.!?](\s|$)/);
+  const candidate =
+    firstSentenceEnd > 0 ? body.slice(0, firstSentenceEnd + 1) : body;
+  return candidate.length > 60
+    ? candidate.slice(0, 60).trim() + "…"
+    : candidate.trim();
+}
+
+/**
  * Maximum character budget for identity context injected into the notification
  * decision prompt. We truncate to prevent oversized prompts when SOUL.md /
  * IDENTITY.md / users/<slug>.md are large — exceeding the provider context
@@ -789,6 +804,63 @@ export async function evaluateSignal(
       { err: errMsg },
       "Failed to build conversation candidates, proceeding without candidates",
     );
+  }
+
+  // Assistant-tool pass-through: when a producer hands us a verbatim
+  // message body via contextPayload.requestedMessage, skip the LLM
+  // classifier entirely. The producer has already done the routing and
+  // copy decisions — we just enforce the standard post-decision guards
+  // and persist the result.
+  if (
+    signal.sourceChannel === "assistant_tool" &&
+    typeof signal.contextPayload === "object" &&
+    signal.contextPayload != null &&
+    typeof (signal.contextPayload as Record<string, unknown>)
+      .requestedMessage === "string" &&
+    (
+      (signal.contextPayload as Record<string, unknown>)
+        .requestedMessage as string
+    ).trim().length > 0
+  ) {
+    const payload = signal.contextPayload as Record<string, unknown>;
+    const body = (payload.requestedMessage as string).trim();
+    const title =
+      typeof payload.requestedTitle === "string" &&
+      payload.requestedTitle.trim().length > 0
+        ? (payload.requestedTitle as string).trim()
+        : deriveTitle(body);
+    const isUrgent =
+      signal.attentionHints.urgency === "critical" ||
+      signal.attentionHints.urgency === "high";
+    const selectedChannels = isUrgent
+      ? [...availableChannels]
+      : availableChannels.includes("vellum")
+        ? ["vellum" as NotificationChannel]
+        : [];
+    let decision: NotificationDecision = {
+      shouldNotify: selectedChannels.length > 0,
+      selectedChannels,
+      reasoningSummary: "assistant_tool pass-through",
+      renderedCopy: Object.fromEntries(
+        selectedChannels.map((ch) => [ch, { title, body }]),
+      ) as NotificationDecision["renderedCopy"],
+      conversationActions: Object.fromEntries(
+        selectedChannels.map((ch) => [ch, { action: "start_new" as const }]),
+      ) as NotificationDecision["conversationActions"],
+      dedupeKey: signal.signalId,
+      confidence: 1.0,
+      fallbackUsed: false,
+    };
+    decision = enforceGuardianRequestCode(decision, signal);
+    decision = enforceAccessRequestInstructions(decision, signal);
+    decision = enforceHeartbeatAlertCopy(decision, signal);
+    decision = enforceGuardianCallConversationAffinity(decision, signal);
+    decision = enforceConversationAffinity(
+      decision,
+      signal.conversationAffinityHint,
+    );
+    decision.persistedDecisionId = persistDecision(signal, decision);
+    return decision;
   }
 
   const provider = await getConfiguredProvider("notificationDecision");
