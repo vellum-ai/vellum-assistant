@@ -54,6 +54,52 @@ Each record is a JSON file at `<slug>/records/<uuid>.json` with shape:
 
 All new apps use `formatVersion: 2`: source files live under `src/` and compiled output lives under `dist/`. The build system compiles TSX to JS automatically when `app_refresh` is called.
 
+## Platform & Mobile-First Mode
+
+The conversation context surfaces a `<turn_context>` block with an `interface:` field (values include `macos`, `ios`, `web`, `phone`). **When `interface` is a mobile interface (currently `ios`; any future mobile-web / android identifier counts too), build mobile-first.** Drop desktop defaults and apply the overrides below for this build.
+
+When `interface` is `macos` or `web`, keep the desktop-flavored defaults from the rest of this skill. The app must still render acceptably at narrow widths, but design decisions should target the larger surface.
+
+When the field is absent or ambiguous, default to desktop — unless the user's request itself implies phone use (e.g. "for my iPhone home screen", "a tap-tracker I'll use on the go").
+
+### Mobile-first overrides
+
+**Viewport & safe areas**
+
+- Viewport meta: `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`. Never set `user-scalable=no` — it blocks accessibility zoom.
+- Pad the root container with `env(safe-area-inset-*)` so content clears the notch and home indicator, e.g. `padding-top: max(var(--v-spacing-lg), env(safe-area-inset-top))`, mirrored for `-bottom`/`-left`/`-right`.
+- Use `100dvh` (dynamic viewport height), not `100vh`, for full-height containers. `vh` is wrong while the iOS address bar is showing and creates a layout jump on scroll.
+
+**Typography**
+
+- Default body text to `--v-font-size-lg` (17px), not `--v-font-size-base` (14px) — the desktop base is too small to read comfortably on a phone.
+- Form controls (`<input>`, `<textarea>`, `<select>`) must be `font-size: 16px` or larger, or iOS Safari will zoom on focus and break the layout.
+
+**Tap targets & spacing**
+
+- Interactive elements (buttons, list rows, nav items, toggles, icon buttons) must be at least 44×44pt. `.v-button` already meets this; for custom controls, set `min-height: 44px` explicitly.
+- Bump default vertical rhythm one step (e.g. `--v-spacing-md` → `--v-spacing-lg` between cards and sections) so users can comfortably scroll-stop on each item.
+
+**Layout**
+
+- One column, top-to-bottom. No side rails, no two-pane master/detail, no fixed-width sidebars. Default to `flex-direction: column`; only opt into a multi-column grid above a width breakpoint (`@media (min-width: 720px)`).
+- Bottom-anchor the primary action (e.g. "Add", "Save") so the thumb can reach it: `position: sticky; bottom: env(safe-area-inset-bottom)` over the scrolling list.
+- Replace side modals and popovers with bottom sheets that animate up from the bottom edge.
+- Cards over tables. Horizontal-scroll tables don't work — render each row as a stacked card with labels and values vertically arranged.
+
+**Interaction**
+
+- Don't rely on `:hover` for affordance. Wrap hover styles in `@media (hover: hover)` so they don't stick on touch.
+- Skip the Tab/Enter/Esc keyboard pattern from "Interaction Standards" — on mobile, focus comes from taps, submit from the soft keyboard's `return`, dismissal from a swipe down on bottom sheets.
+- Add `inputmode` to text fields with structured input: `numeric` for integers, `decimal` for amounts, `email`, `tel`, `url`. Add matching `autocomplete` and `autocapitalize="off"` where appropriate.
+- Disable text selection on app chrome (headers, nav, buttons) with `user-select: none; -webkit-user-select: none` so long-press doesn't pop the iOS selection menu over interactive elements.
+
+**Charts & visualisations**
+
+Use `vellum.widgets.*` chart helpers as usual — they handle DPI. Size containers in `vw`/`%`, not fixed `px`, and prefer simpler chart types (sparkline, bar) over dense multi-series charts that lose detail at small widths.
+
+Everything else in this skill applies unchanged.
+
 ## Workflow
 
 ### 0. Preflight — Pin to a high-quality model
@@ -412,7 +458,7 @@ Every app must meet these baselines:
 - **Confirmation for destructive actions:** Use `window.vellum.confirm(title, message)` before deleting or resetting. Returns `Promise<boolean>`.
 - **Form validation:** Validate before submit, show errors inline, disable submit during async operations.
 - **Loading states:** Never show a blank screen while data loads. Use skeleton shimmer or spinners.
-- **Keyboard navigation:** `Tab` between elements, `Enter` to submit, `Escape` to close/cancel.
+- **Keyboard navigation:** `Tab` between elements, `Enter` to submit, `Escape` to close/cancel. *(Replaced by touch idioms on mobile — see [Mobile-First Mode](#platform--mobile-first-mode).)*
 
 ## Presentation Slide Design
 
