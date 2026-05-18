@@ -693,6 +693,12 @@ registerPolicy("integrations/a2a/invite/complete", {
   allowedPrincipalTypes: ["svc_gateway"],
 });
 
+// A2A invite redemption: gateway-only (platform-orchestrated)
+registerPolicy("integrations/a2a/invite/redeem", {
+  requiredScopes: ["internal.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+});
+
 // Admin control-plane endpoints: gateway-only
 registerPolicy("admin/upgrade-broadcast", {
   requiredScopes: ["internal.write"],

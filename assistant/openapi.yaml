@@ -9728,6 +9728,16 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/integrations/a2a/invite/redeem:
+    post:
+      operationId: integrations_a2a_invite_redeem_post
+      summary: Redeem A2A invite (receiver side)
+      description: Called by the platform to create a trusted contact on the receiver side of a link-based A2A connection.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
   /v1/integrations/ingress/config:
     get:
       operationId: integrations_ingress_config_get
