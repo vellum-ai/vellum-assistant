@@ -157,6 +157,19 @@ export function completeA2AInvite(params: {
     gatewayUrl: string;
   };
 }): CompleteA2AInviteResult {
+  // Resolve sender identity before any mutations so we fail cleanly
+  const displayName = getAssistantName() ?? "Vellum Assistant";
+  let gatewayUrl: string;
+  try {
+    gatewayUrl = getPublicBaseUrl(getConfig());
+  } catch {
+    return {
+      success: false,
+      error:
+        "No public base URL configured. Set ingress.publicBaseUrl in config.",
+    };
+  }
+
   const tokenHash = hashToken(params.token);
   const claimResult = claimA2AInvite({
     tokenHash,
@@ -203,14 +216,6 @@ export function completeA2AInvite(params: {
       set: { species: "vellum", metadata: metadataJson },
     })
     .run();
-
-  const displayName = getAssistantName() ?? "Vellum Assistant";
-  let gatewayUrl: string;
-  try {
-    gatewayUrl = getPublicBaseUrl(getConfig());
-  } catch {
-    gatewayUrl = "";
-  }
 
   return {
     success: true,

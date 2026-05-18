@@ -224,4 +224,25 @@ describe("completeA2AInvite", () => {
     expect(second.success).toBe(false);
     expect(second.error).toBe("already_redeemed_by_other");
   });
+
+  test("fails before claiming token when public base URL is not configured", () => {
+    const created = createA2AInvite({});
+    expect(created.success).toBe(true);
+
+    setConfig({ publicBaseUrl: "", ingressEnabled: true });
+
+    const result = completeA2AInvite({
+      token: created.token!,
+      senderAssistantId: "sender-platform-id-789",
+      acceptor: ACCEPTOR,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("public base URL");
+
+    // Verify the invite was NOT consumed
+    const invite = findById(created.inviteId!);
+    expect(invite!.status).toBe("active");
+    expect(invite!.useCount).toBe(0);
+  });
 });

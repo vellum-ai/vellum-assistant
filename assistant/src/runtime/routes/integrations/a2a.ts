@@ -57,8 +57,21 @@ function handleClearA2AConfig() {
 
 function handleCreateA2AInvite({ body = {} }: RouteHandlerArgs) {
   assertA2AFlag();
-  const { expiresInHours } = body as { expiresInHours?: number };
-  const result = createA2AInvite({ expiresInHours });
+  const { expiresInHours } = body as { expiresInHours?: unknown };
+  if (expiresInHours !== undefined) {
+    if (
+      typeof expiresInHours !== "number" ||
+      !Number.isFinite(expiresInHours) ||
+      expiresInHours <= 0
+    ) {
+      throw new BadRequestError(
+        "expiresInHours must be a positive finite number",
+      );
+    }
+  }
+  const result = createA2AInvite({
+    expiresInHours: expiresInHours as number | undefined,
+  });
   if (!result.success) {
     throw new BadRequestError(result.error ?? "Failed to create A2A invite");
   }
