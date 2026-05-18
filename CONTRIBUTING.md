@@ -92,7 +92,7 @@ directories until the move is complete.
 
 | Directory | Status |
 |---|---|
-| `apps/web/` | Scaffold only — Vite + React Router v7 toolchain landed, no app code yet. The live web app is currently maintained in a separate, non-public repository and will land here as the migration completes. |
+| `apps/web/` | Active migration target — Vite + React Router v7 SPA for the assistant web app. Code is being incrementally migrated from a separate repo. See [`apps/web/README.md`](apps/web/README.md) for local dev setup. |
 | `apps/chrome-extension/` | Move in progress from [`clients/chrome-extension/`](https://github.com/vellum-ai/vellum-assistant/tree/main/clients/chrome-extension). |
 
 ## Submitting a pull request

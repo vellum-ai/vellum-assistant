@@ -13,7 +13,10 @@
     "noEmit": true,
     "allowJs": false,
     "isolatedModules": true,
-    "types": []
+    "types": [],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": [
     "src/**/*.ts",
