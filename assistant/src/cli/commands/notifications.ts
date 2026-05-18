@@ -26,11 +26,16 @@ source channel, event name, and attention hints. The decision engine evaluates
 whether and where to deliver the notification based on connected channels,
 urgency, and user preferences.
 
+Minimal usage: only --message is required. Add --urgent for a push + visual
+flag in the inbox. Source channel/event name fall back to assistant_tool /
+assistant.share when omitted.
+
 Examples:
-  $ assistant notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Build finished"
+  $ assistant notifications send --message "Build finished"
+  $ assistant notifications send --message "Pager: prod is down" --urgent
   $ assistant notifications send --source-channel scheduler --source-event-name schedule.notify --message "Stand-up in 5 minutes" --urgency high
   $ assistant notifications send --source-channel watcher --source-event-name watcher.notification --message "File changed" --no-requires-action --is-async-background
-  $ assistant notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Deploy complete" --preferred-channels vellum,telegram --json`,
+  $ assistant notifications send --message "Deploy complete" --preferred-channels vellum,telegram --json`,
       );
 
       // -------------------------------------------------------------------------
@@ -40,28 +45,33 @@ Examples:
       notifications
         .command("send")
         .description(
-          "Send a notification through the unified notification router",
-        )
-        .requiredOption(
-          "--source-channel <channel>",
-          "Source channel producing this notification",
-        )
-        .requiredOption(
-          "--source-event-name <name>",
-          "Event name for audit, routing, and dedupe grouping",
+          "Send a notification through the unified notification router. Only --message is required; pass --urgent for a push + visual flag.",
         )
         .requiredOption(
           "--message <message>",
           "Notification message the user should receive",
         )
+        .option(
+          "--urgent",
+          "Mark this notification as urgent (fires push + visual flag in inbox)",
+          false,
+        )
+        .option(
+          "--source-channel <channel>",
+          "Source channel producing this notification (default: assistant_tool)",
+        )
+        .option(
+          "--source-event-name <name>",
+          "Event name for audit, routing, and dedupe grouping (default: assistant.share)",
+        )
         .option("--title <title>", "Optional notification title")
         .option(
           "--urgency <urgency>",
-          "Urgency hint: low, medium, high, critical (default: medium)",
+          "Urgency hint: low, medium, high, critical (default: low; use --urgent for critical)",
         )
         .option(
           "--requires-action",
-          "Whether the notification expects user action (default: true)",
+          "Whether the notification expects user action (default: false; use --urgent to force true)",
         )
         .option(
           "--no-requires-action",
@@ -111,15 +121,18 @@ Examples:
           "after",
           `
 Arguments:
-  --source-channel     One of the registered source channels (see "assistant notifications --help")
-  --source-event-name  One of the registered event names (see "assistant notifications --help")
   --message            The notification body text (required, must be non-empty)
+  --urgent             Shortcut that maps to urgency=critical + requires-action=true
+  --source-channel     One of the registered source channels (default: assistant_tool)
+  --source-event-name  One of the registered event names (default: assistant.share)
 
 Behavioral notes:
   - The signal is emitted through the full notification pipeline: event store,
     decision engine, deterministic checks, and channel dispatch.
-  - --requires-action defaults to true; use --no-requires-action to disable.
-  - --urgency defaults to medium if not specified.
+  - --urgent overrides --urgency and --requires-action defaults so the signal
+    is treated as critical and requires user action. Explicit --urgency /
+    --requires-action flags still win for back-compat.
+  - Without --urgent, --urgency defaults to low and --requires-action to false.
   - --preferred-channels are hints only; the decision engine may override them.
   - --dedupe-key suppresses duplicate signals with the same key.
   - --conversation-id pins delivery to an existing vellum conversation
@@ -127,20 +140,22 @@ Behavioral notes:
     binding-based pairing for their external threads.
 
 Examples:
-  $ assistant notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Task complete"
+  $ assistant notifications send --message "Task complete"
+  $ assistant notifications send --message "Pager: prod is down" --urgent
   $ assistant notifications send --source-channel scheduler --source-event-name schedule.notify --message "Meeting in 5 min" --urgency high --title "Reminder"
   $ assistant notifications send --source-channel watcher --source-event-name watcher.notification --message "Detected change" --no-requires-action --is-async-background --json
-  $ assistant notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Build green" --conversation-id 649c4645-3a6f-4ded-a713-504f02ca806b`,
+  $ assistant notifications send --message "Build green" --conversation-id 649c4645-3a6f-4ded-a713-504f02ca806b`,
         )
         .action(
           async (
             opts: {
-              sourceChannel: string;
-              sourceEventName: string;
+              sourceChannel?: string;
+              sourceEventName?: string;
               message: string;
+              urgent: boolean;
               title?: string;
               urgency?: string;
-              requiresAction: boolean;
+              requiresAction?: boolean;
               isAsyncBackground: boolean;
               visibleInSourceNow: boolean;
               deadlineAt?: string;
@@ -153,6 +168,11 @@ Examples:
             cmd: Command,
           ) => {
             try {
+              // Apply defaults for optional source fields (minimal-surface
+              // ergonomics; explicit values from the CLI still win).
+              const sourceChannel = opts.sourceChannel ?? "assistant_tool";
+              const sourceEventName = opts.sourceEventName ?? "assistant.share";
+
               // Validate --message (keep basic validation for immediate CLI feedback)
               const message = opts.message.trim();
               if (message.length === 0) {
@@ -164,8 +184,15 @@ Examples:
                 return;
               }
 
+              // --urgent is a shortcut for urgency=critical + requiresAction=true.
+              // Explicit --urgency / --requires-action flags still win so the
+              // back-compat path keeps working during the deprecation window.
+              const urgentDefaults = opts.urgent
+                ? { urgency: "critical", requiresAction: true }
+                : { urgency: "low", requiresAction: false };
+
               // Validate --urgency
-              const urgency = opts.urgency ?? "medium";
+              const urgency = opts.urgency ?? urgentDefaults.urgency;
               if (
                 urgency !== "low" &&
                 urgency !== "medium" &&
@@ -179,6 +206,8 @@ Examples:
                 process.exitCode = 1;
                 return;
               }
+              const requiresAction =
+                opts.requiresAction ?? urgentDefaults.requiresAction;
 
               // Parse --deadline-at
               let deadlineAt: number | undefined;
@@ -241,11 +270,11 @@ Examples:
                 reason: string;
               }>("emit_notification_signal", {
                 body: {
-                  sourceChannel: opts.sourceChannel,
-                  sourceEventName: opts.sourceEventName,
+                  sourceChannel,
+                  sourceEventName,
                   sourceContextId,
                   attentionHints: {
-                    requiresAction: opts.requiresAction ?? true,
+                    requiresAction,
                     urgency,
                     deadlineAt,
                     isAsyncBackground: opts.isAsyncBackground ?? false,
@@ -253,7 +282,7 @@ Examples:
                   },
                   contextPayload: {
                     requestedMessage: message,
-                    requestedBySource: opts.sourceChannel,
+                    requestedBySource: sourceChannel,
                     ...(opts.title ? { requestedTitle: opts.title } : {}),
                     ...(preferredChannels?.length ? { preferredChannels } : {}),
                     ...(deepLinkMetadata ? { deepLinkMetadata } : {}),
