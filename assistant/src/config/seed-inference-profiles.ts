@@ -357,7 +357,7 @@ function materializeProfile(
   provider: NonNullable<ProfileEntry["provider"]>,
   connectionName: string,
 ): ProfileEntry {
-  const { intent, providerOverride, connectionOverride, ...rest } = template;
+  const { intent, providerOverride: _po, connectionOverride: _co, ...rest } = template;
   return {
     ...rest,
     provider,
