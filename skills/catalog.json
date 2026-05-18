@@ -68,7 +68,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-13T15:32:36-04:00"
+      "updatedAt": "2026-05-18T19:39:07+05:30"
     },
     {
       "id": "deploy-fullstack-vercel",
@@ -416,6 +416,27 @@
       "updatedAt": "2026-04-22T19:07:38-04:00"
     },
     {
+      "id": "migrate-from-openclaw",
+      "name": "migrate-from-openclaw",
+      "description": "Migrate an existing OpenClaw agent's configuration and stored credentials into this assistant.",
+      "metadata": {
+        "emoji": "📥",
+        "vellum": {
+          "display-name": "Migrate from OpenClaw",
+          "user-invocable": "true",
+          "activation-hints": [
+            "User says they want to move from OpenClaw -> load this skill",
+            "User asks how to import an OpenClaw agent -> load this skill"
+          ],
+          "avoid-when": [
+            "User has no existing OpenClaw install — there is nothing to migrate"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-05-18T16:13:00Z"
+    },
+    {
       "id": "notifications",
       "name": "notifications",
       "description": "Send notifications through the unified notification router",
@@ -426,7 +447,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-23T10:06:58-04:00"
+      "updatedAt": "2026-05-18T03:34:58-04:00"
     },
     {
       "id": "notion",
@@ -468,7 +489,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-14T12:47:52-05:00"
+      "updatedAt": "2026-05-14T19:52:02-05:00"
     },
     {
       "id": "outlook",
