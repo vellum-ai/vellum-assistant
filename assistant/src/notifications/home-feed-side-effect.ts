@@ -55,6 +55,18 @@ export async function writeHomeFeedItemForSignal(
   const payloadTitle = readPayloadString(signal.contextPayload, "title");
   const payloadBody = readPayloadString(signal.contextPayload, "body");
 
+  const resolvedTitle =
+    renderedCopy?.title?.trim() || payloadTitle?.trim() || "";
+  const resolvedSummary =
+    renderedCopy?.body?.trim() || payloadBody?.trim() || "";
+  if (!resolvedTitle || !resolvedSummary) {
+    log.warn(
+      { signalId: signal.signalId, sourceEventName: signal.sourceEventName },
+      "Home-feed write skipped: no real title or summary available (would have fallen back to event name)",
+    );
+    return null;
+  }
+
   const conversationId = deliveryResults.find(
     (r) => r.channel === "vellum",
   )?.conversationId;
@@ -76,8 +88,8 @@ export async function writeHomeFeedItemForSignal(
     id: `notif:${signal.signalId}`,
     type: "notification",
     priority: 50,
-    title: renderedCopy?.title ?? payloadTitle ?? signal.sourceEventName,
-    summary: renderedCopy?.body ?? payloadBody ?? signal.sourceEventName,
+    title: resolvedTitle,
+    summary: resolvedSummary,
     timestamp: now,
     createdAt: now,
     status: "new",

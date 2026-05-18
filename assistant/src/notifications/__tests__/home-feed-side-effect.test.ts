@@ -146,8 +146,13 @@ describe("writeHomeFeedItemForSignal", () => {
         visibleInSourceNow: false,
       },
     });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: { title: "Async title", body: "Async body" },
+      },
+    });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, decision, []);
 
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
@@ -159,6 +164,11 @@ describe("writeHomeFeedItemForSignal", () => {
   test("vellum delivery result conversationId propagates onto the feed item", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal();
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: { title: "Routed title", body: "Routed body" },
+      },
+    });
     const deliveryResults: NotificationDeliveryResult[] = [
       {
         channel: "telegram",
@@ -176,7 +186,7 @@ describe("writeHomeFeedItemForSignal", () => {
 
     const item = await writeHomeFeedItemForSignal(
       signal,
-      makeDecision(),
+      decision,
       deliveryResults,
     );
 
@@ -184,7 +194,7 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls[0]!.conversationId).toBe("conv-vellum-1");
   });
 
-  test("falls back to sourceEventName when no rendered copy or payload title is present", async () => {
+  test("returns null and does not write when no rendered copy or payload title/body is present", async () => {
     conversationRow = { conversationType: "scheduled" };
     const signal = makeSignal({
       sourceEventName: "watcher.notification",
@@ -193,7 +203,66 @@ describe("writeHomeFeedItemForSignal", () => {
 
     const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
 
-    expect(item?.title).toBe("watcher.notification");
-    expect(item?.summary).toBe("watcher.notification");
+    expect(item).toBeNull();
+    expect(appendCalls).toHaveLength(0);
+  });
+
+  test("returns null when only the title is available but the summary would fall back to event name", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceEventName: "example.event",
+      contextPayload: { title: "Real title" },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+
+    expect(item).toBeNull();
+    expect(appendCalls).toHaveLength(0);
+  });
+
+  test("returns null when only the summary is available but the title would fall back to event name", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceEventName: "example.event",
+      contextPayload: { body: "Real body" },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+
+    expect(item).toBeNull();
+    expect(appendCalls).toHaveLength(0);
+  });
+
+  test("treats whitespace-only rendered copy and payload values as missing and returns null", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceEventName: "example.event",
+      contextPayload: { title: "   ", body: "\t\n" },
+    });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: { title: "   ", body: "   " },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision, []);
+
+    expect(item).toBeNull();
+    expect(appendCalls).toHaveLength(0);
+  });
+
+  test("uses payload title/body when rendered copy is absent", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceEventName: "watcher.notification",
+      contextPayload: { title: "Payload title", body: "Payload body" },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+
+    expect(item).not.toBeNull();
+    expect(item?.title).toBe("Payload title");
+    expect(item?.summary).toBe("Payload body");
+    expect(appendCalls).toHaveLength(1);
   });
 });
