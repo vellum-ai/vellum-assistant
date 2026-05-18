@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Assembles the redesigned Home page: a centered editorial column with
-/// three blocks — a greeting header (avatar + title + "New Chat" CTA), an
+/// three blocks — a greeting header (avatar + "New Chat" CTA), an
 /// optional dismissible "have you tried…" suggestion bar, and a
 /// time-grouped feed of recap rows (Today / Yesterday / Older).
 ///
@@ -64,10 +64,7 @@ struct HomePageView: View {
                 // greeting-first appearance.
                 MeetStatusPanel(viewModel: meetStatusViewModel)
 
-                HomeGreetingHeader(
-                    greeting: "Here's what's been going on",
-                    onStartNewChat: onStartNewChat
-                ) {
+                HomeGreetingHeader(onStartNewChat: onStartNewChat) {
                     // Inline avatar rendering so this view owns its own
                     // avatar resolution without depending on other views.
                     greetingAvatar
@@ -263,6 +260,8 @@ struct HomePageView: View {
             iconForeground: iconForeground(for: item),
             iconBackground: iconBackground(for: item),
             title: item.title,
+            timestamp: item.timestamp,
+            status: item.status,
             isUrgent: showsUrgency && isUrgent(item),
             showsPersonaAvatar: item.fromAssistant == true,
             onDismiss: { dismissItem(item) },
@@ -330,16 +329,14 @@ struct HomePageView: View {
     // MARK: - Skeleton
 
     /// Skeleton silhouette that mirrors the new three-block layout:
-    /// a greeting row (avatar + title bone), the "have you tried…"
+    /// a greeting row (avatar + New Chat CTA), the "have you tried…"
     /// suggestion bar (rounded 16pt pill bar, ~60pt tall), and a single
     /// "Today" group header with three 48pt recap bones. Designed so the
     /// first paint doesn't shift when real data lands.
     private var skeleton: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
-            // Greeting row: avatar + title bone + New Chat CTA bone
             HStack(spacing: VSpacing.md) {
                 VSkeletonBone(width: 40, height: 40, radius: 20)
-                VSkeletonBone(width: 280, height: 28)
                 Spacer()
                 VSkeletonBone(width: 96, height: 32, radius: VRadius.md)
             }

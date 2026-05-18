@@ -105,6 +105,8 @@ struct HomeGallerySection: View {
                             iconForeground: VColor.feedDigestStrong,
                             iconBackground: VColor.feedDigestWeak,
                             title: "While you were away, I ran the email clean job and deleted 26 emails…",
+                            timestamp: Date().addingTimeInterval(-2 * 60 * 60),
+                            status: .new,
                             onDismiss: {},
                             onTap: {}
                         )
@@ -114,6 +116,8 @@ struct HomeGallerySection: View {
                             iconForeground: VColor.feedDigestStrong,
                             iconBackground: VColor.feedDigestWeak,
                             title: "There's also 4 low priority updates if you want to have a look.",
+                            timestamp: Date().addingTimeInterval(-30 * 60),
+                            status: .seen,
                             onDismiss: {},
                             onTap: {}
                         )
@@ -123,6 +127,8 @@ struct HomeGallerySection: View {
                             iconForeground: VColor.feedDigestStrong,
                             iconBackground: VColor.feedDigestWeak,
                             title: "Urgent: your flight to SFO boards in 35 minutes.",
+                            timestamp: Date(),
+                            status: .new,
                             isUrgent: true,
                             onDismiss: {},
                             onTap: {}
@@ -224,14 +230,11 @@ struct HomeGallerySection: View {
 
                 GallerySectionHeader(
                     title: "HomeGreetingHeader",
-                    description: "Home feed header with a leading avatar, a greeting title, and a trailing New Chat pill CTA."
+                    description: "Home feed header with a leading avatar and a trailing New Chat pill CTA."
                 )
 
                 VCard(background: VColor.surfaceBase) {
-                    HomeGreetingHeader(
-                        greeting: "Here's what's been going on",
-                        onStartNewChat: {}
-                    ) {
+                    HomeGreetingHeader(onStartNewChat: {}) {
                         if let image = NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil) {
                             VAvatarImage(image: image, size: 40)
                         } else {

@@ -127,7 +127,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                     "homeGreetingHeader",
                     "HomeGreetingHeader",
                     keywords: ["greeting", "header", "home", "avatar", "new chat"],
-                    description: "Home feed header with a leading avatar, a greeting title, and a trailing New Chat pill CTA."
+                    description: "Home feed header with a leading avatar and a trailing New Chat pill CTA."
                 ),
             ]
         case .icons:

@@ -3,15 +3,17 @@ import VellumAssistantShared
 
 /// Compact row used in the time-bucketed Home feed.
 ///
-/// Layout: a 26pt tinted icon circle + a single-line title + a trailing
-/// hover-only Dismiss affordance + a whole-row tap target. The row
-/// itself is intentionally slim (icon pill drives the height) so a list
-/// of recaps reads as a dense time-feed rather than a stack of cards.
+/// Layout: a 26pt tinted icon circle + a single-line title + a fixed-width
+/// trailing timestamp + a hover-only Dismiss affordance + a whole-row tap
+/// target. The row itself is intentionally slim (icon pill drives the
+/// height) so a list of recaps reads as a dense time-feed rather than a
+/// stack of cards.
 ///
-/// The Dismiss affordance appears only while the pointer is over the
-/// row (Figma `3596:79329` — hover state). Its tap is isolated from the
-/// outer row Button so clicking "Dismiss" never fires the row's
-/// `onTap` — SwiftUI resolves the innermost tappable first.
+/// The Dismiss affordance appears only while the pointer is over the row
+/// (Figma `3596:79329` — hover state). Its tap is isolated from the outer
+/// row Button so clicking "Dismiss" never fires the row's `onTap` — SwiftUI
+/// resolves the innermost tappable first. The timestamp uses a fixed
+/// width so the title doesn't reflow when the dismiss affordance appears.
 struct HomeRecapRow: View {
     let icon: VIcon
     /// Foreground color for the icon glyph. Callers pass one of the
@@ -23,10 +25,15 @@ struct HomeRecapRow: View {
     /// of the foreground token — e.g. `VColor.feedNudgeWeak`).
     let iconBackground: Color
     let title: String
-    /// When `true`, render a leading red dot to flag an urgent inbox
-    /// item (urgency `.high` or `.critical`). When `false`, the dot
-    /// and its surrounding spacing are omitted entirely so non-urgent
-    /// rows align flush with the icon circle (no spacing artifact).
+    /// Event time used to render a relative-time label ("2h ago",
+    /// "just now") in the trailing metadata slot.
+    let timestamp: Date
+    /// Lifecycle state — `.new` rows render the title in an emphasised
+    /// weight so unread items stand out from ones the user has seen.
+    let status: FeedItemStatus
+    /// When `true`, paint a negative-weak row background tint so urgent
+    /// items pop in a dense feed — a 6pt red dot alone is too quiet for
+    /// `urgency >= .high` items.
     var isUrgent: Bool = false
     /// When `true`, render the persona avatar in the leading icon slot
     /// instead of the category icon circle. Used for assistant-initiated
@@ -38,27 +45,39 @@ struct HomeRecapRow: View {
 
     @State private var isHovering: Bool = false
 
+    private var titleFont: Font {
+        status == .new ? VFont.bodyMediumEmphasised : VFont.bodyMediumDefault
+    }
+
+    private var backgroundFill: Color {
+        if isUrgent { return VColor.systemNegativeWeak }
+        return isHovering ? VColor.surfaceLift : VColor.surfaceOverlay
+    }
+
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: VSpacing.sm) {
-                if isUrgent {
-                    // Decorative — the row's combined accessibilityLabel
-                    // below already announces "Urgent" before the title.
-                    VBadge(style: .dot, color: VColor.systemNegativeStrong)
-                        .accessibilityHidden(true)
-                }
                 leadingIcon
                     .frame(width: 26, height: 26)
 
                 Text(title)
                     // Mock uses #A9B2BB which is `contentSecondary` in the
                     // dark palette (see ColorTokens.swift).
-                    .font(VFont.bodyMediumDefault)
+                    .font(titleFont)
                     .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
                 Spacer(minLength: VSpacing.sm)
+
+                Text(timestamp.relativeShortString())
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .lineLimit(1)
+                    // Fixed width keeps the timestamp anchored when the
+                    // dismiss affordance appears on hover.
+                    .frame(width: 64, alignment: .trailing)
+                    .accessibilityHidden(true)
 
                 if isHovering {
                     // Wrapping the dismiss in its own Button keeps the tap
@@ -86,7 +105,7 @@ struct HomeRecapRow: View {
         .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.md, bottom: VSpacing.sm, trailing: VSpacing.md))
         .background(
             RoundedRectangle(cornerRadius: VRadius.md, style: .continuous)
-                .fill(isHovering ? VColor.surfaceLift : VColor.surfaceOverlay)
+                .fill(backgroundFill)
         )
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
