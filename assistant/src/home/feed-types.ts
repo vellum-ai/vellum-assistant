@@ -108,6 +108,8 @@ export interface FeedItem {
   category?: FeedItemCategory;
   /** True when this item represents an assistant-initiated share or a high-importance system event. Used by clients to split inbox vs activity surfaces. */
   noteworthy?: boolean;
+  /** True when the assistant herself emitted this item (e.g. via the `notifications send` skill). Drives clients to swap the row's leading icon for the persona avatar; system-generated items keep the category icon. */
+  fromAssistant?: boolean;
   /** Arbitrary structured data the detail panel or other consumers can use. */
   metadata?: Record<string, unknown>;
   /** Internal: ISO-8601 writer-record time, used for ordering + TTL. */
@@ -211,6 +213,7 @@ export const feedItemSchema = z.object({
   detailPanel: feedItemDetailPanelSchema.optional(),
   category: feedItemCategorySchema.optional(),
   noteworthy: z.boolean().optional(),
+  fromAssistant: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   createdAt: z.string(),
 });

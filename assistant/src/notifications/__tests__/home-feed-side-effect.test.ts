@@ -425,6 +425,34 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls[0]!.noteworthy).toBe(true);
   });
 
+  test("assistant_tool source sets fromAssistant=true", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "user.send_notification",
+      contextPayload: { title: "Tool share", body: "Body" },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+
+    expect(item?.fromAssistant).toBe(true);
+    expect(appendCalls[0]!.fromAssistant).toBe(true);
+  });
+
+  test("non-assistant_tool source sets fromAssistant=false", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "scheduler",
+      sourceEventName: "schedule.notify",
+      contextPayload: { title: "Reminder", body: "Time to do thing" },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+
+    expect(item?.fromAssistant).toBe(false);
+    expect(appendCalls[0]!.fromAssistant).toBe(false);
+  });
+
   test("scheduler source with schedule.notify is not noteworthy", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({

@@ -102,6 +102,7 @@ export async function writeHomeFeedItemForSignal(
     status: "new",
     category,
     noteworthy: deriveNoteworthy(signal),
+    fromAssistant: signal.sourceChannel === "assistant_tool",
     ...(urgency ? { urgency } : {}),
     ...(conversationId ? { conversationId } : {}),
     ...(panelKind ? { detailPanel: { kind: panelKind } } : {}),
