@@ -24,7 +24,7 @@ interface PathPoint {
 
 function parsePathNumbers(d: string): number[] {
   const nums: number[] = [];
-  const re = /-?\d+\.?\d*(?:e[+-]?\d+)?/gi;
+  const re = /-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(d)) !== null) {
     nums.push(parseFloat(m[0]));
@@ -49,10 +49,10 @@ function wobblePath(d: string, seed: number, amount: number): string {
   const center = computeCentroid(d);
   const phase = seed * 1.1;
 
-  return d.replace(/-?\d+\.?\d*(?:e[+-]?\d+)?/gi, (match, offset: number) => {
+  return d.replace(/-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi, (match, offset: number) => {
     const val = parseFloat(match);
     const prevText = d.slice(0, offset);
-    const numsBefore = prevText.match(/-?\d+\.?\d*(?:e[+-]?\d+)?/gi);
+    const numsBefore = prevText.match(/-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi);
     const idx = numsBefore ? numsBefore.length : 0;
     const isX = idx % 2 === 0;
 
