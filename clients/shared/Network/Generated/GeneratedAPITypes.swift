@@ -2902,8 +2902,14 @@ public struct NotificationIntent: Codable, Sendable {
     /// displayed by clients whose guardian identity matches this principal ID.
     /// Clients not bound to this guardian should ignore the notification.
     public let targetGuardianPrincipalId: String?
+    /// When true, the client must NOT post this intent to the OS notification
+    /// surface (`UNUserNotificationCenter` on macOS). Non-banner side effects
+    /// (guardian filtering, fallback dedup, mark-unseen + history catch-up on
+    /// the paired conversation) still run. The home-feed inbox entry is
+    /// written independently and is unaffected by this flag.
+    public let silent: Bool?
 
-    public init(type: String, deliveryId: String? = nil, sourceEventName: String, title: String, body: String, deepLinkMetadata: [String: AnyCodable]? = nil, targetGuardianPrincipalId: String? = nil) {
+    public init(type: String, deliveryId: String? = nil, sourceEventName: String, title: String, body: String, deepLinkMetadata: [String: AnyCodable]? = nil, targetGuardianPrincipalId: String? = nil, silent: Bool? = nil) {
         self.type = type
         self.deliveryId = deliveryId
         self.sourceEventName = sourceEventName
@@ -2911,6 +2917,7 @@ public struct NotificationIntent: Codable, Sendable {
         self.body = body
         self.deepLinkMetadata = deepLinkMetadata
         self.targetGuardianPrincipalId = targetGuardianPrincipalId
+        self.silent = silent
     }
 }
 
@@ -2989,8 +2996,11 @@ public struct NotificationConversationCreated: Codable, Sendable {
     /// Semantic source of the conversation (e.g. "schedule", "reminder").
     /// Allows clients to override the default "notification" source.
     public let source: String?
+    /// Mirrors `NotificationIntent.silent`. When true, the client must
+    /// skip the fallback OS banner — the sidebar entry still appears.
+    public let silent: Bool?
 
-    public init(type: String, conversationId: String, title: String, sourceEventName: String, targetGuardianPrincipalId: String? = nil, groupId: String? = nil, source: String? = nil) {
+    public init(type: String, conversationId: String, title: String, sourceEventName: String, targetGuardianPrincipalId: String? = nil, groupId: String? = nil, source: String? = nil, silent: Bool? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.title = title
@@ -2998,6 +3008,7 @@ public struct NotificationConversationCreated: Codable, Sendable {
         self.targetGuardianPrincipalId = targetGuardianPrincipalId
         self.groupId = groupId
         self.source = source
+        self.silent = silent
     }
 }
 

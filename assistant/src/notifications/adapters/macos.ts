@@ -3,8 +3,13 @@
  * and mobile clients via the daemon's event broadcast mechanism.
  *
  * The adapter broadcasts a `notification_intent` message that the Vellum
- * client can use to display a native notification (e.g. NSUserNotification
- * or UNUserNotificationCenter).
+ * client uses for two distinct purposes: paired-conversation bookkeeping
+ * (mark-unseen + history catch-up, fallback dedup) and posting an OS
+ * banner via `UNUserNotificationCenter`. The banner posting is gated by
+ * the `silent` flag — set to true for non-urgent (`low`/`medium`) signals
+ * so the notification center inbox still receives the entry but the OS
+ * does not surface a push banner. Urgent signals (`high`/`critical`)
+ * broadcast with `silent: false` and fire the banner.
  *
  * Guardian-sensitive notifications (approval requests, escalation alerts)
  * are annotated with `targetGuardianPrincipalId` so that only clients
@@ -75,6 +80,9 @@ export class VellumAdapter implements ChannelAdapter {
           ? guardianPrincipalId
           : undefined;
 
+      const silent =
+        payload.urgency !== "high" && payload.urgency !== "critical";
+
       this.broadcast({
         type: "notification_intent",
         deliveryId: payload.deliveryId,
@@ -83,6 +91,7 @@ export class VellumAdapter implements ChannelAdapter {
         body: payload.copy.body,
         deepLinkMetadata: payload.deepLinkTarget,
         targetGuardianPrincipalId,
+        silent,
       } as ServerMessage);
 
       log.info(
@@ -90,6 +99,7 @@ export class VellumAdapter implements ChannelAdapter {
           sourceEventName: payload.sourceEventName,
           title: payload.copy.title,
           guardianScoped: targetGuardianPrincipalId != null,
+          silent,
         },
         "Vellum notification intent broadcast",
       );

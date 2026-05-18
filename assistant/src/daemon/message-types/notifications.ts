@@ -14,6 +14,20 @@ export interface NotificationIntent {
    * Clients not bound to this guardian should ignore the notification.
    */
   targetGuardianPrincipalId?: string;
+  /**
+   * When true, the client must NOT post this intent to the OS notification
+   * surface (`UNUserNotificationCenter` on macOS). Non-banner side effects
+   * (guardian filtering, fallback dedup, mark-unseen + history catch-up on
+   * the paired conversation) still run. The home-feed inbox entry is
+   * written independently by `home-feed-side-effect.ts` and is unaffected
+   * by this flag.
+   *
+   * Set by the server based on `attentionHints.urgency`: true for
+   * `low`/`medium`, false for `high`/`critical`. The notification center
+   * is the always-on canonical inbox; the OS banner is reserved for
+   * signals the user opted into push for (urgency >= high).
+   */
+  silent?: boolean;
 }
 
 /** Server push — broadcast when a notification creates a new vellum conversation. */
@@ -39,6 +53,13 @@ export interface NotificationConversationCreated {
    * conversation is attributed correctly.
    */
   source?: string;
+  /**
+   * Mirrors `NotificationIntent.silent`. When true the client must not
+   * post a fallback OS banner for this conversation — the sidebar entry
+   * still appears, but the always-on inbox is the only surfaced channel.
+   * Derived from the originating signal's `attentionHints.urgency`.
+   */
+  silent?: boolean;
 }
 
 /** Client ack sent after UNUserNotificationCenter.add() completes (or fails). */

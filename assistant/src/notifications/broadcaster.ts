@@ -45,6 +45,11 @@ export interface ConversationCreatedInfo {
   groupId?: string;
   /** Semantic source from the signal producer (e.g. "schedule", "reminder"). */
   source?: string;
+  /**
+   * Mirrors the vellum adapter's `silent` flag. When true the client
+   * must skip the fallback OS banner — the sidebar entry still appears.
+   */
+  silent: boolean;
 }
 export type OnConversationCreatedFn = (info: ConversationCreatedInfo) => void;
 export interface BroadcastDecisionOptions {
@@ -252,6 +257,9 @@ export class NotificationBroadcaster {
 
         const conversationTitle =
           copy.conversationTitle ?? copy.title ?? signal.sourceEventName;
+        const conversationSilent =
+          signal.attentionHints.urgency !== "high" &&
+          signal.attentionHints.urgency !== "critical";
         const info: ConversationCreatedInfo = {
           conversationId: pairing.conversationId,
           title: conversationTitle,
@@ -259,6 +267,7 @@ export class NotificationBroadcaster {
           targetGuardianPrincipalId,
           groupId: signal.conversationMetadata?.groupId,
           source: signal.conversationMetadata?.source,
+          silent: conversationSilent,
         };
 
         // The per-dispatch onConversationCreated callback fires whenever a vellum
@@ -306,6 +315,7 @@ export class NotificationBroadcaster {
         copy,
         deepLinkTarget,
         contextPayload: signal.contextPayload,
+        urgency: signal.attentionHints.urgency,
       };
 
       // Compute conversation decision audit fields for the delivery record

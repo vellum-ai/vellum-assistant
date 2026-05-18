@@ -88,6 +88,7 @@ function getBroadcaster(): NotificationBroadcaster {
           targetGuardianPrincipalId: info.targetGuardianPrincipalId,
           groupId: info.groupId,
           source: info.source,
+          silent: info.silent,
         });
         log.info(
           {

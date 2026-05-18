@@ -156,6 +156,7 @@ describe("notification deep-link metadata", () => {
             conversationId: "conv-123",
             conversationType: "notification",
           },
+          urgency: "medium",
         },
         { channel: "vellum" },
       );
@@ -179,6 +180,7 @@ describe("notification deep-link metadata", () => {
         {
           sourceEventName: "test.event",
           copy: { title: "Alert", body: "No deep link" },
+          urgency: "medium",
         },
         { channel: "vellum" },
       );
@@ -199,6 +201,7 @@ describe("notification deep-link metadata", () => {
           sourceEventName: "guardian.question",
           copy: { title: "Guardian Question", body: "What is the code?" },
           deepLinkTarget: { conversationId },
+          urgency: "medium",
         },
         { channel: "vellum" },
       );
@@ -215,6 +218,7 @@ describe("notification deep-link metadata", () => {
         {
           sourceEventName: "test.event",
           copy: { title: "T", body: "B" },
+          urgency: "medium",
         },
         { channel: "vellum" },
       );
@@ -231,6 +235,7 @@ describe("notification deep-link metadata", () => {
         {
           sourceEventName: "test.event",
           copy: { title: "T", body: "B" },
+          urgency: "medium",
         },
         { channel: "vellum" },
       );
@@ -247,6 +252,7 @@ describe("notification deep-link metadata", () => {
         {
           sourceEventName: "guardian.question",
           copy: { title: "Alert", body: "Body" },
+          urgency: "medium",
         },
         { channel: "vellum" },
       );
@@ -268,6 +274,7 @@ describe("notification deep-link metadata", () => {
             conversationId: "conv-task-run-42",
             workItemId: "work-item-7",
           },
+          urgency: "medium",
         },
         { channel: "vellum" },
       );
@@ -287,6 +294,7 @@ describe("notification deep-link metadata", () => {
           sourceEventName: "guardian.question",
           copy: { title: "Question", body: "Body" },
           deepLinkTarget: { conversationId: "conv-1", messageId: "msg-1" },
+          urgency: "medium",
         },
         { channel: "vellum" },
       );
@@ -309,6 +317,7 @@ describe("notification deep-link metadata", () => {
           sourceEventName: "schedule.notify",
           copy: { title: "Reminder", body: "Take out the trash" },
           deepLinkTarget: { conversationId: "conv-new-convo-001" },
+          urgency: "medium",
         },
         { channel: "vellum" },
       );
@@ -332,6 +341,7 @@ describe("notification deep-link metadata", () => {
             body: "Still need to take out the trash",
           },
           deepLinkTarget: { conversationId: "conv-reused-convo-042" },
+          urgency: "medium",
         },
         { channel: "vellum" },
       );
@@ -358,6 +368,7 @@ describe("notification deep-link metadata", () => {
             conversationId: stableConversationId,
             messageId: "msg-seed-1",
           },
+          urgency: "medium",
         },
         { channel: "vellum" },
       );
@@ -371,6 +382,7 @@ describe("notification deep-link metadata", () => {
             conversationId: stableConversationId,
             messageId: "msg-seed-2",
           },
+          urgency: "medium",
         },
         { channel: "vellum" },
       );
@@ -402,6 +414,7 @@ describe("notification deep-link metadata", () => {
           sourceEventName: "schedule.notify",
           copy: { title: "Reminder", body: "First" },
           deepLinkTarget: { conversationId, messageId: "msg-a" },
+          urgency: "medium",
         },
         { channel: "vellum" },
       );
@@ -411,6 +424,7 @@ describe("notification deep-link metadata", () => {
           sourceEventName: "schedule.notify",
           copy: { title: "Reminder", body: "Second" },
           deepLinkTarget: { conversationId, messageId: "msg-b" },
+          urgency: "medium",
         },
         { channel: "vellum" },
       );
@@ -442,6 +456,7 @@ describe("notification deep-link metadata", () => {
             sourceEventName: "activity.complete",
             copy: { title: "Activity", body },
             deepLinkTarget: { conversationId: boundConvId },
+            urgency: "medium",
           },
           { channel: "vellum" },
         );

@@ -295,6 +295,7 @@ describe("guardian-dispatch", () => {
       conversationId: "conv-from-thread-created",
       title: "Guardian alert",
       sourceEventName: "guardian.question",
+      silent: false,
     };
     mockEmitResult = {
       signalId: "sig-4",

@@ -31,8 +31,6 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-
-
 const emitCalls: unknown[] = [];
 let mockConversationCreated: ConversationCreatedInfo | null = null;
 let mockEmitResult: {
@@ -189,6 +187,7 @@ describe("ASK_GUARDIAN canonical notification path", () => {
       conversationId: "conv-from-thread-callback",
       title: "Guardian question",
       sourceEventName: "guardian.question",
+      silent: false,
     };
     mockEmitResult = {
       signalId: "sig-2",
