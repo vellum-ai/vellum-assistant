@@ -33,7 +33,7 @@ const buttonVariants = cva(
     "active:scale-[0.97]",
     "disabled:cursor-not-allowed disabled:active:scale-100",
     "aria-disabled:cursor-not-allowed aria-disabled:pointer-events-none aria-disabled:opacity-60 aria-disabled:active:scale-100",
-    "text-[color:var(--vbtn-fg)]",
+    "[color:var(--vbtn-fg)]",
   ].join(" "),
   {
     variants: {
