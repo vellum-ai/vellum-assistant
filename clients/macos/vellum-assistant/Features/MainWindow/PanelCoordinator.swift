@@ -265,17 +265,44 @@ extension MainWindowView {
                 title: item.title,
                 iconForeground: iconForegroundForFeedItem(item),
                 iconBackground: iconBackgroundForFeedItem(item),
-                onGoToThread: item.conversationId.flatMap { id in
-                    UUID(uuidString: id).map { uuid in
-                        { activeHomeDetailPanel = nil; windowState.selection = .conversation(uuid) }
-                    }
-                },
+                onGoToThread: goToThreadHandler(for: item),
                 onDismiss: { activeHomeDetailPanel = nil }
             ) {
                 Text(item.summary).font(VFont.bodyMediumDefault).foregroundStyle(VColor.contentSecondary).padding(VSpacing.lg)
             }
         case nil:
             EmptyView()
+        }
+    }
+
+    /// Builds the "Go to Thread" handler for the home detail panel.
+    ///
+    /// `FeedItem.conversationId` carries the **daemon-side** conversation
+    /// ID (mirrored from `notification_intent.deepLinkMetadata.conversationId`
+    /// and `notification_deliveries.conversation_id`). `ViewSelection`'s
+    /// `.conversation(UUID)` requires the **client-local** `ConversationModel.id`,
+    /// which is a separately generated UUID — same shape, different namespace.
+    /// We must round-trip through `selectConversationByConversationIdAsync(_:)`
+    /// to resolve the daemon ID to the matching local model (fetching on
+    /// demand if it isn't in the sidebar yet), then drive selection off the
+    /// resolved local UUID. The same pattern is used by the logs panel's
+    /// `onSelectConversation` callback above.
+    ///
+    /// Returns `nil` when the feed item has no associated conversation —
+    /// `HomeDetailPanel` hides the button when the handler is `nil`.
+    private func goToThreadHandler(for item: FeedItem) -> (() -> Void)? {
+        guard let daemonConversationId = item.conversationId else { return nil }
+        return {
+            activeHomeDetailPanel = nil
+            Task { @MainActor in
+                let found = await conversationManager.selectConversationByConversationIdAsync(daemonConversationId)
+                let activeLocalId = conversationManager.activeConversationId
+                panelCoordinatorLog.info(
+                    "Go to Thread: daemonConversationId=\(daemonConversationId, privacy: .public) feedItemId=\(item.id, privacy: .public) found=\(found, privacy: .public) activeLocalId=\(activeLocalId?.uuidString ?? "<nil>", privacy: .public)"
+                )
+                guard found, let id = activeLocalId else { return }
+                windowState.selection = .conversation(id)
+            }
         }
     }
 
