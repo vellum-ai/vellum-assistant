@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { AssistantError, ProviderError } from "../util/errors.js";
@@ -19,6 +19,13 @@ export type LogRow = {
   requestPayload: string;
   responsePayload: string;
   createdAt: number;
+  /**
+   * Set on the final log row of an `AgentLoop.run` once the loop body
+   * exits. NULL on intermediate rows — that's the canonical "loop kept
+   * going" signal. Values are the stable strings from
+   * `AgentLoopExitReason` in `agent/loop.ts`.
+   */
+  agentLoopExitReason: string | null;
 };
 
 /**
@@ -78,9 +85,48 @@ export function recordRequestLog(
       requestPayload,
       responsePayload,
       createdAt: Date.now(),
+      // Stamped later via setAgentLoopExitReasonOnLatestLog, once the
+      // agent loop body actually exits. Intermediate rows stay NULL.
+      agentLoopExitReason: null,
     })
     .run();
   return id;
+}
+
+/**
+ * Stamp an `agent_loop_exit_reason` onto the most-recent `llm_request_logs`
+ * row for the given conversation. Called by the agent-loop event dispatch
+ * (both `dispatchAgentEvent` and the wake's `onEvent`) when an
+ * `agent_loop_exit` event is observed.
+ *
+ * Why "latest by createdAt" rather than a specific log ID: the dispatch
+ * layer doesn't know the log row's UUID — `recordRequestLog` is fire-and-
+ * forget from `handleUsage`, and the loop's final usage event lands the
+ * row we want to stamp immediately before the exit event arrives. The
+ * latest-row lookup gives us the right row without threading IDs through
+ * the event pipeline.
+ *
+ * No-op if no rows exist for the conversation (e.g. a run that exited
+ * before any provider call landed — the only place that's currently
+ * reachable is `aborted_pre_call` on the very first iteration).
+ */
+export function setAgentLoopExitReasonOnLatestLog(
+  conversationId: string,
+  reason: string,
+): void {
+  const db = getDb();
+  const latest = db
+    .select({ id: llmRequestLogs.id })
+    .from(llmRequestLogs)
+    .where(eq(llmRequestLogs.conversationId, conversationId))
+    .orderBy(desc(llmRequestLogs.createdAt))
+    .limit(1)
+    .get();
+  if (!latest) return;
+  db.update(llmRequestLogs)
+    .set({ agentLoopExitReason: reason })
+    .where(eq(llmRequestLogs.id, latest.id))
+    .run();
 }
 
 export function backfillMessageIdOnLogs(
@@ -134,6 +180,7 @@ function selectLogsByMessageIds(messageIds: string[]): LogRow[] {
       requestPayload: llmRequestLogs.requestPayload,
       responsePayload: llmRequestLogs.responsePayload,
       createdAt: llmRequestLogs.createdAt,
+      agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
     })
     .from(llmRequestLogs)
     .where(inArray(llmRequestLogs.messageId, messageIds))
@@ -165,6 +212,7 @@ function selectOrphanedLogsInRange(
       requestPayload: llmRequestLogs.requestPayload,
       responsePayload: llmRequestLogs.responsePayload,
       createdAt: llmRequestLogs.createdAt,
+      agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
     })
     .from(llmRequestLogs)
     .leftJoin(messages, eq(llmRequestLogs.messageId, messages.id))
@@ -205,6 +253,7 @@ function selectUnlinkedLogsInRange(
       requestPayload: llmRequestLogs.requestPayload,
       responsePayload: llmRequestLogs.responsePayload,
       createdAt: llmRequestLogs.createdAt,
+      agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
     })
     .from(llmRequestLogs)
     .where(
@@ -231,6 +280,7 @@ export function getRequestLogById(logId: string): LogRow | null {
         requestPayload: llmRequestLogs.requestPayload,
         responsePayload: llmRequestLogs.responsePayload,
         createdAt: llmRequestLogs.createdAt,
+        agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
       })
       .from(llmRequestLogs)
       .where(eq(llmRequestLogs.id, logId))

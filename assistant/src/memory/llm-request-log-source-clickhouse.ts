@@ -283,6 +283,13 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       requestPayload: row.request_payload,
       responsePayload: row.response_payload,
       createdAt: Number(row.created_at),
+      // The ClickHouse mirror does not yet replicate
+      // `agent_loop_exit_reason` — the column is local-SQLite-only as of
+      // migration 252. Returning null here matches the "loop kept going"
+      // sentinel and keeps inspector reads against the mirror sane until
+      // the mirror cron is updated to forward this column. Tracked as a
+      // separate workstream.
+      agentLoopExitReason: null,
     };
   }
 

@@ -102,6 +102,10 @@ describe("ClickHouseLlmRequestLogSource", () => {
       requestPayload: '{"foo":1}',
       responsePayload: '{"bar":2}',
       createdAt: 1778465138786,
+      // ClickHouse mirror doesn't replicate agent_loop_exit_reason yet —
+      // the column is local-SQLite-only as of migration 252. The mirror
+      // source always returns null until the mirror cron is updated.
+      agentLoopExitReason: null,
     });
   });
 

@@ -136,11 +136,13 @@ function translateAgentEventToServerMessage(
     case "usage":
     case "error":
     case "provider_error":
-      // `provider_error` is a recording side-effect for the LLM-request-log
-      // store (handled in `dispatchAgentEvent`'s `handleProviderError` and
-      // the wake-path `onEvent`). It is intentionally not exposed to clients
-      // as a ServerMessage — the existing `error` event is what the UI
-      // renders for provider failures.
+    case "agent_loop_exit":
+      // Both are recording side-effects for the LLM-request-log store
+      // (handled in `dispatchAgentEvent` and the wake-path `onEvent`).
+      // Neither is exposed to clients as a ServerMessage — the existing
+      // `error` event is what the UI renders for provider failures, and
+      // `agent_loop_exit` is purely a server-side stamp on the latest
+      // `llm_request_logs.agent_loop_exit_reason` column.
       return null;
   }
 }
