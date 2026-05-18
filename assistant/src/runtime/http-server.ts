@@ -28,14 +28,8 @@ import {
 import { isHttpAuthDisabled } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
-import {
-  createApprovalConversationGenerator,
-  createApprovalCopyGenerator,
-} from "../daemon/approval-generators.js";
-import {
-  createGuardianActionCopyGenerator,
-  createGuardianFollowUpConversationGenerator,
-} from "../daemon/guardian-action-generators.js";
+import { createApprovalCopyGenerator } from "../daemon/approval-generators.js";
+import { createGuardianActionCopyGenerator } from "../daemon/guardian-action-generators.js";
 import { processMessage } from "../daemon/process-message.js";
 import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
 import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
@@ -104,10 +98,8 @@ import { matchSkillRoute } from "./skill-route-registry.js";
 export { isPrivateAddress } from "./middleware/auth.js";
 
 import type {
-  ApprovalConversationGenerator,
   ApprovalCopyGenerator,
   GuardianActionCopyGenerator,
-  GuardianFollowUpConversationGenerator,
   RuntimeHttpServerOptions,
 } from "./http-types.js";
 
@@ -170,9 +162,7 @@ export class RuntimeHttpServer {
   private hostname: string;
 
   private readonly approvalCopyGenerator: ApprovalCopyGenerator;
-  private readonly approvalConversationGenerator: ApprovalConversationGenerator;
   private readonly guardianActionCopyGenerator: GuardianActionCopyGenerator;
-  private readonly guardianFollowUpConversationGenerator: GuardianFollowUpConversationGenerator;
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
 
@@ -184,10 +174,7 @@ export class RuntimeHttpServer {
     this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
 
     this.approvalCopyGenerator = createApprovalCopyGenerator();
-    this.approvalConversationGenerator = createApprovalConversationGenerator();
     this.guardianActionCopyGenerator = createGuardianActionCopyGenerator();
-    this.guardianFollowUpConversationGenerator =
-      createGuardianFollowUpConversationGenerator();
     this.liveVoiceSessionManager = new LiveVoiceSessionManager({
       createSession: (context) => createLiveVoiceSession(context),
     });
