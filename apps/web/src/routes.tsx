@@ -1,6 +1,7 @@
 import { createBrowserRouter } from "react-router";
 import { App } from "./App.js";
 import { ChatPage } from "./domains/chat/chat-page.js";
+import { HomePage } from "./domains/home/home-page.js";
 import { LibraryPage } from "./domains/library/library-page.js";
 import { LibraryDetailPage } from "./domains/library/library-detail-page.js";
 import { NotFound } from "./components/not-found.js";
@@ -13,6 +14,23 @@ export const router = createBrowserRouter(
       element: <App />,
       children: [
         { index: true, element: <ChatPage /> },
+        {
+          path: "home",
+          element: (
+            <HomePage
+              assistantId="default"
+              onStartNewChat={() => {
+                window.location.href = "/assistant";
+              }}
+              onOpenConversation={(conversationId) => {
+                window.location.href = `/assistant/conversations/${conversationId}`;
+              }}
+              onSuggestionSelected={(prompt) => {
+                window.location.href = `/assistant?prompt=${encodeURIComponent(prompt)}`;
+              }}
+            />
+          ),
+        },
         { path: "settings/:tab", element: <SettingsTabPage /> },
         { path: "library", element: <LibraryPage /> },
         { path: "library/:appId", element: <LibraryDetailPage /> },
