@@ -28,7 +28,7 @@ const tagVariants = cva(
         positive: "bg-[var(--system-positive-weak)]",
         negative: "bg-[var(--system-negative-weak)]",
         warning: "bg-[var(--system-mid-weak)]",
-        neutral: "bg-[var(--system-neutral-weak)]",
+        neutral: "bg-[var(--tag-bg-neutral)]",
       },
     },
     defaultVariants: {
