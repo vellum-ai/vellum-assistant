@@ -88,6 +88,16 @@ export async function runDeterministicChecks(
     return dedupeCheck;
   }
 
+  // Check 5: Rendered copy quality (fail-closed)
+  const copyCheck = checkRenderedCopyQuality(signal, decision);
+  if (!copyCheck.passed) {
+    log.info(
+      { signalId: signal.signalId, reason: copyCheck.reason },
+      "Deterministic check failed: rendered copy quality",
+    );
+    return copyCheck;
+  }
+
   return { passed: true };
 }
 
@@ -228,6 +238,56 @@ function checkDedupe(
       { err: errMsg },
       "Dedupe check failed, allowing notification through",
     );
+  }
+
+  return { passed: true };
+}
+
+/**
+ * Fail-closed check that the rendered copy is real text and not an
+ * accidental fallback leak (empty body, or body that is just the raw
+ * source event name like "user.send_notification"). Catches cases where
+ * `buildGenericCopy` synthesizes a placeholder from the event name.
+ */
+function checkRenderedCopyQuality(
+  signal: NotificationSignal,
+  decision: NotificationDecision,
+): CheckResult {
+  if (!decision.shouldNotify) {
+    return { passed: true };
+  }
+
+  const normalizedEventName = signal.sourceEventName
+    .replace(/[._]/g, " ")
+    .toLowerCase()
+    .trim();
+  const rawEventName = signal.sourceEventName.toLowerCase();
+
+  for (const channel of decision.selectedChannels) {
+    const copy = decision.renderedCopy[channel];
+    if (!copy) {
+      return {
+        passed: false,
+        reason: `rendered copy missing for selected channel ${channel}`,
+      };
+    }
+    const trimmedBody = copy.body.trim();
+    if (trimmedBody.length === 0) {
+      return {
+        passed: false,
+        reason: "rendered copy body is empty",
+      };
+    }
+    const normalizedBody = trimmedBody.toLowerCase();
+    if (
+      normalizedBody === normalizedEventName ||
+      normalizedBody === rawEventName
+    ) {
+      return {
+        passed: false,
+        reason: "rendered copy body is the source event name (fallback leak)",
+      };
+    }
   }
 
   return { passed: true };
