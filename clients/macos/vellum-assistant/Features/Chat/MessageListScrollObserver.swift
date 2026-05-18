@@ -485,15 +485,16 @@ struct MessageListScrollObserver: NSViewRepresentable {
         /// `minY` against the cached value — even if it has been pushed
         /// outside the viewport by a large upstream reflow, since that final
         /// delta is exactly the shift we need to compensate for. When the
-        /// reference no longer intersects the viewport we still report the
-        /// delta, then clear the anchor so the *next* emit re-picks against
-        /// the already-compensated viewport. Re-picking here would store a
-        /// path against the pre-compensation viewport, which is almost
-        /// always off-screen after `setBoundsOrigin(preOffsetY + delta)` —
-        /// leaving subsequent emits diffing a stale, non-visible row. If
-        /// the anchor view was destroyed (or collapsed to zero height) and
-        /// we can no longer locate it, we pick a new reference and return
-        /// `0`.
+        /// reference no longer intersects the viewport we report the delta
+        /// and immediately re-pick against `viewport.offsetBy(dy: delta)`,
+        /// the rectangle that will be visible once the caller applies
+        /// `setBoundsOrigin(preOffsetY + delta)`. The synchronous
+        /// bounds-changed notification from that scroll is swallowed by the
+        /// `isEmitting` guard, so without an inline re-pick a subsequent
+        /// content/layout change would diff against a stale off-screen
+        /// anchor and report `delta == 0`. If the anchor view was destroyed
+        /// or collapsed to zero height and we can no longer locate it, we
+        /// pick a new reference and return `0`.
         ///
         /// Returning `0` is also what's expected on the first emit after
         /// attach: `anchorReferencePath` is `nil`, we pick one, and the
@@ -520,20 +521,15 @@ struct MessageListScrollObserver: NSViewRepresentable {
                     lastReferenceY = currentY
                     return delta
                 }
-                // Reference was pushed outside the viewport on this emit
-                // (large upstream reflow — image load, thinking-block
-                // expansion, history correction). Apply its final delta
-                // as compensation, then clear the anchor so the next emit
-                // re-picks against the post-compensation viewport. The
-                // caller is about to scroll by `delta`, which restores the
-                // old reference to its prior screen position; picking a
-                // new reference here against the *pre-compensation*
-                // viewport would almost always land on a row that ends up
-                // off-screen, leaving the next emit diffing a stale,
-                // non-visible row.
-                anchorReferencePath = nil
-                anchorReferenceView = nil
-                lastReferenceY = 0
+                // Reference pushed outside the viewport (large upstream
+                // reflow — image load, thinking-block expansion, history
+                // correction). Report the delta, then re-pick against the
+                // post-compensation viewport. See doc-comment for the
+                // `isEmitting` rationale.
+                pickAndStoreReference(
+                    in: documentView,
+                    viewport: viewport.offsetBy(dx: 0, dy: delta)
+                )
                 return delta
             }
             // Identity check failed (path missing or now resolves to a
@@ -555,25 +551,25 @@ struct MessageListScrollObserver: NSViewRepresentable {
                     lastReferenceY = currentY
                     return delta
                 }
-                // Same out-of-viewport handling as the in-band case above:
-                // report the delta, then clear so the next emit re-picks
-                // against the post-compensation viewport.
-                anchorReferencePath = nil
-                anchorReferenceView = nil
-                lastReferenceY = 0
+                // Same out-of-viewport handling as the in-band case above.
+                pickAndStoreReference(
+                    in: documentView,
+                    viewport: viewport.offsetBy(dx: 0, dy: delta)
+                )
                 return delta
             }
             // The anchor view was destroyed, collapsed, or is no longer in
             // the document tree — pick a new reference. No delta on this
             // emit since there's no trustworthy previous-Y to diff against.
-            // This branch also handles the emit following an out-of-viewport
-            // delta, where the prior emit cleared the anchor so we re-pick
-            // against the now post-compensation viewport.
+            pickAndStoreReference(in: documentView, viewport: viewport)
+            return 0
+        }
+
+        private func pickAndStoreReference(in documentView: NSView, viewport: CGRect) {
             let pick = pickAnchorReferencePath(in: documentView, viewport: viewport)
             anchorReferencePath = pick?.path
             anchorReferenceView = pick?.view
             lastReferenceY = pick?.view.convert(.zero, to: documentView).y ?? 0
-            return 0
         }
 
         /// Walks `path` (e.g. `"0/2"`) from `root`, returning the resolved
