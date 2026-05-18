@@ -37,7 +37,8 @@ interface FetchCall {
 }
 
 const fetchCalls: FetchCall[] = [];
-const fetchResponses: Array<{ ok: boolean; status: number; body?: string }> = [];
+const fetchResponses: Array<{ ok: boolean; status: number; body?: string }> =
+  [];
 let clientAvailable = true;
 
 mock.module("../platform/client.js", () => ({
@@ -84,6 +85,7 @@ function makePayload(
     copy: { title: "Reminder", body: "Check the oven!" },
     deepLinkTarget: { type: "conversation", id: "conv-1" },
     contextPayload: { jobId: "job-1" },
+    urgency: "medium",
     ...overrides,
   };
 }
@@ -118,9 +120,7 @@ describe("PlatformPushAdapter", () => {
     expect(fetchCalls).toHaveLength(1);
 
     const call = fetchCalls[0]!;
-    expect(call.path).toBe(
-      "/v1/assistants/test-assistant-id/push/dispatch/",
-    );
+    expect(call.path).toBe("/v1/assistants/test-assistant-id/push/dispatch/");
     expect(call.method).toBe("POST");
     expect(call.body.delivery_id).toBe("delivery-uuid-1");
     expect(call.body.source_event_name).toBe("schedule.notify");
@@ -216,6 +216,7 @@ describe("PlatformPushAdapter", () => {
     const payload: ChannelDeliveryPayload = {
       sourceEventName: "schedule.notify",
       copy: { title: "Hi", body: "Hello" },
+      urgency: "medium",
     };
 
     const result = await adapter.send(payload, makeDestination());

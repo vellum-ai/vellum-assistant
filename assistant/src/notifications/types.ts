@@ -7,6 +7,7 @@
 
 import type { ChannelPolicies } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
+import type { AttentionHints } from "./signal.js";
 
 /**
  * Derived from the channel policy registry: only channels whose
@@ -81,6 +82,13 @@ export interface ChannelDeliveryPayload {
   deepLinkTarget?: Record<string, unknown>;
   /** Original signal context payload — available for channel-specific structured rendering. */
   contextPayload?: Record<string, unknown>;
+  /**
+   * Forwarded from the originating signal so adapters can make
+   * urgency-aware decisions (e.g. the vellum adapter suppresses the OS
+   * banner for non-urgent intents while still emitting the conversation
+   * pairing side effects).
+   */
+  urgency: AttentionHints["urgency"];
 }
 
 /** Interface that each channel adapter must implement. */

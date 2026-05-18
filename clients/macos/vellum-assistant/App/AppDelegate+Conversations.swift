@@ -102,6 +102,15 @@ extension AppDelegate {
         // so no fallback is needed.
         guard !NSApp.isActive else { return }
 
+        // Silent conversations must not generate any OS banner — the sidebar
+        // entry plus the home-feed inbox are the only surfaced channels. The
+        // matching notification_intent will also arrive with silent=true; we
+        // skip scheduling the fallback so a slow intent can never race the
+        // 750ms timer into firing a banner.
+        if msg.silent == true {
+            return
+        }
+
         scheduleNotificationFallback(
             conversationId: msg.conversationId,
             title: sanitizedTitle,

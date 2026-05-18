@@ -58,6 +58,7 @@ function makePayload(
       title: "Reminder",
       body: "Check the oven now!",
     },
+    urgency: "medium",
     ...overrides,
   };
 }

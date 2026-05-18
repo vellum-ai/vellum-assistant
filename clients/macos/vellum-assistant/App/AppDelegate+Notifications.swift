@@ -418,6 +418,22 @@ extension AppDelegate {
             )
         }
 
+        // Silent intents reach the inbox via the home-feed file but must not
+        // fire an OS banner. Ack the delivery so the audit trail records the
+        // intentional suppression as a success, not a failure.
+        if msg.silent == true {
+            log.info("Skipping OS banner for silent notification_intent (source: \(msg.sourceEventName))")
+            if let deliveryId = msg.deliveryId {
+                sendNotificationIntentResult(
+                    deliveryId: deliveryId,
+                    success: true,
+                    errorMessage: nil,
+                    errorCode: nil
+                )
+            }
+            return
+        }
+
         postNotificationIntent(
             sourceEventName: msg.sourceEventName,
             title: msg.title,
