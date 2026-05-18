@@ -248,10 +248,16 @@ function checkDedupe(
  * accidental fallback leak (empty body, or body that is just the raw
  * source event name like "user.send_notification").
  *
- * The empty-body branch is unconditional. The event-name-match branch
- * is skipped for `assistant_tool` pass-through decisions because the
- * producer supplied the body verbatim — a coincidental match with the
- * event name is the user's intent, not a fallback leak.
+ * Only validates channels that the decision engine actually emitted
+ * copy for. Channels appended after the decision (urgency-forced
+ * `vellum` prepend, `enforceRoutingIntent` expansion) have no entry
+ * in `renderedCopy` and are left for the broadcaster's
+ * `composeFallbackCopy` rescue at delivery time.
+ *
+ * The event-name-match branch is skipped for `assistant_tool`
+ * pass-through decisions because the producer supplied the body
+ * verbatim — a coincidental match with the event name is the user's
+ * intent, not a fallback leak.
  */
 function checkRenderedCopyQuality(
   signal: NotificationSignal,
@@ -272,10 +278,7 @@ function checkRenderedCopyQuality(
   for (const channel of decision.selectedChannels) {
     const copy = decision.renderedCopy[channel];
     if (!copy) {
-      return {
-        passed: false,
-        reason: `rendered copy missing for selected channel ${channel}`,
-      };
+      continue;
     }
     const trimmedBody = copy.body.trim();
     if (trimmedBody.length === 0) {

@@ -137,19 +137,62 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
     expect(result.reason).toContain("fallback leak");
   });
 
-  test("fails when rendered copy is missing for a selected channel", async () => {
-    const decision = makeDecision({
-      selectedChannels: ["vellum"],
-      renderedCopy: {},
+  test("passes when channel was appended post-decision (urgency-forced vellum prepend)", async () => {
+    // Regression: emit-signal.ts prepends `vellum` to selectedChannels for
+    // high/critical urgency without populating renderedCopy.vellum. The
+    // broadcaster's composeFallbackCopy rescue handles those channels at
+    // delivery time, so the deterministic check must not fail-closed here.
+    const signal = makeSignal({
+      attentionHints: {
+        requiresAction: false,
+        urgency: "high",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
     });
-    const result = await runDeterministicChecks(
-      makeSignal(),
-      decision,
-      context,
-    );
+    const decision = makeDecision({
+      selectedChannels: ["vellum", "telegram"],
+      renderedCopy: {
+        telegram: { title: "Reminder", body: "Time to drink water" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, {
+      connectedChannels: ["vellum", "telegram"],
+    });
+    expect(result.passed).toBe(true);
+  });
+
+  test("passes when enforceRoutingIntent expanded channels post-decision", async () => {
+    // Regression: enforceRoutingIntent can expand selectedChannels to
+    // all_channels / multi_channel without populating renderedCopy for the
+    // added channels. Broadcaster fallback covers them — check must allow.
+    const decision = makeDecision({
+      selectedChannels: ["vellum", "telegram", "slack"],
+      renderedCopy: {
+        vellum: { title: "Reminder", body: "Time to drink water" },
+      },
+    });
+    const result = await runDeterministicChecks(makeSignal(), decision, {
+      connectedChannels: ["vellum", "telegram", "slack"],
+    });
+    expect(result.passed).toBe(true);
+  });
+
+  test("still validates body quality for channels with rendered copy", async () => {
+    // Even when some channels lack copy (broadcaster fallback territory),
+    // channels that DO have copy must still pass the empty/event-name checks.
+    const signal = makeSignal({ sourceEventName: "user.send_notification" });
+    const decision = makeDecision({
+      selectedChannels: ["vellum", "telegram"],
+      renderedCopy: {
+        telegram: { title: "Reminder", body: "user.send_notification" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, {
+      connectedChannels: ["vellum", "telegram"],
+    });
     expect(result.passed).toBe(false);
-    expect(result.reason).toContain("rendered copy missing");
-    expect(result.reason).toContain("vellum");
+    expect(result.reason).toContain("fallback leak");
   });
 
   test("passes when shouldNotify is false regardless of copy contents", async () => {
