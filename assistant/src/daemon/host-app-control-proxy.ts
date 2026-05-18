@@ -22,10 +22,11 @@
  * `running`; the rollback path on a failed `start` restores from the
  * current confirmed pointer (not from a per-call snapshot of a sibling
  * optimistic write), so two overlapping starts that both fail cannot
- * leave a phantom lock — and a late-arriving `running` for an older
- * overlapping start still updates the confirmed pointer so the lock
- * survives a subsequent rollback of the newer start. The lock is
- * released outright when the owning proxy's `dispose()` fires.
+ * leave a phantom lock. Each session carries a monotonic `dispatchedAt`
+ * counter so out-of-order `running` responses promote in dispatch order:
+ * the latest-dispatched start that the host confirms becomes the
+ * confirmed baseline, regardless of which response arrived last. The
+ * lock is released outright when the owning proxy's `dispose()` fires.
  *
  * `app_control_start` is the only tool that can acquire the lock — the
  * user's medium-risk approval at start time is the consent boundary. All
@@ -84,7 +85,21 @@ export interface ActiveAppControlSession {
    * the `app` of subsequent non-start tool calls.
    */
   app: string;
+  /**
+   * Strictly monotonic counter assigned when the session is created (in
+   * `request()` for a `start`). Used by {@link promoteStartIfCurrent} to
+   * tell which of two confirmations from overlapping starts is newer when
+   * host responses arrive out of order. Larger values are newer.
+   */
+  dispatchedAt: number;
 }
+
+/**
+ * Monotonic counter that stamps each `start`'s {@link
+ * ActiveAppControlSession.dispatchedAt}. Process-lifetime monotonic; the
+ * absolute value is meaningless — only ordering matters.
+ */
+let nextDispatchedAt = 1;
 
 /**
  * Currently active session, or `undefined` when no session is held. This
@@ -130,11 +145,18 @@ export function _resetActiveAppControlSession(): void {
  * round-trip. Useful for tests that exercise non-start tool paths and
  * don't need to verify the start flow itself.
  */
-export function _setActiveAppControlSession(
-  session: ActiveAppControlSession,
-): void {
-  activeAppControlSession = session;
-  confirmedAppControlSession = session;
+export function _setActiveAppControlSession(session: {
+  conversationId: string;
+  app: string;
+  dispatchedAt?: number;
+}): void {
+  const full: ActiveAppControlSession = {
+    conversationId: session.conversationId,
+    app: session.app,
+    dispatchedAt: session.dispatchedAt ?? nextDispatchedAt++,
+  };
+  activeAppControlSession = full;
+  confirmedAppControlSession = full;
 }
 
 /**
@@ -287,6 +309,7 @@ export class HostAppControlProxy extends HostProxyBase<
       attemptedSession = {
         conversationId: this.conversationId,
         app: input.app,
+        dispatchedAt: nextDispatchedAt++,
       };
       activeAppControlSession = attemptedSession;
     } else {
@@ -363,15 +386,20 @@ export class HostAppControlProxy extends HostProxyBase<
   }
 
   /**
-   * Promote this start's optimistic write to the confirmed pointer when
-   * the host returns `running`. Gated on conversation ownership rather
-   * than object identity: a newer overlapping start in the same
-   * conversation may have superseded our optimistic write while we were
-   * waiting on the host, but the host's `running` response for our
-   * `attempted` is still ground-truth that the lock should be held.
-   * The conversation-ownership check ensures we don't resurrect a session
-   * after `dispose()` cleared the lock or after another conversation
-   * acquired it.
+   * Promote this start's session to the confirmed pointer when the host
+   * returns `running`. Two gates:
+   *
+   * 1. The live optimistic write must still belong to this conversation —
+   *    if `dispose()` cleared the lock or another conversation acquired
+   *    it, this confirmation must not resurrect a stale session.
+   * 2. The confirming session must be at least as recent as the currently
+   *    confirmed one, compared via {@link
+   *    ActiveAppControlSession.dispatchedAt}. The dispatch counter is
+   *    assigned synchronously in `request()`, so it captures dispatch
+   *    order even when host responses arrive out of order. The latest
+   *    dispatched start that confirms wins, which is the right baseline
+   *    for the rollback path: if a newer start later fails, rollback
+   *    restores the most recently confirmed session, not an older one.
    */
   private promoteStartIfCurrent(
     attempted: ActiveAppControlSession | undefined,
@@ -380,19 +408,13 @@ export class HostAppControlProxy extends HostProxyBase<
     if (activeAppControlSession?.conversationId !== attempted.conversationId) {
       return;
     }
-    // Promote when this start is still the live optimistic write (normal
-    // path) OR when no session has been confirmed yet — the latter covers
-    // a late-arriving `running` for an older overlapping start whose
-    // optimistic write was superseded but whose host confirmation is
-    // still ground-truth. Without the `confirmedAppControlSession == null`
-    // branch, two overlapping starts that both succeed would let the
-    // later-arriving older response overwrite the newer confirmed session.
     if (
-      activeAppControlSession === attempted ||
-      confirmedAppControlSession == null
+      confirmedAppControlSession != null &&
+      attempted.dispatchedAt <= confirmedAppControlSession.dispatchedAt
     ) {
-      confirmedAppControlSession = attempted;
+      return;
     }
+    confirmedAppControlSession = attempted;
   }
 
   /**

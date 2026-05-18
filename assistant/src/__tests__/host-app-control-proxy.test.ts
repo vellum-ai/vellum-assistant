@@ -892,6 +892,120 @@ describe("HostAppControlProxy", () => {
       proxy.dispose();
     });
 
+    test("rollback after confirmed-A,dispatch-B,dispatch-C,B-confirms,C-fails restores B (Codex P2)", async () => {
+      // A is confirmed, then B and C are dispatched. B's `running` arrives
+      // while C is the live write; under the dispatch-counter rule that
+      // confirmation must promote because B is newer than A. A subsequent
+      // failure of C must then roll back to B, not back to A.
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+
+      const pA = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.a" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdA = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.resolve(reqIdA, payload({ pngBase64: PNG_A }));
+      await pA;
+      expect(_getConfirmedAppControlSession()?.app).toBe("com.example.a");
+
+      sentMessages.length = 0;
+      const pB = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.b" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdB = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+
+      sentMessages.length = 0;
+      const pC = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.c" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdC = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.c");
+
+      // B confirms (newer than A): confirmed should move to B even though
+      // C is the live optimistic write.
+      proxy.resolve(reqIdB, payload({ pngBase64: PNG_B }));
+      await pB;
+      expect(_getConfirmedAppControlSession()?.app).toBe("com.example.b");
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.c");
+
+      // C fails → rollback restores to confirmed (B), not A.
+      proxy.resolve(reqIdC, payload({ state: "missing" }));
+      await pC;
+      const session = _getActiveAppControlSession();
+      expect(session?.conversationId).toBe("conv-1");
+      expect(session?.app).toBe("com.example.b");
+
+      proxy.dispose();
+    });
+
+    test("three-overlapping-starts A-confirms,B-confirms,C-fails restores B (Devin P2)", async () => {
+      // A, B, C dispatched in order with no prior confirmed session.
+      // A confirms first (confirmed = A), B confirms second (confirmed
+      // must move forward to B because B is newer), C fails → rollback
+      // restores to B, not A.
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+
+      const pA = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.a" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdA = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+
+      sentMessages.length = 0;
+      const pB = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.b" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdB = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+
+      sentMessages.length = 0;
+      const pC = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.c" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdC = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.c");
+
+      proxy.resolve(reqIdA, payload({ pngBase64: PNG_A }));
+      await pA;
+      expect(_getConfirmedAppControlSession()?.app).toBe("com.example.a");
+
+      proxy.resolve(reqIdB, payload({ pngBase64: PNG_B }));
+      await pB;
+      expect(_getConfirmedAppControlSession()?.app).toBe("com.example.b");
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.c");
+
+      proxy.resolve(reqIdC, payload({ state: "missing" }));
+      await pC;
+      const session = _getActiveAppControlSession();
+      expect(session?.conversationId).toBe("conv-1");
+      expect(session?.app).toBe("com.example.b");
+
+      proxy.dispose();
+    });
+
     test("first-start failure releases the lock (no prior session to restore)", async () => {
       const proxy = new HostAppControlProxy("conv-1");
       const ctrl = new AbortController();
