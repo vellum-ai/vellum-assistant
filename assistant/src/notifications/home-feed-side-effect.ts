@@ -53,7 +53,8 @@ export async function writeHomeFeedItemForSignal(
   if (!shouldMirrorToHomeFeed(signal)) return null;
 
   const renderedCopy =
-    decision.renderedCopy.vellum ?? firstRenderedCopy(decision.renderedCopy);
+    decision.renderedCopy.vellum ??
+    firstSelectedRenderedCopy(decision.renderedCopy, decision.selectedChannels);
   const payloadTitle =
     readPayloadString(signal.contextPayload, "title") ??
     readPayloadString(signal.contextPayload, "requestedTitle");
@@ -192,10 +193,19 @@ function readPayloadString(payload: unknown, key: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function firstRenderedCopy(
+/**
+ * Routing-intent enforcement can prune `selectedChannels` without also
+ * pruning `renderedCopy`, so iterating `renderedCopy` directly risks
+ * surfacing copy for a channel that was never delivered. Walk
+ * `selectedChannels` in order instead so the channel that actually shipped
+ * wins.
+ */
+function firstSelectedRenderedCopy(
   renderedCopy: NotificationDecision["renderedCopy"],
+  selectedChannels: NotificationDecision["selectedChannels"],
 ): RenderedChannelCopy | undefined {
-  for (const copy of Object.values(renderedCopy)) {
+  for (const channel of selectedChannels) {
+    const copy = renderedCopy[channel];
     if (copy && (copy.title?.trim() || copy.body?.trim())) return copy;
   }
   return undefined;
