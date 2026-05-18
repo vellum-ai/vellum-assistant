@@ -56,7 +56,7 @@ All new apps use `formatVersion: 2`: source files live under `src/` and compiled
 
 ## Responsive Baseline & Mobile-First Mode
 
-Every app must be responsive across the full width range — phone (~360px) to desktop (~1400px+). The conversation context's `<turn_context>` block carries an `interface:` field (values include `macos`, `ios`, `web`, `phone`); that field doesn't toggle responsiveness on or off — it shifts the **design priority**.
+Every app must be responsive across the full width range — phone (~360px) to desktop (~1400px+). The conversation context's `<turn_context>` block carries an `interface:` field. Visual interfaces are `macos`, `ios`, and `web`; the field doesn't toggle responsiveness on or off — it shifts the **design priority**. Non-visual values like `phone` represent voice channels that can't render apps at all and don't need to be considered here.
 
 - **`interface: ios`** (or any future mobile-web / android identifier) — mobile-first build. Design the narrow viewport first and progressively enhance upward at wider widths.
 - **`interface: macos` / `web`** — desktop-first build. Design the larger composition first; the narrow-width fallback must still meet the universal baseline below but doesn't need to feel like a native mobile app.
