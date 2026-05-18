@@ -16,6 +16,7 @@ final class HomeFeedStoreTests: XCTestCase {
         status: FeedItemStatus = .new,
         title: String = "Fixture title",
         priority: Int = 60,
+        noteworthy: Bool? = nil,
         timestamp: Date = Date(timeIntervalSince1970: 1_760_000_000),
         createdAt: Date = Date(timeIntervalSince1970: 1_760_000_000)
     ) -> FeedItem {
@@ -29,6 +30,7 @@ final class HomeFeedStoreTests: XCTestCase {
             status: status,
             expiresAt: nil,
             actions: nil,
+            noteworthy: noteworthy,
             createdAt: createdAt
         )
     }
@@ -289,6 +291,46 @@ final class HomeFeedStoreTests: XCTestCase {
         XCTAssertEqual(store.items.map { $0.status }, [.seen, .seen, .seen])
         XCTAssertEqual(client.patchCallCount, 2,
                        "only the two originally-new items should have been PATCHed")
+    }
+
+    /// `replacingStatus` must forward every non-`status` field, including
+    /// `noteworthy` — the Inbox section filters on `noteworthy == true`,
+    /// so dropping it on rebuild empties the Inbox into Activity until
+    /// the next server reload restores the canonical copy.
+    ///
+    /// `markAllSeen` is the right surface to assert against because it
+    /// is fire-and-forget: the optimistic rebuild persists in `items`
+    /// indefinitely (no per-item server reconciliation, no rollback),
+    /// so the field's presence after the call is a true statement about
+    /// `replacingStatus` rather than about a concurrent server response.
+    func testMarkAllSeenPreservesNoteworthyField() async {
+        let items = [
+            makeFeedItem(id: "a", status: .new, title: "Inbox-worthy", noteworthy: true),
+            makeFeedItem(id: "b", status: .new, title: "Activity-only", noteworthy: false),
+            makeFeedItem(id: "c", status: .new, title: "Unflagged", noteworthy: nil),
+        ]
+        let client = MockHomeFeedClient(response: makeResponse(items: items))
+        let (store, _) = makeStore(client: client)
+        await store.load()
+
+        // Make the server PATCHes fail so the fire-and-forget rebuild is
+        // the only thing that ever touches `items` — that way the
+        // assertions below speak about `replacingStatus`'s output, not
+        // about whatever the mock would have echoed back.
+        client.setPatchError(HomeFeedClientError.httpError(statusCode: 500))
+
+        await store.markAllSeen()
+
+        XCTAssertEqual(store.items.first { $0.id == "a" }?.noteworthy, true,
+                       "markAllSeen must preserve noteworthy: true (Inbox would otherwise drain)")
+        XCTAssertEqual(store.items.first { $0.id == "b" }?.noteworthy, false,
+                       "markAllSeen must preserve noteworthy: false")
+        XCTAssertNil(store.items.first { $0.id == "c" }?.noteworthy,
+                     "markAllSeen must preserve noteworthy: nil")
+        // Sanity: every item flipped to `.seen` as expected — proving the
+        // rebuild actually ran for each item, so the noteworthy
+        // assertions above aren't trivially passing on un-touched values.
+        XCTAssertEqual(store.items.map { $0.status }, [.seen, .seen, .seen])
     }
 
     func testSSEEventTriggersReload() async throws {

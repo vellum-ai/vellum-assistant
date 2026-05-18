@@ -250,6 +250,13 @@ public final class HomeFeedStore {
     // MARK: - Helpers
 
     /// `FeedItem` fields are `let` — mutate status by rebuilding the value.
+    ///
+    /// **Invariant:** every field except `status` must be forwarded from
+    /// `item`. Any field dropped here silently becomes `nil` on every
+    /// optimistic `updateStatus` / `markAllSeen` rebuild, which (for
+    /// fields the section filters consume — e.g. `noteworthy` for the
+    /// Inbox/Activity split) makes items disappear from their section
+    /// until the next server reload arrives.
     private func replacingStatus(
         _ item: FeedItem,
         with status: FeedItemStatus
@@ -268,6 +275,7 @@ public final class HomeFeedStore {
             conversationId: item.conversationId,
             detailPanel: item.detailPanel,
             category: item.category,
+            noteworthy: item.noteworthy,
             metadata: item.metadata,
             createdAt: item.createdAt
         )
