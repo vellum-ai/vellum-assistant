@@ -179,7 +179,7 @@ directories. If something is domain-specific, it belongs inside
 | `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
 | `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
 
-| `generated/` | Auto-generated code (HeyAPI, catalogs) | `heyapi/`, `catalogs/` |
+| `generated/` | Auto-generated code (HeyAPI, catalogs) | `api/`, `catalogs/` |
 
 #### Why `lib/` exists
 

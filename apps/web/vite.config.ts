@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -8,33 +7,23 @@ import tailwindcss from "@tailwindcss/vite";
 const SRC_DIR = path.resolve(import.meta.dirname, "src");
 
 /**
- * Stub unresolvable @/generated/* imports during build so that CI
- * (which never runs codegen) can still produce a valid bundle.
- * At runtime the app simply skips client configuration when the
- * generated module is absent — hooks that depend on the client
- * will fail gracefully with network errors until codegen is run.
+ * Ensure a minimal client stub exists so that CI (which never runs
+ * codegen) can still build. The stub lives in the gitignored
+ * src/generated/api/ directory and is overwritten by real codegen.
  */
-function stubGeneratedImports(): Plugin {
-  const VIRTUAL_PREFIX = "\0stub-generated:";
-  return {
-    name: "stub-generated-imports",
-    resolveId(id) {
-      if (!id.startsWith("@/generated/")) return null;
-      const realPath = path.join(SRC_DIR, id.slice(2)); // strip "@/"
-      const candidates = [realPath, realPath.replace(/\.js$/, ".ts")];
-      if (candidates.some((p) => fs.existsSync(p))) return null;
-      return VIRTUAL_PREFIX + id;
-    },
-    load(id) {
-      if (!id.startsWith(VIRTUAL_PREFIX)) return null;
-      return "export const client = { setConfig() {} };";
-    },
-  };
+const generatedDir = path.join(SRC_DIR, "generated/api");
+const clientStub = path.join(generatedDir, "client.gen.ts");
+if (!fs.existsSync(clientStub)) {
+  fs.mkdirSync(generatedDir, { recursive: true });
+  fs.writeFileSync(
+    clientStub,
+    "export const client = { setConfig(_config: unknown) {} };\n",
+  );
 }
 
 export default defineConfig({
   base: "/assistant",
-  plugins: [stubGeneratedImports(), tailwindcss(), react()],
+  plugins: [tailwindcss(), react()],
   resolve: {
     alias: {
       "@/": SRC_DIR + "/",
