@@ -145,10 +145,25 @@ export class NotificationBroadcaster {
         if (!fallbackCopy) {
           fallbackCopy = composeFallbackCopy(signal, decision.selectedChannels);
         }
-        copy = fallbackCopy[channel] ?? {
-          title: "Notification",
-          body: signal.sourceEventName,
-        };
+        copy = fallbackCopy[channel];
+      }
+
+      // Fail closed: if neither the decision nor the fallback composer produced
+      // a usable body, skip the channel rather than leaking the raw event name
+      // as placeholder text. The pre-send `checkRenderedCopyQuality` only sees
+      // `decision.renderedCopy`, so this is the last guard before delivery.
+      if (!copy || !copy.body?.trim()) {
+        log.warn(
+          { channel, signalId: signal.signalId },
+          "No usable rendered copy available -- skipping channel to avoid leaking event name",
+        );
+        results.push({
+          channel,
+          destination: destination.endpoint ?? channel,
+          status: "skipped",
+          errorMessage: `No usable rendered copy for channel: ${channel}`,
+        });
+        continue;
       }
 
       // For tool_grant_request signals, prefer the deterministic template seed
