@@ -412,7 +412,7 @@ Examples:
 
               if (!result.ok) {
                 writeOutput(cmd, { ok: false, error: result.error });
-                process.exitCode = 1;
+                process.exitCode = exitCodeFromIpcResult(result);
                 return;
               }
 

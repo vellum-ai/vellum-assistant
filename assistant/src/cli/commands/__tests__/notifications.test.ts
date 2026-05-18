@@ -515,8 +515,37 @@ describe("notifications list", () => {
 
     const { parsed, exitCode } = await runCommand(["list"]);
 
-    expect(exitCode).toBe(1);
+    // Transport failure (no statusCode) maps to exit 10 per exitCodeFromIpcResult.
+    expect(exitCode).toBe(10);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("Could not connect");
+  });
+
+  test("list maps daemon 4xx to exit 2", async () => {
+    ipcResponse = {
+      ok: false,
+      error: "Invalid limit",
+      statusCode: 400,
+    };
+
+    const { parsed, exitCode } = await runCommand(["list"]);
+
+    expect(exitCode).toBe(2);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toBe("Invalid limit");
+  });
+
+  test("list maps daemon 5xx to exit 3", async () => {
+    ipcResponse = {
+      ok: false,
+      error: "Internal daemon error",
+      statusCode: 500,
+    };
+
+    const { parsed, exitCode } = await runCommand(["list"]);
+
+    expect(exitCode).toBe(3);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toBe("Internal daemon error");
   });
 });
