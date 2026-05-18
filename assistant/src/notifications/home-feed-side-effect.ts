@@ -159,8 +159,16 @@ function deriveDetailPanelKind(
  * `sourceContextId` is best-effort — it may not be a conversation id
  * (e.g. scheduler job id, watcher event id), so a lookup failure
  * falls through to "not a background conversation" rather than throwing.
+ *
+ * `assistant_tool` is the source channel used by the `notifications send`
+ * skill (and by background-job failure emits). These signals represent
+ * the assistant actively choosing to share, so we mirror them into the
+ * home feed without requiring a background-typed conversation or the
+ * `isAsyncBackground` hint — the CLI surface intentionally does not
+ * expose either.
  */
 function shouldMirrorToHomeFeed(signal: NotificationSignal): boolean {
+  if (signal.sourceChannel === "assistant_tool") return true;
   if (signal.attentionHints.isAsyncBackground) return true;
   if (!signal.sourceContextId) return false;
   try {
@@ -193,13 +201,15 @@ const NOTEWORTHY_EVENT_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 function deriveNoteworthy(signal: NotificationSignal): boolean {
+  // Background-job failures emit with `sourceChannel: "assistant_tool"`
+  // (see `runtime/background-job-runner.ts`), so the activity.failed rule
+  // must run BEFORE the assistant_tool short-circuit — otherwise every
+  // routine watcher/heartbeat failure would land in the Inbox instead of
+  // staying in the activity feed.
+  if (signal.sourceEventName === "activity.failed") {
+    return signal.attentionHints.urgency === "critical";
+  }
   if (signal.sourceChannel === "assistant_tool") return true;
   if (NOTEWORTHY_EVENT_NAMES.has(signal.sourceEventName)) return true;
-  if (
-    signal.sourceEventName === "activity.failed" &&
-    signal.attentionHints.urgency === "critical"
-  ) {
-    return true;
-  }
   return false;
 }

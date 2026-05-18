@@ -161,6 +161,40 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(conversationLookups).toHaveLength(0);
   });
 
+  test("assistant_tool source mirrors to the home feed even without a background conversation or async hint", async () => {
+    // Regression: the `notifications send` CLI/skill emits with
+    // `sourceChannel: "assistant_tool"`, a synthetic `cli-<ts>` source
+    // context id that does not resolve to a conversation, and
+    // `isAsyncBackground: false`. Before the fix, `shouldMirrorToHomeFeed`
+    // returned `false` for this shape and the Inbox stayed empty.
+    conversationRow = null;
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "assistant.share",
+      sourceContextId: "cli-12345",
+      attentionHints: {
+        requiresAction: false,
+        urgency: "low",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+    });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: { title: "Shared from CLI", body: "Body from CLI share" },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision, []);
+
+    expect(item).not.toBeNull();
+    expect(appendCalls).toHaveLength(1);
+    expect(appendCalls[0]!.title).toBe("Shared from CLI");
+    expect(appendCalls[0]!.noteworthy).toBe(true);
+    // The assistant_tool short-circuit must not consult the conversation store.
+    expect(conversationLookups).toHaveLength(0);
+  });
+
   test("vellum delivery result conversationId propagates onto the feed item", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal();
@@ -310,7 +344,7 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls[0]!.noteworthy).toBe(true);
   });
 
-  test("activity.failed with critical urgency is noteworthy", async () => {
+  test("activity.failed with critical urgency is noteworthy (scheduler source)", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceChannel: "scheduler",
@@ -330,7 +364,7 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls[0]!.noteworthy).toBe(true);
   });
 
-  test("activity.failed with low urgency is not noteworthy", async () => {
+  test("activity.failed with low urgency is not noteworthy (scheduler source)", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceChannel: "scheduler",
@@ -348,6 +382,54 @@ describe("writeHomeFeedItemForSignal", () => {
 
     expect(item?.noteworthy).toBe(false);
     expect(appendCalls[0]!.noteworthy).toBe(false);
+  });
+
+  test("activity.failed from background-job-runner shape (assistant_tool + medium) is NOT noteworthy", async () => {
+    // Regression: `runtime/background-job-runner.ts` emits activity.failed
+    // with `sourceChannel: "assistant_tool"` and `urgency: "medium"`. Before
+    // the fix, the assistant_tool short-circuit short-circuited noteworthy
+    // to true, so every routine watcher/heartbeat failure landed in the
+    // Inbox. The activity.failed rule must run first and require critical
+    // urgency.
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "activity.failed",
+      contextPayload: { title: "Job failed", body: "Routine failure" },
+      attentionHints: {
+        requiresAction: false,
+        urgency: "medium",
+        isAsyncBackground: true,
+        visibleInSourceNow: false,
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+
+    expect(item?.noteworthy).toBe(false);
+    expect(appendCalls[0]!.noteworthy).toBe(false);
+  });
+
+  test("activity.failed from assistant_tool with critical urgency IS noteworthy", async () => {
+    // Companion to the regression test above: a background-job-runner
+    // shape that opts up to critical urgency should still reach the Inbox.
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "activity.failed",
+      contextPayload: { title: "Job failed", body: "Critical failure" },
+      attentionHints: {
+        requiresAction: false,
+        urgency: "critical",
+        isAsyncBackground: true,
+        visibleInSourceNow: false,
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+
+    expect(item?.noteworthy).toBe(true);
+    expect(appendCalls[0]!.noteworthy).toBe(true);
   });
 
   test("credential.health_alert is noteworthy regardless of source channel", async () => {
