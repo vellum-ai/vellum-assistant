@@ -139,14 +139,51 @@ package's source in its Tailwind source scan:
 @source "../node_modules/@vellum/design-library/src";
 ```
 
-The token stylesheet provides CSS variables for all three themes (light, dark,
-velvet) and the typography/component utility classes that design-library
-components depend on. Theme selection is controlled by a `data-theme` attribute
-on an ancestor element:
+The token stylesheet provides:
+
+- **CSS custom properties** for all three themes (light, dark, velvet)
+- **`@custom-variant dark`** wired to `data-theme="dark"` — enables `dark:`
+  utility prefixes ([Tailwind v4 docs](https://tailwindcss.com/docs/dark-mode#using-a-data-attribute))
+- **`@theme` bridge** registering `--background`, `--foreground`, and
+  `--font-sans` as Tailwind theme variables — generates `bg-background`,
+  `text-foreground`, etc. ([Tailwind v4 docs](https://tailwindcss.com/docs/theme))
+- **`@utility` classes** for typography and button variants
+
+Theme selection is controlled by a `data-theme` attribute on an ancestor element:
 
 ```html
 <html data-theme="dark">  <!-- "light" | "dark" | "velvet" -->
 ```
+
+## Adding design tokens
+
+Tokens are defined in [`src/tokens.css`](./src/tokens.css). The file has three
+layers that work together — follow this checklist when adding or modifying tokens:
+
+1. **Add the CSS variable** in each theme block (`:root` / `[data-theme="light"]`,
+   `[data-theme="dark"]`, `[data-theme="velvet"]`). All three themes must define
+   every variable so no token falls through to an unintended default.
+
+2. **Bridge to Tailwind (if needed)** — if the new token should generate a
+   standard Tailwind utility class (e.g. `bg-*`, `text-*`, `border-*`), add a
+   corresponding entry in the `@theme inline { }` block at the top of the file.
+   Use the [Tailwind v4 theme variable namespaces](https://tailwindcss.com/docs/theme#theme-variable-namespaces)
+   to pick the right prefix (`--color-*`, `--spacing-*`, etc.).
+   Semantic tokens that are only referenced via `var()` in `@utility` classes or
+   component styles do **not** need a `@theme` entry.
+
+3. **Add `@utility` classes (if needed)** — composite utilities that combine
+   multiple CSS properties (like the `text-title-large` typography classes)
+   should be registered with `@utility` at the bottom of the file.
+
+**Tokens not yet migrated from the platform repo:**
+The platform's `globals.css` includes additional token categories (spacing scale,
+border-radius scale, shadows, color ramps like Moss/Stone/Forest/Amber) that
+have not been brought into the design library yet. These should be added
+incrementally as components that need them are migrated. When adding them, follow
+the same three-step pattern above and keep values in sync with the platform's
+[`appTheme.css`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/web/src/app/(app)/appTheme.css)
+and [`globals.css`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/web/src/app/globals.css).
 
 ## Storybook
 

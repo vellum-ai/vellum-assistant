@@ -21,6 +21,35 @@
  * Keep in sync with platform's web/src/app/(app)/appTheme.css.
  * --------------------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------------------
+ * Tailwind v4 dark variant — wired to the data-theme attribute.
+ * Enables `dark:` utility prefixes (e.g. `dark:bg-white`) that activate
+ * when data-theme="dark" is set on an ancestor element.
+ * https://tailwindcss.com/docs/dark-mode#using-a-data-attribute
+ * --------------------------------------------------------------------------- */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* ---------------------------------------------------------------------------
+ * @theme bridge — registers CSS variables as Tailwind theme variables so
+ * they generate first-class utility classes (e.g. `bg-background`,
+ * `text-foreground`, `font-sans`).
+ *
+ * Only tokens that benefit from utility-class generation are bridged here.
+ * Semantic tokens (--primary-base, --content-default, etc.) are referenced
+ * via var() in @utility classes and component styles — they don't need
+ * Tailwind utility generation.
+ *
+ * When adding new tokens that should be usable as Tailwind utilities
+ * (e.g. a new color scale or spacing value), add the bridge entry here.
+ * https://tailwindcss.com/docs/theme
+ * --------------------------------------------------------------------------- */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
 /* ===== Light mode (default) — Figma node 2674:20625 ===== */
 :root,
 [data-theme="light"] {
@@ -88,8 +117,6 @@
   --background: #F6F5F4;
   --foreground: #24292E;
 
-  /* Font */
-  --font-sans: "Inter", system-ui, sans-serif;
 }
 
 /* ===== Dark mode — Figma node 2674:20730 ===== */
