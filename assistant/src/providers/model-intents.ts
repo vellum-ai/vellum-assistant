@@ -35,10 +35,10 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
     "vision-optimized": "llama3.2",
   },
   fireworks: {
-    balanced: "accounts/fireworks/models/kimi-k2p5",
+    balanced: "accounts/fireworks/models/kimi-k2p6",
     "latency-optimized": "accounts/fireworks/models/kimi-k2p5",
-    "quality-optimized": "accounts/fireworks/models/kimi-k2p5",
-    "vision-optimized": "accounts/fireworks/models/kimi-k2p5",
+    "quality-optimized": "accounts/fireworks/models/kimi-k2p6",
+    "vision-optimized": "accounts/fireworks/models/kimi-k2p6",
   },
   openrouter: {
     balanced: "anthropic/claude-sonnet-4.6",
