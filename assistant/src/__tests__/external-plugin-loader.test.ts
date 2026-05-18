@@ -223,9 +223,9 @@ describe("loadExternalPlugin — hooks", () => {
     );
     expect(typeof registered?.hooks?.init).toBe("function");
     await registered?.hooks?.init?.({} as never);
-    expect(
-      (globalThis as Record<string, unknown>).__externalInitCalled,
-    ).toBe(true);
+    expect((globalThis as Record<string, unknown>).__externalInitCalled).toBe(
+      true,
+    );
     delete (globalThis as Record<string, unknown>).__externalInitCalled;
   });
 
@@ -290,9 +290,9 @@ describe("loadExternalPlugin — hooks", () => {
     expect(Object.keys(registered?.hooks ?? {})).toEqual(["init"]);
     expect(typeof registered?.hooks?.init).toBe("function");
     await registered?.hooks?.init?.({} as never);
-    expect((globalThis as Record<string, unknown>).__externalDtsInitCalled).toBe(
-      true,
-    );
+    expect(
+      (globalThis as Record<string, unknown>).__externalDtsInitCalled,
+    ).toBe(true);
     delete (globalThis as Record<string, unknown>).__externalDtsInitCalled;
   });
 
@@ -345,7 +345,6 @@ describe("loadExternalPlugin — tools", () => {
       dir,
       "tools/alpha.ts",
       `export default {
-  name: "two_tools_alpha",
   description: "alpha",
   defaultRiskLevel: "low" as const,
   input_schema: { type: "object", properties: {}, required: [] },
@@ -357,7 +356,6 @@ describe("loadExternalPlugin — tools", () => {
       dir,
       "tools/beta.ts",
       `export default {
-  name: "two_tools_beta",
   description: "beta",
   defaultRiskLevel: "low" as const,
   input_schema: { type: "object", properties: {}, required: [] },
@@ -374,7 +372,7 @@ describe("loadExternalPlugin — tools", () => {
     const names = (registered?.tools ?? []).map(
       (t) => (t as { name: string }).name,
     );
-    expect(names).toEqual(["two_tools_alpha", "two_tools_beta"]);
+    expect(names).toEqual(["alpha", "beta"]);
   });
 
   test("plugin.tools is undefined when tools/ is absent", async () => {
@@ -403,18 +401,95 @@ describe("loadExternalPlugin — tools", () => {
     expect(registeredNames()).toHaveLength(0);
   });
 
-  test("a tool default export missing string name is logged and skipped", async () => {
-    const dir = freshPluginDir("tool-no-name");
-    writePackageJson(dir, { name: "tool-no-name", version: "0.1.0" });
+  test("a tool default export with missing fields loads with documented defaults", async () => {
+    const dir = freshPluginDir("tool-with-defaults");
+    writePackageJson(dir, { name: "tool-with-defaults", version: "0.1.0" });
+    // The default export is a bare empty object — no description,
+    // defaultRiskLevel, input_schema, or execute. The loader must fill
+    // each slot with its documented default and still register the plugin.
+    writeSurfaceFile(dir, "tools/empty.ts", `export default {};\n`);
+
+    await loadExternalPlugin(dir);
+
+    const registered = getRegisteredPlugins().find(
+      (p) => p.manifest.name === "tool-with-defaults",
+    );
+    expect(registered).toBeDefined();
+    const tools = (registered?.tools ?? []) as Array<{
+      name: string;
+      description: string;
+      defaultRiskLevel: string;
+      input_schema: Record<string, unknown>;
+      execute: (
+        input: Record<string, unknown>,
+        context: unknown,
+      ) => Promise<{ content: string; isError: boolean }>;
+    }>;
+    expect(tools).toHaveLength(1);
+    const empty = tools[0]!;
+    expect(empty.name).toBe("empty");
+    expect(empty.description).toBe("");
+    expect(empty.defaultRiskLevel).toBe("medium");
+    expect(empty.input_schema).toEqual({
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    });
+    expect(typeof empty.execute).toBe("function");
+
+    const result = await empty.execute({}, {} as unknown);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("empty");
+    expect(result.content).toContain("no execute implementation");
+  });
+
+  test("a partial tool default export merges author fields with defaults", async () => {
+    const dir = freshPluginDir("tool-partial-defaults");
+    writePackageJson(dir, {
+      name: "tool-partial-defaults",
+      version: "0.1.0",
+    });
+    // Author supplies only description + execute; the loader must default
+    // defaultRiskLevel and input_schema while keeping the author's fields.
     writeSurfaceFile(
       dir,
-      "tools/nameless.ts",
-      `export default { description: "missing name" };\n`,
+      "tools/partial.ts",
+      `export default {
+  description: "custom description",
+  async execute() {
+    return { content: "ran", isError: false };
+  },
+};
+`,
     );
 
     await loadExternalPlugin(dir);
 
-    expect(registeredNames()).toHaveLength(0);
+    const registered = getRegisteredPlugins().find(
+      (p) => p.manifest.name === "tool-partial-defaults",
+    );
+    const tool = (registered?.tools ?? [])[0] as
+      | {
+          description: string;
+          defaultRiskLevel: string;
+          input_schema: object;
+          execute: (
+            input: Record<string, unknown>,
+            context: unknown,
+          ) => Promise<{ content: string; isError: boolean }>;
+        }
+      | undefined;
+    expect(tool).toBeDefined();
+    expect(tool?.description).toBe("custom description");
+    expect(tool?.defaultRiskLevel).toBe("medium");
+    expect(tool?.input_schema).toEqual({
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    });
+    const result = await tool!.execute({}, {} as unknown);
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe("ran");
   });
 });
 
@@ -474,9 +549,6 @@ describe("loadExternalPlugin — end-to-end @vellumai/simple-memory", () => {
     const toolNames = (registered?.tools ?? [])
       .map((t) => (t as { name: string }).name)
       .sort();
-    expect(toolNames).toEqual([
-      "simple_memory_recall",
-      "simple_memory_remember",
-    ]);
+    expect(toolNames).toEqual(["recall", "remember"]);
   });
 });

@@ -20,7 +20,6 @@ const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
 export default {
-  name: "simple_memory_recall",
   description:
     "Search every simple-memory entry (across all conversations) with a regex match. Use when you need to surface something the user told you to remember, including from previous conversations.",
   defaultRiskLevel: "low" as const,

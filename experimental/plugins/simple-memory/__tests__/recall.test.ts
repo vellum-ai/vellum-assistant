@@ -67,7 +67,7 @@ describe("simple_memory_recall — search behavior", () => {
   });
 
   test("input_schema advertises a required `query` parameter", () => {
-    expect(recallTool.name).toBe("simple_memory_recall");
+    expect("name" in recallTool).toBe(false);
     const schema = recallTool.input_schema as {
       properties: Record<string, unknown>;
       required: string[];

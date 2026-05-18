@@ -9,7 +9,6 @@ import type { ToolContext, ToolExecutionResult } from "@vellumai/plugin-api";
 import { appendEntry, type MemoryEntry, newEntryId } from "../src/state.js";
 
 export default {
-  name: "simple_memory_remember",
   description:
     "Append a freeform note to simple-memory for the current conversation. Use when the user states a stable preference, a fact about themselves, or a decision worth carrying across turns.",
   defaultRiskLevel: "low" as const,
