@@ -106,6 +106,8 @@ export interface FeedItem {
   detailPanel?: FeedItemDetailPanel;
   /** Broad category for grouping and filtering feed items. */
   category?: FeedItemCategory;
+  /** True when this item represents an assistant-initiated share or a high-importance system event. Used by clients to split inbox vs activity surfaces. */
+  noteworthy?: boolean;
   /** Arbitrary structured data the detail panel or other consumers can use. */
   metadata?: Record<string, unknown>;
   /** Internal: ISO-8601 writer-record time, used for ordering + TTL. */
@@ -208,6 +210,7 @@ export const feedItemSchema = z.object({
   conversationId: z.string().optional(),
   detailPanel: feedItemDetailPanelSchema.optional(),
   category: feedItemCategorySchema.optional(),
+  noteworthy: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   createdAt: z.string(),
 });

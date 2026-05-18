@@ -116,6 +116,19 @@ describe("feedItemSchema — valid minimal items", () => {
     expect(parsed.category).toBeUndefined();
     expect(parsed.metadata).toBeUndefined();
   });
+
+  test("noteworthy field passes through when present", () => {
+    const parsed = feedItemSchema.parse({
+      ...minimalNotification(),
+      noteworthy: true,
+    });
+    expect(parsed.noteworthy).toBe(true);
+  });
+
+  test("items without noteworthy field still parse (backward compat)", () => {
+    const parsed = feedItemSchema.parse(minimalNotification());
+    expect(parsed.noteworthy).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -243,5 +256,23 @@ describe("parseFeedFile", () => {
         updatedAt: NOW_ISO,
       }),
     ).toThrow();
+  });
+
+  test("accepts a file with a noteworthy item", () => {
+    const parsed = parseFeedFile({
+      version: 2,
+      items: [{ ...minimalNotification(), noteworthy: true }],
+      updatedAt: NOW_ISO,
+    });
+    expect(parsed.items[0]?.noteworthy).toBe(true);
+  });
+
+  test("accepts a file whose items omit noteworthy (backward compat)", () => {
+    const parsed = parseFeedFile({
+      version: 2,
+      items: [minimalNotification()],
+      updatedAt: NOW_ISO,
+    });
+    expect(parsed.items[0]?.noteworthy).toBeUndefined();
   });
 });

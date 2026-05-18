@@ -142,6 +142,52 @@ final class FeedItemCodingTests: XCTestCase {
         XCTAssertNil(item.urgency)
         XCTAssertNil(item.conversationId)
         XCTAssertNil(item.detailPanel)
+        XCTAssertNil(item.noteworthy)
+    }
+
+    // MARK: - Noteworthy flag (PR 9)
+
+    /// Synthesized `Codable` handles the optional `noteworthy: Bool?`
+    /// field automatically — these two cases just pin the wire contract.
+    func testDecodesNoteworthyTrue() throws {
+        let json = Data(
+            """
+            {
+              "id": "notif-noteworthy",
+              "type": "notification",
+              "priority": 80,
+              "title": "Assistant shared a doc",
+              "summary": "Quarterly planning draft.",
+              "timestamp": "2026-04-14T10:00:00Z",
+              "status": "new",
+              "noteworthy": true,
+              "createdAt": "2026-04-14T10:00:00Z"
+            }
+            """.utf8
+        )
+
+        let item = try decoder.decode(FeedItem.self, from: json)
+        XCTAssertEqual(item.noteworthy, true)
+    }
+
+    func testDecodesNoteworthyAbsent() throws {
+        let json = Data(
+            """
+            {
+              "id": "notif-plain",
+              "type": "notification",
+              "priority": 50,
+              "title": "Routine update",
+              "summary": "Nothing to see here.",
+              "timestamp": "2026-04-14T10:00:00Z",
+              "status": "new",
+              "createdAt": "2026-04-14T10:00:00Z"
+            }
+            """.utf8
+        )
+
+        let item = try decoder.decode(FeedItem.self, from: json)
+        XCTAssertNil(item.noteworthy)
     }
 
     // MARK: - Round-trip

@@ -131,6 +131,8 @@ public struct FeedItem: Codable, Sendable, Identifiable {
     public let detailPanel: FeedItemDetailPanel?
     /// Broad category for grouping and filtering feed items.
     public let category: FeedItemCategory?
+    /// True when this item represents an assistant-initiated share or a high-importance system event. Used by clients to split inbox vs activity surfaces.
+    public let noteworthy: Bool?
     /// Arbitrary structured data the detail panel or other consumers can use.
     public let metadata: [String: AnyCodable]?
     /// Internal: writer-record time, used for ordering + TTL.
@@ -150,6 +152,7 @@ public struct FeedItem: Codable, Sendable, Identifiable {
         conversationId: String? = nil,
         detailPanel: FeedItemDetailPanel? = nil,
         category: FeedItemCategory? = nil,
+        noteworthy: Bool? = nil,
         metadata: [String: AnyCodable]? = nil,
         createdAt: Date
     ) {
@@ -166,6 +169,7 @@ public struct FeedItem: Codable, Sendable, Identifiable {
         self.conversationId = conversationId
         self.detailPanel = detailPanel
         self.category = category
+        self.noteworthy = noteworthy
         self.metadata = metadata
         self.createdAt = createdAt
     }
@@ -186,6 +190,7 @@ extension FeedItem: Equatable {
             && lhs.conversationId == rhs.conversationId
             && lhs.detailPanel == rhs.detailPanel
             && lhs.category == rhs.category
+            && lhs.noteworthy == rhs.noteworthy
             && lhs.metadata == rhs.metadata
             && lhs.createdAt == rhs.createdAt
     }
