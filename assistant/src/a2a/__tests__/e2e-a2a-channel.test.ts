@@ -48,7 +48,10 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../../config/loader.js";
-import { findContactByAddress } from "../../contacts/contact-store.js";
+import {
+  findContactByAddress,
+  upsertContact,
+} from "../../contacts/contact-store.js";
 import {
   clearA2AConfig,
   getA2AConfig,
@@ -146,82 +149,34 @@ afterEach(() => {
 });
 
 // ===========================================================================
-// Test: connection initiation -> trusted contact flow
+// Test: trusted contact setup (platform-mediated)
 // ===========================================================================
 
-describe("e2e: connection initiation -> trusted contact flow", () => {
-  test("connectToAssistant creates local contact with a2a channel", async () => {
+describe("e2e: trusted contact setup", () => {
+  test("upsertContact creates a2a channel for assistant contact", () => {
     setConfigEnabled(true);
 
-    // Mock the agent card endpoint on the peer gateway
-    fetchResponseMap["agent-card.json"] = {
-      ok: true,
-      status: 200,
-      body: JSON.stringify({ name: "Peer Assistant" }),
-    };
-
-    const { connectToAssistant } =
-      await import("../../daemon/handlers/config-a2a.js");
-
-    const result = await connectToAssistant({
-      guardianHandle: "assistant-b",
-      gatewayUrl: "https://peer.example.com",
+    upsertContact({
+      displayName: "Peer Assistant",
+      contactType: "assistant",
+      role: "contact",
+      channels: [
+        {
+          type: "a2a",
+          address: "assistant-b",
+          externalUserId: "assistant-b",
+          status: "active",
+          policy: "allow",
+        },
+      ],
     });
 
-    // Connection succeeds
-    expect(result.success).toBe(true);
-    expect(result.contactId).toBeTruthy();
-    expect(result.alreadyConnected).toBeFalsy();
-
-    // Local contact created with a2a channel
     const contact = findContactByAddress("a2a", "assistant-b");
     expect(contact).not.toBeNull();
     expect(contact!.channels.some((ch) => ch.type === "a2a")).toBe(true);
     const a2aChannel = contact!.channels.find((ch) => ch.type === "a2a");
     expect(a2aChannel!.status).toBe("active");
     expect(a2aChannel!.address).toBe("assistant-b");
-
-    // Agent card was fetched from peer gateway
-    const agentCardFetch = fetchCalls.find((c) =>
-      c.url.includes("agent-card.json"),
-    );
-    expect(agentCardFetch).toBeTruthy();
-    expect(agentCardFetch!.url).toBe(
-      "https://peer.example.com/.well-known/agent-card.json",
-    );
-  });
-
-  test("connectToAssistant is idempotent for existing connection", async () => {
-    setConfigEnabled(true);
-
-    fetchResponseMap["agent-card.json"] = {
-      ok: true,
-      status: 200,
-      body: JSON.stringify({ name: "Peer Assistant" }),
-    };
-
-    const { connectToAssistant } =
-      await import("../../daemon/handlers/config-a2a.js");
-
-    // First connection
-    const first = await connectToAssistant({
-      guardianHandle: "assistant-b",
-      gatewayUrl: "https://peer.example.com",
-    });
-    expect(first.success).toBe(true);
-    expect(first.alreadyConnected).toBeFalsy();
-
-    // Clear fetch calls to track second attempt
-    fetchCalls.length = 0;
-
-    // Second connection attempt — should detect existing contact
-    const second = await connectToAssistant({
-      guardianHandle: "assistant-b",
-      gatewayUrl: "https://peer.example.com",
-    });
-    expect(second.success).toBe(true);
-    expect(second.alreadyConnected).toBe(true);
-    expect(second.contactId).toBe(first.contactId);
   });
 });
 
@@ -554,20 +509,21 @@ describe("e2e: full A2A round-trip", () => {
   test("connect, establish trust, send message, deliver response, push notification", async () => {
     setConfigEnabled(true);
 
-    // Step 1: Assistant A connects to Assistant B
-    fetchResponseMap["agent-card.json"] = {
-      ok: true,
-      status: 200,
-      body: JSON.stringify({ name: "Assistant B" }),
-    };
-    const { connectToAssistant } =
-      await import("../../daemon/handlers/config-a2a.js");
-
-    const connectResult = await connectToAssistant({
-      guardianHandle: "assistant-b",
-      gatewayUrl: "https://b.example.com",
+    // Step 1: Create trusted contact for Assistant B (platform-mediated)
+    upsertContact({
+      displayName: "Assistant B",
+      contactType: "assistant",
+      role: "contact",
+      channels: [
+        {
+          type: "a2a",
+          address: "assistant-b",
+          externalUserId: "assistant-b",
+          status: "active",
+          policy: "allow",
+        },
+      ],
     });
-    expect(connectResult.success).toBe(true);
 
     // Step 2: Verify trusted contact was created
     const contact = findContactByAddress("a2a", "assistant-b");
