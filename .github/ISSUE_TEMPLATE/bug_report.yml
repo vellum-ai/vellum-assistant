@@ -63,7 +63,7 @@ body:
       options:
         - Vellum Cloud (vellum.ai)
         - Self-hosted — macOS Desktop App
-        - Self-hosted — CLI / daemon
+        - Self-hosted — CLI
         - Self-hosted — built from source
         - Other
     validations:
