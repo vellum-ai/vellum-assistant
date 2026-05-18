@@ -1,3 +1,4 @@
+import tailwindcss from "@tailwindcss/vite";
 import type { StorybookConfig } from "@storybook/react-vite";
 
 const config: StorybookConfig = {
@@ -8,6 +9,7 @@ const config: StorybookConfig = {
     defaultName: "Docs",
   },
   viteFinal(config) {
+    config.plugins = [...(config.plugins ?? []), tailwindcss()];
     return config;
   },
 };
