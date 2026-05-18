@@ -863,15 +863,19 @@ export async function evaluateSignal(
       !Array.isArray(payload.deepLinkMetadata)
         ? (payload.deepLinkMetadata as Record<string, unknown>)
         : undefined;
+    // Key renderedCopy/conversationActions by every available channel so
+    // downstream channel-list expansion (urgency-forced vellum in
+    // emit-signal, enforceRoutingIntent for all_channels/multi_channel)
+    // preserves the producer's verbatim copy on the added channels.
     let decision: NotificationDecision = {
       shouldNotify: selectedChannels.length > 0,
       selectedChannels,
       reasoningSummary: "assistant_tool pass-through",
       renderedCopy: Object.fromEntries(
-        selectedChannels.map((ch) => [ch, { title, body }]),
+        availableChannels.map((ch) => [ch, { title, body }]),
       ) as NotificationDecision["renderedCopy"],
       conversationActions: Object.fromEntries(
-        selectedChannels.map((ch) => [ch, { action: "start_new" as const }]),
+        availableChannels.map((ch) => [ch, { action: "start_new" as const }]),
       ) as NotificationDecision["conversationActions"],
       dedupeKey: signal.signalId,
       confidence: 1.0,

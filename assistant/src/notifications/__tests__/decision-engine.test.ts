@@ -64,7 +64,7 @@ mock.module("../../util/logger.js", () => ({
 
 // ── Imports (after all mocks) ─────────────────────────────────────────
 
-import { evaluateSignal } from "../decision-engine.js";
+import { enforceRoutingIntent, evaluateSignal } from "../decision-engine.js";
 import type { NotificationSignal } from "../signal.js";
 import type { NotificationChannel } from "../types.js";
 
@@ -202,7 +202,37 @@ describe("assistant_tool pass-through in notification decision engine", () => {
 
     expect(decision.selectedChannels).toEqual(["telegram"]);
     expect(decision.renderedCopy.telegram?.body).toBe("fyi only to telegram");
-    expect(decision.renderedCopy.vellum).toBeUndefined();
+    // renderedCopy is pre-populated for every available channel so that
+    // downstream routing-intent expansion or urgency-forced vellum
+    // prepends preserve the producer's verbatim message; the broadcaster
+    // only delivers to channels in selectedChannels.
+    expect(decision.renderedCopy.vellum?.body).toBe("fyi only to telegram");
+  });
+
+  test("routing-intent expansion to all_channels preserves verbatim copy on added channels", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "verbatim broadcast body",
+        requestedTitle: "verbatim broadcast title",
+      },
+      routingIntent: "all_channels",
+    });
+    const connected = ["vellum", "telegram"] as NotificationChannel[];
+    const decision = await evaluateSignal(signal, connected);
+    const enforced = enforceRoutingIntent(
+      decision,
+      "all_channels",
+      connected,
+      "assistant_tool",
+    );
+
+    expect(enforced.selectedChannels).toEqual(
+      expect.arrayContaining(["vellum", "telegram"]),
+    );
+    for (const ch of enforced.selectedChannels) {
+      expect(enforced.renderedCopy[ch]?.body).toBe("verbatim broadcast body");
+      expect(enforced.renderedCopy[ch]?.title).toBe("verbatim broadcast title");
+    }
   });
 
   test("preferredChannels falls back to default channel set when no overlap with availableChannels", async () => {
