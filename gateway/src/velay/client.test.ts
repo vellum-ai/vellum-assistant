@@ -569,6 +569,63 @@ describe("VelayTunnelClient", () => {
     expect(reconnectDelays).toEqual([10]);
   });
 
+  test("refreshCredentials retries immediately when credentials change during active connect", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const reconnectDelays: number[] = [];
+    const apiKeyCredential = credentialKey("vellum", "assistant_api_key");
+    const assistantIdCredential = credentialKey(
+      "vellum",
+      "platform_assistant_id",
+    );
+    let resolveFirstApiKeyRead: (value: string | undefined) => void = () => {};
+    const firstApiKeyRead = new Promise<string | undefined>((resolve) => {
+      resolveFirstApiKeyRead = resolve;
+    });
+    let useFreshCredentials = false;
+    const credentials = {
+      get: async (key: string) => {
+        if (key === apiKeyCredential) {
+          return useFreshCredentials ? "api-key-123" : firstApiKeyRead;
+        }
+        if (key === assistantIdCredential) return "asst-123";
+        return undefined;
+      },
+      onInvalidate: () => () => {},
+    } as unknown as CredentialCache;
+    const client = new VelayTunnelClient({
+      velayBaseUrl: "http://velay.example.test",
+      gatewayLoopbackBaseUrl: "http://127.0.0.1:7830",
+      credentials,
+      configFile: makeConfigFileCache({ count: 0 }),
+      webSocketConstructor: makeFakeWebSocketConstructor(sockets),
+      reconnect: { baseDelayMs: 10, maxDelayMs: 80, jitterRatio: 0 },
+      heartbeat: { intervalMs: 0, readTimeoutMs: 0 },
+      timerApi: makeTimerApi(reconnectDelays),
+    });
+
+    client.start();
+    await flushPromises();
+
+    expect(sockets).toHaveLength(0);
+    expect(reconnectDelays).toEqual([]);
+
+    client.refreshCredentials("vellum credentials changed");
+    useFreshCredentials = true;
+    resolveFirstApiKeyRead(undefined);
+    await flushPromises();
+
+    expect(sockets).toHaveLength(1);
+    expect(sockets[0].options).toEqual({
+      protocols: [VELAY_TUNNEL_SUBPROTOCOL],
+      headers: {
+        Authorization: "Api-Key api-key-123",
+        "X-Vellum-Velay-Allowed-Paths": VELAY_ALLOWED_PATHS_HEADER_VALUE,
+      },
+    });
+    expect(reconnectDelays).toEqual([]);
+    await client.stop();
+  });
+
   test("writes only ingress.publicBaseUrl when publishing a Velay URL", async () => {
     const sockets: FakeWebSocket[] = [];
     writeConfig({
