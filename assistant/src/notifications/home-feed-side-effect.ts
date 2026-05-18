@@ -62,14 +62,17 @@ export async function writeHomeFeedItemForSignal(
     readPayloadString(signal.contextPayload, "body") ??
     readPayloadString(signal.contextPayload, "requestedMessage");
 
-  const resolvedTitle =
-    renderedCopy?.title?.trim() || payloadTitle?.trim() || "";
+  // Source the title from the payload only. The LLM's `renderedCopy.title`
+  // often echoes the body when no explicit title was passed, which stutters
+  // against `summary` in the row. Leave undefined when absent; renderers
+  // fall back to `summary`.
+  const resolvedTitle = payloadTitle?.trim() || undefined;
   const resolvedSummary =
     renderedCopy?.body?.trim() || payloadBody?.trim() || "";
-  if (!resolvedTitle || !resolvedSummary) {
+  if (!resolvedSummary) {
     log.warn(
       { signalId: signal.signalId, sourceEventName: signal.sourceEventName },
-      "Home-feed write skipped: no real title or summary available (would have fallen back to event name)",
+      "Home-feed write skipped: no summary available (would have fallen back to event name)",
     );
     return null;
   }
@@ -95,7 +98,7 @@ export async function writeHomeFeedItemForSignal(
     id: `notif:${signal.signalId}`,
     type: "notification",
     priority: 50,
-    title: resolvedTitle,
+    ...(resolvedTitle ? { title: resolvedTitle } : {}),
     summary: resolvedSummary,
     timestamp: now,
     createdAt: now,

@@ -89,7 +89,13 @@ export interface FeedItem {
   type: FeedItemType;
   /** Integer in [0, 100]; higher values sort earlier. */
   priority: number;
-  title: string;
+  /**
+   * Optional short header. Omit when the source did not supply one — the
+   * notification pipeline never manufactures a title from rendered copy
+   * (LLM-echoed bodies stutter against `summary`). Clients fall back to
+   * `summary` when rendering a row.
+   */
+  title?: string;
   summary: string;
   /** Event time (ISO-8601). */
   timestamp: string;
@@ -202,7 +208,7 @@ export const feedItemSchema = z.object({
   id: z.string(),
   type: feedItemTypeSchema,
   priority: z.number().int().min(0).max(100),
-  title: z.string(),
+  title: z.string().optional(),
   summary: z.string(),
   timestamp: z.string(),
   status: feedItemStatusSchema.default("new"),

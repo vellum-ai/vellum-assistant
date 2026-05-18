@@ -10,7 +10,7 @@ import VellumAssistantShared
 ///   - `details` (String?) — additional context
 ///   - `missingScopes` ([String]?) — list of missing permission scopes
 ///
-/// Falls back to `item.title` when metadata is absent.
+/// Falls back to `item.title` (or `summary` when title is nil) when metadata is absent.
 struct HomePermissionDetailCard: View {
     let item: FeedItem
 
@@ -151,7 +151,7 @@ struct HomePermissionDetailCard: View {
     // MARK: - Fallback
 
     private var fallbackContent: some View {
-        Text(item.title)
+        Text(item.title ?? item.summary)
             .font(VFont.bodyMediumDefault)
             .foregroundStyle(VColor.contentSecondary)
             .padding(VSpacing.lg)

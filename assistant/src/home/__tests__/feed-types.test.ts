@@ -129,6 +129,15 @@ describe("feedItemSchema — valid minimal items", () => {
     const parsed = feedItemSchema.parse(minimalNotification());
     expect(parsed.noteworthy).toBeUndefined();
   });
+
+  test("title is optional and may be omitted", () => {
+    const { title: _omitted, ...rest } = minimalNotification();
+    const parsed = feedItemSchema.parse(rest);
+    expect(parsed.title).toBeUndefined();
+    expect(parsed.summary).toBe(
+      "You mentioned wanting to review the onboarding designs.",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

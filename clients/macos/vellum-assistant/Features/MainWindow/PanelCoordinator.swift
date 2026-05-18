@@ -264,10 +264,11 @@ extension MainWindowView {
                 HomePermissionDetailCard(item: item)
             }
         case .generic(let item):
-            // When `title` is the same string as `summary`, the body row
-            // already conveys it — rendering both stacks the same text in
-            // the header and the content area.
-            let trimmedTitle = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Suppress the header title when it duplicates the summary —
+            // defense in depth in case a future producer manufactures one.
+            // The daemon already omits `title` when no source title was
+            // supplied.
+            let trimmedTitle = (item.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedSummary = item.summary.trimmingCharacters(in: .whitespacesAndNewlines)
             let headerTitle: String? =
                 trimmedTitle.isEmpty || trimmedTitle == trimmedSummary

@@ -255,11 +255,13 @@ struct HomePageView: View {
     /// items live in the inbox, not the activity section.
     @ViewBuilder
     private func recapRow(for item: FeedItem, showsUrgency: Bool) -> some View {
+        // Fall back to `summary` when `title` is nil — the daemon omits
+        // the title when no source title was supplied.
         HomeRecapRow(
             icon: icon(for: item),
             iconForeground: iconForeground(for: item),
             iconBackground: iconBackground(for: item),
-            title: item.title,
+            title: item.title ?? item.summary,
             timestamp: item.timestamp,
             status: item.status,
             isUrgent: showsUrgency && isUrgent(item),

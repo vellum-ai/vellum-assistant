@@ -115,7 +115,11 @@ public struct FeedItem: Codable, Sendable, Identifiable {
     public let type: FeedItemType
     /// Integer in [0, 100]; higher values sort earlier.
     public let priority: Int
-    public let title: String
+    /// Optional short header. The daemon omits this when the source did
+    /// not supply one (e.g. `notifications send` without `--title`) — the
+    /// notification pipeline never manufactures a title from rendered
+    /// copy. Renderers fall back to `summary` when nil.
+    public let title: String?
     public let summary: String
     /// Event time.
     public let timestamp: Date
@@ -144,7 +148,7 @@ public struct FeedItem: Codable, Sendable, Identifiable {
         id: String,
         type: FeedItemType,
         priority: Int,
-        title: String,
+        title: String? = nil,
         summary: String,
         timestamp: Date,
         status: FeedItemStatus,

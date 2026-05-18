@@ -83,9 +83,11 @@ beforeEach(() => {
 });
 
 describe("writeHomeFeedItemForSignal", () => {
-  test("background conversation signal writes a feed item with rendered copy", async () => {
+  test("background conversation signal writes a feed item with payload title + rendered body", async () => {
     conversationRow = { conversationType: "background" };
-    const signal = makeSignal();
+    const signal = makeSignal({
+      contextPayload: { title: "Background job done" },
+    });
     const decision = makeDecision({
       renderedCopy: {
         vellum: {
@@ -172,6 +174,7 @@ describe("writeHomeFeedItemForSignal", () => {
       sourceChannel: "assistant_tool",
       sourceEventName: "assistant.share",
       sourceContextId: "cli-12345",
+      contextPayload: { title: "Shared from CLI" },
       attentionHints: {
         requiresAction: false,
         urgency: "low",
@@ -254,7 +257,11 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls).toHaveLength(0);
   });
 
-  test("returns null when only the summary is available but the title would fall back to event name", async () => {
+  test("writes a feed item with undefined title when only the body is available", async () => {
+    // Regression: when `notifications send` is called without `--title`, the
+    // notification pipeline must not manufacture a title (the LLM's rendered
+    // copy echoes the body into `renderedCopy.title`). Leave `title`
+    // undefined so renderers fall back to `summary` instead of stuttering.
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceEventName: "example.event",
@@ -263,8 +270,36 @@ describe("writeHomeFeedItemForSignal", () => {
 
     const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
 
-    expect(item).toBeNull();
-    expect(appendCalls).toHaveLength(0);
+    expect(item).not.toBeNull();
+    expect(appendCalls).toHaveLength(1);
+    expect(appendCalls[0]!.title).toBeUndefined();
+    expect(appendCalls[0]!.summary).toBe("Real body");
+  });
+
+  test("ignores LLM-rendered title when no payload title was supplied", async () => {
+    // The LLM often echoes the body verbatim into `renderedCopy.title` when
+    // the source didn't pass one. The home-feed writer must NOT promote that
+    // echo into the feed item — only an explicit source title is honored.
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceEventName: "example.event",
+      contextPayload: { body: "Real body" },
+    });
+    const decision = makeDecision({
+      renderedCopy: {
+        vellum: {
+          title: "Real body",
+          body: "Real body",
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision, []);
+
+    expect(item).not.toBeNull();
+    expect(appendCalls).toHaveLength(1);
+    expect(appendCalls[0]!.title).toBeUndefined();
+    expect(appendCalls[0]!.summary).toBe("Real body");
   });
 
   test("treats whitespace-only rendered copy and payload values as missing and returns null", async () => {
@@ -296,6 +331,7 @@ describe("writeHomeFeedItemForSignal", () => {
       sourceChannel: "assistant_tool",
       sourceEventName: "assistant.share",
       sourceContextId: "cli-12345",
+      contextPayload: { title: "Telegram title" },
     });
     const decision = makeDecision({
       selectedChannels: ["telegram"],
@@ -323,6 +359,7 @@ describe("writeHomeFeedItemForSignal", () => {
       sourceChannel: "assistant_tool",
       sourceEventName: "assistant.share",
       sourceContextId: "cli-12345",
+      contextPayload: { title: "Telegram title" },
     });
     const decision = makeDecision({
       selectedChannels: ["telegram"],
