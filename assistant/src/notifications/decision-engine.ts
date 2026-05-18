@@ -837,10 +837,11 @@ export async function evaluateSignal(
       : availableChannels.includes("vellum")
         ? ["vellum" as NotificationChannel]
         : [];
-    // Honor `--preferred-channels` when supplied: intersect with the
-    // available channel set so we never try to deliver on something
-    // disconnected. If the intersection is empty, fall back to the
-    // default channel set rather than producing a no-deliver decision.
+    // Honor `--preferred-channels` as ADDITIVE push targets on top of
+    // the default channel set. The notification center (vellum) is the
+    // always-on canonical inbox; preferred channels add push surfaces
+    // on top, they never replace vellum. Disconnected channels are
+    // filtered out so we never try to deliver on something unavailable.
     const preferredChannelsRaw = Array.isArray(payload.preferredChannels)
       ? (payload.preferredChannels as unknown[]).filter(
           (c): c is string => typeof c === "string",
@@ -853,7 +854,12 @@ export async function evaluateSignal(
         availableSet.has(c),
       ) as NotificationChannel[];
       if (preferredAvailable.length > 0) {
-        selectedChannels = preferredAvailable;
+        selectedChannels = Array.from(
+          new Set<NotificationChannel>([
+            ...selectedChannels,
+            ...preferredAvailable,
+          ]),
+        );
       }
     }
     // Thread `--deep-link-metadata` through when supplied as a plain object.
