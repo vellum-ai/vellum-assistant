@@ -188,7 +188,7 @@ describe("assistant_tool pass-through in notification decision engine", () => {
     expect(decision.deepLinkTarget).toBeUndefined();
   });
 
-  test("preferredChannels narrows selection to the intersection with availableChannels", async () => {
+  test("preferredChannels narrows selection but renderedCopy covers all available channels", async () => {
     const signal = makeAssistantToolSignal({
       contextPayload: {
         requestedMessage: "fyi only to telegram",
@@ -202,11 +202,44 @@ describe("assistant_tool pass-through in notification decision engine", () => {
 
     expect(decision.selectedChannels).toEqual(["telegram"]);
     expect(decision.renderedCopy.telegram?.body).toBe("fyi only to telegram");
-    // renderedCopy is pre-populated for every available channel so that
-    // downstream routing-intent expansion or urgency-forced vellum
-    // prepends preserve the producer's verbatim message; the broadcaster
-    // only delivers to channels in selectedChannels.
+    // Even though vellum is not selected, its rendered copy must be
+    // populated so downstream guards that may force-prepend vellum
+    // (e.g. urgency forcing in emit-signal) still have the verbatim copy.
     expect(decision.renderedCopy.vellum?.body).toBe("fyi only to telegram");
+  });
+
+  test("urgent + preferredChannels excluding vellum still leaves renderedCopy.vellum populated", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "urgent telegram-preferred message",
+        requestedTitle: "Heads up",
+        preferredChannels: ["telegram"],
+      },
+      attentionHints: {
+        requiresAction: true,
+        urgency: "high",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+      "telegram",
+    ] as NotificationChannel[]);
+
+    // Decision engine selects telegram (the preferred channel). The
+    // urgency-forced vellum prepend happens later in emit-signal; what
+    // matters here is that renderedCopy for vellum is already prepared
+    // with the verbatim copy so the prepend doesn't lose the message.
+    expect(decision.selectedChannels).toEqual(["telegram"]);
+    expect(decision.renderedCopy.telegram?.body).toBe(
+      "urgent telegram-preferred message",
+    );
+    expect(decision.renderedCopy.telegram?.title).toBe("Heads up");
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      "urgent telegram-preferred message",
+    );
+    expect(decision.renderedCopy.vellum?.title).toBe("Heads up");
   });
 
   test("routing-intent expansion to all_channels preserves verbatim copy on added channels", async () => {

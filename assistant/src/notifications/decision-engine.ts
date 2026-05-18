@@ -863,10 +863,13 @@ export async function evaluateSignal(
       !Array.isArray(payload.deepLinkMetadata)
         ? (payload.deepLinkMetadata as Record<string, unknown>)
         : undefined;
-    // Key renderedCopy/conversationActions by every available channel so
-    // downstream channel-list expansion (urgency-forced vellum in
-    // emit-signal, enforceRoutingIntent for all_channels/multi_channel)
-    // preserves the producer's verbatim copy on the added channels.
+    // Populate renderedCopy and conversationActions for every available
+    // channel — not just `selectedChannels`. Downstream guards
+    // (routing-intent expansion in `enforceRoutingIntent`, urgency-forced
+    // vellum prepending in `emit-signal`) may widen `selectedChannels`
+    // beyond what we picked here. Pre-seeding copy for all channels ensures
+    // the verbatim message survives those expansions rather than falling
+    // back to an empty `composeFallbackCopy` body.
     let decision: NotificationDecision = {
       shouldNotify: selectedChannels.length > 0,
       selectedChannels,
