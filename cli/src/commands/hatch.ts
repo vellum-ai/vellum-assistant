@@ -178,6 +178,7 @@ interface HatchArgs {
   watch: boolean;
   sourcePath: string | null;
   configValues: Record<string, string>;
+  analyze: boolean;
 }
 
 function parseArgs(): HatchArgs {
@@ -190,6 +191,7 @@ function parseArgs(): HatchArgs {
   let watch = false;
   let sourcePath: string | null = null;
   const configValues: Record<string, string> = {};
+  let analyze = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -220,11 +222,16 @@ function parseArgs(): HatchArgs {
       console.log(
         "  --config <key=value>      Set a workspace config value (repeatable)",
       );
+      console.log(
+        "  --analyze                 Emit a structured hatch-timing log line on stdout",
+      );
       process.exit(0);
     } else if (arg === "-d") {
       detached = true;
     } else if (arg === "--watch") {
       watch = true;
+    } else if (arg === "--analyze") {
+      analyze = true;
     } else if (arg === "--source") {
       const next = args[i + 1];
       if (!next || next.startsWith("-")) {
@@ -282,7 +289,7 @@ function parseArgs(): HatchArgs {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --source <path>, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --source <path>, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>, --analyze`,
       );
       process.exit(1);
     }
@@ -297,6 +304,7 @@ function parseArgs(): HatchArgs {
     watch,
     sourcePath,
     configValues,
+    analyze,
   };
 }
 
@@ -530,6 +538,7 @@ export async function hatch(): Promise<void> {
     watch,
     sourcePath,
     configValues,
+    analyze,
   } = parseArgs();
 
   if (watch && remote !== "local" && remote !== "docker") {
@@ -564,6 +573,7 @@ export async function hatch(): Promise<void> {
   if (remote === "docker") {
     await hatchDocker(species, detached, name, watch, configValues, {
       sourcePath,
+      analyze,
     });
     return;
   }

@@ -945,6 +945,7 @@ export interface HatchDockerOptions {
    * also enables hot-reload.
    */
   sourcePath?: string | null;
+  analyze?: boolean;
 }
 
 export async function hatchDocker(
@@ -1145,6 +1146,7 @@ export async function hatchDocker(
       },
       log,
     );
+    const containersUpAt = Date.now();
 
     const imageDigests = await captureImageRefs(res);
 
@@ -1179,6 +1181,8 @@ export async function hatchDocker(
       instanceName,
       logFd,
       runtimeUrl,
+      containersUpAt,
+      analyze: options.analyze ?? false,
     });
 
     if (!ready && !(watch && repoRoot)) {
@@ -1277,6 +1281,8 @@ async function waitForGatewayAndLease(opts: {
   instanceName: string;
   logFd: number | "ignore";
   runtimeUrl: string;
+  containersUpAt: number;
+  analyze: boolean;
 }): Promise<{ ready: boolean; guardianAccessToken?: string }> {
   const {
     bootstrapSecret,
@@ -1285,6 +1291,8 @@ async function waitForGatewayAndLease(opts: {
     instanceName,
     logFd,
     runtimeUrl,
+    containersUpAt,
+    analyze,
   } = opts;
 
   const log = (msg: string): void => {
@@ -1309,7 +1317,7 @@ async function waitForGatewayAndLease(opts: {
   log("Waiting for assistant to become ready...");
 
   const readyUrl = `${runtimeUrl}/readyz`;
-  const start = Date.now();
+  const start = containersUpAt;
   let ready = false;
 
   while (Date.now() - start < DOCKER_READY_TIMEOUT_MS) {
@@ -1345,8 +1353,18 @@ async function waitForGatewayAndLease(opts: {
     return { ready: false };
   }
 
-  const elapsedSec = ((Date.now() - start) / 1000).toFixed(1);
+  const readyAt = Date.now();
+  const containersUpToReadyMs = readyAt - start;
+  const elapsedSec = (containersUpToReadyMs / 1000).toFixed(1);
   log(`Assistant ready after ${elapsedSec}s`);
+  if (analyze) {
+    console.info(
+      `[vellum-hatch-timing] ${JSON.stringify({
+        containers_up_to_ready_ms: containersUpToReadyMs,
+        instance: instanceName,
+      })}`,
+    );
+  }
 
   // Lease guardian token. The /readyz check confirms both gateway and
   // assistant are reachable. Retry with backoff in case there is a brief
