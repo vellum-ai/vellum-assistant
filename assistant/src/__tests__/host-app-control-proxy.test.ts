@@ -1006,6 +1006,67 @@ describe("HostAppControlProxy", () => {
       proxy.dispose();
     });
 
+    test("confirmed-A,dispatch-B,dispatch-C,C-fails-first,B-confirms syncs active to B", async () => {
+      // A confirmed, B and C dispatched, C returns `missing` first →
+      // rollback restores active to A. Then B returns `running` →
+      // confirmed advances to B; active must advance alongside it,
+      // otherwise the tool reports B started while
+      // app_control_observe/actions for B target A.
+      const proxy = new HostAppControlProxy("conv-1");
+      const ctrl = new AbortController();
+
+      const pA = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.a" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdA = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.resolve(reqIdA, payload({ pngBase64: PNG_A }));
+      await pA;
+      expect(_getConfirmedAppControlSession()?.app).toBe("com.example.a");
+
+      sentMessages.length = 0;
+      const pB = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.b" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdB = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+
+      sentMessages.length = 0;
+      const pC = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.c" },
+        "conv-1",
+        ctrl.signal,
+      );
+      const reqIdC = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.c");
+
+      // C fails first → rollback restores active to confirmed (A).
+      proxy.resolve(reqIdC, payload({ state: "missing" }));
+      await pC;
+      expect(_getActiveAppControlSession()?.app).toBe("com.example.a");
+      expect(_getConfirmedAppControlSession()?.app).toBe("com.example.a");
+
+      // B confirms after C's rollback. Confirmed advances to B AND active
+      // must advance to B too — otherwise non-start tool calls against B
+      // would be rejected because active still targets A.
+      proxy.resolve(reqIdB, payload({ pngBase64: PNG_B }));
+      await pB;
+      expect(_getConfirmedAppControlSession()?.app).toBe("com.example.b");
+      const session = _getActiveAppControlSession();
+      expect(session?.conversationId).toBe("conv-1");
+      expect(session?.app).toBe("com.example.b");
+
+      proxy.dispose();
+    });
+
     test("first-start failure releases the lock (no prior session to restore)", async () => {
       const proxy = new HostAppControlProxy("conv-1");
       const ctrl = new AbortController();
