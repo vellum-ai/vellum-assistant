@@ -439,6 +439,42 @@ function resolveTailStartIndex(
   return null;
 }
 
+/**
+ * Walk a model-chosen tail index backward until it lands on a user message
+ * that does not contain client-side `tool_result` blocks. Prevents the
+ * orphan-`tool_result` failure where the matching assistant `tool_use` sits
+ * in the discarded prefix and Anthropic rejects the next call with
+ * `unexpected tool_use_id found in tool_result blocks`.
+ *
+ * Walking back (rather than forward) preserves the recent context the model
+ * deliberately chose to keep; the tail just expands by the few messages
+ * needed to re-anchor the orphaned `tool_result` against its `tool_use`.
+ *
+ * Returns 0 when the walk falls off the front — the caller treats this as
+ * "nothing to compact" via the existing `tailIndex === 0` branch.
+ *
+ * Only `type === "tool_result"` blocks count. Server-side tools
+ * (`server_tool_use` / `web_search_tool_result`) are self-paired inside an
+ * assistant message and never trigger an adjustment.
+ */
+export function adjustTailIndexForToolPairing(
+  messages: Message[],
+  tailIndex: number,
+): number {
+  let k = tailIndex;
+  while (k > 0) {
+    const m = messages[k];
+    if (
+      m.role === "user" &&
+      !m.content.some((block) => block.type === "tool_result")
+    ) {
+      return k;
+    }
+    k--;
+  }
+  return 0;
+}
+
 // ---------------------------------------------------------------------------
 // Retained-image hydration
 // ---------------------------------------------------------------------------
@@ -655,8 +691,12 @@ export async function runAssistantDrivenCompaction(
   }
 
   const timestamps = buildTimestampIndex(args.messages);
-  const tailIndex = resolveTailStartIndex(args.messages, timestamps, parsed);
-  if (tailIndex == null) {
+  const resolvedTailIndex = resolveTailStartIndex(
+    args.messages,
+    timestamps,
+    parsed,
+  );
+  if (resolvedTailIndex == null) {
     log.warn(
       {
         timestamp: parsed.tailStartTimestamp,
@@ -678,6 +718,22 @@ export async function runAssistantDrivenCompaction(
       summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
       summaryCalls: 1,
     };
+  }
+
+  const tailIndex = adjustTailIndexForToolPairing(
+    args.messages,
+    resolvedTailIndex,
+  );
+  if (tailIndex !== resolvedTailIndex) {
+    log.info(
+      {
+        conversationId: args.conversationId,
+        originalTailIndex: resolvedTailIndex,
+        tailIndex,
+        walkedBy: resolvedTailIndex - tailIndex,
+      },
+      "Adjusted compaction tail backward to preserve tool_use/tool_result pairing",
+    );
   }
 
   if (tailIndex === 0) {
@@ -762,6 +818,9 @@ export async function runAssistantDrivenCompaction(
       compactedMessages: compactableMessages.length,
       compactedPersistedMessages,
       tailIndex,
+      ...(tailIndex !== resolvedTailIndex
+        ? { originalTailIndex: resolvedTailIndex }
+        : {}),
       retainedImages: resolved.length,
       summaryChars: summaryText.length,
     },
@@ -885,10 +944,12 @@ export async function runEmergencyCompaction(
 
   const splitIndex = findLastToolPairStart(args.messages);
   if (splitIndex == null || splitIndex === 0) {
-    log.info(
-      "Emergency compaction: no tool pair found — falling through",
+    log.info("Emergency compaction: no tool pair found — falling through");
+    return emptyResult(
+      args,
+      thresholdTokens,
+      "no tool pair for emergency split",
     );
-    return emptyResult(args, thresholdTokens, "no tool pair for emergency split");
   }
 
   const keptTail = stripInjectionsForCompaction(
@@ -904,8 +965,7 @@ export async function runEmergencyCompaction(
   const prefixBudget = args.maxInputTokens - instructionBudget - outputBudget;
 
   let prefixEstimate = estimatePromptTokens(prefix, args.systemPrompt, {
-    providerName:
-      args.provider.tokenEstimationProvider ?? args.provider.name,
+    providerName: args.provider.tokenEstimationProvider ?? args.provider.name,
   });
 
   if (prefixEstimate > prefixBudget && prefix.length > 1) {
@@ -920,10 +980,7 @@ export async function runEmergencyCompaction(
     // Drop messages from the front until we fit. Keep at least the first
     // message (may be an existing summary) and try to preserve recent context.
     let dropCount = 0;
-    while (
-      prefixEstimate > prefixBudget &&
-      dropCount < prefix.length - 1
-    ) {
+    while (prefixEstimate > prefixBudget && dropCount < prefix.length - 1) {
       dropCount++;
       const truncated = prefix.slice(dropCount);
       prefixEstimate = estimatePromptTokens(truncated, args.systemPrompt, {
@@ -1015,7 +1072,8 @@ export async function runEmergencyCompaction(
       compactedMessages: compactedCount,
       keptTailMessages: keptTail.length,
       summaryChars: summaryText.length,
-      prefixTruncated: prefix[0]?.content?.[0]?.type === "text" &&
+      prefixTruncated:
+        prefix[0]?.content?.[0]?.type === "text" &&
         (prefix[0].content[0] as { text: string }).text.includes("truncated"),
     },
     "Applied emergency mid-turn compaction",
