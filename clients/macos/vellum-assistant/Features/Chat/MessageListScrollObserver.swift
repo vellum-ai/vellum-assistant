@@ -268,7 +268,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
             // `contentHDelta` would walk the user away from latest with
             // no corresponding visual cause. Tracking a reference view
             // instead skips that case cleanly.
-            let referenceDelta = updateAndReadReferenceDelta(
+            let (referenceDelta, needsRepickAfterDecision) = updateAndReadReferenceDelta(
                 documentView: documentView,
                 viewportY: preOffsetY,
                 viewportHeight: containerHeight
@@ -288,6 +288,24 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 clipView.setBoundsOrigin(newOrigin)
                 scrollView.reflectScrolledClipView(clipView)
                 onAnchorShift?()
+            }
+            // Defer the post-emit anchor re-pick until after `decide`. When
+            // the reference was pushed outside the viewport, picking against
+            // `viewport.offsetBy(dy: delta)` is only valid if the caller
+            // actually scrolled by `delta`. For `.skipped` outcomes
+            // (`.anchorPreservationDisabled`, `.userLiveScrolling`,
+            // `.noVisibleShift`, `.jitterBelowThreshold`, `.pinnedToLatest`)
+            // bounds.origin stays at `preOffsetY`, so we re-pick against the
+            // *actual* current viewport instead.
+            if needsRepickAfterDecision {
+                let finalOffsetY = clipView.bounds.origin.y
+                let finalViewport = CGRect(
+                    x: 0,
+                    y: finalOffsetY,
+                    width: documentView.bounds.width,
+                    height: containerHeight
+                )
+                pickAndStoreReference(in: documentView, viewport: finalViewport)
             }
             // Telemetry: only fire when content height actually changed so
             // the recorder isn't spammed with no-op decisions from bounds
@@ -486,11 +504,11 @@ struct MessageListScrollObserver: NSViewRepresentable {
         /// outside the viewport by a large upstream reflow, since that final
         /// delta is exactly the shift we need to compensate for. When the
         /// reference no longer intersects the viewport we report the delta
-        /// and immediately re-pick against `viewport.offsetBy(dy: delta)`,
-        /// the rectangle that will be visible once the caller applies
-        /// `setBoundsOrigin(preOffsetY + delta)`. The synchronous
-        /// bounds-changed notification from that scroll is swallowed by the
-        /// `isEmitting` guard, so without an inline re-pick a subsequent
+        /// along with `needsRepick = true`; the caller re-picks against the
+        /// actual post-decision viewport once it knows whether the
+        /// compensation was applied. The synchronous bounds-changed
+        /// notification from that scroll is swallowed by the `isEmitting`
+        /// guard, so without that follow-up re-pick a subsequent
         /// content/layout change would diff against a stale off-screen
         /// anchor and report `delta == 0`. If the anchor view was destroyed
         /// or collapsed to zero height and we can no longer locate it, we
@@ -503,7 +521,7 @@ struct MessageListScrollObserver: NSViewRepresentable {
             documentView: NSView,
             viewportY: CGFloat,
             viewportHeight: CGFloat
-        ) -> CGFloat {
+        ) -> (delta: CGFloat, needsRepick: Bool) {
             let viewport = CGRect(
                 x: 0,
                 y: viewportY,
@@ -519,18 +537,13 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 let frameInDoc = view.convert(view.bounds, to: documentView)
                 if frameInDoc.intersects(viewport) {
                     lastReferenceY = currentY
-                    return delta
+                    return (delta, false)
                 }
                 // Reference pushed outside the viewport (large upstream
                 // reflow — image load, thinking-block expansion, history
-                // correction). Report the delta, then re-pick against the
-                // post-compensation viewport. See doc-comment for the
-                // `isEmitting` rationale.
-                pickAndStoreReference(
-                    in: documentView,
-                    viewport: viewport.offsetBy(dx: 0, dy: delta)
-                )
-                return delta
+                // correction). Report the delta; the caller will re-pick
+                // against the actual post-decision viewport.
+                return (delta, true)
             }
             // Identity check failed (path missing or now resolves to a
             // different descendant). Before discarding the delta, check
@@ -549,20 +562,16 @@ struct MessageListScrollObserver: NSViewRepresentable {
                 if frameInDoc.intersects(viewport) {
                     anchorReferencePath = newPath
                     lastReferenceY = currentY
-                    return delta
+                    return (delta, false)
                 }
                 // Same out-of-viewport handling as the in-band case above.
-                pickAndStoreReference(
-                    in: documentView,
-                    viewport: viewport.offsetBy(dx: 0, dy: delta)
-                )
-                return delta
+                return (delta, true)
             }
             // The anchor view was destroyed, collapsed, or is no longer in
             // the document tree — pick a new reference. No delta on this
             // emit since there's no trustworthy previous-Y to diff against.
             pickAndStoreReference(in: documentView, viewport: viewport)
-            return 0
+            return (0, false)
         }
 
         private func pickAndStoreReference(in documentView: NSView, viewport: CGRect) {

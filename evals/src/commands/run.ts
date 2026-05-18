@@ -66,17 +66,42 @@ export function registerRunCommand(program: Command): void {
           ? noopEvalProgressReporter
           : createConsoleReporter();
 
+        let anyFailed = false;
         for (const profile of profiles) {
           for (const test of tests) {
-            const result = await runEvalOnce({
-              profile,
-              test,
-              runId: runId(profile.id, test.id),
-              maxTurns: opts.maxTurns,
-              progress,
-            });
-            console.log(JSON.stringify(result));
+            const id = runId(profile.id, test.id);
+            try {
+              const result = await runEvalOnce({
+                profile,
+                test,
+                runId: id,
+                maxTurns: opts.maxTurns,
+                progress,
+              });
+              console.log(JSON.stringify(result));
+            } catch (err) {
+              // Per-test isolation: a crash in one combination (e.g. the
+              // user simulator returning unparseable content) shouldn't
+              // take down the rest of the suite. The run-once layer has
+              // already written status:"failed" + error to the run's
+              // metadata; emit a matching JSON line here and keep going.
+              anyFailed = true;
+              const message = err instanceof Error ? err.message : String(err);
+              console.log(
+                JSON.stringify({
+                  runId: id,
+                  profileId: profile.id,
+                  testId: test.id,
+                  status: "failed",
+                  error: message,
+                }),
+              );
+            }
           }
+        }
+
+        if (anyFailed) {
+          process.exitCode = 1;
         }
       },
     );

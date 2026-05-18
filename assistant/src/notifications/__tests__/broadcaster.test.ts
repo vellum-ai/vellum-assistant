@@ -1,12 +1,8 @@
 /**
- * Regression tests for the NotificationBroadcaster's last-resort copy
- * resolution path. The broadcaster previously used `signal.sourceEventName`
- * as a body fallback when neither `decision.renderedCopy[channel]` nor
- * `composeFallbackCopy(...)[channel]` produced usable copy, which leaked
- * raw event-name strings (e.g. "user.send_notification") to user-visible
- * notification bodies. The pre-send `checkRenderedCopyQuality` in
- * deterministic-checks.ts only inspects `decision.renderedCopy`, so the
- * broadcaster must enforce the same fail-closed posture locally.
+ * Verifies the NotificationBroadcaster's fail-closed copy-resolution
+ * invariant: when neither `decision.renderedCopy[channel]` nor
+ * `composeFallbackCopy(...)[channel]` produces usable copy, the channel
+ * must be dropped rather than delivered with a synthesized body.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";

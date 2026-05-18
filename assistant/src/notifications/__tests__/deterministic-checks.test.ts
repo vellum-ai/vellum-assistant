@@ -137,19 +137,62 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
     expect(result.reason).toContain("fallback leak");
   });
 
-  test("fails when rendered copy is missing for a selected channel", async () => {
-    const decision = makeDecision({
-      selectedChannels: ["vellum"],
-      renderedCopy: {},
+  test("passes when channel was appended post-decision (urgency-forced vellum prepend)", async () => {
+    // Regression: emit-signal.ts prepends `vellum` to selectedChannels for
+    // high/critical urgency without populating renderedCopy.vellum. The
+    // broadcaster's composeFallbackCopy rescue handles those channels at
+    // delivery time, so the deterministic check must not fail-closed here.
+    const signal = makeSignal({
+      attentionHints: {
+        requiresAction: false,
+        urgency: "high",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
     });
-    const result = await runDeterministicChecks(
-      makeSignal(),
-      decision,
-      context,
-    );
+    const decision = makeDecision({
+      selectedChannels: ["vellum", "telegram"],
+      renderedCopy: {
+        telegram: { title: "Reminder", body: "Time to drink water" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, {
+      connectedChannels: ["vellum", "telegram"],
+    });
+    expect(result.passed).toBe(true);
+  });
+
+  test("passes when enforceRoutingIntent expanded channels post-decision", async () => {
+    // Regression: enforceRoutingIntent can expand selectedChannels to
+    // all_channels / multi_channel without populating renderedCopy for the
+    // added channels. Broadcaster fallback covers them — check must allow.
+    const decision = makeDecision({
+      selectedChannels: ["vellum", "telegram", "slack"],
+      renderedCopy: {
+        vellum: { title: "Reminder", body: "Time to drink water" },
+      },
+    });
+    const result = await runDeterministicChecks(makeSignal(), decision, {
+      connectedChannels: ["vellum", "telegram", "slack"],
+    });
+    expect(result.passed).toBe(true);
+  });
+
+  test("still validates body quality for channels with rendered copy", async () => {
+    // Even when some channels lack copy (broadcaster fallback territory),
+    // channels that DO have copy must still pass the empty/event-name checks.
+    const signal = makeSignal({ sourceEventName: "user.send_notification" });
+    const decision = makeDecision({
+      selectedChannels: ["vellum", "telegram"],
+      renderedCopy: {
+        telegram: { title: "Reminder", body: "user.send_notification" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, {
+      connectedChannels: ["vellum", "telegram"],
+    });
     expect(result.passed).toBe(false);
-    expect(result.reason).toContain("rendered copy missing");
-    expect(result.reason).toContain("vellum");
+    expect(result.reason).toContain("fallback leak");
   });
 
   test("passes when shouldNotify is false regardless of copy contents", async () => {
@@ -164,5 +207,51 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
     });
     const result = await runDeterministicChecks(signal, decision, context);
     expect(result.passed).toBe(true);
+  });
+
+  test("passes assistant_tool pass-through even when body matches normalized event name", async () => {
+    // The pass-through path produces verbatim user-supplied body text.
+    // A coincidental match with the source event name is the user's
+    // intent, not a fallback leak — the check must not suppress it.
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "assistant.share",
+    });
+    const decision = makeDecision({
+      reasoningSummary: "assistant_tool pass-through",
+      renderedCopy: {
+        vellum: { title: "Assistant share", body: "assistant share" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(true);
+  });
+
+  test("fails assistant_tool pass-through with empty body (empty-body branch still fires)", async () => {
+    const signal = makeSignal({ sourceChannel: "assistant_tool" });
+    const decision = makeDecision({
+      reasoningSummary: "assistant_tool pass-through",
+      renderedCopy: {
+        vellum: { title: "Reminder", body: "" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("empty");
+  });
+
+  test("still fails non-pass-through decision when body matches event name", async () => {
+    // Regression guard: the pass-through short-circuit must not weaken
+    // the check for LLM/fallback paths.
+    const signal = makeSignal({ sourceEventName: "user.send_notification" });
+    const decision = makeDecision({
+      reasoningSummary: "llm classification",
+      renderedCopy: {
+        vellum: { title: "Reminder", body: "user.send_notification" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("fallback leak");
   });
 });

@@ -400,6 +400,13 @@ export class HostAppControlProxy extends HostProxyBase<
    *    dispatched start that confirms wins, which is the right baseline
    *    for the rollback path: if a newer start later fails, rollback
    *    restores the most recently confirmed session, not an older one.
+   *
+   * Also advance the active pointer when it is strictly older than the
+   * newly-confirmed session. This handles the case where an even newer
+   * optimistic write has already failed and rolled active back to the
+   * previous confirmed session; without this, observe/actions for the
+   * newly-confirmed session would target the older app. A newer
+   * in-flight optimistic write (higher `dispatchedAt`) is preserved.
    */
   private promoteStartIfCurrent(
     attempted: ActiveAppControlSession | undefined,
@@ -415,6 +422,9 @@ export class HostAppControlProxy extends HostProxyBase<
       return;
     }
     confirmedAppControlSession = attempted;
+    if (activeAppControlSession.dispatchedAt < attempted.dispatchedAt) {
+      activeAppControlSession = attempted;
+    }
   }
 
   /**

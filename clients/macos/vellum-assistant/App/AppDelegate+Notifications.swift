@@ -178,10 +178,13 @@ extension AppDelegate {
         }
     }
 
-    /// Returns `true` if `candidate` matches `sourceEventName` either raw
-    /// (e.g. `"user.send_notification"`) or after `.`/`_` are replaced with
-    /// spaces (e.g. `"user send notification"`). Case-insensitive.
-    /// Used by the sanitize helpers below to detect event-name fallback leaks.
+    /// Returns `true` if `candidate` matches the raw `sourceEventName` form
+    /// (e.g. `"user.send_notification"` or `"USER.SEND_NOTIFICATION"`).
+    /// Case-insensitive but structural separators must be preserved — we
+    /// deliberately do NOT match space-normalized variants because legitimate
+    /// template titles like `"Guardian Question"` (for `guardian.question`)
+    /// would otherwise be flagged as leaks. Used by the sanitize helpers
+    /// below to detect event-name fallback leaks.
     nonisolated static func isEventNameLeak(
         _ candidate: String,
         sourceEventName: String
@@ -189,11 +192,7 @@ extension AppDelegate {
         let trimmedCandidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let rawEvent = sourceEventName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !rawEvent.isEmpty, !trimmedCandidate.isEmpty else { return false }
-        if trimmedCandidate == rawEvent { return true }
-        let normalizedEvent = rawEvent
-            .replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(of: ".", with: " ")
-        return trimmedCandidate == normalizedEvent
+        return trimmedCandidate == rawEvent
     }
 
     /// Sanitize a user-visible notification title. Returns `"Notification"`

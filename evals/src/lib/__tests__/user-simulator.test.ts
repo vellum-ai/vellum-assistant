@@ -8,8 +8,23 @@ import {
   DEFAULT_SIMULATOR_MODEL,
   UserSimulator,
 } from "../simulator/user-simulator";
+import type { TestDef } from "../test-def";
 
 const originalFetch = globalThis.fetch;
+
+async function makeTestDef(): Promise<TestDef> {
+  const dir = await mkdtemp(join(tmpdir(), "evals-sim-"));
+  const specPath = join(dir, "SPEC.md");
+  await writeFile(specPath, "# spec", "utf8");
+  return {
+    id: "timeline-recall",
+    specPath,
+    setupPath: join(dir, "setup.ts"),
+    setupCommands: [],
+    metricsDir: join(dir, "metrics"),
+    metricPaths: [],
+  };
+}
 
 describe("UserSimulator", () => {
   afterEach(() => {
@@ -139,5 +154,59 @@ describe("UserSimulator", () => {
       action: "end",
       reason: "max simulator turns reached (1)",
     });
+  });
+
+  test("parse failure surfaces stop_reason, part summary, and clipped body", async () => {
+    const test = await makeTestDef();
+
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response(
+        JSON.stringify({ content: [], stop_reason: "max_tokens" }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
+
+    let captured: Error | undefined;
+    try {
+      await simulator.decide({ test, transcript: [] });
+    } catch (err) {
+      captured = err as Error;
+    }
+
+    // No retries — one call, one failure.
+    expect(calls).toBe(1);
+    expect(captured).toBeDefined();
+    const message = captured!.message;
+    expect(message).toContain("had no actionable content");
+    expect(message).toContain("stop_reason=max_tokens");
+    expect(message).toContain("parts=[]");
+    // The full clipped body JSON is present so we can grep failure modes.
+    expect(message).toContain('"stop_reason":"max_tokens"');
+  });
+
+  test("parse failure summarizes non-empty content parts", async () => {
+    const test = await makeTestDef();
+
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          content: [
+            { type: "text", text: "   \n  " },
+            { type: "tool_use", name: "ask_clarification", input: {} },
+          ],
+          stop_reason: "tool_use",
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
+
+    await expect(simulator.decide({ test, transcript: [] })).rejects.toThrow(
+      /stop_reason=tool_use.*parts=\[text\(whitespace, length=6\), tool_use\(name=ask_clarification\)\]/,
+    );
   });
 });

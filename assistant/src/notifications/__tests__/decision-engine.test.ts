@@ -64,7 +64,7 @@ mock.module("../../util/logger.js", () => ({
 
 // ── Imports (after all mocks) ─────────────────────────────────────────
 
-import { evaluateSignal } from "../decision-engine.js";
+import { enforceRoutingIntent, evaluateSignal } from "../decision-engine.js";
 import type { NotificationSignal } from "../signal.js";
 import type { NotificationChannel } from "../types.js";
 
@@ -155,5 +155,132 @@ describe("assistant_tool pass-through in notification decision engine", () => {
     );
     expect(decision.conversationActions?.vellum?.action).toBe("start_new");
     expect(decision.conversationActions?.telegram?.action).toBe("start_new");
+  });
+
+  test("threads contextPayload.deepLinkMetadata through to decision.deepLinkTarget", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "with deep link",
+        deepLinkMetadata: { route: "settings", anchor: "notifications" },
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+    ] as NotificationChannel[]);
+
+    expect(decision.deepLinkTarget).toEqual({
+      route: "settings",
+      anchor: "notifications",
+    });
+  });
+
+  test("omits deepLinkTarget when deepLinkMetadata is not a plain object", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "no deep link",
+        deepLinkMetadata: ["not", "a", "plain", "object"],
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+    ] as NotificationChannel[]);
+
+    expect(decision.deepLinkTarget).toBeUndefined();
+  });
+
+  test("preferredChannels narrows selection but renderedCopy covers all available channels", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "fyi only to telegram",
+        preferredChannels: ["telegram"],
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+      "telegram",
+    ] as NotificationChannel[]);
+
+    expect(decision.selectedChannels).toEqual(["telegram"]);
+    expect(decision.renderedCopy.telegram?.body).toBe("fyi only to telegram");
+    // Even though vellum is not selected, its rendered copy must be
+    // populated so downstream guards that may force-prepend vellum
+    // (e.g. urgency forcing in emit-signal) still have the verbatim copy.
+    expect(decision.renderedCopy.vellum?.body).toBe("fyi only to telegram");
+  });
+
+  test("urgent + preferredChannels excluding vellum still leaves renderedCopy.vellum populated", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "urgent telegram-preferred message",
+        requestedTitle: "Heads up",
+        preferredChannels: ["telegram"],
+      },
+      attentionHints: {
+        requiresAction: true,
+        urgency: "high",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+      "telegram",
+    ] as NotificationChannel[]);
+
+    // Decision engine selects telegram (the preferred channel). The
+    // urgency-forced vellum prepend happens later in emit-signal; what
+    // matters here is that renderedCopy for vellum is already prepared
+    // with the verbatim copy so the prepend doesn't lose the message.
+    expect(decision.selectedChannels).toEqual(["telegram"]);
+    expect(decision.renderedCopy.telegram?.body).toBe(
+      "urgent telegram-preferred message",
+    );
+    expect(decision.renderedCopy.telegram?.title).toBe("Heads up");
+    expect(decision.renderedCopy.vellum?.body).toBe(
+      "urgent telegram-preferred message",
+    );
+    expect(decision.renderedCopy.vellum?.title).toBe("Heads up");
+  });
+
+  test("routing-intent expansion to all_channels preserves verbatim copy on added channels", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "verbatim broadcast body",
+        requestedTitle: "verbatim broadcast title",
+      },
+      routingIntent: "all_channels",
+    });
+    const connected = ["vellum", "telegram"] as NotificationChannel[];
+    const decision = await evaluateSignal(signal, connected);
+    const enforced = enforceRoutingIntent(
+      decision,
+      "all_channels",
+      connected,
+      "assistant_tool",
+    );
+
+    expect(enforced.selectedChannels).toEqual(
+      expect.arrayContaining(["vellum", "telegram"]),
+    );
+    for (const ch of enforced.selectedChannels) {
+      expect(enforced.renderedCopy[ch]?.body).toBe("verbatim broadcast body");
+      expect(enforced.renderedCopy[ch]?.title).toBe("verbatim broadcast title");
+    }
+  });
+
+  test("preferredChannels falls back to default channel set when no overlap with availableChannels", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "fyi",
+        preferredChannels: ["disconnected_channel"],
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+      "telegram",
+    ] as NotificationChannel[]);
+
+    expect(decision.selectedChannels).toEqual(["vellum"]);
+    expect(decision.renderedCopy.vellum?.body).toBe("fyi");
   });
 });

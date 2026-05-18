@@ -127,6 +127,32 @@ export type AgentEvent =
     }
   | { type: "error"; error: Error }
   | {
+      /**
+       * Emitted when the `llmCall` pipeline throws — i.e. the provider
+       * rejected the request before returning a usable response. Carries
+       * the loop-level raw request we attempted to send (messages, tools,
+       * system prompt, provider-agnostic config) plus the thrown error.
+       * Consumers (`handleProviderError` in the daemon handlers, the
+       * `onEvent` in `agent-wake`) persist these as `llm_request_logs`
+       * rows so failed calls are queryable in the LLM inspector instead
+       * of only surfacing in pino logs.
+       *
+       * `rawRequest` is the loop-level abstract shape rather than the
+       * provider-specific payload (which the provider builds internally
+       * and never returns when it throws). `actualProvider` echoes the
+       * `ProviderError.provider` tag when available so the persisted row
+       * has the same `provider` column value as a successful `usage` row.
+       *
+       * Re-thrown by the inner LLM-call try/catch after emission so the
+       * outer agent-loop catch still handles abort, Sentry capture, the
+       * existing `error` event, and the loop break.
+       */
+      type: "provider_error";
+      rawRequest: unknown;
+      error: Error;
+      actualProvider?: string;
+    }
+  | {
       type: "usage";
       inputTokens: number;
       outputTokens: number;
@@ -618,23 +644,64 @@ export class AgentLoop {
           toolUseTurns,
         );
 
-        const response: LLMCallResult = await runPipeline<
-          LLMCallArgs,
-          LLMCallResult
-        >(
-          "llmCall",
-          getMiddlewaresFor("llmCall"),
-          (args) =>
-            args.provider.sendMessage(
-              args.messages,
-              args.tools,
-              args.systemPrompt,
-              args.options,
-            ),
-          llmCallArgs,
-          turnCtx,
-          DEFAULT_TIMEOUTS.llmCall,
-        );
+        // Inner try/catch narrows error-recording scope to the provider
+        // call itself. The outer agent-loop catch (below) wraps the entire
+        // turn body (tool execution, plugin pipelines, checkpoints), so
+        // recording there would risk mis-attributing tool/plugin throws as
+        // provider rejections. On provider failure we emit `provider_error`
+        // with the loop-level raw request so consumers can persist it as an
+        // `llm_request_logs` row, then re-throw so the existing outer catch
+        // continues to handle abort sync, Sentry capture, the `error` event,
+        // and the loop break unchanged.
+        let response: LLMCallResult;
+        try {
+          response = await runPipeline<LLMCallArgs, LLMCallResult>(
+            "llmCall",
+            getMiddlewaresFor("llmCall"),
+            (args) =>
+              args.provider.sendMessage(
+                args.messages,
+                args.tools,
+                args.systemPrompt,
+                args.options,
+              ),
+            llmCallArgs,
+            turnCtx,
+            DEFAULT_TIMEOUTS.llmCall,
+          );
+        } catch (llmCallError) {
+          // Skip recording on abort — the user cancelled the request and
+          // there's no provider rejection worth a log row. The outer catch
+          // still synthesizes cancellation tool_results.
+          if (!signal?.aborted) {
+            const errInstance =
+              llmCallError instanceof Error
+                ? llmCallError
+                : new Error(String(llmCallError));
+            // Strip non-serializable / runtime-only fields from `options`
+            // before snapshotting. `onEvent` is a closure with side effects
+            // and `signal` is an AbortSignal — neither is meaningful in a
+            // persisted log row, and `JSON.stringify` would silently drop or
+            // misrepresent both.
+            const rawRequest = {
+              provider: this.provider.name,
+              messages: llmCallArgs.messages,
+              tools: llmCallArgs.tools,
+              systemPrompt: llmCallArgs.systemPrompt,
+              config: llmCallArgs.options?.config,
+            };
+            onEvent({
+              type: "provider_error",
+              rawRequest,
+              error: errInstance,
+              actualProvider:
+                errInstance instanceof ProviderError
+                  ? errInstance.provider
+                  : this.provider.name,
+            });
+          }
+          throw llmCallError;
+        }
 
         const providerDurationMs = Date.now() - providerStart;
 

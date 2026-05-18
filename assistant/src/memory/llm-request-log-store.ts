@@ -1,6 +1,7 @@
 import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { AssistantError, ProviderError } from "../util/errors.js";
 import {
   getAssistantMessageIdsInTurn,
   getMessageById,
@@ -19,6 +20,45 @@ export type LogRow = {
   responsePayload: string;
   createdAt: number;
 };
+
+/**
+ * Build the structured response-payload object recorded in
+ * `llm_request_logs.responsePayload` for a provider-rejected LLM call.
+ *
+ * Mirrors the shape of a successful `usage.rawResponse` row by placing
+ * the error under a top-level `error` key, so an inspector consumer can
+ * branch on `row.responsePayload.error` vs the success shape without
+ * parsing twice. Extracts queryable fields from `ProviderError`
+ * (provider tag, status code, retry-after) and `AssistantError`
+ * (structured `ErrorCode`) when present so the row isn't opaque text.
+ * Other `Error` shapes degrade gracefully to `{name, message}`.
+ *
+ * Returns the structured object rather than a JSON string so callers
+ * can either stringify it directly (daemon-path `recordRequestLog`) or
+ * store it on a pending-log queue that stringifies later (wake-path
+ * `PendingLog.rawResponse`), without double-encoding.
+ */
+export function buildProviderErrorResponsePayload(err: Error): {
+  error: Record<string, unknown>;
+} {
+  const payload: Record<string, unknown> = {
+    name: err.name,
+    message: err.message,
+  };
+  if (err instanceof ProviderError) {
+    payload.code = err.code;
+    payload.provider = err.provider;
+    if (err.statusCode !== undefined) {
+      payload.statusCode = err.statusCode;
+    }
+    if (err.retryAfterMs !== undefined) {
+      payload.retryAfterMs = err.retryAfterMs;
+    }
+  } else if (err instanceof AssistantError) {
+    payload.code = err.code;
+  }
+  return { error: payload };
+}
 
 export function recordRequestLog(
   conversationId: string,

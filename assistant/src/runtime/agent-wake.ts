@@ -57,7 +57,10 @@ import {
 } from "../daemon/disk-pressure-policy.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
-import { recordRequestLog } from "../memory/llm-request-log-store.js";
+import {
+  buildProviderErrorResponsePayload,
+  recordRequestLog,
+} from "../memory/llm-request-log-store.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
@@ -582,6 +585,25 @@ export async function wakeAgentForOpportunity(
         const record = {
           rawRequest: event.rawRequest,
           rawResponse: event.rawResponse,
+          provider: event.actualProvider,
+        };
+        if (mode === "buffering") {
+          pendingLogs.push(record);
+        } else {
+          persistLog(record);
+        }
+      }
+      // Mirror the same recording side-effect for provider-rejected calls.
+      // `handleProviderError` in the daemon dispatcher persists these on the
+      // normal turn path; the wake path owns its own onEvent and bypasses
+      // that dispatcher entirely, so we replicate here. Buffering rules
+      // match the success path: if the wake never goes live (silent no-op),
+      // the rows are dropped so a stale `messageId IS NULL` row doesn't get
+      // mis-backfilled onto an unrelated future assistant message.
+      if (event.type === "provider_error") {
+        const record: PendingLog = {
+          rawRequest: event.rawRequest,
+          rawResponse: buildProviderErrorResponsePayload(event.error),
           provider: event.actualProvider,
         };
         if (mode === "buffering") {

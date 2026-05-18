@@ -6,6 +6,8 @@ import type { TranscriptTurn } from "../transcript";
 export const DEFAULT_SIMULATOR_MODEL = "claude-haiku-4-5-20251001";
 export const DEFAULT_MAX_TURNS = 100;
 export const MAX_OUTPUT_TOKENS = 8192;
+/** Clip length for the raw response body included in parse-failure diagnostics. */
+export const PARSE_FAILURE_BODY_CLIP = 2000;
 
 interface AnthropicMessage {
   role: "user" | "assistant";
@@ -30,6 +32,11 @@ interface ToolUsePart {
 }
 
 type ContentPart = TextPart | ToolUsePart;
+
+interface AnthropicResponseBody {
+  content?: ContentPart[];
+  stop_reason?: string;
+}
 
 function simulatorTurnCount(transcript: TranscriptTurn[]): number {
   return transcript.filter((turn) => turn.role === "simulator").length;
@@ -89,13 +96,45 @@ function toolDecision(parts: ContentPart[]): SimulatorDecision | undefined {
   };
 }
 
-function parseDecision(parts: ContentPart[]): SimulatorDecision {
-  const end = toolDecision(parts);
-  if (end) return end;
-  const send = textDecision(parts);
-  if (send) return send;
+function describeContentPart(part: ContentPart): string {
+  if (part.type === "text") {
+    if (part.text.length === 0) return "text(empty)";
+    if (part.text.trim().length === 0) {
+      return `text(whitespace, length=${part.text.length})`;
+    }
+    return `text(length=${part.text.length})`;
+  }
+  if (part.type === "tool_use") {
+    return `tool_use(name=${part.name})`;
+  }
+  return `type=${(part as { type?: string }).type ?? "unknown"}`;
+}
+
+function summarizeContentParts(parts: ContentPart[]): string {
+  if (parts.length === 0) return "[]";
+  return `[${parts.map(describeContentPart).join(", ")}]`;
+}
+
+function clipForDiagnostic(body: AnthropicResponseBody): string {
+  const json = JSON.stringify(body);
+  if (json.length <= PARSE_FAILURE_BODY_CLIP) return json;
+  const remaining = json.length - PARSE_FAILURE_BODY_CLIP;
+  return `${json.slice(0, PARSE_FAILURE_BODY_CLIP)}… (clipped ${remaining} chars)`;
+}
+
+function parseDecision(body: AnthropicResponseBody): SimulatorDecision {
+  const parts = body.content ?? [];
+  const decision = toolDecision(parts) ?? textDecision(parts);
+  if (decision) return decision;
+  // Surface enough structured info to triage what kind of response came back
+  // so we can intentionally handle each failure mode (empty content, hit
+  // max_tokens, whitespace-only text, unknown tool call, refusal, …) rather
+  // than blindly retrying.
   throw new Error(
-    "User simulator response did not include text or end_conversation tool call",
+    `User simulator response had no actionable content. ` +
+      `stop_reason=${body.stop_reason ?? "unknown"}, ` +
+      `parts=${summarizeContentParts(parts)}; ` +
+      `body: ${clipForDiagnostic(body)}`,
   );
 }
 
@@ -170,7 +209,6 @@ export class UserSimulator implements Simulator {
       );
     }
 
-    const body = (await response.json()) as { content?: ContentPart[] };
-    return parseDecision(body.content ?? []);
+    return parseDecision((await response.json()) as AnthropicResponseBody);
   }
 }

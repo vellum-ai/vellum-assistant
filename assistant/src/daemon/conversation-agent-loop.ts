@@ -72,6 +72,7 @@ import {
   queueRegenerateConversationTitle,
 } from "../memory/conversation-title-service.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import { backfillMessageIdOnLogs } from "../memory/llm-request-log-store.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
@@ -109,6 +110,7 @@ import type {
   MemoryResult,
   OverflowReduceArgs,
   OverflowReduceResult,
+  PersistAddResult,
   PersistArgs,
   PersistResult,
   TurnContext as PluginTurnContext,
@@ -2942,7 +2944,7 @@ export async function runAgentLoopImpl(
       const errorAssistantMessage = createAssistantMessage(
         state.providerErrorUserMessage,
       );
-      await runPipeline<PersistArgs, PersistResult>(
+      const errorPersistResult = (await runPipeline<PersistArgs, PersistResult>(
         "persistence",
         getMiddlewaresFor("persistence"),
         defaultPersistenceTerminal,
@@ -2955,9 +2957,30 @@ export async function runAgentLoopImpl(
         },
         buildPluginTurnContext(ctx, reqId),
         DEFAULT_TIMEOUTS.persistence,
-      );
+      )) as PersistAddResult;
       persistedErrorAssistantMessage = true;
       newMessages.push(errorAssistantMessage);
+      // Pipe the just-assigned message id into any orphaned LLM request log
+      // row(s) for this turn. The success path links rows via
+      // `handleMessageComplete` -> `backfillMessageIdOnLogs`, but provider-
+      // failure turns never fire `message_complete` (the synthetic assistant
+      // message is persisted directly above), so without this call the rows
+      // from `handleProviderError` stay with `message_id IS NULL` and a
+      // later turn's backfill sweep would wrong-attach them to that turn's
+      // assistant message. Scope is per-conversation, so concurrent runs on
+      // other conversations cannot collide. Non-fatal — a DB hiccup must
+      // not escalate a provider rejection into a turn-level throw.
+      try {
+        backfillMessageIdOnLogs(
+          ctx.conversationId,
+          errorPersistResult.message.id,
+        );
+      } catch (err) {
+        rlog.warn(
+          { err },
+          "Failed to backfill message_id on provider-error LLM request logs (non-fatal)",
+        );
+      }
       // Do NOT send assistant_text_delta here — handleProviderError already
       // emitted a conversation_error event for this same error text, and the
       // client renders it as an InlineChatErrorAlert. Sending a text delta

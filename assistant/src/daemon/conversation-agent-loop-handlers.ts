@@ -23,6 +23,7 @@ import {
 } from "../memory/conversation-crud.js";
 import {
   backfillMessageIdOnLogs,
+  buildProviderErrorResponsePayload,
   recordRequestLog,
 } from "../memory/llm-request-log-store.js";
 import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
@@ -1166,6 +1167,52 @@ function handleUsage(
   state.llmCallStartedEmitted = false;
 }
 
+/**
+ * Persist a provider-rejected LLM call as an `llm_request_logs` row.
+ *
+ * Mirrors `handleUsage`'s recording side-effect for the failure path: the
+ * loop only reaches the success branch (and emits `usage`) when the
+ * provider returns a response, so without this handler a rejected call
+ * leaves nothing in the inspector — only a pino line saying "The AI
+ * provider rejected the request." The row's `messageId` is left null
+ * here and linked via one of two backfill paths, depending on how the
+ * turn unwinds:
+ *
+ *   - Multi-call turn where a later call also produces a real assistant
+ *     response: `handleMessageComplete` -> `backfillMessageIdOnLogs`
+ *     sweeps this row with the rest, same as a successful-call row.
+ *   - Pure provider-failure turn (no real assistant response): the
+ *     synthetic error-message branch in `conversation-agent-loop.ts`
+ *     persists a stand-in assistant message and calls
+ *     `backfillMessageIdOnLogs` itself, since `message_complete` is
+ *     never emitted on that path. Closing the orphan window inside the
+ *     same synchronous turn prevents a later turn's sweep from wrong-
+ *     attaching this row to an unrelated assistant message.
+ *
+ * Failures inside the recording itself are logged and swallowed — this
+ * mirrors `handleUsage`'s non-fatal stance so a DB hiccup never escalates
+ * a provider rejection into a dispatcher-level throw.
+ */
+function handleProviderError(
+  deps: EventHandlerDeps,
+  event: Extract<AgentEvent, { type: "provider_error" }>,
+): void {
+  try {
+    recordRequestLog(
+      deps.ctx.conversationId,
+      JSON.stringify(event.rawRequest),
+      JSON.stringify(buildProviderErrorResponsePayload(event.error)),
+      undefined,
+      event.actualProvider,
+    );
+  } catch (err) {
+    deps.rlog.warn(
+      { err },
+      "Failed to persist provider-error LLM request log (non-fatal)",
+    );
+  }
+}
+
 // ── Dispatcher ───────────────────────────────────────────────────────
 
 /** Routes an AgentEvent to the appropriate handler. */
@@ -1253,6 +1300,9 @@ export async function dispatchAgentEvent(
       }
       case "error":
         handleError(state, deps, event);
+        break;
+      case "provider_error":
+        handleProviderError(deps, event);
         break;
       case "message_complete":
         await handleMessageComplete(state, deps, event);
