@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import type { Simulator, SimulatorDecision, SimulatorInput } from "./types";
 import type { TranscriptTurn } from "../transcript";
@@ -6,6 +7,15 @@ import type { TranscriptTurn } from "../transcript";
 export const DEFAULT_SIMULATOR_MODEL = "claude-haiku-4-5-20251001";
 export const DEFAULT_MAX_TURNS = 100;
 export const MAX_OUTPUT_TOKENS = 8192;
+/**
+ * Number of extra attempts to make when the model returns a response that
+ * has neither text nor an `end_conversation` tool call. Total attempts =
+ * 1 + DEFAULT_MAX_PARSE_RETRIES. Retries bump temperature off zero so we
+ * don't just resample the same deterministic broken response.
+ */
+export const DEFAULT_MAX_PARSE_RETRIES = 2;
+export const PARSE_RETRY_BASE_DELAY_MS = 250;
+export const PARSE_RETRY_TEMPERATURE = 0.3;
 
 interface AnthropicMessage {
   role: "user" | "assistant";
@@ -16,6 +26,7 @@ interface UserSimulatorOptions {
   apiKey?: string;
   model?: string;
   maxTurns?: number;
+  maxParseRetries?: number;
 }
 
 interface TextPart {
@@ -30,6 +41,11 @@ interface ToolUsePart {
 }
 
 type ContentPart = TextPart | ToolUsePart;
+
+interface AnthropicResponseBody {
+  content?: ContentPart[];
+  stop_reason?: string;
+}
 
 function simulatorTurnCount(transcript: TranscriptTurn[]): number {
   return transcript.filter((turn) => turn.role === "simulator").length;
@@ -89,20 +105,15 @@ function toolDecision(parts: ContentPart[]): SimulatorDecision | undefined {
   };
 }
 
-function parseDecision(parts: ContentPart[]): SimulatorDecision {
-  const end = toolDecision(parts);
-  if (end) return end;
-  const send = textDecision(parts);
-  if (send) return send;
-  throw new Error(
-    "User simulator response did not include text or end_conversation tool call",
-  );
+function tryParseDecision(parts: ContentPart[]): SimulatorDecision | undefined {
+  return toolDecision(parts) ?? textDecision(parts);
 }
 
 export class UserSimulator implements Simulator {
   private readonly apiKey: string;
   private readonly model: string;
   private readonly maxTurns: number;
+  private readonly maxParseRetries: number;
 
   constructor(opts: UserSimulatorOptions = {}) {
     const apiKey = opts.apiKey ?? process.env.ANTHROPIC_API_KEY;
@@ -114,6 +125,10 @@ export class UserSimulator implements Simulator {
     this.apiKey = apiKey;
     this.model = opts.model ?? DEFAULT_SIMULATOR_MODEL;
     this.maxTurns = opts.maxTurns ?? DEFAULT_MAX_TURNS;
+    this.maxParseRetries = Math.max(
+      0,
+      opts.maxParseRetries ?? DEFAULT_MAX_PARSE_RETRIES,
+    );
   }
 
   async decide(input: SimulatorInput): Promise<SimulatorDecision> {
@@ -126,6 +141,37 @@ export class UserSimulator implements Simulator {
     }
 
     const spec = await readFile(input.test.specPath, "utf8");
+    const messages = transcriptToSimulatorMessages(input.transcript);
+
+    let lastBody: AnthropicResponseBody | undefined;
+    for (let attempt = 0; attempt <= this.maxParseRetries; attempt++) {
+      // First attempt is deterministic (temperature 0). Retries bump
+      // temperature so we don't just re-sample the same broken response.
+      const temperature = attempt === 0 ? 0 : PARSE_RETRY_TEMPERATURE;
+      lastBody = await this.callAnthropic({ spec, messages, temperature });
+
+      const decision = tryParseDecision(lastBody.content ?? []);
+      if (decision) return decision;
+
+      if (attempt < this.maxParseRetries) {
+        await sleep(PARSE_RETRY_BASE_DELAY_MS * (attempt + 1));
+      }
+    }
+
+    const totalAttempts = this.maxParseRetries + 1;
+    throw new Error(
+      `User simulator response did not include text or end_conversation tool call ` +
+        `(after ${totalAttempts} attempt${totalAttempts === 1 ? "" : "s"}; ` +
+        `last stop_reason=${lastBody?.stop_reason ?? "unknown"}, ` +
+        `content parts=${lastBody?.content?.length ?? 0})`,
+    );
+  }
+
+  private async callAnthropic(args: {
+    spec: string;
+    messages: AnthropicMessage[];
+    temperature: number;
+  }): Promise<AnthropicResponseBody> {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -136,7 +182,7 @@ export class UserSimulator implements Simulator {
       body: JSON.stringify({
         model: this.model,
         max_tokens: MAX_OUTPUT_TOKENS,
-        temperature: 0,
+        temperature: args.temperature,
         system: [
           "You are the user simulator in an eval harness.",
           "You are controlling the user side of a conversation with the tested agent.",
@@ -146,9 +192,9 @@ export class UserSimulator implements Simulator {
           "Do not reveal hidden test answers unless the SPEC explicitly says to reveal them.",
           "",
           "SPEC:",
-          spec,
+          args.spec,
         ].join("\n"),
-        messages: transcriptToSimulatorMessages(input.transcript),
+        messages: args.messages,
         tools: [
           {
             name: "end_conversation",
@@ -170,7 +216,6 @@ export class UserSimulator implements Simulator {
       );
     }
 
-    const body = (await response.json()) as { content?: ContentPart[] };
-    return parseDecision(body.content ?? []);
+    return (await response.json()) as AnthropicResponseBody;
   }
 }
