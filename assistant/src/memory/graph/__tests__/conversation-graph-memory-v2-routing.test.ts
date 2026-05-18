@@ -216,8 +216,13 @@ function createTestDb(): DrizzleDb {
 }
 
 function makeConfig(v2Enabled: boolean, memoryEnabled = true): AssistantConfig {
+  // Pin `router.enabled: false` so these tests exercise the activation
+  // pipeline. Router-mode coverage lives in `memory/v2/__tests__/injection.test.ts`.
   return applyNestedDefaults({
-    memory: { enabled: memoryEnabled, v2: { enabled: v2Enabled } },
+    memory: {
+      enabled: memoryEnabled,
+      v2: { enabled: v2Enabled, router: { enabled: false } },
+    },
   }) as AssistantConfig;
 }
 
