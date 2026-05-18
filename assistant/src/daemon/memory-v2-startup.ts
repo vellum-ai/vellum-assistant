@@ -36,6 +36,19 @@ export function maybeSeedMemoryV2Skills(config: AssistantConfig): void {
 }
 
 /**
+ * Fire-and-forget seed of the v2 CLI-subcommand entries (indexed alongside
+ * concept pages and skills in `memory_v2_concept_pages` under the
+ * `cli-commands/<name>` slug prefix). Dynamic import keeps v2 code out of the
+ * startup graph when the gate is off. Never awaits — startup must not block.
+ */
+export function maybeSeedMemoryV2CliCommands(config: AssistantConfig): void {
+  if (!config.memory.v2.enabled) return;
+  void import("../memory/v2/cli-command-store.js")
+    .then(({ seedV2CliCommandEntries }) => seedV2CliCommandEntries())
+    .catch((err) => log.warn({ err }, "Failed to seed v2 CLI-command entries"));
+}
+
+/**
  * Build the v2 BM25 corpus stats (per-token document frequencies + avg doc
  * length), then re-seed the v2 skill entries so any skills written during
  * cold start with the legacy TF encoder get rewritten with stemmed BM25
@@ -70,18 +83,41 @@ export async function rebuildBm25CorpusStatsAndReseedSkills(
   }
 
   if (!config.memory.v2.enabled) return;
-  try {
-    const { seedV2SkillEntries } = await import("../memory/v2/skill-store.js");
-    await seedV2SkillEntries({ throwOnError: true });
-    log.info(
-      "Memory v2 skill embeddings re-seeded with BM25 vectors after corpus-stats build",
-    );
-  } catch (err) {
-    log.warn(
-      { err },
-      "Failed to re-seed v2 skill entries after BM25 corpus-stats build — skills seeded during cold start may keep TF-only sparse vectors until next reseed",
-    );
-  }
+
+  // Skills and CLI commands share the unified collection but are independent
+  // catalogs — reseed in parallel so the second one isn't gated on the first.
+  await Promise.all([
+    (async () => {
+      try {
+        const { seedV2SkillEntries } =
+          await import("../memory/v2/skill-store.js");
+        await seedV2SkillEntries({ throwOnError: true });
+        log.info(
+          "Memory v2 skill embeddings re-seeded with BM25 vectors after corpus-stats build",
+        );
+      } catch (err) {
+        log.warn(
+          { err },
+          "Failed to re-seed v2 skill entries after BM25 corpus-stats build — skills seeded during cold start may keep TF-only sparse vectors until next reseed",
+        );
+      }
+    })(),
+    (async () => {
+      try {
+        const { seedV2CliCommandEntries } =
+          await import("../memory/v2/cli-command-store.js");
+        await seedV2CliCommandEntries({ throwOnError: true });
+        log.info(
+          "Memory v2 CLI-command embeddings re-seeded with BM25 vectors after corpus-stats build",
+        );
+      } catch (err) {
+        log.warn(
+          { err },
+          "Failed to re-seed v2 CLI-command entries after BM25 corpus-stats build — entries seeded during cold start may keep TF-only sparse vectors until next reseed",
+        );
+      }
+    })(),
+  ]);
 }
 
 /**

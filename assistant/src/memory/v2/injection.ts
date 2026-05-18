@@ -38,6 +38,10 @@ import {
   spreadActivation,
 } from "./activation.js";
 import { hydrate, save } from "./activation-store.js";
+import {
+  getCliCommandCapability,
+  isCliCommandSlug,
+} from "./cli-command-store.js";
 import { getEdgeIndex } from "./edge-index.js";
 import { readPage, renderPageContent } from "./page-store.js";
 import { runRouter } from "./router.js";
@@ -355,20 +359,22 @@ async function finalizeInjection(args: {
   // on that user message and the agent keeps seeing it across subsequent turns
   // until compaction evicts the turn.
   //
-  // Skill slugs whose in-process cache entry is missing (e.g. startup race
-  // between the skill seed and the first turn, or stale Qdrant index pointing
-  // at an uninstalled skill) are excluded from `everInjected` so future
-  // per-turn runs re-attempt attachment once the cache is populated. Without
-  // this, the slug would be marked injected even though `renderInjectionBlock`
-  // silently dropped it.
-  const missingSkillSlugs = new Set(
+  // Synthetic slugs (skills, CLI commands) whose in-process cache entry is
+  // missing (e.g. startup race between the seed and the first turn, or stale
+  // Qdrant index pointing at an uninstalled skill / removed CLI command) are
+  // excluded from `everInjected` so future per-turn runs re-attempt attachment
+  // once the cache is populated. Without this, the slug would be marked
+  // injected even though `renderInjectionBlock` silently dropped it.
+  const missingSyntheticSlugs = new Set(
     slugsToRender.filter(
-      (slug) => isSkillSlug(slug) && !getSkillCapability(slug),
+      (slug) =>
+        (isSkillSlug(slug) && !getSkillCapability(slug)) ||
+        (isCliCommandSlug(slug) && !getCliCommandCapability(slug)),
     ),
   );
   const everInjectedSet = new Set(priorEverInjected.map((entry) => entry.slug));
   const newlyInjected = slugsToRender.filter(
-    (slug) => !everInjectedSet.has(slug) && !missingSkillSlugs.has(slug),
+    (slug) => !everInjectedSet.has(slug) && !missingSyntheticSlugs.has(slug),
   );
   const nextEverInjected: EverInjectedEntry[] = [
     ...priorEverInjected,
@@ -728,18 +734,18 @@ const INJECTION_HEADER =
  * distinguish "file vanished" (stale index) from "file is malformed"
  * (data-corruption / programmer error).
  *
- * Skill slugs whose entry the cache no longer knows (e.g. uninstalled
- * mid-run) are silently dropped, mirroring the missing-pages behavior but
- * without entering `missingSlugs` — the skill catalog is the source of
- * truth for skill availability, not on-disk concept pages, so a missing
- * skill is an expected catalog-level outcome rather than a stale-index
- * bug.
+ * Skill and CLI-command slugs whose entry the in-process cache no longer
+ * knows (e.g. uninstalled mid-run, or a CLI command removed between seeds)
+ * are silently dropped, mirroring the missing-pages behavior but without
+ * entering `missingSlugs` — the synthetic catalogs are the source of truth
+ * for those entries, not on-disk concept pages.
  *
  * Each concept-page section is rendered as a path header followed by either
  * the page's `summary` (when present in frontmatter) or the full page (the
- * fallback for pages predating the summary field). Skills sit at the end
- * under `### Skills You Can Use`, unchanged. The leading `**CRITICAL:**`
- * line tells the agent how to read the block.
+ * fallback for pages predating the summary field). Skills sit after the
+ * concept sections under `### Skills You Can Use`, and CLI subcommands sit
+ * after the skills under `### CLI Commands You Can Use`. The leading
+ * `**CRITICAL:**` line tells the agent how to read the block.
  *
  *   **CRITICAL:** These are page summaries. Read the page file if it looks relevant.
  *
@@ -758,13 +764,23 @@ const INJECTION_HEADER =
  *   ### Skills You Can Use
  *   - <skill-1 content>
  *   - <skill-2 content>
+ *
+ *   ### CLI Commands You Can Use
+ *   - `assistant <name-1>`: <description-1>
+ *   - `assistant <name-2>`: <description-2>
  */
 async function renderInjectionBlock(
   workspaceDir: string,
   slugs: string[],
 ): Promise<RenderInjectionBlockResult> {
-  const conceptSlugs = slugs.filter((s) => !isSkillSlug(s));
-  const skillSlugs = slugs.filter((s) => isSkillSlug(s));
+  const conceptSlugs: string[] = [];
+  const skillSlugs: string[] = [];
+  const cliCommandSlugs: string[] = [];
+  for (const slug of slugs) {
+    if (isSkillSlug(slug)) skillSlugs.push(slug);
+    else if (isCliCommandSlug(slug)) cliCommandSlugs.push(slug);
+    else conceptSlugs.push(slug);
+  }
 
   const settled = await Promise.allSettled(
     conceptSlugs.map((slug) => readPage(workspaceDir, slug)),
@@ -813,6 +829,20 @@ async function renderInjectionBlock(
   }
   if (skillLines.length > 0) {
     sections.push(`### Skills You Can Use\n${skillLines.join("\n")}`);
+  }
+
+  const cliCommandLines: string[] = [];
+  for (const slug of cliCommandSlugs) {
+    const entry = getCliCommandCapability(slug);
+    if (!entry) continue;
+    cliCommandLines.push(
+      `- \`assistant ${entry.id}\`: ${entry.description} (run \`assistant ${entry.id} --help\` for full usage)`,
+    );
+  }
+  if (cliCommandLines.length > 0) {
+    sections.push(
+      `### CLI Commands You Can Use\n${cliCommandLines.join("\n")}`,
+    );
   }
 
   if (sections.length === 0) {
