@@ -20,7 +20,6 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../../../config/loader.js";
-import { findContactByAddress } from "../../../contacts/contact-store.js";
 import { getSqlite } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import { clearA2AConfig, getA2AConfig, setA2AConfig } from "../config-a2a.js";
@@ -92,72 +91,5 @@ describe("clearA2AConfig", () => {
     const result = clearA2AConfig();
     expect(result.success).toBe(true);
     expect(result.enabled).toBe(false);
-  });
-});
-
-describe("connectToAssistant", () => {
-  beforeEach(() => {
-    resetTables();
-  });
-
-  test("returns error when gatewayUrl is not provided and handle cannot be resolved", async () => {
-    const { connectToAssistant } = await import("../config-a2a.js");
-    const result = await connectToAssistant({
-      guardianHandle: "peer-assistant",
-    });
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("gatewayUrl");
-  });
-
-  test("detects duplicate connection and returns alreadyConnected", async () => {
-    // Manually create a contact with an a2a channel to simulate existing connection
-    const { upsertContact } =
-      await import("../../../contacts/contact-store.js");
-    upsertContact({
-      displayName: "Peer Bot",
-      contactType: "assistant",
-      role: "contact",
-      channels: [
-        {
-          type: "a2a",
-          address: "peer-handle",
-          externalUserId: "peer-handle",
-          status: "active",
-          policy: "allow",
-        },
-      ],
-    });
-
-    // Verify the contact exists
-    const existing = findContactByAddress("a2a", "peer-handle");
-    expect(existing).not.toBeNull();
-
-    // Mock resolveGuardianHandle to return matching data
-    const { connectToAssistant } = await import("../config-a2a.js");
-
-    // We need to mock the fetch for the agent card
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: string) => {
-      if (url.includes("agent-card.json")) {
-        return new Response(JSON.stringify({ name: "Peer Bot" }), {
-          status: 200,
-        });
-      }
-      // Return success for message:send
-      return new Response(JSON.stringify({ task: { id: "t1" } }), {
-        status: 200,
-      });
-    }) as typeof fetch;
-
-    try {
-      const result = await connectToAssistant({
-        guardianHandle: "peer-handle",
-        gatewayUrl: "https://peer.example.com",
-      });
-      expect(result.success).toBe(true);
-      expect(result.alreadyConnected).toBe(true);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
   });
 });

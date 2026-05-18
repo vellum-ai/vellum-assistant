@@ -1,18 +1,22 @@
 /**
  * Route handlers for A2A integration config endpoints.
  *
- * GET    /v1/integrations/a2a/config    — get current A2A config status
- * POST   /v1/integrations/a2a/config    — enable A2A channel
- * DELETE /v1/integrations/a2a/config    — disable A2A channel
- * POST   /v1/integrations/a2a/connect   — initiate connection to a peer assistant
+ * GET    /v1/integrations/a2a/config          — get current A2A config status
+ * POST   /v1/integrations/a2a/config          — enable A2A channel
+ * DELETE /v1/integrations/a2a/config          — disable A2A channel
+ * POST   /v1/integrations/a2a/invite          — create a shareable A2A invite token
+ * POST   /v1/integrations/a2a/invite/complete — sender-side invite completion
+ * POST   /v1/integrations/a2a/invite/redeem   — receiver-side invite redemption
  */
 
 import { isA2AEnabled } from "../../../a2a/feature-gate.js";
 import { getConfig } from "../../../config/loader.js";
 import {
   clearA2AConfig,
-  connectToAssistant,
+  completeA2AInvite,
+  createA2AInvite,
   getA2AConfig,
+  redeemA2AInvite,
   setA2AConfig,
 } from "../../../daemon/handlers/config-a2a.js";
 import { BadRequestError } from "../errors.js";
@@ -51,18 +55,111 @@ function handleClearA2AConfig() {
   return clearA2AConfig();
 }
 
-async function handleConnectToAssistant({ body = {} }: RouteHandlerArgs) {
+function handleCreateA2AInvite({ body = {} }: RouteHandlerArgs) {
   assertA2AFlag();
-  const { guardianHandle, gatewayUrl } = body as {
-    guardianHandle?: string;
-    gatewayUrl?: string;
-  };
-  if (!guardianHandle) {
-    throw new BadRequestError("guardianHandle is required");
+  const { expiresInHours } = body as { expiresInHours?: unknown };
+  if (expiresInHours !== undefined) {
+    if (
+      typeof expiresInHours !== "number" ||
+      !Number.isFinite(expiresInHours) ||
+      expiresInHours <= 0
+    ) {
+      throw new BadRequestError(
+        "expiresInHours must be a positive finite number",
+      );
+    }
   }
-  const result = await connectToAssistant({ guardianHandle, gatewayUrl });
+  const result = createA2AInvite({
+    expiresInHours: expiresInHours as number | undefined,
+  });
   if (!result.success) {
-    throw new BadRequestError(result.error ?? "Failed to connect to assistant");
+    throw new BadRequestError(result.error ?? "Failed to create A2A invite");
+  }
+  return result;
+}
+
+function handleCompleteA2AInvite({ body = {} }: RouteHandlerArgs) {
+  const { token, senderAssistantId, acceptor } = body as {
+    token?: unknown;
+    senderAssistantId?: unknown;
+    acceptor?: {
+      assistantId?: unknown;
+      displayName?: unknown;
+      gatewayUrl?: unknown;
+    };
+  };
+
+  if (typeof token !== "string" || !token) {
+    throw new BadRequestError(
+      "token is required and must be a non-empty string",
+    );
+  }
+  if (typeof senderAssistantId !== "string" || !senderAssistantId) {
+    throw new BadRequestError(
+      "senderAssistantId is required and must be a non-empty string",
+    );
+  }
+  if (
+    !acceptor ||
+    typeof acceptor.assistantId !== "string" ||
+    !acceptor.assistantId ||
+    typeof acceptor.displayName !== "string" ||
+    !acceptor.displayName ||
+    typeof acceptor.gatewayUrl !== "string" ||
+    !acceptor.gatewayUrl
+  ) {
+    throw new BadRequestError(
+      "acceptor must include non-empty assistantId, displayName, and gatewayUrl",
+    );
+  }
+
+  const result = completeA2AInvite({
+    token,
+    senderAssistantId,
+    acceptor: {
+      assistantId: acceptor.assistantId,
+      displayName: acceptor.displayName,
+      gatewayUrl: acceptor.gatewayUrl,
+    },
+  });
+  if (!result.success) {
+    throw new BadRequestError(result.error ?? "Failed to complete A2A invite");
+  }
+  return result;
+}
+
+function handleRedeemA2AInvite({ body = {} }: RouteHandlerArgs) {
+  const { sender } = body as {
+    sender?: {
+      assistantId?: unknown;
+      displayName?: unknown;
+      gatewayUrl?: unknown;
+    };
+  };
+
+  if (
+    !sender ||
+    typeof sender.assistantId !== "string" ||
+    !sender.assistantId ||
+    typeof sender.displayName !== "string" ||
+    !sender.displayName ||
+    typeof sender.gatewayUrl !== "string" ||
+    !sender.gatewayUrl
+  ) {
+    throw new BadRequestError(
+      "sender must include non-empty assistantId, displayName, and gatewayUrl",
+    );
+  }
+
+  const result = redeemA2AInvite({
+    sender: {
+      assistantId: sender.assistantId,
+      displayName: sender.displayName,
+      gatewayUrl: sender.gatewayUrl,
+    },
+  });
+  if (!result.success) {
+    throw new BadRequestError(result.error ?? "Failed to redeem A2A invite");
   }
   return result;
 }
@@ -103,14 +200,36 @@ export const ROUTES: RouteDefinition[] = [
     handler: () => handleClearA2AConfig(),
   },
   {
-    operationId: "integrations_a2a_connect_post",
-    endpoint: "integrations/a2a/connect",
+    operationId: "integrations_a2a_invite_post",
+    endpoint: "integrations/a2a/invite",
     method: "POST",
-    summary: "Connect to assistant",
+    summary: "Create A2A invite",
     description:
-      "Initiate an A2A connection to a peer assistant by guardian handle.",
+      "Create a shareable A2A invite token for link-based contact creation.",
     tags: ["integrations"],
     requirePolicyEnforcement: true,
-    handler: handleConnectToAssistant,
+    handler: handleCreateA2AInvite,
+  },
+  {
+    operationId: "integrations_a2a_invite_complete_post",
+    endpoint: "integrations/a2a/invite/complete",
+    method: "POST",
+    summary: "Complete A2A invite (sender side)",
+    description:
+      "Called by the platform to finalize the sender side of a link-based A2A connection.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleCompleteA2AInvite,
+  },
+  {
+    operationId: "integrations_a2a_invite_redeem_post",
+    endpoint: "integrations/a2a/invite/redeem",
+    method: "POST",
+    summary: "Redeem A2A invite (receiver side)",
+    description:
+      "Called by the platform to create a trusted contact on the receiver side of a link-based A2A connection.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleRedeemA2AInvite,
   },
 ];
