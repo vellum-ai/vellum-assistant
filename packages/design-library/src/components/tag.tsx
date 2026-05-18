@@ -123,7 +123,10 @@ export const Tag = forwardRef<HTMLSpanElement, TagProps>(function Tag(
         <button
           type="button"
           aria-label={removeLabel}
-          onClick={onRemove}
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove(event);
+          }}
           className={cn(
             "inline-flex items-center justify-center rounded-full",
             "h-3.5 w-3.5 -mr-0.5 cursor-pointer",
