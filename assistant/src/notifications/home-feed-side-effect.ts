@@ -25,6 +25,7 @@ import type { NotificationSignal } from "./signal.js";
 import type {
   NotificationDecision,
   NotificationDeliveryResult,
+  RenderedChannelCopy,
 } from "./types.js";
 
 const log = getLogger("home-feed-side-effect");
@@ -51,9 +52,14 @@ export async function writeHomeFeedItemForSignal(
 ): Promise<FeedItem | null> {
   if (!shouldMirrorToHomeFeed(signal)) return null;
 
-  const renderedCopy = decision.renderedCopy.vellum;
-  const payloadTitle = readPayloadString(signal.contextPayload, "title");
-  const payloadBody = readPayloadString(signal.contextPayload, "body");
+  const renderedCopy =
+    decision.renderedCopy.vellum ?? firstRenderedCopy(decision.renderedCopy);
+  const payloadTitle =
+    readPayloadString(signal.contextPayload, "title") ??
+    readPayloadString(signal.contextPayload, "requestedTitle");
+  const payloadBody =
+    readPayloadString(signal.contextPayload, "body") ??
+    readPayloadString(signal.contextPayload, "requestedMessage");
 
   const resolvedTitle =
     renderedCopy?.title?.trim() || payloadTitle?.trim() || "";
@@ -184,6 +190,15 @@ function readPayloadString(payload: unknown, key: string): string | undefined {
   if (!payload || typeof payload !== "object") return undefined;
   const value = (payload as Record<string, unknown>)[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function firstRenderedCopy(
+  renderedCopy: NotificationDecision["renderedCopy"],
+): RenderedChannelCopy | undefined {
+  for (const copy of Object.values(renderedCopy)) {
+    if (copy && (copy.title?.trim() || copy.body?.trim())) return copy;
+  }
+  return undefined;
 }
 
 // ── Noteworthy derivation ─────────────────────────────────────────────

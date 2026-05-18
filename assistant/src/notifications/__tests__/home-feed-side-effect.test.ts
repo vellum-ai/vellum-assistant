@@ -285,6 +285,58 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls).toHaveLength(0);
   });
 
+  test("falls back to a non-vellum channel's rendered copy when vellum copy is absent", async () => {
+    // Regression: when `preferredChannels` narrows an assistant_tool signal
+    // to a non-vellum channel (e.g. telegram), the broadcaster ships real
+    // copy on that channel but `renderedCopy.vellum` is undefined. The
+    // guard must still write to the home feed using the first available
+    // rendered copy entry rather than skipping silently.
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "assistant.share",
+      sourceContextId: "cli-12345",
+    });
+    const decision = makeDecision({
+      selectedChannels: ["telegram"],
+      renderedCopy: {
+        telegram: { title: "Telegram title", body: "Telegram body" },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision, []);
+
+    expect(item).not.toBeNull();
+    expect(appendCalls).toHaveLength(1);
+    expect(appendCalls[0]!.title).toBe("Telegram title");
+    expect(appendCalls[0]!.summary).toBe("Telegram body");
+  });
+
+  test("falls back to requestedTitle/requestedMessage payload keys", async () => {
+    // Regression: the `notifications send` CLI surface stores the
+    // user-supplied copy on the signal payload under `requestedTitle` and
+    // `requestedMessage`. If the decision strips renderedCopy.vellum (e.g.
+    // routed only to a non-vellum channel that also lacks renderedCopy),
+    // the home-feed guard must still recover the copy from the payload.
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "assistant.share",
+      sourceContextId: "cli-12345",
+      contextPayload: {
+        requestedTitle: "Requested title",
+        requestedMessage: "Requested message body",
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+
+    expect(item).not.toBeNull();
+    expect(appendCalls).toHaveLength(1);
+    expect(appendCalls[0]!.title).toBe("Requested title");
+    expect(appendCalls[0]!.summary).toBe("Requested message body");
+  });
+
   test("uses payload title/body when rendered copy is absent", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
