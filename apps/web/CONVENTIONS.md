@@ -18,6 +18,31 @@ The web app is a **Vite + React Router v7 SPA** using
 [`apps/web/README.md`](./README.md) for the full stack description and
 local development commands.
 
+### Why Data mode, not Framework mode
+
+React Router v7 offers three usage modes — Declarative, Data, and
+Framework — each adding features
+[at the cost of architectural control](https://reactrouter.com/start/modes).
+We chose **Data mode** deliberately:
+
+| Concern | Why Data mode wins |
+|---------|-------------------|
+| **Open-source distribution** | Standard Vite SPA build (`bun run build` → static `dist/` → serve anywhere). No server runtime, no deployment adapter, no `@react-router/dev` plugin required for consumers. |
+| **No framework tax** | The whole reason for leaving Next.js was to stop paying framework overhead we don't use. Framework mode is another framework layer — Data mode is just a library. |
+| **No SSR needed** | Framework mode's primary differentiator is SSR/SSG. This app requires auth (no SEO benefit), runs behind Caddy, and has a Django API backend. |
+| **Build pipeline control** | Framework mode replaces `@vitejs/plugin-react` with its own Vite plugin. Data mode keeps a standard Vite setup — full control over Tailwind v4 integration, design library resolution, path aliases, etc. |
+| **Monorepo flexibility** | Framework mode imposes file structure opinions (`app/`, `routes.ts`, `root.tsx`, `entry.client.tsx`). Data mode lets us keep our own directory layout. |
+| **Incremental migration** | Add routes to `createBrowserRouter` one at a time — no Route Module API restructuring required. |
+
+**What we "lose":** type-safe `href` (compile-time link validation). Everything
+else — loaders, actions, code splitting (via `lazy` route property), nested
+routes — works in Data mode.
+
+References:
+- [React Router — Picking a Mode](https://reactrouter.com/start/modes)
+- [React Router — Custom Framework (Data Mode)](https://reactrouter.com/start/data/custom)
+- [React Router — Framework Adoption from RouterProvider](https://github.com/remix-run/react-router/blob/main/docs/upgrading/router-provider.md) — shows what migrating TO Framework mode entails
+
 ### Route-driven component boundaries
 
 Each route should only mount the hooks and state it actually needs.
