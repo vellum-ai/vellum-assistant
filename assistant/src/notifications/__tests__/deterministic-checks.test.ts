@@ -195,6 +195,35 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
     expect(result.reason).toContain("fallback leak");
   });
 
+  test("fails when no selected channel has copy and fallback body is empty", async () => {
+    // Silent-no-delivery guard: if every selected channel is missing from
+    // renderedCopy AND the broadcaster's composeFallbackCopy can't produce
+    // a usable body (no template for sourceEventName → buildGenericCopy
+    // returns body=""), the gate must fail-closed rather than letting
+    // dispatchDecision report 0/N sent.
+    const signal = makeSignal({ sourceEventName: "user.send_notification" });
+    const decision = makeDecision({
+      selectedChannels: ["vellum"],
+      renderedCopy: {},
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("fallback");
+  });
+
+  test("passes when no selected channel has copy but fallback yields a usable body", async () => {
+    // schedule.notify has a copy-composer template that produces a usable
+    // body even with empty payload — the broadcaster's fallback path will
+    // deliver, so the deterministic gate must allow it through.
+    const signal = makeSignal({ sourceEventName: "schedule.notify" });
+    const decision = makeDecision({
+      selectedChannels: ["vellum"],
+      renderedCopy: {},
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(true);
+  });
+
   test("passes when shouldNotify is false regardless of copy contents", async () => {
     const signal = makeSignal({ sourceEventName: "user.send_notification" });
     const decision = makeDecision({
