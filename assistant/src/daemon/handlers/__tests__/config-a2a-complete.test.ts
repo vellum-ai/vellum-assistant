@@ -80,11 +80,13 @@ describe("completeA2AInvite", () => {
 
     const result = completeA2AInvite({
       token: created.token!,
+      senderAssistantId: "sender-platform-id-789",
       acceptor: ACCEPTOR,
     });
 
     expect(result.success).toBe(true);
     expect(result.sender).toBeDefined();
+    expect(result.sender!.assistantId).toBe("sender-platform-id-789");
     expect(result.sender!.gatewayUrl).toBe("https://sender.example.com");
     expect(result.sender!.displayName).toBeDefined();
     expect(result.error).toBeUndefined();
@@ -111,6 +113,7 @@ describe("completeA2AInvite", () => {
 
     const result = completeA2AInvite({
       token: created.token!,
+      senderAssistantId: "sender-platform-id-789",
       acceptor: acceptorWithUppercase,
     });
     expect(result.success).toBe(true);
@@ -125,6 +128,7 @@ describe("completeA2AInvite", () => {
     const created = createA2AInvite({});
     const result = completeA2AInvite({
       token: created.token!,
+      senderAssistantId: "sender-platform-id-789",
       acceptor: ACCEPTOR,
     });
     expect(result.success).toBe(true);
@@ -142,6 +146,7 @@ describe("completeA2AInvite", () => {
   test("invalid token returns not_found error", () => {
     const result = completeA2AInvite({
       token: "invalid-token-that-does-not-exist",
+      senderAssistantId: "sender-platform-id-789",
       acceptor: ACCEPTOR,
     });
 
@@ -164,6 +169,7 @@ describe("completeA2AInvite", () => {
 
     const result = completeA2AInvite({
       token: created.token!,
+      senderAssistantId: "sender-platform-id-789",
       acceptor: ACCEPTOR,
     });
 
@@ -178,6 +184,7 @@ describe("completeA2AInvite", () => {
     // First completion
     const first = completeA2AInvite({
       token: created.token!,
+      senderAssistantId: "sender-platform-id-789",
       acceptor: ACCEPTOR,
     });
     expect(first.success).toBe(true);
@@ -185,6 +192,7 @@ describe("completeA2AInvite", () => {
     // Second completion with same acceptor
     const second = completeA2AInvite({
       token: created.token!,
+      senderAssistantId: "sender-platform-id-789",
       acceptor: ACCEPTOR,
     });
     expect(second.success).toBe(true);
@@ -197,6 +205,7 @@ describe("completeA2AInvite", () => {
     // First completion
     const first = completeA2AInvite({
       token: created.token!,
+      senderAssistantId: "sender-platform-id-789",
       acceptor: ACCEPTOR,
     });
     expect(first.success).toBe(true);
@@ -204,6 +213,7 @@ describe("completeA2AInvite", () => {
     // Second completion with different acceptor
     const second = completeA2AInvite({
       token: created.token!,
+      senderAssistantId: "sender-platform-id-789",
       acceptor: {
         assistantId: "different-assistant-456",
         displayName: "Different Bot",

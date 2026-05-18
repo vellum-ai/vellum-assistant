@@ -150,6 +150,7 @@ export function createA2AInvite(params: {
 
 export function completeA2AInvite(params: {
   token: string;
+  senderAssistantId: string;
   acceptor: {
     assistantId: string;
     displayName: string;
@@ -203,7 +204,6 @@ export function completeA2AInvite(params: {
     })
     .run();
 
-  // Resolve this assistant's identity for the response
   const displayName = getAssistantName() ?? "Vellum Assistant";
   let gatewayUrl: string;
   try {
@@ -211,11 +211,14 @@ export function completeA2AInvite(params: {
   } catch {
     gatewayUrl = "";
   }
-  const assistantId = displayName;
 
   return {
     success: true,
-    sender: { assistantId, displayName, gatewayUrl },
+    sender: {
+      assistantId: params.senderAssistantId,
+      displayName,
+      gatewayUrl,
+    },
   };
 }
 
