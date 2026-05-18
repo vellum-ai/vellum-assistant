@@ -6,7 +6,6 @@ metadata:
   emoji: "🧬"
   vellum:
     display-name: "Species Migration"
-    feature-flag: species-migration
     activation-hints:
       - "User wants to migrate from OpenClaw, Hermes, Manus, or another assistant species into Vellum"
       - "User has an assistant export, workspace, prompt bundle, memory dump, tool config, or migration request from another assistant system"

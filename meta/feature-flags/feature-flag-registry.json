@@ -282,14 +282,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "species-migration",
-      "scope": "assistant",
-      "key": "species-migration",
-      "label": "Species Migration",
-      "description": "Enable the Species Migration skill for migrating from OpenClaw, Hermes, Manus, and other assistant species into Vellum.",
-      "defaultEnabled": false
-    },
-    {
       "id": "analyze-conversation",
       "scope": "assistant",
       "key": "analyze-conversation",
