@@ -215,17 +215,21 @@ extension MainWindowView {
             store: homeStore,
             feedStore: feedStore,
             meetStatusViewModel: meetStatusViewModel,
-            onFeedConversationOpened: { conversationId in
-                guard let uuid = UUID(uuidString: conversationId) else {
-                    panelCoordinatorLog.error(
-                        "HomeFeed: daemon returned non-UUID conversationId \(conversationId, privacy: .public); cannot navigate"
-                    )
-                    windowState.showToast(message: "Couldn't open the conversation.", style: .error)
-                    return
-                }
+            onFeedConversationOpened: { daemonConversationId in
                 activeHomeDetailPanel = nil
                 onDismiss()
-                windowState.selection = .conversation(uuid)
+                Task { @MainActor in
+                    let found = await conversationManager.selectConversationByConversationIdAsync(daemonConversationId)
+                    let activeLocalId = conversationManager.activeConversationId
+                    panelCoordinatorLog.info(
+                        "HomeFeed: opened conversation daemonConversationId=\(daemonConversationId, privacy: .public) found=\(found, privacy: .public) activeLocalId=\(activeLocalId?.uuidString ?? "<nil>", privacy: .public)"
+                    )
+                    guard found, let id = activeLocalId else {
+                        windowState.showToast(message: "Couldn't open the conversation.", style: .error)
+                        return
+                    }
+                    windowState.selection = .conversation(id)
+                }
             },
             onStartNewChat: {
                 activeHomeDetailPanel = nil
