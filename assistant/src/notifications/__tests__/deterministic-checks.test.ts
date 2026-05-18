@@ -165,4 +165,50 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
     const result = await runDeterministicChecks(signal, decision, context);
     expect(result.passed).toBe(true);
   });
+
+  test("passes assistant_tool pass-through even when body matches normalized event name", async () => {
+    // The pass-through path produces verbatim user-supplied body text.
+    // A coincidental match with the source event name is the user's
+    // intent, not a fallback leak — the check must not suppress it.
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "assistant.share",
+    });
+    const decision = makeDecision({
+      reasoningSummary: "assistant_tool pass-through",
+      renderedCopy: {
+        vellum: { title: "Assistant share", body: "assistant share" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(true);
+  });
+
+  test("fails assistant_tool pass-through with empty body (empty-body branch still fires)", async () => {
+    const signal = makeSignal({ sourceChannel: "assistant_tool" });
+    const decision = makeDecision({
+      reasoningSummary: "assistant_tool pass-through",
+      renderedCopy: {
+        vellum: { title: "Reminder", body: "" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("empty");
+  });
+
+  test("still fails non-pass-through decision when body matches event name", async () => {
+    // Regression guard: the pass-through short-circuit must not weaken
+    // the check for LLM/fallback paths.
+    const signal = makeSignal({ sourceEventName: "user.send_notification" });
+    const decision = makeDecision({
+      reasoningSummary: "llm classification",
+      renderedCopy: {
+        vellum: { title: "Reminder", body: "user.send_notification" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("fallback leak");
+  });
 });

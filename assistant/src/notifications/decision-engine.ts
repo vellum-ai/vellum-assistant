@@ -832,11 +832,37 @@ export async function evaluateSignal(
     const isUrgent =
       signal.attentionHints.urgency === "critical" ||
       signal.attentionHints.urgency === "high";
-    const selectedChannels = isUrgent
+    const defaultChannels: NotificationChannel[] = isUrgent
       ? [...availableChannels]
       : availableChannels.includes("vellum")
         ? ["vellum" as NotificationChannel]
         : [];
+    // Honor `--preferred-channels` when supplied: intersect with the
+    // available channel set so we never try to deliver on something
+    // disconnected. If the intersection is empty, fall back to the
+    // default channel set rather than producing a no-deliver decision.
+    const preferredChannelsRaw = Array.isArray(payload.preferredChannels)
+      ? (payload.preferredChannels as unknown[]).filter(
+          (c): c is string => typeof c === "string",
+        )
+      : undefined;
+    let selectedChannels = defaultChannels;
+    if (preferredChannelsRaw && preferredChannelsRaw.length > 0) {
+      const availableSet = new Set<string>(availableChannels);
+      const preferredAvailable = preferredChannelsRaw.filter((c) =>
+        availableSet.has(c),
+      ) as NotificationChannel[];
+      if (preferredAvailable.length > 0) {
+        selectedChannels = preferredAvailable;
+      }
+    }
+    // Thread `--deep-link-metadata` through when supplied as a plain object.
+    const deepLinkTarget =
+      payload.deepLinkMetadata != null &&
+      typeof payload.deepLinkMetadata === "object" &&
+      !Array.isArray(payload.deepLinkMetadata)
+        ? (payload.deepLinkMetadata as Record<string, unknown>)
+        : undefined;
     let decision: NotificationDecision = {
       shouldNotify: selectedChannels.length > 0,
       selectedChannels,
@@ -850,6 +876,7 @@ export async function evaluateSignal(
       dedupeKey: signal.signalId,
       confidence: 1.0,
       fallbackUsed: false,
+      ...(deepLinkTarget ? { deepLinkTarget } : {}),
     };
     decision = enforceGuardianRequestCode(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
