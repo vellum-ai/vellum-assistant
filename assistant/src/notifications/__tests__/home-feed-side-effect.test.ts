@@ -265,4 +265,102 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(item?.summary).toBe("Payload body");
     expect(appendCalls).toHaveLength(1);
   });
+
+  // ── noteworthy derivation ────────────────────────────────────────────
+
+  test("assistant_tool source marks the feed item noteworthy", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "user.send_notification",
+      contextPayload: { title: "Tool share", body: "Body" },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+
+    expect(item?.noteworthy).toBe(true);
+    expect(appendCalls[0]!.noteworthy).toBe(true);
+  });
+
+  test("scheduler source with schedule.notify is not noteworthy", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "scheduler",
+      sourceEventName: "schedule.notify",
+      contextPayload: { title: "Reminder", body: "Time to do thing" },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+
+    expect(item?.noteworthy).toBe(false);
+    expect(appendCalls[0]!.noteworthy).toBe(false);
+  });
+
+  test("assistant_tool source with guardian.question event still wins (noteworthy true)", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "guardian.question",
+      contextPayload: { title: "Question", body: "Approve?" },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+
+    expect(item?.noteworthy).toBe(true);
+    expect(appendCalls[0]!.noteworthy).toBe(true);
+  });
+
+  test("activity.failed with critical urgency is noteworthy", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "scheduler",
+      sourceEventName: "activity.failed",
+      contextPayload: { title: "Job failed", body: "Critical failure" },
+      attentionHints: {
+        requiresAction: false,
+        urgency: "critical",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+
+    expect(item?.noteworthy).toBe(true);
+    expect(appendCalls[0]!.noteworthy).toBe(true);
+  });
+
+  test("activity.failed with low urgency is not noteworthy", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "scheduler",
+      sourceEventName: "activity.failed",
+      contextPayload: { title: "Job failed", body: "Routine failure" },
+      attentionHints: {
+        requiresAction: false,
+        urgency: "low",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+
+    expect(item?.noteworthy).toBe(false);
+    expect(appendCalls[0]!.noteworthy).toBe(false);
+  });
+
+  test("credential.health_alert is noteworthy regardless of source channel", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "watcher",
+      sourceEventName: "credential.health_alert",
+      contextPayload: { title: "Credential expired", body: "Reconnect" },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+
+    expect(item?.noteworthy).toBe(true);
+    expect(appendCalls[0]!.noteworthy).toBe(true);
+  });
 });

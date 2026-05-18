@@ -94,6 +94,7 @@ export async function writeHomeFeedItemForSignal(
     createdAt: now,
     status: "new",
     category,
+    noteworthy: deriveNoteworthy(signal),
     ...(urgency ? { urgency } : {}),
     ...(conversationId ? { conversationId } : {}),
     ...(panelKind ? { detailPanel: { kind: panelKind } } : {}),
@@ -174,4 +175,31 @@ function readPayloadString(payload: unknown, key: string): string | undefined {
   if (!payload || typeof payload !== "object") return undefined;
   const value = (payload as Record<string, unknown>)[key];
   return typeof value === "string" ? value : undefined;
+}
+
+// ── Noteworthy derivation ─────────────────────────────────────────────
+//
+// Clients split the feed into inbox-style (noteworthy) and activity-style
+// (routine) surfaces. Assistant-initiated shares and a small allow-list of
+// high-importance system events land in the inbox; routine background
+// signals stay in activity.
+
+const NOTEWORTHY_EVENT_NAMES: ReadonlySet<string> = new Set([
+  "guardian.question",
+  "guardian.channel_activation",
+  "ingress.access_request",
+  "ingress.escalation",
+  "credential.health_alert",
+]);
+
+function deriveNoteworthy(signal: NotificationSignal): boolean {
+  if (signal.sourceChannel === "assistant_tool") return true;
+  if (NOTEWORTHY_EVENT_NAMES.has(signal.sourceEventName)) return true;
+  if (
+    signal.sourceEventName === "activity.failed" &&
+    signal.attentionHints.urgency === "critical"
+  ) {
+    return true;
+  }
+  return false;
 }
