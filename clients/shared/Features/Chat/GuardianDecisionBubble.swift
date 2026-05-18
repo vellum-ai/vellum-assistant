@@ -50,18 +50,29 @@ public struct GuardianDecisionBubble: View {
     /// Muted background for the inline risk badge pill.
     private var riskBadgeBackgroundColor: Color {
         switch decision.riskLevel?.lowercased() {
-        case "high":
-            return VColor.systemNegativeWeak
+        case "low":
+            return VColor.systemPositiveWeak
         case "medium":
             return VColor.systemMidWeak
+        case "high":
+            return VColor.systemNegativeWeak
         default:
-            return VColor.systemPositiveWeak
+            return VColor.surfaceBase
         }
     }
 
     /// Text color for the inline risk badge pill.
     private var riskBadgeTextColor: Color {
-        riskAccentColor
+        switch decision.riskLevel?.lowercased() {
+        case "low":
+            return VColor.systemPositiveStrong
+        case "medium":
+            return VColor.systemMidStrong
+        case "high":
+            return VColor.systemNegativeStrong
+        default:
+            return VColor.contentSecondary
+        }
     }
 
     public var body: some View {
