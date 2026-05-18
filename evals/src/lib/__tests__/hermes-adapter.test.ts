@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { HermesAgent, DEFAULT_HERMES_IMAGE } from "../adapters/hermes";
+import {
+  HermesAgent,
+  DEFAULT_HERMES_IMAGE,
+  EXEC_PATH,
+  selectProviderEnvFlags,
+} from "../adapters/hermes";
 import type { Profile } from "../profile";
 import type {
   CommandResult,
@@ -66,6 +71,7 @@ describe("HermesAgent", () => {
       profile,
       testId: "timeline-recall",
       runId: "eval-hermes-1",
+      processEnv: {}, // deterministic: no provider env flags
     });
 
     await agent.hatch();
@@ -73,7 +79,7 @@ describe("HermesAgent", () => {
     expect(agent.id).toBe("eval-hermes-1");
     expect(agent.conversationKey).toBe("evals:timeline-recall:eval-hermes-1");
 
-    // Pre-flight rm -f + docker run + jail apply + setup exec.
+    // Pre-flight rm -f + docker run (image + daemon args) + jail apply + setup exec.
     const calls = runner.runs.map((r) => [r.command, ...r.args]);
     expect(calls[0]).toEqual(["docker", "rm", "-f", "eval-hermes-1-hermes"]);
     expect(calls[1]).toEqual([
@@ -85,6 +91,8 @@ describe("HermesAgent", () => {
       "--label",
       "evals.vellum.ai/species=hermes",
       DEFAULT_HERMES_IMAGE,
+      "gateway",
+      "run",
     ]);
     expect(calls[2]).toContain("docker");
     expect(calls[2]).toContain("rm");
@@ -104,6 +112,8 @@ describe("HermesAgent", () => {
     expect(calls[4]).toEqual([
       "docker",
       "exec",
+      "--env",
+      `PATH=${EXEC_PATH}`,
       "eval-hermes-1-hermes",
       "sh",
       "-lc",
@@ -118,6 +128,8 @@ describe("HermesAgent", () => {
         command: "docker",
         args: [
           "exec",
+          "--env",
+          `PATH=${EXEC_PATH}`,
           "eval-hermes-1-hermes",
           "hermes",
           "events",
@@ -132,25 +144,35 @@ describe("HermesAgent", () => {
     ]);
   });
 
-  test("honors a custom docker image and in-container CLI command", async () => {
+  test("honors a custom docker image, daemon args, and in-container CLI command", async () => {
     const runner = new FakeRunner();
     const agent = new HermesAgent({
       runner,
       profile,
       testId: "timeline-recall",
       runId: "eval-hermes-custom",
-      dockerImage: "nousresearch/hermes:v0.42",
+      dockerImage: "nousresearch/hermes-agent:v0.42",
       cliCommand: "hermesctl",
+      daemonArgs: ["serve", "--port", "1234"],
+      processEnv: {},
     });
 
     await agent.hatch();
     await agent.send({ content: "hello hermes" });
 
     const calls = runner.runs.map((r) => [r.command, ...r.args]);
-    expect(calls[1]).toContain("nousresearch/hermes:v0.42");
+    // Image + custom daemonArgs land at the tail of the `docker run` invocation.
+    expect(calls[1].slice(-4)).toEqual([
+      "nousresearch/hermes-agent:v0.42",
+      "serve",
+      "--port",
+      "1234",
+    ]);
     expect(calls.at(-1)).toEqual([
       "docker",
       "exec",
+      "--env",
+      `PATH=${EXEC_PATH}`,
       "eval-hermes-custom-hermes",
       "hermesctl",
       "message",
@@ -167,6 +189,7 @@ describe("HermesAgent", () => {
       profile,
       testId: "timeline-recall",
       runId: "eval-hermes-seed",
+      processEnv: {},
     });
 
     await agent.hatch();
@@ -187,23 +210,26 @@ describe("HermesAgent", () => {
 
     const seedRun = runner.runs.at(-1)!;
     expect(seedRun.command).toBe("docker");
-    expect(seedRun.args.slice(0, 4)).toEqual([
+    expect(seedRun.args.slice(0, 6)).toEqual([
       "exec",
+      "--env",
+      `PATH=${EXEC_PATH}`,
       "eval-hermes-seed-hermes",
       "sh",
       "-lc",
     ]);
-    expect(seedRun.args[4]).toContain("set -e");
-    expect(seedRun.args[4]).toContain("hermes conversations new");
-    expect(seedRun.args[4]).toContain(
+    const script = seedRun.args[6]!;
+    expect(script).toContain("set -e");
+    expect(script).toContain("hermes conversations new");
+    expect(script).toContain(
       "--content-file '/tmp/eval-hermes-seed-conversation-seed.json'",
     );
-    expect(seedRun.args[4]).toContain(
+    expect(script).toContain(
       "rm -f '/tmp/eval-hermes-seed-conversation-seed.json'",
     );
     // Message bodies must NOT leak through the seed payload via the shell.
-    expect(seedRun.args[4]).not.toContain("remember this exact note");
-    expect(seedRun.args[4]).not.toContain("noted");
+    expect(script).not.toContain("remember this exact note");
+    expect(script).not.toContain("noted");
     expect(agent.conversationKey).toBe("generated-hermes-key");
   });
 
@@ -214,6 +240,7 @@ describe("HermesAgent", () => {
       profile,
       testId: "timeline-recall",
       runId: "eval-hermes-2",
+      processEnv: {},
     });
 
     await agent.hatch();
@@ -225,6 +252,8 @@ describe("HermesAgent", () => {
       [
         "docker",
         "exec",
+        "--env",
+        `PATH=${EXEC_PATH}`,
         "eval-hermes-2-hermes",
         "hermes",
         "message",
@@ -249,7 +278,7 @@ describe("HermesAgent", () => {
           return {
             exitCode: 1,
             stdout: "",
-            stderr: "Unable to find image 'nousresearch/hermes:latest'",
+            stderr: "Unable to find image 'nousresearch/hermes-agent:latest'",
           };
         }
         return { exitCode: 0, stdout: "ok", stderr: "" };
@@ -262,10 +291,11 @@ describe("HermesAgent", () => {
       profile,
       testId: "timeline-recall",
       runId: "image-missing",
+      processEnv: {},
     });
 
     await expect(agent.hatch()).rejects.toThrow(
-      "Unable to find image 'nousresearch/hermes:latest'",
+      "Unable to find image 'nousresearch/hermes-agent:latest'",
     );
     // Pre-flight rm -f always runs; then the failed `docker run -d` aborts
     // hatch without firing a follow-up rm -f for the container that never
@@ -282,6 +312,8 @@ describe("HermesAgent", () => {
         "--label",
         "evals.vellum.ai/species=hermes",
         DEFAULT_HERMES_IMAGE,
+        "gateway",
+        "run",
       ],
     ]);
   });
@@ -298,10 +330,71 @@ describe("HermesAgent", () => {
       profile: wrongProfile,
       testId: "timeline-recall",
       runId: "eval-mismatch",
+      processEnv: {},
     });
 
     await expect(agent.hatch()).rejects.toThrow(
       "HermesAgent can only run species=hermes profiles",
     );
+  });
+
+  test("forwards configured LLM provider env vars into the container via `-e <NAME>`", async () => {
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-env",
+      processEnv: {
+        ANTHROPIC_API_KEY: "anthropic-test-value",
+        OPENAI_API_KEY: "openai-test-value",
+        // Not in the default forward list — must not leak through.
+        UNRELATED_SECRET: "ignored",
+      },
+    });
+
+    await agent.hatch();
+
+    const dockerRun = runner.runs.find(
+      (r) =>
+        r.command === "docker" && r.args[0] === "run" && r.args[1] === "-d",
+    )!;
+    // `-e NAME` is emitted by name only (docker reads the value from its
+    // own env, inherited from the eval process). Values must NOT appear on
+    // the command line.
+    expect(dockerRun.args).toContain("-e");
+    expect(dockerRun.args).toContain("ANTHROPIC_API_KEY");
+    expect(dockerRun.args).toContain("OPENAI_API_KEY");
+    expect(dockerRun.args).not.toContain("UNRELATED_SECRET");
+    expect(dockerRun.args.join(" ")).not.toContain("anthropic-test-value");
+    expect(dockerRun.args.join(" ")).not.toContain("openai-test-value");
+
+    // The image still sits between the env flags and the daemon args.
+    const imageIdx = dockerRun.args.indexOf(DEFAULT_HERMES_IMAGE);
+    expect(imageIdx).toBeGreaterThan(dockerRun.args.lastIndexOf("-e"));
+    expect(dockerRun.args.slice(imageIdx + 1)).toEqual(["gateway", "run"]);
+  });
+
+  test("selectProviderEnvFlags emits -e flags only for present, allow-listed vars", () => {
+    expect(
+      selectProviderEnvFlags({
+        ANTHROPIC_API_KEY: "present",
+        OPENAI_API_KEY: undefined,
+        GOOGLE_API_KEY: "",
+        GEMINI_API_KEY: "present",
+        SOMETHING_ELSE: "present",
+      }),
+    ).toEqual(["-e", "ANTHROPIC_API_KEY", "-e", "GEMINI_API_KEY"]);
+
+    // Empty env → no flags.
+    expect(selectProviderEnvFlags({})).toEqual([]);
+
+    // Custom allow-list overrides the default set.
+    expect(
+      selectProviderEnvFlags(
+        { CUSTOM_KEY: "v", ANTHROPIC_API_KEY: "ignored" },
+        ["CUSTOM_KEY"],
+      ),
+    ).toEqual(["-e", "CUSTOM_KEY"]);
   });
 });
