@@ -20,7 +20,7 @@ const tagVariants = cva(
   [
     "inline-flex items-center gap-1 h-6 px-2 py-1 rounded-[6px] whitespace-nowrap select-none",
     "text-body-small-emphasised leading-none",
-    "[color:var(--content-default)]",
+    "text-[color:var(--content-default)]",
   ].join(" "),
   {
     variants: {
@@ -124,7 +124,7 @@ export function Tag({
           className={cn(
             "inline-flex items-center justify-center rounded-full",
             "h-3.5 w-3.5 -mr-0.5 cursor-pointer",
-            "[color:var(--content-secondary)]",
+            "text-[color:var(--content-secondary)]",
             "transition-colors duration-150",
             "hover:bg-[color-mix(in_srgb,currentColor_15%,transparent)]",
             "focus-visible:outline-none",

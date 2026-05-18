@@ -32,7 +32,7 @@ interface CardSectionProps extends ComponentProps<"div"> {
 
 const BASE_SURFACE_CLASSES = [
   "bg-[var(--surface-lift)]",
-  "[color:var(--content-default)]",
+  "text-[color:var(--content-default)]",
   "rounded-xl",
 ].join(" ");
 
@@ -132,7 +132,7 @@ function CardHeader({
       className={cn(
         PADDING_CLASSES[padding],
         "border-b border-[var(--border-base)]",
-        "[color:var(--content-default)]",
+        "text-[color:var(--content-default)]",
         className,
       )}
     >
