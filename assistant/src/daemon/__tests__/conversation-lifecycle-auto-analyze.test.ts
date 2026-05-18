@@ -97,7 +97,6 @@ mock.module("../../memory/auto-analysis-enqueue.js", () => ({
   },
 }));
 
-let memoryRetroEnabled = false;
 const memoryRetroCalls: Array<{
   conversationId: string;
   trigger: string;
@@ -108,7 +107,6 @@ mock.module("../../memory/memory-retrospective-enqueue.js", () => ({
     conversationId: string;
     trigger: string;
   }) => {
-    if (!memoryRetroEnabled) return;
     memoryRetroCalls.push(args);
   },
   // Also export sibling functions other modules import from this file, so
@@ -205,7 +203,6 @@ describe("disposeConversation — auto-analysis enqueue", () => {
     autoAnalyzeCalls.length = 0;
     memoryRetroCalls.length = 0;
     autoAnalyzeEnabled = true;
-    memoryRetroEnabled = false;
     autoAnalysisConversations.clear();
     v2Enabled = false;
   });
@@ -390,13 +387,11 @@ describe("disposeConversation — memory-retrospective lifecycle safety net", ()
     autoAnalyzeCalls.length = 0;
     memoryRetroCalls.length = 0;
     autoAnalyzeEnabled = false;
-    memoryRetroEnabled = false;
     autoAnalysisConversations.clear();
     v2Enabled = false;
   });
 
-  test("guardian conversation + flag on — enqueues memory-retrospective with trigger 'lifecycle'", () => {
-    memoryRetroEnabled = true;
+  test("guardian conversation — enqueues memory-retrospective with trigger 'lifecycle'", () => {
     const ctx = makeDisposeContext({
       conversationId: "conv-retro",
       trustClass: "guardian",
@@ -411,20 +406,7 @@ describe("disposeConversation — memory-retrospective lifecycle safety net", ()
     });
   });
 
-  test("flag off — no memory-retrospective enqueue", () => {
-    memoryRetroEnabled = false;
-    const ctx = makeDisposeContext({
-      conversationId: "conv-retro-off",
-      trustClass: "guardian",
-    });
-
-    disposeConversation(ctx);
-
-    expect(memoryRetroCalls).toHaveLength(0);
-  });
-
-  test("untrusted actor — no memory-retrospective enqueue even when flag is on", () => {
-    memoryRetroEnabled = true;
+  test("untrusted actor — no memory-retrospective enqueue", () => {
     const ctx = makeDisposeContext({
       conversationId: "conv-retro-untrusted",
       trustClass: "unknown",
@@ -443,8 +425,7 @@ describe("disposeConversation — memory-retrospective lifecycle safety net", ()
   // outside the `!isAutoAnalysis` guard, so it fired even for auto-analysis
   // conversations. Mirrors the indexer-time gate in `indexer.ts` and
   // matches the existing graph_extract recursion-guard semantics.
-  test("auto-analysis conversation — does NOT enqueue memory-retrospective even with flag on", () => {
-    memoryRetroEnabled = true;
+  test("auto-analysis conversation — does NOT enqueue memory-retrospective", () => {
     autoAnalysisConversations.add("conv-auto-retro");
     const ctx = makeDisposeContext({
       conversationId: "conv-auto-retro",

@@ -253,24 +253,9 @@ const pkbReminderInjector: Injector = {
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
     if (!inputs.pkbActive) return null;
-    // The `memory-retrospective` feature flag enables a focused background
-    // retrospective pass that catches what the in-conversation `remember`
-    // calls miss. When that backstop is on, the per-turn pressure to call
-    // `remember` softens to a judgment framing. When it's off, the original
-    // high-pressure BODY is used so users without the retrospective still
-    // get aggressive capture in-conversation.
-    let relaxed = false;
-    try {
-      relaxed = isAssistantFeatureFlagEnabled(
-        "memory-retrospective",
-        getConfig(),
-      );
-    } catch {
-      // Best-effort — fall back to the default (non-relaxed) BODY.
-    }
     const reminder = isPkbInjectionSilencedByV2()
-      ? buildPkbReminder([], relaxed)
-      : await buildPkbReminderWithHints(inputs, relaxed);
+      ? buildPkbReminder([])
+      : await buildPkbReminderWithHints(inputs);
     return {
       id: "pkb-reminder",
       text: reminder,
@@ -300,7 +285,6 @@ function buildPkbContextBlock(content: string): string {
  */
 async function buildPkbReminderWithHints(
   inputs: TurnInjectionInputs,
-  relaxed: boolean,
 ): Promise<string> {
   let hints: string[] = [];
   const queryVector = inputs.pkbQueryVector;
@@ -361,7 +345,7 @@ async function buildPkbReminderWithHints(
       hints = [];
     }
   }
-  return buildPkbReminder(hints, relaxed);
+  return buildPkbReminder(hints);
 }
 
 /**

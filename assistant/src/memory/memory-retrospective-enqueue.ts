@@ -2,9 +2,7 @@
 // Memory retrospective — enqueue helper.
 // ---------------------------------------------------------------------------
 //
-// Conditionally enqueue a `memory_retrospective` job for the given
-// conversation. Gates on:
-//   - `memory-retrospective` feature flag enabled.
+// Enqueue a `memory_retrospective` job for the given conversation. Gates on:
 //   - Source conversation isn't a memory-retrospective conversation itself
 //     (recursion guard — we never run a retrospective over reflective
 //     musings from the retrospective agent's own writes).
@@ -15,8 +13,6 @@
 // after the corresponding signal settles; `interval` and `message_count`
 // fire immediately.
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
 import {
   isUntrustedTrustClass,
   type TrustClass,
@@ -41,21 +37,6 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
   trigger: MemoryRetrospectiveTrigger;
 }): void {
   const { conversationId, trigger } = args;
-
-  let config;
-  try {
-    config = getConfig();
-  } catch (err) {
-    log.warn(
-      { err, conversationId, trigger },
-      "Skipping memory-retrospective enqueue: failed to load config",
-    );
-    return;
-  }
-
-  if (!isAssistantFeatureFlagEnabled("memory-retrospective", config)) {
-    return;
-  }
 
   if (isMemoryRetrospectiveConversation(conversationId)) {
     log.debug(

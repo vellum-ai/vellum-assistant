@@ -6,7 +6,6 @@ import {
   type RememberInput,
 } from "../../memory/graph/tool-handlers.js";
 import {
-  getRememberDescription,
   graphRecallDefinition,
   graphRememberDefinition,
 } from "../../memory/graph/tools.js";
@@ -19,19 +18,12 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 class RememberTool implements Tool {
   name = "remember";
-  // Surfaced in registry listings. The flag-aware description used during
-  // actual tool dispatch is computed lazily in `getDefinition()` below so it
-  // tracks config changes across daemon lifetime without needing a tool
-  // re-registration pass.
   description = graphRememberDefinition.description;
   category = "memory";
   defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
-    return {
-      ...graphRememberDefinition,
-      description: getRememberDescription(getConfig()),
-    };
+    return graphRememberDefinition;
   }
 
   async execute(

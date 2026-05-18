@@ -2,8 +2,6 @@
 // Memory Tool definitions for agentic recall and remember.
 // ---------------------------------------------------------------------------
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import type { AssistantConfig } from "../../config/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import {
   ALL_RECALL_SOURCES,
@@ -56,36 +54,13 @@ export const graphRecallDefinition: ToolDefinition = {
 };
 
 /**
- * Default (high-pressure) `remember` tool description. Used when the
- * `memory-retrospective` feature flag is OFF. The volume-shaming language
- * ("almost every turn", "most frequently used tool") drives aggressive
- * in-conversation capture for users who don't have the retrospective
- * backstop enabled.
+ * `remember` tool description. The retrospective pass catches what isn't
+ * captured in the moment, so the in-conversation pressure stays at a
+ * judgment framing: pause when something feels worth marking, not because
+ * the volume is required.
  */
-const REMEMBER_DESCRIPTION_DEFAULT =
-  "Remember anything concrete: facts, preferences, corrections, plans, felt moments, names, dates, decisions. Default to remembering. Never wait until end of conversation. Corrections are highest priority — call remember the same turn the correction lands. **CRITICAL:** You should be calling remember on almost every turn. This should be your most frequently used tool.";
-
-/**
- * Relaxed `remember` tool description used when `memory-retrospective` is
- * ON. The retrospective pass catches what isn't captured in the moment, so
- * the in-conversation pressure eases to a judgment framing: pause when
- * something feels worth marking, not because the volume is required.
- */
-const REMEMBER_DESCRIPTION_RELAXED =
+const REMEMBER_DESCRIPTION =
   "Remember anything concrete shared in conversation: corrections, plans, decisions, felt moments, names, dates, commitments, preferences. Corrections are the highest priority — call `remember` the same turn the correction lands. You don't have to call this on every turn; a retrospective pass reviews the conversation after each message-count / time interval and saves what you didn't capture. Use judgment: pause and remember when something feels worth marking, not because the volume is required.";
-
-/**
- * Return the description that should appear in the `remember` tool
- * registration for the current config. The variant is selected by the
- * `memory-retrospective` assistant feature flag. Exposed as a function so
- * the tool registrar can compute the value at registration time without
- * importing config layers into the static definition.
- */
-export function getRememberDescription(config: AssistantConfig): string {
-  return isAssistantFeatureFlagEnabled("memory-retrospective", config)
-    ? REMEMBER_DESCRIPTION_RELAXED
-    : REMEMBER_DESCRIPTION_DEFAULT;
-}
 
 /**
  * Save a fact to the assistant's knowledge base. The fact is appended to
@@ -94,16 +69,10 @@ export function getRememberDescription(config: AssistantConfig): string {
  * writes go under `memory/`; otherwise they go under `pkb/`. Consolidation
  * of the buffer into longer-form storage runs as a separate periodic job in
  * both modes.
- *
- * The static `description` field carries the default (high-pressure) text
- * so any direct importer that doesn't go through `getRememberDescription`
- * still gets a valid tool definition. The registered `RememberTool` in
- * `tools/memory/register.ts` overrides this at registration time with the
- * flag-aware variant.
  */
 export const graphRememberDefinition: ToolDefinition = {
   name: "remember",
-  description: REMEMBER_DESCRIPTION_DEFAULT,
+  description: REMEMBER_DESCRIPTION,
   input_schema: {
     type: "object",
     properties: {
