@@ -5,6 +5,7 @@
  * - setA2AConfig()     — set a2a.enabled = true
  * - clearA2AConfig()   — set a2a.enabled = false
  * - createA2AInvite()  — create a shareable invite token for link-based contact creation
+ * - redeemA2AInvite()  — receiver-side: create trusted contact from sender identity
  */
 
 import {
@@ -14,7 +15,11 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../../config/loader.js";
-import { searchContacts, upsertContact } from "../../contacts/contact-store.js";
+import {
+  findContactByAddress,
+  searchContacts,
+  upsertContact,
+} from "../../contacts/contact-store.js";
 import type { VellumAssistantMetadata } from "../../contacts/types.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { getDb } from "../../memory/db-connection.js";
@@ -46,6 +51,13 @@ export interface CreateA2AInviteResult {
 export interface CompleteA2AInviteResult {
   success: boolean;
   sender?: { assistantId: string; displayName: string; gatewayUrl: string };
+  error?: string;
+}
+
+export interface RedeemA2AInviteResult {
+  success: boolean;
+  contactId?: string;
+  alreadyConnected?: boolean;
   error?: string;
 }
 
@@ -205,4 +217,65 @@ export function completeA2AInvite(params: {
     success: true,
     sender: { assistantId, displayName, gatewayUrl },
   };
+}
+
+// ── A2A invite redemption (receiver side) ─────────────────────────
+
+export function redeemA2AInvite(params: {
+  sender: {
+    assistantId: string;
+    displayName: string;
+    gatewayUrl: string;
+  };
+}): RedeemA2AInviteResult {
+  // 1. Ensure A2A channel is enabled (auto-enable if needed)
+  const config = getA2AConfig();
+  if (!config.enabled) {
+    setA2AConfig();
+  }
+
+  // 2. Check for existing active contact with this sender
+  const existing = findContactByAddress("a2a", params.sender.assistantId);
+  if (
+    existing &&
+    existing.channels.some((ch) => ch.type === "a2a" && ch.status === "active")
+  ) {
+    return { success: true, alreadyConnected: true, contactId: existing.id };
+  }
+
+  // 3. Create the sender as a local trusted contact
+  const contact = upsertContact({
+    displayName: params.sender.displayName,
+    contactType: "assistant",
+    role: "contact",
+    channels: [
+      {
+        type: "a2a",
+        address: params.sender.assistantId.toLowerCase(),
+        externalUserId: params.sender.assistantId,
+        status: "active",
+        policy: "allow",
+      },
+    ],
+  });
+
+  // 4. Write assistant contact metadata
+  const db = getDb();
+  const metadataJson = JSON.stringify({
+    assistantId: params.sender.assistantId,
+    gatewayUrl: params.sender.gatewayUrl,
+  } satisfies VellumAssistantMetadata);
+  db.insert(assistantContactMetadata)
+    .values({
+      contactId: contact.id,
+      species: "vellum",
+      metadata: metadataJson,
+    })
+    .onConflictDoUpdate({
+      target: assistantContactMetadata.contactId,
+      set: { species: "vellum", metadata: metadataJson },
+    })
+    .run();
+
+  return { success: true, contactId: contact.id };
 }

@@ -1,10 +1,12 @@
 /**
  * Route handlers for A2A integration config endpoints.
  *
- * GET    /v1/integrations/a2a/config  — get current A2A config status
- * POST   /v1/integrations/a2a/config  — enable A2A channel
- * DELETE /v1/integrations/a2a/config  — disable A2A channel
- * POST   /v1/integrations/a2a/invite  — create a shareable A2A invite token
+ * GET    /v1/integrations/a2a/config          — get current A2A config status
+ * POST   /v1/integrations/a2a/config          — enable A2A channel
+ * DELETE /v1/integrations/a2a/config          — disable A2A channel
+ * POST   /v1/integrations/a2a/invite          — create a shareable A2A invite token
+ * POST   /v1/integrations/a2a/invite/complete — sender-side invite completion
+ * POST   /v1/integrations/a2a/invite/redeem   — receiver-side invite redemption
  */
 
 import { isA2AEnabled } from "../../../a2a/feature-gate.js";
@@ -14,6 +16,7 @@ import {
   completeA2AInvite,
   createA2AInvite,
   getA2AConfig,
+  redeemA2AInvite,
   setA2AConfig,
 } from "../../../daemon/handlers/config-a2a.js";
 import { BadRequestError } from "../errors.js";
@@ -105,6 +108,42 @@ function handleCompleteA2AInvite({ body = {} }: RouteHandlerArgs) {
   return result;
 }
 
+function handleRedeemA2AInvite({ body = {} }: RouteHandlerArgs) {
+  const { sender } = body as {
+    sender?: {
+      assistantId?: unknown;
+      displayName?: unknown;
+      gatewayUrl?: unknown;
+    };
+  };
+
+  if (
+    !sender ||
+    typeof sender.assistantId !== "string" ||
+    !sender.assistantId ||
+    typeof sender.displayName !== "string" ||
+    !sender.displayName ||
+    typeof sender.gatewayUrl !== "string" ||
+    !sender.gatewayUrl
+  ) {
+    throw new BadRequestError(
+      "sender must include non-empty assistantId, displayName, and gatewayUrl",
+    );
+  }
+
+  const result = redeemA2AInvite({
+    sender: {
+      assistantId: sender.assistantId,
+      displayName: sender.displayName,
+      gatewayUrl: sender.gatewayUrl,
+    },
+  });
+  if (!result.success) {
+    throw new BadRequestError(result.error ?? "Failed to redeem A2A invite");
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -161,5 +200,16 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["integrations"],
     requirePolicyEnforcement: true,
     handler: handleCompleteA2AInvite,
+  },
+  {
+    operationId: "integrations_a2a_invite_redeem_post",
+    endpoint: "integrations/a2a/invite/redeem",
+    method: "POST",
+    summary: "Redeem A2A invite (receiver side)",
+    description:
+      "Called by the platform to create a trusted contact on the receiver side of a link-based A2A connection.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleRedeemA2AInvite,
   },
 ];
