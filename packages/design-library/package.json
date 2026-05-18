@@ -7,6 +7,7 @@
   "files": ["src/"],
   "exports": {
     ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens.css",
     "./components/*": "./src/components/*.tsx",
     "./utils/*": "./src/utils/*.ts"
   },

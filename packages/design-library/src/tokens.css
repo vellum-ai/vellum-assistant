@@ -1,0 +1,399 @@
+/* ---------------------------------------------------------------------------
+ * Design system tokens — @vellum/design-library
+ *
+ * Single source of truth for color, typography, and component tokens.
+ * Consuming apps import this file to provide the CSS variable context that
+ * design-library components depend on.
+ *
+ * Usage (in a consuming app's global CSS):
+ *   @import "@vellum/design-library/tokens.css";
+ *
+ * Theme selection is controlled by a `data-theme` attribute on any ancestor
+ * element (typically <html> or a wrapper <div>):
+ *   <html data-theme="dark">   — dark mode
+ *   <html data-theme="velvet"> — velvet mode
+ *   (no attribute or "light")  — light mode (default)
+ *
+ * Source of truth: Figma cCGBcpVDbn22kj3OPU58W8
+ *   Light: node 2674:20625
+ *   Dark:  node 2674:20730
+ *
+ * Keep in sync with platform's web/src/app/(app)/appTheme.css.
+ * --------------------------------------------------------------------------- */
+
+/* ===== Light mode (default) — Figma node 2674:20625 ===== */
+:root,
+[data-theme="light"] {
+  /* Surface */
+  --surface-base: #F6F5F4;
+  --surface-overlay: #FDFDFC;
+  --surface-active: #F2F0EE;
+  --surface-lift: #FFFFFF;
+  --surface-hover: rgba(185, 180, 172, 0.08);
+
+  /* Primary */
+  --primary-base: #17191C;
+  --primary-hover: #24292E;
+  --primary-active: #2D3339;
+  --primary-disabled: #F6F5F4;
+  --primary-second-hover: #B9B4AC;
+
+  /* Border */
+  --border-base: #F2F0EE;
+  --border-disabled: #E9E6E2;
+  --border-element: #CFCCC9;
+  --border-hover: #F6F5F4;
+  --border-active: #2D3339;
+
+  /* Content */
+  --content-default: #24292E;
+  --content-emphasised: #161616;
+  --content-secondary: #5A6672;
+  --content-tertiary: #71808E;
+  --content-disabled: #CFCCC9;
+  --content-inset: #FDFDFC;
+
+  /* System */
+  --system-positive-strong: #277E41;
+  --system-positive-weak: #E9F2EC;
+  --system-negative-strong: #DA491A;
+  --system-negative-hover: #E86B40;
+  --system-negative-weak: #F7DAC9;
+  --system-mid-strong: #F1B21E;
+  --system-mid-weak: #FCF3DD;
+  --system-info-strong: #467CC8;
+  --system-info-weak: #CEDAEC;
+
+  /* Feed identifier */
+  --feed-nudge-strong: #DB4B77;
+  --feed-nudge-weak: #F0D9E0;
+  --feed-digest-strong: #0E9B8B;
+  --feed-digest-weak: #C8E5E2;
+  --feed-thread-strong: #E9C91A;
+  --feed-thread-weak: #EFE8C4;
+
+  /* Aux */
+  --aux-white: #FFFFFF;
+
+  /* Derived */
+  --ring: color-mix(in srgb, var(--system-positive-strong) 30%, transparent);
+  --border-overlay: var(--border-disabled);
+  --ghost-hover: var(--surface-active);
+  --ghost-pressed: var(--border-disabled);
+  --field-bg: var(--surface-lift);
+  --field-border: var(--border-element);
+  --tag-bg-neutral: var(--surface-base);
+
+  /* Background / Foreground */
+  --background: #F6F5F4;
+  --foreground: #24292E;
+
+  /* Font */
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+/* ===== Dark mode — Figma node 2674:20730 ===== */
+[data-theme="dark"] {
+  /* Surface */
+  --surface-base: #17191C;
+  --surface-overlay: #1C2024;
+  --surface-active: #444D56;
+  --surface-lift: #24292E;
+  --surface-hover: rgba(233, 230, 226, 0.06);
+
+  /* Primary */
+  --primary-base: #FDFDFC;
+  --primary-hover: #F2F0EE;
+  --primary-active: #E9E6E2;
+  --primary-disabled: #2D3339;
+  --primary-second-hover: #E9E6E2;
+
+  /* Border */
+  --border-base: #24292E;
+  --border-disabled: #1C2024;
+  --border-element: #5A6672;
+  --border-hover: #2D3339;
+  --border-active: #F6F5F4;
+
+  /* Content */
+  --content-default: #F6F5F4;
+  --content-emphasised: #FDFDFC;
+  --content-secondary: #A9B2BB;
+  --content-tertiary: #8D99A5;
+  --content-disabled: #5A6672;
+  --content-inset: #17191C;
+
+  /* System */
+  --system-positive-strong: #309C50;
+  --system-positive-weak: #2C3A31;
+  --system-negative-strong: #DA491A;
+  --system-negative-hover: #AB3F1C;
+  --system-negative-weak: #4F2D24;
+  --system-mid-strong: #F1B21E;
+  --system-mid-weak: #4B3D1E;
+  --system-info-strong: #467CC8;
+  --system-info-weak: #2A3A50;
+
+  /* Feed identifier */
+  --feed-nudge-strong: #DB4B77;
+  --feed-nudge-weak: #432B33;
+  --feed-digest-strong: #0E9B8B;
+  --feed-digest-weak: #293D3B;
+  --feed-thread-strong: #E9C91A;
+  --feed-thread-weak: #464125;
+
+  /* Aux */
+  --aux-white: #FFFFFF;
+
+  /* Derived */
+  --border-overlay: var(--border-hover);
+  --ghost-hover: var(--border-base);
+  --ghost-pressed: var(--primary-active);
+  --field-bg: #2D3339;
+  --field-border: transparent;
+  --tag-bg-neutral: var(--primary-disabled);
+
+  /* Background / Foreground */
+  --background: #17191C;
+  --foreground: #F6F5F4;
+}
+
+/* ===== Velvet mode — dark with red/pink accents ===== */
+[data-theme="velvet"] {
+  /* Surface */
+  --surface-base: #121214;
+  --surface-overlay: #1A171B;
+  --surface-active: #30252B;
+  --surface-lift: #211D22;
+  --surface-hover: rgba(244, 63, 94, 0.08);
+
+  /* Primary */
+  --primary-base: #E83F5B;
+  --primary-hover: #F45A73;
+  --primary-active: #C92E48;
+  --primary-disabled: #30252B;
+  --primary-second-hover: #F43F5E;
+
+  /* Border */
+  --border-base: #24292E;
+  --border-disabled: #1C2024;
+  --border-element: #735261;
+  --border-hover: #30252B;
+  --border-active: #FFB3C7;
+
+  /* Content */
+  --content-default: #F6F5F4;
+  --content-emphasised: #FFF7FA;
+  --content-secondary: #C8B6BE;
+  --content-tertiary: #A98695;
+  --content-disabled: #6B5962;
+  --content-inset: #FFF7FA;
+
+  /* System */
+  --system-positive-strong: #E83F5B;
+  --system-positive-weak: #382027;
+  --system-negative-strong: #EF4444;
+  --system-negative-hover: #F87171;
+  --system-negative-weak: #3A2024;
+  --system-mid-strong: #F1B21E;
+  --system-mid-weak: #42321C;
+
+  /* Aux */
+  --aux-white: #FFFFFF;
+
+  /* Derived */
+  --border-overlay: var(--border-hover);
+  --ghost-hover: var(--border-base);
+  --ghost-pressed: var(--primary-active);
+  --field-bg: #242026;
+  --field-border: transparent;
+  --tag-bg-neutral: var(--primary-disabled);
+
+  /* Background / Foreground */
+  --background: #121214;
+  --foreground: #F6F5F4;
+}
+
+/* ---------------------------------------------------------------------------
+ * Typography tokens — Figma node 2193:4447.
+ * --------------------------------------------------------------------------- */
+
+:root {
+  --text-title-large-size: 24px;
+  --text-title-large-weight: 500;
+  --text-title-large-line-height: 1;
+
+  --text-title-medium-size: 20px;
+  --text-title-medium-weight: 500;
+  --text-title-medium-line-height: 1;
+
+  --text-title-small-size: 16px;
+  --text-title-small-weight: 500;
+  --text-title-small-line-height: 1;
+
+  --text-body-large-lighter-size: 16px;
+  --text-body-large-lighter-weight: 400;
+  --text-body-large-lighter-line-height: 20px;
+
+  --text-body-large-default-size: 16px;
+  --text-body-large-default-weight: 500;
+  --text-body-large-default-line-height: 20px;
+
+  --text-body-medium-lighter-size: 14px;
+  --text-body-medium-lighter-weight: 400;
+  --text-body-medium-lighter-line-height: 18px;
+
+  --text-body-medium-default-size: 14px;
+  --text-body-medium-default-weight: 500;
+  --text-body-medium-default-line-height: 18px;
+
+  --text-body-small-default-size: 12px;
+  --text-body-small-default-weight: 500;
+  --text-body-small-default-line-height: 1;
+
+  --text-body-small-emphasised-size: 12px;
+  --text-body-small-emphasised-weight: 600;
+  --text-body-small-emphasised-line-height: 1;
+
+  --text-label-medium-default-size: 11px;
+  --text-label-medium-default-weight: 500;
+  --text-label-medium-default-line-height: 1;
+
+  --text-label-small-default-size: 10px;
+  --text-label-small-default-weight: 500;
+  --text-label-small-default-line-height: 1;
+
+  --text-chat-size: 16px;
+  --text-chat-weight: 400;
+  --text-chat-line-height: 24px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Typography utility classes — Tailwind v4 @utility registration.
+ * --------------------------------------------------------------------------- */
+
+@utility text-title-large {
+  font-family: var(--font-sans);
+  font-size: var(--text-title-large-size);
+  font-weight: var(--text-title-large-weight);
+  line-height: var(--text-title-large-line-height);
+}
+@utility text-title-medium {
+  font-family: var(--font-sans);
+  font-size: var(--text-title-medium-size);
+  font-weight: var(--text-title-medium-weight);
+  line-height: var(--text-title-medium-line-height);
+}
+@utility text-title-small {
+  font-family: var(--font-sans);
+  font-size: var(--text-title-small-size);
+  font-weight: var(--text-title-small-weight);
+  line-height: var(--text-title-small-line-height);
+}
+@utility text-body-large-default {
+  font-family: var(--font-sans);
+  font-size: var(--text-body-large-default-size);
+  font-weight: var(--text-body-large-default-weight);
+  line-height: var(--text-body-large-default-line-height);
+}
+@utility text-body-large-lighter {
+  font-family: var(--font-sans);
+  font-size: var(--text-body-large-lighter-size);
+  font-weight: var(--text-body-large-lighter-weight);
+  line-height: var(--text-body-large-lighter-line-height);
+}
+@utility text-body-medium-default {
+  font-family: var(--font-sans);
+  font-size: var(--text-body-medium-default-size);
+  font-weight: var(--text-body-medium-default-weight);
+  line-height: var(--text-body-medium-default-line-height);
+}
+@utility text-body-medium-lighter {
+  font-family: var(--font-sans);
+  font-size: var(--text-body-medium-lighter-size);
+  font-weight: var(--text-body-medium-lighter-weight);
+  line-height: var(--text-body-medium-lighter-line-height);
+}
+@utility text-body-small-default {
+  font-family: var(--font-sans);
+  font-size: var(--text-body-small-default-size);
+  font-weight: var(--text-body-small-default-weight);
+  line-height: var(--text-body-small-default-line-height);
+}
+@utility text-body-small-emphasised {
+  font-family: var(--font-sans);
+  font-size: var(--text-body-small-emphasised-size);
+  font-weight: var(--text-body-small-emphasised-weight);
+  line-height: var(--text-body-small-emphasised-line-height);
+}
+@utility text-label-medium-default {
+  font-family: var(--font-sans);
+  font-size: var(--text-label-medium-default-size);
+  font-weight: var(--text-label-medium-default-weight);
+  line-height: var(--text-label-medium-default-line-height);
+}
+@utility text-label-small-default {
+  font-family: var(--font-sans);
+  font-size: var(--text-label-small-default-size);
+  font-weight: var(--text-label-small-default-weight);
+  line-height: var(--text-label-small-default-line-height);
+}
+@utility text-chat {
+  font-family: var(--font-sans);
+  font-size: var(--text-chat-size);
+  font-weight: var(--text-chat-weight);
+  line-height: var(--text-chat-line-height);
+}
+
+/* ---------------------------------------------------------------------------
+ * Button utility classes — consumed by the Button component.
+ * --------------------------------------------------------------------------- */
+
+@utility vdl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms, color 150ms, border-color 150ms;
+  border: 1px solid transparent;
+}
+@utility vdl-btn-primary {
+  background-color: var(--primary-base);
+  color: var(--content-inset);
+  &:hover { background-color: var(--primary-hover); }
+  &:active { background-color: var(--primary-active); }
+  &:disabled { background-color: var(--primary-disabled); color: var(--content-disabled); cursor: not-allowed; }
+}
+@utility vdl-btn-secondary {
+  background-color: var(--surface-lift);
+  color: var(--content-default);
+  border-color: var(--border-element);
+  &:hover { background-color: var(--surface-active); }
+  &:active { background-color: var(--border-disabled); }
+  &:disabled { background-color: var(--primary-disabled); color: var(--content-disabled); cursor: not-allowed; }
+}
+@utility vdl-btn-ghost {
+  background-color: transparent;
+  color: var(--content-default);
+  &:hover { background-color: var(--ghost-hover); }
+  &:active { background-color: var(--border-disabled); }
+  &:disabled { color: var(--content-disabled); cursor: not-allowed; }
+}
+@utility vdl-btn-sm {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+}
+@utility vdl-btn-md {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+@utility vdl-btn-lg {
+  padding: 0.625rem 1.25rem;
+  font-size: 1rem;
+  line-height: 1.5rem;
+}

@@ -130,11 +130,22 @@ import { Button } from "@vellum/design-library/components/button";
 import { cn } from "@vellum/design-library/utils/cn";
 ```
 
-The consuming app must include this package's source in its Tailwind source
-scan so that utility classes used here are generated:
+The consuming app must import the design token stylesheet and include this
+package's source in its Tailwind source scan:
 
 ```css
+/* In your app's global CSS (e.g. globals.css) */
+@import "@vellum/design-library/tokens.css";
 @source "../node_modules/@vellum/design-library/src";
+```
+
+The token stylesheet provides CSS variables for all three themes (light, dark,
+velvet) and the typography/component utility classes that design-library
+components depend on. Theme selection is controlled by a `data-theme` attribute
+on an ancestor element:
+
+```html
+<html data-theme="dark">  <!-- "light" | "dark" | "velvet" -->
 ```
 
 ## Storybook
@@ -148,6 +159,8 @@ bun run build-storybook    # static build → storybook-static/
 ```
 
 Stories are colocated next to their components (`*.stories.tsx`). Autodocs generates prop tables from TypeScript types automatically.
+
+Use the **Theme** toolbar in Storybook to switch between Light, Dark, and Velvet modes. All components re-render with the selected theme's tokens.
 
 ### npm publishing
 
