@@ -9718,6 +9718,16 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/integrations/a2a/invite/complete:
+    post:
+      operationId: integrations_a2a_invite_complete_post
+      summary: Complete A2A invite (sender side)
+      description: Called by the platform to finalize the sender side of a link-based A2A connection.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
   /v1/integrations/ingress/config:
     get:
       operationId: integrations_ingress_config_get

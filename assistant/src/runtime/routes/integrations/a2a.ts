@@ -11,6 +11,7 @@ import { isA2AEnabled } from "../../../a2a/feature-gate.js";
 import { getConfig } from "../../../config/loader.js";
 import {
   clearA2AConfig,
+  completeA2AInvite,
   createA2AInvite,
   getA2AConfig,
   setA2AConfig,
@@ -61,6 +62,49 @@ function handleCreateA2AInvite({ body = {} }: RouteHandlerArgs) {
   return result;
 }
 
+function handleCompleteA2AInvite({ body = {} }: RouteHandlerArgs) {
+  const { token, acceptor } = body as {
+    token?: unknown;
+    acceptor?: {
+      assistantId?: unknown;
+      displayName?: unknown;
+      gatewayUrl?: unknown;
+    };
+  };
+
+  if (typeof token !== "string" || !token) {
+    throw new BadRequestError(
+      "token is required and must be a non-empty string",
+    );
+  }
+  if (
+    !acceptor ||
+    typeof acceptor.assistantId !== "string" ||
+    !acceptor.assistantId ||
+    typeof acceptor.displayName !== "string" ||
+    !acceptor.displayName ||
+    typeof acceptor.gatewayUrl !== "string" ||
+    !acceptor.gatewayUrl
+  ) {
+    throw new BadRequestError(
+      "acceptor must include non-empty assistantId, displayName, and gatewayUrl",
+    );
+  }
+
+  const result = completeA2AInvite({
+    token,
+    acceptor: {
+      assistantId: acceptor.assistantId,
+      displayName: acceptor.displayName,
+      gatewayUrl: acceptor.gatewayUrl,
+    },
+  });
+  if (!result.success) {
+    throw new BadRequestError(result.error ?? "Failed to complete A2A invite");
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -106,5 +150,16 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["integrations"],
     requirePolicyEnforcement: true,
     handler: handleCreateA2AInvite,
+  },
+  {
+    operationId: "integrations_a2a_invite_complete_post",
+    endpoint: "integrations/a2a/invite/complete",
+    method: "POST",
+    summary: "Complete A2A invite (sender side)",
+    description:
+      "Called by the platform to finalize the sender side of a link-based A2A connection.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleCompleteA2AInvite,
   },
 ];

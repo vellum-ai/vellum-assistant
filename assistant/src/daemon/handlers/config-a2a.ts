@@ -15,8 +15,16 @@ import {
   setNestedValue,
 } from "../../config/loader.js";
 import { searchContacts, upsertContact } from "../../contacts/contact-store.js";
+import type { VellumAssistantMetadata } from "../../contacts/types.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
-import { createInvite } from "../../memory/invite-store.js";
+import { getDb } from "../../memory/db-connection.js";
+import {
+  claimA2AInvite,
+  createInvite,
+  hashToken,
+} from "../../memory/invite-store.js";
+import { assistantContactMetadata } from "../../memory/schema.js";
+import { getAssistantName } from "../identity-helpers.js";
 // ── Result types ────────────────────────────────────────────────────
 
 export interface A2AConfigResult {
@@ -32,6 +40,12 @@ export interface CreateA2AInviteResult {
   token?: string;
   expiresAt?: number;
   senderGatewayUrl?: string;
+  error?: string;
+}
+
+export interface CompleteA2AInviteResult {
+  success: boolean;
+  sender?: { assistantId: string; displayName: string; gatewayUrl: string };
   error?: string;
 }
 
@@ -117,5 +131,78 @@ export function createA2AInvite(params: {
     token: rawToken,
     expiresAt: invite.expiresAt,
     senderGatewayUrl: publicBaseUrl,
+  };
+}
+
+// ── A2A invite completion (sender side) ───────────────────────────
+
+export function completeA2AInvite(params: {
+  token: string;
+  acceptor: {
+    assistantId: string;
+    displayName: string;
+    gatewayUrl: string;
+  };
+}): CompleteA2AInviteResult {
+  const tokenHash = hashToken(params.token);
+  const claimResult = claimA2AInvite({
+    tokenHash,
+    redeemedByExternalUserId: params.acceptor.assistantId,
+  });
+
+  if (!claimResult.claimed || !claimResult.invite) {
+    return { success: false, error: claimResult.error };
+  }
+
+  const invite = claimResult.invite;
+
+  // Promote the placeholder contact with the acceptor's identity
+  upsertContact({
+    id: invite.contactId,
+    displayName: params.acceptor.displayName,
+    contactType: "assistant",
+    role: "contact",
+    channels: [
+      {
+        type: "a2a",
+        address: params.acceptor.assistantId.toLowerCase(),
+        externalUserId: params.acceptor.assistantId,
+        status: "active",
+        policy: "allow",
+      },
+    ],
+  });
+
+  // Write assistant contact metadata
+  const db = getDb();
+  const metadataJson = JSON.stringify({
+    assistantId: params.acceptor.assistantId,
+    gatewayUrl: params.acceptor.gatewayUrl,
+  } satisfies VellumAssistantMetadata);
+  db.insert(assistantContactMetadata)
+    .values({
+      contactId: invite.contactId,
+      species: "vellum",
+      metadata: metadataJson,
+    })
+    .onConflictDoUpdate({
+      target: assistantContactMetadata.contactId,
+      set: { species: "vellum", metadata: metadataJson },
+    })
+    .run();
+
+  // Resolve this assistant's identity for the response
+  const displayName = getAssistantName() ?? "Vellum Assistant";
+  let gatewayUrl: string;
+  try {
+    gatewayUrl = getPublicBaseUrl(getConfig());
+  } catch {
+    gatewayUrl = "";
+  }
+  const assistantId = displayName;
+
+  return {
+    success: true,
+    sender: { assistantId, displayName, gatewayUrl },
   };
 }
