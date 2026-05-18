@@ -45,6 +45,16 @@ describe("llm-call-sites-routes", () => {
     }
   });
 
+  test("every call site includes a defaultProfile string", async () => {
+    const result = (await route.handler({})) as {
+      callSites: Array<{ id: string; defaultProfile?: string }>;
+    };
+    for (const site of result.callSites) {
+      expect(typeof site.defaultProfile).toBe("string");
+      expect(site.defaultProfile!.length).toBeGreaterThan(0);
+    }
+  });
+
   test("domains have non-empty id and displayName", async () => {
     const result = (await route.handler({})) as {
       domains: Array<{ id: string; displayName: string }>;
