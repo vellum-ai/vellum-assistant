@@ -687,6 +687,12 @@ for (const endpoint of INTERNAL_ENDPOINTS) {
   });
 }
 
+// A2A invite completion: gateway-only (platform-orchestrated)
+registerPolicy("integrations/a2a/invite/complete", {
+  requiredScopes: ["internal.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+});
+
 // Admin control-plane endpoints: gateway-only
 registerPolicy("admin/upgrade-broadcast", {
   requiredScopes: ["internal.write"],
