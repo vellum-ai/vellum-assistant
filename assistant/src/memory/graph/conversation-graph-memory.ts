@@ -371,6 +371,7 @@ export class ConversationGraphMemory {
       // stale <memory> block after the user disables memory.
       this.lastInjectedBlock = null;
       this.lastInjectedNodeIds = [];
+      this.lastInjectedImages = new Map();
       return noopResult;
     }
 
