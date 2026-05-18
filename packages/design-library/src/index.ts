@@ -7,7 +7,18 @@ export {
   CardFooter,
   type CardRootProps,
 } from "./components/card.js";
+export {
+  Notice,
+  type NoticeProps,
+  type NoticeTone,
+} from "./components/notice.js";
 export { ProgressBar, type ProgressBarProps } from "./components/progress-bar.js";
+export {
+  Tag,
+  tagVariants,
+  type TagProps,
+  type TagTone,
+} from "./components/tag.js";
 export {
   Typography,
   type TypographyProps,

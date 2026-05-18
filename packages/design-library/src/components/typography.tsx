@@ -1,8 +1,8 @@
 import {
   createElement,
-  forwardRef,
   type HTMLAttributes,
   type ReactNode,
+  type Ref,
 } from "react";
 
 import { cn } from "../utils/cn.js";
@@ -54,21 +54,25 @@ export interface TypographyProps extends HTMLAttributes<HTMLElement> {
   className?: string;
   children?: ReactNode;
   htmlFor?: string;
+  ref?: Ref<HTMLElement>;
 }
 
-export const Typography = forwardRef<HTMLElement, TypographyProps>(
-  function Typography(
-    { variant, as = "span", className, children, ...rest },
-    ref,
-  ) {
-    return createElement(
-      as,
-      {
-        ...rest,
-        ref,
-        className: cn(VARIANT_CLASS[variant], className),
-      },
-      children,
-    );
-  },
-);
+export function Typography({
+  variant,
+  as = "span",
+  className,
+  children,
+  ref,
+  ...rest
+}: TypographyProps) {
+  return createElement(
+    as,
+    {
+      ...rest,
+      ref,
+      "data-slot": "typography",
+      className: cn(VARIANT_CLASS[variant], className),
+    },
+    children,
+  );
+}

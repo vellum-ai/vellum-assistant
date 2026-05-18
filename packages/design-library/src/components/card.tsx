@@ -1,7 +1,6 @@
 import { Slot } from "@radix-ui/react-slot";
 import {
-  forwardRef,
-  type HTMLAttributes,
+  type ComponentProps,
   type ReactNode,
 } from "react";
 
@@ -16,7 +15,7 @@ const PADDING_CLASSES: Record<CardPadding, string> = {
   lg: "p-6",
 };
 
-export interface CardRootProps extends HTMLAttributes<HTMLDivElement> {
+export interface CardRootProps extends ComponentProps<"div"> {
   padding?: CardPadding;
   bordered?: boolean;
   elevated?: boolean;
@@ -26,7 +25,7 @@ export interface CardRootProps extends HTMLAttributes<HTMLDivElement> {
   children?: ReactNode;
 }
 
-interface CardSectionProps extends HTMLAttributes<HTMLDivElement> {
+interface CardSectionProps extends ComponentProps<"div"> {
   padding?: CardPadding;
   children?: ReactNode;
 }
@@ -80,26 +79,25 @@ function childrenContainSections(children: ReactNode): boolean {
   return found;
 }
 
-const CardRoot = forwardRef<HTMLDivElement, CardRootProps>(function CardRoot(
-  {
-    padding = "md",
-    bordered = true,
-    elevated = false,
-    noPadding = false,
-    clipContents = false,
-    asChild = false,
-    className,
-    children,
-    ...rest
-  },
+function CardRoot({
+  padding = "md",
+  bordered = true,
+  elevated = false,
+  noPadding = false,
+  clipContents = false,
+  asChild = false,
+  className,
+  children,
   ref,
-) {
+  ...rest
+}: CardRootProps) {
   const Comp = asChild ? Slot : "div";
   const hasSections = childrenContainSections(children);
   return (
     <Comp
       {...rest}
       ref={ref}
+      data-slot="card"
       className={cn(
         rootClasses({
           padding,
@@ -115,72 +113,89 @@ const CardRoot = forwardRef<HTMLDivElement, CardRootProps>(function CardRoot(
       {children}
     </Comp>
   );
-});
+}
 
-const CardHeader = forwardRef<HTMLDivElement, CardSectionProps>(
-  function CardHeader({ padding = "md", className, children, ...rest }, ref) {
-    return (
-      <Typography
-        {...rest}
-        ref={ref}
-        variant="title-small"
-        as="div"
-        className={cn(
-          PADDING_CLASSES[padding],
-          "border-b border-[var(--border-base)]",
-          "text-[color:var(--content-default)]",
-          className,
-        )}
-      >
-        {children}
-      </Typography>
-    );
-  },
-);
-
-const CardBody = forwardRef<HTMLDivElement, CardSectionProps>(function CardBody(
-  { padding = "md", className, children, ...rest },
+function CardHeader({
+  padding = "md",
+  className,
+  children,
   ref,
-) {
+  ...rest
+}: CardSectionProps) {
+  return (
+    <Typography
+      {...rest}
+      ref={ref as CardSectionProps["ref"]}
+      variant="title-small"
+      as="div"
+      data-slot="card-header"
+      className={cn(
+        PADDING_CLASSES[padding],
+        "border-b border-[var(--border-base)]",
+        "text-[color:var(--content-default)]",
+        className,
+      )}
+    >
+      {children}
+    </Typography>
+  );
+}
+
+function CardBody({
+  padding = "md",
+  className,
+  children,
+  ref,
+  ...rest
+}: CardSectionProps) {
   return (
     <div
       {...rest}
       ref={ref}
+      data-slot="card-body"
       className={cn(PADDING_CLASSES[padding], className)}
     >
       {children}
     </div>
   );
-});
+}
 
-const CardFooter = forwardRef<HTMLDivElement, CardSectionProps>(
-  function CardFooter({ padding = "md", className, children, ...rest }, ref) {
-    return (
-      <div
-        {...rest}
-        ref={ref}
-        className={cn(
-          PADDING_CLASSES[padding],
-          "border-t border-[var(--border-base)]",
-          className,
-        )}
-      >
-        {children}
-      </div>
-    );
-  },
-);
-
-const CardDefault = forwardRef<HTMLDivElement, CardRootProps>(function Card(
-  { children, padding = "md", noPadding = false, ...rest },
+function CardFooter({
+  padding = "md",
+  className,
+  children,
   ref,
-) {
+  ...rest
+}: CardSectionProps) {
+  return (
+    <div
+      {...rest}
+      ref={ref}
+      data-slot="card-footer"
+      className={cn(
+        PADDING_CLASSES[padding],
+        "border-t border-[var(--border-base)]",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+function CardDefault({
+  children,
+  padding = "md",
+  noPadding = false,
+  ref,
+  ...rest
+}: CardRootProps) {
   return (
     <CardRoot ref={ref} padding={padding} noPadding={noPadding} {...rest}>
       {noPadding ? children : <CardBody padding={padding}>{children}</CardBody>}
     </CardRoot>
   );
-});
+}
 
 type CardComponent = typeof CardDefault & {
   Root: typeof CardRoot;

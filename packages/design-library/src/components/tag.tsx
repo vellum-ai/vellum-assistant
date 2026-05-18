@@ -1,8 +1,7 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import { X } from "lucide-react";
 import {
-  forwardRef,
-  type HTMLAttributes,
+  type ComponentProps,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
@@ -19,11 +18,8 @@ import { cn } from "../utils/cn.js";
  */
 const tagVariants = cva(
   [
-    // Layout: Figma 24h, 8px/4px padding, 4px gap, 6px radius, no border.
     "inline-flex items-center gap-1 h-6 px-2 py-1 rounded-[6px] whitespace-nowrap select-none",
-    // Typography: Inter Semi Bold 12 (body-small-emphasised token).
     "text-body-small-emphasised leading-none",
-    // Text color is tone-neutral across the board.
     "text-[var(--content-default)]",
   ].join(" "),
   {
@@ -32,7 +28,7 @@ const tagVariants = cva(
         positive: "bg-[var(--system-positive-weak)]",
         negative: "bg-[var(--system-negative-weak)]",
         warning: "bg-[var(--system-mid-weak)]",
-        neutral: "bg-[var(--tag-bg-neutral)]",
+        neutral: "bg-[var(--system-neutral-weak)]",
       },
     },
     defaultVariants: {
@@ -57,8 +53,7 @@ const TONE_ICON_COLOR: Record<TagTone, string> = {
   neutral: "var(--content-secondary)",
 };
 
-export interface TagProps
-  extends Omit<HTMLAttributes<HTMLSpanElement>, "children"> {
+export interface TagProps extends Omit<ComponentProps<"span">, "children"> {
   tone?: TagTone;
   leftIcon?: ReactNode;
   rightIcon?: ReactNode;
@@ -82,24 +77,23 @@ const iconStyle = {
   justifyContent: "center",
 } as const;
 
-export const Tag = forwardRef<HTMLSpanElement, TagProps>(function Tag(
-  {
-    tone = "neutral",
-    leftIcon,
-    rightIcon,
-    onRemove,
-    removeLabel = "Remove",
-    className,
-    children,
-    ...rest
-  },
+export function Tag({
+  tone = "neutral",
+  leftIcon,
+  rightIcon,
+  onRemove,
+  removeLabel = "Remove",
+  className,
+  children,
   ref,
-) {
+  ...rest
+}: TagProps) {
   const iconColor = TONE_ICON_COLOR[tone];
   return (
     <span
       {...rest}
       ref={ref}
+      data-slot="tag"
       className={cn(tagVariants({ tone }), className)}
     >
       {leftIcon != null ? (
@@ -141,4 +135,6 @@ export const Tag = forwardRef<HTMLSpanElement, TagProps>(function Tag(
       ) : null}
     </span>
   );
-});
+}
+
+export { tagVariants };

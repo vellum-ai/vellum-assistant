@@ -1,6 +1,8 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { type ComponentProps, type ReactNode } from "react";
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+import { cn } from "../utils/cn.js";
+
+export interface ButtonProps extends ComponentProps<"button"> {
   variant?: "primary" | "secondary" | "ghost";
   size?: "sm" | "md" | "lg";
   children: ReactNode;
@@ -21,13 +23,16 @@ const SIZE_CLASSES: Record<NonNullable<ButtonProps["size"]>, string> = {
 export function Button({
   variant = "primary",
   size = "md",
-  className = "",
+  className,
   children,
+  ref,
   ...props
 }: ButtonProps) {
   return (
     <button
-      className={`vdl-btn ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`.trim()}
+      ref={ref}
+      data-slot="button"
+      className={cn("vdl-btn", VARIANT_CLASSES[variant], SIZE_CLASSES[size], className)}
       {...props}
     >
       {children}

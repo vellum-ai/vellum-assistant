@@ -6,7 +6,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
+import { type ComponentProps, type ReactNode } from "react";
 
 import { cn } from "../utils/cn.js";
 import { Typography } from "./typography.js";
@@ -14,7 +14,7 @@ import { Typography } from "./typography.js";
 export type NoticeTone = "info" | "success" | "warning" | "error" | "neutral";
 
 export interface NoticeProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "title" | "role"> {
+  extends Omit<ComponentProps<"div">, "title" | "role"> {
   tone?: NoticeTone;
   title?: ReactNode;
   children?: ReactNode;
@@ -61,19 +61,17 @@ const TONE_CLASSES: Record<NoticeTone, ToneClasses> = {
   },
 };
 
-export const Notice = forwardRef<HTMLDivElement, NoticeProps>(function Notice(
-  {
-    tone = "info",
-    title,
-    children,
-    icon,
-    onDismiss,
-    actions,
-    className,
-    ...rest
-  },
+export function Notice({
+  tone = "info",
+  title,
+  children,
+  icon,
+  onDismiss,
+  actions,
+  className,
   ref,
-) {
+  ...rest
+}: NoticeProps) {
   const toneClasses = TONE_CLASSES[tone];
   const role = tone === "error" ? "alert" : "status";
 
@@ -89,6 +87,7 @@ export const Notice = forwardRef<HTMLDivElement, NoticeProps>(function Notice(
       {...rest}
       ref={ref}
       role={role}
+      data-slot="notice"
       className={cn(
         "relative flex w-full items-start gap-3 rounded-lg border p-3",
         "text-[var(--content-default)]",
@@ -146,4 +145,4 @@ export const Notice = forwardRef<HTMLDivElement, NoticeProps>(function Notice(
       ) : null}
     </div>
   );
-});
+}

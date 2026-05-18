@@ -449,6 +449,10 @@ import { Button, Typography } from "@vellum/design-library";
 Design system components accept props and render UI. They must not
 import domain state, feature hooks, or application-specific logic.
 
+For component authoring conventions (React 19 ref-as-prop, `data-slot`,
+variant patterns, file organization), see
+[`packages/design-library/README.md`](../../packages/design-library/README.md).
+
 References:
 - [Node.js — Package exports](https://nodejs.org/api/packages.html#exports)
 - [Bun — Workspaces](https://bun.sh/docs/install/workspaces)
