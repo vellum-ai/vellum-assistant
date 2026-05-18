@@ -117,6 +117,16 @@ struct HomeGallerySection: View {
                             onDismiss: {},
                             onTap: {}
                         )
+
+                        HomeRecapRow(
+                            icon: .bell,
+                            iconForeground: VColor.feedDigestStrong,
+                            iconBackground: VColor.feedDigestWeak,
+                            title: "Urgent: your flight to SFO boards in 35 minutes.",
+                            isUrgent: true,
+                            onDismiss: {},
+                            onTap: {}
+                        )
                     }
                 }
             }
