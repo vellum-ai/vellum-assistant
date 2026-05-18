@@ -5,7 +5,11 @@ import { OpenRouterProvider } from "../providers/openrouter/client.js";
 import type { Message } from "../providers/types.js";
 
 /** Build a minimal valid PNG header encoding the given dimensions. */
-function makePngBase64(width: number, height: number, paddingBytes = 0): string {
+function makePngBase64(
+  width: number,
+  height: number,
+  paddingBytes = 0,
+): string {
   const header = Buffer.alloc(24);
   header[0] = 0x89;
   header[1] = 0x50;
@@ -41,13 +45,13 @@ describe("OpenRouterProvider token estimation routing", () => {
     expect(provider.tokenEstimationProvider).toBe("openrouter");
   });
 
-  test("estimatePromptTokens applies Anthropic image scaling when routed via OpenRouter", () => {
+  test("estimatePromptTokens applies dimension-based image scaling when routed via OpenRouter to Anthropic", () => {
     const provider = new OpenRouterProvider(
       "fake-key",
       "anthropic/claude-opus-4-6",
     );
     // 1920x1080 screenshot with ~200 KB of pixel data → base64/4 would be ~65k
-    // tokens; dimension-based Anthropic rules land around 1.6k tokens.
+    // tokens; dimension-based rules land around 1.6k tokens.
     const messages: Message[] = [
       {
         role: "user",
@@ -68,33 +72,38 @@ describe("OpenRouterProvider token estimation routing", () => {
       providerName: provider.tokenEstimationProvider,
     });
 
-    // Dimension-based estimate should be well under 5k; base64/4 would exceed 50k.
     expect(estimated).toBeLessThan(5_000);
   });
 
-  test("estimatePromptTokens falls back to base64/4 for non-Anthropic OpenRouter models", () => {
-    const provider = new OpenRouterProvider("fake-key", "x-ai/grok-4.20-beta");
-    const messages: Message[] = [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: "image/png",
-              data: makePngBase64(1920, 1080, 200_000),
+  test("estimatePromptTokens applies dimension-based image scaling for non-Anthropic OpenRouter models", () => {
+    // A naive base64/4 estimate on a 1920x1080 screenshot (~200 KB) lands near
+    // 65k tokens and trips spurious compaction long before the real context
+    // window fills. Vision models on OpenRouter — both anthropic/* and
+    // non-Anthropic (Kimi K2.6, Grok, etc.) — must use the dimension-based
+    // formula.
+    for (const model of ["moonshotai/kimi-k2.6", "x-ai/grok-4.20-beta"]) {
+      const provider = new OpenRouterProvider("fake-key", model);
+      const messages: Message[] = [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/png",
+                data: makePngBase64(1920, 1080, 200_000),
+              },
             },
-          },
-        ],
-      },
-    ];
+          ],
+        },
+      ];
 
-    const estimated = estimatePromptTokens(messages, "system", {
-      providerName: provider.tokenEstimationProvider,
-    });
+      const estimated = estimatePromptTokens(messages, "system", {
+        providerName: provider.tokenEstimationProvider,
+      });
 
-    // Base64/4 heuristic on ~200 KB of image data → far more than 10k tokens.
-    expect(estimated).toBeGreaterThan(50_000);
+      expect(estimated).toBeLessThan(5_000);
+    }
   });
 });

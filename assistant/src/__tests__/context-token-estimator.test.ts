@@ -219,36 +219,7 @@ describe("token estimator", () => {
     expect(largeFileTokens).toBe(smallFileTokens);
   });
 
-  // Non-Anthropic providers use base64 payload size for image estimation
-  test("scales image token estimate with base64 payload size (non-Anthropic)", () => {
-    const smallImageTokens = estimateContentBlockTokens(
-      {
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: "image/png",
-          data: "a".repeat(64),
-        },
-      },
-      { providerName: "openai" },
-    );
-    const largeImageTokens = estimateContentBlockTokens(
-      {
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: "image/png",
-          data: "a".repeat(60_000),
-        },
-      },
-      { providerName: "openai" },
-    );
-
-    expect(largeImageTokens).toBeGreaterThan(smallImageTokens);
-    expect(largeImageTokens - smallImageTokens).toBeGreaterThan(1000);
-  });
-
-  test("estimates Anthropic image tokens from dimensions, not base64 size", () => {
+  test("estimates image tokens from dimensions, not base64 size", () => {
     // Build a minimal valid PNG header encoding 1920x1080 dimensions.
     // PNG header: 8-byte signature + 4-byte IHDR length + 4-byte "IHDR" + 4-byte width + 4-byte height = 24 bytes minimum
     const pngHeader = Buffer.alloc(24);
@@ -278,55 +249,49 @@ describe("token estimator", () => {
     const fullPayload = Buffer.concat([pngHeader, padding]);
     const base64Data = fullPayload.toString("base64");
 
-    const anthropicTokens = estimateContentBlockTokens(
-      {
-        type: "image",
-        source: { type: "base64", media_type: "image/png", data: base64Data },
-      },
-      { providerName: "anthropic" },
-    );
-
     // 1920x1080 scaled to fit 1568px bounding box: dimScale = 1568/1920 = 0.8167
     // scaledWidth = round(1920 * 0.8167) = 1568, scaledHeight = round(1080 * 0.8167) = 882
     // pixels = 1568 * 882 = 1,382,976 > 1,200,000 → mpScale = sqrt(1200000/1382976) = 0.9315
     // scaledWidth = round(1568 * 0.9315) = 1461, scaledHeight = round(882 * 0.9315) = 822
     // tokens = ceil(1461 * 822 / 750) = ceil(1601.26) = ~1,602
-    // With IMAGE_BLOCK_OVERHEAD_TOKENS and media_type overhead, still well under 5000
-    expect(anthropicTokens).toBeLessThan(5_000);
-
-    // Verify it's NOT using base64 size (which would be ~50,000+ tokens)
-    const nonAnthropicTokens = estimateContentBlockTokens(
-      {
-        type: "image",
-        source: { type: "base64", media_type: "image/png", data: base64Data },
-      },
-      { providerName: "openai" },
-    );
-    expect(nonAnthropicTokens).toBeGreaterThan(50_000);
+    // With IMAGE_BLOCK_OVERHEAD_TOKENS and media_type overhead, still well under 5000.
+    // Same result for every provider — dimension-based estimate is universal.
+    for (const providerName of ["anthropic", "openai", "openrouter"]) {
+      const tokens = estimateContentBlockTokens(
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: base64Data },
+        },
+        { providerName },
+      );
+      expect(tokens).toBeLessThan(5_000);
+    }
   });
 
-  test("falls back to max tokens when Anthropic image dimensions can't be parsed", () => {
+  test("falls back to max tokens when image dimensions can't be parsed", () => {
     // Corrupted base64 that won't parse as a valid image header
     const corruptedData = Buffer.from(
       "not-a-valid-image-header-at-all",
     ).toString("base64");
 
-    const tokens = estimateContentBlockTokens(
-      {
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: "image/png",
-          data: corruptedData,
+    for (const providerName of ["anthropic", "openai", "openrouter"]) {
+      const tokens = estimateContentBlockTokens(
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: corruptedData,
+          },
         },
-      },
-      { providerName: "anthropic" },
-    );
+        { providerName },
+      );
 
-    // Should fall back to ANTHROPIC_IMAGE_MAX_TOKENS (1,600)
-    // Total = 16 (block overhead) + ceil(9/4) (media_type) + 1600 = 1619
-    expect(tokens).toBeGreaterThanOrEqual(1_600);
-    expect(tokens).toBeLessThan(2_000);
+      // Falls back to the per-image cap (1,600 tokens). Total = 16 (block
+      // overhead) + ceil(9/4) (media_type) + 1600 = 1619.
+      expect(tokens).toBeGreaterThanOrEqual(1_600);
+      expect(tokens).toBeLessThan(2_000);
+    }
   });
 
   test("Anthropic image tokens are the same for same-dimension images regardless of payload size", () => {
