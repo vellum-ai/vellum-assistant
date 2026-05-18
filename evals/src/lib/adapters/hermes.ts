@@ -62,8 +62,16 @@ import { parseNdjson } from "../runtime/ndjson";
  * forwarding, PATH) are verified against the official Hermes Docker docs.
  */
 
-/** Official Hermes Agent image on Docker Hub. */
-export const DEFAULT_HERMES_IMAGE = "nousresearch/hermes-agent:latest";
+/**
+ * Official Hermes Agent image on Docker Hub, pinned to a date-versioned
+ * tag for reproducibility. NousResearch publishes:
+ *   - `:latest` and `:main` — moving tags
+ *   - `:vYYYY.M.D` — pinned date-versioned releases (digest-stable)
+ *   - `:sha-<gitsha>` — per-commit CI builds
+ * We pin to a `:vYYYY.M.D` tag until the evals suite is in a steady state
+ * so eval reruns are reproducible. Bump intentionally, not by accident.
+ */
+export const DEFAULT_HERMES_IMAGE = "nousresearch/hermes-agent:v2026.5.16";
 /** Default in-container CLI name. The binary at
  * `/opt/hermes/.venv/bin/hermes` is not on the `docker exec` PATH by
  * default — see `EXEC_PATH` below. */
@@ -133,8 +141,19 @@ function setupCommands(profile: Profile): string[] {
   return Array.isArray(setup) ? setup : [setup];
 }
 
+/**
+ * Wrap a multi-token command into the canonical `sh -c <script>` form.
+ *
+ * We deliberately use `-c` and NOT `-lc` (login shell). A login shell
+ * sources `/etc/profile`, which on the Debian-based Hermes image
+ * **overwrites** `PATH` to the system default — clobbering the
+ * `--env PATH=${EXEC_PATH}` we set on `docker exec` to put
+ * `/opt/hermes/.venv/bin` (where the `hermes` binary lives) on PATH.
+ * Without this, every shell-wrapped command that calls bare `hermes`
+ * fails with `sh: N: hermes: not found`.
+ */
 function shellWords(command: string): string[] {
-  return ["sh", "-lc", command];
+  return ["sh", "-c", command];
 }
 
 function shellSingleQuote(value: string): string {
