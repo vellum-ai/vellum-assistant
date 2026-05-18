@@ -23,7 +23,11 @@ function makeImageBlockWithSize(
 ): Extract<ContentBlock, { type: "image" }> {
   return {
     type: "image",
-    source: { type: "base64", media_type: "image/png", data: "A".repeat(dataLength) },
+    source: {
+      type: "base64",
+      media_type: "image/png",
+      data: "A".repeat(dataLength),
+    },
   };
 }
 
@@ -103,16 +107,19 @@ describe("stripMediaPayloadsForRetry", () => {
   // ---------------------------------------------------------------------------
 
   test("budget-aware: keeps images that fit within token budget", () => {
-    // Non-Anthropic estimation: estimateTextTokens(base64Data) + overhead (~19 tokens).
-    // Data length 4000 → 1000 data tokens + 19 overhead ≈ 1019 tokens/image.
-    // Budget of 3500 allows 3 images (3 * 1019 = 3057 <= 3500) but not 4.
-    const images = Array.from({ length: 5 }, () => makeImageBlockWithSize(4000));
+    // Dimension-based estimation: when the base64 data has no parseable image
+    // header, fall back to IMAGE_MAX_TOKENS (1600) + overhead (~19 tokens) ≈
+    // 1619 tokens/image. Budget of 5000 allows 3 images (3 * 1619 = 4857
+    // <= 5000) but not 4 (4 * 1619 = 6476 > 5000).
+    const images = Array.from({ length: 5 }, () =>
+      makeImageBlockWithSize(4000),
+    );
     const messages: Message[] = [
       makeUserMessage({ type: "text", text: "describe these" }, ...images),
     ];
 
     const result = stripMediaPayloadsForRetry(messages, {
-      mediaTokenBudget: 3500,
+      mediaTokenBudget: 5000,
       providerName: "mock",
     });
     expect(result.modified).toBe(true);
@@ -120,7 +127,9 @@ describe("stripMediaPayloadsForRetry", () => {
     const content = result.messages[0].content;
     const keptImages = content.filter((b) => b.type === "image");
     const stubs = content.filter(
-      (b) => b.type === "text" && (b as { text: string }).text.includes("Image omitted"),
+      (b) =>
+        b.type === "text" &&
+        (b as { text: string }).text.includes("Image omitted"),
     );
     expect(keptImages.length).toBe(3);
     expect(stubs.length).toBe(2);
@@ -174,7 +183,9 @@ describe("stripMediaPayloadsForRetry", () => {
     const content = result.messages[0].content;
     const keptImages = content.filter((b) => b.type === "image");
     const stubs = content.filter(
-      (b) => b.type === "text" && (b as { text: string }).text.includes("Image omitted"),
+      (b) =>
+        b.type === "text" &&
+        (b as { text: string }).text.includes("Image omitted"),
     );
     expect(keptImages.length).toBe(3);
     expect(stubs.length).toBe(2);
