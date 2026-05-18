@@ -660,28 +660,26 @@ async function handleReplaceInferenceProfile({
   const fragment = parsed.data as Record<string, unknown>;
   if (!isManaged && fragment.provider && !fragment.provider_connection) {
     const provider = fragment.provider as string;
-    if (!PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
-      const db = getDb();
-      const candidates = listConnections(db, { provider });
-      const existing = candidates[0];
-      if (existing) {
-        fragment.provider_connection = existing.name;
-      } else {
-        const connectionName = `${provider}-personal`;
-        const isKeyless = provider === "ollama";
-        const result = createConnection(db, {
-          name: connectionName,
-          provider,
-          auth: isKeyless
-            ? { type: "none" }
-            : {
-                type: "api_key",
-                credential: credentialKey(provider, "api_key"),
-              },
-        });
-        if (result.ok) {
-          fragment.provider_connection = connectionName;
-        }
+    const db = getDb();
+    const candidates = listConnections(db, { provider });
+    const active = candidates.find((c) => c.status === "active");
+    if (active) {
+      fragment.provider_connection = active.name;
+    } else if (!PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
+      const connectionName = `${provider}-personal`;
+      const isKeyless = provider === "ollama";
+      const result = createConnection(db, {
+        name: connectionName,
+        provider,
+        auth: isKeyless
+          ? { type: "none" }
+          : {
+              type: "api_key",
+              credential: credentialKey(provider, "api_key"),
+            },
+      });
+      if (result.ok) {
+        fragment.provider_connection = connectionName;
       }
     }
   }
