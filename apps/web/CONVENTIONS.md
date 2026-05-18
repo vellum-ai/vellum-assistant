@@ -53,9 +53,9 @@ to hide irrelevant sections.
 routes.tsx
   <App />            ← shared shell (nav, layout, providers)
     <Outlet />
-      <ConversationNew />     ← only mounts conversation-creation hooks
-      <ConversationDetail />  ← mounts streaming, messages, interactions
-      <SettingsTab />         ← mounts settings-specific state
+      <ChatPage />           ← mounts chat, streaming, messages
+      <LibraryPage />        ← library listing
+      <SettingsTabPage />    ← mounts settings-specific state
 ```
 
 Push hooks down to the route component that needs them. Lift shared
@@ -123,7 +123,6 @@ src/
     native-auth.ts
     route-adapter.ts
   components/                      # cross-domain shared UI
-  pages/                           # route-level page components
 ```
 
 #### Why `domains/` not `features/`
@@ -179,7 +178,7 @@ directories. If something is domain-specific, it belongs inside
 | `lib/` | Configured third-party wrappers | `api-client.ts` (HeyAPI + interceptors), `csrf.ts`, `telemetry.ts` (Sentry), `feature-flags.ts` |
 | `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
 | `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
-| `pages/` | Route-level page components | `conversation-detail.tsx`, `settings-tab.tsx` |
+
 | `generated/` | Auto-generated code (HeyAPI, catalogs) | `heyapi/`, `catalogs/` |
 
 #### Why `lib/` exists
@@ -440,13 +439,12 @@ Reference: [Vite — SSR guidance](https://vite.dev/guide/ssr.html)
 
 Domain-agnostic UI primitives (Button, Card, Modal, Menu, Toast,
 Inputs, etc.) live in `packages/design-library/` outside `apps/web/`.
-The package is aliased as `@vellum/design-library` via Vite
-`resolve.alias` + tsconfig `paths` for monorepo HMR during
-development, with a clean path to npm publishing later.
+The package is referenced as a `file:` workspace dependency in
+`apps/web/package.json`, resolved directly by Vite during development.
 
 ```ts
-import { Button } from "@vellum/design-library/button.js";
-import { Modal } from "@vellum/design-library/modal.js";
+import { Button } from "@vellum/design-library/components/button";
+import { Card } from "@vellum/design-library/components/card";
 ```
 
 Design system components accept props and render UI. They must not

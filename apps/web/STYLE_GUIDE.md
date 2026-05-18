@@ -130,7 +130,7 @@ import { useCallback, useMemo } from "react";
 import { useParams } from "react-router";
 
 import { useMessageStore } from "@/domains/messages/use-message-store.js";
-import { Button } from "@vellum/design-library/button.js";
+import { Button } from "@vellum/design-library/components/button";
 
 import { messageReducer } from "./message-reducer.js";
 ```
