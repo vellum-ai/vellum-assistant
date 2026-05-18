@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   appendAssistantEvents,
+  appendProgressEvent,
   appendSimulatorMessage,
   appendTranscriptTurn,
   ensureRunArtifacts,
@@ -14,7 +15,14 @@ import {
   writeRunMetadata,
   writeUsage,
 } from "../metrics";
-import { listReportRuns, readReportRun } from "../report-data";
+import {
+  findExecutionRunId,
+  listReportSessions,
+  readReportRun,
+  readReportSession,
+  readTestInSession,
+  type ReportSessionSummary,
+} from "../report-data";
 
 async function freshRunId(name: string): Promise<string> {
   const runId = `test-report-${name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -29,6 +37,8 @@ describe("report data", () => {
 
     await writeRunMetadata(runId, {
       runId,
+      sessionId: `session-${runId}`,
+      sessionLabel: "smoke",
       profileId: "p1",
       testId: "t1",
       status: "completed",
@@ -45,8 +55,49 @@ describe("report data", () => {
       profileId: "p1",
       testId: "t1",
       status: "completed",
+      sessionId: `session-${runId}`,
+      sessionLabel: "smoke",
     });
     expect(await readMetricResults(runId)).toHaveLength(2);
+  });
+
+  test("readReportRun returns persisted progress events", async () => {
+    const runId = await freshRunId("progress");
+    const artifacts = runArtifacts(runId);
+
+    await writeRunMetadata(runId, {
+      runId,
+      sessionId: `session-${runId}`,
+      profileId: "p1",
+      testId: "t1",
+      status: "completed",
+      startedAt: "2026-05-15T12:00:00.000Z",
+      completedAt: "2026-05-15T12:00:02.000Z",
+      artifactDir: artifacts.runDir,
+    });
+    await appendProgressEvent(runId, {
+      step: "hatch",
+      status: "start",
+      message: "Hatching assistant",
+      emittedAt: "2026-05-15T12:00:00.500Z",
+    });
+    await appendProgressEvent(runId, {
+      step: "hatch",
+      status: "done",
+      message: "Assistant ready",
+      emittedAt: "2026-05-15T12:00:01.250Z",
+    });
+
+    const detail = await readReportRun(runId);
+    expect(detail.progressEvents).toHaveLength(2);
+    expect(detail.progressEvents[0]).toMatchObject({
+      step: "hatch",
+      status: "start",
+    });
+    expect(detail.progressEvents[1]).toMatchObject({
+      step: "hatch",
+      status: "done",
+    });
   });
 
   test("summarizes run artifacts for the HTML report", async () => {
@@ -55,6 +106,7 @@ describe("report data", () => {
 
     await writeRunMetadata(runId, {
       runId,
+      sessionId: `session-${runId}`,
       profileId: "p2",
       testId: "t1",
       status: "completed",
@@ -101,12 +153,6 @@ describe("report data", () => {
       "memory",
       "cost",
     ]);
-
-    const summaries = await listReportRuns();
-    expect(summaries.find((summary) => summary.runId === runId)).toMatchObject({
-      profileId: "p2",
-      scoreTotal: 0.9,
-    });
   });
 
   test("falls back for legacy artifact directories without run.json", async () => {
@@ -116,11 +162,179 @@ describe("report data", () => {
     const detail = await readReportRun(runId);
 
     expect(detail.status).toBe("unknown");
+    expect(detail.sessionId).toBe(runId);
     expect(detail.metadata).toMatchObject({
       runId,
       profileId: "unknown",
       testId: "unknown",
       status: "unknown",
     });
+  });
+
+  test("listReportSessions groups runs by sessionId and aggregates scores", async () => {
+    const sessionTag = `session-test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const runIdA = await freshRunId("session-a");
+    const runIdB = await freshRunId("session-b");
+
+    await Promise.all([
+      writeRunMetadata(runIdA, {
+        runId: runIdA,
+        sessionId: sessionTag,
+        sessionLabel: "compare",
+        profileId: "p1",
+        testId: "t1",
+        status: "completed",
+        startedAt: "2026-05-15T12:00:00.000Z",
+        completedAt: "2026-05-15T12:00:01.000Z",
+        artifactDir: runArtifacts(runIdA).runDir,
+      }),
+      writeRunMetadata(runIdB, {
+        runId: runIdB,
+        sessionId: sessionTag,
+        sessionLabel: "compare",
+        profileId: "p2",
+        testId: "t1",
+        status: "completed",
+        startedAt: "2026-05-15T12:00:02.000Z",
+        completedAt: "2026-05-15T12:00:03.000Z",
+        artifactDir: runArtifacts(runIdB).runDir,
+      }),
+    ]);
+
+    await writeMetricResults(runIdA, [{ name: "acc", score: 1 }]);
+    await writeMetricResults(runIdB, [{ name: "acc", score: 0.5 }]);
+
+    const sessions = await listReportSessions();
+    const match = sessions.find((session) => session.sessionId === sessionTag);
+    expect(match).toBeDefined();
+    const expected: Partial<ReportSessionSummary> = {
+      sessionId: sessionTag,
+      sessionLabel: "compare",
+      runCount: 2,
+      status: "completed",
+      profileIds: ["p1", "p2"],
+      testIds: ["t1"],
+      scoreTotal: 1.5,
+    };
+    expect(match).toMatchObject(expected);
+  });
+
+  test("readReportSession returns per-profile aggregates + per-test entries", async () => {
+    const sessionTag = `session-detail-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const runIdA = await freshRunId("detail-a");
+    const runIdB = await freshRunId("detail-b");
+    const runIdC = await freshRunId("detail-c");
+
+    await Promise.all([
+      writeRunMetadata(runIdA, {
+        runId: runIdA,
+        sessionId: sessionTag,
+        profileId: "p1",
+        testId: "t1",
+        status: "completed",
+        startedAt: "2026-05-15T12:00:00.000Z",
+        artifactDir: runArtifacts(runIdA).runDir,
+      }),
+      writeRunMetadata(runIdB, {
+        runId: runIdB,
+        sessionId: sessionTag,
+        profileId: "p2",
+        testId: "t1",
+        status: "completed",
+        startedAt: "2026-05-15T12:00:01.000Z",
+        artifactDir: runArtifacts(runIdB).runDir,
+      }),
+      writeRunMetadata(runIdC, {
+        runId: runIdC,
+        sessionId: sessionTag,
+        profileId: "p1",
+        testId: "t2",
+        status: "failed",
+        startedAt: "2026-05-15T12:00:02.000Z",
+        artifactDir: runArtifacts(runIdC).runDir,
+      }),
+    ]);
+
+    await writeMetricResults(runIdA, [{ name: "acc", score: 1 }]);
+    await writeMetricResults(runIdB, [{ name: "acc", score: 0.6 }]);
+    await writeMetricResults(runIdC, [{ name: "acc", score: 0 }]);
+
+    const session = await readReportSession(sessionTag);
+    expect(session).toBeDefined();
+    expect(session?.status).toBe("partial");
+    expect(session?.profiles).toHaveLength(2);
+
+    const p1 = session?.profiles.find((p) => p.profileId === "p1");
+    expect(p1).toMatchObject({
+      runCount: 2,
+      scoreTotal: 1,
+      scoreAverage: 0.5,
+      completedCount: 1,
+      failedCount: 1,
+    });
+
+    expect(session?.tests).toHaveLength(2);
+    const t1 = session?.tests.find((t) => t.testId === "t1");
+    expect(t1?.profiles.map((p) => p.profileId)).toEqual(["p1", "p2"]);
+  });
+
+  test("readTestInSession exposes per-profile metrics for the test page", async () => {
+    const sessionTag = `session-test-detail-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const runIdA = await freshRunId("test-detail-a");
+    const runIdB = await freshRunId("test-detail-b");
+
+    await Promise.all([
+      writeRunMetadata(runIdA, {
+        runId: runIdA,
+        sessionId: sessionTag,
+        profileId: "p1",
+        testId: "t1",
+        status: "completed",
+        artifactDir: runArtifacts(runIdA).runDir,
+      }),
+      writeRunMetadata(runIdB, {
+        runId: runIdB,
+        sessionId: sessionTag,
+        profileId: "p2",
+        testId: "t1",
+        status: "completed",
+        artifactDir: runArtifacts(runIdB).runDir,
+      }),
+    ]);
+
+    await writeMetricResults(runIdA, [
+      { name: "acc", score: 1 },
+      { name: "cost", score: -0.1 },
+    ]);
+    await writeMetricResults(runIdB, [
+      { name: "acc", score: 0.5 },
+      { name: "cost", score: -0.2 },
+    ]);
+
+    const test = await readTestInSession(sessionTag, "t1");
+    expect(test).toBeDefined();
+    expect(test?.profiles).toHaveLength(2);
+    const p2 = test?.profiles.find((p) => p.profileId === "p2");
+    expect(p2?.scoreTotal).toBe(0.3);
+    expect(p2?.metrics.map((m) => m.name)).toEqual(["acc", "cost"]);
+  });
+
+  test("findExecutionRunId resolves (sessionId, testId, profileId)", async () => {
+    const sessionTag = `session-find-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const runId = await freshRunId("find");
+
+    await writeRunMetadata(runId, {
+      runId,
+      sessionId: sessionTag,
+      profileId: "p1",
+      testId: "t1",
+      status: "completed",
+      artifactDir: runArtifacts(runId).runDir,
+    });
+
+    expect(await findExecutionRunId(sessionTag, "t1", "p1")).toBe(runId);
+    expect(
+      await findExecutionRunId(sessionTag, "t1", "missing"),
+    ).toBeUndefined();
   });
 });
