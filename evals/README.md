@@ -64,11 +64,7 @@ A profile lives at `profiles/<id>/`. The directory name is the profile id.
 }
 ```
 
-Committed profiles currently include:
-
-- `vellum-bare` — baseline Vellum assistant.
-- `vellum-simple-memory` — Vellum with the Simple Memory plugin installed before the run starts.
-- `hermes-bare` — baseline Hermes agent for cross-species comparison. Declarative only; requires a Hermes adapter to actually run.
+Run `evals profiles list` to see all committed profiles and their setup.
 
 `workspace/` (optional) holds files dropped into the agent's workspace before the run starts.
 
