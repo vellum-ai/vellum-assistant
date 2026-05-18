@@ -22,7 +22,9 @@ struct HomeDetailPanel<Content: View>: View {
     static var defaultWidth: CGFloat { 601 }
 
     let icon: VIcon?
-    let title: String
+    /// Pass `nil` (or a whitespace-only string) to suppress the header title
+    /// when the body already conveys it.
+    let title: String?
     /// Optional foreground tint for the icon chip. Falls back to
     /// `VColor.primaryBase` when `nil`.
     var iconForeground: Color? = nil
@@ -92,10 +94,12 @@ struct HomeDetailPanel<Content: View>: View {
                         .accessibilityHidden(true)
                 }
 
-                Text(title)
-                    .font(VFont.titleSmall)
-                    .foregroundStyle(VColor.contentEmphasized)
-                    .accessibilityAddTraits(.isHeader)
+                if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(title)
+                        .font(VFont.titleSmall)
+                        .foregroundStyle(VColor.contentEmphasized)
+                        .accessibilityAddTraits(.isHeader)
+                }
             }
 
             Spacer(minLength: 0)
