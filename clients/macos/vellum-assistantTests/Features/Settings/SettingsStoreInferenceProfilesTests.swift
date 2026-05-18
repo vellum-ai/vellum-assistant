@@ -409,6 +409,65 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertEqual(store.activeProfile, "A")
     }
 
+    /// A slow `refreshDaemonConfig()` GET that was already in flight when
+    /// the user picks "A" can return *during* A's PATCH, carrying the
+    /// pre-A active profile. That stale push must not look like a true
+    /// external write — counting it would force A's success branch into
+    /// the defer path and leave `lastConfirmedActiveProfile` stuck at the
+    /// pre-A value, so a subsequent failed pick would roll back to a
+    /// profile the assistant had already moved off of.
+    func testSetActiveProfileIgnoresStaleRefreshReassertingPreviousValue() async {
+        // Seed the store with a confirmed value so the "stale refresh"
+        // mid-flight can replay that same value.
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "activeProfile": "balanced",
+                "profiles": ["balanced": ["model": "claude-sonnet-4-6"]],
+            ]
+        ])
+
+        var continuationA: CheckedContinuation<Bool, Never>?
+        let aSuspended = expectation(description: "A PATCH suspended")
+        mockSettingsClient.patchConfigHandler = { _ in
+            return await withCheckedContinuation { cont in
+                continuationA = cont
+                aSuspended.fulfill()
+            }
+        }
+
+        async let resultA: Bool = store.setActiveProfile("A")
+        await fulfillment(of: [aSuspended], timeout: 1.0)
+
+        // A slow GET started before the pick lands during the PATCH and
+        // re-asserts the pre-A value. Because the value matches what was
+        // already confirmed, it must not bump the external-confirmation
+        // counter.
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "activeProfile": "balanced",
+                "profiles": ["balanced": ["model": "claude-sonnet-4-6"]],
+            ]
+        ])
+
+        continuationA?.resume(returning: true)
+        let aSucceeded = await resultA
+        XCTAssertTrue(aSucceeded)
+        XCTAssertEqual(
+            store.activeProfile,
+            "A",
+            "A's success must apply when the only external push re-asserts the prior value"
+        )
+
+        // A subsequent failed pick must revert to "A", proving
+        // `lastConfirmedActiveProfile` advanced — not to "balanced",
+        // which would indicate the success branch wrongly deferred.
+        mockSettingsClient.patchConfigHandler = nil
+        mockSettingsClient.patchConfigResponse = false
+        let bSucceeded = await store.setActiveProfile("B")
+        XCTAssertFalse(bSucceeded)
+        XCTAssertEqual(store.activeProfile, "A")
+    }
+
     // MARK: - setProfile
 
     func testSetProfileRoundTripsAndUpdatesPublishedState() async {

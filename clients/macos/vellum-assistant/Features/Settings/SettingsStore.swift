@@ -140,12 +140,14 @@ public final class SettingsStore: ObservableObject {
     private var lastConfirmedSetActiveProfileGen: Int = 0
 
     /// Monotonic counter incremented every time `loadInferenceProfiles`
-    /// updates `lastConfirmedActiveProfile` from a daemon-pushed config.
-    /// Each `setActiveProfile` call captures this at entry; if it advances
-    /// during the await, an external confirmation landed mid-flight and
-    /// the success branch must defer to it. Counting events rather than
-    /// comparing values catches no-op-looking drifts (e.g. X→Y→X) that a
-    /// value-equality check would miss.
+    /// lands an `activeProfile` value that *differs* from the previously
+    /// confirmed one. Each `setActiveProfile` call captures this at entry;
+    /// if it advances during the await, an external confirmation changed
+    /// the daemon-authoritative value mid-flight and the success branch
+    /// must defer to it. Counting transitions catches no-op-looking drifts
+    /// (e.g. X→Y→X) that a value-equality check on the entry snapshot
+    /// would miss, while ignoring slow refreshes that re-assert the same
+    /// value the store already had.
     private var externalActiveProfileConfirmationGen: Int = 0
 
     static let availableImageGenModels: [String] = [
@@ -3303,9 +3305,11 @@ public final class SettingsStore: ObservableObject {
         self.hasExplicitProfileOrder = rawOrder != nil
         self.profiles = orderedNames.compactMap { profilesByName[$0] }
         if let active = (llm?["activeProfile"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) {
+            if active != lastConfirmedActiveProfile {
+                externalActiveProfileConfirmationGen += 1
+            }
             self.activeProfile = active
             self.lastConfirmedActiveProfile = active
-            externalActiveProfileConfirmationGen += 1
         }
     }
 
@@ -3356,13 +3360,15 @@ public final class SettingsStore: ObservableObject {
     ///    arrives, B is no longer in flight either. No newer pick is live,
     ///    so A applies fully — re-syncing `activeProfile` from the
     ///    post-revert "balanced" back to the daemon-confirmed "A".
-    /// 3. A in flight → external load confirms a daemon-pushed value → A
-    ///    late success: the push advances
-    ///    `externalActiveProfileConfirmationGen`. A's success branch
-    ///    detects the bump and skips, leaving the daemon-pushed value
-    ///    intact. The counter catches the drift even when the external
-    ///    push happens to land the same string twice (X→Y→X) where a
-    ///    value-equality check would miss it.
+    /// 3. A in flight → external load changes the daemon-confirmed value
+    ///    → A late success: the push advances
+    ///    `externalActiveProfileConfirmationGen` (it only bumps on a true
+    ///    transition, so a slow refresh that re-asserts the pre-existing
+    ///    value does not trip the guard). A's success branch detects the
+    ///    bump and skips, leaving the daemon-pushed value intact. The
+    ///    counter catches the drift even when the external push happens
+    ///    to land the same string twice (X→Y→X) where a value-equality
+    ///    check against the entry snapshot would miss it.
     @discardableResult
     func setActiveProfile(_ name: String) async -> Bool {
         setActiveProfileGenerationCounter += 1
