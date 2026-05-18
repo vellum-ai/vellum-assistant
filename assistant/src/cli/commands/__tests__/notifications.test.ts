@@ -28,22 +28,28 @@ let ipcResponse: {
   result: {},
 };
 
+const exitCodeFromIpcResult = (r: { statusCode?: number }): number => {
+  if (r.statusCode === undefined) return 10;
+  if (r.statusCode >= 500) return 3;
+  if (r.statusCode >= 400) return 2;
+  return 1;
+};
+
 mock.module("../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
     ipcCalls.push({ method, params });
     return ipcResponse;
   },
-  exitFromIpcResult: (r: { ok: false; error?: string }) => {
+  exitFromIpcResult: (r: {
+    ok: false;
+    error?: string;
+    statusCode?: number;
+  }) => {
     process.stderr.write((r.error ?? "Unknown error") + "\n");
-    process.exitCode = 1;
+    process.exitCode = exitCodeFromIpcResult(r);
     return undefined as never;
   },
-  exitCodeFromIpcResult: (r: { statusCode?: number }) => {
-    if (r.statusCode === undefined) return 10;
-    if (r.statusCode >= 500) return 3;
-    if (r.statusCode >= 400) return 2;
-    return 1;
-  },
+  exitCodeFromIpcResult,
 }));
 
 import { Command } from "commander";
