@@ -488,9 +488,22 @@ References:
 ### HeyAPI for OpenAPI client generation
 
 The API client is generated from the platform's OpenAPI spec using
-[HeyAPI (`@hey-api/openapi-ts`)](https://heyapi.dev/). Codegen runs in
-this repo — the platform publishes the spec, we generate the client
-locally.
+[HeyAPI (`@hey-api/openapi-ts`)](https://heyapi.dev/). The public-facing
+specs (`openapi-schemas/platform.yaml`, `openapi-schemas/auth.yaml`) are
+committed to this repo so anyone can regenerate the client locally:
+
+```bash
+bun run openapi-ts
+```
+
+Generated output lives in `src/generated/api/` (gitignored).
+
+**Vellum developers** updating the specs after platform API changes:
+
+```bash
+./scripts/sync-openapi-specs.sh   # copies from sibling platform checkout
+bun run openapi-ts                # regenerate client
+```
 
 Plugins (configured in `openapi-ts.config.ts`):
 - `@hey-api/client-fetch` — Fetch-based HTTP client, bundled inline
@@ -499,10 +512,6 @@ Plugins (configured in `openapi-ts.config.ts`):
   `useQuery` / `useMutation` / `useInfiniteQuery`
 - `@hey-api/typescript` — generates TypeScript types from schemas
   (included by default, does not need explicit config)
-
-Generated output lives in `src/generated/api/`. This directory is
-fully auto-generated — do not hand-edit files in it. Run
-`bun run openapi-ts` to regenerate.
 
 References:
 - [HeyAPI — Configuration](https://heyapi.dev/openapi-ts/configuration)

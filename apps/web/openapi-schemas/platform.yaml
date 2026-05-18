@@ -1,0 +1,6217 @@
+openapi: 3.0.3
+info:
+  title: vellum-assistant-platform API
+  version: 1.0.0 (v1)
+  description: Documentation of API endpoints of vellum-assistant-platform
+paths:
+  /v1/assistants/:
+    get:
+      operationId: assistants_list
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: query
+        name: hosting
+        schema:
+          type: string
+          enum:
+          - all
+          - local
+          - platform
+          default: platform
+        description: Filter assistants by hosting mode. 'platform' (default) returns
+          only platform-managed assistants. 'local' returns only self-hosted local
+          assistants. 'all' returns both.
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAssistantList'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/backups/:
+    get:
+      operationId: assistants_backups_retrieve
+      description: List backups and trigger manual point-in-time backups for an assistant.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    post:
+      operationId: assistants_backups_create
+      description: Trigger a manual point-in-time backup for the assistant.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/backups/{snapshot_name}/restore/:
+    post:
+      operationId: assistants_backups_restore_create
+      description: |-
+        Restore an assistant from a named backup snapshot.
+
+        Enforces ownership and verifies the snapshot belongs to the requested
+        assistant by listing backups first.  Restore is never attempted if the
+        snapshot is absent from the list.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: snapshot_name
+        schema:
+          type: string
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/doctor/history/:
+    get:
+      operationId: assistants_doctor_history_list
+      description: |-
+        List persisted Doctor sessions for an assistant, newest first.
+
+        Sessions are scoped to the assistant identified by ``assistant_id``
+        (ownership/auth is enforced by ``_DoctorAPIView`` via
+        ``self.get_object()``). Results are ordered by
+        ``last_message_at DESC NULLS LAST, -created`` so that the most
+        recently active session appears first and sessions that have
+        never received a message sink to the bottom (PostgreSQL defaults
+        ``DESC`` to ``NULLS FIRST``, which would otherwise float empty
+        sessions above active ones). An annotated ``message_count`` is
+        included on each row so list views do not need a per-row query
+        to display the message tally.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDoctorSessionListList'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/doctor/history/{doctor_session_id}/:
+    get:
+      operationId: assistants_doctor_history_retrieve
+      description: |-
+        Return a single persisted Doctor session with its message ledger.
+
+        Looks up the session by Django UUID PK *and* by assistant
+        ownership; lookups across assistants always return 404, never 200.
+        Messages are returned in ``sequence`` order.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: doctor_session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DoctorSessionDetail'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/domains/:
+    get:
+      operationId: assistants_domains_list
+      description: List, create, and delete domains for a specific assistant.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - SDKCompatibleAssistantKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAssistantDomainList'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    post:
+      operationId: assistants_domains_create
+      description: List, create, and delete domains for a specific assistant.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAssistantDomainRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CreateAssistantDomainRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreateAssistantDomainRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - SDKCompatibleAssistantKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantDomain'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/domains/{id}/:
+    delete:
+      operationId: assistants_domains_destroy
+      description: List, create, and delete domains for a specific assistant.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - SDKCompatibleAssistantKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '204':
+          description: No response body
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/email-addresses/:
+    get:
+      operationId: assistants_email_addresses_list
+      description: List, create, and delete email addresses for a specific assistant.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - SDKCompatibleAssistantKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAssistantEmailAddressList'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    post:
+      operationId: assistants_email_addresses_create
+      description: List, create, and delete email addresses for a specific assistant.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEmailAddressRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CreateEmailAddressRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreateEmailAddressRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - SDKCompatibleAssistantKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantEmailAddress'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/email-addresses/{id}/:
+    delete:
+      operationId: assistants_email_addresses_destroy
+      description: List, create, and delete email addresses for a specific assistant.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - SDKCompatibleAssistantKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '204':
+          description: No response body
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/email-addresses/{id}/status/:
+    get:
+      operationId: assistants_email_addresses_status_retrieve
+      description: Return email address info and usage statistics.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - SDKCompatibleAssistantKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailAddressStatus'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/emails/:
+    get:
+      operationId: assistants_emails_list
+      description: List and retrieve email messages for a specific assistant.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: direction
+        schema:
+          type: string
+          enum:
+          - inbound
+          - outbound
+        description: Filter by message direction.
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      - in: query
+        name: since
+        schema:
+          type: string
+          format: date-time
+        description: Only return messages created at or after this ISO 8601 datetime.
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - SDKCompatibleAssistantKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEmailMessageList'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/maintenance-mode/enter/:
+    post:
+      operationId: assistants_maintenance_mode_enter_create
+      description: |-
+        Enter maintenance mode for the given assistant.
+
+        Pauses the assistant StatefulSet, hands the workspace PVC off to a debug
+        pod, and persists ``maintenance_mode_enabled=True`` on the Assistant row
+        only after vembda confirms the handoff succeeded.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/maintenance-mode/exit/:
+    post:
+      operationId: assistants_maintenance_mode_exit_create
+      description: |-
+        Exit maintenance mode for the given assistant.
+
+        Tears down the debug pod, returns the workspace PVC to the assistant
+        StatefulSet, and clears ``maintenance_mode_enabled`` only after vembda
+        confirms the StatefulSet handoff is complete.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/oauth/{provider}/start/:
+    post:
+      operationId: assistants_oauth_start_create
+      description: |-
+        Start an OAuth authorization flow for a given provider.
+
+        The requesting user must own the assistant or belong to the same
+        organization.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: provider
+        schema:
+          type: string
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthStartRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OAuthStartRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OAuthStartRequestRequest'
+      security:
+      - AssistantAPIKey: []
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthStartResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/oauth/connections/:
+    get:
+      operationId: assistants_oauth_connections_list
+      description: |-
+        List all OAuth connections for the current user on an assistant.
+
+        Returns connection state (active/expired/revoked/error) and account label
+        for each connected provider credential.
+
+        Supports both session auth (webapp) and assistant API key auth (CLI/daemon).
+      parameters:
+      - in: query
+        name: account_identifier
+        schema:
+          type: string
+        description: Filter connections by provider account ID.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: provider
+        schema:
+          type: string
+          enum:
+          - airtable
+          - asana
+          - discord
+          - dropbox
+          - github
+          - google
+          - hubspot
+          - linear
+          - notion
+          - outlook
+          - salesforce
+          - todoist
+          - twitter
+        description: Filter connections by OAuth provider.
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - ACTIVE
+          - ALL
+          - ERROR
+          - REVOKED
+        description: Filter by connection status. Defaults to ACTIVE. Use ALL to return
+          all statuses.
+      tags:
+      - assistants
+      security:
+      - AssistantAPIKey: []
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OAuthConnection'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/oauth/connections/{connection_id}/disconnect/:
+    post:
+      operationId: assistants_oauth_disconnect_by_connection_create
+      description: |-
+        Disconnect (revoke) a specific OAuth connection by its ID.
+
+        Marks the connection status as REVOKED. Optionally attempts to revoke
+        the upstream token with the provider.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: connection_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - AssistantAPIKey: []
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthDisconnectResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/push-tokens/:
+    post:
+      operationId: assistants_push_tokens_upsert
+      description: |-
+        Register or update a device push token for the assistant owner.
+
+        Authenticates via either:
+
+        - **Session** (web / iOS WebView): the requesting user must own the
+          ``assistant_id`` referenced in the URL.  This is the path used by
+          the `web/src/lib/push/register.ts` Capacitor flow on iOS.
+        - **AssistantAPIKey** (external SDK): the key must match the URL
+          ``assistant_id``; the registered user is ``assistant.created_by``.
+
+        Both paths converge on the same ``(user, token, bundle_id)`` upsert.
+        The ``last_seen_at`` timestamp is updated on every successful call.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevicePushTokenUpsertRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DevicePushTokenUpsertRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DevicePushTokenUpsertRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DevicePushTokenUpsert'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/push-tokens/{token}/:
+    delete:
+      operationId: assistants_push_tokens_delete
+      description: |-
+        Remove a device push token for the assistant owner.
+
+        Idempotent — returns 204 even if the token does not exist for the
+        given ``(user, token, bundle_id)`` triple.
+
+        Authenticates via either session or AssistantAPIKey (see
+        :class:`DevicePushTokenUpsertView` docstring).  The web/iOS WebView
+        logout path in ``web/src/lib/auth.tsx`` calls this BEFORE
+        ``allauthLogout()`` so the session cookie is still valid.
+
+        The ``bundle_id`` query parameter is REQUIRED so the delete is scoped
+        to a single (user, token, bundle_id) row.  Without it, a user who
+        legitimately had the same token registered under two app bundles
+        (e.g. main app and a TestFlight build) would lose both registrations
+        on a single logout, which would silently disable push for the other
+        app.  The model's unique constraint is ``(user, token, bundle_id)``,
+        so the delete filter must match all three to be safe.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: bundle_id
+        schema:
+          type: string
+        description: iOS app bundle identifier the token was registered under.  Required
+          so the delete is scoped to a single (user, token, bundle_id) row.
+        required: true
+      - in: path
+        name: token
+        schema:
+          type: string
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '204':
+          description: No response body
+        '400':
+          description: No response body
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/system-events/:
+    get:
+      operationId: assistants_system_events_list
+      description: |-
+        List retained system events for an assistant, newest first.
+
+        Only the owner of the assistant can access this endpoint.  Events older
+        than the retention window (``ASSISTANT_SYSTEM_EVENT_RETENTION_DAYS``) are
+        never returned.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAssistantSystemEventList'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/terminal/sessions/:
+    post:
+      operationId: assistants_terminal_sessions_create
+      description: |-
+        Create a new terminal session for the given assistant.
+
+        Proxies POST /v1/assistants/{id}/terminal/sessions/ to vembda which spawns
+        a PTY inside the assistant pod and returns the new session ID.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: {}
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: {}
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: {}
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/terminal/sessions/{session_id}/:
+    delete:
+      operationId: assistants_terminal_sessions_destroy
+      description: |-
+        Close and clean up a terminal session.
+
+        Proxies DELETE /v1/assistants/{id}/terminal/sessions/{session_id}/ to
+        vembda which terminates the PTY process and frees the session slot.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: session_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/terminal/sessions/{session_id}/input/:
+    post:
+      operationId: assistants_terminal_sessions_input_create
+      description: |-
+        Send keyboard input to an active terminal session.
+
+        Proxies POST /v1/assistants/{id}/terminal/sessions/{session_id}/input/ to
+        vembda which writes the data bytes into the PTY stdin.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: session_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: {}
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: {}
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: {}
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/terminal/sessions/{session_id}/resize/:
+    post:
+      operationId: assistants_terminal_sessions_resize_create
+      description: |-
+        Notify vembda of a terminal window resize event.
+
+        Proxies POST /v1/assistants/{id}/terminal/sessions/{session_id}/resize/ to
+        vembda which forwards the new dimensions to the PTY.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: session_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: {}
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: {}
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: {}
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{id}/:
+    get:
+      operationId: assistants_retrieve
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assistant'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{id}/access-consent/:
+    get:
+      operationId: assistants_access_consent_detail_read
+      description: Read or update the owner's consent for admin daemon-log access.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessConsent'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    patch:
+      operationId: assistants_access_consent_detail_partial_update
+      description: Read or update the owner's consent for admin daemon-log access.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAccessConsentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAccessConsentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAccessConsentRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessConsent'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{id}/activate/:
+    post:
+      operationId: assistants_activate_create
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assistant'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{id}/connection-status/:
+    post:
+      operationId: assistants_connection_status
+      description: |-
+        Return the live reachability of the assistant's runtime pod.
+
+        The web frontend polls this endpoint to distinguish a pod that is
+        waking from idle-sleep (transient) from one that is genuinely
+        unreachable (surface an error).
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionStatus'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{id}/pro-upgrade-machine/:
+    post:
+      operationId: assistants_pro_upgrade_machine_create
+      description: |-
+        Upgrade an assistant's compute profile to the Pro level (``medium``).
+
+        Idempotent: if the assistant is already at or above ``medium``, returns
+        200 without calling vembda. Resizes the PVC to 20Gi first (if currently
+        smaller) and only then updates the machine size — failures abort the
+        flow without partial persistence.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{id}/restart/:
+    post:
+      operationId: assistants_restart_detail_create
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistantRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AssistantRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AssistantRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{id}/retire/:
+    delete:
+      operationId: assistants_retire_detail_destroy
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '204':
+          description: No response body
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{id}/rollback/:
+    post:
+      operationId: assistants_rollback_detail_create
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RollbackRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RollbackRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RollbackRequestRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RollbackResult'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{id}/sleep-policy/:
+    get:
+      operationId: assistants_sleep_policy_detail_read
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SleepPolicy'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    patch:
+      operationId: assistants_sleep_policy_detail_partial_update
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSleepPolicyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSleepPolicyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSleepPolicyRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SleepPolicy'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{id}/upgrade/:
+    post:
+      operationId: assistants_upgrade_detail_create
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpgradeRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UpgradeRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UpgradeRequestRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpgradeResult'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{id}/upgrade-policy/:
+    get:
+      operationId: assistants_upgrade_policy_detail_read
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpgradePolicy'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    patch:
+      operationId: assistants_upgrade_policy_detail_partial_update
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUpgradePolicyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUpgradePolicyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUpgradePolicyRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpgradePolicy'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/access-consent/:
+    get:
+      operationId: assistants_access_consent_retrieve
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessConsent'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    patch:
+      operationId: assistants_access_consent_partial_update
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAccessConsentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAccessConsentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAccessConsentRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessConsent'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/active/:
+    get:
+      operationId: assistants_active_retrieve
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assistant'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/hatch/:
+    post:
+      operationId: assistants_hatch_create
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: query
+        name: mode
+        schema:
+          type: string
+          enum:
+          - create
+          - ensure
+          default: ensure
+        description: '`ensure` returns an existing managed assistant when possible.
+          `create` creates an additional assistant when multi-assistant hatching is
+          enabled.'
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HatchAssistantRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/HatchAssistantRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/HatchAssistantRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assistant'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/restart/:
+    post:
+      operationId: assistants_restart_create
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistantRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AssistantRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AssistantRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/retire/:
+    delete:
+      operationId: assistants_retire_destroy
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '204':
+          description: No response body
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/rollback/:
+    post:
+      operationId: assistants_rollback_create
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RollbackRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RollbackRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RollbackRequestRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RollbackResult'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/sleep-policy/:
+    get:
+      operationId: assistants_sleep_policy_retrieve
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SleepPolicy'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    patch:
+      operationId: assistants_sleep_policy_partial_update
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSleepPolicyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSleepPolicyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSleepPolicyRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SleepPolicy'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/upgrade/:
+    post:
+      operationId: assistants_upgrade_create
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpgradeRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UpgradeRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UpgradeRequestRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpgradeResult'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/upgrade-policy/:
+    get:
+      operationId: assistants_upgrade_policy_retrieve
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpgradePolicy'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    patch:
+      operationId: assistants_upgrade_policy_partial_update
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUpgradePolicyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUpgradePolicyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUpgradePolicyRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpgradePolicy'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/feedback/:
+    post:
+      operationId: feedback_create
+      tags:
+      - feedback
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackIngestRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FeedbackIngestRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FeedbackIngestRequestRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackIngestResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/:
+    get:
+      operationId: organizations_list
+      description: APIs to manage organizations for an authenticated User.
+      parameters:
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedOrganizationReadList'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/auto-top-up/:
+    get:
+      operationId: organizations_billing_auto_top_up_retrieve
+      description: Return the current auto top-up configuration for the org.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutoTopUpConfigResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    put:
+      operationId: organizations_billing_auto_top_up_update
+      description: Create or update the auto top-up configuration for the org.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutoTopUpConfigRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AutoTopUpConfigRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AutoTopUpConfigRequestRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutoTopUpConfigResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/auto-top-up/disable/:
+    post:
+      operationId: organizations_billing_auto_top_up_disable_create
+      description: Disable automatic top-ups for the org. Preserves saved settings.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutoTopUpDisableResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/auto-top-up/history/:
+    get:
+      operationId: organizations_billing_auto_top_up_history_retrieve
+      description: List recent auto top-up attempts for the org (most recent first,
+        max 20).
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutoTopUpHistoryResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/auto-top-up/remove-payment-method/:
+    post:
+      operationId: organizations_billing_auto_top_up_remove_payment_method_create
+      description: |-
+        Remove the saved auto top-up payment method and disable automatic top-ups.
+
+        Clears ``AutoTopUpConfig.stripe_payment_method_id`` and sets
+        ``enabled=False`` so no future ``attempt_charge`` can fire against
+        the removed card.
+
+        The Stripe PaymentMethod object is intentionally **not** detached from
+        the customer — it may be referenced by the Pro plan subscription.
+        Callers that need to fully remove the card from Stripe can use
+        ``PaymentMethodViewSet.destroy`` separately.
+
+        No-op (returns the same disabled payload) when no config row exists or
+        the config already has no PM saved.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutoTopUpDisableResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/auto-top-up/setup-intent/:
+    post:
+      operationId: organizations_billing_auto_top_up_setup_intent_create
+      description: |-
+        Create a Stripe SetupIntent for saving an off-session auto-top-up payment method.
+
+        The SetupIntent is tagged with ``metadata.auto_top_up=true`` so the
+        ``setup_intent.succeeded`` webhook handler can distinguish auto-top-up
+        payment-method saves from manual-top-up saves and persist the resulting
+        payment method onto ``AutoTopUpConfig.stripe_payment_method_id``.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutoTopUpSetupIntentResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/plans/:
+    get:
+      operationId: organizations_billing_plans_retrieve
+      description: Return the Pro plan catalog (Base + Pro). Read-only, no I/O.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanListResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/portal-session/:
+    post:
+      operationId: organizations_billing_portal_session_create
+      description: POST /v1/organizations/billing/portal-session/ → {portal_url}.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingPortalSessionResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/subscription/:
+    get:
+      operationId: organizations_billing_subscription_retrieve
+      description: GET /…/subscription/ → current state. POST upgrade action.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    delete:
+      operationId: organizations_billing_subscription_destroy
+      description: 'STUB(ATL-593): Cancel the org''s active Pro subscription. Real
+        impl checks vembda PVC usage and either gates with 400 pvc_too_large or calls
+        Stripe to schedule cancellation at current period end. This stub returns a
+        hardcoded cancel_at 30 days out and domain=null.'
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProSubscriptionCancelResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/subscription/change-machine-tier/:
+    post:
+      operationId: organizations_billing_subscription_change_machine_tier_create
+      description: Switch the compute (machine) tier on the org's active Pro subscription.
+        Modifies the Stripe subscription item in place (Stripe applies prorated billing
+        on the next invoice) and converges every org assistant's pod to the new machine
+        size via vembda. Requires an active Pro subscription that has the multi-item
+        structure with machine_tier metadata; legacy single-price subscriptions get
+        HTTP 409 until they are migrated.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComputeTierChangeRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ComputeTierChangeRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ComputeTierChangeRequestRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComputeTierChangeResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/subscription/cleanup-prompt/:
+    post:
+      operationId: organizations_billing_subscription_cleanup_prompt_create
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProCleanupPromptResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/subscription/machine/:
+    post:
+      operationId: organizations_billing_subscription_machine_resize
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProMachineResizeRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProMachineResizeRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProMachineResizeRequestRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProMachineResizeResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/subscription/onboarding/:
+    get:
+      operationId: organizations_billing_subscription_onboarding_retrieve
+      description: Post-checkout Pro onboarding wizard endpoints.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingStateResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/subscription/onboarding/domain/:
+    post:
+      operationId: organizations_billing_subscription_onboarding_domain_create
+      description: Post-checkout Pro onboarding wizard endpoints.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnboardingDomainRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OnboardingDomainRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OnboardingDomainRequestRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingDomainResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/subscription/onboarding/machine/:
+    post:
+      operationId: organizations_billing_subscription_onboarding_machine_create
+      description: Post-checkout Pro onboarding wizard endpoints.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnboardingMachineRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OnboardingMachineRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OnboardingMachineRequestRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingMachineResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/subscription/retire/:
+    post:
+      operationId: organizations_billing_subscription_retire_create
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProRetireRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProRetireRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProRetireRequestRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProRetireResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/subscription/upgrade/:
+    post:
+      operationId: organizations_billing_subscription_upgrade_create
+      description: GET /…/subscription/ → current state. POST upgrade action.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionUpgradeRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SubscriptionUpgradeRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SubscriptionUpgradeRequestRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionUpgradeResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/summary/:
+    get:
+      operationId: organizations_billing_summary_retrieve
+      description: |-
+        Return settled, pending, and effective balance for the organization.
+
+        Read-only — does not create or modify any billing state.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSummaryResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    post:
+      operationId: organizations_billing_summary_create
+      description: |-
+        Bootstrap billing for the organization and return the summary.
+
+        Creates a ``BillingAccount`` (with initial credit) for organizations
+        that don't yet have one.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSummaryResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/top-ups/checkout-session/:
+    post:
+      operationId: organizations_billing_top_ups_checkout_session_create
+      description: |-
+        Create a new top-up checkout session.
+
+        Validates the requested amount, ensures a billing account exists for
+        the organization, creates a ``BillingTopUp`` row, and returns the
+        Stripe Checkout URL for client-side redirect.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TopUpCheckoutRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TopUpCheckoutRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TopUpCheckoutRequestRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TopUpCheckoutResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/usage/series/:
+    get:
+      operationId: organizations_billing_usage_series_retrieve
+      description: Return time-bucketed usage data grouped by a chosen dimension.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: query
+        name: from
+        schema:
+          type: string
+        description: Inclusive start date (ISO 8601).
+        required: true
+      - in: query
+        name: granularity
+        schema:
+          type: string
+          enum:
+          - daily
+          - monthly
+          - weekly
+        description: 'Time bucket granularity: daily (default), weekly, or monthly.'
+      - in: query
+        name: group_by
+        schema:
+          type: string
+          enum:
+          - assistant
+          - inference_profile
+          - inference_provider
+          - llm_call_site
+          - model
+          - oauth_provider
+          - usage_source
+        description: 'Dimension to group by within each bucket (default: usage_source).'
+      - in: query
+        name: inference_profile
+        schema:
+          type: string
+        description: Filter by runtime-proxy inference profile ID.
+      - in: query
+        name: inference_provider
+        schema:
+          type: string
+        description: Filter by LLM inference provider (e.g. anthropic, openai, gemini).
+      - in: query
+        name: llm_call_site
+        schema:
+          type: string
+        description: Filter by runtime-proxy LLM call-site ID (task).
+      - in: query
+        name: model
+        schema:
+          type: string
+        description: Filter by model ID (e.g. claude-opus-4-6).
+      - in: query
+        name: oauth_provider
+        schema:
+          type: string
+        description: Filter by OAuth provider (e.g. twitter, hubspot).
+      - in: query
+        name: to
+        schema:
+          type: string
+        description: Inclusive end date (ISO 8601).
+        required: true
+      - in: query
+        name: tz
+        schema:
+          type: string
+        description: 'IANA timezone for date-range and bucket boundaries (default:
+          UTC).'
+      - in: query
+        name: usage_source
+        schema:
+          type: string
+          enum:
+          - oauth_proxy
+          - runtime_proxy
+        description: 'Filter by usage source: runtime_proxy or oauth_proxy.'
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageSeriesResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/usage/totals/:
+    get:
+      operationId: organizations_billing_usage_totals_retrieve
+      description: Return total spend and event count for the organization.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: query
+        name: from
+        schema:
+          type: string
+        description: Inclusive start date (ISO 8601).
+        required: true
+      - in: query
+        name: inference_profile
+        schema:
+          type: string
+        description: Filter by runtime-proxy inference profile ID.
+      - in: query
+        name: inference_provider
+        schema:
+          type: string
+        description: Filter by LLM inference provider (e.g. anthropic, openai, gemini).
+      - in: query
+        name: llm_call_site
+        schema:
+          type: string
+        description: Filter by runtime-proxy LLM call-site ID (task).
+      - in: query
+        name: model
+        schema:
+          type: string
+        description: Filter by model ID (e.g. claude-opus-4-6).
+      - in: query
+        name: oauth_provider
+        schema:
+          type: string
+        description: Filter by OAuth provider (e.g. twitter, hubspot).
+      - in: query
+        name: to
+        schema:
+          type: string
+        description: Inclusive end date (ISO 8601).
+        required: true
+      - in: query
+        name: tz
+        schema:
+          type: string
+        description: 'IANA timezone for date-range and bucket boundaries (default:
+          UTC).'
+      - in: query
+        name: usage_source
+        schema:
+          type: string
+          enum:
+          - oauth_proxy
+          - runtime_proxy
+        description: 'Filter by usage source: runtime_proxy or oauth_proxy.'
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageTotalsResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/notifications/:
+    get:
+      operationId: organizations_notifications_list
+      description: List notifications for the authenticated organization.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: query
+        name: assistant_id
+        schema:
+          type: string
+        description: Filter notifications scoped to a specific assistant.
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: notification_type
+        schema:
+          type: string
+        description: Filter by notification type.
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - open
+          - resolved
+        description: 'Filter by lifecycle status: ''open'' or ''resolved''.'
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedNotificationListList'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/notifications/{id}/acknowledge/:
+    post:
+      operationId: organizations_notifications_acknowledge_create
+      description: Acknowledge or unacknowledge a notification for the requesting
+        user.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this notification.
+        required: true
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcknowledgeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AcknowledgeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AcknowledgeRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcknowledgeResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/notifications/{id}/snooze/:
+    post:
+      operationId: organizations_notifications_snooze_create
+      description: Snooze a notification until a given time (or clear the snooze if
+        null).
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this notification.
+        required: true
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SnoozeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SnoozeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SnoozeRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnoozeResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/notifications/pause-rules/:
+    post:
+      operationId: organizations_notifications_pause_rules_create
+      description: Create an org-scoped notification mute/pause rule.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PauseRuleCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PauseRuleCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PauseRuleCreateRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PauseRuleRead'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/notifications/pause-rules/{rule_id}/:
+    delete:
+      operationId: organizations_notifications_pause_rules_destroy
+      description: Delete an org-scoped notification mute/pause rule.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: rule_id
+        schema:
+          type: string
+          pattern: ^[0-9a-f-]+$
+        required: true
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '204':
+          description: No response body
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/notifications/summary/:
+    get:
+      operationId: organizations_notifications_summary_retrieve
+      description: Return unread and active notification counts for navigation badges.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSummary'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/referral-codes/me/:
+    get:
+      operationId: referral_codes_me_retrieve
+      description: |-
+        Return the user's referral code and stats.
+
+        Lazily creates a referral code if the user doesn't have one yet.
+      tags:
+      - referral-codes
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyReferralCodeResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/releases/:
+    get:
+      operationId: releases_list
+      parameters:
+      - in: query
+        name: since_version
+        schema:
+          type: string
+          minLength: 1
+        description: Only return releases newer than this version.
+      - in: query
+        name: stable
+        schema:
+          type: boolean
+          default: true
+        description: Filter by stability. Defaults to true.
+      tags:
+      - releases
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - SDKCompatibleAssistantKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReleaseListItem'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/user/deletion-request/:
+    post:
+      operationId: user_deletion_request_create
+      tags:
+      - user
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '201':
+          description: No response body
+        '404':
+          description: No response body
+        '409':
+          description: No response body
+      x-vellum-api-clients:
+      - platform
+components:
+  schemas:
+    AccessConsent:
+      type: object
+      description: Serializer for the user-controlled admin log access consent toggle.
+      properties:
+        access_consented:
+          type: boolean
+          description: When True, Vellum admins may view the daemon log file (/workspace/data/logs/vellum.log)
+            from this assistant pod for debugging. Defaults to False; the owner can
+            revoke at any time.
+      required:
+      - access_consented
+    AcknowledgeRequest:
+      type: object
+      description: Serializer for acknowledge/unacknowledge actions.
+      properties:
+        acknowledged:
+          type: boolean
+      required:
+      - acknowledged
+    AcknowledgeResponse:
+      type: object
+      description: Response serializer for acknowledge/unacknowledge actions.
+      properties:
+        id:
+          type: string
+          format: uuid
+        is_read:
+          type: boolean
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - id
+      - is_read
+      - read_at
+    ApnsEnvironmentEnum:
+      enum:
+      - production
+      - development
+      type: string
+      description: |-
+        * `production` - production
+        * `development` - development
+    Assistant:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        configuration: {}
+        status:
+          $ref: '#/components/schemas/AssistantStatusEnum'
+        created:
+          type: string
+          format: date-time
+          readOnly: true
+        modified:
+          type: string
+          format: date-time
+          readOnly: true
+        current_release_version:
+          type: string
+          nullable: true
+          readOnly: true
+        machine_id:
+          type: string
+          nullable: true
+          maxLength: 255
+        vembda_cluster_id:
+          type: string
+          readOnly: true
+          nullable: true
+        machine_size:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/MachineSizeEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        maintenance_mode:
+          allOf:
+          - $ref: '#/components/schemas/MaintenanceMode'
+          readOnly: true
+        is_local:
+          type: boolean
+          readOnly: true
+        ingress_url:
+          type: string
+          nullable: true
+          readOnly: true
+        access_consented:
+          type: boolean
+          readOnly: true
+      required:
+      - access_consented
+      - created
+      - current_release_version
+      - id
+      - ingress_url
+      - is_local
+      - machine_size
+      - maintenance_mode
+      - modified
+      - vembda_cluster_id
+    AssistantDomain:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        subdomain:
+          type: string
+          description: Subdomain label (e.g. 'velly')
+          maxLength: 63
+        created:
+          type: string
+          format: date-time
+          readOnly: true
+        modified:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created
+      - id
+      - modified
+      - subdomain
+    AssistantEmailAddress:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        address:
+          type: string
+          format: email
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - address
+      - created_at
+      - id
+    AssistantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        configuration: {}
+        status:
+          $ref: '#/components/schemas/AssistantStatusEnum'
+        machine_id:
+          type: string
+          nullable: true
+          maxLength: 255
+    AssistantStatusEnum:
+      enum:
+      - initializing
+      - active
+      - to_be_deleted
+      type: string
+      description: |-
+        * `initializing` - Initializing
+        * `active` - Active
+        * `to_be_deleted` - To be deleted
+    AssistantSystemEvent:
+      type: object
+      description: |-
+        List-item serializer for AssistantSystemEvent.
+
+        Exposes only the fields that the web and admin UIs need.  ``display_text``
+        is derived from ``details`` at read time so that the stored schema can
+        evolve without migrations.
+
+        ``idle_timeout_seconds`` is read from the event's ``details`` payload
+        where it was stored at record time.  ``None`` for non-idle_sleep events
+        or events recorded before this field was persisted.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        type:
+          allOf:
+          - $ref: '#/components/schemas/SystemEventTypeEnum'
+          readOnly: true
+          description: |-
+            High-level categorisation of what occurred.
+
+            * `lifecycle` - Lifecycle
+            * `upgrade` - Upgrade
+            * `rollback` - Rollback
+            * `crash` - Crash
+            * `idle_sleep` - Idle Sleep
+            * `wake` - Wake
+            * `profiler` - Profiler
+            * `other` - Other
+        event_status:
+          allOf:
+          - $ref: '#/components/schemas/EventStatusEnum'
+          readOnly: true
+          description: |-
+            Outcome or phase of the event.
+
+            * `started` - Started
+            * `succeeded` - Succeeded
+            * `failed` - Failed
+            * `in_progress` - In Progress
+        source:
+          allOf:
+          - $ref: '#/components/schemas/SourceEnum'
+          readOnly: true
+          description: |-
+            Component that produced the event.
+
+            * `django` - Django
+            * `vembda` - Vembda
+        reason:
+          type: string
+          readOnly: true
+          description: Short machine-readable reason code or message.
+        display_text:
+          type: string
+          readOnly: true
+        details:
+          readOnly: true
+          description: Structured event payload. Derive display text from this field.
+        occurred_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the event actually occurred (caller-supplied).
+        idle_timeout_seconds:
+          type: integer
+          nullable: true
+          readOnly: true
+      required:
+      - details
+      - display_text
+      - event_status
+      - id
+      - idle_timeout_seconds
+      - occurred_at
+      - reason
+      - source
+      - type
+    AutoTopUpConfigRequestRequest:
+      type: object
+      description: PUT /…/auto-top-up/ request body.
+      properties:
+        enabled:
+          type: boolean
+        threshold_usd:
+          type: string
+          minLength: 1
+        amount_usd:
+          type: string
+          minLength: 1
+        monthly_cap_usd:
+          type: string
+          nullable: true
+          minLength: 1
+      required:
+      - amount_usd
+      - enabled
+      - monthly_cap_usd
+      - threshold_usd
+    AutoTopUpConfigResponse:
+      type: object
+      description: GET /…/auto-top-up/ response shape; also returned by PUT.
+      properties:
+        enabled:
+          type: boolean
+        threshold_usd:
+          type: string
+          nullable: true
+        amount_usd:
+          type: string
+          nullable: true
+        monthly_cap_usd:
+          type: string
+          nullable: true
+        has_payment_method:
+          type: boolean
+        payment_method_brand:
+          type: string
+          nullable: true
+        payment_method_last4:
+          type: string
+          nullable: true
+        stripe_payment_method_updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_charge_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_failure_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_failure_reason:
+          type: string
+          nullable: true
+        paused_until:
+          type: string
+          format: date-time
+          nullable: true
+        current_month_credits_purchased_usd:
+          type: string
+        current_month_charged_usd:
+          type: string
+        next_trigger_amount_usd:
+          type: string
+          nullable: true
+        stubbed:
+          type: boolean
+      required:
+      - amount_usd
+      - current_month_charged_usd
+      - current_month_credits_purchased_usd
+      - enabled
+      - has_payment_method
+      - last_charge_at
+      - last_failure_at
+      - last_failure_reason
+      - monthly_cap_usd
+      - next_trigger_amount_usd
+      - paused_until
+      - payment_method_brand
+      - payment_method_last4
+      - stripe_payment_method_updated_at
+      - stubbed
+      - threshold_usd
+    AutoTopUpDisableResponse:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        stubbed:
+          type: boolean
+        message:
+          type: string
+      required:
+      - enabled
+      - message
+      - stubbed
+    AutoTopUpHistoryEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        requested_amount_usd:
+          type: string
+        status:
+          $ref: '#/components/schemas/AutoTopUpHistoryEntryStatusEnum'
+        stripe_decline_code:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - id
+      - requested_amount_usd
+      - status
+      - stripe_decline_code
+    AutoTopUpHistoryEntryStatusEnum:
+      enum:
+      - initiated
+      - paid
+      - failed
+      type: string
+      description: |-
+        * `initiated` - initiated
+        * `paid` - paid
+        * `failed` - failed
+    AutoTopUpHistoryResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AutoTopUpHistoryEntry'
+        count:
+          type: integer
+          minimum: 0
+        stubbed:
+          type: boolean
+      required:
+      - count
+      - results
+      - stubbed
+    AutoTopUpSetupIntentResponse:
+      type: object
+      description: POST /…/auto-top-up/setup-intent/ response shape.
+      properties:
+        client_secret:
+          type: string
+          description: Stripe SetupIntent client_secret for use with Stripe Elements.
+      required:
+      - client_secret
+    BasePlan:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/BasePlanIdEnum'
+        name:
+          type: string
+        price_cents:
+          type: integer
+          minimum: 0
+        billing_interval:
+          $ref: '#/components/schemas/BillingIntervalEnum'
+        included_features:
+          type: array
+          items:
+            type: string
+      required:
+      - billing_interval
+      - id
+      - included_features
+      - name
+      - price_cents
+    BasePlanIdEnum:
+      enum:
+      - base
+      type: string
+      description: '* `base` - base'
+    BillingIntervalEnum:
+      enum:
+      - month
+      type: string
+      description: '* `month` - month'
+    BillingPortalSessionResponse:
+      type: object
+      properties:
+        portal_url:
+          type: string
+          format: uri
+      required:
+      - portal_url
+    BillingSummaryResponse:
+      type: object
+      description: |-
+        Response body for the billing summary endpoint.
+
+        All monetary values are returned as decimal strings (not floats).
+      properties:
+        settled_balance:
+          type: string
+          description: Settled (on-ledger) credit balance as a decimal string.
+        minimum_top_up:
+          type: string
+          description: Minimum allowed top-up amount as a decimal string.
+        maximum_top_up:
+          type: string
+          description: Maximum allowed top-up amount as a decimal string.
+        maximum_balance:
+          type: string
+          description: Maximum allowed account credit balance as a decimal string.
+        allowed_top_up_amounts:
+          type: array
+          items:
+            type: string
+          description: Ordered list of allowed top-up amounts in USD as decimal strings.
+        settled_balance_usd:
+          type: string
+          description: Settled (on-ledger) balance in USD as a decimal string.
+        minimum_top_up_usd:
+          type: string
+          description: Minimum allowed top-up amount in USD as a decimal string.
+        maximum_top_up_usd:
+          type: string
+          description: Maximum allowed top-up amount in USD as a decimal string.
+        maximum_balance_usd:
+          type: string
+          description: Maximum allowed account balance in USD as a decimal string.
+        pending_compute:
+          type: string
+          description: Estimated pending compute charges not yet settled, as a decimal
+            string.
+        pending_compute_usd:
+          type: string
+          description: Estimated pending compute charges not yet settled, as a decimal
+            string.
+        effective_balance:
+          type: string
+          description: Effective credit balance (settled minus pending) as a decimal
+            string.
+        effective_balance_usd:
+          type: string
+          description: Effective balance (settled minus pending) in USD as a decimal
+            string.
+        is_degraded:
+          type: boolean
+          description: True when pending-compute data may be stale or unavailable.
+      required:
+      - allowed_top_up_amounts
+      - effective_balance
+      - effective_balance_usd
+      - is_degraded
+      - maximum_balance
+      - maximum_balance_usd
+      - maximum_top_up
+      - maximum_top_up_usd
+      - minimum_top_up
+      - minimum_top_up_usd
+      - pending_compute
+      - pending_compute_usd
+      - settled_balance
+      - settled_balance_usd
+    BlankEnum:
+      enum:
+      - ''
+    ClassificationEnum:
+      enum:
+      - something_broken
+      - app_crash
+      - performance
+      - connection
+      - feature_request
+      - other
+      - bug_report
+      type: string
+      description: |-
+        * `something_broken` - Something Broken
+        * `app_crash` - App Crash
+        * `performance` - Performance
+        * `connection` - Connection
+        * `feature_request` - Feature Request
+        * `other` - Other
+        * `bug_report` - Bug Report
+    ClientEnum:
+      enum:
+      - macos
+      - ios
+      - web
+      - cli
+      type: string
+      description: |-
+        * `macos` - macOS
+        * `ios` - iOS
+        * `web` - Web
+        * `cli` - CLI
+    CodeEnum:
+      enum:
+      - denied
+      - state_invalid
+      - state_expired
+      - exchange_failed
+      - identity_failed
+      - internal_error
+      - credential_required
+      - credential_expired
+      - token_refresh_failed
+      - provider_request_rejected
+      - provider_unreachable
+      - invalid_proxy_request
+      - multiple_connections
+      - connection_not_found
+      - oauth_start_failed
+      - insufficient_balance
+      - missing_price
+      type: string
+      description: |-
+        * `denied` - denied
+        * `state_invalid` - state_invalid
+        * `state_expired` - state_expired
+        * `exchange_failed` - exchange_failed
+        * `identity_failed` - identity_failed
+        * `internal_error` - internal_error
+        * `credential_required` - credential_required
+        * `credential_expired` - credential_expired
+        * `token_refresh_failed` - token_refresh_failed
+        * `provider_request_rejected` - provider_request_rejected
+        * `provider_unreachable` - provider_unreachable
+        * `invalid_proxy_request` - invalid_proxy_request
+        * `multiple_connections` - multiple_connections
+        * `connection_not_found` - connection_not_found
+        * `oauth_start_failed` - oauth_start_failed
+        * `insufficient_balance` - insufficient_balance
+        * `missing_price` - missing_price
+    ComputeTierChangeRequestRequest:
+      type: object
+      properties:
+        machine_tier:
+          $ref: '#/components/schemas/MachineTierEnum'
+      required:
+      - machine_tier
+    ComputeTierChangeResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/ComputeTierChangeResponseStatusEnum'
+        machine_tier:
+          $ref: '#/components/schemas/MachineTierEnum'
+      required:
+      - machine_tier
+      - status
+    ComputeTierChangeResponseStatusEnum:
+      enum:
+      - ok
+      - no_op
+      type: string
+      description: |-
+        * `ok` - ok
+        * `no_op` - no_op
+    ConnectionStatus:
+      type: object
+      description: Serializer describing the live reachability of an assistant pod.
+      properties:
+        state:
+          allOf:
+          - $ref: '#/components/schemas/StateEnum'
+          description: |-
+            Coarse reachability bucket. 'ready' means the pod is serving traffic; 'waking' means it is scaling up from idle-sleep; 'crash_loop' means the pod is reporting an error; 'unreachable' means the probe itself failed and the caller should retry.
+
+            * `ready` - ready
+            * `waking` - waking
+            * `crash_loop` - crash_loop
+            * `not_found` - not_found
+            * `unreachable` - unreachable
+        is_awake:
+          type: boolean
+        pod_status:
+          type: string
+          nullable: true
+        waking_since:
+          type: string
+          format: date-time
+          nullable: true
+        last_ready_at:
+          type: string
+          format: date-time
+          nullable: true
+        crash_loop_since:
+          type: string
+          format: date-time
+          nullable: true
+        detail:
+          type: string
+          nullable: true
+        pod_error_kind:
+          type: string
+          nullable: true
+          description: Classified root cause of a CRASH_LOOP, when vembda was able
+            to infer one (e.g. 'out_of_storage' when the pod has run out of disk space).
+            Clients can branch on this to show targeted remediation UI such as a link
+            to the storage doctor.
+      required:
+      - crash_loop_since
+      - detail
+      - is_awake
+      - last_ready_at
+      - pod_status
+      - state
+      - waking_since
+    ConnectionStatusEnum:
+      enum:
+      - ACTIVE
+      - REVOKED
+      - ERROR
+      type: string
+      description: |-
+        * `ACTIVE` - Active
+        * `REVOKED` - Revoked
+        * `ERROR` - Error
+    CreateAssistantDomainRequest:
+      type: object
+      properties:
+        subdomain:
+          type: string
+          minLength: 1
+          description: Subdomain to register (e.g. 'velly').
+          maxLength: 63
+      required:
+      - subdomain
+    CreateEmailAddressRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 255
+      required:
+      - username
+    DetailResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    DevicePushTokenUpsert:
+      type: object
+      properties:
+        token:
+          type: string
+          maxLength: 512
+        platform:
+          $ref: '#/components/schemas/PlatformEnum'
+        bundle_id:
+          type: string
+          maxLength: 128
+        apns_environment:
+          $ref: '#/components/schemas/ApnsEnvironmentEnum'
+      required:
+      - apns_environment
+      - bundle_id
+      - platform
+      - token
+    DevicePushTokenUpsertRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 512
+        platform:
+          $ref: '#/components/schemas/PlatformEnum'
+        bundle_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        apns_environment:
+          $ref: '#/components/schemas/ApnsEnvironmentEnum'
+      required:
+      - apns_environment
+      - bundle_id
+      - platform
+      - token
+    DoctorMessage:
+      type: object
+      description: Serializer for a single persisted Doctor message ledger entry.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        kind:
+          allOf:
+          - $ref: '#/components/schemas/DoctorMessageKindEnum'
+          readOnly: true
+          description: |-
+            What kind of UI event this entry represents.
+
+            * `user` - User
+            * `assistant` - Assistant
+            * `tool_call` - Tool Call
+            * `tool_result` - Tool Result
+            * `approval` - Approval
+            * `status` - Status
+            * `error` - Error
+        content:
+          type: string
+          readOnly: true
+          description: Human-readable content (may be empty for status/tool events).
+        metadata:
+          readOnly: true
+          description: Structured payload describing the event (e.g. tool args).
+        sequence:
+          type: integer
+          readOnly: true
+          description: Monotonic per-session ordering, allocated atomically on write.
+        occurred_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the event actually occurred (caller-supplied).
+      required:
+      - content
+      - id
+      - kind
+      - metadata
+      - occurred_at
+      - sequence
+    DoctorMessageKindEnum:
+      enum:
+      - user
+      - assistant
+      - tool_call
+      - tool_result
+      - approval
+      - status
+      - error
+      type: string
+      description: |-
+        * `user` - User
+        * `assistant` - Assistant
+        * `tool_call` - Tool Call
+        * `tool_result` - Tool Result
+        * `approval` - Approval
+        * `status` - Status
+        * `error` - Error
+    DoctorSessionDetail:
+      type: object
+      description: |-
+        Detail serializer for a persisted Doctor session with its messages.
+
+        ``messages`` is a nested list of :class:`DoctorMessageSerializer`
+        rows.  Callers are expected to preload the related messages with
+        ``prefetch_related("messages")`` and pass a queryset ordered by
+        ``sequence`` so the output is deterministic.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/DoctorSessionStatusEnum'
+          readOnly: true
+          description: |-
+            Lifecycle status of the session.
+
+            * `active` - Active
+            * `completed` - Completed
+            * `error` - Error
+        last_message_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: Timestamp of the most recently appended message, if any.
+        ended_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: When the session reached a terminal state.
+        created:
+          type: string
+          format: date-time
+          readOnly: true
+        modified:
+          type: string
+          format: date-time
+          readOnly: true
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/DoctorMessage'
+          readOnly: true
+      required:
+      - created
+      - ended_at
+      - id
+      - last_message_at
+      - messages
+      - modified
+      - status
+    DoctorSessionList:
+      type: object
+      description: |-
+        List-item serializer for persisted Doctor sessions.
+
+        ``message_count`` is sourced from an annotation on the queryset
+        (``Count("messages")``) so the list endpoint does not have to
+        issue a per-row query.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/DoctorSessionStatusEnum'
+          readOnly: true
+          description: |-
+            Lifecycle status of the session.
+
+            * `active` - Active
+            * `completed` - Completed
+            * `error` - Error
+        last_message_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: Timestamp of the most recently appended message, if any.
+        ended_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: When the session reached a terminal state.
+        created:
+          type: string
+          format: date-time
+          readOnly: true
+        modified:
+          type: string
+          format: date-time
+          readOnly: true
+        message_count:
+          type: integer
+          readOnly: true
+      required:
+      - created
+      - ended_at
+      - id
+      - last_message_at
+      - message_count
+      - modified
+      - status
+    DoctorSessionStatusEnum:
+      enum:
+      - active
+      - completed
+      - error
+      type: string
+      description: |-
+        * `active` - Active
+        * `completed` - Completed
+        * `error` - Error
+    EmailAddressStatus:
+      type: object
+      properties:
+        address:
+          type: string
+          format: email
+        status:
+          type: string
+        usage:
+          $ref: '#/components/schemas/EmailAddressUsage'
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - address
+      - created_at
+      - status
+      - usage
+    EmailAddressUsage:
+      type: object
+      properties:
+        sent_today:
+          type: integer
+        daily_limit:
+          type: integer
+        received_today:
+          type: integer
+        sent_this_month:
+          type: integer
+        received_this_month:
+          type: integer
+      required:
+      - daily_limit
+      - received_this_month
+      - received_today
+      - sent_this_month
+      - sent_today
+    EmailMessage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        direction:
+          type: string
+        from_address:
+          type: string
+          format: email
+        to_addresses:
+          type: array
+          items:
+            type: string
+            format: email
+        subject:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - direction
+      - from_address
+      - id
+      - subject
+      - to_addresses
+    EventStatusEnum:
+      enum:
+      - started
+      - succeeded
+      - failed
+      - in_progress
+      type: string
+      description: |-
+        * `started` - Started
+        * `succeeded` - Succeeded
+        * `failed` - Failed
+        * `in_progress` - In Progress
+    FeedbackIngestRequestRequest:
+      type: object
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 50000
+        classification:
+          $ref: '#/components/schemas/ClassificationEnum'
+        email:
+          type: string
+          format: email
+          default: ''
+        device_id:
+          type: string
+          default: ''
+          maxLength: 255
+        assistant_id:
+          type: string
+          default: ''
+          description: Raw assistant ID from the client; used to resolve the assistant
+            FK.
+        client_version:
+          type: string
+          default: ''
+          maxLength: 100
+        client:
+          default: ''
+          oneOf:
+          - $ref: '#/components/schemas/ClientEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        assistant_version:
+          type: string
+          default: ''
+          maxLength: 100
+        logs_file:
+          type: string
+          format: binary
+        attachments:
+          type: array
+          items:
+            type: string
+            format: binary
+          maxItems: 10
+      required:
+      - classification
+      - message
+    FeedbackIngestResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+      required:
+      - id
+    FrequencyEnum:
+      enum:
+      - daily
+      - weekly
+      - monthly
+      type: string
+      description: |-
+        * `daily` - daily
+        * `weekly` - weekly
+        * `monthly` - monthly
+    HatchAssistantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          default: New Assistant
+          maxLength: 255
+        description:
+          type: string
+        version:
+          type: string
+          nullable: true
+          minLength: 1
+    MachineSizeEnum:
+      enum:
+      - small
+      - medium
+      - large
+      - extra_large
+      type: string
+      description: |-
+        * `small` - Small
+        * `medium` - Medium
+        * `large` - Large
+        * `extra_large` - Extra Large
+    MachineTier:
+      type: object
+      properties:
+        tier:
+          type: string
+        label:
+          type: string
+        price_cents:
+          type: integer
+          minimum: 0
+        lookup_key:
+          type: string
+        cpu_limit:
+          type: string
+        memory_gib:
+          type: integer
+          minimum: 0
+        description:
+          type: string
+      required:
+      - cpu_limit
+      - description
+      - label
+      - lookup_key
+      - memory_gib
+      - price_cents
+      - tier
+    MachineTierEnum:
+      enum:
+      - medium
+      - large
+      - xl
+      type: string
+      description: |-
+        * `medium` - medium
+        * `large` - large
+        * `xl` - xl
+    MaintenanceMode:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        debug_pod_name:
+          type: string
+          nullable: true
+      required:
+      - debug_pod_name
+      - enabled
+    MyReferralCodeResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        referral_url:
+          type: string
+        referred_count:
+          type: integer
+        total_earned_usd:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        earning_cap_usd:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        total_earned:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        earning_cap:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        credit_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        referrer_credit_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+      required:
+      - code
+      - credit_amount
+      - earning_cap
+      - earning_cap_usd
+      - referral_url
+      - referred_count
+      - referrer_credit_amount
+      - total_earned
+      - total_earned_usd
+    NotificationList:
+      type: object
+      description: Read serializer for listing notifications.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        notification_type:
+          allOf:
+          - $ref: '#/components/schemas/NotificationTypeEnum'
+          readOnly: true
+        dedupe_key:
+          type: string
+          readOnly: true
+          description: Stable key derived from the triggering condition. Used to merge
+            repeat triggers into a single open notification.
+        title:
+          type: string
+          readOnly: true
+        body:
+          type: string
+          readOnly: true
+        metadata:
+          readOnly: true
+          description: Arbitrary producer-supplied context.
+        first_seen_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp of the first trigger event.
+        last_seen_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp of the most recent trigger event.
+        occurrence_count:
+          type: integer
+          readOnly: true
+          description: Number of times this condition has been triggered while open.
+        resolved_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: When the condition was resolved; NULL means still open.
+        last_notified_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: When we last delivered an outbound notification for this row.
+        is_resolved:
+          type: boolean
+          readOnly: true
+        is_read:
+          type: boolean
+          readOnly: true
+        snoozed_until:
+          type: string
+          nullable: true
+          readOnly: true
+      required:
+      - body
+      - dedupe_key
+      - first_seen_at
+      - id
+      - is_read
+      - is_resolved
+      - last_notified_at
+      - last_seen_at
+      - metadata
+      - notification_type
+      - occurrence_count
+      - resolved_at
+      - snoozed_until
+      - title
+    NotificationSummary:
+      type: object
+      description: Serializer for notification badge counts.
+      properties:
+        unread_count:
+          type: integer
+        active_count:
+          type: integer
+      required:
+      - active_count
+      - unread_count
+    NotificationTypeEnum:
+      enum:
+      - alert
+      type: string
+      description: '* `alert` - Alert'
+    NullEnum:
+      enum:
+      - null
+    OAuthConnection:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        provider:
+          $ref: '#/components/schemas/OAuthProviderEnum'
+        status:
+          $ref: '#/components/schemas/ConnectionStatusEnum'
+        connected:
+          type: boolean
+        account_label:
+          type: string
+          nullable: true
+        scopes_granted:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - account_label
+      - connected
+      - expires_at
+      - id
+      - provider
+      - scopes_granted
+      - status
+    OAuthDisconnectResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+      required:
+      - success
+    OAuthErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          default: false
+        code:
+          $ref: '#/components/schemas/CodeEnum'
+        detail:
+          type: string
+      required:
+      - code
+      - detail
+    OAuthProviderEnum:
+      enum:
+      - twitter
+      - google
+      - outlook
+      - linear
+      - github
+      - asana
+      - notion
+      - todoist
+      - dropbox
+      - discord
+      - airtable
+      - hubspot
+      - salesforce
+      type: string
+      description: |-
+        * `twitter` - twitter
+        * `google` - google
+        * `outlook` - outlook
+        * `linear` - linear
+        * `github` - github
+        * `asana` - asana
+        * `notion` - notion
+        * `todoist` - todoist
+        * `dropbox` - dropbox
+        * `discord` - discord
+        * `airtable` - airtable
+        * `hubspot` - hubspot
+        * `salesforce` - salesforce
+    OAuthStartRequestRequest:
+      type: object
+      properties:
+        requested_scopes:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        redirect_after_connect:
+          type: string
+          minLength: 1
+          default: /
+    OAuthStartResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        deferred:
+          type: boolean
+        provider:
+          $ref: '#/components/schemas/OAuthProviderEnum'
+        connect_url:
+          type: string
+          format: uri
+        state_id:
+          type: string
+          format: uuid
+      required:
+      - connect_url
+      - deferred
+      - provider
+      - state_id
+      - success
+    OnboardingDomainRequestRequest:
+      type: object
+      properties:
+        subdomain:
+          type: string
+          minLength: 1
+          maxLength: 63
+        skipped:
+          type: boolean
+          default: false
+    OnboardingDomainResponse:
+      type: object
+      description: |-
+        Response from POST /onboarding/domain/.
+
+        Either reports a skipped wizard step or echoes the registered subdomain.
+      properties:
+        skipped:
+          type: boolean
+        id:
+          type: string
+          format: uuid
+        subdomain:
+          type: string
+        created:
+          type: string
+          format: date-time
+        modified:
+          type: string
+          format: date-time
+    OnboardingMachineRequestRequest:
+      type: object
+      properties:
+        machine_size:
+          type: string
+          minLength: 1
+      required:
+      - machine_size
+    OnboardingMachineResponse:
+      type: object
+      properties:
+        machine_size:
+          type: string
+        updated:
+          type: integer
+        skipped:
+          type: integer
+        failures:
+          type: integer
+      required:
+      - failures
+      - machine_size
+      - skipped
+      - updated
+    OnboardingStateResponse:
+      type: object
+      properties:
+        max_machine_tier:
+          type: string
+          nullable: true
+        selected_storage_tier:
+          type: string
+          nullable: true
+        pvc_ready:
+          type: boolean
+        domain_setup_available:
+          type: boolean
+      required:
+      - domain_setup_available
+      - max_machine_tier
+      - pvc_ready
+      - selected_storage_tier
+    OrganizationRead:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+      required:
+      - id
+      - name
+    PaginatedAssistantDomainList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantDomain'
+    PaginatedAssistantEmailAddressList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantEmailAddress'
+    PaginatedAssistantList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Assistant'
+    PaginatedAssistantSystemEventList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantSystemEvent'
+    PaginatedDoctorSessionListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DoctorSessionList'
+    PaginatedEmailMessageList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailMessage'
+    PaginatedNotificationListList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationList'
+    PaginatedOrganizationReadList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrganizationRead'
+    PatchedAccessConsentRequest:
+      type: object
+      description: Serializer for the user-controlled admin log access consent toggle.
+      properties:
+        access_consented:
+          type: boolean
+          description: When True, Vellum admins may view the daemon log file (/workspace/data/logs/vellum.log)
+            from this assistant pod for debugging. Defaults to False; the owner can
+            revoke at any time.
+    PatchedSleepPolicyRequest:
+      type: object
+      description: Serializer for the assistant sleep/wake policy.
+      properties:
+        idle_timeout_seconds:
+          type: integer
+          minimum: 0
+          description: Seconds of inactivity before the assistant is put to sleep.
+            0 = never sleep.
+    PatchedUpgradePolicyRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 64
+        schedule:
+          $ref: '#/components/schemas/UpgradePolicyScheduleRequest'
+    PauseRuleCreateRequest:
+      type: object
+      description: Serializer for creating a pause/mute rule.
+      properties:
+        notification_type:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/NotificationTypeEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        dedupe_key_prefix:
+          type: string
+          description: If set, rule applies only to notifications whose dedupe_key
+            starts with this value.
+          maxLength: 255
+        reason:
+          type: string
+          description: Human-readable explanation for the mute rule.
+          maxLength: 255
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When this rule expires; NULL means it never expires.
+    PauseRuleRead:
+      type: object
+      description: Read serializer for a pause/mute rule.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        notification_type:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/NotificationTypeEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        dedupe_key_prefix:
+          type: string
+          readOnly: true
+          description: If set, rule applies only to notifications whose dedupe_key
+            starts with this value.
+        reason:
+          type: string
+          readOnly: true
+          description: Human-readable explanation for the mute rule.
+        expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: When this rule expires; NULL means it never expires.
+        created:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created
+      - dedupe_key_prefix
+      - expires_at
+      - id
+      - notification_type
+      - reason
+    PlanCatalogEntry:
+      oneOf:
+      - $ref: '#/components/schemas/BasePlan'
+      - $ref: '#/components/schemas/ProPlan'
+      discriminator:
+        propertyName: id
+        mapping:
+          base: '#/components/schemas/BasePlan'
+          pro: '#/components/schemas/ProPlan'
+    PlanIdEnum:
+      enum:
+      - base
+      - pro
+      type: string
+      description: |-
+        * `base` - base
+        * `pro` - pro
+    PlanListResponse:
+      type: object
+      properties:
+        plans:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlanCatalogEntry'
+          description: Plan catalog entries. Each entry is either a BasePlan or a
+            ProPlan, discriminated by ``id``.
+      required:
+      - plans
+    PlatformEnum:
+      enum:
+      - ios
+      type: string
+      description: '* `ios` - ios'
+    ProCleanupPromptResponse:
+      type: object
+      properties:
+        injected:
+          type: boolean
+        conversation_id:
+          type: string
+          format: uuid
+          nullable: true
+      required:
+      - conversation_id
+      - injected
+    ProMachineResizeRequestRequest:
+      type: object
+      properties:
+        machine_size:
+          $ref: '#/components/schemas/MachineSizeEnum'
+      required:
+      - machine_size
+    ProMachineResizeResponse:
+      type: object
+      properties:
+        machine_size:
+          $ref: '#/components/schemas/MachineSizeEnum'
+        updated:
+          type: integer
+        skipped:
+          type: integer
+        failures:
+          type: integer
+      required:
+      - failures
+      - machine_size
+      - skipped
+      - updated
+    ProPlan:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/ProPlanIdEnum'
+        name:
+          type: string
+        base_price_cents:
+          type: integer
+          minimum: 0
+        base_lookup_key:
+          type: string
+        billing_interval:
+          $ref: '#/components/schemas/BillingIntervalEnum'
+        machine_tiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/MachineTier'
+        storage_tiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageTier'
+        included_features:
+          type: array
+          items:
+            type: string
+      required:
+      - base_lookup_key
+      - base_price_cents
+      - billing_interval
+      - id
+      - included_features
+      - machine_tiers
+      - name
+      - storage_tiers
+    ProPlanIdEnum:
+      enum:
+      - pro
+      type: string
+      description: '* `pro` - pro'
+    ProRetireRequestRequest:
+      type: object
+      properties:
+        confirm_delete:
+          type: boolean
+      required:
+      - confirm_delete
+    ProRetireResponse:
+      type: object
+      properties:
+        retired:
+          type: boolean
+        cancel_at:
+          type: string
+          format: date-time
+      required:
+      - cancel_at
+      - retired
+    ProSubscriptionCancelResponse:
+      type: object
+      properties:
+        cancel_at:
+          type: string
+          format: date-time
+        domain:
+          type: string
+          nullable: true
+      required:
+      - cancel_at
+      - domain
+    ReleaseListItem:
+      type: object
+      properties:
+        version:
+          type: string
+          maxLength: 64
+        released_at:
+          type: string
+          format: date-time
+        is_stable:
+          type: boolean
+        assistant_image_ref:
+          type: string
+          readOnly: true
+        gateway_image_ref:
+          type: string
+          readOnly: true
+        credential_executor_image_ref:
+          type: string
+          nullable: true
+          readOnly: true
+      required:
+      - assistant_image_ref
+      - credential_executor_image_ref
+      - gateway_image_ref
+      - released_at
+      - version
+    RollbackRequestRequest:
+      type: object
+      properties:
+        version:
+          type: string
+          nullable: true
+          minLength: 1
+    RollbackResult:
+      type: object
+      properties:
+        detail:
+          type: string
+        version:
+          type: string
+          nullable: true
+      required:
+      - detail
+      - version
+    SleepPolicy:
+      type: object
+      description: Serializer for the assistant sleep/wake policy.
+      properties:
+        idle_timeout_seconds:
+          type: integer
+          minimum: 0
+          description: Seconds of inactivity before the assistant is put to sleep.
+            0 = never sleep.
+    SnoozeRequest:
+      type: object
+      description: Serializer for snooze-until action.
+      properties:
+        snoozed_until:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - snoozed_until
+    SnoozeResponse:
+      type: object
+      description: Response serializer for snooze action.
+      properties:
+        id:
+          type: string
+          format: uuid
+        snoozed_until:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - id
+      - snoozed_until
+    SourceEnum:
+      enum:
+      - django
+      - vembda
+      type: string
+      description: |-
+        * `django` - Django
+        * `vembda` - Vembda
+    StateEnum:
+      enum:
+      - ready
+      - waking
+      - crash_loop
+      - not_found
+      - unreachable
+      type: string
+      description: |-
+        * `ready` - ready
+        * `waking` - waking
+        * `crash_loop` - crash_loop
+        * `not_found` - not_found
+        * `unreachable` - unreachable
+    StorageTier:
+      type: object
+      properties:
+        tier:
+          type: string
+        label:
+          type: string
+        storage_gib:
+          type: integer
+          minimum: 0
+        price_cents:
+          type: integer
+          minimum: 0
+        lookup_key:
+          type: string
+      required:
+      - label
+      - lookup_key
+      - price_cents
+      - storage_gib
+      - tier
+    StorageTierEnum:
+      enum:
+      - xs
+      - s
+      - m
+      - l
+      - xl
+      - xxl
+      type: string
+      description: |-
+        * `xs` - xs
+        * `s` - s
+        * `m` - m
+        * `l` - l
+        * `xl` - xl
+        * `xxl` - xxl
+    SubscriptionResponse:
+      type: object
+      properties:
+        plan_id:
+          $ref: '#/components/schemas/PlanIdEnum'
+        status:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/SubscriptionStatusEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        renewal_date:
+          type: string
+          format: date-time
+          nullable: true
+        current_period_end:
+          type: string
+          format: date-time
+          nullable: true
+        cancel_at_period_end:
+          type: boolean
+        cancel_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - cancel_at
+      - cancel_at_period_end
+      - current_period_end
+      - plan_id
+      - renewal_date
+      - status
+    SubscriptionStatusEnum:
+      enum:
+      - active
+      - trialing
+      - past_due
+      - canceled
+      - incomplete
+      - incomplete_expired
+      - unpaid
+      - paused
+      type: string
+      description: |-
+        * `active` - active
+        * `trialing` - trialing
+        * `past_due` - past_due
+        * `canceled` - canceled
+        * `incomplete` - incomplete
+        * `incomplete_expired` - incomplete_expired
+        * `unpaid` - unpaid
+        * `paused` - paused
+    SubscriptionUpgradeRequestRequest:
+      type: object
+      properties:
+        machine_tier:
+          $ref: '#/components/schemas/MachineTierEnum'
+        storage_tier:
+          $ref: '#/components/schemas/StorageTierEnum'
+        target_plan_id:
+          $ref: '#/components/schemas/PlanIdEnum'
+        confirm:
+          type: boolean
+      required:
+      - confirm
+      - machine_tier
+      - storage_tier
+      - target_plan_id
+    SubscriptionUpgradeResponse:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/SubscriptionUpgradeResponseStatusEnum'
+        checkout_url:
+          type: string
+          nullable: true
+        message:
+          type: string
+      required:
+      - checkout_url
+      - message
+      - status
+    SubscriptionUpgradeResponseStatusEnum:
+      enum:
+      - redirect
+      - no_op
+      type: string
+      description: |-
+        * `redirect` - redirect
+        * `no_op` - no_op
+    SystemEventTypeEnum:
+      enum:
+      - lifecycle
+      - upgrade
+      - rollback
+      - crash
+      - idle_sleep
+      - wake
+      - profiler
+      - other
+      type: string
+      description: |-
+        * `lifecycle` - Lifecycle
+        * `upgrade` - Upgrade
+        * `rollback` - Rollback
+        * `crash` - Crash
+        * `idle_sleep` - Idle Sleep
+        * `wake` - Wake
+        * `profiler` - Profiler
+        * `other` - Other
+    TopUpCheckoutRequestRequest:
+      type: object
+      description: |-
+        Validates the incoming top-up checkout request.
+
+        Exactly one of ``amount`` or ``amount_usd`` must be provided. If both are
+        provided, ``amount`` takes precedence.  The resolved value is normalised
+        into ``amount_usd`` in validated data so downstream code is unchanged.
+      properties:
+        amount:
+          type: string
+          minLength: 1
+          description: Amount as a decimal string (e.g. '25.00'). Must have exactly
+            two decimal places. Preferred over amount_usd.
+        amount_usd:
+          type: string
+          minLength: 1
+          description: Deprecated. Amount in USD as a decimal string (e.g. '25.00').
+            Must have exactly two decimal places. Use 'amount' instead.
+        return_path:
+          type: string
+          minLength: 1
+          default: /assistant/settings/billing
+          description: Client-side path to redirect to after checkout completes.
+    TopUpCheckoutResponse:
+      type: object
+      description: Response body for a successfully created top-up checkout session.
+      properties:
+        billing_top_up_id:
+          type: string
+          format: uuid
+        checkout_url:
+          type: string
+          format: uri
+        requested_amount:
+          type: string
+        requested_amount_usd:
+          type: string
+      required:
+      - billing_top_up_id
+      - checkout_url
+      - requested_amount
+      - requested_amount_usd
+    UpgradePolicy:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        timezone:
+          type: string
+          maxLength: 64
+        schedule:
+          $ref: '#/components/schemas/UpgradePolicySchedule'
+    UpgradePolicySchedule:
+      type: object
+      properties:
+        frequency:
+          $ref: '#/components/schemas/FrequencyEnum'
+        days_of_week:
+          type: array
+          items:
+            type: integer
+            maximum: 6
+            minimum: 0
+        days_of_month:
+          type: array
+          items:
+            type: integer
+            maximum: 31
+            minimum: 1
+        window:
+          $ref: '#/components/schemas/UpgradePolicyWindow'
+      required:
+      - frequency
+      - window
+    UpgradePolicyScheduleRequest:
+      type: object
+      properties:
+        frequency:
+          $ref: '#/components/schemas/FrequencyEnum'
+        days_of_week:
+          type: array
+          items:
+            type: integer
+            maximum: 6
+            minimum: 0
+        days_of_month:
+          type: array
+          items:
+            type: integer
+            maximum: 31
+            minimum: 1
+        window:
+          $ref: '#/components/schemas/UpgradePolicyWindowRequest'
+      required:
+      - frequency
+      - window
+    UpgradePolicyWindow:
+      type: object
+      properties:
+        start:
+          type: string
+          pattern: ^([01]\d|2[0-3]):([0-5]\d)$
+        end:
+          type: string
+          pattern: ^([01]\d|2[0-3]):([0-5]\d)$
+      required:
+      - end
+      - start
+    UpgradePolicyWindowRequest:
+      type: object
+      properties:
+        start:
+          type: string
+          minLength: 1
+          pattern: ^([01]\d|2[0-3]):([0-5]\d)$
+        end:
+          type: string
+          minLength: 1
+          pattern: ^([01]\d|2[0-3]):([0-5]\d)$
+      required:
+      - end
+      - start
+    UpgradeRequestRequest:
+      type: object
+      properties:
+        version:
+          type: string
+          nullable: true
+          minLength: 1
+    UpgradeResult:
+      type: object
+      properties:
+        detail:
+          type: string
+        version:
+          type: string
+          nullable: true
+      required:
+      - detail
+      - version
+    UsageBucket:
+      type: object
+      properties:
+        date:
+          type: string
+          description: Bucket start date in YYYY-MM-DD format.
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageGroup'
+          description: Usage groups within this bucket.
+      required:
+      - date
+      - groups
+    UsageGroup:
+      type: object
+      properties:
+        group_key:
+          type: string
+          description: Raw grouping value (e.g. 'runtime_proxy_api', 'claude-opus-4-6').
+        group_label:
+          type: string
+          description: Human-readable display label.
+        total_usd:
+          type: string
+          description: Total spend in USD as a decimal string.
+        event_count:
+          type: integer
+          description: Number of usage events.
+      required:
+      - event_count
+      - group_key
+      - group_label
+      - total_usd
+    UsageSeriesResponse:
+      type: object
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageBucket'
+          description: Time-ordered usage buckets.
+      required:
+      - buckets
+    UsageTotalsResponse:
+      type: object
+      properties:
+        total_usd:
+          type: string
+          description: Total spend in USD as a decimal string.
+        event_count:
+          type: integer
+          description: Number of usage events.
+      required:
+      - event_count
+      - total_usd
+  securitySchemes:
+    AssistantAPIKey:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: API key passed as 'Api-Key <key>' in the Authorization header.
+    SDKCompatibleAssistantKey:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Assistant API key via 'Api-Key <key>', 'Bearer <key>', X-Api-Key
+        header, or ?key= query parameter.
+    VellumAPIKey:
+      type: http
+      scheme: bearer
+      description: Platform API key passed as 'Bearer vak_...' in the Authorization
+        header.
+    XSessionTokenAuth:
+      type: apiKey
+      in: header
+      name: X-Session-Token
+      description: X-Session-Token authentication
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
