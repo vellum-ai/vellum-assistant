@@ -66,8 +66,9 @@ function handleCreateA2AInvite({ body = {} }: RouteHandlerArgs) {
 }
 
 function handleCompleteA2AInvite({ body = {} }: RouteHandlerArgs) {
-  const { token, acceptor } = body as {
+  const { token, senderAssistantId, acceptor } = body as {
     token?: unknown;
+    senderAssistantId?: unknown;
     acceptor?: {
       assistantId?: unknown;
       displayName?: unknown;
@@ -78,6 +79,11 @@ function handleCompleteA2AInvite({ body = {} }: RouteHandlerArgs) {
   if (typeof token !== "string" || !token) {
     throw new BadRequestError(
       "token is required and must be a non-empty string",
+    );
+  }
+  if (typeof senderAssistantId !== "string" || !senderAssistantId) {
+    throw new BadRequestError(
+      "senderAssistantId is required and must be a non-empty string",
     );
   }
   if (
@@ -96,6 +102,7 @@ function handleCompleteA2AInvite({ body = {} }: RouteHandlerArgs) {
 
   const result = completeA2AInvite({
     token,
+    senderAssistantId,
     acceptor: {
       assistantId: acceptor.assistantId,
       displayName: acceptor.displayName,
