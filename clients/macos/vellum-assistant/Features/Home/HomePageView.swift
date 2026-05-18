@@ -34,10 +34,6 @@ struct HomePageView: View {
 
     private let maxContentWidth: CGFloat = 960
 
-    /// Count of items routed into the Background activity section —
-    /// every visible feed item with `noteworthy != true`.
-    private var activityCount: Int { activityItems.count }
-
     var body: some View {
         Group {
             if let state = store.state {
@@ -138,7 +134,7 @@ struct HomePageView: View {
                     }
                     .padding(.top, VSpacing.sm)
                 } label: {
-                    Text("Background activity (\(activityCount))")
+                    Text("Background activity (\(activityItems.count))")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentTertiary)
                 }

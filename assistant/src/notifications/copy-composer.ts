@@ -639,16 +639,21 @@ function buildChatSurfaceFallbackDeliveryText(
   const title = nonEmpty(baseCopy.title);
   if (title) return title;
 
-  // No usable text: return empty string. The deterministic
-  // `checkRenderedCopyQuality` (see deterministic-checks.ts) suppresses
-  // notifications with empty bodies, so this will not reach users.
+  // No usable text: return empty string. The broadcaster's empty-body skip in
+  // `broadcaster.ts` suppresses fallback-derived empty bodies; the
+  // deterministic `checkRenderedCopyQuality` (see deterministic-checks.ts)
+  // covers the same case when the empty body originates in
+  // `decision.renderedCopy`.
   return "";
 }
 
 /**
- * Build generic copy when no template matches. Returns an empty body so
- * the deterministic `checkRenderedCopyQuality` (see deterministic-checks.ts)
- * suppresses the notification rather than rendering an event-name placeholder.
+ * Build generic copy when no template matches. Returns an empty body so the
+ * notification is suppressed rather than rendering an event-name placeholder.
+ * The broadcaster's empty-body skip in `broadcaster.ts` catches fallback-derived
+ * empty bodies; the deterministic `checkRenderedCopyQuality` (see
+ * deterministic-checks.ts) covers the same case when the empty body originates
+ * in `decision.renderedCopy`.
  */
 function buildGenericCopy(): RenderedChannelCopy {
   return {

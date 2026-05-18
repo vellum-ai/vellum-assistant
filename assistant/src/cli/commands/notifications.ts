@@ -33,9 +33,7 @@ assistant.share when omitted.
 Examples:
   $ assistant notifications send --message "Build finished"
   $ assistant notifications send --message "Pager: prod is down" --urgent
-  $ assistant notifications send --source-channel scheduler --source-event-name schedule.notify --message "Stand-up in 5 minutes" --urgency high
-  $ assistant notifications send --source-channel watcher --source-event-name watcher.notification --message "File changed" --no-requires-action --is-async-background
-  $ assistant notifications send --message "Deploy complete" --preferred-channels vellum,telegram --json`,
+  $ assistant notifications send --message "Build green" --conversation-id 649c4645-3a6f-4ded-a713-504f02ca806b`,
       );
 
       // -------------------------------------------------------------------------
@@ -123,8 +121,6 @@ Examples:
 Arguments:
   --message            The notification body text (required, must be non-empty)
   --urgent             Shortcut that maps to urgency=critical + requires-action=true
-  --source-channel     One of the registered source channels (default: assistant_tool)
-  --source-event-name  One of the registered event names (default: assistant.share)
 
 Behavioral notes:
   - The signal is emitted through the full notification pipeline: event store,
@@ -142,8 +138,6 @@ Behavioral notes:
 Examples:
   $ assistant notifications send --message "Task complete"
   $ assistant notifications send --message "Pager: prod is down" --urgent
-  $ assistant notifications send --source-channel scheduler --source-event-name schedule.notify --message "Meeting in 5 min" --urgency high --title "Reminder"
-  $ assistant notifications send --source-channel watcher --source-event-name watcher.notification --message "Detected change" --no-requires-action --is-async-background --json
   $ assistant notifications send --message "Build green" --conversation-id 649c4645-3a6f-4ded-a713-504f02ca806b`,
         )
         .action(
