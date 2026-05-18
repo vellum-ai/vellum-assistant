@@ -34,10 +34,9 @@ struct HomePageView: View {
 
     private let maxContentWidth: CGFloat = 960
 
-    /// Count of items routed into the Background activity section. Always 0
-    /// today; will be derived from `FeedItem.noteworthy` once that field is
-    /// populated server-side.
-    private var activityCount: Int { 0 }
+    /// Count of items routed into the Background activity section —
+    /// every visible feed item with `noteworthy != true`.
+    private var activityCount: Int { activityItems.count }
 
     var body: some View {
         Group {
@@ -113,23 +112,31 @@ struct HomePageView: View {
                         HomeFeedGroupHeader(label: bucket.group.label)
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             ForEach(bucket.items, id: \.id) { item in
-                                HomeRecapRow(
-                                    icon: icon(for: item),
-                                    iconForeground: iconForeground(for: item),
-                                    iconBackground: iconBackground(for: item),
-                                    title: item.title,
-                                    isUrgent: isUrgent(item),
-                                    onDismiss: { dismissItem(item) },
-                                    onTap: { openItem(item) }
-                                )
+                                recapRow(for: item, showsUrgency: true)
                             }
                         }
                     }
                 }
 
+                // Quieter hint when the inbox has nothing new but the
+                // activity section has items — nudges the user toward the
+                // disclosure without claiming the full empty-state space.
+                // Suppressed when the user is actively filtering (the
+                // filter-specific "No notifications" message above is the
+                // right copy for that case).
+                if inboxItems.isEmpty, activeFilter == nil, !activityItems.isEmpty {
+                    Text("Nothing new — check Background activity")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+
                 DisclosureGroup(isExpanded: $isActivityExpanded) {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {}
-                        .padding(.top, VSpacing.sm)
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        ForEach(activityItems, id: \.id) { item in
+                            recapRow(for: item, showsUrgency: false)
+                        }
+                    }
+                    .padding(.top, VSpacing.sm)
                 } label: {
                     Text("Background activity (\(activityCount))")
                         .font(VFont.bodySmallDefault)
@@ -188,36 +195,51 @@ struct HomePageView: View {
         item.urgency == .high || item.urgency == .critical
     }
 
-    /// Categories present in the visible feed (non-dismissed). Drives the
-    /// filter bar — only categories with items get a pill.
+    /// Non-dismissed feed items the server flagged as worth surfacing in the
+    /// primary Inbox — `noteworthy == true`. Drives both `feedBuckets` and
+    /// `presentCategories`.
+    private var inboxItems: [FeedItem] {
+        feedStore.items.filter { $0.status != .dismissed && $0.noteworthy == true }
+    }
+
+    /// Non-dismissed feed items that didn't earn an inbox slot — everything
+    /// with `noteworthy != true` (including `nil`, so legacy items without
+    /// the field default to activity rather than spamming the inbox). Sorted
+    /// reverse-chronologically; no urgency pin (urgent items live in inbox).
+    private var activityItems: [FeedItem] {
+        feedStore.items
+            .filter { $0.status != .dismissed && $0.noteworthy != true }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// Categories present in the inbox (non-dismissed, noteworthy). Drives
+    /// the filter bar — only categories with at least one inbox item get a
+    /// pill. The Background activity disclosure is unfiltered.
     private var presentCategories: Set<FeedItemCategory> {
         var cats = Set<FeedItemCategory>()
-        for item in feedStore.items {
-            guard item.status != .dismissed else { continue }
+        for item in inboxItems {
             cats.insert(item.category ?? .system)
         }
         return cats
     }
 
-    /// Sorts the feed with urgent items pinned to the top, then by
-    /// `priority desc, createdAt desc` within each urgency group. Hides
-    /// dismissed items (so `dismissItem(_:)` gives immediate feedback
-    /// without waiting for a server refresh to rewrite the array), then
-    /// buckets via `HomeFeedTimeGroup.bucket(_:)`.
+    /// Sorts the inbox with urgent items pinned to the top, then by
+    /// `priority desc, createdAt desc` within each urgency group, then
+    /// buckets via `HomeFeedTimeGroup.bucket(_:)`. Dismissed and
+    /// non-noteworthy items are excluded upstream by `inboxItems`.
     private var feedBuckets: [(group: HomeFeedTimeGroup, items: [FeedItem])] {
-        let sorted = feedStore.items.sorted { a, b in
+        let sorted = inboxItems.sorted { a, b in
             let aUrgent = isUrgent(a)
             let bUrgent = isUrgent(b)
             if aUrgent != bUrgent { return aUrgent }
             if a.priority != b.priority { return a.priority > b.priority }
             return a.createdAt > b.createdAt
         }
-        let filtered = sorted.filter { item in
-            guard item.status != .dismissed else { return false }
-            if let active = activeFilter {
-                return (item.category ?? .system) == active
-            }
-            return true
+        let filtered: [FeedItem]
+        if let active = activeFilter {
+            filtered = sorted.filter { ($0.category ?? .system) == active }
+        } else {
+            filtered = sorted
         }
         return HomeFeedTimeGroup.bucket(filtered)
     }
@@ -233,6 +255,23 @@ struct HomePageView: View {
     }
 
     // MARK: - Recap row styling
+
+    /// Shared `HomeRecapRow` builder used by both the inbox feed and the
+    /// Background activity disclosure. `showsUrgency` is `false` for
+    /// activity rows so they never paint the leading red dot — urgent
+    /// items live in the inbox, not the activity section.
+    @ViewBuilder
+    private func recapRow(for item: FeedItem, showsUrgency: Bool) -> some View {
+        HomeRecapRow(
+            icon: icon(for: item),
+            iconForeground: iconForeground(for: item),
+            iconBackground: iconBackground(for: item),
+            title: item.title,
+            isUrgent: showsUrgency && isUrgent(item),
+            onDismiss: { dismissItem(item) },
+            onTap: { openItem(item) }
+        )
+    }
 
     /// Icon glyph for a feed item, dispatched per `FeedItemCategory`.
     /// Falls back to `.bell` for items without a category.
