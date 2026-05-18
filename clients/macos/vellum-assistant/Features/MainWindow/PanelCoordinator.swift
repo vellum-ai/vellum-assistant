@@ -264,9 +264,18 @@ extension MainWindowView {
                 HomePermissionDetailCard(item: item)
             }
         case .generic(let item):
+            // When `title` is the same string as `summary`, the body row
+            // already conveys it — rendering both stacks the same text in
+            // the header and the content area.
+            let trimmedTitle = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedSummary = item.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+            let headerTitle: String? =
+                trimmedTitle.isEmpty || trimmedTitle == trimmedSummary
+                    ? nil
+                    : item.title
             HomeDetailPanel(
                 icon: iconForFeedItem(item),
-                title: item.title,
+                title: headerTitle,
                 iconForeground: iconForegroundForFeedItem(item),
                 iconBackground: iconBackgroundForFeedItem(item),
                 onGoToThread: goToThreadHandler(for: item),
