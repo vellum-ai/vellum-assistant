@@ -137,13 +137,6 @@ export const llmRequestLogs = sqliteTable(
     requestPayload: text("request_payload").notNull(),
     responsePayload: text("response_payload").notNull(),
     createdAt: integer("created_at").notNull(),
-    /**
-     * Set by the agent loop on the **final** log row of an `AgentLoop.run`
-     * via `setAgentLoopExitReasonOnLatestLog` once the loop body exits.
-     * Intermediate rows keep this NULL — that's the canonical "loop kept
-     * going" signal consumed by the LLM Context Inspector. Values are
-     * stable strings from {@link AgentLoopExitReason} in `agent/loop.ts`.
-     */
     agentLoopExitReason: text("agent_loop_exit_reason"),
   },
   (table) => [

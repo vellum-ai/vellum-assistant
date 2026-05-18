@@ -83,6 +83,7 @@ const SAMPLE_ROW = {
   response_payload: '{"bar":2}',
   // ClickHouse emits Int64 as a quoted string under JSONEachRow by default.
   created_at: "1778465138786",
+  agent_loop_exit_reason: "no_tool_calls",
 };
 
 describe("ClickHouseLlmRequestLogSource", () => {
@@ -102,10 +103,7 @@ describe("ClickHouseLlmRequestLogSource", () => {
       requestPayload: '{"foo":1}',
       responsePayload: '{"bar":2}',
       createdAt: 1778465138786,
-      // ClickHouse mirror doesn't replicate agent_loop_exit_reason yet —
-      // the column is local-SQLite-only as of migration 252. The mirror
-      // source always returns null until the mirror cron is updated.
-      agentLoopExitReason: null,
+      agentLoopExitReason: "no_tool_calls",
     });
   });
 

@@ -94,21 +94,17 @@ export function recordRequestLog(
 }
 
 /**
- * Stamp an `agent_loop_exit_reason` onto the most-recent `llm_request_logs`
- * row for the given conversation. Called by the agent-loop event dispatch
- * (both `dispatchAgentEvent` and the wake's `onEvent`) when an
- * `agent_loop_exit` event is observed.
+ * Stamp an `agent_loop_exit_reason` onto the most-recent unstamped
+ * `llm_request_logs` row for the given conversation. Called by the
+ * agent-loop event dispatch (both `dispatchAgentEvent` and the wake's
+ * `onEvent`) when an `agent_loop_exit` event is observed.
  *
- * Why "latest by createdAt" rather than a specific log ID: the dispatch
- * layer doesn't know the log row's UUID — `recordRequestLog` is fire-and-
- * forget from `handleUsage`, and the loop's final usage event lands the
- * row we want to stamp immediately before the exit event arrives. The
- * latest-row lookup gives us the right row without threading IDs through
- * the event pipeline.
- *
- * No-op if no rows exist for the conversation (e.g. a run that exited
- * before any provider call landed — the only place that's currently
- * reachable is `aborted_pre_call` on the very first iteration).
+ * The `IS NULL` guard prevents a current run from clobbering a previous
+ * run's exit reason when the current run exits before landing any log
+ * row of its own (reachable via `aborted_pre_call`, `aborted_via_error`
+ * during pre-call setup, or `error` when system-prompt/tool resolution
+ * throws). In those cases the latest row belongs to a prior run and is
+ * already stamped — leave it alone.
  */
 export function setAgentLoopExitReasonOnLatestLog(
   conversationId: string,
@@ -118,7 +114,12 @@ export function setAgentLoopExitReasonOnLatestLog(
   const latest = db
     .select({ id: llmRequestLogs.id })
     .from(llmRequestLogs)
-    .where(eq(llmRequestLogs.conversationId, conversationId))
+    .where(
+      and(
+        eq(llmRequestLogs.conversationId, conversationId),
+        isNull(llmRequestLogs.agentLoopExitReason),
+      ),
+    )
     .orderBy(desc(llmRequestLogs.createdAt))
     .limit(1)
     .get();

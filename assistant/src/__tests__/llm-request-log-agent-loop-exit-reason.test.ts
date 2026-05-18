@@ -86,15 +86,31 @@ describe("setAgentLoopExitReasonOnLatestLog", () => {
     ).not.toThrow();
   });
 
-  test("overwrites a previously-set reason on the same row", () => {
-    const id = recordRequestLog("conv-1", '{"req":1}', '{"res":1}');
+  test("does not clobber a previous run's reason when the current run never landed a row", () => {
+    // Previous run: completes, lands a log, gets stamped.
+    const prev = recordRequestLog("conv-1", '{"prev_req":1}', '{"prev_res":1}');
     setAgentLoopExitReasonOnLatestLog("conv-1", "no_tool_calls");
-    expect(getRequestLogById(id)?.agentLoopExitReason).toBe("no_tool_calls");
+    expect(getRequestLogById(prev)?.agentLoopExitReason).toBe("no_tool_calls");
 
-    // Overwriting is intentional — preserves the "last-emitted reason
-    // wins" semantics for callers that emit twice (shouldn't happen due
-    // to the idempotency guard, but the DB shouldn't reject it).
-    setAgentLoopExitReasonOnLatestLog("conv-1", "error");
-    expect(getRequestLogById(id)?.agentLoopExitReason).toBe("error");
+    // Current run aborts pre-call (or similar) before any LLM call lands.
+    // The helper must NOT overwrite the previous run's row.
+    setAgentLoopExitReasonOnLatestLog("conv-1", "aborted_pre_call");
+    expect(getRequestLogById(prev)?.agentLoopExitReason).toBe("no_tool_calls");
+  });
+
+  test("stamps the current run's newest row even when a prior row is already stamped", () => {
+    // Prior run already stamped.
+    const prev = recordRequestLog("conv-1", '{"prev_req":1}', '{"prev_res":1}');
+    setAgentLoopExitReasonOnLatestLog("conv-1", "no_tool_calls");
+
+    // Current run lands a new log, then exits.
+    Bun.sleepSync(2);
+    const current = recordRequestLog("conv-1", '{"cur_req":1}', '{"cur_res":1}');
+    setAgentLoopExitReasonOnLatestLog("conv-1", "yield_to_user");
+
+    expect(getRequestLogById(prev)?.agentLoopExitReason).toBe("no_tool_calls");
+    expect(getRequestLogById(current)?.agentLoopExitReason).toBe(
+      "yield_to_user",
+    );
   });
 });
