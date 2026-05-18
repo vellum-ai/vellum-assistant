@@ -619,10 +619,14 @@ assert_no_external_symlinks() {
     stray=$(find "$root" -type l 2>/dev/null | while IFS= read -r link; do
         local target
         target=$(readlink -f "$link" 2>/dev/null || true)
+        # Leading `(` on each pattern works around a bash 3.2 parser bug
+        # that rejects `case` patterns beginning with `/` inside `$(...)`
+        # command substitutions. macOS system bash (and CI runners) ships
+        # 3.2, so dropping the `(` re-breaks the build.
         case "$target" in
-            "$root"/*) ;;
-            "") echo "$link -> (broken)"; break;;
-            *) echo "$link -> $target"; break;;
+            ("$root"/*) ;;
+            ("") echo "$link -> (broken)"; break;;
+            (*) echo "$link -> $target"; break;;
         esac
     done)
     if [ -n "$stray" ]; then
