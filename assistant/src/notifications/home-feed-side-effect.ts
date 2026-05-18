@@ -164,8 +164,9 @@ function deriveDetailPanelKind(
  * skill (and by background-job failure emits). These signals represent
  * the assistant actively choosing to share, so we mirror them into the
  * home feed without requiring a background-typed conversation or the
- * `isAsyncBackground` hint — the CLI surface intentionally does not
- * expose either.
+ * `isAsyncBackground` hint — the documented (SKILL.md) CLI surface
+ * intentionally does not expose either; internal call sites that still set
+ * the hint keep working unchanged.
  */
 function shouldMirrorToHomeFeed(signal: NotificationSignal): boolean {
   if (signal.sourceChannel === "assistant_tool") return true;
