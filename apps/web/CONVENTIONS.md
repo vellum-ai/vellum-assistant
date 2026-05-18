@@ -496,7 +496,7 @@ Plugins:
   dependency)
 - `@hey-api/typescript` — generates TypeScript types from schemas
 
-Generated output lives in `src/generated/heyapi/`. This directory is
+Generated output lives in `src/generated/api/`. This directory is
 fully auto-generated — do not hand-edit files in it. Run
 `bun run openapi-ts` to regenerate.
 

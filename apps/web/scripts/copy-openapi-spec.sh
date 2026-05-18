@@ -5,7 +5,7 @@ set -euo pipefail
 # This directory is gitignored — specs are never committed to this repo.
 #
 # Usage:
-#   ./scripts/copy-openapi-spec.sh [path-to-platform-repo]
+#   ./scripts/copy-openapi-spec.sh [path-to-platform.yaml]
 #
 # If no path is provided, defaults to a sibling checkout:
 #   ../vellum-assistant-platform/django/openapi_schemas/platform.yaml
