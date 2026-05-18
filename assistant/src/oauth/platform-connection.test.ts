@@ -261,17 +261,57 @@ describe("PlatformOAuthConnection", () => {
     ).rejects.toThrow(CredentialRequiredError);
   });
 
-  test("502 response throws ProviderUnreachableError", async () => {
+  test("502 response retries then throws ProviderUnreachableError", async () => {
+    let callCount = 0;
     const client = makeMockClient(
-      mock(
-        async () => new Response("", { status: 502 }),
-      ) as unknown as typeof globalThis.fetch,
+      mock(async () => {
+        callCount++;
+        return new Response("", { status: 502 });
+      }) as unknown as typeof globalThis.fetch,
     );
 
     const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
     await expect(
       conn.request({ method: "GET", path: "/test" }),
     ).rejects.toThrow(ProviderUnreachableError);
+    // 1 initial + 3 retries = 4 total attempts
+    expect(callCount).toBe(4);
+  });
+
+  test("502 response includes detail from response body", async () => {
+    const client = makeMockClient(
+      mock(
+        async () => new Response("upstream timeout after 30s", { status: 502 }),
+      ) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    await expect(
+      conn.request({ method: "GET", path: "/test" }),
+    ).rejects.toThrow(/upstream timeout after 30s/);
+  });
+
+  test("502 recovers on retry", async () => {
+    let callCount = 0;
+    const client = makeMockClient(
+      mock(async () => {
+        callCount++;
+        if (callCount <= 2) {
+          return new Response("", { status: 502 });
+        }
+        return new Response(
+          JSON.stringify({ status: 200, headers: {}, body: { ok: true } }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    const result = await conn.request({ method: "GET", path: "/test" });
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ ok: true });
+    expect(callCount).toBe(3);
   });
 
   test("withToken throws clear error", async () => {

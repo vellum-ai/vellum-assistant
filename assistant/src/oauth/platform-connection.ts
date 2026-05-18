@@ -1,5 +1,6 @@
 import type { VellumPlatformClient } from "../platform/client.js";
 import { BackendError } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
 import { getHttpRetryDelay, isRetryableStatus, sleep } from "../util/retry.js";
 import type {
   OAuthConnection,
@@ -7,6 +8,7 @@ import type {
   OAuthConnectionResponse,
 } from "./connection.js";
 
+const log = getLogger("platform-oauth-connection");
 const MAX_RETRIES = 3;
 
 export class CredentialRequiredError extends BackendError {
@@ -111,17 +113,24 @@ export class PlatformOAuthConnection implements OAuthConnection {
         throw new CredentialRequiredError();
       }
 
-      if (response.status === 502) {
-        throw new ProviderUnreachableError();
-      }
-
       if (
         !response.ok &&
         isRetryableStatus(response.status) &&
         attempt < MAX_RETRIES
       ) {
+        log.warn(
+          { status: response.status, attempt, provider: "platform-proxy" },
+          `Retryable status ${response.status} from platform proxy (attempt ${attempt + 1}/${MAX_RETRIES + 1})`,
+        );
         await sleep(getHttpRetryDelay(response, attempt));
         continue;
+      }
+
+      if (response.status === 502) {
+        const detail = await response.text().catch(() => "");
+        throw new ProviderUnreachableError(
+          `The external service provider is temporarily unreachable (HTTP 502).${detail ? ` Detail: ${detail}` : ""} This may be a transient issue — retry after a brief pause.`,
+        );
       }
 
       if (!response.ok) {
