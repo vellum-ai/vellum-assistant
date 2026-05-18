@@ -466,6 +466,8 @@ export function adjustTailIndexForToolPairing(
     const m = messages[k];
     if (
       m.role === "user" &&
+      // guard:allow-tool-result-only — server-side web_search_tool_result is
+      // self-paired inside its assistant message and never spans user turns.
       !m.content.some((block) => block.type === "tool_result")
     ) {
       return k;
