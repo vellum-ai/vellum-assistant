@@ -863,15 +863,22 @@ export async function evaluateSignal(
       !Array.isArray(payload.deepLinkMetadata)
         ? (payload.deepLinkMetadata as Record<string, unknown>)
         : undefined;
+    // Populate renderedCopy and conversationActions for every available
+    // channel — not just `selectedChannels`. Downstream guards
+    // (routing-intent expansion in `enforceRoutingIntent`, urgency-forced
+    // vellum prepending in `emit-signal`) may widen `selectedChannels`
+    // beyond what we picked here. Pre-seeding copy for all channels ensures
+    // the verbatim message survives those expansions rather than falling
+    // back to an empty `composeFallbackCopy` body.
     let decision: NotificationDecision = {
       shouldNotify: selectedChannels.length > 0,
       selectedChannels,
       reasoningSummary: "assistant_tool pass-through",
       renderedCopy: Object.fromEntries(
-        selectedChannels.map((ch) => [ch, { title, body }]),
+        availableChannels.map((ch) => [ch, { title, body }]),
       ) as NotificationDecision["renderedCopy"],
       conversationActions: Object.fromEntries(
-        selectedChannels.map((ch) => [ch, { action: "start_new" as const }]),
+        availableChannels.map((ch) => [ch, { action: "start_new" as const }]),
       ) as NotificationDecision["conversationActions"],
       dedupeKey: signal.signalId,
       confidence: 1.0,
