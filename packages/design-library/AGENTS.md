@@ -4,19 +4,39 @@ Applies to all code under `packages/design-library/`. Subordinate to root [`AGEN
 
 ## Component rules
 
-1. **No `forwardRef`.** React 19 passes ref as a regular prop. Use `ComponentProps<"element">` for props that include ref.
+1. **No `forwardRef`.** `forwardRef` is deprecated in React 19 — ref is now a
+   regular prop. Use `ComponentProps<"element">` (which includes ref) instead
+   of `HTMLAttributes<HTMLElement>` (which does not). This eliminates the
+   wrapper boilerplate and aligns with how React 19 components are authored
+   across the ecosystem (shadcn/ui v4, Radix, etc.).
    - Reference: [React 19 — ref as a prop](https://react.dev/blog/2024/12/05/react-19#ref-as-a-prop)
 
-2. **`data-slot` on every root element.** Multi-part components add a slot per part (e.g. `data-slot="card"`, `data-slot="card-header"`).
+2. **`data-slot` on every root element.** Consumers can style components from
+   CSS without modifying the component source — e.g. `[data-slot="tag"] { ... }`.
+   Multi-part components add a slot per part (`data-slot="card"`,
+   `data-slot="card-header"`, etc.). This is the pattern shadcn/ui v4 adopted
+   for Tailwind v4 compatibility, where CSS-only overrides replace the old
+   `className` merging approach.
    - Reference: [shadcn/ui v4 — data-slot](https://ui.shadcn.com/docs/changelog/2025-03-data-slot)
 
-3. **Function declarations** for components (not arrow expressions or `const` assignments).
+3. **Function declarations** for components (not arrow expressions or `const`
+   assignments). Function declarations are hoisted and keep component names
+   visible in stack traces and React DevTools, making debugging easier.
 
-4. **Export variant functions** alongside components when using CVA (e.g. `export { Tag, tagVariants }`).
+4. **Export variant functions** alongside components when using CVA (e.g.
+   `export { Tag, tagVariants }`). This lets consumers compose variant classes
+   in contexts where they don't render the component directly — e.g. applying
+   Tag's tone styles to a non-Tag element.
 
-5. **No default exports.** Named exports only.
+5. **No default exports.** Named exports only. Default exports allow silent
+   renames at import sites, which breaks refactoring and grep-ability.
 
-6. **Single-file components.** Keep variants, types, and helpers in the component file unless it exceeds 300 lines with multiple independently useful subcomponents.
+6. **Single-file components.** Variants, types, and helpers are tightly coupled
+   to the component's rendering logic — splitting them across files adds
+   indirection without benefit. This matches the shadcn/ui convention where
+   even multi-part components (Card with CardHeader, CardBody, etc.) live in a
+   single file. Only break into a directory when the file exceeds 300 lines
+   with multiple independently useful subcomponents.
 
 ## Review checklist
 
