@@ -14,10 +14,6 @@ import type {
 export type { SlackInboundMessageMetadata };
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { AssistantEventHub } from "./assistant-event-hub.js";
-import type {
-  ApprovalCopyGenerator,
-  GuardianActionCopyGenerator,
-} from "./message-composer-types.js";
 
 export type {
   ApprovalCopyGenerator,
@@ -173,14 +169,6 @@ export interface RuntimeHttpServerOptions {
   port?: number;
   /** Hostname / IP to bind to. Defaults to '127.0.0.1' (loopback-only). */
   hostname?: string;
-  /** Daemon-injected generator for approval copy (provider-backed). */
-  approvalCopyGenerator?: ApprovalCopyGenerator;
-  /** Daemon-injected generator for conversational approval flow (provider-backed). */
-  approvalConversationGenerator?: ApprovalConversationGenerator;
-  /** Daemon-injected generator for guardian action copy (provider-backed). */
-  guardianActionCopyGenerator?: GuardianActionCopyGenerator;
-  /** Daemon-injected generator for guardian follow-up conversation (provider-backed). */
-  guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
 }
 
 export interface RuntimeAttachmentMetadata {

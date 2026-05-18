@@ -97,10 +97,6 @@ import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import {
-  createApprovalConversationGenerator,
-  createApprovalCopyGenerator,
-} from "./approval-generators.js";
-import {
   cleanupPidFile,
   cleanupPidFileIfOwner,
   writePid,
@@ -111,10 +107,6 @@ import {
   stopDiskPressureGuard,
 } from "./disk-pressure-guard.js";
 import { bootstrapPlugins } from "./external-plugins-bootstrap.js";
-import {
-  createGuardianActionCopyGenerator,
-  createGuardianFollowUpConversationGenerator,
-} from "./guardian-action-generators.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
 import {
@@ -322,19 +314,7 @@ export async function runDaemon(): Promise<void> {
     const signingKey = resolveSigningKey();
     initAuthSigningKey(signingKey);
 
-    // Start the runtime HTTP server as early as possible so /healthz and
-    // /readyz probes can succeed during the rest of startup (DB init,
-    // workspace migrations, CES handshake, plugin bootstrap, DaemonServer
-    // start, ...). The probe handlers return 200 OK from the moment the
-    // socket is bound — they don't touch the DB, config, or any other
-    // subsystem.
-    //
-    // The 4 generator factories below return closures that defer all
-    // provider/config resolution to call time, so they're cheap to build
-    // at this point. The remaining runtime-HTTP wiring (registerSecretsDeps,
-    // setVoiceBridgeDeps, setRelayBroadcast, setPointerMessageProcessor,
-    // server.broadcastStatus) happens further below — those depend on the
-    // DaemonServer, which is not constructed yet.
+    // Start the runtime HTTP server early so /healthz answers ASAP.
     let runtimeHttp: RuntimeHttpServer | null = null;
     const httpPort = getRuntimeHttpPort();
     const httpHostname = getRuntimeHttpHost();
@@ -343,11 +323,6 @@ export async function runDaemon(): Promise<void> {
     runtimeHttp = new RuntimeHttpServer({
       port: httpPort,
       hostname: httpHostname,
-      approvalCopyGenerator: createApprovalCopyGenerator(),
-      approvalConversationGenerator: createApprovalConversationGenerator(),
-      guardianActionCopyGenerator: createGuardianActionCopyGenerator(),
-      guardianFollowUpConversationGenerator:
-        createGuardianFollowUpConversationGenerator(),
     });
 
     // Isolated try/catch around start() — a bind failure (port in use,
