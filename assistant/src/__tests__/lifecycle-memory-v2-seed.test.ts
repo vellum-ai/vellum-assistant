@@ -71,6 +71,13 @@ mock.module("../memory/v2/skill-store.js", () => ({
   },
 }));
 
+// Mock the sibling CLI-command seeder so `rebuildBm25CorpusStatsAndReseedSkills`
+// (which runs both reseeds in parallel) does not invoke the real Qdrant-backed
+// implementation and emit warnings that break the no-warnings assertions below.
+mock.module("../memory/v2/cli-command-store.js", () => ({
+  seedV2CliCommandEntries: async (): Promise<void> => {},
+}));
+
 mock.module("../memory/v2/qdrant.js", () => ({
   ensureConceptPageCollection: async (): Promise<{ migrated: boolean }> => {
     state.ensureCollectionCallCount += 1;
