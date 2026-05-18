@@ -1,9 +1,22 @@
 import type { Command } from "commander";
 
-import { cliIpcCall } from "../../ipc/cli-client.js";
+import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
+
+function handleNotificationIpcError(
+  result: { ok: boolean; error?: string; statusCode?: number },
+  cmd: Command,
+): void {
+  if (shouldOutputJson(cmd)) {
+    writeOutput(cmd, { ok: false, error: result.error });
+    process.exitCode = 1;
+    return;
+  }
+
+  exitFromIpcResult(result);
+}
 
 // ---------------------------------------------------------------------------
 // Command registration
@@ -289,11 +302,7 @@ Examples:
                 },
               });
 
-              if (!result.ok) {
-                writeOutput(cmd, { ok: false, error: result.error });
-                process.exitCode = 1;
-                return;
-              }
+              if (!result.ok) return handleNotificationIpcError(result, cmd);
 
               const signal = result.result!;
 
