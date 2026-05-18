@@ -58,7 +58,8 @@ export function resolveCallSiteConfig(
       ? llm.profiles?.[opts.overrideProfile]
       : undefined;
   const site =
-    llm.callSites?.[callSite] ?? effectiveDefault(callSite, llm);
+    llm.callSites?.[callSite] ??
+    effectiveDefault(callSite, llm, opts.overrideProfile != null);
 
   if (callSite === "mainAgent") {
     appendCallSiteLayers(layers, callSite, llm, site);
@@ -82,13 +83,15 @@ type Mergeable = Record<string, unknown>;
 function effectiveDefault(
   callSite: LLMCallSite,
   llm: z.infer<typeof LLMSchema>,
+  hasOverrideProfile = false,
 ): z.infer<typeof LLMSchema>["callSites"][LLMCallSite] | undefined {
   const dflt = CALL_SITE_DEFAULTS[callSite];
   if (dflt == null) return undefined;
-  if (
-    dflt.profile != null &&
-    (llm.profiles == null || llm.profiles[dflt.profile] == null)
-  ) {
+  const stripProfile =
+    hasOverrideProfile ||
+    (dflt.profile != null &&
+      (llm.profiles == null || llm.profiles[dflt.profile] == null));
+  if (stripProfile) {
     const { profile: _profile, ...rest } = dflt;
     return Object.keys(rest).length > 0 ? rest : undefined;
   }

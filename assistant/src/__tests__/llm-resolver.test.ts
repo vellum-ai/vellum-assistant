@@ -369,9 +369,9 @@ describe("resolveCallSiteConfig", () => {
     const resolved = resolveCallSiteConfig("mainAgent", llm, {
       overrideProfile: "nonexistent",
     });
-    // mainAgent's shipped default references the `balanced` profile, which
-    // contributes effort: "medium". The nonexistent overrideProfile adds nothing.
-    expect(resolved.effort).toBe("medium");
+    // overrideProfile is set so the shipped default's profile is stripped.
+    // The nonexistent overrideProfile also adds nothing. Falls through to default.
+    expect(resolved.effort).toBe("max");
     expect(resolved.model).toBe("claude-opus-4-7");
   });
 
@@ -568,6 +568,21 @@ describe("resolveCallSiteConfig", () => {
       },
     });
     const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.model).toBe("claude-opus-4-7");
+    expect(resolved.effort).toBe("max");
+  });
+
+  test("overrideProfile wins over CALL_SITE_DEFAULTS profile for non-main call sites", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        "cost-optimized": { model: "claude-haiku-4-5-20251001", effort: "low" },
+        "quality-optimized": { model: "claude-opus-4-7", effort: "max" },
+      },
+    });
+    const resolved = resolveCallSiteConfig("inference", llm, {
+      overrideProfile: "quality-optimized",
+    });
     expect(resolved.model).toBe("claude-opus-4-7");
     expect(resolved.effort).toBe("max");
   });
