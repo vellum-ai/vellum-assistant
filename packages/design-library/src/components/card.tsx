@@ -172,12 +172,12 @@ const CardFooter = forwardRef<HTMLDivElement, CardSectionProps>(
 );
 
 const CardDefault = forwardRef<HTMLDivElement, CardRootProps>(function Card(
-  { children, padding = "md", ...rest },
+  { children, padding = "md", noPadding = false, ...rest },
   ref,
 ) {
   return (
-    <CardRoot ref={ref} padding={padding} {...rest}>
-      <CardBody padding={padding}>{children}</CardBody>
+    <CardRoot ref={ref} padding={padding} noPadding={noPadding} {...rest}>
+      {noPadding ? children : <CardBody padding={padding}>{children}</CardBody>}
     </CardRoot>
   );
 });
