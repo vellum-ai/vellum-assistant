@@ -21,6 +21,9 @@ coverage/
 /build
 dist
 
+# storybook
+storybook-static/
+
 # Generated from meta/feature-flags/feature-flag-registry.json
 assistant/src/config/feature-flag-registry.json
 gateway/src/feature-flag-registry.json

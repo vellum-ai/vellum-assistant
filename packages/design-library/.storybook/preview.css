@@ -1,0 +1,265 @@
+@import "tailwindcss";
+@source "../src/**/*.tsx";
+
+/* ---------------------------------------------------------------------------
+ * Design system tokens for Storybook.
+ *
+ * In production, these are provided by the consuming app's theme CSS
+ * (e.g. appTheme.css in the web app). Storybook needs its own copy so
+ * components render correctly in isolation.
+ *
+ * Source of truth: Figma node 2674:20625 (light) / 2674:20730 (dark).
+ * Keep in sync with platform's web/src/app/(app)/appTheme.css.
+ * --------------------------------------------------------------------------- */
+
+:root {
+  /* Surface */
+  --surface-base: #F6F5F4;
+  --surface-overlay: #FDFDFC;
+  --surface-active: #F2F0EE;
+  --surface-lift: #FFFFFF;
+  --surface-hover: rgba(185, 180, 172, 0.08);
+
+  /* Primary */
+  --primary-base: #17191C;
+  --primary-hover: #24292E;
+  --primary-active: #2D3339;
+  --primary-disabled: #F6F5F4;
+
+  /* Border */
+  --border-base: #F2F0EE;
+  --border-disabled: #E9E6E2;
+  --border-element: #CFCCC9;
+  --border-hover: #F6F5F4;
+  --border-active: #2D3339;
+
+  /* Content */
+  --content-default: #24292E;
+  --content-emphasised: #161616;
+  --content-secondary: #5A6672;
+  --content-tertiary: #71808E;
+  --content-disabled: #CFCCC9;
+  --content-inset: #FDFDFC;
+
+  /* System */
+  --system-positive-strong: #277E41;
+  --system-positive-weak: #E9F2EC;
+  --system-negative-strong: #DA491A;
+  --system-negative-hover: #E86B40;
+  --system-negative-weak: #F7DAC9;
+  --system-mid-strong: #F1B21E;
+  --system-mid-weak: #FCF3DD;
+
+  /* Derived */
+  --ring: color-mix(in srgb, var(--system-positive-strong) 30%, transparent);
+  --ghost-hover: var(--surface-active);
+  --field-bg: var(--surface-lift);
+  --field-border: var(--border-element);
+
+  /* Background / Foreground */
+  --background: #F6F5F4;
+  --foreground: #24292E;
+
+  /* Font tokens */
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+/* ---------------------------------------------------------------------------
+ * Typography tokens — synced with platform globals.css.
+ * Source of truth: Figma node 2193:4447.
+ * --------------------------------------------------------------------------- */
+
+:root {
+  --text-title-large-size: 24px;
+  --text-title-large-weight: 500;
+  --text-title-large-line-height: 1;
+
+  --text-title-medium-size: 20px;
+  --text-title-medium-weight: 500;
+  --text-title-medium-line-height: 1;
+
+  --text-title-small-size: 16px;
+  --text-title-small-weight: 500;
+  --text-title-small-line-height: 1;
+
+  --text-body-large-lighter-size: 16px;
+  --text-body-large-lighter-weight: 400;
+  --text-body-large-lighter-line-height: 20px;
+
+  --text-body-large-default-size: 16px;
+  --text-body-large-default-weight: 500;
+  --text-body-large-default-line-height: 20px;
+
+  --text-body-medium-lighter-size: 14px;
+  --text-body-medium-lighter-weight: 400;
+  --text-body-medium-lighter-line-height: 18px;
+
+  --text-body-medium-default-size: 14px;
+  --text-body-medium-default-weight: 500;
+  --text-body-medium-default-line-height: 18px;
+
+  --text-body-small-default-size: 12px;
+  --text-body-small-default-weight: 500;
+  --text-body-small-default-line-height: 1;
+
+  --text-body-small-emphasised-size: 12px;
+  --text-body-small-emphasised-weight: 600;
+  --text-body-small-emphasised-line-height: 1;
+
+  --text-label-medium-default-size: 11px;
+  --text-label-medium-default-weight: 500;
+  --text-label-medium-default-line-height: 1;
+
+  --text-label-small-default-size: 10px;
+  --text-label-small-default-weight: 500;
+  --text-label-small-default-line-height: 1;
+
+  --text-chat-size: 16px;
+  --text-chat-weight: 400;
+  --text-chat-line-height: 24px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Typography utility classes — Tailwind v4 @utility registration.
+ * Synced with platform globals.css.
+ * --------------------------------------------------------------------------- */
+
+@utility text-title-large {
+  font-family: var(--font-sans);
+  font-size: var(--text-title-large-size);
+  font-weight: var(--text-title-large-weight);
+  line-height: var(--text-title-large-line-height);
+}
+@utility text-title-medium {
+  font-family: var(--font-sans);
+  font-size: var(--text-title-medium-size);
+  font-weight: var(--text-title-medium-weight);
+  line-height: var(--text-title-medium-line-height);
+}
+@utility text-title-small {
+  font-family: var(--font-sans);
+  font-size: var(--text-title-small-size);
+  font-weight: var(--text-title-small-weight);
+  line-height: var(--text-title-small-line-height);
+}
+@utility text-body-large-default {
+  font-family: var(--font-sans);
+  font-size: var(--text-body-large-default-size);
+  font-weight: var(--text-body-large-default-weight);
+  line-height: var(--text-body-large-default-line-height);
+}
+@utility text-body-large-lighter {
+  font-family: var(--font-sans);
+  font-size: var(--text-body-large-lighter-size);
+  font-weight: var(--text-body-large-lighter-weight);
+  line-height: var(--text-body-large-lighter-line-height);
+}
+@utility text-body-medium-default {
+  font-family: var(--font-sans);
+  font-size: var(--text-body-medium-default-size);
+  font-weight: var(--text-body-medium-default-weight);
+  line-height: var(--text-body-medium-default-line-height);
+}
+@utility text-body-medium-lighter {
+  font-family: var(--font-sans);
+  font-size: var(--text-body-medium-lighter-size);
+  font-weight: var(--text-body-medium-lighter-weight);
+  line-height: var(--text-body-medium-lighter-line-height);
+}
+@utility text-body-small-default {
+  font-family: var(--font-sans);
+  font-size: var(--text-body-small-default-size);
+  font-weight: var(--text-body-small-default-weight);
+  line-height: var(--text-body-small-default-line-height);
+}
+@utility text-body-small-emphasised {
+  font-family: var(--font-sans);
+  font-size: var(--text-body-small-emphasised-size);
+  font-weight: var(--text-body-small-emphasised-weight);
+  line-height: var(--text-body-small-emphasised-line-height);
+}
+@utility text-label-medium-default {
+  font-family: var(--font-sans);
+  font-size: var(--text-label-medium-default-size);
+  font-weight: var(--text-label-medium-default-weight);
+  line-height: var(--text-label-medium-default-line-height);
+}
+@utility text-label-small-default {
+  font-family: var(--font-sans);
+  font-size: var(--text-label-small-default-size);
+  font-weight: var(--text-label-small-default-weight);
+  line-height: var(--text-label-small-default-line-height);
+}
+@utility text-chat {
+  font-family: var(--font-sans);
+  font-size: var(--text-chat-size);
+  font-weight: var(--text-chat-weight);
+  line-height: var(--text-chat-line-height);
+}
+
+/* ---------------------------------------------------------------------------
+ * Button utility classes.
+ *
+ * These are consumed by the Button component. In production they will
+ * live in the consuming app's CSS or in a shared design-token stylesheet;
+ * Storybook needs them here for isolated rendering.
+ * --------------------------------------------------------------------------- */
+
+@utility vdl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms, color 150ms, border-color 150ms;
+  border: 1px solid transparent;
+}
+@utility vdl-btn-primary {
+  background-color: var(--primary-base);
+  color: var(--content-inset);
+  &:hover { background-color: var(--primary-hover); }
+  &:active { background-color: var(--primary-active); }
+  &:disabled { background-color: var(--primary-disabled); color: var(--content-disabled); cursor: not-allowed; }
+}
+@utility vdl-btn-secondary {
+  background-color: var(--surface-lift);
+  color: var(--content-default);
+  border-color: var(--border-element);
+  &:hover { background-color: var(--surface-active); }
+  &:active { background-color: var(--border-disabled); }
+  &:disabled { background-color: var(--primary-disabled); color: var(--content-disabled); cursor: not-allowed; }
+}
+@utility vdl-btn-ghost {
+  background-color: transparent;
+  color: var(--content-default);
+  &:hover { background-color: var(--ghost-hover); }
+  &:active { background-color: var(--border-disabled); }
+  &:disabled { color: var(--content-disabled); cursor: not-allowed; }
+}
+@utility vdl-btn-sm {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+}
+@utility vdl-btn-md {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+@utility vdl-btn-lg {
+  padding: 0.625rem 1.25rem;
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Storybook body defaults
+ * --------------------------------------------------------------------------- */
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}

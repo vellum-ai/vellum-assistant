@@ -4,12 +4,15 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "files": ["src/"],
   "exports": {
     ".": "./src/index.ts",
     "./components/*": "./src/components/*.tsx",
     "./utils/*": "./src/utils/*.ts"
   },
   "scripts": {
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build",
     "typecheck": "bunx tsc --noEmit"
   },
   "peerDependencies": {
@@ -18,11 +21,17 @@
     "tailwindcss": ">=4.0.0"
   },
   "devDependencies": {
+    "@storybook/addon-a11y": "10.3.6",
+    "@storybook/addon-docs": "10.3.6",
+    "@storybook/react-vite": "10.3.6",
+    "@tailwindcss/vite": "4.1.8",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "typescript": "5.9.3"
+    "storybook": "10.3.6",
+    "typescript": "5.9.3",
+    "vite": "8.0.11"
   },
   "dependencies": {
     "@radix-ui/react-slot": "1.2.4",

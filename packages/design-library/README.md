@@ -137,6 +137,22 @@ scan so that utility classes used here are generated:
 @source "../node_modules/@vellum/design-library/src";
 ```
 
+## Storybook
+
+[Storybook](https://storybook.js.org/) provides isolated component development and auto-generated documentation.
+
+```bash
+cd packages/design-library
+bun run storybook          # dev server → http://localhost:6006
+bun run build-storybook    # static build → storybook-static/
+```
+
+Stories are colocated next to their components (`*.stories.tsx`). Autodocs generates prop tables from TypeScript types automatically.
+
+### npm publishing
+
+The `"files"` field in `package.json` allowlists only `src/` for the npm tarball. Stories, `.storybook/` config, and build output are excluded automatically — [npm docs](https://docs.npmjs.com/cli/v10/configuring-npm/package-json#files).
+
 ## Peer dependencies
 
 - `react >= 19`
