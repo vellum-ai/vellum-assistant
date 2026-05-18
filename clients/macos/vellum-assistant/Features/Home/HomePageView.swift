@@ -118,6 +118,7 @@ struct HomePageView: View {
                                     iconForeground: iconForeground(for: item),
                                     iconBackground: iconBackground(for: item),
                                     title: item.title,
+                                    isUrgent: isUrgent(item),
                                     onDismiss: { dismissItem(item) },
                                     onTap: { openItem(item) }
                                 )
@@ -181,32 +182,38 @@ struct HomePageView: View {
 
     // MARK: - Feed grouping
 
-    /// Categories present in the visible feed (non-dismissed, non-high-urgency).
-    /// Drives the filter bar — only categories with items get a pill.
+    /// True for items the inbox surfaces with a leading red dot — `urgency`
+    /// of `.high` or `.critical`.
+    private func isUrgent(_ item: FeedItem) -> Bool {
+        item.urgency == .high || item.urgency == .critical
+    }
+
+    /// Categories present in the visible feed (non-dismissed). Drives the
+    /// filter bar — only categories with items get a pill.
     private var presentCategories: Set<FeedItemCategory> {
         var cats = Set<FeedItemCategory>()
         for item in feedStore.items {
             guard item.status != .dismissed else { continue }
-            if item.urgency == .high || item.urgency == .critical { continue }
             cats.insert(item.category ?? .system)
         }
         return cats
     }
 
-    /// Sorts the feed by `priority desc, createdAt desc`, hides
+    /// Sorts the feed with urgent items pinned to the top, then by
+    /// `priority desc, createdAt desc` within each urgency group. Hides
     /// dismissed items (so `dismissItem(_:)` gives immediate feedback
-    /// without waiting for a server refresh to rewrite the array),
-    /// then buckets via `HomeFeedTimeGroup.bucket(_:)`.
+    /// without waiting for a server refresh to rewrite the array), then
+    /// buckets via `HomeFeedTimeGroup.bucket(_:)`.
     private var feedBuckets: [(group: HomeFeedTimeGroup, items: [FeedItem])] {
         let sorted = feedStore.items.sorted { a, b in
+            let aUrgent = isUrgent(a)
+            let bUrgent = isUrgent(b)
+            if aUrgent != bUrgent { return aUrgent }
             if a.priority != b.priority { return a.priority > b.priority }
             return a.createdAt > b.createdAt
         }
         let filtered = sorted.filter { item in
             guard item.status != .dismissed else { return false }
-            // High/critical urgency items are surfaced as macOS system
-            // notifications instead of appearing in the feed.
-            if item.urgency == .high || item.urgency == .critical { return false }
             if let active = activeFilter {
                 return (item.category ?? .system) == active
             }

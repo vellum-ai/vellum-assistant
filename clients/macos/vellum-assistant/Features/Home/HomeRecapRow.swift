@@ -23,6 +23,11 @@ struct HomeRecapRow: View {
     /// of the foreground token — e.g. `VColor.feedNudgeWeak`).
     let iconBackground: Color
     let title: String
+    /// When `true`, render a leading red dot to flag an urgent inbox
+    /// item (urgency `.high` or `.critical`). When `false`, the dot
+    /// and its surrounding spacing are omitted entirely so non-urgent
+    /// rows align flush with the icon circle (no spacing artifact).
+    var isUrgent: Bool = false
     let onDismiss: () -> Void
     let onTap: () -> Void
 
@@ -31,6 +36,12 @@ struct HomeRecapRow: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: VSpacing.sm) {
+                if isUrgent {
+                    // Decorative — the row's combined accessibilityLabel
+                    // below already announces "Urgent" before the title.
+                    VBadge(style: .dot, color: VColor.systemNegativeStrong)
+                        .accessibilityHidden(true)
+                }
                 ZStack {
                     Circle().fill(iconBackground)
                     // 12pt glyph inside a 26pt circle ≈ 7pt padding, per mock.
@@ -79,7 +90,7 @@ struct HomeRecapRow: View {
         )
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(title))
+        .accessibilityLabel(Text(isUrgent ? "Urgent, \(title)" : title))
         .accessibilityAction(named: Text("Dismiss"), onDismiss)
     }
 }
