@@ -23,6 +23,11 @@ interface FakeChunk {
       content?: string | null;
       reasoning_content?: string | null;
       reasoning?: string | null;
+      reasoning_details?: Array<{
+        type?: string;
+        summary?: string | null;
+        text?: string | null;
+      }> | null;
       tool_calls?: Array<{
         index: number;
         id?: string;
@@ -231,6 +236,19 @@ function openRouterReasoningChunk(
 ): FakeChunk {
   return {
     choices: [{ delta: { reasoning }, finish_reason: finish }],
+    usage: null,
+    model: "gpt-5.2",
+  };
+}
+
+// OpenRouter's documented reasoning-summary shape: a `reasoning_details` array
+// with entries tagged `reasoning.summary` / `reasoning.text` / `reasoning.encrypted`.
+function reasoningDetailsChunk(
+  details: Array<{ type?: string; summary?: string; text?: string }>,
+  finish: string | null = null,
+): FakeChunk {
+  return {
+    choices: [{ delta: { reasoning_details: details }, finish_reason: finish }],
     usage: null,
     model: "gpt-5.2",
   };
@@ -467,6 +485,50 @@ describe("OpenAIProvider", () => {
       type: "thinking_delta",
       thinking: "Hmm, let me think...",
     });
+  });
+
+  test("parses OpenRouter `delta.reasoning_details` summary/text entries and skips encrypted", async () => {
+    fakeChunks = [
+      reasoningDetailsChunk([
+        { type: "reasoning.summary", summary: "Plan step one. " },
+        { type: "reasoning.encrypted", text: "ENCRYPTED_BLOB" },
+        { type: "reasoning.text", text: "Detailed thought." },
+      ]),
+      textChunk("Done."),
+      usageChunk(10, 8),
+    ];
+
+    const events: ProviderEvent[] = [];
+    const result = await provider.sendMessage(
+      [userMsg("Hi")],
+      undefined,
+      undefined,
+      {
+        onEvent: (e) => events.push(e),
+      },
+    );
+
+    expect(result.content).toHaveLength(2);
+    expect(result.content[0]).toEqual({
+      type: "thinking",
+      thinking: "Plan step one. Detailed thought.",
+      signature: "",
+    });
+    expect(result.content[1]).toEqual({ type: "text", text: "Done." });
+    expect(events).toContainEqual({
+      type: "thinking_delta",
+      thinking: "Plan step one. ",
+    });
+    expect(events).toContainEqual({
+      type: "thinking_delta",
+      thinking: "Detailed thought.",
+    });
+    // Encrypted blob must never surface as visible thinking.
+    for (const e of events) {
+      if (e.type === "thinking_delta") {
+        expect(e.thinking).not.toContain("ENCRYPTED_BLOB");
+      }
+    }
   });
 
   // -----------------------------------------------------------------------
@@ -1524,6 +1586,23 @@ describe("OpenRouterProvider reasoning", () => {
       config: { thinking: { type: "disabled" } },
     });
     expect(lastCreateParams!.reasoning).toEqual({ enabled: false });
+  });
+
+  test("nests effort under reasoning and omits top-level reasoning_effort", async () => {
+    const provider = new OpenRouterProvider("or-key", "moonshotai/kimi-k2.6");
+    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: { thinking: { enabled: true }, effort: "max" },
+    });
+
+    expect(lastCreateParams).toBeTruthy();
+    expect(lastCreateParams!.reasoning).toEqual({
+      enabled: true,
+      effort: "xhigh",
+      summary: "detailed",
+    });
+    // Critical: must NOT also send the OpenAI-native flat field — OpenRouter
+    // rejects requests that carry both forms for reasoning models.
+    expect(lastCreateParams).not.toHaveProperty("reasoning_effort");
   });
 });
 

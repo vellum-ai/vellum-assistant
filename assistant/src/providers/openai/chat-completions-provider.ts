@@ -176,10 +176,17 @@ export class OpenAIChatCompletionsProvider implements Provider {
         params.max_completion_tokens = maxTokens;
       }
 
+      // Subclasses (OpenRouter) may already have nested effort under
+      // `reasoning.effort` via `buildExtraCreateParams`. Skip the flat
+      // `reasoning_effort` assignment in that case to avoid sending both forms,
+      // which OpenRouter rejects on reasoning models.
+      const nestedReasoningEffort = (
+        params as { reasoning?: { effort?: unknown } }
+      ).reasoning?.effort;
       const reasoningEffort = effort
         ? EFFORT_TO_REASONING_EFFORT[effort]
         : undefined;
-      if (reasoningEffort) {
+      if (reasoningEffort && typeof nestedReasoningEffort !== "string") {
         params.reasoning_effort =
           reasoningEffort === "xhigh" && this.maxReasoningEffort === "high"
             ? "high"
@@ -307,6 +314,11 @@ export class OpenAIChatCompletionsProvider implements Provider {
             const deltaWithReasoning = choice.delta as {
               reasoning?: string | null;
               reasoning_content?: string | null;
+              reasoning_details?: Array<{
+                type?: string;
+                summary?: string | null;
+                text?: string | null;
+              }> | null;
             };
             const reasoningContent =
               deltaWithReasoning.reasoning_content ??
@@ -314,6 +326,24 @@ export class OpenAIChatCompletionsProvider implements Provider {
             if (reasoningContent) {
               reasoningText += reasoningContent;
               onEvent?.({ type: "thinking_delta", thinking: reasoningContent });
+            }
+
+            // OpenRouter's documented streaming shape for reasoning summaries
+            // (e.g. Kimi K2.6) puts visible thinking under
+            // `delta.reasoning_details[]` with entries like
+            // `{ type: "reasoning.summary", summary: "..." }` or
+            // `{ type: "reasoning.text", text: "..." }`. `reasoning.encrypted`
+            // entries are opaque and skipped.
+            const reasoningDetails = deltaWithReasoning.reasoning_details;
+            if (Array.isArray(reasoningDetails)) {
+              for (const entry of reasoningDetails) {
+                if (entry.type === "reasoning.encrypted") continue;
+                const piece = entry.summary ?? entry.text;
+                if (piece) {
+                  reasoningText += piece;
+                  onEvent?.({ type: "thinking_delta", thinking: piece });
+                }
+              }
             }
 
             if (choice.delta.tool_calls) {
