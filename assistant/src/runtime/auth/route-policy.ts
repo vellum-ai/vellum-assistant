@@ -243,6 +243,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
     endpoint: "integrations/slack/channel/config:DELETE",
     scopes: ["settings.write"],
   },
+  { endpoint: "integrations/a2a/invite", scopes: ["settings.write"] },
   { endpoint: "channel-verification-sessions", scopes: ["settings.write"] },
   {
     endpoint: "channel-verification-sessions:DELETE",
