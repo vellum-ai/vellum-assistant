@@ -85,6 +85,8 @@ mock.module("../memory/embedding-backend.js", () => ({
 // test doesn't migrate — stub it out so the guard logic stays the focus.
 mock.module("../providers/inference/connections.js", () => ({
   listConnections: () => [],
+  createConnection: () => ({ ok: false, error: { code: "already_exists" } }),
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: new Set(["openai-compatible"]),
 }));
 
 import { ROUTES } from "../runtime/routes/conversation-query-routes.js";
