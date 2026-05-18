@@ -46,6 +46,15 @@ When internals are hard to access, fall back to an interview-style migration: as
 
 Before copying large folders or attachments, estimate source size and check available space in the current Vellum workspace. Use available storage diagnostics or shell filesystem probes when available, migrate large assets in batches, and pause for the creator if the import could crowd the workspace or trigger disk-pressure cleanup.
 
+### Per-species references
+
+Once the source species is identified, consult the matching reference for the exact data-directory layout, a bundling recipe with explicit `--exclude` flags for secret-bearing paths, and the after-import rebind checklist:
+
+- [Hermes → Vellum](references/hermes.md)
+- [OpenClaw → Vellum](references/openclaw.md)
+
+These are reconnaissance notes, not adapters. They tell you where to look and what to leave behind. The preferred flow is a single `tar` archive, transferred either as a chat attachment or via a short-TTL signed URL the assistant fetches with `curl`. See [`references/README.md`](references/README.md) for the shared tar-and-transport model and the rules each per-species reference must follow.
+
 ## Migration Workflow
 
 ### 1. Establish the Source and Migration Goal
