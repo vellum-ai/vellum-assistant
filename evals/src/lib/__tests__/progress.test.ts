@@ -48,20 +48,27 @@ describe("formatEvalProgressLine", () => {
       status: "info",
       message: "Heartbeat",
     });
+    const errorEvent = formatEvalProgressLine({
+      step: "simulator",
+      status: "error",
+      message: "Simulator stalled",
+    });
 
     expect(start).toBe("[hatch]     ▶ Hatching assistant");
     expect(done).toBe("[hatch]     ✓ Assistant ready");
     expect(info).toBe("[events]    • Heartbeat");
+    expect(errorEvent).toBe("[simulator] ✗ Simulator stalled");
 
     // The status glyph column should land at the same character offset
     // regardless of step name, so rows stack visually.
     const glyphColumn = (line: string): number => {
-      const glyphMatch = line.match(/[▶✓•]/);
+      const glyphMatch = line.match(/[▶✓•✗]/);
       return glyphMatch?.index ?? -1;
     };
     expect(glyphColumn(start)).toBeGreaterThan(0);
     expect(glyphColumn(start)).toBe(glyphColumn(info));
     expect(glyphColumn(done)).toBe(glyphColumn(info));
+    expect(glyphColumn(errorEvent)).toBe(glyphColumn(info));
   });
 
   test("folds turn numbers and details into a single space-separated suffix with no parens", () => {
@@ -110,6 +117,61 @@ describe("formatEvalProgressLine", () => {
     expect(line).toBe(
       "[2026-05-15 15:31:54] [artifacts] ▶ Preparing run artifacts  eval-vellum-bare-timeline-recall-20260515153154",
     );
+  });
+
+  test("renders each `details` entry on its own indented line under the header", () => {
+    const line = formatEvalProgressLine({
+      step: "simulator",
+      status: "error",
+      message: "User simulator response had no actionable content",
+      turn: 3,
+      details: [
+        "stop_reason=end_turn",
+        "parts=[]",
+        'body: {"model":"claude-haiku-4-5-20251001","content":[]}',
+      ],
+    });
+    expect(line).toBe(
+      [
+        "[simulator] ✗ User simulator response had no actionable content  turn 3",
+        "    stop_reason=end_turn",
+        "    parts=[]",
+        '    body: {"model":"claude-haiku-4-5-20251001","content":[]}',
+      ].join("\n"),
+    );
+  });
+
+  test("wraps the header (but not details) in ANSI red when color is enabled for error events", () => {
+    const line = formatEvalProgressLine(
+      {
+        step: "simulator",
+        status: "error",
+        message: "Simulator stalled",
+        turn: 3,
+        details: ["stop_reason=end_turn"],
+      },
+      { color: true },
+    );
+    const RED = "\u001b[31m";
+    const RESET = "\u001b[0m";
+    expect(line).toBe(
+      [
+        `${RED}[simulator] ✗ Simulator stalled  turn 3${RESET}`,
+        "    stop_reason=end_turn",
+      ].join("\n"),
+    );
+  });
+
+  test("does not colorize non-error statuses even when color is enabled", () => {
+    const line = formatEvalProgressLine(
+      {
+        step: "hatch",
+        status: "start",
+        message: "Hatching assistant",
+      },
+      { color: true },
+    );
+    expect(line).toBe("[hatch]     ▶ Hatching assistant");
   });
 });
 
@@ -167,5 +229,59 @@ describe("createConsoleReporter", () => {
       message: "should be ignored",
     });
     expect(stream.chunks).toEqual([]);
+  });
+
+  test("writes header + nested details as a single multi-line chunk", () => {
+    const stream = new CaptureStream();
+    const reporter = createConsoleReporter({
+      stream,
+      now: () => new Date(2026, 4, 15, 15, 31, 54).getTime(),
+      color: false,
+    });
+
+    reporter({
+      step: "simulator",
+      status: "error",
+      message: "User simulator response had no actionable content",
+      turn: 3,
+      details: ["stop_reason=end_turn", "parts=[]"],
+    });
+
+    expect(stream.chunks).toEqual([
+      [
+        "[2026-05-15 15:31:54] [simulator] ✗ User simulator response had no actionable content  turn 3",
+        "    stop_reason=end_turn",
+        "    parts=[]",
+        "",
+      ].join("\n"),
+    ]);
+  });
+
+  test("auto-enables ANSI red on TTY streams and disables it on non-TTY streams", () => {
+    const tty = Object.assign(new CaptureStream(), { isTTY: true });
+    const file = new CaptureStream();
+    const now = () => new Date(2026, 4, 15, 15, 31, 54).getTime();
+
+    createConsoleReporter({ stream: tty, now })({
+      step: "simulator",
+      status: "error",
+      message: "Simulator stalled",
+      turn: 3,
+    });
+    createConsoleReporter({ stream: file, now })({
+      step: "simulator",
+      status: "error",
+      message: "Simulator stalled",
+      turn: 3,
+    });
+
+    const RED = "\u001b[31m";
+    const RESET = "\u001b[0m";
+    expect(tty.chunks).toEqual([
+      `[2026-05-15 15:31:54] ${RED}[simulator] ✗ Simulator stalled  turn 3${RESET}\n`,
+    ]);
+    expect(file.chunks).toEqual([
+      "[2026-05-15 15:31:54] [simulator] ✗ Simulator stalled  turn 3\n",
+    ]);
   });
 });

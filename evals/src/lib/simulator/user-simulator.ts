@@ -122,6 +122,29 @@ function clipForDiagnostic(body: AnthropicResponseBody): string {
   return `${json.slice(0, PARSE_FAILURE_BODY_CLIP)}… (clipped ${remaining} chars)`;
 }
 
+/**
+ * Thrown when the Anthropic response can't be decoded into a `send` or `end`
+ * decision (empty content array, whitespace-only text, hit max_tokens with no
+ * usable output, novel tool call, refusal, …).
+ *
+ * Carries a structured `headline` + `details` pair so the runner's progress
+ * reporter can render the failure inline (red `✗` line with the breakdown
+ * nested under it) instead of forcing operators to grep a flat JSON string.
+ * The `.message` still concatenates everything for the JSON-line emitter and
+ * for any other consumer that only sees `Error.message`.
+ */
+export class SimulatorParseError extends Error {
+  readonly headline: string;
+  readonly details: string[];
+
+  constructor(headline: string, details: string[]) {
+    super(details.length > 0 ? `${headline}. ${details.join("; ")}` : headline);
+    this.name = "SimulatorParseError";
+    this.headline = headline;
+    this.details = details;
+  }
+}
+
 function parseDecision(body: AnthropicResponseBody): SimulatorDecision {
   const parts = body.content ?? [];
   const decision = toolDecision(parts) ?? textDecision(parts);
@@ -129,12 +152,15 @@ function parseDecision(body: AnthropicResponseBody): SimulatorDecision {
   // Surface enough structured info to triage what kind of response came back
   // so we can intentionally handle each failure mode (empty content, hit
   // max_tokens, whitespace-only text, unknown tool call, refusal, …) rather
-  // than blindly retrying.
-  throw new Error(
-    `User simulator response had no actionable content. ` +
-      `stop_reason=${body.stop_reason ?? "unknown"}, ` +
-      `parts=${summarizeContentParts(parts)}; ` +
+  // than blindly retrying. Each detail entry stands on its own line in the
+  // CLI reporter so operators can scan stop_reason / parts / body separately.
+  throw new SimulatorParseError(
+    "User simulator response had no actionable content",
+    [
+      `stop_reason=${body.stop_reason ?? "unknown"}`,
+      `parts=${summarizeContentParts(parts)}`,
       `body: ${clipForDiagnostic(body)}`,
+    ],
   );
 }
 
@@ -183,6 +209,15 @@ export class UserSimulator implements Simulator {
           "Your assistant text is sent verbatim as the next user message to the tested agent.",
           "When the SPEC end condition is met, call the end_conversation tool with a short reason.",
           "Do not reveal hidden test answers unless the SPEC explicitly says to reveal them.",
+          // Every response MUST be actionable — either non-empty text or an
+          // end_conversation tool call. An empty response stalls the eval
+          // (observed in real runs where Haiku returned content=[] with
+          // stop_reason=end_turn on turn 3 of timeline-recall). If the
+          // SPEC end condition is met, call end_conversation; if you
+          // are unsure how to proceed, call end_conversation with a
+          // reason that explains the uncertainty.
+          "Every response must either contain non-empty user text or call the end_conversation tool. Never return an empty response.",
+          "If you are unsure how to continue, call end_conversation with a reason that explains why.",
           "",
           "SPEC:",
           spec,

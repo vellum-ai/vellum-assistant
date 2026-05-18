@@ -16,11 +16,14 @@ import type { Profile } from "../profile";
 import type { TestDef } from "../test-def";
 import type { TranscriptTurn } from "../transcript";
 import { summarizeAssistantUsage } from "../usage";
-import { UserSimulator } from "../simulator/user-simulator";
+import {
+  SimulatorParseError,
+  UserSimulator,
+} from "../simulator/user-simulator";
 import type { Simulator } from "../simulator/types";
 import { createAgent } from "./create-agent";
 import { AgentEventCollector } from "./event-collector";
-import type { EvalProgressReporter } from "./progress";
+import type { EvalProgressReporter, EvalProgressStep } from "./progress";
 
 export const EVENT_QUIET_MS = 5_000;
 export const EVENT_MAX_MS = 30_000;
@@ -105,7 +108,13 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
   // Also tee every event to disk so the report server can render the
   // test-runner side of the timeline alongside the container event stream.
   const userProgress = input.progress;
+  let currentStep: EvalProgressStep | undefined;
+  let currentTurn: number | undefined;
   const progress: EvalProgressReporter = (event) => {
+    if (event.status === "start") {
+      currentStep = event.step;
+      currentTurn = event.turn;
+    }
     if (userProgress) {
       try {
         userProgress(event);
@@ -313,6 +322,29 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       error: err instanceof Error ? err.message : String(err),
       artifactDir: artifacts.runDir,
     });
+    // Surface the failure through the progress reporter so operators see a
+    // red `✗ <headline>` line under the step that was in flight, with the
+    // structured details (stop_reason / parts / body for simulator parse
+    // errors; raw err.message for everything else) nested beneath it.
+    // Falls back to the simulator step when nothing has started yet — the
+    // for-loop simulator turn is by far the most common throw site.
+    const failedStep: EvalProgressStep = currentStep ?? "simulator";
+    if (err instanceof SimulatorParseError) {
+      progress({
+        step: failedStep,
+        status: "error",
+        message: err.headline,
+        details: err.details,
+        turn: currentTurn,
+      });
+    } else {
+      progress({
+        step: failedStep,
+        status: "error",
+        message: err instanceof Error ? err.message : String(err),
+        turn: currentTurn,
+      });
+    }
     throw err;
   } finally {
     progress({

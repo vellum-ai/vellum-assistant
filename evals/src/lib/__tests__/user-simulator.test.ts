@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_SIMULATOR_MODEL,
+  SimulatorParseError,
   UserSimulator,
 } from "../simulator/user-simulator";
 import type { TestDef } from "../test-def";
@@ -186,6 +187,20 @@ describe("UserSimulator", () => {
     expect(message).toContain("parts=[]");
     // The full clipped body JSON is present so we can grep failure modes.
     expect(message).toContain('"stop_reason":"max_tokens"');
+
+    // The structured shape lets the CLI reporter render `headline` as the red
+    // header line and each `details` entry as its own indented row beneath —
+    // not just one flat JSON string in stdout.
+    expect(captured).toBeInstanceOf(SimulatorParseError);
+    const parseErr = captured as SimulatorParseError;
+    expect(parseErr.headline).toBe(
+      "User simulator response had no actionable content",
+    );
+    expect(parseErr.details).toEqual([
+      "stop_reason=max_tokens",
+      "parts=[]",
+      expect.stringMatching(/^body: \{.*"stop_reason":"max_tokens".*\}$/),
+    ]);
   });
 
   test("parse failure summarizes non-empty content parts", async () => {
@@ -207,6 +222,40 @@ describe("UserSimulator", () => {
 
     await expect(simulator.decide({ test, transcript: [] })).rejects.toThrow(
       /stop_reason=tool_use.*parts=\[text\(whitespace, length=6\), tool_use\(name=ask_clarification\)\]/,
+    );
+  });
+
+  test("system prompt forbids empty responses and tells the model to end_conversation when stuck", async () => {
+    // Regression guard for the real `vellum-bare timeline-recall` failure
+    // (turn 3) where Haiku returned content=[] + stop_reason=end_turn.
+    // The system prompt must explicitly forbid empty responses and steer
+    // the model toward end_conversation when it doesn't know what to say,
+    // so the same conversation never reproduces the empty-content stall.
+    const test = await makeTestDef();
+    let requestBody: { system?: string } | undefined;
+
+    globalThis.fetch = (async (
+      _url: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          content: [{ type: "text", text: "ok" }],
+          stop_reason: "end_turn",
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+
+    const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
+    await simulator.decide({ test, transcript: [] });
+
+    expect(typeof requestBody?.system).toBe("string");
+    const system = String(requestBody?.system);
+    expect(system).toContain("Never return an empty response");
+    expect(system).toContain(
+      "call end_conversation with a reason that explains why",
     );
   });
 });
