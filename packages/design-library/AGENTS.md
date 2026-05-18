@@ -5,10 +5,12 @@ Applies to all code under `packages/design-library/`. Subordinate to root [`AGEN
 ## Component rules
 
 1. **No `forwardRef`.** `forwardRef` is deprecated in React 19 — ref is now a
-   regular prop. Use `ComponentProps<"element">` (which includes ref) instead
-   of `HTMLAttributes<HTMLElement>` (which does not). This eliminates the
-   wrapper boilerplate and aligns with how React 19 components are authored
-   across the ecosystem (shadcn/ui v4, Radix, etc.).
+   regular prop. Prefer `ComponentProps<"element">` over
+   `HTMLAttributes<HTMLElement>` because it includes element-specific props
+   (`href` for `<a>`, `type` for `<button>`, etc.) alongside ref. Exception:
+   polymorphic components that accept an `as` prop may use
+   `HTMLAttributes<HTMLElement>` + explicit `ref?: Ref<HTMLElement>` since
+   the element type is not fixed.
    - Reference: [React 19 — ref as a prop](https://react.dev/blog/2024/12/05/react-19#ref-as-a-prop)
 
 2. **`data-slot` on every root element.** Consumers can style components from
@@ -44,7 +46,7 @@ When reviewing PRs that add or modify design library components, verify:
 
 - [ ] No `forwardRef` usage — ref is destructured from props
 - [ ] `data-slot` attribute on every component root element
-- [ ] `ComponentProps<"element">` used instead of `HTMLAttributes<HTMLElement>` (to include ref)
+- [ ] `ComponentProps<"element">` used instead of `HTMLAttributes<HTMLElement>` (for element-specific props + ref) — exception: polymorphic `as` components
 - [ ] Component uses function declaration, not `const` + arrow
 - [ ] CVA-based components export their variants function
 - [ ] No string interpolation for Tailwind classes
