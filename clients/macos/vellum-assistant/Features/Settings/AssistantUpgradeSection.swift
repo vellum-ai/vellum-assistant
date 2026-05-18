@@ -69,6 +69,14 @@ struct AssistantUpgradeSection: View {
     @State private var escalationTask: Task<Void, Never>?
     @State private var dockerUpgradeTask: Task<Void, Never>?
     @State private var backwardReleasesEnabled = false
+
+    /// True when the platform reports an upgrade or rollback is in flight
+    /// for this assistant (i.e. some client is holding the
+    /// `assistant:update-lifecycle:<id>` Redis lock). Polled while the
+    /// section is visible; used to proactively disable the Upgrade button
+    /// + show a help tooltip so the user doesn't have to discover the
+    /// 409 by clicking. ATL-556.
+    @State private var isServerUpgradeInProgress = false
     private let featureFlagClient = FeatureFlagClient()
 
     private var latestRelease: AssistantRelease? {
@@ -355,12 +363,17 @@ struct AssistantUpgradeSection: View {
                     VButton(
                         label: isUpgrading
                             ? (isRollback ? "Rolling back..." : "Upgrading...")
-                            : (isRollback ? "Rollback" : "Upgrade"),
+                            : isServerUpgradeInProgress
+                                ? "Update in progress…"
+                                : (isRollback ? "Rollback" : "Upgrade"),
                         style: isRollback ? .outlined : .primary
                     ) {
                         showingUpgradeConfirmation = true
                     }
-                    .disabled(!upgradeAvailable || isUpgrading || pickerReleases.isEmpty)
+                    .disabled(!upgradeAvailable || isUpgrading || pickerReleases.isEmpty || isServerUpgradeInProgress)
+                    .help(isServerUpgradeInProgress
+                        ? "An upgrade or rollback is already in progress for this assistant. Wait for it to finish before retrying."
+                        : "")
                 }
             }
 
@@ -408,6 +421,19 @@ struct AssistantUpgradeSection: View {
         .task {
             if let flags = try? await featureFlagClient.getFeatureFlags() {
                 backwardReleasesEnabled = flags.first(where: { $0.key == "backward-releases" })?.enabled ?? false
+            }
+        }
+        // Proactively poll the platform's upgrade-status endpoint so the
+        // Upgrade button reflects in-flight upgrades initiated by *other*
+        // clients (web, another macOS session, the CLI). Without this,
+        // clicking Upgrade after the lock is held surfaces a hard "(409)"
+        // error toast. ATL-556. Skipped for `.local` (no platform-side
+        // lock) and `.remote` (no auto-upgrade flow at all).
+        .task {
+            guard topology == .managed || topology == .docker else { return }
+            while !Task.isCancelled {
+                await checkServerUpgradeInProgress()
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
         }
         .onChange(of: currentVersion) { _, _ in
@@ -504,6 +530,34 @@ struct AssistantUpgradeSection: View {
             }
         } catch {
             errorMessage = "Failed to check for updates: \(error.localizedDescription)"
+        }
+    }
+
+    /// Reads the platform's upgrade-lifecycle lock state for this assistant.
+    ///
+    /// Sets `isServerUpgradeInProgress` so the Upgrade button is disabled
+    /// (with an explanatory tooltip) when any client — web, the CLI,
+    /// another macOS session — is mid-upgrade. ATL-556.
+    ///
+    /// Fail-safe: any network/auth/decode error or non-200 response leaves
+    /// `isServerUpgradeInProgress = false` so the button stays clickable.
+    /// We'd rather let the user click and surface a soft 409 message than
+    /// strand them with a permanently disabled button. The platform's
+    /// own GET endpoint already fail-opens on Redis unavailability.
+    private func checkServerUpgradeInProgress() async {
+        do {
+            let (decoded, response): (UpgradeStatusResponse?, _) = try await GatewayHTTPClient.get(
+                path: "assistants/upgrade-status/",
+                timeout: 10,
+                unprefixed: true
+            ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
+            guard response.isSuccess, let status = decoded else {
+                isServerUpgradeInProgress = false
+                return
+            }
+            isServerUpgradeInProgress = status.inProgress
+        } catch {
+            isServerUpgradeInProgress = false
         }
     }
 
@@ -611,6 +665,19 @@ struct AssistantUpgradeSection: View {
             )
 
             guard response.isSuccess else {
+                if response.statusCode == 409 {
+                    // Another client (web, the CLI, another macOS session)
+                    // is holding the upgrade lock. Don't surface this as a
+                    // hard error — the operation is going to complete
+                    // without us. Flip into in-progress state so the button
+                    // reflects the lock, and let the upgrade-status poll
+                    // pick up completion. ATL-556 defense-in-depth in case
+                    // the lock is acquired between status poll and POST.
+                    successMessage = "An upgrade or rollback is already in progress for this assistant. The result will appear here when it completes."
+                    isServerUpgradeInProgress = true
+                    showFeedbackOption = false
+                    return
+                }
                 let text = String(data: response.data, encoding: .utf8) ?? "Unknown error"
                 if response.statusCode == 401 || response.statusCode == 403 {
                     errorMessage = "\(action) failed: authentication error. Please log in again."
@@ -720,5 +787,12 @@ struct AssistantRelease: Decodable, Identifiable {
     let lastWorkspaceMigrationId: String?
 
     var id: String { version }
+}
+
+/// Response shape for `GET /v1/assistants/upgrade-status/`.
+/// `inProgress` is true when an upgrade or rollback is currently holding
+/// the `assistant:update-lifecycle:<id>` Redis lock. ATL-556.
+struct UpgradeStatusResponse: Decodable {
+    let inProgress: Bool
 }
 
