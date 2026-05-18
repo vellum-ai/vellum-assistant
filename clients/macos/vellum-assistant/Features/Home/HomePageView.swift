@@ -30,8 +30,14 @@ struct HomePageView: View {
 
     @AppStorage("homeSuggestionsDismissed") private var suggestionsDismissed: Bool = false
     @State private var activeFilter: FeedItemCategory? = nil
+    @State private var isActivityExpanded: Bool = false
 
     private let maxContentWidth: CGFloat = 960
+
+    /// Count of items routed into the Background activity section. Always 0
+    /// today; will be derived from `FeedItem.noteworthy` once that field is
+    /// populated server-side.
+    private var activityCount: Int { 0 }
 
     var body: some View {
         Group {
@@ -118,6 +124,15 @@ struct HomePageView: View {
                             }
                         }
                     }
+                }
+
+                DisclosureGroup(isExpanded: $isActivityExpanded) {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {}
+                        .padding(.top, VSpacing.sm)
+                } label: {
+                    Text("Background activity (\(activityCount))")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
 
                 Spacer(minLength: VSpacing.xxl)
