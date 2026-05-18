@@ -223,6 +223,12 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["updateHeartbeatConfig", ["settings.write"]],
 
   // Integrations / ingress
+  [
+    "integrations_a2a_invite_complete_post",
+    ["internal.write"],
+    ["svc_gateway"],
+  ],
+  ["integrations_a2a_invite_redeem_post", ["internal.write"], ["svc_gateway"]],
   ["integrations_ingress_config_get", ["settings.read"]],
   ["integrations_ingress_config_put", ["settings.write"]],
   ["integrations_oauth_start_post", ["settings.write"]],
