@@ -28,6 +28,11 @@ mock.module("../../../ipc/cli-client.js", () => ({
     ipcCalls.push({ method, params });
     return ipcResponse;
   },
+  exitFromIpcResult: (r: { ok: false; error?: string }) => {
+    process.stderr.write((r.error ?? "Unknown error") + "\n");
+    process.exitCode = 1;
+    return undefined as never;
+  },
 }));
 
 import { Command } from "commander";
@@ -40,6 +45,7 @@ import { registerNotificationsCommand } from "../notifications.js";
 
 interface CommandResult {
   parsed: Record<string, unknown>;
+  stderr: string;
   exitCode: number;
 }
 
@@ -52,7 +58,9 @@ interface CommandResult {
  */
 async function runCommand(args: string[]): Promise<CommandResult> {
   const chunks: string[] = [];
+  const stderrChunks: string[] = [];
   const originalWrite = process.stdout.write;
+  const originalStderrWrite = process.stderr.write;
 
   process.exitCode = 0;
 
@@ -60,6 +68,11 @@ async function runCommand(args: string[]): Promise<CommandResult> {
     chunks.push(typeof chunk === "string" ? chunk : chunk.toString());
     return true;
   }) as typeof process.stdout.write;
+
+  process.stderr.write = ((chunk: string | Buffer) => {
+    stderrChunks.push(typeof chunk === "string" ? chunk : chunk.toString());
+    return true;
+  }) as typeof process.stderr.write;
 
   try {
     const program = new Command();
@@ -76,6 +89,7 @@ async function runCommand(args: string[]): Promise<CommandResult> {
     // Commander throws on .exitOverride() for --help/errors; ignore
   } finally {
     process.stdout.write = originalWrite;
+    process.stderr.write = originalStderrWrite;
   }
 
   const exitCode = process.exitCode ?? 0;
@@ -87,7 +101,7 @@ async function runCommand(args: string[]): Promise<CommandResult> {
     ? (JSON.parse(firstLine) as Record<string, unknown>)
     : {};
 
-  return { parsed, exitCode };
+  return { parsed, stderr: stderrChunks.join(""), exitCode };
 }
 
 function lastSendBody(): Record<string, unknown> {
@@ -273,7 +287,7 @@ describe("notifications send", () => {
       error: "Daemon rejected the signal",
     };
 
-    const { parsed, exitCode } = await runCommand([
+    const { stderr, exitCode } = await runCommand([
       "send",
       "--source-channel",
       "assistant_tool",
@@ -284,8 +298,7 @@ describe("notifications send", () => {
     ]);
 
     expect(exitCode).toBe(1);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toBe("Daemon rejected the signal");
+    expect(stderr).toContain("Daemon rejected the signal");
   });
 });
 
