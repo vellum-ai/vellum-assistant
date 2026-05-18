@@ -55,6 +55,15 @@ export function getLocalBackupsDir(override?: string | null): string {
   return override ?? join(getBackupRootDir(), "local");
 }
 
+/**
+ * Returns the directory for doctor-initiated backups. These are stored
+ * separately from scheduled/manual backups and have their own retention
+ * policy (max 3, auto-expire after 3 days).
+ */
+export function getDoctorBackupsDir(): string {
+  return join(getBackupRootDir(), "doctor");
+}
+
 // ---------------------------------------------------------------------------
 // Backup filenames
 // ---------------------------------------------------------------------------

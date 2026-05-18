@@ -29,13 +29,21 @@ import { getLogger } from "../logger.js";
 import { getGatewaySecurityDir } from "../paths.js";
 import { ensureBackupKey } from "./backup-key.js";
 import type { SnapshotEntry } from "./list-snapshots.js";
+import { pruneDirByCountAndAge } from "./list-snapshots.js";
 import { pruneLocalSnapshots, writeLocalSnapshot } from "./local-writer.js";
-import type { BackupDestination, OffsiteWriteResult } from "./offsite-writer.js";
+import type {
+  BackupDestination,
+  OffsiteWriteResult,
+} from "./offsite-writer.js";
 import {
   pruneOffsiteSnapshotsInAll,
   writeOffsiteSnapshotToAll,
 } from "./offsite-writer.js";
-import { getBackupKeyPath, getLocalBackupsDir } from "./paths.js";
+import {
+  getBackupKeyPath,
+  getDoctorBackupsDir,
+  getLocalBackupsDir,
+} from "./paths.js";
 
 const log = getLogger("backup-worker");
 
@@ -89,8 +97,7 @@ function readBackupConfig(): BackupConfig {
   const enabled = backup.enabled === true;
   const intervalHours =
     typeof backup.intervalHours === "number" ? backup.intervalHours : 6;
-  const retention =
-    typeof backup.retention === "number" ? backup.retention : 3;
+  const retention = typeof backup.retention === "number" ? backup.retention : 3;
 
   const offsiteRaw = (backup.offsite ?? {}) as Record<string, unknown>;
   const offsiteEnabled = offsiteRaw.enabled !== false;
@@ -99,7 +106,9 @@ function readBackupConfig(): BackupConfig {
     destinations = offsiteRaw.destinations
       .filter(
         (d): d is { path: string; encrypt?: boolean } =>
-          d && typeof d === "object" && typeof (d as Record<string, unknown>).path === "string",
+          d &&
+          typeof d === "object" &&
+          typeof (d as Record<string, unknown>).path === "string",
       )
       .map((d) => ({
         path: d.path,
@@ -330,6 +339,118 @@ export async function createSnapshotNow(
     const result = await performBackup(config, now, deps);
     writeLastRunAt(now.getTime());
     return result;
+  } finally {
+    snapshotInProgress = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Doctor backup
+// ---------------------------------------------------------------------------
+
+/** Max doctor backups kept on disk. */
+const DOCTOR_MAX_COUNT = 3;
+
+/** Doctor backups older than this many days are pruned. */
+const DOCTOR_MAX_AGE_DAYS = 3;
+
+export interface DoctorBackupResult {
+  local: SnapshotEntry;
+  durationMs: number;
+}
+
+/**
+ * Create a doctor-initiated backup. Stored in a separate directory from
+ * scheduled backups with its own retention (max 3, 3-day expiry). Local
+ * only — no offsite mirroring.
+ */
+export async function createDoctorSnapshot(
+  deps: BackupDeps,
+): Promise<DoctorBackupResult> {
+  if (snapshotInProgress) {
+    throw new Error("A backup snapshot is already in progress");
+  }
+
+  const startTimestamp = Date.now();
+  const doctorDir = getDoctorBackupsDir();
+  const now = new Date();
+
+  snapshotInProgress = true;
+  try {
+    // Export plaintext vbundle from the daemon
+    const serviceToken = mintServiceToken();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), EXPORT_TIMEOUT_MS);
+
+    let response: Response;
+    try {
+      response = await fetchImpl(
+        `${deps.assistantRuntimeBaseUrl}/v1/migrations/export`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${serviceToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ description: "Doctor backup" }),
+          signal: controller.signal,
+        },
+      );
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(
+        `Daemon export failed (${response.status}): ${body.slice(0, 500)}`,
+      );
+    }
+
+    // Stream the response body to a temp file
+    const tempPath = join(
+      tmpdir(),
+      `vellum-doctor-backup-${randomUUID()}.vbundle`,
+    );
+    try {
+      const readableBody = response.body;
+      if (!readableBody) {
+        throw new Error("Daemon export returned an empty response body");
+      }
+
+      const writeStream = createWriteStream(tempPath);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun's ReadableStream type doesn't match Node's web ReadableStream
+      const nodeReadable = Readable.fromWeb(readableBody as any);
+      await pipeline(nodeReadable, writeStream);
+
+      // Write to the doctor backup directory
+      const localResult = await writeLocalSnapshot(tempPath, doctorDir, now);
+
+      // Apply doctor-specific retention (max count + max age)
+      await pruneDirByCountAndAge(
+        doctorDir,
+        DOCTOR_MAX_COUNT,
+        DOCTOR_MAX_AGE_DAYS,
+        now,
+      );
+
+      log.info(
+        { localPath: localResult.path },
+        "Doctor backup snapshot complete",
+      );
+
+      return {
+        local: localResult,
+        durationMs: Date.now() - startTimestamp,
+      };
+    } catch (err) {
+      try {
+        await unlink(tempPath);
+      } catch {
+        // best-effort
+      }
+      throw err;
+    }
   } finally {
     snapshotInProgress = false;
   }

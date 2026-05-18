@@ -95,3 +95,54 @@ export async function pruneDir(
 
   return { kept, deleted };
 }
+
+/**
+ * Apply combined count + age retention. Deletes snapshots that exceed
+ * `maxCount` OR are older than `maxAgeDays`, whichever is more aggressive.
+ */
+export async function pruneDirByCountAndAge(
+  dir: string,
+  maxCount: number,
+  maxAgeDays: number,
+  now?: Date,
+): Promise<{
+  kept: SnapshotEntry[];
+  deleted: SnapshotEntry[];
+  skipped?: boolean;
+}> {
+  try {
+    await stat(dirname(dir));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { kept: [], deleted: [], skipped: true };
+    }
+    throw err;
+  }
+
+  const snapshots = await listSnapshotsInDir(dir);
+  const cutoff = new Date(
+    (now ?? new Date()).getTime() - maxAgeDays * 24 * 60 * 60 * 1000,
+  );
+
+  const kept: SnapshotEntry[] = [];
+  const deleted: SnapshotEntry[] = [];
+
+  for (let i = 0; i < snapshots.length; i++) {
+    const entry = snapshots[i];
+    if (i >= maxCount || entry.createdAt < cutoff) {
+      deleted.push(entry);
+    } else {
+      kept.push(entry);
+    }
+  }
+
+  for (const entry of deleted) {
+    try {
+      await unlink(entry.path);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+  }
+
+  return { kept, deleted };
+}

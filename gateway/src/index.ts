@@ -102,8 +102,9 @@ import {
 } from "./http/routes/migration-proxy.js";
 import { createMigrationRollbackProxyHandler } from "./http/routes/migration-rollback-proxy.js";
 import {
-  createListBackupsHandler,
   createBackupSnapshotHandler,
+  createDoctorBackupHandler,
+  createListBackupsHandler,
 } from "./backup/backup-routes.js";
 import { startBackupWorker } from "./backup/backup-worker.js";
 import {
@@ -480,6 +481,7 @@ async function main() {
   };
   const handleListBackups = createListBackupsHandler(backupDeps);
   const handleCreateBackup = createBackupSnapshotHandler(backupDeps);
+  const handleDoctorBackup = createDoctorBackupHandler(backupDeps);
 
   const handleRuntimeProxy = createRuntimeProxyHandler(config);
 
@@ -1094,6 +1096,12 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req) => handleCreateBackup(req),
+    },
+    {
+      path: "/v1/backups/doctor",
+      method: "POST",
+      auth: "none",
+      handler: (req) => handleDoctorBackup(req),
     },
 
     // ── Channel readiness ──

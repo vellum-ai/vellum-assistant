@@ -14,8 +14,8 @@
 import { readConfigFileOrEmpty } from "../config-file-utils.js";
 import { getLogger } from "../logger.js";
 import { listSnapshotsInDir, type SnapshotEntry } from "./list-snapshots.js";
-import { getLocalBackupsDir } from "./paths.js";
-import { createSnapshotNow } from "./backup-worker.js";
+import { getDoctorBackupsDir, getLocalBackupsDir } from "./paths.js";
+import { createDoctorSnapshot, createSnapshotNow } from "./backup-worker.js";
 
 const log = getLogger("backup-routes");
 
@@ -98,6 +98,9 @@ export function createListBackupsHandler(_deps: BackupRouteDeps) {
         offsitePools.push({ destination: dest, snapshots });
       }
 
+      const doctorDir = getDoctorBackupsDir();
+      const doctorSnapshots = await listSnapshotsInDir(doctorDir);
+
       return Response.json({
         local: {
           directory: localDir,
@@ -108,6 +111,10 @@ export function createListBackupsHandler(_deps: BackupRouteDeps) {
           encrypted: pool.destination.encrypt,
           snapshots: pool.snapshots.map(snapshotToJson),
         })),
+        doctor: {
+          directory: doctorDir,
+          snapshots: doctorSnapshots.map(snapshotToJson),
+        },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -145,7 +152,49 @@ export function createBackupSnapshotHandler(deps: BackupRouteDeps) {
 
       if (message.includes("already in progress")) {
         return Response.json(
-          { error: "Conflict", message: "A backup snapshot is already in progress" },
+          {
+            error: "Conflict",
+            message: "A backup snapshot is already in progress",
+          },
+          { status: 409 },
+        );
+      }
+
+      return Response.json(
+        { error: "Internal Server Error", message },
+        { status: 500 },
+      );
+    }
+  };
+}
+
+/**
+ * POST /v1/backups/doctor — doctor-initiated backup snapshot.
+ *
+ * Uses a separate directory and retention policy from scheduled backups
+ * (max 3, auto-expire after 3 days). No auth required — only reachable
+ * from within the pod via vembda exec.
+ */
+export function createDoctorBackupHandler(deps: BackupRouteDeps) {
+  return async function handleDoctorBackup(_req: Request): Promise<Response> {
+    try {
+      const result = await createDoctorSnapshot(deps);
+
+      return Response.json({
+        success: true,
+        local: snapshotToJson(result.local),
+        duration_ms: result.durationMs,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error({ err }, "Doctor backup snapshot failed");
+
+      if (message.includes("already in progress")) {
+        return Response.json(
+          {
+            error: "Conflict",
+            message: "A backup snapshot is already in progress",
+          },
           { status: 409 },
         );
       }
