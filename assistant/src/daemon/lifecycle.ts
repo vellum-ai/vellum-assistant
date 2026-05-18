@@ -322,6 +322,52 @@ export async function runDaemon(): Promise<void> {
     const signingKey = resolveSigningKey();
     initAuthSigningKey(signingKey);
 
+    // Start the runtime HTTP server as early as possible so /healthz and
+    // /readyz probes can succeed during the rest of startup (DB init,
+    // workspace migrations, CES handshake, plugin bootstrap, DaemonServer
+    // start, ...). The probe handlers return 200 OK from the moment the
+    // socket is bound — they don't touch the DB, config, or any other
+    // subsystem.
+    //
+    // The 4 generator factories below return closures that defer all
+    // provider/config resolution to call time, so they're cheap to build
+    // at this point. The remaining runtime-HTTP wiring (registerSecretsDeps,
+    // setVoiceBridgeDeps, setRelayBroadcast, setPointerMessageProcessor,
+    // server.broadcastStatus) happens further below — those depend on the
+    // DaemonServer, which is not constructed yet.
+    let runtimeHttp: RuntimeHttpServer | null = null;
+    const httpPort = getRuntimeHttpPort();
+    const httpHostname = getRuntimeHttpHost();
+    log.info({ httpPort }, "Daemon startup: starting runtime HTTP server");
+
+    runtimeHttp = new RuntimeHttpServer({
+      port: httpPort,
+      hostname: httpHostname,
+      approvalCopyGenerator: createApprovalCopyGenerator(),
+      approvalConversationGenerator: createApprovalConversationGenerator(),
+      guardianActionCopyGenerator: createGuardianActionCopyGenerator(),
+      guardianFollowUpConversationGenerator:
+        createGuardianFollowUpConversationGenerator(),
+    });
+
+    // Isolated try/catch around start() — a bind failure (port in use,
+    // permission denied, fd exhaustion) must not tear down the rest of
+    // daemon startup. The daemon falls back to IPC-only operation when
+    // runtimeHttp is null.
+    try {
+      await runtimeHttp.start();
+      log.info(
+        { port: httpPort, hostname: httpHostname },
+        "Daemon startup: runtime HTTP server listening",
+      );
+    } catch (err) {
+      log.warn(
+        { err, port: httpPort },
+        "Failed to start runtime HTTP server, continuing without it",
+      );
+      runtimeHttp = null;
+    }
+
     // Pre-populate feature flag overrides so subsequent sync
     // isAssistantFeatureFlagEnabled() calls have data. Fired non-blocking
     // so a slow or unreachable gateway doesn't delay daemon startup (the
@@ -1009,24 +1055,12 @@ export async function runDaemon(): Promise<void> {
       },
     );
 
-    // Start the runtime HTTP server for optional REST API access.
-    // Defaults to port 7821.
-    let runtimeHttp: RuntimeHttpServer | null = null;
-    const httpPort = getRuntimeHttpPort();
-    log.info({ httpPort }, "Daemon startup: starting runtime HTTP server");
-
-    const hostname = getRuntimeHttpHost();
-
-    runtimeHttp = new RuntimeHttpServer({
-      port: httpPort,
-      hostname,
-      approvalCopyGenerator: createApprovalCopyGenerator(),
-      approvalConversationGenerator: createApprovalConversationGenerator(),
-      guardianActionCopyGenerator: createGuardianActionCopyGenerator(),
-      guardianFollowUpConversationGenerator:
-        createGuardianFollowUpConversationGenerator(),
-    });
-
+    // Wire up the runtime HTTP server's deferred dependencies. The server
+    // itself was bound early in runDaemon (right after the auth signing key
+    // was loaded) so /healthz and /readyz already answer 200 OK; these
+    // registrations attach the live DaemonServer / CES / relay handlers to
+    // the running routes. They're module-level state, so they're effective
+    // even when the HTTP server failed to bind (IPC clients still work).
     registerSecretsDeps({
       getCesClient: () => server.getCesClient(),
       onProviderCredentialsChanged: () =>
@@ -1043,8 +1077,9 @@ export async function runDaemon(): Promise<void> {
       log.warn({ err }, "Background Qdrant init failed"),
     );
 
-    // Inject voice bridge deps BEFORE attempting to start the HTTP server.
-    // The bridge must be available even when the HTTP server fails to bind.
+    // Inject voice bridge deps so route handlers + the relay pipeline can
+    // resolve a conversation by ID once a call lands. Module-level state,
+    // so available even when the HTTP server failed to bind.
     setVoiceBridgeDeps({
       getOrCreateConversation: (conversationId, _transport) =>
         server.getConversationForMessages(conversationId),
@@ -1063,7 +1098,6 @@ export async function runDaemon(): Promise<void> {
       },
     });
     try {
-      await runtimeHttp.start();
       setRelayBroadcast((msg) => broadcastMessage(msg));
       setPointerMessageProcessor(
         async (conversationId, instruction, requiredFacts) => {
@@ -1201,14 +1235,10 @@ export async function runDaemon(): Promise<void> {
         },
       );
       server.broadcastStatus();
-      log.info(
-        { port: httpPort, hostname },
-        "Daemon startup: runtime HTTP server listening",
-      );
     } catch (err) {
       log.warn(
-        { err, port: httpPort },
-        "Failed to start runtime HTTP server, continuing without it",
+        { err },
+        "Failed to wire runtime HTTP server deps, continuing without them",
       );
       runtimeHttp = null;
     }
