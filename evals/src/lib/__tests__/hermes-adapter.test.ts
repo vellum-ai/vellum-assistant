@@ -116,7 +116,7 @@ describe("HermesAgent", () => {
       `PATH=${EXEC_PATH}`,
       "eval-hermes-1-hermes",
       "sh",
-      "-lc",
+      "-c",
       "hermes plugins install simple-memory",
     ]);
     expect(runner.spawns).toEqual([]);
@@ -216,7 +216,7 @@ describe("HermesAgent", () => {
       `PATH=${EXEC_PATH}`,
       "eval-hermes-seed-hermes",
       "sh",
-      "-lc",
+      "-c",
     ]);
     const script = seedRun.args[6]!;
     expect(script).toContain("set -e");
@@ -278,7 +278,8 @@ describe("HermesAgent", () => {
           return {
             exitCode: 1,
             stdout: "",
-            stderr: "Unable to find image 'nousresearch/hermes-agent:latest'",
+            stderr:
+              "Unable to find image 'nousresearch/hermes-agent:v2026.5.16'",
           };
         }
         return { exitCode: 0, stdout: "ok", stderr: "" };
@@ -295,7 +296,7 @@ describe("HermesAgent", () => {
     });
 
     await expect(agent.hatch()).rejects.toThrow(
-      "Unable to find image 'nousresearch/hermes-agent:latest'",
+      "Unable to find image 'nousresearch/hermes-agent:v2026.5.16'",
     );
     // Pre-flight rm -f always runs; then the failed `docker run -d` aborts
     // hatch without firing a follow-up rm -f for the container that never
