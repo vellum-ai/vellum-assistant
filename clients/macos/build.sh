@@ -557,38 +557,45 @@ dereference_unsafe_symlinks() {
 # ---------------------------------------------------------------------------
 trim_first_party_dev_noise() {
     local root="$1"
-    [ -d "$root/node_modules/@vellumai" ] || return 0
-    # Enumerate every @vellumai scope dir (top level + nested under
-    # first-party deps). For each one, walk its immediate package dirs and
-    # strip dev noise, never descending into a pkg's own node_modules.
-    find "$root" -type d -name '@vellumai' 2>/dev/null | while IFS= read -r scope_dir; do
-        local pkg
-        for pkg in "$scope_dir"/*; do
-            [ -d "$pkg" ] || continue
-            # Delete dev-noise directories (preserving the pkg's own
-            # node_modules subtree). The inner -prune on matched dirs
-            # stops find from descending into a dir we just removed.
-            find "$pkg" -path "$pkg/node_modules" -prune -o \
-                \( -type d \
-                  \( -name '__tests__' \
-                  -o -name 'coverage' \
-                  -o -name '.turbo' \
-                  -o -name 'dist' \
-                  -o -name 'build' \) \
-                  -prune -exec rm -rf {} + \) 2>/dev/null || true
-            # Delete dev-noise files.
-            find "$pkg" -path "$pkg/node_modules" -prune -o \
-                \( -type f \
-                  \( -name '*.test.ts' \
-                  -o -name '*.test.tsx' \
-                  -o -name '*.test.js' \
-                  -o -name '*.bench.ts' \
-                  -o -name '*.benchmark.test.ts' \
-                  -o -name '*.tsbuildinfo' \
-                  -o -name '.eslintrc*' \
-                  -o -name '.prettierrc*' \) \
-                  -exec rm -f {} + \) 2>/dev/null || true
-        done
+    local scope_dir="$root/node_modules/@vellumai"
+    [ -d "$scope_dir" ] || return 0
+    # Walk each first-party package at the top-level @vellumai scope and
+    # strip dev noise. We do NOT recurse into nested @vellumai scopes
+    # because step 1 below removes them wholesale.
+    local pkg
+    for pkg in "$scope_dir"/*; do
+        [ -d "$pkg" ] || continue
+        # 1. Nuke per-package nested node_modules entirely. bun's file:
+        #    install mirrors the source dir's dev node_modules into each
+        #    first-party pkg; dereferencing copies that whole tree (could
+        #    be hundreds of MB of dev deps). Production transitive deps
+        #    are already hoisted to $root/node_modules/ by
+        #    `bun install --production`, so the per-pkg trees are pure
+        #    dev noise and safe to remove. Removing also wipes any
+        #    deeper nested @vellumai/ scopes in one shot.
+        rm -rf "$pkg/node_modules"
+        # 2. Delete remaining dev-noise directories. (No -prune on
+        #    node_modules needed — it's gone.)
+        find "$pkg" \
+            \( -type d \
+              \( -name '__tests__' \
+              -o -name 'coverage' \
+              -o -name '.turbo' \
+              -o -name 'dist' \
+              -o -name 'build' \) \
+              -prune -exec rm -rf {} + \) 2>/dev/null || true
+        # 3. Delete dev-noise files.
+        find "$pkg" \
+            \( -type f \
+              \( -name '*.test.ts' \
+              -o -name '*.test.tsx' \
+              -o -name '*.test.js' \
+              -o -name '*.bench.ts' \
+              -o -name '*.benchmark.test.ts' \
+              -o -name '*.tsbuildinfo' \
+              -o -name '.eslintrc*' \
+              -o -name '.prettierrc*' \) \
+              -exec rm -f {} + \) 2>/dev/null || true
     done
 }
 
@@ -601,7 +608,13 @@ trim_first_party_dev_noise() {
 # regression is pinned to the staging step.
 # ---------------------------------------------------------------------------
 assert_no_external_symlinks() {
-    local root="$1"
+    # Canonicalize $root with pwd -P so it matches what `readlink -f` returns
+    # for internal links. Without -P, any symlinked component in the caller's
+    # path (e.g. macOS /var/folders/... or /tmp -> /private/tmp) yields a
+    # logical prefix that never matches physical-resolved targets, false-
+    # flagging every internal link as external.
+    local root
+    root=$(cd "$1" && pwd -P)
     local stray
     stray=$(find "$root" -type l 2>/dev/null | while IFS= read -r link; do
         local target
