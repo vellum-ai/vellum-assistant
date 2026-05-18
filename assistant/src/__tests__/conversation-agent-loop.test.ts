@@ -386,6 +386,7 @@ mock.module("../daemon/history-repair.js", () => ({
 
 const recordUsageMock = mock(() => {});
 const recordRequestLogMock = mock(() => {});
+const backfillMessageIdOnLogsMock = mock(() => {});
 mock.module("../daemon/conversation-usage.js", () => ({
   recordUsage: recordUsageMock,
 }));
@@ -482,7 +483,7 @@ mock.module("../memory/archive-store.js", () => ({
 
 mock.module("../memory/llm-request-log-store.js", () => ({
   recordRequestLog: recordRequestLogMock,
-  backfillMessageIdOnLogs: () => {},
+  backfillMessageIdOnLogs: backfillMessageIdOnLogsMock,
 }));
 
 let mockHasProactiveArtifactCompleted = true;
@@ -658,6 +659,7 @@ beforeEach(() => {
   mockInjectionBlocks = {};
   recordUsageMock.mockClear();
   recordRequestLogMock.mockClear();
+  backfillMessageIdOnLogsMock.mockClear();
   syncMessageToDiskMock.mockClear();
   rebuildConversationDiskViewFromDbStateMock.mockClear();
   updateMessageMetadataMock.mockClear();
@@ -2854,6 +2856,60 @@ describe("session-agent-loop", () => {
         (e) => e.type === "conversation_error",
       );
       expect(conversationErrors.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test("pipes synthetic assistant message id into provider-error log rows via backfill", async () => {
+      // Codex P1 regression test: the provider-failure turn must not leave
+      // its `llm_request_logs` row orphaned. Without the backfill call in
+      // the synthetic-message branch, a later turn's `handleMessageComplete`
+      // sweep would wrong-attach this row to the wrong assistant message.
+      const events: ServerMessage[] = [];
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // 1) handleProviderError -> writes an `llm_request_logs` row with
+        //    messageId=null (the orphan we are trying to link).
+        onEvent({
+          type: "provider_error",
+          error: new Error("upstream 500"),
+          rawRequest: { model: "gpt-4.1", messages: [] },
+          actualProvider: "openai",
+        });
+        // 2) handleError -> sets `state.providerErrorUserMessage`, which
+        //    activates the synthetic-message branch below the loop.
+        onEvent({
+          type: "error",
+          error: new Error("upstream 500"),
+        });
+        // Provider returned no assistant content — same messages back.
+        return messages;
+      };
+
+      const ctx = makeCtx({ agentLoopRun });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      // The orphan was written with messageId=undefined.
+      expect(recordRequestLogMock).toHaveBeenCalledTimes(1);
+      const recordCall = recordRequestLogMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        string | undefined,
+        string | undefined,
+      ];
+      expect(recordCall[0]).toBe("test-conv");
+      expect(recordCall[3]).toBeUndefined();
+
+      // The synthetic-message branch then piped the assigned message id
+      // (from the mocked `addMessage` -> `{ id: "mock-msg-id" }`) into the
+      // backfill primitive, scoped to this conversation.
+      expect(backfillMessageIdOnLogsMock).toHaveBeenCalledTimes(1);
+      const backfillCall =
+        backfillMessageIdOnLogsMock.mock.calls[0] as unknown as [
+          string,
+          string,
+        ];
+      expect(backfillCall[0]).toBe("test-conv");
+      expect(backfillCall[1]).toBe("mock-msg-id");
     });
   });
 

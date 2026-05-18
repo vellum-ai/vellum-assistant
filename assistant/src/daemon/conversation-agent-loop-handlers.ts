@@ -1175,9 +1175,19 @@ function handleUsage(
  * provider returns a response, so without this handler a rejected call
  * leaves nothing in the inspector — only a pino line saying "The AI
  * provider rejected the request." The row's `messageId` is left null
- * here; the subsequent assistant message's `message_complete` handler
- * runs `backfillMessageIdOnLogs` and links this row to the surrounding
- * turn the same way it links successful-call rows.
+ * here and linked via one of two backfill paths, depending on how the
+ * turn unwinds:
+ *
+ *   - Multi-call turn where a later call also produces a real assistant
+ *     response: `handleMessageComplete` -> `backfillMessageIdOnLogs`
+ *     sweeps this row with the rest, same as a successful-call row.
+ *   - Pure provider-failure turn (no real assistant response): the
+ *     synthetic error-message branch in `conversation-agent-loop.ts`
+ *     persists a stand-in assistant message and calls
+ *     `backfillMessageIdOnLogs` itself, since `message_complete` is
+ *     never emitted on that path. Closing the orphan window inside the
+ *     same synchronous turn prevents a later turn's sweep from wrong-
+ *     attaching this row to an unrelated assistant message.
  *
  * Failures inside the recording itself are logged and swallowed — this
  * mirrors `handleUsage`'s non-fatal stance so a DB hiccup never escalates
