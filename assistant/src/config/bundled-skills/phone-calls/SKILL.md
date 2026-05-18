@@ -33,7 +33,7 @@ Follow the steps below to ensure everything is prepared to make and receive phon
 
 ## Step 1: Twilio Setup
 
-Load the `twilio-setup` skill to determine whether Twilio has been fully configured and set it up if not. This is a prerequisite to all subsequent steps.
+Immediately load the `twilio-setup` skill to begin setup. That skill marks Twilio setup as started before its read-only checks, which gives managed deployments a chance to open the Velay tunnel WebSocket while the user finishes entering credentials and choosing a number. Twilio setup is a prerequisite to all subsequent steps.
 
 ## Step 2: Enable Calls
 

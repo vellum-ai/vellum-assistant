@@ -127,6 +127,32 @@ export class VelayTunnelClient {
     };
   }
 
+  refreshCredentials(reason = "credentials changed"): void {
+    if (!this.running) return;
+
+    this.reconnectAttempt = 0;
+    if (this.reconnectTimer) {
+      this.timerApi.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    const ws = this.ws;
+    if (ws) {
+      log.info(
+        { reason },
+        "Restarting Velay tunnel with refreshed credentials",
+      );
+      this.disconnectActiveWebSocket(ws, 1000, "credentials changed");
+      return;
+    }
+
+    this.connect().catch((err) => {
+      this.connecting = false;
+      log.error({ err, reason }, "Velay credential refresh reconnect failed");
+      this.scheduleReconnect();
+    });
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
