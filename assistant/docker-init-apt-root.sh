@@ -2,14 +2,24 @@
 set -eu
 
 DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"
+ROOT_PARENT="$(dirname "${DATA_ROOT}")"
 SENTINEL="${DATA_ROOT}/.rootfs-initialized"
-LOCK_DIR="${DATA_ROOT}/.rootfs-init.lock"
+BOOTSTRAP_ROOT="${DATA_ROOT}.bootstrap.$$"
+PROBE_ROOT="${DATA_ROOT}.probe.$$"
+LOCK_DIR="${DATA_ROOT}.rootfs-init.lock"
 LOCK_PID="${LOCK_DIR}/pid"
 HOST_PATH="/usr/sbin:/usr/bin:/sbin:/bin"
 
 if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then
   exit 0
 fi
+
+case "${DATA_ROOT}" in
+  ''|/)
+    echo "Warning: invalid VELLUM_APT_DATA_ROOT '${DATA_ROOT}'; falling back to image-root apt installs" >&2
+    exit 0
+    ;;
+esac
 
 # Bootstrap the alternate root with the host toolchain so the wrapper
 # binaries in /usr/local/bin do not recurse back into this script.
@@ -20,7 +30,7 @@ rootfs_ready() {
 }
 
 acquire_init_lock() {
-  if ! mkdir -p "${DATA_ROOT}"; then
+  if ! mkdir -p "${ROOT_PARENT}"; then
     return 1
   fi
 
@@ -60,9 +70,9 @@ acquire_init_lock() {
   done
 
   printf '%s\n' "$$" >"${LOCK_PID}" 2>/dev/null || true
-  trap 'rm -rf "${LOCK_DIR}"' EXIT
-  trap 'rm -rf "${LOCK_DIR}"; exit 130' INT
-  trap 'rm -rf "${LOCK_DIR}"; exit 143' TERM
+  trap 'rm -rf "${LOCK_DIR}" "${BOOTSTRAP_ROOT}" "${PROBE_ROOT}"' EXIT
+  trap 'rm -rf "${LOCK_DIR}" "${BOOTSTRAP_ROOT}" "${PROBE_ROOT}"; exit 130' INT
+  trap 'rm -rf "${LOCK_DIR}" "${BOOTSTRAP_ROOT}" "${PROBE_ROOT}"; exit 143' TERM
 }
 
 check_sane_mount() {
@@ -120,15 +130,16 @@ if rootfs_ready; then
   exit 0
 fi
 
-if grep -qs " ${DATA_ROOT} .*noexec" /proc/mounts; then
+if grep -qs " ${DATA_ROOT} .*noexec" /proc/mounts || grep -qs " ${ROOT_PARENT} .*noexec" /proc/mounts; then
   echo "Warning: ${DATA_ROOT} is mounted noexec; skipping persistent apt rootfs bootstrap" >&2
   exit 0
 fi
 
-if ! check_sane_mount "${DATA_ROOT}"; then
+if ! check_sane_mount "${PROBE_ROOT}"; then
   echo "Warning: ${DATA_ROOT} cannot host a chrootable apt rootfs here; falling back to image-root apt installs" >&2
   exit 0
 fi
+rm -rf "${PROBE_ROOT}"
 
 if [ -x "${DATA_ROOT}/bin/sh" ] && [ -x "${DATA_ROOT}/usr/bin/apt-get" ]; then
   touch "${SENTINEL}"
@@ -148,6 +159,9 @@ fi
 MIRROR="${VELLUM_APT_DATA_MIRROR:-http://deb.debian.org/debian}"
 ARCH="$(/usr/bin/dpkg --print-architecture)"
 
-debootstrap --variant=minbase --arch="${ARCH}" "${SUITE}" "${DATA_ROOT}" "${MIRROR}"
+rm -rf "${BOOTSTRAP_ROOT}"
+debootstrap --variant=minbase --arch="${ARCH}" "${SUITE}" "${BOOTSTRAP_ROOT}" "${MIRROR}"
 
+rm -rf "${DATA_ROOT}"
+mv "${BOOTSTRAP_ROOT}" "${DATA_ROOT}"
 touch "${SENTINEL}"
