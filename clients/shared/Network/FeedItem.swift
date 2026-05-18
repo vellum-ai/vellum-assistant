@@ -133,6 +133,8 @@ public struct FeedItem: Codable, Sendable, Identifiable {
     public let category: FeedItemCategory?
     /// True when this item represents an assistant-initiated share or a high-importance system event. Used by clients to split inbox vs activity surfaces.
     public let noteworthy: Bool?
+    /// True when the assistant herself emitted this item (e.g. via the `notifications send` skill). Drives clients to swap the row's leading icon for the persona avatar; system-generated items keep the category icon.
+    public let fromAssistant: Bool?
     /// Arbitrary structured data the detail panel or other consumers can use.
     public let metadata: [String: AnyCodable]?
     /// Internal: writer-record time, used for ordering + TTL.
@@ -153,6 +155,7 @@ public struct FeedItem: Codable, Sendable, Identifiable {
         detailPanel: FeedItemDetailPanel? = nil,
         category: FeedItemCategory? = nil,
         noteworthy: Bool? = nil,
+        fromAssistant: Bool? = nil,
         metadata: [String: AnyCodable]? = nil,
         createdAt: Date
     ) {
@@ -170,6 +173,7 @@ public struct FeedItem: Codable, Sendable, Identifiable {
         self.detailPanel = detailPanel
         self.category = category
         self.noteworthy = noteworthy
+        self.fromAssistant = fromAssistant
         self.metadata = metadata
         self.createdAt = createdAt
     }
@@ -191,6 +195,7 @@ extension FeedItem: Equatable {
             && lhs.detailPanel == rhs.detailPanel
             && lhs.category == rhs.category
             && lhs.noteworthy == rhs.noteworthy
+            && lhs.fromAssistant == rhs.fromAssistant
             && lhs.metadata == rhs.metadata
             && lhs.createdAt == rhs.createdAt
     }

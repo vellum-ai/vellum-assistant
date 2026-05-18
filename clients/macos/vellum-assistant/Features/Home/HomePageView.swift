@@ -264,6 +264,7 @@ struct HomePageView: View {
             iconBackground: iconBackground(for: item),
             title: item.title,
             isUrgent: showsUrgency && isUrgent(item),
+            showsPersonaAvatar: item.fromAssistant == true,
             onDismiss: { dismissItem(item) },
             onTap: { openItem(item) }
         )

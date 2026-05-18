@@ -276,6 +276,7 @@ public final class HomeFeedStore {
             detailPanel: item.detailPanel,
             category: item.category,
             noteworthy: item.noteworthy,
+            fromAssistant: item.fromAssistant,
             metadata: item.metadata,
             createdAt: item.createdAt
         )

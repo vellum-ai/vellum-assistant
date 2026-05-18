@@ -28,6 +28,11 @@ struct HomeRecapRow: View {
     /// and its surrounding spacing are omitted entirely so non-urgent
     /// rows align flush with the icon circle (no spacing artifact).
     var isUrgent: Bool = false
+    /// When `true`, render the persona avatar in the leading icon slot
+    /// instead of the category icon circle. Used for assistant-initiated
+    /// feed rows (`FeedItem.fromAssistant == true`) so the surface reads
+    /// as "your assistant sent this" rather than a generic system bell.
+    var showsPersonaAvatar: Bool = false
     let onDismiss: () -> Void
     let onTap: () -> Void
 
@@ -42,13 +47,8 @@ struct HomeRecapRow: View {
                     VBadge(style: .dot, color: VColor.systemNegativeStrong)
                         .accessibilityHidden(true)
                 }
-                ZStack {
-                    Circle().fill(iconBackground)
-                    // 12pt glyph inside a 26pt circle ≈ 7pt padding, per mock.
-                    VIconView(icon, size: 12)
-                        .foregroundStyle(iconForeground)
-                }
-                .frame(width: 26, height: 26)
+                leadingIcon
+                    .frame(width: 26, height: 26)
 
                 Text(title)
                     // Mock uses #A9B2BB which is `contentSecondary` in the
@@ -92,5 +92,55 @@ struct HomeRecapRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(isUrgent ? "Urgent, \(title)" : title))
         .accessibilityAction(named: Text("Dismiss"), onDismiss)
+    }
+
+    /// 26pt leading slot: persona avatar for assistant-initiated rows,
+    /// otherwise the tinted category icon circle. Both render into the
+    /// same 26pt frame so toggling `showsPersonaAvatar` never shifts the
+    /// row's horizontal layout.
+    @ViewBuilder
+    private var leadingIcon: some View {
+        if showsPersonaAvatar {
+            personaAvatar
+        } else {
+            ZStack {
+                Circle().fill(iconBackground)
+                VIconView(icon, size: 12)
+                    .foregroundStyle(iconForeground)
+            }
+        }
+    }
+
+    /// Mirrors `HomePageView.greetingAvatar` but at 26pt. Falls back to
+    /// the static avatar image when neither a custom image nor a full
+    /// animated-character config is available.
+    @ViewBuilder
+    private var personaAvatar: some View {
+        let appearance = AvatarAppearanceManager.shared
+        let size: CGFloat = 26
+        if appearance.customAvatarImage != nil {
+            VAvatarImage(
+                image: appearance.fullAvatarImage,
+                size: size,
+                showBorder: false
+            )
+        } else if let bodyShape = appearance.characterBodyShape,
+                  let eyes = appearance.characterEyeStyle,
+                  let color = appearance.characterColor {
+            AnimatedAvatarView(
+                bodyShape: bodyShape,
+                eyeStyle: eyes,
+                color: color,
+                size: size,
+                entryAnimationEnabled: false
+            )
+            .frame(width: size, height: size)
+        } else {
+            VAvatarImage(
+                image: appearance.fullAvatarImage,
+                size: size,
+                showBorder: false
+            )
+        }
     }
 }
