@@ -99,9 +99,18 @@ describe("087-memory-router-balanced-profile migration", () => {
     expect(config.llm.callSites.memoryRouter).toEqual({ profile: "balanced" });
   });
 
-  test("runs on non-Anthropic workspaces (unlike 077)", () => {
+  test("skips BYOK / non-Anthropic workspaces to avoid breaking memoryRouter", () => {
+    // `balanced` resolves to the managed Anthropic connection, which BYOK
+    // installs disable. Rewriting to `balanced` there would silently disable
+    // memory injection (getConfiguredProvider returns null). Preserve whatever
+    // memoryRouter config the workspace already has — including absence.
     writeConfig({
-      llm: { default: { provider: "openai", model: "gpt-5.4" } },
+      llm: {
+        default: { provider: "openai", model: "gpt-5.4" },
+        callSites: {
+          memoryRouter: { model: "gpt-5.4" },
+        },
+      },
     });
 
     memoryRouterBalancedProfileMigration.run(workspaceDir);
@@ -109,10 +118,23 @@ describe("087-memory-router-balanced-profile migration", () => {
     const config = readConfig() as {
       llm: { callSites: Record<string, Record<string, unknown>> };
     };
-    expect(config.llm.callSites.memoryRouter).toEqual({ profile: "balanced" });
+    expect(config.llm.callSites.memoryRouter).toEqual({ model: "gpt-5.4" });
   });
 
-  test("overwrites user customizations on memoryRouter", () => {
+  test("skips BYOK workspaces with no existing memoryRouter entry", () => {
+    writeConfig({
+      llm: { default: { provider: "gemini" } },
+    });
+
+    memoryRouterBalancedProfileMigration.run(workspaceDir);
+
+    const config = readConfig() as {
+      llm: { callSites?: Record<string, Record<string, unknown>> };
+    };
+    expect(config.llm.callSites?.memoryRouter).toBeUndefined();
+  });
+
+  test("preserves user customizations on memoryRouter (non-077-seeded shape)", () => {
     writeConfig({
       llm: {
         default: { provider: "anthropic" },
@@ -130,7 +152,10 @@ describe("087-memory-router-balanced-profile migration", () => {
     const config = readConfig() as {
       llm: { callSites: Record<string, Record<string, unknown>> };
     };
-    expect(config.llm.callSites.memoryRouter).toEqual({ profile: "balanced" });
+    expect(config.llm.callSites.memoryRouter).toEqual({
+      model: "claude-haiku-4-5-20251001",
+      effort: "low",
+    });
   });
 
   test("is idempotent — second run does not change the call site", () => {
