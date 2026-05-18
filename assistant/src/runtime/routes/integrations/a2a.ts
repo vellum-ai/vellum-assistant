@@ -5,6 +5,7 @@
  * POST   /v1/integrations/a2a/config    — enable A2A channel
  * DELETE /v1/integrations/a2a/config    — disable A2A channel
  * POST   /v1/integrations/a2a/connect   — initiate connection to a peer assistant
+ * POST   /v1/integrations/a2a/invite    — create a shareable A2A invite token
  */
 
 import { isA2AEnabled } from "../../../a2a/feature-gate.js";
@@ -12,6 +13,7 @@ import { getConfig } from "../../../config/loader.js";
 import {
   clearA2AConfig,
   connectToAssistant,
+  createA2AInvite,
   getA2AConfig,
   setA2AConfig,
 } from "../../../daemon/handlers/config-a2a.js";
@@ -67,6 +69,16 @@ async function handleConnectToAssistant({ body = {} }: RouteHandlerArgs) {
   return result;
 }
 
+function handleCreateA2AInvite({ body = {} }: RouteHandlerArgs) {
+  assertA2AFlag();
+  const { expiresInHours } = body as { expiresInHours?: number };
+  const result = createA2AInvite({ expiresInHours });
+  if (!result.success) {
+    throw new BadRequestError(result.error ?? "Failed to create A2A invite");
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -112,5 +124,16 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["integrations"],
     requirePolicyEnforcement: true,
     handler: handleConnectToAssistant,
+  },
+  {
+    operationId: "integrations_a2a_invite_post",
+    endpoint: "integrations/a2a/invite",
+    method: "POST",
+    summary: "Create A2A invite",
+    description:
+      "Create a shareable A2A invite token for link-based contact creation.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleCreateA2AInvite,
   },
 ];

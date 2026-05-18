@@ -22,7 +22,9 @@ import {
   upsertContact,
 } from "../../contacts/contact-store.js";
 import type { VellumAssistantMetadata } from "../../contacts/types.js";
+import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { getDb } from "../../memory/db-connection.js";
+import { createInvite } from "../../memory/invite-store.js";
 import { assistantContactMetadata } from "../../memory/schema.js";
 // ── Result types ────────────────────────────────────────────────────
 
@@ -38,6 +40,15 @@ export interface ConnectToAssistantResult {
   contactId?: string;
   error?: string;
   alreadyConnected?: boolean;
+}
+
+export interface CreateA2AInviteResult {
+  success: boolean;
+  inviteId?: string;
+  token?: string;
+  expiresAt?: number;
+  senderGatewayUrl?: string;
+  error?: string;
 }
 
 // ── Config operations ───────────────────────────────────────────────
@@ -205,4 +216,52 @@ export async function connectToAssistant(params: {
     .run();
 
   return { success: true, contactId: contact.id };
+}
+
+// ── A2A invite creation ────────────────────────────────────────────
+
+export function createA2AInvite(params: {
+  expiresInHours?: number;
+}): CreateA2AInviteResult {
+  // 1. Ensure A2A channel is enabled (auto-enable on first invite)
+  const config = getA2AConfig();
+  if (!config.enabled) {
+    setA2AConfig();
+  }
+
+  // 2. Resolve public base URL
+  let publicBaseUrl: string;
+  try {
+    publicBaseUrl = getPublicBaseUrl(getConfig());
+  } catch {
+    return {
+      success: false,
+      error:
+        "No public base URL configured. Set ingress.publicBaseUrl in config.",
+    };
+  }
+
+  // 3. Create placeholder contact (no channels — will be bound on acceptance)
+  const contact = upsertContact({
+    displayName: "Pending A2A invite",
+    contactType: "assistant",
+    role: "contact",
+  });
+
+  // 4. Create the invite
+  const expiresInMs = (params.expiresInHours ?? 72) * 60 * 60 * 1000;
+  const { invite, rawToken } = createInvite({
+    sourceChannel: "a2a",
+    contactId: contact.id,
+    maxUses: 1,
+    expiresInMs,
+  });
+
+  return {
+    success: true,
+    inviteId: invite.id,
+    token: rawToken,
+    expiresAt: invite.expiresAt,
+    senderGatewayUrl: publicBaseUrl,
+  };
 }
