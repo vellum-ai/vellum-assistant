@@ -1,2 +1,2 @@
 @import "tailwindcss";
-@source "../../node_modules/@vellum/design-library/src/**/*.tsx";
+@source "../node_modules/@vellum/design-library/src/**/*.tsx";
