@@ -18,7 +18,12 @@ mock.module("../../../util/logger.js", () => ({
 // Track cliIpcCall invocations and control responses
 const ipcCalls: Array<{ method: string; params?: Record<string, unknown> }> =
   [];
-let ipcResponse: { ok: boolean; result?: unknown; error?: string } = {
+let ipcResponse: {
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+  statusCode?: number;
+} = {
   ok: true,
   result: {},
 };
@@ -32,6 +37,12 @@ mock.module("../../../ipc/cli-client.js", () => ({
     process.stderr.write((r.error ?? "Unknown error") + "\n");
     process.exitCode = 1;
     return undefined as never;
+  },
+  exitCodeFromIpcResult: (r: { statusCode?: number }) => {
+    if (r.statusCode === undefined) return 10;
+    if (r.statusCode >= 500) return 3;
+    if (r.statusCode >= 400) return 2;
+    return 1;
   },
 }));
 
@@ -281,13 +292,13 @@ describe("notifications send", () => {
     expect(ipcCalls).toHaveLength(0);
   });
 
-  test("send surfaces IPC error response", async () => {
+  test("send surfaces IPC error response as JSON envelope in --json mode", async () => {
     ipcResponse = {
       ok: false,
-      error: "Daemon rejected the signal",
+      error: "Could not connect to assistant daemon. Is it running?",
     };
 
-    const { stderr, exitCode } = await runCommand([
+    const { parsed, stderr, exitCode } = await runCommand([
       "send",
       "--source-channel",
       "assistant_tool",
@@ -297,8 +308,34 @@ describe("notifications send", () => {
       "Hello",
     ]);
 
-    expect(exitCode).toBe(1);
-    expect(stderr).toContain("Daemon rejected the signal");
+    // Transport failure (no statusCode) maps to exit 10 per exitFromIpcResult.
+    expect(exitCode).toBe(10);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Could not connect");
+    // --json mode keeps error on stdout envelope, not stderr.
+    expect(stderr).toBe("");
+  });
+
+  test("send maps daemon 4xx to exit 2 while preserving --json envelope", async () => {
+    ipcResponse = {
+      ok: false,
+      error: "Invalid signal payload",
+      statusCode: 422,
+    };
+
+    const { parsed, exitCode } = await runCommand([
+      "send",
+      "--source-channel",
+      "assistant_tool",
+      "--source-event-name",
+      "user.send_notification",
+      "--message",
+      "Hello",
+    ]);
+
+    expect(exitCode).toBe(2);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toBe("Invalid signal payload");
   });
 });
 
