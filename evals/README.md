@@ -68,6 +68,7 @@ Committed profiles currently include:
 
 - `vellum-bare` — baseline Vellum assistant.
 - `vellum-simple-memory` — Vellum with the Simple Memory plugin installed before the run starts.
+- `hermes-bare` — baseline Hermes agent for cross-species comparison. Declarative only; requires a Hermes adapter to actually run.
 
 `workspace/` (optional) holds files dropped into the agent's workspace before the run starts.
 
