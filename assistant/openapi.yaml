@@ -7959,6 +7959,8 @@ paths:
                             - background
                             - email
                             - system
+                        noteworthy:
+                          type: boolean
                         metadata:
                           type: object
                           propertyNames:
@@ -8121,6 +8123,8 @@ paths:
                       - background
                       - email
                       - system
+                  noteworthy:
+                    type: boolean
                   metadata:
                     type: object
                     propertyNames:
