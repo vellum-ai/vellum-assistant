@@ -1,18 +1,16 @@
 /**
  * Route handlers for A2A integration config endpoints.
  *
- * GET    /v1/integrations/a2a/config    — get current A2A config status
- * POST   /v1/integrations/a2a/config    — enable A2A channel
- * DELETE /v1/integrations/a2a/config    — disable A2A channel
- * POST   /v1/integrations/a2a/connect   — initiate connection to a peer assistant
- * POST   /v1/integrations/a2a/invite    — create a shareable A2A invite token
+ * GET    /v1/integrations/a2a/config  — get current A2A config status
+ * POST   /v1/integrations/a2a/config  — enable A2A channel
+ * DELETE /v1/integrations/a2a/config  — disable A2A channel
+ * POST   /v1/integrations/a2a/invite  — create a shareable A2A invite token
  */
 
 import { isA2AEnabled } from "../../../a2a/feature-gate.js";
 import { getConfig } from "../../../config/loader.js";
 import {
   clearA2AConfig,
-  connectToAssistant,
   createA2AInvite,
   getA2AConfig,
   setA2AConfig,
@@ -51,22 +49,6 @@ function handleSetA2AConfig() {
 function handleClearA2AConfig() {
   assertA2AFlag();
   return clearA2AConfig();
-}
-
-async function handleConnectToAssistant({ body = {} }: RouteHandlerArgs) {
-  assertA2AFlag();
-  const { guardianHandle, gatewayUrl } = body as {
-    guardianHandle?: string;
-    gatewayUrl?: string;
-  };
-  if (!guardianHandle) {
-    throw new BadRequestError("guardianHandle is required");
-  }
-  const result = await connectToAssistant({ guardianHandle, gatewayUrl });
-  if (!result.success) {
-    throw new BadRequestError(result.error ?? "Failed to connect to assistant");
-  }
-  return result;
 }
 
 function handleCreateA2AInvite({ body = {} }: RouteHandlerArgs) {
@@ -113,17 +95,6 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["integrations"],
     requirePolicyEnforcement: true,
     handler: () => handleClearA2AConfig(),
-  },
-  {
-    operationId: "integrations_a2a_connect_post",
-    endpoint: "integrations/a2a/connect",
-    method: "POST",
-    summary: "Connect to assistant",
-    description:
-      "Initiate an A2A connection to a peer assistant by guardian handle.",
-    tags: ["integrations"],
-    requirePolicyEnforcement: true,
-    handler: handleConnectToAssistant,
   },
   {
     operationId: "integrations_a2a_invite_post",

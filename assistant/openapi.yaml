@@ -9431,16 +9431,6 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/integrations/a2a/connect:
-    post:
-      operationId: integrations_a2a_connect_post
-      summary: Connect to assistant
-      description: Initiate an A2A connection to a peer assistant by guardian handle.
-      tags:
-        - integrations
-      responses:
-        "200":
-          description: Successful response
   /v1/integrations/a2a/invite:
     post:
       operationId: integrations_a2a_invite_post
