@@ -121,10 +121,14 @@ type TranscriptMessage = ReturnType<typeof getMessages>[number];
  * Format a slice of messages as a transcript body (no top-of-conversation
  * header). Used by background jobs that process incremental slices — the
  * memory-retrospective job re-renders only the messages added since its
- * last successful run rather than the whole conversation. The format
- * matches `buildAnalysisTranscript` per message so downstream agents see a
- * consistent shape regardless of whether the input is a full transcript or
- * a slice.
+ * last successful run rather than the whole conversation. The per-message
+ * structural shape matches `buildAnalysisTranscript` (header line, body,
+ * optional subagent block) so downstream agents see consistent framing.
+ * The participant *labels*, however, intentionally diverge: this function
+ * honors `TranscriptFormatOptions` so the memory-retrospective prompt can
+ * render the conversation under the assistant and user display names,
+ * while `buildAnalysisTranscript` always uses generic "User"/"Assistant"
+ * labels for the analyze-conversation flow.
  */
 export function formatMessageSliceForTranscript(
   messages: TranscriptMessage[],
@@ -165,7 +169,14 @@ function appendMessageBlock(
           const subMessages = getMessages(notif.conversationId);
           lines.push(`### Subagent: ${notif.label} (${notif.status})`);
           lines.push("");
-          lines.push(formatSubagentMessages(subMessages, options));
+          // Subagent conversations persist the parent assistant's objective
+          // as a `user` message (see subagent/manager.ts), so reusing the
+          // parent's display-name options would render the assistant's
+          // tasking text under the human user's name. Keep child transcripts
+          // on generic role labels — and only pass through the time zone.
+          lines.push(
+            formatSubagentMessages(subMessages, { timeZone: options.timeZone }),
+          );
           lines.push("");
         }
       }
