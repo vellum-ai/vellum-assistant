@@ -66,6 +66,19 @@ describe("ipc-route-policy: inference provider connections", () => {
   });
 });
 
+describe("ipc-route-policy: A2A integrations", () => {
+  test.each([
+    ["integrations_a2a_config_get", "settings.read"],
+    ["integrations_a2a_config_post", "settings.write"],
+    ["integrations_a2a_config_delete", "settings.write"],
+    ["integrations_a2a_connect_post", "settings.write"],
+  ] as const)("%s requires %s", (operationId, expectedScope) => {
+    const policy = getIpcRoutePolicy(operationId);
+    expect(policy).toBeDefined();
+    expect(policy!.requiredScopes).toEqual([expectedScope]);
+  });
+});
+
 describe("ipc-route-policy: ATL-315 Batch 18 — new operationIds", () => {
   // Batch 18 added IPC policy entries for operationIds shipped after the
   // initial ATL-315 cutover. Without these entries, an authenticated edge

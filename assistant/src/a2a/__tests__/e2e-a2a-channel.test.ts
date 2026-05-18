@@ -24,6 +24,7 @@ let fetchResponseMap: Record<
   { ok: boolean; status: number; body: string }
 > = {};
 let defaultFetchResponse = { ok: true, status: 200, body: "{}" };
+const resolvePublicHost = async () => ["93.184.216.34"];
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing modules under test
@@ -166,6 +167,7 @@ describe("e2e: connection initiation -> trusted contact flow", () => {
     const result = await connectToAssistant({
       guardianHandle: "assistant-b",
       gatewayUrl: "https://peer.example.com",
+      resolveHostAddresses: resolvePublicHost,
     });
 
     // Connection succeeds
@@ -207,6 +209,7 @@ describe("e2e: connection initiation -> trusted contact flow", () => {
     const first = await connectToAssistant({
       guardianHandle: "assistant-b",
       gatewayUrl: "https://peer.example.com",
+      resolveHostAddresses: resolvePublicHost,
     });
     expect(first.success).toBe(true);
     expect(first.alreadyConnected).toBeFalsy();
@@ -218,6 +221,7 @@ describe("e2e: connection initiation -> trusted contact flow", () => {
     const second = await connectToAssistant({
       guardianHandle: "assistant-b",
       gatewayUrl: "https://peer.example.com",
+      resolveHostAddresses: resolvePublicHost,
     });
     expect(second.success).toBe(true);
     expect(second.alreadyConnected).toBe(true);
@@ -566,6 +570,7 @@ describe("e2e: full A2A round-trip", () => {
     const connectResult = await connectToAssistant({
       guardianHandle: "assistant-b",
       gatewayUrl: "https://b.example.com",
+      resolveHostAddresses: resolvePublicHost,
     });
     expect(connectResult.success).toBe(true);
 

@@ -175,6 +175,26 @@ describe("enforcePolicy", () => {
     expect(policy!.requiredScopes).toContain("chat.read");
   });
 
+  test.each([
+    ["integrations/a2a/config", "settings.read"],
+    ["integrations/a2a/config:POST", "settings.write"],
+    ["integrations/a2a/config:DELETE", "settings.write"],
+    ["integrations/a2a/connect", "settings.write"],
+  ] as const)("A2A endpoint %s requires %s", (endpoint, expectedScope) => {
+    authDisabled = false;
+    const policy = getPolicy(endpoint);
+    expect(policy).toBeDefined();
+    expect(policy!.requiredScopes).toEqual([expectedScope]);
+  });
+
+  test("A2A connect denies callers without settings.write", () => {
+    authDisabled = false;
+    const ctx = buildTestContext({ scopes: ["settings.read"] });
+    const result = enforcePolicy("integrations/a2a/connect", ctx);
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+  });
+
   // -- STT transcribe policy ------------------------------------------------
 
   test("stt/transcribe is registered as a protected endpoint", () => {

@@ -227,6 +227,12 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["integrations_ingress_config_put", ["settings.write"]],
   ["integrations_oauth_start_post", ["settings.write"]],
 
+  // Integrations / A2A
+  ["integrations_a2a_config_get", ["settings.read"]],
+  ["integrations_a2a_config_post", ["settings.write"]],
+  ["integrations_a2a_config_delete", ["settings.write"]],
+  ["integrations_a2a_connect_post", ["settings.write"]],
+
   // Integrations / Slack channel
   ["integrations_slack_channel_config_get", ["settings.read"]],
   ["integrations_slack_channel_config_post", ["settings.write"]],

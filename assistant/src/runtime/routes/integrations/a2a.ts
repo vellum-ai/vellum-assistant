@@ -54,13 +54,19 @@ function handleClearA2AConfig() {
 async function handleConnectToAssistant({ body = {} }: RouteHandlerArgs) {
   assertA2AFlag();
   const { guardianHandle, gatewayUrl } = body as {
-    guardianHandle?: string;
-    gatewayUrl?: string;
+    guardianHandle?: unknown;
+    gatewayUrl?: unknown;
   };
-  if (!guardianHandle) {
+  if (typeof guardianHandle !== "string" || !guardianHandle.trim()) {
     throw new BadRequestError("guardianHandle is required");
   }
-  const result = await connectToAssistant({ guardianHandle, gatewayUrl });
+  if (gatewayUrl !== undefined && typeof gatewayUrl !== "string") {
+    throw new BadRequestError("gatewayUrl must be a string");
+  }
+  const result = await connectToAssistant({
+    guardianHandle,
+    gatewayUrl,
+  });
   if (!result.success) {
     throw new BadRequestError(result.error ?? "Failed to connect to assistant");
   }

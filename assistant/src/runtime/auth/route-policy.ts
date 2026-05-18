@@ -234,6 +234,13 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   },
   { endpoint: "integrations/telegram/commands", scopes: ["settings.write"] },
   { endpoint: "integrations/telegram/setup", scopes: ["settings.write"] },
+  { endpoint: "integrations/a2a/config", scopes: ["settings.read"] },
+  { endpoint: "integrations/a2a/config:POST", scopes: ["settings.write"] },
+  {
+    endpoint: "integrations/a2a/config:DELETE",
+    scopes: ["settings.write"],
+  },
+  { endpoint: "integrations/a2a/connect", scopes: ["settings.write"] },
   { endpoint: "integrations/slack/channel/config", scopes: ["settings.read"] },
   {
     endpoint: "integrations/slack/channel/config:POST",

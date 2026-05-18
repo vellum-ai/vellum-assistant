@@ -24,7 +24,15 @@ import {
 import type { VellumAssistantMetadata } from "../../contacts/types.js";
 import { getDb } from "../../memory/db-connection.js";
 import { assistantContactMetadata } from "../../memory/schema.js";
+import {
+  isPrivateOrLocalHost,
+  type ResolveHostAddresses,
+  resolveHostAddresses,
+  resolveRequestAddress,
+} from "../../tools/network/url-safety.js";
 // ── Result types ────────────────────────────────────────────────────
+
+const AGENT_CARD_FETCH_TIMEOUT_MS = 5_000;
 
 export interface A2AConfigResult {
   success: boolean;
@@ -85,6 +93,58 @@ export interface ResolvedAssistant {
   displayName: string;
 }
 
+interface ResolveGuardianHandleOptions {
+  fetchImpl?: typeof fetch;
+  resolveHostAddresses?: ResolveHostAddresses;
+}
+
+function parsePeerGatewayUrl(gatewayUrl: string): URL {
+  const trimmed = gatewayUrl.trim();
+  if (trimmed.includes("#")) {
+    throw new Error("A2A gatewayUrl must not include a URL fragment.");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error("A2A gatewayUrl must be a valid URL.");
+  }
+
+  if (parsed.protocol !== "https:") {
+    throw new Error("A2A gatewayUrl must use https.");
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("A2A gatewayUrl must not include credentials.");
+  }
+  if (isPrivateOrLocalHost(parsed.hostname)) {
+    throw new Error(
+      "A2A gatewayUrl must not target a local or private network address.",
+    );
+  }
+
+  return new URL(parsed.origin);
+}
+
+async function assertPublicGatewayHost(
+  gatewayUrl: URL,
+  resolveHost: ResolveHostAddresses,
+): Promise<void> {
+  const resolution = await resolveRequestAddress(
+    gatewayUrl.hostname,
+    resolveHost,
+    false,
+  );
+  if (resolution.blockedAddress) {
+    throw new Error(
+      "A2A gatewayUrl must not resolve to a local or private network address.",
+    );
+  }
+  if (resolution.addresses.length === 0) {
+    throw new Error("Unable to resolve A2A gatewayUrl host.");
+  }
+}
+
 /**
  * Resolve a guardian handle to an assistant's gateway URL and identity.
  *
@@ -95,6 +155,7 @@ export interface ResolvedAssistant {
 export async function resolveGuardianHandle(
   guardianHandle: string,
   gatewayUrl?: string,
+  options: ResolveGuardianHandleOptions = {},
 ): Promise<ResolvedAssistant> {
   if (!gatewayUrl) {
     throw new Error(
@@ -103,28 +164,57 @@ export async function resolveGuardianHandle(
     );
   }
 
-  const cardUrl = `${gatewayUrl}${AGENT_CARD_PATH}`;
+  const normalizedGuardianHandle = guardianHandle.trim();
+  const peerGatewayUrl = parsePeerGatewayUrl(gatewayUrl);
+  await assertPublicGatewayHost(
+    peerGatewayUrl,
+    options.resolveHostAddresses ?? resolveHostAddresses,
+  );
+
+  const cardUrl = new URL(AGENT_CARD_PATH, peerGatewayUrl);
+  const fetchImpl = options.fetchImpl ?? fetch;
+
+  let res: Response;
   try {
-    const res = await fetch(cardUrl);
-    if (!res.ok) {
-      throw new Error(
-        `Agent card fetch failed (${res.status}): ${await res.text()}`,
-      );
-    }
-    const card = (await res.json()) as { name?: string };
-    return {
-      assistantId: guardianHandle,
-      gatewayUrl,
-      displayName: card.name ?? guardianHandle,
-    };
+    res = await fetchImpl(cardUrl.href, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(AGENT_CARD_FETCH_TIMEOUT_MS),
+      headers: { Accept: "application/json" },
+    });
   } catch (err) {
-    if (err instanceof Error && err.message.startsWith("Agent card fetch")) {
-      throw err;
+    if (
+      err instanceof Error &&
+      (err.name === "AbortError" || err.name === "TimeoutError")
+    ) {
+      throw new Error("Timed out fetching peer assistant agent card.");
     }
-    throw new Error(
-      `Failed to reach peer assistant at ${cardUrl}: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    throw new Error("Failed to fetch peer assistant agent card.");
   }
+
+  if (res.status >= 300 && res.status < 400) {
+    throw new Error("Agent card fetch failed: redirects are not allowed.");
+  }
+  if (!res.ok) {
+    throw new Error(`Agent card fetch failed with status ${res.status}.`);
+  }
+
+  let card: { name?: unknown };
+  try {
+    card = (await res.json()) as { name?: unknown };
+  } catch {
+    throw new Error("Agent card response was not valid JSON.");
+  }
+
+  const displayName =
+    typeof card.name === "string" && card.name.trim()
+      ? card.name
+      : normalizedGuardianHandle;
+
+  return {
+    assistantId: normalizedGuardianHandle,
+    gatewayUrl: peerGatewayUrl.origin,
+    displayName,
+  };
 }
 
 // ── Connection initiation ───────────────────────────────────────────
@@ -132,8 +222,17 @@ export async function resolveGuardianHandle(
 export async function connectToAssistant(params: {
   guardianHandle: string;
   gatewayUrl?: string;
+  fetchImpl?: typeof fetch;
+  resolveHostAddresses?: ResolveHostAddresses;
 }): Promise<ConnectToAssistantResult> {
-  const { guardianHandle, gatewayUrl } = params;
+  const guardianHandle = params.guardianHandle.trim();
+  const { gatewayUrl } = params;
+  if (!guardianHandle) {
+    return {
+      success: false,
+      error: "guardianHandle is required",
+    };
+  }
 
   // 1. Ensure A2A channel is enabled (auto-enable on first connect)
   const config = getA2AConfig();
@@ -144,7 +243,10 @@ export async function connectToAssistant(params: {
   // 2. Resolve the peer assistant's identity
   let resolved: ResolvedAssistant;
   try {
-    resolved = await resolveGuardianHandle(guardianHandle, gatewayUrl);
+    resolved = await resolveGuardianHandle(guardianHandle, gatewayUrl, {
+      fetchImpl: params.fetchImpl,
+      resolveHostAddresses: params.resolveHostAddresses,
+    });
   } catch (err) {
     return {
       success: false,
