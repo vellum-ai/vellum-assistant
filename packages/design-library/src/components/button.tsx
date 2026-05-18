@@ -1,41 +1,305 @@
-import { type ComponentProps, type ReactNode } from "react";
+import { Slot } from "@radix-ui/react-slot";
+import { cva, type VariantProps } from "class-variance-authority";
+import {
+  type ButtonHTMLAttributes,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  type Ref,
+} from "react";
 
 import { cn } from "../utils/cn.js";
 
-export interface ButtonProps extends ComponentProps<"button"> {
-  variant?: "primary" | "secondary" | "ghost";
-  size?: "sm" | "md" | "lg";
-  children: ReactNode;
+/**
+ * Standardized button for the web platform. Visual parity with the macOS
+ * design system button.
+ * Semantic tokens resolve via CSS variables declared in `tokens.css`, so the
+ * button inherits app light/dark theming automatically.
+ *
+ * - Pass `variant` for chrome style and `size` for dimensions.
+ * - Pass `leftIcon` / `rightIcon` for text+icon layouts.
+ * - Pass `iconOnly` to render a square icon-only button (children are ignored
+ *   and the icon is centered at the correct size for the chosen `size`).
+ * - Use `asChild` to render as a child element (e.g. a `Link`) while keeping
+ *   button styling and accessibility semantics. Uses Radix's `Slot`.
+ * - Callers may always override styles via `className` / `style`.
+ */
+const buttonVariants = cva(
+  [
+    "relative inline-flex items-center justify-center gap-1.5 cursor-pointer",
+    "select-none whitespace-nowrap transition-[background-color,color,border-color,transform,box-shadow]",
+    "duration-150 ease-out outline-none border",
+    "focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-0",
+    "active:scale-[0.97]",
+    "disabled:cursor-not-allowed disabled:active:scale-100",
+    "aria-disabled:cursor-not-allowed aria-disabled:pointer-events-none aria-disabled:opacity-60 aria-disabled:active:scale-100",
+    "text-[color:var(--vbtn-fg)]",
+  ].join(" "),
+  {
+    variants: {
+      variant: {
+        primary: [
+          "[--vbtn-fg:var(--content-inset)]",
+          "bg-[var(--primary-base)]",
+          "hover:bg-[var(--primary-hover)]",
+          "active:bg-[var(--primary-active)]",
+          "border-transparent",
+          "disabled:bg-[var(--primary-disabled)]",
+          "disabled:[--vbtn-fg:var(--content-disabled)]",
+        ].join(" "),
+        danger: [
+          "[--vbtn-fg:var(--aux-white)]",
+          "bg-[var(--system-negative-strong)]",
+          "hover:bg-[var(--system-negative-hover)]",
+          "active:bg-[var(--system-negative-hover)]",
+          "border-transparent",
+          "disabled:bg-[var(--primary-disabled)]",
+          "disabled:[--vbtn-fg:var(--content-disabled)]",
+        ].join(" "),
+        dangerOutline: [
+          "[--vbtn-fg:var(--system-negative-strong)]",
+          "bg-transparent",
+          "border-[var(--system-negative-strong)]",
+          "hover:[--vbtn-fg:var(--system-negative-hover)]",
+          "hover:border-[var(--system-negative-hover)]",
+          "active:border-[var(--system-negative-hover)]",
+          "disabled:border-[var(--primary-disabled)]",
+          "disabled:[--vbtn-fg:var(--content-disabled)]",
+        ].join(" "),
+        dangerGhost: [
+          "[--vbtn-fg:var(--system-negative-strong)]",
+          "bg-transparent border-transparent",
+          "hover:[--vbtn-fg:var(--system-negative-hover)]",
+          "hover:bg-[var(--system-negative-weak)]",
+          "active:bg-[var(--system-negative-weak)] active:scale-100",
+          "disabled:[--vbtn-fg:var(--content-disabled)]",
+        ].join(" "),
+        outlined: [
+          "[--vbtn-fg:var(--primary-base)]",
+          "bg-transparent",
+          "border-[var(--border-element)]",
+          "hover:[--vbtn-fg:var(--primary-active)]",
+          "hover:bg-[color-mix(in_srgb,var(--primary-second-hover)_15%,transparent)]",
+          "active:bg-[color-mix(in_srgb,var(--primary-second-hover)_20%,transparent)]",
+          "disabled:border-[var(--primary-disabled)]",
+          "disabled:[--vbtn-fg:var(--content-disabled)]",
+          "disabled:bg-transparent",
+        ].join(" "),
+        ghost: [
+          "[--vbtn-fg:var(--content-default)]",
+          "bg-transparent border-transparent",
+          "hover:[--vbtn-fg:var(--primary-active)]",
+          "hover:bg-[color-mix(in_srgb,var(--primary-second-hover)_15%,transparent)]",
+          "active:bg-[color-mix(in_srgb,var(--primary-second-hover)_20%,transparent)] active:scale-100",
+          "disabled:[--vbtn-fg:var(--content-disabled)]",
+        ].join(" "),
+      },
+      size: {
+        regular: "h-8 px-2.5 text-body-medium-default rounded-md",
+        compact: "h-6 px-2 text-label-medium-default rounded-md",
+      },
+      iconOnly: {
+        true: "p-0",
+        false: "",
+      },
+      fullWidth: {
+        true: "w-full",
+        false: "",
+      },
+      active: {
+        true: "",
+        false: "",
+      },
+    },
+    compoundVariants: [
+      {
+        iconOnly: true,
+        size: "regular",
+        class: "h-8 w-8 max-md:h-10 max-md:w-10",
+      },
+      {
+        iconOnly: true,
+        size: "compact",
+        class: "h-6 w-6 max-md:h-10 max-md:w-10",
+      },
+      {
+        variant: "ghost",
+        active: true,
+        class: [
+          "bg-[var(--surface-lift)]",
+          "hover:bg-[var(--surface-active)]",
+          "active:bg-[var(--surface-active)]",
+          "[--vbtn-fg:var(--primary-active)]",
+          "disabled:bg-[var(--border-disabled)]",
+        ].join(" "),
+      },
+      {
+        variant: "outlined",
+        active: true,
+        class: [
+          "border-[var(--primary-base)]",
+          "bg-[var(--surface-lift)]",
+          "hover:bg-[var(--surface-active)]",
+          "active:bg-[var(--surface-active)]",
+          "[--vbtn-fg:var(--primary-active)]",
+        ].join(" "),
+      },
+      {
+        variant: "outlined",
+        iconOnly: true,
+        class: [
+          "hover:bg-[var(--surface-base)]",
+          "active:bg-[var(--surface-active)]",
+        ].join(" "),
+      },
+      {
+        variant: "ghost",
+        iconOnly: true,
+        active: false,
+        class: "[--vbtn-fg:var(--content-tertiary)] hover:[--vbtn-fg:var(--primary-active)]",
+      },
+      {
+        variant: "outlined",
+        iconOnly: true,
+        active: false,
+        class: "[--vbtn-fg:var(--content-tertiary)] hover:[--vbtn-fg:var(--primary-active)]",
+      },
+      {
+        variant: "ghost",
+        iconOnly: true,
+        class: [
+          "max-md:bg-[var(--surface-lift)]",
+          "max-md:rounded-full",
+          "max-md:[--vbtn-fg:var(--content-default)]",
+          "max-md:hover:bg-[var(--surface-active)]",
+          "max-md:active:bg-[var(--surface-active)]",
+        ].join(" "),
+      },
+    ],
+    defaultVariants: {
+      variant: "primary",
+      size: "regular",
+      iconOnly: false,
+      fullWidth: false,
+      active: false,
+    },
+  },
+);
+
+type ButtonVariantProps = VariantProps<typeof buttonVariants>;
+
+export type ButtonVariant = NonNullable<ButtonVariantProps["variant"]>;
+export type ButtonSize = NonNullable<ButtonVariantProps["size"]>;
+
+export interface ButtonProps
+  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
+  ref?: Ref<HTMLButtonElement>;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  leftIcon?: ReactNode;
+  rightIcon?: ReactNode;
+  iconOnly?: ReactNode;
+  fullWidth?: boolean;
+  active?: boolean;
+  tintColor?: string;
+  tooltip?: string;
+  asChild?: boolean;
+  children?: ReactNode;
 }
 
-const VARIANT_CLASSES: Record<NonNullable<ButtonProps["variant"]>, string> = {
-  primary: "vdl-btn-primary",
-  secondary: "vdl-btn-secondary",
-  ghost: "vdl-btn-ghost",
-};
+function iconPxForSize(size: ButtonSize): number {
+  return size === "compact" ? 10 : 14;
+}
 
-const SIZE_CLASSES: Record<NonNullable<ButtonProps["size"]>, string> = {
-  sm: "vdl-btn-sm",
-  md: "vdl-btn-md",
-  lg: "vdl-btn-lg",
-};
+export { buttonVariants };
 
 export function Button({
-  variant = "primary",
-  size = "md",
-  className,
-  children,
   ref,
-  ...props
+  variant = "primary",
+  size = "regular",
+  leftIcon,
+  rightIcon,
+  iconOnly,
+  fullWidth = false,
+  active = false,
+  tintColor,
+  tooltip,
+  asChild = false,
+  className,
+  style,
+  type,
+  children,
+  title,
+  disabled,
+  onClick,
+  ...rest
 }: ButtonProps) {
+  const isIconOnly = iconOnly != null && iconOnly !== false;
+  const isDisabled = disabled === true;
+  const isSlotDisabled = asChild && isDisabled;
+  const iconPx = iconPxForSize(size);
+  const iconStyle: CSSProperties = {
+    width: iconPx,
+    height: iconPx,
+    flexShrink: 0,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+  };
+  const iconOnlyClass =
+    "inline-flex items-center justify-center shrink-0 size-3.5 max-md:size-4 [&_svg]:size-full";
+
+  const Comp = asChild ? Slot : "button";
+  const composedStyle: CSSProperties = {
+    ...(tintColor && !isDisabled
+      ? { ["--vbtn-fg" as string]: tintColor }
+      : null),
+    ...style,
+  };
+
+  const handleBlockedClick = (event: ReactMouseEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
   return (
-    <button
+    <Comp
+      {...rest}
       ref={ref}
-      data-slot="button"
-      className={cn("vdl-btn", VARIANT_CLASSES[variant], SIZE_CLASSES[size], className)}
-      {...props}
+      type={asChild ? undefined : (type ?? "button")}
+      disabled={asChild ? undefined : disabled}
+      aria-disabled={isSlotDisabled ? true : rest["aria-disabled"]}
+      data-disabled={isSlotDisabled ? "" : undefined}
+      tabIndex={isSlotDisabled ? -1 : rest.tabIndex}
+      onClick={isSlotDisabled ? handleBlockedClick : onClick}
+      title={title ?? tooltip}
+      className={cn(
+        buttonVariants({ variant, size, iconOnly: isIconOnly, fullWidth, active }),
+        className,
+      )}
+      style={composedStyle}
     >
-      {children}
-    </button>
+      {isIconOnly ? (
+        <span aria-hidden="true" className={iconOnlyClass}>
+          {iconOnly}
+        </span>
+      ) : leftIcon == null && rightIcon == null ? (
+        children
+      ) : (
+        <>
+          {leftIcon != null ? (
+            <span aria-hidden="true" style={iconStyle}>
+              {leftIcon}
+            </span>
+          ) : null}
+          {children}
+          {rightIcon != null ? (
+            <span aria-hidden="true" style={iconStyle}>
+              {rightIcon}
+            </span>
+          ) : null}
+        </>
+      )}
+    </Comp>
   );
 }

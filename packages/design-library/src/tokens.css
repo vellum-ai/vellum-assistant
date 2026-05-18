@@ -48,6 +48,15 @@
   --color-foreground: var(--foreground);
 
   --font-sans: "Inter", system-ui, sans-serif;
+
+  /* Border-radius scale — matches platform globals.css */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-xxl: 20px;
+  --radius-pill: 999px;
 }
 
 /* ===== Light mode (default) — Figma node 2674:20625 ===== */
@@ -372,55 +381,4 @@
   line-height: var(--text-chat-line-height);
 }
 
-/* ---------------------------------------------------------------------------
- * Button utility classes — consumed by the Button component.
- * --------------------------------------------------------------------------- */
 
-@utility vdl-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  border-radius: 0.5rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 150ms, color 150ms, border-color 150ms;
-  border: 1px solid transparent;
-}
-@utility vdl-btn-primary {
-  background-color: var(--primary-base);
-  color: var(--content-inset);
-  &:hover { background-color: var(--primary-hover); }
-  &:active { background-color: var(--primary-active); }
-  &:disabled { background-color: var(--primary-disabled); color: var(--content-disabled); cursor: not-allowed; }
-}
-@utility vdl-btn-secondary {
-  background-color: var(--surface-lift);
-  color: var(--content-default);
-  border-color: var(--border-element);
-  &:hover { background-color: var(--surface-active); }
-  &:active { background-color: var(--border-disabled); }
-  &:disabled { background-color: var(--primary-disabled); color: var(--content-disabled); cursor: not-allowed; }
-}
-@utility vdl-btn-ghost {
-  background-color: transparent;
-  color: var(--content-default);
-  &:hover { background-color: var(--ghost-hover); }
-  &:active { background-color: var(--border-disabled); }
-  &:disabled { color: var(--content-disabled); cursor: not-allowed; }
-}
-@utility vdl-btn-sm {
-  padding: 0.25rem 0.75rem;
-  font-size: 0.75rem;
-  line-height: 1.25rem;
-}
-@utility vdl-btn-md {
-  padding: 0.5rem 1rem;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-}
-@utility vdl-btn-lg {
-  padding: 0.625rem 1.25rem;
-  font-size: 1rem;
-  line-height: 1.5rem;
-}

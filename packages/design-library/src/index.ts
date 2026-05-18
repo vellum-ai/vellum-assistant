@@ -1,4 +1,10 @@
-export { Button, type ButtonProps } from "./components/button.js";
+export {
+  Button,
+  buttonVariants,
+  type ButtonProps,
+  type ButtonVariant,
+  type ButtonSize,
+} from "./components/button.js";
 export {
   Card,
   CardRoot,
