@@ -11,6 +11,12 @@ metadata:
 
 You are helping your user configure Twilio for voice calls. Walk through each step below.
 
+## Automation-First Rule
+
+On the first setup or repair attempt, configure Twilio yourself using the CLI and API commands in this skill. Do not tell the user to paste webhook URLs into the Twilio Console on the first try, and do not stop after printing values for the user to copy into their phone number settings.
+
+Manual Twilio Console instructions are fallback-only. Use them only after you have attempted the automated API path and it failed or was unavailable. When falling back, briefly say what automated step you tried and what blocked it.
+
 ## Value Classification
 
 Before you begin, understand how each Twilio value is stored:
@@ -158,6 +164,8 @@ For local/self-hosted assistants without Velay, load the `public-ingress` skill 
 
 Set webhook URLs on the phone number so Twilio routes traffic to the assistant.
 
+This is an action for you to perform, not an instruction for the user. Do not respond with copy/paste webhook values for the user to enter in Twilio unless the automated update below failed or Twilio API access is unavailable.
+
 Retrieve credentials and config values:
 
 ```bash
@@ -182,6 +190,8 @@ curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
   -d "VoiceUrl=$PUBLIC_URL/webhooks/twilio/voice" \
   -d "StatusCallback=$PUBLIC_URL/webhooks/twilio/status"
 ```
+
+If the update succeeds, tell the user Twilio is configured. If it fails, explain the API error and either retry with corrected values or then offer Twilio Console fallback instructions.
 
 ## Clearing Credentials
 
@@ -241,3 +251,5 @@ curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
   -d "VoiceUrl=$PUBLIC_URL/webhooks/twilio/voice" \
   -d "StatusCallback=$PUBLIC_URL/webhooks/twilio/status"
 ```
+
+Do not send the user to the Twilio Console for this repair until this update command has been attempted and failed.
