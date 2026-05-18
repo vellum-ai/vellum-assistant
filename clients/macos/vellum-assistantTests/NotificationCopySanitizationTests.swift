@@ -42,14 +42,25 @@ final class NotificationCopySanitizationTests: XCTestCase {
         XCTAssertEqual(result, "Notification")
     }
 
-    func testTitleNormalizedEventNameFallsBackToPlaceholder() {
-        // copy-composer's legacy buildGenericCopy substituted "." and "_" with
-        // spaces — guard against that derived form leaking too.
-        let result = AppDelegate.sanitizeNotificationTitle(
-            "user send notification",
-            sourceEventName: "user.send_notification"
+    func testTitleHumanizedTemplateTitleIsNotFlagged() {
+        // copy-composer templates produce legitimate humanized titles like
+        // "Guardian Question" for `guardian.question` and "Activity Complete"
+        // for `activity.complete`. These must pass through unchanged — they
+        // are intentional copy, not raw event-name leaks.
+        XCTAssertEqual(
+            AppDelegate.sanitizeNotificationTitle(
+                "Guardian Question",
+                sourceEventName: "guardian.question"
+            ),
+            "Guardian Question"
         )
-        XCTAssertEqual(result, "Notification")
+        XCTAssertEqual(
+            AppDelegate.sanitizeNotificationTitle(
+                "Activity Complete",
+                sourceEventName: "activity.complete"
+            ),
+            "Activity Complete"
+        )
     }
 
     func testTitleCaseInsensitiveEventNameLeakIsCaught() {
@@ -86,12 +97,15 @@ final class NotificationCopySanitizationTests: XCTestCase {
         XCTAssertEqual(result, "(no preview available)")
     }
 
-    func testBodyNormalizedEventNameFallsBackToPlaceholder() {
+    func testBodyHumanizedFormIsNotFlagged() {
+        // Humanized space-separated variants of the event name are legitimate
+        // copy (e.g. template-derived body text). They must not be replaced
+        // with the generic placeholder.
         let result = AppDelegate.sanitizeNotificationBody(
             "user send notification",
             sourceEventName: "user.send_notification"
         )
-        XCTAssertEqual(result, "(no preview available)")
+        XCTAssertEqual(result, "user send notification")
     }
 
     // MARK: - isEventNameLeak edge cases
