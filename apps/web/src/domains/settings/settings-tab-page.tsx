@@ -1,6 +1,6 @@
 import { useParams } from "react-router";
 
-export function SettingsTab() {
+export function SettingsTabPage() {
   const { tab } = useParams<{ tab: string }>();
   return (
     <section>

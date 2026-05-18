@@ -1,4 +1,4 @@
-export function Chat() {
+export function ChatPage() {
   return (
     <section>
       <h2>Chat</h2>

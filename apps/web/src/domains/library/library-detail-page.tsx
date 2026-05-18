@@ -1,6 +1,6 @@
 import { useParams } from "react-router";
 
-export function LibraryDetail() {
+export function LibraryDetailPage() {
   const { appId } = useParams<{ appId: string }>();
   return (
     <section>

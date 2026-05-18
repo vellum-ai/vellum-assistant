@@ -1,4 +1,4 @@
-export function Library() {
+export function LibraryPage() {
   return (
     <section>
       <h2>Library</h2>
