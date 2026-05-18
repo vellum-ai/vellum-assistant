@@ -8,6 +8,7 @@ chmod 1777 /tmp 2>/dev/null || true
 KATA_APT_INIT_PID=""
 if [ "${VELLUM_SANDBOX_RUNTIME:-}" = "kata" ] && [ -x /app/assistant/docker-init-apt-root.sh ]; then
   export VELLUM_APT_DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"
+  . /app/assistant/docker-kata-apt-env.sh
   # Warm the chroot used by kata apt wrappers without blocking assistant readiness.
   /app/assistant/docker-init-apt-root.sh &
   KATA_APT_INIT_PID="$!"
@@ -17,7 +18,6 @@ wait_for_kata_apt_root() {
   if [ -n "${KATA_APT_INIT_PID}" ]; then
     wait "${KATA_APT_INIT_PID}"
     KATA_APT_INIT_PID=""
-    . /app/assistant/docker-kata-apt-env.sh
   fi
 }
 

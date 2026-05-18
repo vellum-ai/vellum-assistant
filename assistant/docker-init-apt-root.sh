@@ -20,9 +20,15 @@ rootfs_ready() {
 }
 
 acquire_init_lock() {
-  mkdir -p "${DATA_ROOT}"
+  if ! mkdir -p "${DATA_ROOT}"; then
+    return 1
+  fi
 
   while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
+    if [ ! -d "${LOCK_DIR}" ]; then
+      return 1
+    fi
+
     if rootfs_ready; then
       exit 0
     fi
@@ -30,7 +36,7 @@ acquire_init_lock() {
     if [ ! -r "${LOCK_PID}" ]; then
       sleep 1
       if [ ! -r "${LOCK_PID}" ]; then
-        rm -rf "${LOCK_DIR}" 2>/dev/null || true
+        rm -rf "${LOCK_DIR}" 2>/dev/null || return 1
       fi
       continue
     fi
@@ -40,14 +46,14 @@ acquire_init_lock() {
       ''|*[!0-9]*)
         sleep 1
         if [ "$(cat "${LOCK_PID}" 2>/dev/null || true)" = "${lock_pid}" ]; then
-          rm -rf "${LOCK_DIR}" 2>/dev/null || true
+          rm -rf "${LOCK_DIR}" 2>/dev/null || return 1
         fi
         ;;
       *)
         if kill -0 "${lock_pid}" 2>/dev/null; then
           sleep 1
         else
-          rm -rf "${LOCK_DIR}" 2>/dev/null || true
+          rm -rf "${LOCK_DIR}" 2>/dev/null || return 1
         fi
         ;;
     esac
@@ -105,7 +111,10 @@ if rootfs_ready; then
   exit 0
 fi
 
-acquire_init_lock
+if ! acquire_init_lock; then
+  echo "Warning: ${DATA_ROOT} cannot host the apt rootfs lock; falling back to image-root apt installs" >&2
+  exit 0
+fi
 
 if rootfs_ready; then
   exit 0
