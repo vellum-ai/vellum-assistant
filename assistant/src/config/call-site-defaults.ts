@@ -59,11 +59,6 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
 
   heartbeatAgent: {
     profile: "cost-optimized",
-    maxTokens: 2048,
-    effort: "low",
-    temperature: 0,
-    thinking: { enabled: false, streamThinking: false },
-    contextWindow: { maxInputTokens: 16000 },
   },
   commitMessage: {
     profile: "cost-optimized",
