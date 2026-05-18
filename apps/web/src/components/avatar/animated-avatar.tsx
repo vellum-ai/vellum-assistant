@@ -155,29 +155,25 @@ export function AnimatedAvatar({
   const [twitchAngle, setTwitchAngle] = useState(0);
   const [morphIndex, setMorphIndex] = useState(0);
 
-  const blinkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const twitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const morphTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const mountedRef = useRef(true);
 
-  // Blink logic (paused during streaming)
   useEffect(() => {
     if (reduce || isStreaming) return;
-    mountedRef.current = true;
+    let cancelled = false;
 
     function scheduleBlink() {
-      blinkTimerRef.current = setTimeout(() => {
-        if (!mountedRef.current) return;
+      const timer = setTimeout(() => {
+        if (cancelled) return;
         setIsBlinking(true);
         setTimeout(() => {
-          if (!mountedRef.current) return;
+          if (cancelled) return;
           setIsBlinking(false);
           if (Math.random() < 0.2) {
             setTimeout(() => {
-              if (!mountedRef.current) return;
+              if (cancelled) return;
               setIsBlinking(true);
               setTimeout(() => {
-                if (!mountedRef.current) return;
+                if (cancelled) return;
                 setIsBlinking(false);
                 scheduleBlink();
               }, 150);
@@ -187,40 +183,43 @@ export function AnimatedAvatar({
           }
         }, 150);
       }, randomBetween(3000, 7000));
+
+      return timer;
     }
 
-    scheduleBlink();
+    const timer = scheduleBlink();
 
     return () => {
-      mountedRef.current = false;
-      if (blinkTimerRef.current) clearTimeout(blinkTimerRef.current);
+      cancelled = true;
+      clearTimeout(timer);
     };
   }, [reduce, isStreaming]);
 
-  // Twitch logic (paused during streaming)
   useEffect(() => {
     if (reduce || isStreaming) return;
-    mountedRef.current = true;
+    let cancelled = false;
 
     function scheduleTwitch() {
-      twitchTimerRef.current = setTimeout(() => {
-        if (!mountedRef.current) return;
+      const timer = setTimeout(() => {
+        if (cancelled) return;
         const angle =
           (Math.random() < 0.5 ? -1 : 1) * randomBetween(1, 2);
         setTwitchAngle(angle);
         setTimeout(() => {
-          if (!mountedRef.current) return;
+          if (cancelled) return;
           setTwitchAngle(0);
           scheduleTwitch();
         }, 200);
       }, randomBetween(8000, 15000));
+
+      return timer;
     }
 
-    scheduleTwitch();
+    const timer = scheduleTwitch();
 
     return () => {
-      mountedRef.current = false;
-      if (twitchTimerRef.current) clearTimeout(twitchTimerRef.current);
+      cancelled = true;
+      clearTimeout(timer);
     };
   }, [reduce, isStreaming]);
 
