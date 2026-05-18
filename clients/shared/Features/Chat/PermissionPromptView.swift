@@ -191,17 +191,19 @@ public struct PermissionPromptView: View {
 
     private var v3RiskBadgeBackgroundColor: Color {
         switch confirmation.riskLevel.lowercased() {
-        case "low": VColor.systemPositiveStrong
-        case "medium": VColor.systemMidStrong
-        case "high": VColor.systemNegativeStrong
-        default: VColor.contentSecondary
+        case "low": VColor.systemPositiveWeak
+        case "medium": VColor.systemMidWeak
+        case "high": VColor.systemNegativeWeak
+        default: VColor.surfaceBase
         }
     }
 
     private var v3RiskBadgeTextColor: Color {
         switch confirmation.riskLevel.lowercased() {
-        case "medium": VColor.auxBlack
-        default: VColor.auxWhite
+        case "low": VColor.systemPositiveStrong
+        case "medium": VColor.systemMidStrong
+        case "high": VColor.systemNegativeStrong
+        default: VColor.contentSecondary
         }
     }
 
