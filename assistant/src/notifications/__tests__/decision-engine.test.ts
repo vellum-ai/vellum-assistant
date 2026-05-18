@@ -156,4 +156,68 @@ describe("assistant_tool pass-through in notification decision engine", () => {
     expect(decision.conversationActions?.vellum?.action).toBe("start_new");
     expect(decision.conversationActions?.telegram?.action).toBe("start_new");
   });
+
+  test("threads contextPayload.deepLinkMetadata through to decision.deepLinkTarget", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "with deep link",
+        deepLinkMetadata: { route: "settings", anchor: "notifications" },
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+    ] as NotificationChannel[]);
+
+    expect(decision.deepLinkTarget).toEqual({
+      route: "settings",
+      anchor: "notifications",
+    });
+  });
+
+  test("omits deepLinkTarget when deepLinkMetadata is not a plain object", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "no deep link",
+        deepLinkMetadata: ["not", "a", "plain", "object"],
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+    ] as NotificationChannel[]);
+
+    expect(decision.deepLinkTarget).toBeUndefined();
+  });
+
+  test("preferredChannels narrows selection to the intersection with availableChannels", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "fyi only to telegram",
+        preferredChannels: ["telegram"],
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+      "telegram",
+    ] as NotificationChannel[]);
+
+    expect(decision.selectedChannels).toEqual(["telegram"]);
+    expect(decision.renderedCopy.telegram?.body).toBe("fyi only to telegram");
+    expect(decision.renderedCopy.vellum).toBeUndefined();
+  });
+
+  test("preferredChannels falls back to default channel set when no overlap with availableChannels", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "fyi",
+        preferredChannels: ["disconnected_channel"],
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+      "telegram",
+    ] as NotificationChannel[]);
+
+    expect(decision.selectedChannels).toEqual(["vellum"]);
+    expect(decision.renderedCopy.vellum?.body).toBe("fyi");
+  });
 });
