@@ -13,7 +13,7 @@ imports, formatting, and TypeScript conventions.
 Components are imported via the `exports` map:
 
 ```ts
-import { Button } from "@vellum/design-library/components/Button";
+import { Button } from "@vellum/design-library/components/button";
 ```
 
 The consuming app must include this package's source in its Tailwind source

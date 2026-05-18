@@ -71,7 +71,6 @@ src/
   lib/                       # configured third-party wrappers (API client, Sentry, CSRF)
   runtime/                   # framework adapters, platform bridges
   components/                # cross-domain shared UI
-  pages/                     # route-level page components
   generated/                 # auto-generated code (HeyAPI, catalogs)
 ```
 
