@@ -6,8 +6,9 @@ set -eu
 chmod 1777 /tmp 2>/dev/null || true
 
 if [ "${VELLUM_SANDBOX_RUNTIME:-}" = "kata" ] && [ -x /app/assistant/docker-init-apt-root.sh ]; then
-  . /app/assistant/docker-kata-apt-env.sh
-  /app/assistant/docker-init-apt-root.sh
+  export VELLUM_APT_DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"
+  # Warm the chroot used by kata apt wrappers without blocking assistant readiness.
+  /app/assistant/docker-init-apt-root.sh &
 fi
 
 if [ "$(id -u)" = "0" ] && [ "${VELLUM_WORKSPACE_DIR:-}" = "/workspace" ] && [ -d /workspace ]; then

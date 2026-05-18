@@ -3,6 +3,8 @@ set -eu
 
 DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"
 SENTINEL="${DATA_ROOT}/.rootfs-initialized"
+LOCK_DIR="${DATA_ROOT}/.rootfs-init.lock"
+LOCK_PID="${LOCK_DIR}/pid"
 HOST_PATH="/usr/sbin:/usr/bin:/sbin:/bin"
 
 if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then
@@ -12,6 +14,50 @@ fi
 # Bootstrap the alternate root with the host toolchain so the wrapper
 # binaries in /usr/local/bin do not recurse back into this script.
 export PATH="${HOST_PATH}"
+
+rootfs_ready() {
+  [ -f "${SENTINEL}" ] && [ -x "${DATA_ROOT}/bin/sh" ] && [ -x "${DATA_ROOT}/usr/bin/apt-get" ]
+}
+
+acquire_init_lock() {
+  mkdir -p "${DATA_ROOT}"
+
+  while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
+    if rootfs_ready; then
+      exit 0
+    fi
+
+    if [ ! -r "${LOCK_PID}" ]; then
+      sleep 1
+      if [ ! -r "${LOCK_PID}" ]; then
+        rm -rf "${LOCK_DIR}" 2>/dev/null || true
+      fi
+      continue
+    fi
+
+    lock_pid="$(cat "${LOCK_PID}" 2>/dev/null || true)"
+    case "${lock_pid}" in
+      ''|*[!0-9]*)
+        sleep 1
+        if [ "$(cat "${LOCK_PID}" 2>/dev/null || true)" = "${lock_pid}" ]; then
+          rm -rf "${LOCK_DIR}" 2>/dev/null || true
+        fi
+        ;;
+      *)
+        if kill -0 "${lock_pid}" 2>/dev/null; then
+          sleep 1
+        else
+          rm -rf "${LOCK_DIR}" 2>/dev/null || true
+        fi
+        ;;
+    esac
+  done
+
+  printf '%s\n' "$$" >"${LOCK_PID}" 2>/dev/null || true
+  trap 'rm -rf "${LOCK_DIR}"' EXIT
+  trap 'rm -rf "${LOCK_DIR}"; exit 130' INT
+  trap 'rm -rf "${LOCK_DIR}"; exit 143' TERM
+}
 
 check_sane_mount() {
   target="$1"
@@ -55,7 +101,13 @@ EOF
   return 0
 }
 
-if [ -f "${SENTINEL}" ] && [ -x "${DATA_ROOT}/bin/sh" ] && [ -x "${DATA_ROOT}/usr/bin/apt-get" ]; then
+if rootfs_ready; then
+  exit 0
+fi
+
+acquire_init_lock
+
+if rootfs_ready; then
   exit 0
 fi
 
@@ -86,8 +138,6 @@ fi
 
 MIRROR="${VELLUM_APT_DATA_MIRROR:-http://deb.debian.org/debian}"
 ARCH="$(/usr/bin/dpkg --print-architecture)"
-
-mkdir -p "${DATA_ROOT}"
 
 debootstrap --variant=minbase --arch="${ARCH}" "${SUITE}" "${DATA_ROOT}" "${MIRROR}"
 
