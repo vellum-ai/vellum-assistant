@@ -13,7 +13,7 @@ description: Test the design library Storybook setup end-to-end. Use when verify
 ## Starting Storybook
 
 ```bash
-cd /home/ubuntu/repos/vellum-assistant/packages/design-library
+cd packages/design-library
 export PATH="$HOME/.bun/bin:$PATH"
 bun install
 bun run storybook
