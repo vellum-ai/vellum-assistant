@@ -16,8 +16,12 @@ function basePathRedirect(): Plugin {
     configureServer(server) {
       const pathWithoutSlash = BASE.slice(0, -1);
       server.middlewares.use((req, res, next) => {
-        if (req.url === pathWithoutSlash) {
-          res.writeHead(301, { Location: BASE });
+        const url = req.url ?? "";
+        const qsIndex = url.indexOf("?");
+        const pathname = qsIndex === -1 ? url : url.slice(0, qsIndex);
+        if (pathname === pathWithoutSlash) {
+          const qs = qsIndex === -1 ? "" : url.slice(qsIndex);
+          res.writeHead(301, { Location: `${BASE}${qs}` });
           res.end();
           return;
         }
