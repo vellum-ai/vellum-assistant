@@ -312,6 +312,63 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls[0]!.summary).toBe("Telegram body");
   });
 
+  test("ignores rendered copy for channels not in selectedChannels", async () => {
+    // Regression: routing-intent enforcement can prune selectedChannels
+    // without pruning renderedCopy, leaving copy entries for channels that
+    // were never delivered. The fallback must only consider channels that
+    // actually shipped — otherwise an unselected channel's copy can land in
+    // Home in place of the selected channel's copy.
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "assistant.share",
+      sourceContextId: "cli-12345",
+    });
+    const decision = makeDecision({
+      selectedChannels: ["telegram"],
+      renderedCopy: {
+        slack: {
+          title: "Slack title (unselected)",
+          body: "Slack body (unselected)",
+        },
+        telegram: { title: "Telegram title", body: "Telegram body" },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision, []);
+
+    expect(item).not.toBeNull();
+    expect(appendCalls).toHaveLength(1);
+    expect(appendCalls[0]!.title).toBe("Telegram title");
+    expect(appendCalls[0]!.summary).toBe("Telegram body");
+  });
+
+  test("skips fallback when only unselected channels have rendered copy", async () => {
+    // Regression: if every renderedCopy entry is for a channel that was
+    // pruned from selectedChannels, treat it as no copy at all rather than
+    // surfacing the stale entry.
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "assistant.share",
+      sourceContextId: "cli-12345",
+    });
+    const decision = makeDecision({
+      selectedChannels: ["telegram"],
+      renderedCopy: {
+        slack: {
+          title: "Slack title (unselected)",
+          body: "Slack body (unselected)",
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision, []);
+
+    expect(item).toBeNull();
+    expect(appendCalls).toHaveLength(0);
+  });
+
   test("falls back to requestedTitle/requestedMessage payload keys", async () => {
     // Regression: the `notifications send` CLI surface stores the
     // user-supplied copy on the signal payload under `requestedTitle` and
