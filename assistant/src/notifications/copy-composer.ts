@@ -605,11 +605,11 @@ export function composeFallbackCopy(
 
   const baseCopy: RenderedChannelCopy = template
     ? template(signal.contextPayload)
-    : buildGenericCopy(signal);
+    : buildGenericCopy();
 
   const result: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {};
   for (const ch of channels) {
-    result[ch] = applyChannelDefaults(ch, baseCopy, signal);
+    result[ch] = applyChannelDefaults(ch, baseCopy);
   }
   return result;
 }
@@ -617,12 +617,11 @@ export function composeFallbackCopy(
 function applyChannelDefaults(
   channel: NotificationChannel,
   baseCopy: RenderedChannelCopy,
-  signal: NotificationSignal,
 ): RenderedChannelCopy {
   const copy: RenderedChannelCopy = { ...baseCopy };
 
   if (channel === "telegram") {
-    copy.deliveryText = buildChatSurfaceFallbackDeliveryText(baseCopy, signal);
+    copy.deliveryText = buildChatSurfaceFallbackDeliveryText(baseCopy);
   }
 
   return copy;
@@ -630,7 +629,6 @@ function applyChannelDefaults(
 
 function buildChatSurfaceFallbackDeliveryText(
   baseCopy: RenderedChannelCopy,
-  signal: NotificationSignal,
 ): string {
   const explicit = nonEmpty(baseCopy.deliveryText);
   if (explicit) return explicit;
@@ -641,23 +639,20 @@ function buildChatSurfaceFallbackDeliveryText(
   const title = nonEmpty(baseCopy.title);
   if (title) return title;
 
-  return signal.sourceEventName.replace(/[._]/g, " ");
+  // No usable text: return empty string. The deterministic
+  // `checkRenderedCopyQuality` (see deterministic-checks.ts) suppresses
+  // notifications with empty bodies, so this will not reach users.
+  return "";
 }
 
 /**
- * Build generic copy when no template matches. Uses the signal's
- * sourceEventName and attention hints to produce something reasonable.
+ * Build generic copy when no template matches. Returns an empty body so
+ * the deterministic `checkRenderedCopyQuality` (see deterministic-checks.ts)
+ * suppresses the notification rather than rendering an event-name placeholder.
  */
-function buildGenericCopy(signal: NotificationSignal): RenderedChannelCopy {
-  const humanName = signal.sourceEventName.replace(/[._]/g, " ");
-  const urgencyPrefix =
-    signal.attentionHints.urgency === "high" ? "Urgent: " : "";
-  const actionSuffix = signal.attentionHints.requiresAction
-    ? " — action required"
-    : "";
-
+function buildGenericCopy(): RenderedChannelCopy {
   return {
     title: "Notification",
-    body: `${urgencyPrefix}${humanName}${actionSuffix}`,
+    body: "",
   };
 }

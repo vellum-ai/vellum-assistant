@@ -147,7 +147,10 @@ describe("notification decision strategy", () => {
       expect(copy.telegram!.deliveryText).toBe("Take out the trash");
     });
 
-    test("unknown event name produces generic copy with urgency prefix", () => {
+    test("unknown event name produces generic copy with empty body", () => {
+      // The event-name-derived body fallback was removed; the deterministic
+      // `checkRenderedCopyQuality` check in deterministic-checks.ts will
+      // suppress notifications that end up with an empty body.
       const signal = makeSignal({
         sourceEventName: "some_novel.event",
         attentionHints: {
@@ -161,12 +164,16 @@ describe("notification decision strategy", () => {
       const copy = composeFallbackCopy(signal, channels);
       expect(copy.vellum).toBeDefined();
       expect(copy.vellum!.title).toBe("Notification");
-      expect(copy.vellum!.body).toContain("Urgent:");
-      expect(copy.vellum!.body).toContain("action required");
-      expect(copy.telegram!.deliveryText).toBe(copy.telegram!.body);
+      expect(copy.vellum!.body).toBe("");
+      // Telegram deliveryText falls back to title when body is empty; the
+      // checkRenderedCopyQuality check still suppresses on empty body.
+      expect(copy.telegram!.body).toBe("");
     });
 
-    test("unknown event name without urgency produces clean generic copy", () => {
+    test("unknown event name without urgency also produces empty body", () => {
+      // The event-name-derived body fallback was removed; the deterministic
+      // `checkRenderedCopyQuality` check in deterministic-checks.ts will
+      // suppress notifications that end up with an empty body.
       const signal = makeSignal({
         sourceEventName: "background.sync_complete",
         attentionHints: {
@@ -179,10 +186,8 @@ describe("notification decision strategy", () => {
 
       const copy = composeFallbackCopy(signal, channels);
       expect(copy.vellum).toBeDefined();
-      expect(copy.vellum!.body).not.toContain("Urgent:");
-      expect(copy.vellum!.body).not.toContain("action required");
-      // Dots and underscores in event name are replaced with spaces
-      expect(copy.vellum!.body).toContain("background sync complete");
+      expect(copy.vellum!.title).toBe("Notification");
+      expect(copy.vellum!.body).toBe("");
     });
 
     test("fallback copy is generated for every requested channel", () => {
