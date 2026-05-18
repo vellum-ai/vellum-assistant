@@ -33,30 +33,30 @@ const TONE_CLASSES: Record<NoticeTone, ToneClasses> = {
   info: {
     container:
       "bg-[var(--surface-overlay)] border-[var(--border-element)]",
-    icon: "text-[var(--content-secondary)]",
+    icon: "[color:var(--content-secondary)]",
     DefaultIcon: Info,
   },
   success: {
     container:
       "bg-[var(--system-positive-weak)] border-[color-mix(in_srgb,var(--system-positive-strong)_25%,transparent)]",
-    icon: "text-[var(--system-positive-strong)]",
+    icon: "[color:var(--system-positive-strong)]",
     DefaultIcon: CircleCheck,
   },
   warning: {
     container:
       "bg-[var(--system-mid-weak)] border-[color-mix(in_srgb,var(--system-mid-strong)_30%,transparent)]",
-    icon: "text-[var(--system-mid-strong)]",
+    icon: "[color:var(--system-mid-strong)]",
     DefaultIcon: CircleAlert,
   },
   error: {
     container:
       "bg-[var(--system-negative-weak)] border-[color-mix(in_srgb,var(--system-negative-strong)_25%,transparent)]",
-    icon: "text-[var(--system-negative-strong)]",
+    icon: "[color:var(--system-negative-strong)]",
     DefaultIcon: OctagonX,
   },
   neutral: {
     container: "bg-[var(--surface-overlay)] border-[var(--border-base)]",
-    icon: "text-[var(--content-secondary)]",
+    icon: "[color:var(--content-secondary)]",
     DefaultIcon: null,
   },
 };
@@ -90,7 +90,7 @@ export function Notice({
       data-slot="notice"
       className={cn(
         "relative flex w-full items-start gap-3 rounded-lg border p-3",
-        "text-[var(--content-default)]",
+        "[color:var(--content-default)]",
         toneClasses.container,
         className,
       )}
@@ -111,7 +111,7 @@ export function Notice({
           <Typography
             variant="body-medium-default"
             as="p"
-            className="text-[var(--content-emphasised)]"
+            className="[color:var(--content-emphasised)]"
           >
             {title}
           </Typography>
@@ -120,7 +120,7 @@ export function Notice({
           <Typography
             variant="body-medium-lighter"
             as="div"
-            className="text-[var(--content-secondary)]"
+            className="[color:var(--content-secondary)]"
           >
             {children}
           </Typography>
@@ -135,7 +135,7 @@ export function Notice({
           aria-label="Dismiss"
           className={cn(
             "shrink-0 cursor-pointer rounded bg-transparent p-0.5",
-            "text-[var(--content-secondary)] opacity-70 transition-opacity",
+            "[color:var(--content-secondary)] opacity-70 transition-opacity",
             "hover:opacity-100 focus-visible:outline-none focus-visible:ring-2",
             "focus-visible:ring-[var(--ring)]",
           )}

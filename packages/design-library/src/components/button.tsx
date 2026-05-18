@@ -270,6 +270,7 @@ export function Button({
       disabled={asChild ? undefined : disabled}
       aria-disabled={isSlotDisabled ? true : rest["aria-disabled"]}
       data-disabled={isSlotDisabled ? "" : undefined}
+      data-slot="button"
       tabIndex={isSlotDisabled ? -1 : rest.tabIndex}
       onClick={isSlotDisabled ? handleBlockedClick : onClick}
       title={title ?? tooltip}
