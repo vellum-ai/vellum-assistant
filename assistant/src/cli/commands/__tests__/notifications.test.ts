@@ -4,7 +4,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 // Test isolation: mock logger and IPC client
 // ---------------------------------------------------------------------------
 
-mock.module("../../util/logger.js", () => ({
+mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -23,7 +23,7 @@ let ipcResponse: { ok: boolean; result?: unknown; error?: string } = {
   result: {},
 };
 
-mock.module("../../ipc/cli-client.js", () => ({
+mock.module("../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
     ipcCalls.push({ method, params });
     return ipcResponse;
@@ -32,7 +32,7 @@ mock.module("../../ipc/cli-client.js", () => ({
 
 import { Command } from "commander";
 
-import { registerNotificationsCommand } from "../commands/notifications.js";
+import { registerNotificationsCommand } from "../notifications.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -90,6 +90,12 @@ async function runCommand(args: string[]): Promise<CommandResult> {
   return { parsed, exitCode };
 }
 
+function lastSendBody(): Record<string, unknown> {
+  expect(ipcCalls).toHaveLength(1);
+  expect(ipcCalls[0].method).toBe("emit_notification_signal");
+  return ipcCalls[0].params?.body as Record<string, unknown>;
+}
+
 // ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
@@ -132,13 +138,10 @@ describe("notifications send", () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.signalId).toBe("mock-id");
 
-    expect(ipcCalls).toHaveLength(1);
-    const call = ipcCalls[0];
-    expect(call.method).toBe("emit_notification_signal");
-    const callBody = call.params?.body as Record<string, unknown>;
-    expect(callBody?.sourceChannel).toBe("assistant_tool");
-    expect(callBody?.sourceEventName).toBe("user.send_notification");
-    const payload = callBody?.contextPayload as Record<string, unknown>;
+    const body = lastSendBody();
+    expect(body.sourceChannel).toBe("assistant_tool");
+    expect(body.sourceEventName).toBe("user.send_notification");
+    const payload = body.contextPayload as Record<string, unknown>;
     expect(payload.requestedMessage).toBe("Hello");
   });
 
@@ -160,9 +163,7 @@ describe("notifications send", () => {
     expect(exitCode).toBe(0);
     expect(parsed.ok).toBe(true);
 
-    expect(ipcCalls).toHaveLength(1);
-    const emitBody = ipcCalls[0].params?.body as Record<string, unknown>;
-    const hints = emitBody?.attentionHints as Record<string, unknown>;
+    const hints = lastSendBody().attentionHints as Record<string, unknown>;
     expect(hints.urgency).toBe("high");
     expect(hints.requiresAction).toBe(true);
     expect(hints.isAsyncBackground).toBe(true);
@@ -184,9 +185,7 @@ describe("notifications send", () => {
     expect(exitCode).toBe(0);
     expect(parsed.ok).toBe(true);
 
-    expect(ipcCalls).toHaveLength(1);
-    const dlBody = ipcCalls[0].params?.body as Record<string, unknown>;
-    const payload = dlBody?.contextPayload as Record<string, unknown>;
+    const payload = lastSendBody().contextPayload as Record<string, unknown>;
     expect(payload.preferredChannels).toEqual(["telegram", "slack"]);
   });
 
@@ -230,8 +229,8 @@ describe("notifications send", () => {
     expect(exitCode).toBe(0);
     expect(parsed.ok).toBe(true);
 
-    const callBody = ipcCalls[0].params?.body as Record<string, unknown>;
-    expect(callBody.conversationAffinityHint).toEqual({ vellum: "conv-123" });
+    const body = lastSendBody();
+    expect(body.conversationAffinityHint).toEqual({ vellum: "conv-123" });
   });
 
   test("send omits conversationAffinityHint when --conversation-id not passed", async () => {
@@ -245,8 +244,8 @@ describe("notifications send", () => {
       "Hi",
     ]);
 
-    const callBody = ipcCalls[0].params?.body as Record<string, unknown>;
-    expect(callBody.conversationAffinityHint).toBeUndefined();
+    const body = lastSendBody();
+    expect(body.conversationAffinityHint).toBeUndefined();
   });
 
   test("send rejects empty --conversation-id", async () => {
@@ -287,6 +286,93 @@ describe("notifications send", () => {
     expect(exitCode).toBe(1);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toBe("Daemon rejected the signal");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// send — minimal-surface ergonomics (--urgent and source defaults)
+// ---------------------------------------------------------------------------
+
+describe("notifications send — minimal-surface ergonomics", () => {
+  test("--urgent maps to urgency=critical + requiresAction=true", async () => {
+    const { exitCode } = await runCommand([
+      "send",
+      "--message",
+      "Pager: prod is down",
+      "--urgent",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const hints = lastSendBody().attentionHints as Record<string, unknown>;
+    expect(hints.urgency).toBe("critical");
+    expect(hints.requiresAction).toBe(true);
+  });
+
+  test("missing --source-channel defaults to 'assistant_tool'", async () => {
+    const { exitCode } = await runCommand(["send", "--message", "hello"]);
+
+    expect(exitCode).toBe(0);
+    const body = lastSendBody();
+    expect(body.sourceChannel).toBe("assistant_tool");
+    // The context payload echoes the source channel via requestedBySource.
+    const payload = body.contextPayload as Record<string, unknown>;
+    expect(payload.requestedBySource).toBe("assistant_tool");
+  });
+
+  test("missing --source-event-name defaults to 'assistant.share'", async () => {
+    const { exitCode } = await runCommand(["send", "--message", "hello"]);
+
+    expect(exitCode).toBe(0);
+    expect(lastSendBody().sourceEventName).toBe("assistant.share");
+  });
+
+  test("explicit --urgency high still overrides defaults when --urgent is absent", async () => {
+    const { exitCode } = await runCommand([
+      "send",
+      "--message",
+      "stand-up reminder",
+      "--urgency",
+      "high",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const hints = lastSendBody().attentionHints as Record<string, unknown>;
+    expect(hints.urgency).toBe("high");
+    // Without --urgent or --requires-action, requiresAction stays at the new
+    // default of false.
+    expect(hints.requiresAction).toBe(false);
+  });
+
+  test("explicit --urgency wins even when --urgent is also passed (back-compat)", async () => {
+    const { exitCode } = await runCommand([
+      "send",
+      "--message",
+      "deploy complete",
+      "--urgent",
+      "--urgency",
+      "medium",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const hints = lastSendBody().attentionHints as Record<string, unknown>;
+    expect(hints.urgency).toBe("medium");
+    // --urgent still flips requiresAction since no explicit flag was passed.
+    expect(hints.requiresAction).toBe(true);
+  });
+
+  test("explicit --no-requires-action wins even when --urgent is passed", async () => {
+    const { exitCode } = await runCommand([
+      "send",
+      "--message",
+      "fyi only",
+      "--urgent",
+      "--no-requires-action",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const hints = lastSendBody().attentionHints as Record<string, unknown>;
+    expect(hints.urgency).toBe("critical");
+    expect(hints.requiresAction).toBe(false);
   });
 });
 
@@ -342,7 +428,9 @@ describe("notifications list", () => {
     expect(parsed.ok).toBe(true);
 
     expect(ipcCalls).toHaveLength(1);
-    expect((ipcCalls[0].params?.body as Record<string, unknown>)?.limit).toBe(5);
+    expect((ipcCalls[0].params?.body as Record<string, unknown>)?.limit).toBe(
+      5,
+    );
   });
 
   test("list passes --source-event-name to IPC", async () => {
