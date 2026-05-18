@@ -14,7 +14,7 @@ final class HomeFeedStoreTests: XCTestCase {
         id: String = "item-1",
         type: FeedItemType = .notification,
         status: FeedItemStatus = .new,
-        title: String = "Fixture title",
+        title: String? = "Fixture title",
         priority: Int = 60,
         noteworthy: Bool? = nil,
         timestamp: Date = Date(timeIntervalSince1970: 1_760_000_000),
