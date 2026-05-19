@@ -130,7 +130,17 @@ export const VoiceVadConfigSchema = z
   })
   .describe(
     "Voice-activity-detection thresholds for the always-on listening loop.",
-  );
+  )
+  .superRefine((config, ctx) => {
+    if (config.minUtteranceMs >= config.maxUtteranceMs) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["minUtteranceMs"],
+        message:
+          "voice.vad.minUtteranceMs must be less than voice.vad.maxUtteranceMs",
+      });
+    }
+  });
 
 export type VoiceVadConfig = z.infer<typeof VoiceVadConfigSchema>;
 
