@@ -131,9 +131,11 @@ import type { TtsSynthesisRequest } from "../types.js";
 // ---------------------------------------------------------------------------
 
 let originalFetch: typeof globalThis.fetch;
+let originalWebSocket: typeof globalThis.WebSocket;
 
 beforeEach(() => {
   originalFetch = globalThis.fetch;
+  originalWebSocket = globalThis.WebSocket;
   mockApiKey = "test-elevenlabs-api-key";
   mockDeepgramApiKey = "test-deepgram-api-key";
   mockElevenLabsConfig = {
@@ -168,6 +170,7 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  globalThis.WebSocket = originalWebSocket;
   _resetTtsProviderRegistry();
   _resetBuiltinRegistration();
 });
@@ -200,6 +203,55 @@ function mockFetchError(status: number, body: string): void {
   globalThis.fetch = mock(
     async () => new Response(body, { status }),
   ) as unknown as typeof globalThis.fetch;
+}
+
+class FakeWebSocket {
+  static last: FakeWebSocket | undefined;
+
+  readonly url: string;
+  readonly init: { headers: Record<string, string> };
+  readonly sent: string[] = [];
+  private readonly listeners = new Map<string, Array<(event: any) => void>>();
+
+  constructor(url: string, init: { headers: Record<string, string> }) {
+    this.url = url;
+    this.init = init;
+    FakeWebSocket.last = this;
+  }
+
+  addEventListener(type: string, listener: (event: any) => void): void {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  send(data: string): void {
+    this.sent.push(data);
+  }
+
+  close(): void {
+    this.dispatch("close", {});
+  }
+
+  open(): void {
+    this.dispatch("open", {});
+  }
+
+  receive(data: string): void {
+    this.dispatch("message", { data });
+  }
+
+  private dispatch(type: string, event: any): void {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event);
+    }
+  }
+}
+
+function mockWebSocket(): void {
+  FakeWebSocket.last = undefined;
+  globalThis.WebSocket =
+    FakeWebSocket as unknown as typeof globalThis.WebSocket;
 }
 
 // ===========================================================================
@@ -793,11 +845,12 @@ describe("xAI TTS provider adapter", () => {
     expect(provider.id).toBe("xai");
   });
 
-  test("advertises mp3 and wav format support without streaming", () => {
+  test("advertises streaming support with mp3, wav, and pcm formats", () => {
     const provider = createXaiProvider();
     expect(provider.capabilities).toEqual({
-      supportsStreaming: false,
-      supportedFormats: ["mp3", "wav"],
+      supportsStreaming: true,
+      supportsStreamingSessions: true,
+      supportedFormats: ["mp3", "wav", "pcm"],
     });
   });
 
@@ -940,10 +993,66 @@ describe("xAI TTS provider adapter", () => {
     expect(result.audio.byteLength).toBeGreaterThan(0);
   });
 
+  // -- Streaming -----------------------------------------------------------
+
+  test("synthesizeStream sends text over xAI WebSocket and emits audio chunks", async () => {
+    mockWebSocket();
+    const provider = createXaiProvider();
+    const chunks: Uint8Array[] = [];
+
+    const resultPromise = provider.synthesizeStream!(
+      makeRequest({ outputFormat: "pcm" }),
+      (chunk) => chunks.push(chunk),
+    );
+    // Wait for the synthesizeStream microtask chain (resolve api key, resolve
+    // config, build URL) to construct the WebSocket. Anything less than this
+    // races against the multiple awaits inside the adapter.
+    for (let i = 0; i < 10 && FakeWebSocket.last === undefined; i += 1) {
+      await Promise.resolve();
+    }
+
+    const socket = FakeWebSocket.last!;
+    socket.open();
+    expect(socket.url).toContain("wss://api.x.ai/v1/tts?");
+    expect(socket.url).toContain("language=auto");
+    expect(socket.url).toContain("voice=eve");
+    expect(socket.url).toContain("codec=pcm");
+    expect(socket.url).toContain("sample_rate=16000");
+    expect(socket.url).toContain("optimize_streaming_latency=1");
+    expect(socket.init.headers.Authorization).toBe("Bearer test-xai-api-key");
+    // The streaming-session implementation sends `text.delta` then `text.done`
+    // through separate async ticks (appendText → finalize). Wait for both to
+    // be flushed onto the wire before asserting.
+    for (let i = 0; i < 20 && socket.sent.length < 2; i += 1) {
+      await Promise.resolve();
+    }
+    expect(socket.sent).toEqual([
+      JSON.stringify({ type: "text.delta", delta: "Hello world" }),
+      JSON.stringify({ type: "text.done" }),
+    ]);
+
+    const audioChunk = Buffer.from([0x00, 0x01, 0x02]);
+    socket.receive(
+      JSON.stringify({
+        type: "audio.delta",
+        delta: audioChunk.toString("base64"),
+      }),
+    );
+    socket.receive(JSON.stringify({ type: "audio.done" }));
+
+    const result = await resultPromise;
+    expect(Buffer.from(chunks[0]!)).toEqual(audioChunk);
+    expect(result.audio).toEqual(audioChunk);
+    expect(result.contentType).toBe("audio/pcm");
+  });
+
   // -- Required config validation ------------------------------------------
 
   test("throws XAI_TTS_NO_API_KEY when API key is missing", async () => {
     mockXaiApiKey = null;
+    // Also clear the env-var fallback so neither resolution path returns a key.
+    const originalEnv = process.env.XAI_API_KEY;
+    delete process.env.XAI_API_KEY;
 
     const provider = createXaiProvider();
 
@@ -954,6 +1063,58 @@ describe("xAI TTS provider adapter", () => {
       expect(err).toBeInstanceOf(XaiTtsError);
       expect((err as XaiTtsError).code).toBe("XAI_TTS_NO_API_KEY");
       expect((err as XaiTtsError).message).toContain("API key not configured");
+    } finally {
+      if (originalEnv !== undefined) process.env.XAI_API_KEY = originalEnv;
+    }
+  });
+
+  test("falls back to XAI_API_KEY env var when secure store is empty", async () => {
+    mockXaiApiKey = null;
+    const originalEnv = process.env.XAI_API_KEY;
+    process.env.XAI_API_KEY = "env-xai-key";
+
+    let capturedHeaders: Record<string, string> = {};
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedHeaders = (init?.headers ?? {}) as Record<string, string>;
+        return new Response(new Uint8Array([0x49, 0x44, 0x33]), {
+          status: 200,
+        });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    try {
+      const provider = createXaiProvider();
+      await provider.synthesize(makeRequest());
+      expect(capturedHeaders.Authorization).toBe("Bearer env-xai-key");
+    } finally {
+      if (originalEnv === undefined) delete process.env.XAI_API_KEY;
+      else process.env.XAI_API_KEY = originalEnv;
+    }
+  });
+
+  test("secure-store key wins over XAI_API_KEY env var", async () => {
+    mockXaiApiKey = "store-xai-key";
+    const originalEnv = process.env.XAI_API_KEY;
+    process.env.XAI_API_KEY = "env-xai-key";
+
+    let capturedHeaders: Record<string, string> = {};
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedHeaders = (init?.headers ?? {}) as Record<string, string>;
+        return new Response(new Uint8Array([0x49, 0x44, 0x33]), {
+          status: 200,
+        });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    try {
+      const provider = createXaiProvider();
+      await provider.synthesize(makeRequest());
+      expect(capturedHeaders.Authorization).toBe("Bearer store-xai-key");
+    } finally {
+      if (originalEnv === undefined) delete process.env.XAI_API_KEY;
+      else process.env.XAI_API_KEY = originalEnv;
     }
   });
 

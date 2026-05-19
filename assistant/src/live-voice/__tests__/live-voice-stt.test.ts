@@ -1,6 +1,23 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
+import {
+  _setOverridesForTesting,
+  clearFeatureFlagOverridesCache,
+} from "../../config/assistant-feature-flags.js";
+import { getSqlite, resetDb } from "../../memory/db-connection.js";
+import { initializeDb } from "../../memory/db-init.js";
+import { recordPerceptionConsentGrant } from "../../perception/consent-grants.js";
+import { PERCEPTION_EVENT_TYPE_PREFIX } from "../../perception/perception-event.js";
+import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -100,6 +117,129 @@ function createSessionWithTranscriber(
 }
 
 describe("LiveVoiceSession STT", () => {
+  beforeAll(() => {
+    resetDb();
+    initializeDb();
+  });
+
+  beforeEach(() => {
+    const sqlite = getSqlite();
+    sqlite.run("DELETE FROM perception_consent_grants");
+  });
+
+  afterEach(() => {
+    clearFeatureFlagOverridesCache();
+  });
+
+  test("publishes audio_excerpt perception event when sub-flag is on and consent granted", async () => {
+    _setOverridesForTesting({
+      perception: true,
+      "perception-audio-excerpt": true,
+    });
+    recordPerceptionConsentGrant({
+      conversationId: "conversation-123",
+      eventKind: "audio_excerpt",
+    });
+
+    const events: unknown[] = [];
+    const sub = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        const type = (event.message as { type?: string } | undefined)?.type;
+        if (type?.startsWith(`${PERCEPTION_EVENT_TYPE_PREFIX}.`)) {
+          events.push(event);
+        }
+      },
+    });
+
+    try {
+      const { session, transcriber } = createSessionWithTranscriber();
+      await session.start();
+      transcriber.emit({ type: "final", text: "remember the meeting at 4pm" });
+      await session.handleClientFrame({ type: "ptt_release" });
+
+      const audioEvents = events.filter((e) => {
+        const type = ((e as { message?: { type?: string } }).message ?? {})
+          .type;
+        return type === `${PERCEPTION_EVENT_TYPE_PREFIX}.audio_excerpt`;
+      });
+      expect(audioEvents.length).toBeGreaterThanOrEqual(1);
+      const message = (audioEvents[0] as { message: unknown }).message as {
+        perception: {
+          payload: {
+            kind: string;
+            transcriptRedacted: string;
+            sessionId: string;
+          };
+        };
+      };
+      expect(message.perception.payload.kind).toBe("audio_excerpt");
+      expect(message.perception.payload.transcriptRedacted).toBe(
+        "remember the meeting at 4pm",
+      );
+      expect(message.perception.payload.sessionId).toBe("session-123");
+    } finally {
+      sub.dispose();
+    }
+  });
+
+  test("does not publish audio_excerpt when consent is missing", async () => {
+    _setOverridesForTesting({
+      perception: true,
+      "perception-audio-excerpt": true,
+    });
+    // Intentionally no consent grant recorded.
+
+    const audioEvents: unknown[] = [];
+    const sub = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        const type = (event.message as { type?: string } | undefined)?.type;
+        if (type === `${PERCEPTION_EVENT_TYPE_PREFIX}.audio_excerpt`) {
+          audioEvents.push(event);
+        }
+      },
+    });
+
+    try {
+      const { session, transcriber } = createSessionWithTranscriber();
+      await session.start();
+      transcriber.emit({ type: "final", text: "no consent here" });
+      await session.handleClientFrame({ type: "ptt_release" });
+      expect(audioEvents).toEqual([]);
+    } finally {
+      sub.dispose();
+    }
+  });
+
+  test("does not publish audio_excerpt when sub-flag is off", async () => {
+    _setOverridesForTesting({
+      perception: true,
+      "perception-audio-excerpt": false,
+    });
+
+    const audioEvents: unknown[] = [];
+    const sub = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        const type = (event.message as { type?: string } | undefined)?.type;
+        if (type === `${PERCEPTION_EVENT_TYPE_PREFIX}.audio_excerpt`) {
+          audioEvents.push(event);
+        }
+      },
+    });
+
+    try {
+      const { session, transcriber } = createSessionWithTranscriber();
+      await session.start();
+      transcriber.emit({ type: "final", text: "hi" });
+      await session.handleClientFrame({ type: "ptt_release" });
+      expect(audioEvents).toEqual([]);
+    } finally {
+      sub.dispose();
+    }
+  });
+
   test("resolves streaming STT through the injected resolver and sends ready", async () => {
     const { frames, resolver, session, transcriber } =
       createSessionWithTranscriber();
@@ -149,7 +289,7 @@ describe("LiveVoiceSession STT", () => {
     expect(session.finalTranscriptText).toBe("hello world final transcript");
   });
 
-  test("treats ptt_release as end-of-utterance and rejects later audio", async () => {
+  test("treats ptt_release as end-of-utterance and drops later audio", async () => {
     const { frames, session, transcriber } = createSessionWithTranscriber();
 
     await session.start();
@@ -163,20 +303,7 @@ describe("LiveVoiceSession STT", () => {
 
     expect(transcriber.stopped).toBe(true);
     expect(transcriber.audioChunks.map((chunk) => [...chunk])).toEqual([[1]]);
-    expect(frames.filter((frame) => frame.type === "error")).toEqual([
-      {
-        type: "error",
-        seq: 4,
-        code: "invalid_audio_payload",
-        message: "Live voice audio received after push-to-talk release.",
-      },
-      {
-        type: "error",
-        seq: 5,
-        code: "invalid_audio_payload",
-        message: "Live voice audio received after push-to-talk release.",
-      },
-    ]);
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
   });
 
   test("returns a readable error frame when streaming STT is unavailable", async () => {

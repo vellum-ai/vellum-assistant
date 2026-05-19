@@ -88,6 +88,9 @@ export interface VoiceRunEventSink {
   ): void;
   onError(message: string): void;
   onToolUse(toolName: string, input: Record<string, unknown>): void;
+  onActionLifecycle(
+    msg: Extract<ServerMessage, { type: "action_lifecycle" }>,
+  ): void;
 }
 
 export interface VoiceTurnCallbacks {
@@ -102,6 +105,9 @@ export interface VoiceTurnCallbacks {
   ) => void;
   persisted_user_message_id?: (messageId: string) => void;
   persisted_assistant_message_id?: (messageId: string) => void;
+  action_lifecycle?: (
+    msg: Extract<ServerMessage, { type: "action_lifecycle" }>,
+  ) => void;
 }
 
 export interface VoiceTurnOptions {
@@ -309,6 +315,9 @@ export async function startVoiceTurn(
     },
     onToolUse: (toolName, input) => {
       log.debug({ toolName, input }, "Voice turn tool_use event");
+    },
+    onActionLifecycle: (msg) => {
+      opts.callbacks?.action_lifecycle?.(msg);
     },
   };
 
@@ -582,6 +591,8 @@ export async function startVoiceTurn(
             eventSink.onError(msg.userMessage);
           } else if (msg.type === "tool_use_start") {
             eventSink.onToolUse(msg.toolName, msg.input);
+          } else if (msg.type === "action_lifecycle") {
+            eventSink.onActionLifecycle(msg);
           }
           // Note: tool_use_preview_start is intentionally not handled here.
           // Voice only reacts to the definitive tool_use_start event.

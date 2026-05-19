@@ -78,6 +78,22 @@ const DEFAULT_PCM_SAMPLE_RATE = 16_000;
  */
 const DEFAULT_PCM_CHANNELS = 1;
 
+/**
+ * Minimum accumulated PCM duration (ms) before the first incremental
+ * poll is sent to Whisper. `whisper-1` reliably hallucinates training-set
+ * phrases ("Thank you.", "Thanks for watching.", "Goodbye.") when given
+ * <1 s of audio — see `isLikelyWhisperHallucination` for the canonical
+ * list and OpenAI's published guidance.
+ *
+ * Deferring the first poll lets enough real signal accumulate that the
+ * model has a chance to transcribe actual speech instead of guessing.
+ * Subsequent polls have plenty of context, so they are not gated.
+ *
+ * Only applies when the input MIME type is `audio/pcm` (the only format
+ * for which we can cheaply compute duration from byte length).
+ */
+const DEFAULT_MIN_PCM_POLL_DURATION_MS = 1_000;
+
 // ---------------------------------------------------------------------------
 // Options
 // ---------------------------------------------------------------------------
@@ -89,6 +105,12 @@ export interface OpenAIWhisperStreamOptions {
   pcmSampleRate?: number;
   /** PCM channel count when receiving `audio/pcm` input (default: 1). */
   pcmChannels?: number;
+  /**
+   * Minimum accumulated PCM duration (ms) before the first poll fires.
+   * Tests can set this to 0 to keep their existing semantics.
+   * Defaults to {@link DEFAULT_MIN_PCM_POLL_DURATION_MS}.
+   */
+  minPcmPollDurationMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +125,7 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
   private readonly pollIntervalMs: number;
   private readonly pcmSampleRate: number;
   private readonly pcmChannels: number;
+  private readonly minPcmPollDurationMs: number;
 
   /** Accumulated audio chunks across the entire session. */
   private audioChunks: Buffer[] = [];
@@ -136,6 +159,8 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
     this.pollIntervalMs = options.pollIntervalMs ?? POLL_INTERVAL_MS;
     this.pcmSampleRate = options.pcmSampleRate ?? DEFAULT_PCM_SAMPLE_RATE;
     this.pcmChannels = options.pcmChannels ?? DEFAULT_PCM_CHANNELS;
+    this.minPcmPollDurationMs =
+      options.minPcmPollDurationMs ?? DEFAULT_MIN_PCM_POLL_DURATION_MS;
   }
 
   // -----------------------------------------------------------------------
@@ -162,6 +187,7 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
       );
     }
     if (this.stopped) return;
+    if (audio.byteLength === 0) return;
 
     this.audioChunks.push(audio);
     this.audioMimeType = mimeType;
@@ -221,6 +247,22 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
   private async doPoll(): Promise<void> {
     if (this.stopped || this.polling || !this.audioDirty) return;
 
+    // Whisper-1 hallucinates canonical phrases ("Thank you.",
+    // "Thanks for watching.", "Goodbye.") on very short audio. Defer
+    // the first poll until we have enough PCM accumulated to give the
+    // model real context. `audioDirty` stays true so the next sendAudio
+    // reschedules; we only update `lastPollTime` so the rescheduled
+    // poll respects the standard interval rather than firing
+    // immediately.
+    if (this.shouldDeferPollForShortAudio()) {
+      log.debug(
+        { durationMs: this.accumulatedPcmDurationMs() },
+        "Deferring Whisper poll until enough audio has accumulated",
+      );
+      this.lastPollTime = Date.now();
+      return;
+    }
+
     this.polling = true;
     this.audioDirty = false;
 
@@ -258,6 +300,11 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
         this.emit({ type: "partial", text });
       }
     } catch (err) {
+      if (isWhisperAudioTooShortError(err)) {
+        log.debug({ error: err }, "Ignoring too-short Whisper poll input");
+        return;
+      }
+
       // Transient errors during polling are non-fatal — the final
       // request on stop() will capture the complete audio.
       log.warn({ error: err }, "Incremental poll request failed");
@@ -304,6 +351,15 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
         this.emit({ type: "final", text: this.lastEmittedText });
       }
     } catch (err) {
+      if (isWhisperAudioTooShortError(err)) {
+        log.info(
+          { error: err },
+          "Treating too-short Whisper final input as silence",
+        );
+        this.emit({ type: "final", text: this.lastEmittedText });
+        return;
+      }
+
       log.error({ error: err }, "Final transcription request failed");
       const message = err instanceof Error ? err.message : String(err);
       this.emit({ type: "error", category: "provider-error", message });
@@ -363,6 +419,39 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
     return base === "audio/pcm";
   }
 
+  /**
+   * Accumulated PCM audio duration in milliseconds, derived from the
+   * total byte length of the buffered chunks and the configured PCM
+   * sample rate / channel count. Returns 0 for non-PCM inputs since we
+   * can't cheaply compute compressed-frame durations.
+   */
+  private accumulatedPcmDurationMs(): number {
+    if (!this.isPcmMimeType(this.audioMimeType)) return 0;
+    const bytesPerSecond = this.pcmSampleRate * this.pcmChannels * 2;
+    if (bytesPerSecond <= 0) return 0;
+    let totalBytes = 0;
+    for (const chunk of this.audioChunks) {
+      totalBytes += chunk.byteLength;
+    }
+    return (totalBytes / bytesPerSecond) * 1000;
+  }
+
+  /**
+   * Returns true when we should bail out of the current poll attempt
+   * because there is not yet enough audio accumulated for Whisper to
+   * transcribe reliably without hallucinating.
+   *
+   * The threshold is bypassed once a partial has already been emitted,
+   * since by then we are past the hallucination-prone first window and
+   * need lower-latency incremental updates for the UI.
+   */
+  private shouldDeferPollForShortAudio(): boolean {
+    if (this.minPcmPollDurationMs <= 0) return false;
+    if (this.lastEmittedText.length > 0) return false;
+    if (!this.isPcmMimeType(this.audioMimeType)) return false;
+    return this.accumulatedPcmDurationMs() < this.minPcmPollDurationMs;
+  }
+
   // -----------------------------------------------------------------------
   // Event emission
   // -----------------------------------------------------------------------
@@ -378,4 +467,13 @@ export class OpenAIWhisperStreamingTranscriber implements StreamingTranscriber {
       );
     }
   }
+}
+
+function isWhisperAudioTooShortError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("Audio file is too short") ||
+    message.includes("Minimum audio length") ||
+    /"duration"\s*:\s*0/.test(message)
+  );
 }

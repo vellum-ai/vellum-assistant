@@ -5,15 +5,24 @@ import type {
   VoiceTurnHandle,
   VoiceTurnOptions,
 } from "../calls/voice-session-bridge.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getConfig } from "../config/loader.js";
+import type { ActionLifecycleMessage } from "../daemon/message-types/actions.js";
+import { hasActivePerceptionConsent } from "../perception/consent-grants.js";
+import { perceptionEventType } from "../perception/perception-event.js";
+import { buildPerceptionKnowledgeContext } from "../perception/personal-knowledge-context.js";
+import { sanitizeText } from "../perception/sanitization.js";
 import {
   listProviderIds,
   supportsBoundary,
 } from "../providers/speech-to-text/provider-catalog.js";
 import type { ResolveStreamingTranscriberOptions } from "../providers/speech-to-text/resolve.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../stt/types.js";
+import { getLogger } from "../util/logger.js";
 import type {
   LiveVoiceAudioArchiveResult,
   LiveVoiceAudioArchiveRole,
@@ -33,6 +42,8 @@ import {
 import type {
   LiveVoiceTtsOptions,
   LiveVoiceTtsResult,
+  LiveVoiceTtsSession,
+  LiveVoiceTtsSessionOptions,
 } from "./live-voice-tts.js";
 import {
   type LiveVoiceClientFrame,
@@ -49,9 +60,23 @@ type LiveVoiceSessionState =
   | "failed"
   | "closed";
 
+const log = getLogger("live-voice");
+
 const LIVE_VOICE_TTS_SEGMENT_CHAR_THRESHOLD = 180;
 const SENTENCE_ENDING_PUNCTUATION = new Set([".", "!", "?"]);
 const TRAILING_SENTENCE_PUNCTUATION = new Set(['"', "'", ")", "]"]);
+
+function resolveLiveVoiceSourceChannel(
+  sourceChannel: string | undefined,
+): "vellum" {
+  return sourceChannel === "vellum" ? sourceChannel : "vellum";
+}
+
+function resolveLiveVoiceSourceInterface(
+  sourceInterface: string | undefined,
+): "macos" | "tauri" {
+  return sourceInterface === "tauri" ? sourceInterface : "macos";
+}
 
 export type LiveVoiceStreamingTranscriberResolver = (
   options: ResolveStreamingTranscriberOptions,
@@ -64,6 +89,22 @@ export type LiveVoiceTurnStarter = (
 export type LiveVoiceTtsStreamer = (
   options: LiveVoiceTtsOptions,
 ) => Promise<LiveVoiceTtsResult>;
+
+/**
+ * Opens a persistent multi-utterance streaming TTS session. Live-voice
+ * prefers this path when the configured provider supports it (currently
+ * xAI) because it amortises the WebSocket handshake across every text
+ * delta in the turn — eliminating the per-segment latency the streamer
+ * path otherwise pays.
+ *
+ * The function is expected to throw a `LiveVoiceTtsError` with code
+ * `LIVE_VOICE_TTS_STREAMING_UNAVAILABLE` when the provider can't open a
+ * session; callers should treat that as a soft fallback signal and revert
+ * to per-segment `streamTtsAudio` for the remainder of the turn.
+ */
+export type LiveVoiceTtsSessionOpener = (
+  options: LiveVoiceTtsSessionOptions,
+) => Promise<LiveVoiceTtsSession>;
 
 export interface LiveVoiceSessionArchiveAudioInput {
   messageId?: string | null;
@@ -87,10 +128,24 @@ export interface LiveVoiceSessionOptions {
   resolveTranscriber?: LiveVoiceStreamingTranscriberResolver;
   startVoiceTurn?: LiveVoiceTurnStarter;
   streamTtsAudio?: LiveVoiceTtsStreamer | null;
+  /**
+   * Optional persistent-session TTS opener. When provided, the session
+   * runs in "stream-as-you-speak" mode: every assistant text delta is
+   * forwarded to the open session as-is and the provider (e.g. xAI)
+   * streams audio chunks back as it produces them — bypassing the
+   * sentence-segmentation buffer entirely. The session is finalized at
+   * `message_complete` and closed on abort/error.
+   *
+   * If the opener throws `LIVE_VOICE_TTS_STREAMING_UNAVAILABLE` (provider
+   * does not support sessions), the session silently falls back to the
+   * per-segment `streamTtsAudio` path for that turn.
+   */
+  openTtsStreamingSession?: LiveVoiceTtsSessionOpener | null;
   archiveAudio?: LiveVoiceSessionAudioArchiver | null;
   emitMetrics?: boolean;
   metricsClock?: LiveVoiceMetricsClock;
   createTurnId?: () => string;
+  getPerceptionMemoryContext?: () => string | null;
 }
 
 interface ActiveAssistantTurn {
@@ -103,12 +158,24 @@ interface ActiveAssistantTurn {
   finalized: boolean;
   ttsBuffer: string;
   ttsQueue: Promise<void>;
+  /**
+   * Lazy persistent TTS session promise. `null` when no opener is
+   * configured. Resolves to a session when streaming-session mode is in
+   * use, or `null` when the opener bailed (e.g. provider doesn't support
+   * sessions) and we've fallen back to per-segment mode.
+   */
+  ttsSessionPromise: Promise<LiveVoiceTtsSession | null> | null;
+  /** Pending tts_audio frames written from the session's chunk callback. */
+  ttsSessionAudioFrames: Promise<void>;
+  /** True once the session has been finalized or aborted. */
+  ttsSessionFinalized: boolean;
   userMessageId: string | null;
   assistantMessageId: string | null;
   userAudioChunks: Buffer[];
   assistantAudioChunks: Buffer[];
   assistantAudioMimeType: string;
   assistantAudioSampleRate?: number;
+  announcedActionLifecycleStages: Set<string>;
 }
 
 export class LiveVoiceSession implements LiveVoiceSessionContract {
@@ -116,10 +183,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly resolveTranscriber: LiveVoiceStreamingTranscriberResolver;
   private readonly startVoiceTurn: LiveVoiceTurnStarter | null;
   private readonly streamTtsAudio: LiveVoiceTtsStreamer | null;
+  private readonly openTtsStreamingSession: LiveVoiceTtsSessionOpener | null;
   private readonly archiveAudio: LiveVoiceSessionAudioArchiver | null;
   private readonly emitMetrics: boolean;
   private readonly metrics: LiveVoiceMetricsCollector;
   private readonly createTurnId: () => string;
+  private readonly getPerceptionMemoryContext: () => string | null;
   private readonly conversationId: string;
   private state: LiveVoiceSessionState = "initializing";
   private transcriber: StreamingTranscriber | null = null;
@@ -133,7 +202,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private currentUserAudioChunks: Buffer[] = [];
   private metricsTurnStarted = false;
   private metricsTurnFinished = false;
+  private terminalTurnFrameSent = false;
   private sessionEndMetricsEmitted = false;
+  /**
+   * Probed once during `start()` and frozen for the rest of the session.
+   * `true` means the active TTS provider advertised support for persistent
+   * streaming sessions AND `openTtsStreamingSession` was wired — every
+   * assistant turn in this session will use the session-mode pipeline.
+   * `false` keeps the session on the per-segment `streamTtsAudio` path.
+   *
+   * Probing eagerly here (rather than lazily on the first delta) avoids
+   * the queue race condition that would arise from mixing session-mode and
+   * segment-mode work within the same turn.
+   */
+  private ttsStreamingSessionsSupported = false;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -144,9 +226,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       options.resolveTranscriber ?? defaultResolveStreamingTranscriber;
     this.startVoiceTurn = options.startVoiceTurn ?? null;
     this.streamTtsAudio = options.streamTtsAudio ?? null;
+    this.openTtsStreamingSession = options.openTtsStreamingSession ?? null;
     this.archiveAudio = options.archiveAudio ?? null;
     this.emitMetrics = options.emitMetrics ?? false;
     this.createTurnId = options.createTurnId ?? randomUUID;
+    this.getPerceptionMemoryContext =
+      options.getPerceptionMemoryContext ?? defaultPerceptionMemoryContext;
     this.conversationId =
       context.startFrame.conversationId ?? context.sessionId;
     this.metrics = new LiveVoiceMetricsCollector({
@@ -187,6 +272,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         this.transcriber = null;
         return;
       }
+
+      // Streaming-session support is settled at session-create time by the
+      // caller (factory wires the opener iff the configured provider
+      // advertises capability). A non-null opener means we're committed to
+      // session-mode for every assistant turn in this session.
+      this.ttsStreamingSessionsSupported = Boolean(
+        this.openTtsStreamingSession,
+      );
 
       this.state = "active";
       this.metrics.markReady();
@@ -253,7 +346,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.state === "utterance_released" ||
       this.state === "transcriber_closed"
     ) {
-      await this.sendAudioAfterReleaseError();
+      // Browser mic pipelines can deliver a few late frames after the client
+      // sends `ptt_release`. The utterance boundary is already fixed, so drop
+      // them silently rather than flooding the HUD with recoverable errors.
       return;
     }
 
@@ -336,6 +431,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         }
         this.markFinalTranscript();
         await this.sendFrame({ type: "stt_final", text: event.text });
+        await this.publishAudioExcerpt(transcript);
         await this.startAssistantTurnIfReady();
         return;
       }
@@ -384,6 +480,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const content = this.finalTranscriptText.trim();
     if (content.length === 0) {
       await this.finalizePendingTurn("empty_transcript");
+      await this.sendTerminalTurnFrame();
       return;
     }
 
@@ -402,11 +499,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       finalized: false,
       ttsBuffer: "",
       ttsQueue: Promise.resolve(),
+      ttsSessionPromise: null,
+      ttsSessionAudioFrames: Promise.resolve(),
+      ttsSessionFinalized: false,
       userMessageId: this.currentUserMessageId,
       assistantMessageId: null,
       userAudioChunks: this.currentUserAudioChunks,
       assistantAudioChunks: [],
       assistantAudioMimeType: "audio/pcm",
+      announcedActionLifecycleStages: new Set<string>(),
     };
 
     await this.sendFrame({ type: "thinking", turnId });
@@ -416,12 +517,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       const handle = await this.startVoiceTurn({
         conversationId: this.conversationId,
         voiceSessionId: this.context.sessionId,
-        userMessageChannel: "vellum",
-        assistantMessageChannel: "vellum",
-        userMessageInterface: "macos",
-        assistantMessageInterface: "macos",
-        voiceControlPrompt:
-          "You are speaking in a local live voice session. Keep replies brief and conversational.",
+        userMessageChannel: resolveLiveVoiceSourceChannel(
+          this.context.startFrame.sourceChannel,
+        ),
+        assistantMessageChannel: resolveLiveVoiceSourceChannel(
+          this.context.startFrame.sourceChannel,
+        ),
+        userMessageInterface: resolveLiveVoiceSourceInterface(
+          this.context.startFrame.sourceInterface,
+        ),
+        assistantMessageInterface: resolveLiveVoiceSourceInterface(
+          this.context.startFrame.sourceInterface,
+        ),
+        voiceControlPrompt: buildLiveVoiceControlPrompt(
+          this.getPerceptionMemoryContext(),
+        ),
         approvalMode: "local-live-voice",
         content,
         isInbound: true,
@@ -468,6 +578,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             if (activeTurn?.token !== token) return;
             activeTurn.assistantMessageId = messageId;
           },
+          action_lifecycle: (msg) => {
+            if (!this.isActiveAssistantTurn(token)) return;
+            void this.handleActionLifecycleUpdate(token, msg);
+          },
         },
         onError: (message) => {
           if (!this.isActiveAssistantTurn(token)) return;
@@ -510,6 +624,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
   }
 
+  private async handleActionLifecycleUpdate(
+    token: symbol,
+    msg: ActionLifecycleMessage,
+  ): Promise<void> {
+    const activeTurn = this.activeAssistantTurn;
+    if (activeTurn?.token !== token || activeTurn.assistantCompleted) return;
+    const lifecycleKey = `${msg.actionId}:${msg.stage}`;
+    if (activeTurn.announcedActionLifecycleStages.has(lifecycleKey)) return;
+    activeTurn.announcedActionLifecycleStages.add(lifecycleKey);
+
+    const cue = actionLifecycleCue(msg);
+    if (!cue) return;
+
+    await this.sendFrame(
+      {
+        type: "assistant_text_delta",
+        text: cue,
+      },
+      () => this.isForwardingAssistantText(token),
+    );
+    this.bufferAssistantTextForTts(token, cue);
+  }
+
   private async cancelAssistantTurn(reason: string): Promise<void> {
     const turn = this.activeAssistantTurn;
     if (!turn) {
@@ -520,6 +657,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.activeAssistantTurn = null;
     turn.abortController.abort();
     turn.handle?.abort();
+    // Best-effort: if a streaming TTS session was opened for this turn,
+    // tear it down so the upstream WebSocket releases promptly. The session
+    // already listens to abortController.signal but closing explicitly here
+    // avoids relying on signal-handler ordering.
+    if (turn.ttsSessionPromise) {
+      void turn.ttsSessionPromise.then(async (session) => {
+        if (!session) return;
+        try {
+          await session.close();
+        } catch {
+          // ignore close errors during cancellation
+        }
+      });
+    }
     await this.finalizeAssistantTurn(turn, "cancelled", reason);
   }
 
@@ -552,11 +703,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private bufferAssistantTextForTts(token: symbol, text: string): void {
-    if (!this.streamTtsAudio || text.length === 0) return;
+    if (text.length === 0) return;
 
     const activeTurn = this.activeAssistantTurn;
     if (activeTurn?.token !== token || activeTurn.assistantCompleted) return;
 
+    // Streaming-session mode: forward every delta into a single persistent
+    // session for this turn. xAI handles segmentation/synthesis pacing
+    // itself, so we don't need to buffer up sentence boundaries.
+    if (this.ttsStreamingSessionsSupported && this.openTtsStreamingSession) {
+      this.appendTextToTtsStreamingSession(token, text);
+      return;
+    }
+
+    if (!this.streamTtsAudio) return;
     activeTurn.ttsBuffer += text;
     this.flushTtsBuffer(token, false);
   }
@@ -564,6 +724,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private completeTtsForTurn(token: symbol): void {
     const activeTurn = this.activeAssistantTurn;
     if (activeTurn?.token !== token) return;
+
+    // Streaming-session mode: finalize the active session, then signal the
+    // client. The session emits its terminal audio chunk via the existing
+    // chunk pipeline so playback finishes naturally.
+    if (this.ttsStreamingSessionsSupported && this.openTtsStreamingSession) {
+      this.finalizeTtsStreamingSessionForTurn(token);
+      return;
+    }
 
     this.flushTtsBuffer(token, true);
     activeTurn.ttsQueue = activeTurn.ttsQueue
@@ -595,6 +763,187 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           }
         }
       });
+  }
+
+  /**
+   * Lazy-open the persistent TTS session for this turn (if not already
+   * open) and append the delta. The session-mode opener is only wired in
+   * the factory when the configured provider advertises session support,
+   * so any open failure here is a hard error (network/auth) and we surface
+   * it as an error frame to the client.
+   */
+  private appendTextToTtsStreamingSession(token: symbol, text: string): void {
+    const activeTurn = this.activeAssistantTurn;
+    if (activeTurn?.token !== token) return;
+
+    if (!activeTurn.ttsSessionPromise) {
+      activeTurn.ttsSessionPromise = this.openLiveVoiceTtsSessionForTurn(
+        token,
+        activeTurn,
+      );
+    }
+
+    const sessionPromise = activeTurn.ttsSessionPromise;
+    activeTurn.ttsQueue = activeTurn.ttsQueue
+      .catch(() => {})
+      .then(async () => {
+        let session: LiveVoiceTtsSession | null = null;
+        try {
+          session = await sessionPromise;
+        } catch (err) {
+          log.warn(
+            { message: errorMessage(err) },
+            "Live voice TTS streaming-session open failed",
+          );
+          if (!this.isForwardingTts(token)) return;
+          await this.sendFrame(
+            {
+              type: "error",
+              code: LiveVoiceProtocolErrorCode.InvalidField,
+              message: `Live voice TTS failed: ${errorMessage(err)}`,
+            },
+            () => this.isForwardingTts(token),
+          );
+          return;
+        }
+        if (!session) return;
+
+        const currentTurn = this.activeAssistantTurn;
+        if (
+          currentTurn?.token !== token ||
+          currentTurn.abortController.signal.aborted ||
+          currentTurn.ttsSessionFinalized
+        ) {
+          return;
+        }
+
+        try {
+          await session.appendText(text);
+        } catch (err) {
+          log.warn(
+            { textLength: text.length, message: errorMessage(err) },
+            "Live voice TTS streaming-session appendText failed",
+          );
+          if (!this.isForwardingTts(token)) return;
+          await this.sendFrame(
+            {
+              type: "error",
+              code: LiveVoiceProtocolErrorCode.InvalidField,
+              message: `Live voice TTS failed: ${errorMessage(err)}`,
+            },
+            () => this.isForwardingTts(token),
+          );
+        }
+      });
+  }
+
+  /**
+   * Finalize the streaming TTS session for `token`'s turn, wait for the
+   * provider to emit its terminal audio chunk, then send `tts_done`.
+   */
+  private finalizeTtsStreamingSessionForTurn(token: symbol): void {
+    const activeTurn = this.activeAssistantTurn;
+    if (activeTurn?.token !== token) return;
+
+    const sessionPromise = activeTurn.ttsSessionPromise;
+    activeTurn.ttsQueue = activeTurn.ttsQueue
+      .catch(() => {})
+      .then(async () => {
+        const currentTurn = this.activeAssistantTurn;
+        if (currentTurn?.token !== token || currentTurn.ttsDone) return;
+
+        let session: LiveVoiceTtsSession | null = null;
+        if (sessionPromise) {
+          try {
+            session = await sessionPromise;
+          } catch {
+            // appendText path already surfaced the error frame; here we
+            // just continue to send tts_done so the client can clean up.
+            session = null;
+          }
+        }
+
+        if (session && !currentTurn.ttsSessionFinalized) {
+          currentTurn.ttsSessionFinalized = true;
+          try {
+            await session.finalize();
+          } catch (err) {
+            log.warn(
+              { message: errorMessage(err) },
+              "Live voice TTS streaming-session finalize failed",
+            );
+          }
+          await currentTurn.ttsSessionAudioFrames;
+          try {
+            await session.close();
+          } catch {
+            // ignore close errors
+          }
+        }
+
+        currentTurn.ttsDone = true;
+        await this.finalizeAssistantTurn(
+          currentTurn,
+          "completed",
+          "completed",
+          {
+            clearActive: false,
+          },
+        );
+        await this.sendFrame(
+          { type: "tts_done", turnId: currentTurn.turnId },
+          () =>
+            this.activeAssistantTurn?.token === token &&
+            currentTurn.finalized &&
+            !this.isClosed,
+        );
+
+        if (this.activeAssistantTurn?.token === token) {
+          if (currentTurn.handle && currentTurn.finalized) {
+            this.activeAssistantTurn = null;
+          }
+        }
+      });
+  }
+
+  /**
+   * Open a live-voice TTS streaming session for the given turn. Errors
+   * propagate up to the queue chain that called this method — the caller
+   * surfaces them as a client-facing error frame.
+   */
+  private async openLiveVoiceTtsSessionForTurn(
+    token: symbol,
+    activeTurn: ActiveAssistantTurn,
+  ): Promise<LiveVoiceTtsSession | null> {
+    if (!this.openTtsStreamingSession) return null;
+    return await this.openTtsStreamingSession({
+      signal: activeTurn.abortController.signal,
+      outputFormat: "pcm",
+      sampleRate: this.context.startFrame.audio.sampleRate,
+      onAudioChunk: (chunk) => {
+        if (!this.isForwardingTts(token)) return;
+        const liveTurn = this.activeAssistantTurn;
+        if (liveTurn?.token !== token) return;
+        liveTurn.assistantAudioChunks.push(
+          Buffer.from(chunk.dataBase64, "base64"),
+        );
+        liveTurn.assistantAudioMimeType = chunk.contentType;
+        liveTurn.assistantAudioSampleRate = chunk.sampleRate;
+        this.metrics.markFirstTtsAudio(liveTurn.turnId);
+        liveTurn.ttsSessionAudioFrames = liveTurn.ttsSessionAudioFrames.then(
+          () =>
+            this.sendFrame(
+              {
+                type: "tts_audio",
+                mimeType: chunk.contentType,
+                sampleRate: chunk.sampleRate,
+                dataBase64: chunk.dataBase64,
+              },
+              () => this.isForwardingTts(token),
+            ),
+        );
+      },
+    });
   }
 
   private flushTtsBuffer(token: symbol, force: boolean): void {
@@ -665,6 +1014,35 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           });
           await ttsAudioFrames;
         } catch (err) {
+          // The catch path used to be silent on the daemon side — the only
+          // signal was the `error` frame sent to the client. That made
+          // diagnosing provider auth/config/network failures impossible
+          // without attaching a debugger. Log the full error here so the
+          // failure mode is visible in the assistant log alongside the
+          // user-facing error frame.
+          const errAsAny = err as Error & {
+            code?: unknown;
+            statusCode?: unknown;
+            cause?: unknown;
+          };
+          log.warn(
+            {
+              segmentLength: segment.length,
+              errorName: errAsAny?.name,
+              errorCode:
+                typeof errAsAny?.code === "string" ? errAsAny.code : undefined,
+              statusCode:
+                typeof errAsAny?.statusCode === "number"
+                  ? errAsAny.statusCode
+                  : undefined,
+              cause:
+                errAsAny?.cause instanceof Error
+                  ? errAsAny.cause.message
+                  : undefined,
+              message: errorMessage(err),
+            },
+            "Live voice TTS segment synthesis failed",
+          );
           if (!this.isForwardingTts(token)) return;
           await this.sendFrame(
             {
@@ -734,6 +1112,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       assistantAudioMimeType: "audio/pcm",
     });
     await this.finishMetricsTurn("cancelled", reason, turnId);
+  }
+
+  private async sendTerminalTurnFrame(): Promise<void> {
+    const turnId = this.currentTurnId;
+    if (!turnId || this.terminalTurnFrameSent || this.isClosed) return;
+    this.terminalTurnFrameSent = true;
+    await this.sendFrame({ type: "tts_done", turnId });
   }
 
   private async finalizeAssistantTurn(
@@ -930,14 +1315,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     throw new LiveVoiceSessionStartupError(message);
   }
 
-  private async sendAudioAfterReleaseError(): Promise<void> {
-    await this.sendFrame({
-      type: "error",
-      code: LiveVoiceProtocolErrorCode.InvalidAudioPayload,
-      message: "Live voice audio received after push-to-talk release.",
-    });
-  }
-
   private async sendFrame(
     frame: LiveVoiceServerFramePayload,
     shouldSend: () => boolean = () => true,
@@ -959,6 +1336,74 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.outboundFrames.catch(() => {});
   }
 
+  /**
+   * Best-effort publish of a finalised STT turn as a `perception.audio_excerpt`
+   * event so the assistant can reason over spoken context.
+   *
+   * Gated by:
+   * - The master `perception` flag (must be on for any perception event).
+   * - The sub-flag `perception-audio-excerpt` (default off).
+   * - A per-conversation `perception_consent_grants` row — that gate lands in
+   *   phase 4C and reuses the existing `confirmation_request` flow; until it
+   *   lands, the feature flag is the only gate. Failures here never bubble
+   *   back to the live-voice session.
+   */
+  private async publishAudioExcerpt(transcript: string): Promise<void> {
+    try {
+      if (transcript.length === 0) return;
+      const config = getConfig();
+      if (!isAssistantFeatureFlagEnabled("perception", config)) return;
+      if (!isAssistantFeatureFlagEnabled("perception-audio-excerpt", config)) {
+        return;
+      }
+
+      if (
+        !hasActivePerceptionConsent({
+          conversationId: this.conversationId,
+          eventKind: "audio_excerpt",
+        })
+      ) {
+        return;
+      }
+
+      const sanitized = sanitizeText(transcript, 1024);
+      if (sanitized.length === 0) return;
+
+      const eventId = `audio-excerpt:${this.context.sessionId}:${randomUUID()}`;
+      const ts = new Date().toISOString();
+
+      await assistantEventHub.publish({
+        id: eventId,
+        emittedAt: ts,
+        message: {
+          type: perceptionEventType("audio_excerpt"),
+          perception: {
+            eventId,
+            ts,
+            source: { module: "live-voice" },
+            payload: {
+              kind: "audio_excerpt",
+              conversationId: this.conversationId,
+              sessionId: this.context.sessionId,
+              turnId: this.conversationId,
+              transcriptRedacted: sanitized,
+              confidence: 1,
+            },
+          },
+        },
+      } as never);
+    } catch (err) {
+      log.warn(
+        {
+          err,
+          sessionId: this.context.sessionId,
+          conversationId: this.conversationId,
+        },
+        "failed to publish audio_excerpt perception event",
+      );
+    }
+  }
+
   private get isClosed(): boolean {
     return this.state === "closed";
   }
@@ -975,6 +1420,12 @@ export function createLiveVoiceSession(
       options.streamTtsAudio === undefined
         ? defaultStreamLiveVoiceTtsAudio
         : options.streamTtsAudio,
+    // The session-mode opener is OPT-IN. Production wiring (http-server)
+    // probes provider capability synchronously and passes
+    // `defaultOpenLiveVoiceTtsStreamingSession` when supported. Tests that
+    // don't pass `openTtsStreamingSession` get null and stay on the
+    // legacy per-segment path — preserving prior test behaviour.
+    openTtsStreamingSession: options.openTtsStreamingSession ?? null,
     archiveAudio:
       options.archiveAudio === undefined
         ? defaultArchiveLiveVoiceAudio
@@ -1003,6 +1454,20 @@ async function defaultStreamLiveVoiceTtsAudio(
 ): Promise<LiveVoiceTtsResult> {
   const { streamLiveVoiceTtsAudio } = await import("./live-voice-tts.js");
   return streamLiveVoiceTtsAudio(options);
+}
+
+/**
+ * Exported so production callers (`http-server.ts`) can wire it after a
+ * provider-capability probe. Tests that use `createLiveVoiceSession`
+ * directly without passing `openTtsStreamingSession` continue to get the
+ * legacy per-segment path.
+ */
+export async function defaultOpenLiveVoiceTtsStreamingSession(
+  options: LiveVoiceTtsSessionOptions,
+): Promise<LiveVoiceTtsSession> {
+  const { openLiveVoiceTtsStreamingSession } =
+    await import("./live-voice-tts.js");
+  return openLiveVoiceTtsStreamingSession(options);
 }
 
 async function defaultArchiveLiveVoiceAudio(
@@ -1141,4 +1606,52 @@ function stopTranscriberBestEffort(
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function buildLiveVoiceControlPrompt(
+  perceptionMemoryContext: string | null,
+): string {
+  const basePrompt =
+    "You are speaking in a local live voice session. Keep replies brief and conversational.";
+  if (!perceptionMemoryContext || perceptionMemoryContext.trim().length === 0) {
+    return basePrompt;
+  }
+  const escaped = perceptionMemoryContext.replace(
+    /<\/perception_memory\s*>/gi,
+    "&lt;/perception_memory&gt;",
+  );
+  return `${basePrompt}\n\n<perception_memory>\n${escaped}\n</perception_memory>`;
+}
+
+function defaultPerceptionMemoryContext(): string | null {
+  try {
+    return buildPerceptionKnowledgeContext();
+  } catch {
+    return null;
+  }
+}
+
+function actionLifecycleCue(msg: ActionLifecycleMessage): string | null {
+  const label = friendlyActionName(msg.actionName);
+  switch (msg.stage) {
+    case "started":
+      return `Starting ${label}. `;
+    case "executing":
+      return `Working on ${label}. `;
+    case "completed":
+      return `${label} complete. `;
+    case "failed":
+      return `${label} failed. `;
+    case "rollback_started":
+      return `Rolling back ${label}. `;
+    case "rollback_completed":
+      return `Rollback complete for ${label}. `;
+    default:
+      return null;
+  }
+}
+
+function friendlyActionName(actionName: string): string {
+  const normalized = actionName.replace(/[_-]+/g, " ").trim();
+  return normalized.length > 0 ? normalized : "action";
 }

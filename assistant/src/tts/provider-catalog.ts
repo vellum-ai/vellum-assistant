@@ -162,8 +162,8 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
     callMode: "synthesized-play",
     allowNativeFallback: false,
     capabilities: {
-      supportsStreaming: false,
-      supportedFormats: ["mp3", "wav"],
+      supportsStreaming: true,
+      supportedFormats: ["mp3", "wav", "pcm"],
     },
     secretRequirements: [
       {

@@ -149,6 +149,105 @@ export interface TtsProviderCapabilities {
    * Optional for backwards compatibility — treat `undefined` as `false`.
    */
   alignment?: boolean;
+
+  /**
+   * Whether the provider supports persistent multi-utterance streaming
+   * sessions via {@link TtsProvider.openStreamingSession}. Sessions let
+   * callers feed text deltas to a single long-lived transport (typically a
+   * WebSocket) — eliminating per-segment connection overhead and allowing
+   * the provider to start synthesising audio before the full text is known.
+   *
+   * Optional for backwards compatibility — treat `undefined` as `false`.
+   */
+  supportsStreamingSessions?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Streaming sessions
+// ---------------------------------------------------------------------------
+
+/** Options for opening a persistent streaming TTS session. */
+export interface TtsStreamingSessionOptions {
+  /** Product surface requesting synthesis. */
+  useCase: TtsUseCase;
+
+  /**
+   * Optional voice identifier whose format is provider-specific.
+   * Bound for the lifetime of the session.
+   */
+  voiceId?: string;
+
+  /**
+   * Optional hint requesting a specific output encoding.
+   * See {@link TtsSynthesisRequest.outputFormat}.
+   */
+  outputFormat?: "pcm";
+
+  /** Optional abort signal — closing it tears the session down. */
+  signal?: AbortSignal;
+
+  /**
+   * Invoked for each chunk of synthesised audio as it arrives from the
+   * provider. Chunks are in the format announced by the session's
+   * `contentType` and `sampleRate` fields.
+   */
+  onChunk: (chunk: Uint8Array) => void;
+
+  /**
+   * Optional per-phoneme alignment callback — only invoked by providers
+   * whose `capabilities.alignment` is `true`.
+   */
+  onAlignment?: (event: TtsAlignmentEvent) => void;
+}
+
+/**
+ * Persistent streaming TTS session.
+ *
+ * Sessions exist so callers can feed text incrementally without paying the
+ * per-call transport handshake cost. The expected lifecycle is:
+ *
+ *   1. {@link TtsProvider.openStreamingSession} opens the transport and
+ *      returns a session whose `contentType` and `sampleRate` are known.
+ *   2. The caller invokes {@link appendText} zero or more times as text
+ *      becomes available (e.g. on every assistant text delta).
+ *   3. The caller invokes {@link finalize} once the full text is known.
+ *      `finalize` resolves after the provider has emitted the final audio
+ *      chunk for this utterance.
+ *   4. The caller invokes {@link close} to release the transport, or aborts
+ *      the original signal.
+ *
+ * Sessions are single-utterance: after `finalize` resolves, subsequent
+ * `appendText` calls throw. Callers should open a fresh session per voice
+ * turn.
+ */
+export interface TtsStreamingSession {
+  /** MIME type that all audio chunks in this session will be in. */
+  readonly contentType: string;
+
+  /** Sample rate that all PCM/WAV chunks in this session will use. */
+  readonly sampleRate: number;
+
+  /**
+   * Feed additional text into the session. Resolves once the text has been
+   * accepted by the transport — not when audio is fully produced.
+   *
+   * Implementations must tolerate empty / whitespace-only strings (typically
+   * by no-oping) so callers can pipe assistant text deltas without filtering.
+   */
+  appendText(text: string): Promise<void>;
+
+  /**
+   * Signal that no more text will be appended. Resolves after the provider
+   * has emitted its terminal audio chunk and the session has cleanly closed.
+   */
+  finalize(): Promise<void>;
+
+  /**
+   * Tear the session down immediately. Safe to call after `finalize`
+   * (no-op) and from abort handlers (interrupts, errors). Resolves once
+   * the transport is closed.
+   */
+  close(): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,4 +295,19 @@ export interface TtsProvider {
     onChunk: (chunk: Uint8Array) => void,
     onAlignment?: (event: TtsAlignmentEvent) => void,
   ): Promise<TtsSynthesisResult>;
+
+  /**
+   * Open a persistent multi-utterance streaming session.
+   *
+   * Only required when `capabilities.supportsStreamingSessions` is `true`.
+   * See {@link TtsStreamingSession} for the contract.
+   *
+   * Live-voice callers prefer this method when the provider supports it
+   * because the transport (typically a WebSocket) stays open for the
+   * duration of the assistant turn — eliminating the per-segment handshake
+   * latency that synthesizeStream incurs.
+   */
+  openStreamingSession?(
+    options: TtsStreamingSessionOptions,
+  ): Promise<TtsStreamingSession>;
 }

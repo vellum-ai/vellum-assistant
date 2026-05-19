@@ -566,6 +566,47 @@ describe("voice-session-bridge", () => {
     });
   });
 
+  test("startVoiceTurn forwards action lifecycle events to callbacks", async () => {
+    const conversation = createConversation(
+      "voice bridge action lifecycle test",
+    );
+    const events: ServerMessage[] = [
+      {
+        type: "action_lifecycle",
+        actionId: "action-1",
+        actionName: "host_app_control",
+        stage: "executing",
+        ts: Date.now(),
+        conversationId: conversation.id,
+      },
+      { type: "message_complete", conversationId: conversation.id },
+    ];
+    const session = makeStreamingSession(events);
+    injectDeps(() => session);
+
+    const lifecycleEvents: Array<
+      Extract<ServerMessage, { type: "action_lifecycle" }>
+    > = [];
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: "do the action",
+      isInbound: true,
+      callbacks: {
+        action_lifecycle: (msg) => lifecycleEvents.push(msg),
+      },
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(lifecycleEvents).toHaveLength(1);
+    expect(lifecycleEvents[0]).toMatchObject({
+      actionId: "action-1",
+      stage: "executing",
+    });
+  });
+
   test("startVoiceTurn passes guardian context to the session", async () => {
     const conversation = createConversation(
       "voice bridge guardian context test",
