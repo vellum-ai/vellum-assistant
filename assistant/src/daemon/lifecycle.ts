@@ -269,8 +269,13 @@ async function startCesProcess(
 
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
+  const startupStartedAt = Date.now();
+  // dotenv loads before the first log call so the lazy root logger
+  // initializes against the final VELLUM_WORKSPACE_DIR / log path, not
+  // whatever was in the live environment at process spawn.
   loadDotEnv();
   validateEnv();
+  log.info({ version: APP_VERSION }, "Daemon starting");
 
   try {
     // Initialize crash reporting eagerly so early startup failures are
@@ -1228,7 +1233,6 @@ export async function runDaemon(): Promise<void> {
     }
 
     writePid(process.pid);
-    log.info({ pid: process.pid }, "Daemon started");
 
     // Install the `assistant` CLI symlink idempotently on every daemon start.
     // Non-blocking — failures are logged but don't affect startup.
@@ -1345,6 +1349,14 @@ export async function runDaemon(): Promise<void> {
         cleanupPidFile();
       },
     });
+
+    log.info(
+      {
+        durationMs: Date.now() - startupStartedAt,
+        pid: process.pid,
+      },
+      "Daemon started",
+    );
   } catch (err) {
     log.error({ err }, "Daemon startup failed — cleaning up");
     stopDiskPressureGuardForLifecycle();
