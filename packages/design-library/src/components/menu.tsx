@@ -183,7 +183,17 @@ function CheckboxItem({
 // RadioGroup / RadioItem
 // ---------------------------------------------------------------------------
 
-const RadioGroup = DropdownMenuPrimitive.RadioGroup;
+type RadioGroupProps = ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>;
+
+function RadioGroup({ ref, ...rest }: RadioGroupProps) {
+  return (
+    <DropdownMenuPrimitive.RadioGroup
+      ref={ref}
+      data-slot="menu-radio-group"
+      {...rest}
+    />
+  );
+}
 
 type RadioItemProps = ComponentProps<
   typeof DropdownMenuPrimitive.RadioItem
@@ -351,6 +361,7 @@ export {
   type ContentProps as MenuContentProps,
   type ItemProps as MenuItemProps,
   type CheckboxItemProps as MenuCheckboxItemProps,
+  type RadioGroupProps as MenuRadioGroupProps,
   type RadioItemProps as MenuRadioItemProps,
   type SeparatorProps as MenuSeparatorProps,
   type LabelProps as MenuLabelProps,

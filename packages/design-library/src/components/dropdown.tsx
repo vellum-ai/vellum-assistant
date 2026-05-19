@@ -15,6 +15,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { cn } from "../utils/cn.js";
 import { usePortalContainer } from "../utils/portal-container.js";
 
 export interface DropdownMenuPosition {
@@ -307,7 +308,7 @@ export function Dropdown<T extends string>({
             className="flex cursor-pointer items-center gap-2 px-3 py-2 text-body-medium-default transition-colors"
             style={{
               background: isHighlighted
-                ? "var(--ghost-hover)"
+                ? "var(--surface-hover)"
                 : "transparent",
               color: "var(--content-default)",
             }}
@@ -341,7 +342,7 @@ export function Dropdown<T extends string>({
     <div
       ref={containerRef}
       data-slot="dropdown"
-      className={`relative ${className ?? ""}`}
+      className={cn("relative", className)}
       style={style}
       onBlur={handleContainerBlur}
     >

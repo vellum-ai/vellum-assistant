@@ -161,7 +161,17 @@ function CheckboxItem({
 // RadioGroup / RadioItem
 // ---------------------------------------------------------------------------
 
-const RadioGroup = ContextMenuPrimitive.RadioGroup;
+type RadioGroupProps = ComponentProps<typeof ContextMenuPrimitive.RadioGroup>;
+
+function RadioGroup({ ref, ...rest }: RadioGroupProps) {
+  return (
+    <ContextMenuPrimitive.RadioGroup
+      ref={ref}
+      data-slot="context-menu-radio-group"
+      {...rest}
+    />
+  );
+}
 
 type RadioItemProps = ComponentProps<
   typeof ContextMenuPrimitive.RadioItem
@@ -329,6 +339,7 @@ export {
   type ContentProps as ContextMenuContentProps,
   type ItemProps as ContextMenuItemProps,
   type CheckboxItemProps as ContextMenuCheckboxItemProps,
+  type RadioGroupProps as ContextMenuRadioGroupProps,
   type RadioItemProps as ContextMenuRadioItemProps,
   type SeparatorProps as ContextMenuSeparatorProps,
   type LabelProps as ContextMenuLabelProps,

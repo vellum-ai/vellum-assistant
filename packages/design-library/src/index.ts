@@ -111,6 +111,40 @@ export {
   ConfirmDialog,
   type ConfirmDialogProps,
 } from "./components/confirm-dialog.js";
+export {
+  Menu,
+  type MenuContentProps,
+  type MenuItemProps,
+  type MenuCheckboxItemProps,
+  type MenuRadioGroupProps,
+  type MenuRadioItemProps,
+  type MenuSeparatorProps,
+  type MenuLabelProps,
+  type MenuSubTriggerProps,
+  type MenuSubContentProps,
+  type MenuTriggerProps,
+} from "./components/menu.js";
+export {
+  ContextMenu,
+  type ContextMenuContentProps,
+  type ContextMenuItemProps,
+  type ContextMenuCheckboxItemProps,
+  type ContextMenuRadioGroupProps,
+  type ContextMenuRadioItemProps,
+  type ContextMenuSeparatorProps,
+  type ContextMenuLabelProps,
+  type ContextMenuSubTriggerProps,
+  type ContextMenuSubContentProps,
+  type ContextMenuTriggerProps,
+} from "./components/context-menu.js";
+export {
+  Dropdown,
+  resolveDropdownMenuPosition,
+  type DropdownOption,
+  type DropdownProps,
+  type DropdownMenuPosition,
+  type DropdownMenuAlign,
+} from "./components/dropdown.js";
 export { cn } from "./utils/cn.js";
 export {
   PortalContainerProvider,
