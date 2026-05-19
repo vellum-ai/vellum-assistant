@@ -112,7 +112,7 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
         if let label { body["label"] = label }
         if let status { body["status"] = status.rawValue }
         if let baseUrl { body["base_url"] = baseUrl }
-        if let models { body["models"] = models.map { ["id": $0.id, "display_name": $0.displayName as Any].compactMapValues { $0 } } }
+        if let models { body["models"] = models.map { model -> [String: Any] in var d: [String: Any] = ["id": model.id]; if let dn = model.displayName { d["displayName"] = dn }; return d } }
         do {
             let response = try await GatewayHTTPClient.post(
                 path: "inference/provider-connections",
@@ -172,7 +172,7 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
         }
         if let outerModels = models {
             if let m = outerModels {
-                body["models"] = m.map { ["id": $0.id, "display_name": $0.displayName as Any].compactMapValues { $0 } }
+                body["models"] = m.map { model -> [String: Any] in var d: [String: Any] = ["id": model.id]; if let dn = model.displayName { d["displayName"] = dn }; return d }
             } else {
                 body["models"] = NSNull()
             }
