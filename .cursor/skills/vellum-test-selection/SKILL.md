@@ -17,7 +17,7 @@ Before any Bun command:
 export PATH="$HOME/.bun/bin:$PATH"
 ```
 
-Run commands from the package directory that owns the changed files, usually `assistant`, `gateway`, `cli`, or `clients/tauri`.
+Run commands from the package directory that owns the changed files, usually `assistant`, `gateway`, `cli`, `clients/macos`, or `clients/tauri`.
 
 ## Selection Workflow
 

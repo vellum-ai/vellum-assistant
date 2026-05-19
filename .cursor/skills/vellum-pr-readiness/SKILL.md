@@ -17,7 +17,7 @@ Confirm the branch is reviewable, scoped, and verified before opening a PR. Pref
    - Do not commit `.env`, credentials, tokens, private keys, or local workspace data.
    - `.env.example` is allowed only for placeholder values.
 4. Check scope:
-   - If the branch is too large, suggest using `split-to-prs`.
+   - If the branch is too large, suggest splitting it into smaller, reviewable PR branches.
    - Separate unrelated UI, backend, migration, and infra changes when practical.
 5. Check required follow-ups:
    - Migration needed for persisted data or workspace format changes.
