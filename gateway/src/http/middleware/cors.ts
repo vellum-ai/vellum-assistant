@@ -23,14 +23,15 @@ const log = getLogger("cors");
  * with "gateway offline" in the UI.
  *
  * The loopback bearer-token check on every protected route is the
- * actual security boundary — CORS just decides which browser-managed
- * origins are allowed to read the response. Accepting `localhost`
- * here matches whatever local Tauri/dev environment the user has
- * running; an unauthenticated origin still cannot read protected
- * data because it has no token.
+ * primary security boundary, but CORS still must avoid reflecting
+ * arbitrary localhost origins because some loopback endpoints are
+ * intentionally unauthenticated in bare-metal mode.
+ *
+ * For Tauri dev we only allow the known default ports (1420 app,
+ * 1421 HMR) rather than all localhost ports.
  */
 const WEBVIEW_ORIGIN_RE =
-  /^(?:https:\/\/[a-z0-9-]+\.vellum\.local|tauri:\/\/localhost|https?:\/\/(?:tauri\.)?localhost(?::\d+)?)$/;
+  /^(?:https:\/\/[a-z0-9-]+\.vellum\.local|tauri:\/\/localhost|https?:\/\/tauri\.localhost|https?:\/\/localhost:(?:1420|1421))$/;
 
 /**
  * Methods the webview bridge may use when calling custom route handlers.

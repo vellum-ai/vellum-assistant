@@ -10,8 +10,8 @@ function makeRequest(origin: string | null): Request {
 
 describe("resolveWebviewOrigin", () => {
   test("matches the macOS WKWebView origin", () => {
-    expect(resolveWebviewOrigin(makeRequest("https://eli.vellum.local"))).toBe(
-      "https://eli.vellum.local",
+    expect(resolveWebviewOrigin(makeRequest("https://app1.vellum.local"))).toBe(
+      "https://app1.vellum.local",
     );
   });
 
@@ -27,13 +27,12 @@ describe("resolveWebviewOrigin", () => {
     );
   });
 
-  test("matches the Tauri dev server (any port)", () => {
-    // Tauri's default `tauri dev` port is 1420, but users can change it.
+  test("matches the Tauri dev server default ports", () => {
     expect(resolveWebviewOrigin(makeRequest("http://localhost:1420"))).toBe(
       "http://localhost:1420",
     );
-    expect(resolveWebviewOrigin(makeRequest("http://localhost:5173"))).toBe(
-      "http://localhost:5173",
+    expect(resolveWebviewOrigin(makeRequest("http://localhost:1421"))).toBe(
+      "http://localhost:1421",
     );
   });
 
@@ -44,6 +43,9 @@ describe("resolveWebviewOrigin", () => {
     ).toBeNull();
     expect(
       resolveWebviewOrigin(makeRequest("http://127.0.0.1:1420")),
+    ).toBeNull();
+    expect(
+      resolveWebviewOrigin(makeRequest("http://localhost:5173")),
     ).toBeNull();
     expect(resolveWebviewOrigin(makeRequest(null))).toBeNull();
   });
