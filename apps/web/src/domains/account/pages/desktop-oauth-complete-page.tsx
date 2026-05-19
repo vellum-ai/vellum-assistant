@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
 
 // ── SVG icons ────────────────────────────────────────────────────────────────
@@ -237,7 +237,12 @@ export function DesktopOAuthCompletePage() {
     ? "You can close this tab and return to your assistant."
     : `${displayProvider || "Service"} connection failed. You can try again from the desktop app.`;
 
+  const completionSent = useRef(false);
+
   useEffect(() => {
+    if (completionSent.current) return;
+    completionSent.current = true;
+
     const payload: DesktopOAuthCompletePayload = {
       type: "vellum:oauth-complete",
       requestId,
