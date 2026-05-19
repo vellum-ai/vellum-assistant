@@ -4,15 +4,6 @@ import { routes } from "@/utils/routes.js";
 export const PROVIDER_ID = "workos-oidc";
 export const PROVIDER_CALLBACK_URL = routes.account.providerCallback;
 
-export function buildLoginRedirectUrl(
-  pathname: string,
-  searchParams: URLSearchParams,
-): string {
-  const qs = searchParams.toString();
-  const fullPath = qs ? `${pathname}?${qs}` : pathname;
-  return `${routes.account.login}?returnTo=${encodeURIComponent(fullPath)}`;
-}
-
 export function buildProviderCallbackUrl(returnTo: string | null): string {
   if (!returnTo) {
     return PROVIDER_CALLBACK_URL;
