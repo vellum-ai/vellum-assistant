@@ -25,6 +25,58 @@ const _require = createRequire(import.meta.url);
 // macOS AF_UNIX path limit (sun_path is 104 bytes, null-terminated → 103 usable).
 const DARWIN_UNIX_SOCKET_MAX_PATH_BYTES = 103;
 
+/**
+ * Resolve env-file values from the assistant repo root and merge them into
+ * `target` without overwriting existing keys.
+ *
+ * The CLI binary launches the daemon as a child process, but neither the
+ * compiled CLI nor a shell-invoked `vellum wake` auto-loads dotenv files —
+ * Bun's auto-`.env` behavior only fires for `bun run` invocations of `.ts`
+ * scripts directly. Without this helper, `XAI_API_KEY` / `OPENAI_API_KEY` /
+ * `PICOVOICE_ACCESS_KEY` placed in `.env.local` never reach the daemon,
+ * even though `.env.example` documents that path.
+ *
+ * Existing process-env values always win — this is purely a fallback so
+ * `.env.local` works as a local-dev secrets file.
+ */
+function applyRepoDotenvFallback(
+  assistantIndex: string,
+  target: Record<string, string | undefined>,
+): void {
+  // assistantIndex is `<repoRoot>/assistant/src/index.ts` in the source tree.
+  const repoRoot = dirname(dirname(dirname(assistantIndex)));
+  // Standard precedence: `.env.local` overrides `.env`. Both are optional.
+  for (const filename of [".env", ".env.local"]) {
+    const path = join(repoRoot, filename);
+    if (!existsSync(path)) continue;
+    let raw: string;
+    try {
+      raw = readFileSync(path, "utf-8");
+    } catch {
+      continue;
+    }
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq <= 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      if (!/^[A-Z][A-Z0-9_]*$/i.test(key)) continue;
+      let value = trimmed.slice(eq + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      if (value.length === 0) continue;
+      if (target[key] === undefined) {
+        target[key] = value;
+      }
+    }
+  }
+}
+
 // The longest socket filename we place in the workspace directory.
 // assistant-skill.sock = 20 chars, plus 1 for the "/" separator = 21 overhead.
 const LONGEST_SOCKET_FILENAME = "assistant-skill.sock";
@@ -393,6 +445,7 @@ async function startDaemonFromSource(
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
       : {}),
   };
+  applyRepoDotenvFallback(assistantIndex, env);
   if (resources) {
     env.VELLUM_WORKSPACE_DIR = join(
       resources.instanceDir,
@@ -530,6 +583,7 @@ async function startDaemonWatchFromSource(
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
       : {}),
   };
+  applyRepoDotenvFallback(assistantIndex, env);
   if (resources) {
     env.VELLUM_WORKSPACE_DIR = join(
       resources.instanceDir,
