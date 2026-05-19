@@ -77,7 +77,7 @@ import type { TurnState } from "@/domains/chat/lib/turn-state-machine.js";
 import type { MainView, OpenedAppState, OpenedDocumentState, ViewerState } from "@/domains/chat/lib/viewer-state.js";
 import { submitQuestionResponse } from "@/domains/chat/lib/api.js";
 import { useActiveProfileModel } from "@/domains/chat/lib/use-active-profile-model.js";
-import { modelSupportsVision } from "@/app/assistant/settings/ai/profileParamVisibility.js";
+import { modelSupportsVision } from "@/domains/assistant/model-capabilities.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
