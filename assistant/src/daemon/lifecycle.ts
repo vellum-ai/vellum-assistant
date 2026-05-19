@@ -58,6 +58,7 @@ import {
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { startPerception } from "../perception/startup.js";
+import { recoverStalePlans } from "../plans/recovery.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
@@ -903,6 +904,12 @@ export async function runDaemon(): Promise<void> {
       recoverStaleSchedules();
     } catch (err) {
       log.error({ err }, "Schedule recovery failed — continuing startup");
+    }
+
+    try {
+      recoverStalePlans();
+    } catch (err) {
+      log.error({ err }, "Plan recovery failed — continuing startup");
     }
 
     const scheduler = startScheduler(

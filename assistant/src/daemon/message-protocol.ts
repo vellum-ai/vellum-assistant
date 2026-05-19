@@ -36,6 +36,7 @@ export * from "./message-types/meet.js";
 export * from "./message-types/memory.js";
 export * from "./message-types/messages.js";
 export * from "./message-types/notifications.js";
+export * from "./message-types/plans.js";
 export * from "./message-types/schedules.js";
 export * from "./message-types/settings.js";
 export * from "./message-types/shared.js";
@@ -109,6 +110,7 @@ import type {
   _NotificationsClientMessages,
   _NotificationsServerMessages,
 } from "./message-types/notifications.js";
+import type { _PlansServerMessages } from "./message-types/plans.js";
 import type {
   _SchedulesClientMessages,
   _SchedulesServerMessages,
@@ -205,6 +207,7 @@ export type ServerMessage =
   | _NotificationsServerMessages
   | _UpgradesServerMessages
   | _AcpServerMessages
+  | _PlansServerMessages
   | _DiskPressureServerMessages
   | SubagentEvent;
 

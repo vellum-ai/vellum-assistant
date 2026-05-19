@@ -79,6 +79,7 @@ import {
 } from "../memory/v2/static-context.js";
 import { buildPerceptionKnowledgeContext } from "../perception/personal-knowledge-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
+import { buildActivePlanContext } from "../plans/active-plan-context.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
 import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
 import {
@@ -1447,6 +1448,7 @@ export async function runAgentLoopImpl(
     })
       ? buildPerceptionKnowledgeContext()
       : null;
+    const activePlanContext = buildActivePlanContext(ctx.conversationId);
 
     // PKB relevance-hint inputs. Resolved once per turn and reused across
     // re-injections so post-compaction rebuilds pick up fresh hints against
@@ -1546,6 +1548,7 @@ export async function runAgentLoopImpl(
       pkbWorkingDir: pkbActive ? ctx.workingDir : undefined,
       memoryV2Static,
       perceptionMemoryContext,
+      activePlanContext,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,

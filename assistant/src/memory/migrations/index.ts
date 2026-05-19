@@ -202,11 +202,13 @@ export {
 export { migrateScheduleRetryPolicy } from "./238-schedule-retry-policy.js";
 export { migrateTraceEventsCreatedAtIndex } from "./239-trace-events-created-at-index.js";
 export { migratePkbEntityEpisodeTables } from "./240-pkb-entity-episode-tables.js";
+export { migratePlanExecutionTables } from "./241-plan-execution-tables.js";
 export {
   downPkbQualityFields,
   migratePkbQualityFields,
 } from "./242-pkb-quality-fields.js";
 export { migratePerceptionConsentGrants } from "./243-perception-consent-grants.js";
+export { migratePlanStepBlockedReason } from "./244-plan-step-blocked-reason.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
