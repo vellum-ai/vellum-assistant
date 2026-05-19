@@ -129,7 +129,10 @@ export class PorcupineWakeWordDetector implements WakeWordDetector {
     for (const keyword of this.options.keywords) {
       sensitivities.push(clampSensitivity(keyword.sensitivity));
       if (keyword.source.kind === "builtin") {
-        const builtinPath = mod.BuiltinKeyword?.[keyword.source.keyword];
+        const builtinPath = resolveBuiltinKeywordPath(
+          mod.BuiltinKeyword,
+          keyword.source.keyword,
+        );
         if (typeof builtinPath !== "string" || builtinPath.length === 0) {
           throw new Error(
             `PorcupineWakeWordDetector: built-in keyword '${keyword.source.keyword}' is not available in this Porcupine release`,
@@ -257,6 +260,32 @@ function clampSensitivity(value: number): number {
   if (value < 0) return 0;
   if (value > 1) return 1;
   return value;
+}
+
+function resolveBuiltinKeywordPath(
+  builtins: Record<string, string> | undefined,
+  keyword: string,
+): string | undefined {
+  if (!builtins) return undefined;
+
+  // Fast-path exact key lookups for SDKs that already expose lowercase names.
+  const exact = builtins[keyword];
+  if (typeof exact === "string" && exact.length > 0) return exact;
+
+  // Porcupine keyword constants vary by SDK release (e.g. JARVIS, Jarvis,
+  // "hey google", HEY_GOOGLE). Normalize both sides so we can resolve the
+  // configured keyword robustly across naming styles.
+  const normalized = normalizeBuiltinKeywordKey(keyword);
+  for (const [key, path] of Object.entries(builtins)) {
+    if (normalizeBuiltinKeywordKey(key) === normalized && path.length > 0) {
+      return path;
+    }
+  }
+  return undefined;
+}
+
+function normalizeBuiltinKeywordKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function errorMessage(err: unknown): string {
