@@ -1,0 +1,32 @@
+// TODO: port from platform
+export function useAppFeatureFlags() {
+  return {
+    doctor: false,
+    iosApp: false,
+    macApp: false,
+    voice: false,
+    terminal: false,
+    inspector: false,
+    globalSearch: false,
+    attentionTracking: false,
+    discordNudge: false,
+    githubNudge: false,
+    macAppNudge: false,
+    iosAppNudge: false,
+    contextWindow: false,
+    creditsExhausted: false,
+    compactionCircuitOpen: false,
+    providerBilling: false,
+    missingApiKey: false,
+    maintenanceMode: false,
+    queuedMessages: false,
+    commandPalette: false,
+    conversationGroups: false,
+    selfHosted: false,
+    composerSettings: false,
+    slashCommands: false,
+    emoji: false,
+    attachments: false,
+    trustRules: false,
+  };
+}

@@ -1,0 +1,325 @@
+/**
+ * Maps SF Symbol names (used by the macOS/iOS daemon) to PascalCase Lucide icon
+ * names so the web client can render them via `icons[name]` from lucide-react.
+ *
+ * Mirrors `SFSymbolMapping.swift` in the native client.
+ */
+
+const SF_SYMBOL_TO_LUCIDE: Record<string, string> = {
+  // Navigation / Arrows
+  "chevron.down": "ChevronDown",
+  "chevron.up": "ChevronUp",
+  "chevron.left": "ChevronLeft",
+  "chevron.right": "ChevronRight",
+  "arrow.up": "ArrowUp",
+  "arrow.down": "ArrowDown",
+  "arrow.left": "ArrowLeft",
+  "arrow.right": "ArrowRight",
+  "arrow.up.right": "ArrowUpRight",
+  "arrow.up.right.square": "ExternalLink",
+  "arrow.down.to.line": "ArrowDownToLine",
+  "arrow.clockwise": "RefreshCw",
+  "arrow.counterclockwise": "RotateCcw",
+  "arrow.triangle.2.circlepath": "RefreshCw",
+  "arrow.trianglehead.counterclockwise": "RotateCcw",
+  "arrow.down.circle": "CircleArrowDown",
+  "arrow.down.circle.fill": "CircleArrowDown",
+  "arrow.up.circle": "CircleArrowUp",
+  "arrow.up.circle.fill": "CircleArrowUp",
+  "arrow.right.circle": "ArrowRight",
+  "arrow.right.arrow.left.circle": "RefreshCw",
+  "arrow.right.arrow.left.circle.fill": "RefreshCw",
+  "arrow.triangle.branch": "GitBranch",
+  "arrow.uturn.backward": "RotateCcw",
+  "arrow.down.doc.fill": "ArrowDownToLine",
+  "rectangle.portrait.and.arrow.right": "LogOut",
+
+  // X / Close / Plus / Check
+  "xmark": "X",
+  "xmark.circle": "CircleX",
+  "xmark.circle.fill": "CircleX",
+  "xmark.seal.fill": "BadgeX",
+  "plus": "Plus",
+  "plus.circle": "Plus",
+  "plus.message": "MessageCirclePlus",
+  "checkmark": "Check",
+  "checkmark.circle": "CircleCheck",
+  "checkmark.circle.fill": "CircleCheck",
+  "checkmark.seal": "BadgeCheck",
+  "checkmark.seal.fill": "BadgeCheck",
+  "checkmark.shield": "ShieldCheck",
+  "checkmark.shield.fill": "ShieldCheck",
+
+  // Status / Alerts
+  "exclamationmark.triangle": "TriangleAlert",
+  "exclamationmark.triangle.fill": "TriangleAlert",
+  "exclamationmark.circle": "CircleAlert",
+  "exclamationmark.circle.fill": "CircleAlert",
+  "exclamationmark.icloud.fill": "CloudOff",
+  "info.circle": "Info",
+  "info.circle.fill": "Info",
+  "circle": "Circle",
+  "circle.fill": "Circle",
+  "circle.dashed": "CircleDashed",
+  "circle.dotted": "CircleDot",
+  "stop.circle.fill": "CircleStop",
+  "stop.fill": "Square",
+  "minus.circle": "CircleMinus",
+  "minus.circle.fill": "CircleMinus",
+
+  // Search / Zoom
+  "magnifyingglass": "Search",
+  "plus.magnifyingglass": "ZoomIn",
+  "minus.magnifyingglass": "ZoomOut",
+
+  // Files / Documents
+  "doc": "File",
+  "doc.fill": "File",
+  "doc.text": "FileText",
+  "doc.text.fill": "FileText",
+  "doc.badge.plus": "FilePlus",
+  "doc.richtext": "FileText",
+  "doc.on.doc": "Copy",
+  "doc.on.clipboard": "Clipboard",
+  "doc.zipper": "FileArchive",
+  "note.text": "ScrollText",
+  "folder": "Folder",
+  "folder.badge.magnifyingglass": "FolderSearch",
+  "tablecells": "Table",
+  "rectangle.on.rectangle": "Layers",
+  "checklist": "ListChecks",
+
+  // Edit
+  "pencil": "Pencil",
+  "pencil.line": "Pencil",
+  "square.and.pencil": "SquarePen",
+  "square.and.arrow.up": "Share",
+
+  // Trash / Archive / Pin
+  "trash": "Trash",
+  "archivebox": "Archive",
+  "pin": "Pin",
+  "pin.fill": "Pin",
+  "pin.slash": "PinOff",
+
+  // Settings / Tools
+  "gear": "Settings",
+  "gearshape": "Settings",
+  "wrench": "Wrench",
+  "wrench.fill": "Wrench",
+  "wrench.and.screwdriver": "Wrench",
+  "wrench.and.screwdriver.fill": "Wrench",
+  "wand.and.stars": "Wand",
+
+  // Shield / Lock / Security
+  "shield": "Shield",
+  "shield.fill": "Shield",
+  "shield.lefthalf.filled": "ShieldAlert",
+  "shield.slash": "ShieldOff",
+  "lock.shield": "Shield",
+  "lock.shield.fill": "Shield",
+  "lock": "Lock",
+  "lock.fill": "Lock",
+  "lock.open": "LockOpen",
+  "key.fill": "KeyRound",
+
+  // Communication
+  "bubble.left": "MessageCircle",
+  "bubble.left.fill": "MessageCircle",
+  "bubble.left.and.bubble.right": "MessagesSquare",
+  "bubble.left.and.text.bubble.right": "MessagesSquare",
+  "message": "MessageSquare",
+  "message.fill": "MessageSquare",
+  "text.bubble": "MessageCircle",
+  "text.bubble.fill": "MessageCircle",
+  "envelope": "Mail",
+  "envelope.fill": "Mail",
+  "paperplane": "Send",
+  "paperplane.fill": "Send",
+  "paperclip": "Paperclip",
+
+  // People
+  "person.2": "Users",
+  "person.2.fill": "Users",
+  "person.fill": "User",
+  "person.circle.fill": "CircleUser",
+  "person.crop.circle": "CircleUser",
+  "person.crop.circle.badge.questionmark": "CircleUser",
+  "person.text.rectangle": "Contact",
+
+  // Phone / Bell
+  "phone": "Phone",
+  "phone.fill": "PhoneCall",
+  "phone.badge.waveform": "PhoneCall",
+  "bell": "Bell",
+  "bell.fill": "Bell",
+  "bell.badge": "BellDot",
+  "number": "Hash",
+
+  // Terminal / System
+  "terminal": "Terminal",
+  "globe": "Globe",
+  "cpu": "Cpu",
+  "memorychip": "HardDrive",
+  "network": "Network",
+  "desktopcomputer": "Monitor",
+  "iphone": "Smartphone",
+  "apps.iphone": "Smartphone",
+  "laptopcomputer.and.iphone": "Laptop",
+  "macwindow": "AppWindow",
+  "rectangle.dashed": "SquareDashed",
+  "rectangle.3.group": "Layers",
+  "sidebar.left": "PanelLeft",
+  "square.grid.2x2": "LayoutGrid",
+  "power": "Power",
+  "qrcode.viewfinder": "QrCode",
+  "escape": "LogOut",
+
+  // Eye
+  "eye": "Eye",
+  "eye.slash.fill": "EyeOff",
+  "eye.trianglebadge.exclamationmark": "Eye",
+
+  // Media
+  "photo": "Image",
+  "photo.on.rectangle": "Image",
+  "film": "Film",
+  "play.fill": "Play",
+  "play.circle": "CirclePlay",
+  "play.circle.fill": "CirclePlay",
+  "play.rectangle": "Video",
+  "play.rectangle.fill": "Video",
+  "square.fill": "Square",
+
+  // Audio
+  "mic": "Mic",
+  "mic.fill": "Mic",
+  "mic.circle": "Mic",
+  "mic.slash.circle": "MicOff",
+  "speaker.wave.2": "Volume2",
+  "speaker.wave.2.fill": "Volume2",
+  "waveform": "AudioWaveform",
+  "waveform.circle": "AudioWaveform",
+  "waveform.path": "AudioWaveform",
+  "waveform.path.ecg": "AudioWaveform",
+
+  // Time
+  "calendar": "Calendar",
+  "clock": "Clock",
+  "clock.fill": "Clock",
+  "clock.arrow.circlepath": "History",
+  "clock.badge.exclamationmark": "ClockAlert",
+  "clock.badge.checkmark": "Clock",
+  "clock.badge.questionmark": "Clock",
+
+  // Weather
+  "sun.max.fill": "Sun",
+  "moon.fill": "Moon",
+  "cloud": "Cloud",
+  "cloud.fill": "Cloud",
+  "cloud.rain.fill": "CloudRain",
+  "cloud.bolt.fill": "CloudLightning",
+  "cloud.fog.fill": "CloudFog",
+  "cloud.sun.fill": "CloudSun",
+  "cloud.moon.fill": "CloudMoon",
+  "snowflake": "Snowflake",
+  "wind": "Wind",
+  "humidity": "Droplets",
+
+  // Camera / Scan
+  "camera": "Camera",
+  "camera.fill": "Camera",
+  "camera.viewfinder": "Scan",
+  "camera.metering.spot": "Scan",
+  "viewfinder": "Scan",
+
+  // Objects
+  "tag": "Tag",
+  "link": "Link",
+  "car.fill": "Car",
+  "music.note": "Music",
+  "cart": "ShoppingCart",
+  "cart.fill": "ShoppingCart",
+  "gamecontroller": "Gamepad",
+  "gamecontroller.fill": "Gamepad",
+  "map": "Map",
+  "map.fill": "Map",
+  "heart": "Heart",
+  "heart.fill": "Heart",
+  "flag": "Flag",
+  "flag.fill": "Flag",
+  "bookmark": "Bookmark",
+  "bookmark.fill": "Bookmark",
+  "gift": "Gift",
+  "gift.fill": "Gift",
+  "printer": "Printer",
+  "printer.fill": "Printer",
+  "scissors": "Scissors",
+  "stethoscope": "Stethoscope",
+  "creditcard.trianglebadge.exclamationmark": "CreditCard",
+  "dollarsign.circle": "Receipt",
+  "tray": "Inbox",
+  "tray.full": "Inbox",
+  "tray.full.fill": "Inbox",
+  "tray.and.arrow.down": "Inbox",
+  "tray.and.arrow.up": "Inbox",
+  "binoculars": "Binoculars",
+  "binoculars.fill": "Binoculars",
+  "paintbrush": "Paintbrush",
+
+  // Misc
+  "dice": "Dices",
+  "dice.fill": "Dices",
+  "sparkles": "Sparkles",
+  "sparkle": "Sparkle",
+  "ant": "Bug",
+  "ladybug": "Bug",
+  "puzzlepiece.extension": "Puzzle",
+  "puzzlepiece.fill": "Puzzle",
+  "bolt.fill": "Zap",
+  "star.fill": "Star",
+  "lightbulb.fill": "Lightbulb",
+  "brain": "Brain",
+  "brain.head.profile": "Brain",
+  "list.bullet": "List",
+  "list.bullet.clipboard": "ClipboardList",
+  "chart.bar": "BarChart",
+  "chart.bar.fill": "BarChart",
+  "chart.line.uptrend.xyaxis": "TrendingUp",
+  "house": "House",
+  "cursorarrow.click": "MousePointerClick",
+  "cursorarrow.click.2": "MousePointerClick",
+  "keyboard": "Keyboard",
+  "safari": "Compass",
+  "text.word.spacing": "FileText",
+  "text.badge.xmark": "FileText",
+  "wifi": "Wifi",
+  "wifi.exclamationmark": "WifiOff",
+
+  // Code
+  "chevron.left.forwardslash.chevron.right": "FileCode",
+
+  // Expand / Collapse
+  "arrow.up.left.and.arrow.down.right": "Maximize",
+  "arrow.down.right.and.arrow.up.left": "Minimize",
+
+  // Controls / Layout
+  "ellipsis": "Ellipsis",
+  "ellipsis.circle": "Ellipsis",
+  "slider.horizontal.3": "SlidersHorizontal",
+  "circle.lefthalf.filled": "Monitor",
+  "square.and.arrow.down": "ArrowDownToLine",
+  "qrcode": "QrCode",
+
+  // HTTP / Composition
+  "app.fill": "LayoutGrid",
+  "shippingbox.fill": "Package",
+};
+
+/**
+ * Look up the PascalCase Lucide icon name for an SF Symbol string.
+ * Returns `undefined` when the symbol has no mapping.
+ */
+export function sfSymbolToLucideName(sfSymbol: string): string | undefined {
+  return SF_SYMBOL_TO_LUCIDE[sfSymbol];
+}

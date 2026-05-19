@@ -13,6 +13,7 @@
     "openapi-ts": "openapi-ts"
   },
   "dependencies": {
+    "@capacitor/app": "8.1.0",
     "@capacitor/browser": "8.0.3",
     "@capacitor/core": "8.3.4",
     "@capacitor/filesystem": "8.1.2",
@@ -21,7 +22,11 @@
     "@radix-ui/react-popover": "1.1.15",
     "@radix-ui/react-slot": "1.2.4",
     "@sentry/browser": "10.53.1",
+    "@sentry/react": "10.53.1",
     "@tanstack/react-query": "5.90.21",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
     "@vellum/design-library": "file:../../packages/design-library",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
@@ -30,7 +35,9 @@
     "motion": "12.39.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
+    "react-markdown": "10.1.0",
     "react-router": "7.15.0",
+    "remark-gfm": "4.0.1",
     "tailwind-merge": "3.6.0"
   },
   "devDependencies": {
