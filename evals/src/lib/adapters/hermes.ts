@@ -1,7 +1,3 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-
 import type {
   AgentEvent,
   AgentHatchInput,
@@ -21,6 +17,7 @@ import {
   type SpawnedProcess,
 } from "../runtime/command-runner";
 import { parseNdjson } from "../runtime/ndjson";
+import { generateHermesEvalSessionId, seedHermesSession } from "./hermes-seed";
 
 /**
  * Hermes adapter — runs a NousResearch Hermes Agent in Docker for eval runs.
@@ -46,20 +43,39 @@ import { parseNdjson } from "../runtime/ndjson";
  *     `/opt/hermes/.venv/bin/hermes`; the official docs note it's NOT on
  *     PATH for `docker exec` sessions, so we set PATH explicitly.
  *
- * The in-container CLI surface this adapter assumes (`hermes message
- * --conversation-key`, `hermes events --json`, `hermes conversations new
- * --content-file`) mirrors Vellum's `assistant` CLI shape so the
- * evals harness contract stays uniform across species. The exact Hermes
- * subcommand names may differ from what this adapter spells; both the
- * docker image, the daemon command (`gateway run`), and the in-container
- * CLI command are constructor-overrideable via `dockerImage`, `daemonArgs`,
- * and `cliCommand` so the call surface can be adjusted (or a thin shim CLI
- * dropped into the image) without rewriting the adapter.
+ * The in-container CLI surface this adapter assumes for `message` and
+ * `events` (`hermes message --conversation-key`, `hermes events --json`)
+ * mirrors Vellum's `assistant` CLI shape so the evals harness contract
+ * stays uniform across species. The exact Hermes subcommand names may
+ * differ from what this adapter spells; the docker image, the daemon
+ * command, and the in-container CLI command are constructor-overrideable
+ * via `dockerImage`, `daemonArgs`, and `cliCommand` so the call surface
+ * can be adjusted (or a thin shim CLI dropped into the image) without
+ * rewriting the adapter.
  *
- * Treat the per-subcommand call surface as a structural scaffold against an
- * unverified upstream CLI until we've run against a real Hermes build
- * end-to-end. The container-lifecycle bits (image, daemon command, env
- * forwarding, PATH) are verified against the official Hermes Docker docs.
+ * **Conversation seeding is implemented via direct SQLite injection** into
+ * the Hermes state DB at `/opt/data/state.db` (post-hatch, while the
+ * gateway is running). The previous version of this adapter shelled out
+ * to a fake `hermes conversations new --content-file <path>` command;
+ * real Hermes has no non-interactive history-import path — `hermes
+ * sessions` is read-only (list / browse / export / delete / prune /
+ * stats / rename), the gateway is stateless, and `hermes -r <id>`
+ * resumes interactively. So `runSetupCommand({ type:
+ * "seed-conversation", ... })` opens `state.db` with Python's stdlib
+ * sqlite3 via `docker exec -i ... python3 -` and writes one `sessions`
+ * row + N `messages` rows in a single BEGIN IMMEDIATE transaction. The
+ * FTS5 indexes are auto-populated by upstream triggers, so search
+ * inside Hermes keeps working over seeded history. After seeding,
+ * `conversationKey` is updated to the new session id so subsequent
+ * `send` / `events` calls target it.
+ *
+ * @see ./hermes-seed.ts  Seed helper + schema notes.
+ *
+ * Treat the per-subcommand call surface for `message` and `events` as a
+ * structural scaffold against an unverified upstream CLI until we've run
+ * against a real Hermes build end-to-end. The container-lifecycle bits
+ * (image, daemon command, env forwarding, PATH) are verified against the
+ * official Hermes Docker docs.
  */
 
 /**
@@ -154,28 +170,6 @@ function setupCommands(profile: Profile): string[] {
  */
 function shellWords(command: string): string[] {
   return ["sh", "-c", command];
-}
-
-function shellSingleQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-function seedConversationCommand(
-  cliCommand: string,
-  containerSeedPath: string,
-): string {
-  const quotedSeedPath = shellSingleQuote(containerSeedPath);
-  return [
-    "set -e",
-    `cleanup() { rm -f ${quotedSeedPath}; }`,
-    "trap cleanup EXIT",
-    `${cliCommand} conversations new --content-file ${quotedSeedPath}`,
-  ].join("\n");
-}
-
-function parseConversationKey(output: string): string | null {
-  const match = output.match(/conversation key: ([^\s,]+)/);
-  return match?.[1] ?? null;
 }
 
 /** Container name suffix differentiates Hermes from Vellum runs side-by-side. */
@@ -293,41 +287,24 @@ export class HermesAgent implements BaseAgent {
   }
 
   async runSetupCommand(command: TestSetupCommand): Promise<void> {
+    this.assertHatched();
     switch (command.type) {
       case "seed-conversation": {
-        const seedDir = await mkdtemp(join(tmpdir(), "hermes-evals-seed-"));
-        const seedFile = join(seedDir, "conversation.json");
-        const containerSeedPath = `/tmp/${this.id}-conversation-seed.json`;
-        try {
-          await writeFile(seedFile, JSON.stringify(command.messages), "utf8");
-          const copy = await this.runner.run("docker", [
-            "cp",
-            seedFile,
-            `${this.containerName}:${containerSeedPath}`,
-          ]);
-          assertSuccess(copy, `copy seed conversation for ${this.id}`);
-
-          const result = await this.runner.run("docker", [
-            "exec",
-            "--env",
-            `PATH=${EXEC_PATH}`,
-            this.containerName,
-            ...shellWords(
-              seedConversationCommand(this.cliCommand, containerSeedPath),
-            ),
-          ]);
-          assertSuccess(result, `seed conversation for ${this.id}`);
-          const conversationKey = parseConversationKey(result.stdout);
-          if (!conversationKey) {
-            throw new Error(
-              `seed conversation for ${this.id} did not return a conversation key`,
-            );
-          }
-          this.conversationKey = conversationKey;
-        } finally {
-          await rm(seedDir, { recursive: true, force: true });
-        }
-        break;
+        // Direct `state.db` injection — no LLM round-trip, no
+        // dependence on a fake import-CLI. Each adapter instance gets
+        // exactly one seeded session per run, so we mint a stable id
+        // from the testId + runId and route subsequent `send`/`events`
+        // through it via `--conversation-key`.
+        const sessionId = generateHermesEvalSessionId(this.testId, this.id);
+        await seedHermesSession({
+          runner: this.runner,
+          containerName: this.containerName,
+          sessionId,
+          messages: command.messages,
+          testLabel: this.testId,
+        });
+        this.conversationKey = sessionId;
+        return;
       }
     }
   }

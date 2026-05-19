@@ -1,6 +1,14 @@
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { MetricResult, PersistedProgressEvent } from "./metrics";
+import type {
+  CostDiagnostic,
+  CostDiagnosticReason,
+  CostStatus,
+  MetricResult,
+  MetricUnit,
+  PersistedProgressEvent,
+  UsageSummary,
+} from "./metrics";
 import type {
   ReportRunDetail,
   ReportSessionDetail,
@@ -20,6 +28,49 @@ function formatCost(value: number | undefined): string {
   if (value === undefined) return "—";
   return `$${value.toFixed(6)}`;
 }
+
+/**
+ * Render a metric `score` using its declared unit.
+ *
+ * `MetricResult.unit` defaults to `"fraction"` — the score is a 0-1
+ * quality fraction, displayed as `XX.XX%` per Vargas's round-3 evals
+ * feedback ("scores rendering as raw numbers, need 0-100% display").
+ *
+ * `"raw"` opts out — the score carries units that have no meaning as a
+ * percent (e.g. `assistant-cost-usd` returns negative dollars). Those
+ * fall back to plain number formatting.
+ *
+ * `undefined` is treated as `"fraction"` so older metric files that
+ * don't set the field automatically get the new percent display.
+ */
+function formatScore(
+  score: number,
+  unit: MetricUnit | undefined,
+  digits = 2,
+): string {
+  if (unit === "raw") return formatNumber(score, 4);
+  return `${(score * 100).toFixed(digits)}%`;
+}
+
+function costStatusChip(status: CostStatus | undefined): {
+  label: string;
+  className: string;
+} | null {
+  if (!status || status === "ok") return null;
+  if (status === "partial") {
+    return { label: "Partial pricing", className: "chip warn" };
+  }
+  return { label: "Cost unavailable", className: "chip bad" };
+}
+
+const COST_REASON_LABELS: Record<CostDiagnosticReason, string> = {
+  missing_provider:
+    "No provider on usage record (adapter didn't include `provider` or `actualProvider`).",
+  missing_model: "No `model` on usage record.",
+  missing_tokens: "No input/output token counts on usage record.",
+  unpriced_model:
+    "Provider/model not in the evals pricing table (evals/src/lib/pricing.ts).",
+};
 
 function statusClass(status: string): string {
   if (status === "completed") return "good";
@@ -113,6 +164,14 @@ pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px;
 .log-ts { color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .log-tag { color: var(--accent2); font-weight: 700; flex-shrink: 0; }
 .log-msg { color: var(--text); }
+.chip { display: inline-flex; align-items: center; border: 1px solid currentColor; border-radius: 999px; padding: 2px 10px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; }
+.chip.warn { color: var(--warn); }
+.chip.bad { color: var(--bad); }
+.cost-diag { margin-top: 16px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 18px; background: rgba(255,255,255,.04); }
+.cost-diag-head { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
+.cost-diag-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cost-diag-table th, .cost-diag-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+.cost-diag-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
 @media (max-width: 980px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .shell { padding: 18px; } .cards { grid-template-columns: 1fr; } .hero { display: block; } }
 `;
@@ -465,7 +524,7 @@ function MetricSummaryTable({
                   key={profile.profileId}
                   className={`score ${scoreClass(metric.score)}`}
                 >
-                  {formatNumber(metric.score, 4)}
+                  {formatScore(metric.score, metric.unit, 2)}
                 </td>
               );
             })}
@@ -557,7 +616,7 @@ function MetricTable({ metrics }: { metrics: MetricResult[] }) {
               <strong>{metric.name}</strong>
             </td>
             <td className={`score ${scoreClass(metric.score)}`}>
-              {formatNumber(metric.score, 4)}
+              {formatScore(metric.score, metric.unit, 2)}
             </td>
             <td>{metric.reason ?? ""}</td>
           </tr>
@@ -716,8 +775,62 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
           />
           <StatCard label="Requests" value={run.usage.requests.length} />
         </div>
+        <CostDiagnosticsPanel usage={run.usage} />
       </section>
     </>
+  );
+}
+
+/**
+ * Surface the cost-pricing pipeline's state for a run.
+ *
+ * Hidden when `costStatus === "ok"` (or when no usage events ran) — a
+ * fully priced run shouldn't be cluttered with diagnostic chrome.
+ * Otherwise renders a chip (`Partial pricing` / `Cost unavailable`) and a
+ * compact per-request breakdown so the reader can see exactly which
+ * usage records lacked provider/model/tokens or fell outside the
+ * pricing table. Pairs with Vargas's round-3 ask: "costs stuck at 0,
+ * add telemetry as to why".
+ */
+function CostDiagnosticsPanel({ usage }: { usage: UsageSummary }) {
+  const chip = costStatusChip(usage.costStatus);
+  const diagnostics = usage.costDiagnostics ?? [];
+  if (!chip && diagnostics.length === 0) return null;
+
+  return (
+    <div className="cost-diag">
+      <div className="cost-diag-head">
+        <strong>Cost pricing</strong>
+        {chip ? <span className={chip.className}>{chip.label}</span> : null}
+      </div>
+      {diagnostics.length === 0 ? (
+        <p className="muted">
+          No per-request diagnostics — the gap is at the pipeline level, not on
+          individual usage records.
+        </p>
+      ) : (
+        <table className="cost-diag-table">
+          <thead>
+            <tr>
+              <th>Request #</th>
+              <th>Provider</th>
+              <th>Model</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {diagnostics.map((diag: CostDiagnostic) => (
+              <tr key={diag.requestIndex}>
+                <td>{diag.requestIndex}</td>
+                <td>{diag.provider ?? "—"}</td>
+                <td>{diag.model ?? "—"}</td>
+                <td>{COST_REASON_LABELS[diag.reason]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 
