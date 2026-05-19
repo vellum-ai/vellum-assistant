@@ -164,3 +164,31 @@ export function getActiveOrganizationIdForRequests(): string | null {
 export function clearOrganization(): void {
   useOrganizationStore.getState().clearOrganization();
 }
+
+/**
+ * Subscribe to window focus / visibility changes to keep the organization
+ * list fresh — mirrors React Query's `refetchOnWindowFocus` behavior.
+ * Only refetches when the store has previously loaded (status !== "idle").
+ * Call once at app startup.
+ */
+export function setupOrganizationListeners(): () => void {
+  const refetchIfReady = () => {
+    const { status } = useOrganizationStore.getState();
+    if (status === "ready" || status === "error") {
+      useOrganizationStore.getState().fetchOrganizations();
+    }
+  };
+
+  const onFocus = () => refetchIfReady();
+  const onVisibilityChange = () => {
+    if (document.visibilityState === "visible") refetchIfReady();
+  };
+
+  window.addEventListener("focus", onFocus);
+  document.addEventListener("visibilitychange", onVisibilityChange);
+
+  return () => {
+    window.removeEventListener("focus", onFocus);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+  };
+}
