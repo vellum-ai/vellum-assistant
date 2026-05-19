@@ -202,12 +202,17 @@ export function reopenComment(id: string): boolean {
 }
 
 export function deleteComment(id: string): boolean {
+  // Delete child replies first so they are not orphaned.
+  rawRun(
+    /*sql*/ `DELETE FROM document_comments WHERE parent_comment_id = ?`,
+    id,
+  );
   const changes = rawRun(
     /*sql*/ `DELETE FROM document_comments WHERE id = ?`,
     id,
   );
   if (changes > 0) {
-    log.info({ id }, "Deleted comment");
+    log.info({ id }, "Deleted comment and its replies");
   }
   return changes > 0;
 }
