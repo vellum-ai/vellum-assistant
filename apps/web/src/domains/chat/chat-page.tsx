@@ -36,7 +36,7 @@ const EMPTY_SET_STRINGS = new Set<string>();
 export function ChatPage() {
   const authLoading = useAuthStore.use.isLoading();
   const isMobile = useIsMobile();
-  const { assistantId, assistantState } = useAssistantContext();
+  const { assistantId, assistantState, checkAssistant } = useAssistantContext();
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   useEffect(() => {
@@ -213,7 +213,7 @@ export function ChatPage() {
     onStopSubagent: noopVoid,
     onRequestSubagentDetail: noopAsync as ChatRouteContentProps["onRequestSubagentDetail"],
     pushToAiSettings: noopVoid,
-    checkAssistant: noopVoid,
+    checkAssistant,
     setRefreshEpoch,
     streamRetryNonce: 0,
     refs: {
