@@ -37,10 +37,7 @@ export function handleUISurfaceShow(
     display: event.display,
   };
   surfaceObj.display = classifySurfaceDisplay(surfaceObj);
-  ctx.dispatchTurn({
-    type: "UI_SURFACE_SHOW",
-    interactive: isSurfaceInteractive(surfaceObj),
-  });
+  ctx.turnActions.showSurface(isSurfaceInteractive(surfaceObj));
   ctx.setMessages((prev) =>
     attachSurface(prev, surfaceObj, event.messageId),
   );
@@ -50,7 +47,7 @@ export function handleUISurfaceUpdate(
   event: UISurfaceUpdateEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "UI_SURFACE_UPDATE" });
+  ctx.turnActions.updateSurface();
   ctx.setMessages((prev) =>
     updateSurfaceData(prev, event.surfaceId, event.data),
   );
@@ -60,7 +57,7 @@ export function handleUISurfaceDismiss(
   event: UISurfaceDismissEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "UI_SURFACE_DISMISS" });
+  ctx.turnActions.dismissSurface();
   ctx.dismissedSurfaceIdsRef.current.add(event.surfaceId);
   const streamCtx = ctx.streamContextRef.current;
   if (streamCtx) {
@@ -77,7 +74,7 @@ export function handleUISurfaceComplete(
   event: UISurfaceCompleteEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "UI_SURFACE_COMPLETE" });
+  ctx.turnActions.completeSurface();
   const completedSurface = ctx.messagesRef.current
     .flatMap((m) => m.surfaces ?? [])
     .find((s) => s.surfaceId === event.surfaceId);

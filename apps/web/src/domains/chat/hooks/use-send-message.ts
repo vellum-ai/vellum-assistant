@@ -39,7 +39,7 @@ import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } fro
 import { recordChatDiagnostic } from "@/domains/chat/lib/diagnostics.js";
 import { newStableId } from "@/domains/chat/lib/stable-id.js";
 import { saveDismissedSurfaceIds } from "@/domains/chat/lib/dismissedSurfacesStorage.js";
-import { isSending, type TurnState, type DomainEvent } from "@/domains/messaging/turn-store.js";
+import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 import type { InteractionEvent } from "@/domains/interactions/interaction-store.js";
 import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
 import type { SubagentAction } from "@/domains/subagents/subagent-store.js";
@@ -84,7 +84,7 @@ interface UseSendMessageParams {
   // Refs
   assistantIdRef: MutableRefObject<string | null>;
   activeConversationKeyRef: MutableRefObject<string | null>;
-  turnStateRef: MutableRefObject<TurnState>;
+
   messagesRef: MutableRefObject<DisplayMessage[]>;
   conversationsRef: MutableRefObject<Conversation[]>;
   streamRef: MutableRefObject<ChatEventStream | null>;
@@ -112,7 +112,7 @@ interface UseSendMessageParams {
   dispatchInteraction: Dispatch<InteractionEvent>;
   setStreamRetryNonce: Dispatch<SetStateAction<number>>;
   setInput: Dispatch<SetStateAction<string>>;
-  dispatchTurn: Dispatch<DomainEvent>;
+
   dispatchSubagent: Dispatch<SubagentAction>;
 
   // Callbacks
@@ -136,7 +136,6 @@ export function useSendMessage({
   messages,
   assistantIdRef,
   activeConversationKeyRef,
-  turnStateRef,
   messagesRef,
   conversationsRef,
   streamRef,
@@ -159,7 +158,6 @@ export function useSendMessage({
   dispatchInteraction,
   setStreamRetryNonce,
   setInput,
-  dispatchTurn,
   dispatchSubagent,
   startReconciliationLoop,
   cancelReconciliation,
@@ -185,7 +183,6 @@ export function useSendMessage({
     pendingLocalDeletionsRef,
     setMessages,
     setInput,
-    dispatchTurn,
   });
 
   // -------------------------------------------------------------------------
@@ -220,7 +217,7 @@ export function useSendMessage({
     async (content: string, epoch: number, turnId: string, attachmentIds: string[] = []): Promise<string | undefined> => {
       if (!activeConversationKey || !assistantId) {
         setError({ message: "No active conversation. Please try again." });
-        dispatchTurn({ type: "STREAM_ERROR" });
+        useTurnStore.getState().onStreamError();
         return undefined;
       }
       const requestAssistantId = assistantId;
@@ -258,7 +255,7 @@ export function useSendMessage({
           "Something went wrong. Please try again.",
         );
         setError({ message: detail, code: postResult.error.code ?? undefined });
-        dispatchTurn({ type: "STREAM_ERROR" });
+        useTurnStore.getState().onStreamError();
         return undefined;
       }
       // Success — drain the ref so subsequent messages omit the field.
@@ -268,7 +265,7 @@ export function useSendMessage({
       }
 
       if (isCurrentSendScope()) {
-        dispatchTurn({ type: "USER_SEND_ACCEPTED", turnId });
+        useTurnStore.getState().acceptSend(turnId);
       }
 
       const effectiveConversationKey =
@@ -400,7 +397,7 @@ export function useSendMessage({
         })
         .finally(() => {
           if (!isCurrentSendScope(effectiveConversationKey)) return;
-          dispatchTurn({ type: "POLL_RECONCILED", turnId });
+          useTurnStore.getState().onPollReconciled(turnId);
         });
 
       return postResult.resolvedConversationId;
@@ -447,10 +444,10 @@ export function useSendMessage({
       );
       if (dismissedIds.size > 0) {
         persistDismissedSurfaces(dismissedIds);
-        dispatchTurn({ type: "UI_SURFACE_DISMISS" });
+        useTurnStore.getState().dismissSurface();
       }
 
-      const willQueue = isSending(turnStateRef.current);
+      const willQueue = isSending(useTurnStore.getState());
       const userMessage: DisplayMessage = {
         stableId: newStableId("user"),
         role: "user",
@@ -497,8 +494,8 @@ export function useSendMessage({
             );
             needsNewBubbleRef.current = true;
             const fallbackTurnId = newTurnId();
-            dispatchTurn({ type: "USER_SEND_REQUESTED", turnId: fallbackTurnId });
-            dispatchTurn({ type: "USER_SEND_ACCEPTED", turnId: fallbackTurnId });
+            useTurnStore.getState().requestSend(fallbackTurnId);
+            useTurnStore.getState().acceptSend(fallbackTurnId);
             dispatchConversationList({ type: "ADD_PROCESSING_KEY", key: activeConversationKey });
             const currentConv = conversationsRef.current.find(
               (c) => c.conversationKey === activeConversationKey,
@@ -517,7 +514,7 @@ export function useSendMessage({
       }
 
       const turnId = newTurnId();
-      dispatchTurn({ type: "USER_SEND_REQUESTED", turnId });
+      useTurnStore.getState().requestSend(turnId);
 
       dispatchConversationList({ type: "ADD_PROCESSING_KEY", key: activeConversationKey });
       const currentConv = conversationsRef.current.find(c => c.conversationKey === activeConversationKey);
@@ -579,7 +576,7 @@ export function useSendMessage({
           tags: { context: "send_chat_message" },
         });
         setError({ message: "Something went wrong. Please try again." });
-        dispatchTurn({ type: "STREAM_ERROR" });
+        useTurnStore.getState().onStreamError();
         const keysToClean = [activeConversationKey, resolvedId].filter(Boolean) as string[];
         for (const k of keysToClean) processingSnapshotsRef.current.delete(k);
         if (keysToClean.length > 0) {
@@ -607,7 +604,7 @@ export function useSendMessage({
   const handleStopGenerating = useCallback(async () => {
     if (!assistantId || !activeConversationKey) return;
     streamEpochRef.current++;
-    dispatchTurn({ type: "GENERATION_CANCELLED" });
+    useTurnStore.getState().cancelGeneration();
     setMessages(stopStreamingAndClearConfirmations);
     needsNewBubbleRef.current = true;
     dispatchInteraction({ type: "RESET_ALL" });

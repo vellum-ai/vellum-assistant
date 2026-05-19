@@ -14,9 +14,7 @@ describe("handleSecretRequest", () => {
       { type: "secret_request", requestId: "sr-1", label: "API Key" },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "SECRET_REQUEST",
-    });
+    expect(ctx.turnActions.onSecretRequest).toHaveBeenCalled();
     expect(ctx.dispatchInteraction).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "SHOW_SECRET",
@@ -33,9 +31,7 @@ describe("handleConfirmationRequest", () => {
       { type: "confirmation_request", requestId: "cr-1", title: "Allow?" },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "CONFIRMATION_REQUEST",
-    });
+    expect(ctx.turnActions.onConfirmationRequest).toHaveBeenCalled();
     expect(ctx.dispatchInteraction).toHaveBeenCalledWith(
       expect.objectContaining({ type: "SHOW_CONFIRMATION" }),
     );
@@ -50,9 +46,7 @@ describe("handleContactRequest", () => {
       { type: "contact_request", requestId: "ctc-1", channel: "email" },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "CONTACT_REQUEST",
-    });
+    expect(ctx.turnActions.onContactRequest).toHaveBeenCalled();
     expect(ctx.dispatchInteraction).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "SHOW_CONTACT_REQUEST",

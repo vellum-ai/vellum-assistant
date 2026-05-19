@@ -8,7 +8,6 @@ beforeEach(() => {
     activeConversationKey: null,
     assistantId: null,
     sendMessage: async () => {},
-    dispatchTurn: () => {},
     dispatchInteraction: () => {},
   }, true);
 });
@@ -24,7 +23,6 @@ describe("useChatStore", () => {
   it("initializes with noop action refs", () => {
     const state = useChatStore.getState();
     expect(typeof state.sendMessage).toBe("function");
-    expect(typeof state.dispatchTurn).toBe("function");
     expect(typeof state.dispatchInteraction).toBe("function");
   });
 
@@ -59,7 +57,6 @@ describe("useChatStore", () => {
       activeConversationKey: "conv-abc",
       assistantId: "ast-new",
       sendMessage: async () => {},
-      dispatchTurn: () => {},
       dispatchInteraction: () => {},
     };
     useChatStore.setState(fullState, true);

@@ -10,7 +10,7 @@ import type { ChatEventStream } from "@/domains/chat/lib/api.js";
 import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import type { DomainEvent, TurnState } from "@/domains/messaging/turn-store.js";
+import type { TurnActions, TurnState } from "@/domains/messaging/turn-store.js";
 import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
 import type { ChatError, PendingQuestionState } from "@/domains/chat/types.js";
 
@@ -52,8 +52,8 @@ export interface StreamHandlerContext {
   needsNewBubbleRef: MutableRefObject<boolean>;
 
   // --- Turn state ---
-  dispatchTurn: Dispatch<DomainEvent>;
-  turnStateRef: MutableRefObject<TurnState>;
+  turnActions: TurnActions;
+  getTurnState: () => TurnState;
 
   // --- Processing ---
   clearProcessingKey: (convKey: string) => void;

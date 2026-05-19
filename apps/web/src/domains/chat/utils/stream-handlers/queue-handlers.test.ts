@@ -17,9 +17,7 @@ describe("handleMessageQueued", () => {
       { type: "message_queued", requestId: "req-1", position: 2 },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "MESSAGE_QUEUED",
-    });
+    expect(ctx.turnActions.enqueueMessage).toHaveBeenCalled();
     expect(ctx.requestIdToStableIdRef.current.get("req-1")).toBe("stable-1");
     expect(ctx.setMessages).toHaveBeenCalled();
   });
@@ -57,9 +55,7 @@ describe("handleMessageDequeued", () => {
       { type: "message_dequeued", requestId: "req-1" },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "MESSAGE_DEQUEUED",
-    });
+    expect(ctx.turnActions.dequeueMessage).toHaveBeenCalled();
     expect(ctx.requestIdToStableIdRef.current.has("req-1")).toBe(false);
     expect(ctx.setMessages).toHaveBeenCalled();
     expect(ctx.needsNewBubbleRef.current).toBe(true);
@@ -71,7 +67,7 @@ describe("handleMessageDequeued", () => {
       { type: "message_dequeued", requestId: "unknown" },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalled();
+    expect(ctx.turnActions.dequeueMessage).toHaveBeenCalled();
     expect(ctx.setMessages).not.toHaveBeenCalled();
     expect(ctx.needsNewBubbleRef.current).toBe(true);
   });
@@ -85,9 +81,7 @@ describe("handleMessageQueuedDeleted", () => {
       { type: "message_queued_deleted", requestId: "req-1" },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "MESSAGE_QUEUED_DELETED",
-    });
+    expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalled();
     expect(ctx.requestIdToStableIdRef.current.has("req-1")).toBe(false);
     expect(ctx.setMessages).toHaveBeenCalled();
   });
@@ -98,7 +92,7 @@ describe("handleMessageQueuedDeleted", () => {
       { type: "message_queued_deleted", requestId: "unknown" },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalled();
+    expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalled();
     expect(ctx.setMessages).not.toHaveBeenCalled();
   });
 });
@@ -110,7 +104,6 @@ describe("handleMessageRequestComplete", () => {
       { type: "message_request_complete", requestId: "req-1" },
       ctx,
     );
-    expect(ctx.dispatchTurn).not.toHaveBeenCalled();
     expect(ctx.setMessages).not.toHaveBeenCalled();
   });
 });

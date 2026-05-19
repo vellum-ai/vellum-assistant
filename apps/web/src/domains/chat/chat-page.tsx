@@ -2,6 +2,7 @@ import {
   type MutableRefObject,
   type RefObject,
   useCallback,
+  useEffect,
   useReducer,
   useRef,
   useState,
@@ -15,8 +16,8 @@ import {
   INITIAL_INTERACTION_STATE,
 } from "@/domains/interactions/interaction-store.js";
 import {
-  turnReducer,
   INITIAL_TURN_STATE,
+  useTurnStore,
 } from "@/domains/messaging/turn-store.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import { useSyncChatStore } from "@/domains/chat/chat-store.js";
@@ -55,7 +56,10 @@ export function ChatPage() {
   const { assistantState, assistantId } = lifecycle;
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
-  const [turnState, dispatchTurn] = useReducer(turnReducer, INITIAL_TURN_STATE);
+  useEffect(() => {
+    useTurnStore.setState(INITIAL_TURN_STATE);
+  }, []);
+
   const [interactionState, dispatchInteraction] = useReducer(
     interactionReducer,
     INITIAL_INTERACTION_STATE,
@@ -95,7 +99,6 @@ export function ChatPage() {
     activeConversationKey: null,
     assistantId,
     sendMessage,
-    dispatchTurn,
     dispatchInteraction,
   });
 
@@ -129,8 +132,6 @@ export function ChatPage() {
     isKeyboardOpen: false,
     messages,
     setMessages,
-    turnState,
-    dispatchTurn,
     input,
     setInput,
     error,
