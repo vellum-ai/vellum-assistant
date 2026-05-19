@@ -45,6 +45,7 @@ export * from "./message-types/subagents.js";
 export * from "./message-types/surfaces.js";
 export * from "./message-types/sync.js";
 export * from "./message-types/upgrades.js";
+export * from "./message-types/web-activity.js";
 export * from "./message-types/work-items.js";
 export * from "./message-types/workspace.js";
 
