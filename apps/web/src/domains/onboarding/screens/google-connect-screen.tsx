@@ -51,6 +51,7 @@ export function GoogleConnectScreen({
   const popupClosedGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageListenerRef = useRef<((event: MessageEvent) => void) | null>(null);
   const storageListenerRef = useRef<((event: StorageEvent) => void) | null>(null);
+  const nativeFinishUnsubRef = useRef<(() => void) | null>(null);
   const [oauthInProgress, setOAuthInProgress] = useState(false);
 
   const clearPendingRequest = useCallback(() => {
@@ -98,6 +99,10 @@ export function GoogleConnectScreen({
       }
       if (storageListenerRef.current) {
         window.removeEventListener("storage", storageListenerRef.current);
+      }
+      if (nativeFinishUnsubRef.current) {
+        nativeFinishUnsubRef.current();
+        nativeFinishUnsubRef.current = null;
       }
     };
   }, []);
@@ -226,9 +231,14 @@ export function GoogleConnectScreen({
       window.addEventListener("message", handleOAuthMessage);
       window.addEventListener("storage", handleOAuthStorage);
 
+      if (nativeFinishUnsubRef.current) nativeFinishUnsubRef.current();
       const unsubFinished = openUrlFinishedListener(() => {
         const pendingRequest = pendingRequestRef.current;
-        if (!pendingRequest) return;
+        if (!pendingRequest) {
+          unsubFinished();
+          nativeFinishUnsubRef.current = null;
+          return;
+        }
         void (async () => {
           const connection = await fetchActiveGoogleConnection();
           if (!pendingRequestRef.current) return;
@@ -239,8 +249,10 @@ export function GoogleConnectScreen({
           }
           removeEventListeners();
           unsubFinished();
+          nativeFinishUnsubRef.current = null;
         })();
       });
+      nativeFinishUnsubRef.current = unsubFinished;
       return;
     }
 

@@ -27,18 +27,14 @@ export async function fetchCharacterComponents(
 export async function fetchCharacterTraits(
   assistantId: string,
 ): Promise<CharacterTraits | null> {
-  try {
-    const { data, error, response } = await client.get({
-      url: "/v1/assistants/{assistant_id}/avatar/character-traits",
-      path: { assistant_id: assistantId },
-    });
-    assertHasResponse(response, error, "Failed to fetch character traits");
-    if (!response.ok || !data) return null;
-    if (!isCharacterTraits(data)) return null;
-    return data;
-  } catch {
-    return null;
-  }
+  const { data, error, response } = await client.get({
+    url: "/v1/assistants/{assistant_id}/avatar/character-traits",
+    path: { assistant_id: assistantId },
+  });
+  assertHasResponse(response, error, "Failed to fetch character traits");
+  if (!response.ok || !data) return null;
+  if (!isCharacterTraits(data)) return null;
+  return data;
 }
 
 export async function saveCharacterTraits(
