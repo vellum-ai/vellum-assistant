@@ -105,6 +105,16 @@ When a Vellum [Linear](https://linear.app/) ticket exists for the work, link it 
 
 ## Keep Docs Up to Date
 
+This is an **open-source repo**. All documentation — `AGENTS.md`,
+`CONVENTIONS.md`, `README.md`, code comments, docstrings — must be
+written for external contributors, not just internal developers. Do not
+reference internal tools, issue trackers, team names, or internal URLs.
+Keep guidance self-contained and link to public, authoritative sources
+([MDN](https://developer.mozilla.org/),
+[React docs](https://react.dev/),
+[Zustand docs](https://zustand.docs.pmnd.rs/), etc.) rather than
+internal wikis or tickets.
+
 - **Internal reference**: When modifying slash commands in `.claude/commands/`, update the "Claude Code Workflow" section in `docs/internal-reference.md` to match.
 - **Architecture**: When introducing, removing, or significantly modifying a service/module/data flow, update `ARCHITECTURE.md` and impacted domain docs. Mermaid diagrams must reflect current architecture.
 - **AGENTS.md**: When a PR establishes a new mandatory pattern or architectural constraint, update `AGENTS.md`. Only for project-wide rules — use code comments for module-scoped patterns.
