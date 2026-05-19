@@ -9,7 +9,6 @@
  * Composes `useMessageQueue` for queue management and imports pure
  * transforms from `send-message-utils`.
  */
-"use client";
 
 import * as Sentry from "@sentry/react";
 import {

@@ -1,4 +1,3 @@
-"use client";
 
 export const INITIAL_MESSAGE_SESSION_KEY = "vellum.assistant.initialMessage";
 

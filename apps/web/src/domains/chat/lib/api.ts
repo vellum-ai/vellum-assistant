@@ -12,7 +12,7 @@
  *   - assistant.ts     — assistant discovery, chat context, identity
  *
  * All public exports are re-exported here so existing `import … from
- * "@/lib/chat/api"` paths continue to work. New code should import from
+ * "@/domains/chat/lib/api"` paths continue to work. New code should import from
  * the domain module directly.
  */
 

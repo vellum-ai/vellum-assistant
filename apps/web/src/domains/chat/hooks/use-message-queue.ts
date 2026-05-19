@@ -8,7 +8,6 @@
  *
  * @see useSendMessage — the orchestrator that composes this hook
  */
-"use client";
 
 import {
   type Dispatch,

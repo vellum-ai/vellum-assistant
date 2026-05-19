@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 
 import { computeTransforms, resolveDefinitions } from "@/domains/avatar/svg-compositor.js";
-import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
+import type { CharacterComponents, CharacterTraits, EyePathDefinition } from "@/domains/avatar/types.js";
 
 interface AnimatedAvatarProps {
   components: CharacterComponents;
@@ -292,7 +292,7 @@ export function AnimatedAvatar({
           transition: "transform 0.15s ease-in-out",
         }}
       >
-        {eyeStyle.paths.map((p, i) => (
+        {eyeStyle.paths.map((p: EyePathDefinition, i: number) => (
           <path
             key={i}
             d={p.svgPath}

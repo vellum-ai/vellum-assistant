@@ -1,5 +1,13 @@
-// TODO: port from platform
+/**
+ * Whether the primary pointer is coarse (touch screen). Returns `false`
+ * server-side. Coarse pointers imply a soft keyboard and touch-first
+ * interaction model.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer
+ */
 export function isPointerCoarse(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.matchMedia("(pointer: coarse)").matches;
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia("(pointer: coarse)").matches
+  );
 }

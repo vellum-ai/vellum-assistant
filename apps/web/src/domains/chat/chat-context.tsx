@@ -17,7 +17,6 @@
  * Reference: {@link https://react.dev/learn/scaling-up-with-reducer-and-context}
  * Pattern:   {@link https://kentcdodds.com/blog/how-to-optimize-your-context-value}
  */
-"use client";
 
 import {
   type Dispatch,

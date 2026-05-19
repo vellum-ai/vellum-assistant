@@ -1,5 +1,6 @@
 import { client } from "@/generated/api/client.gen.js";
 
+import "@/lib/vellum-api/client";
 
 import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-errors.js";
 

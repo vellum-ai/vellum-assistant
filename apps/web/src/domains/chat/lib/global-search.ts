@@ -1,8 +1,8 @@
-import * as Sentry from "@sentry/browser";
 
 import { client } from "@/generated/api/client.gen.js";
 
 // Import for side effects to configure the default HeyAPI client.
+import "@/lib/vellum-api/client";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -104,9 +104,7 @@ export async function searchGlobal(
     if (err instanceof DOMException && err.name === "AbortError") {
       return EMPTY_RESULTS;
     }
-    Sentry.captureException(err, {
-      extra: { assistantId, query },
-    });
+    console.error("[global-search] search failed", { assistantId, query, err });
     return EMPTY_RESULTS;
   }
 }
