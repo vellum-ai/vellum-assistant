@@ -14,6 +14,7 @@
 
 // Re-export domain modules (all individual types remain importable)
 export * from "./message-types/acp.js";
+export * from "./message-types/actions.js";
 export * from "./message-types/apps.js";
 export * from "./message-types/browser.js";
 export * from "./message-types/computer-use.js";
@@ -27,6 +28,7 @@ export * from "./message-types/home.js";
 export * from "./message-types/host-app-control.js";
 export * from "./message-types/host-bash.js";
 export * from "./message-types/host-browser.js";
+export * from "./message-types/host-camera.js";
 export * from "./message-types/host-cu.js";
 export * from "./message-types/host-file.js";
 export * from "./message-types/host-transfer.js";
@@ -48,6 +50,7 @@ export * from "./message-types/workspace.js";
 
 // Import domain-level union aliases for composition
 import type { _AcpServerMessages } from "./message-types/acp.js";
+import type { _ActionsServerMessages } from "./message-types/actions.js";
 import type {
   _AppsClientMessages,
   _AppsServerMessages,
@@ -88,6 +91,7 @@ import type {
   _HostBrowserClientMessages,
   _HostBrowserServerMessages,
 } from "./message-types/host-browser.js";
+import type { _HostCameraServerMessages } from "./message-types/host-camera.js";
 import type { _HostCuServerMessages } from "./message-types/host-cu.js";
 import type { _HostFileServerMessages } from "./message-types/host-file.js";
 import type { _HostTransferServerMessages } from "./message-types/host-transfer.js";
@@ -192,6 +196,7 @@ export type ServerMessage =
   | _HostAppControlServerMessages
   | _HostBashServerMessages
   | _HostBrowserServerMessages
+  | _HostCameraServerMessages
   | _HostCuServerMessages
   | _HostFileServerMessages
   | _HostTransferServerMessages
@@ -205,6 +210,7 @@ export type ServerMessage =
   | _NotificationsServerMessages
   | _UpgradesServerMessages
   | _AcpServerMessages
+  | _ActionsServerMessages
   | _DiskPressureServerMessages
   | SubagentEvent;
 

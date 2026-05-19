@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+import { runAction } from "../actions/run-action.js";
 import { getConfig } from "../config/loader.js";
 import {
   assistantEventHub,
@@ -15,6 +16,7 @@ import { formatShellOutput } from "../tools/shared/shell-output.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import type { ActionLifecycleMessage } from "./message-types/actions.js";
 
 const log = getLogger("host-bash-proxy");
 
@@ -119,92 +121,118 @@ export class HostBashProxy {
 
     const requestId = uuid();
 
-    return new Promise<ToolExecutionResult>((resolve, reject) => {
-      const shellMaxTimeoutSec = getConfig().timeouts.shellMaxTimeoutSec;
-      const timeoutSec = input.timeout_seconds ?? shellMaxTimeoutSec;
-      const proxyTimeoutSec = timeoutSec + 3;
-
-      let detachAbort: () => void = () => {};
-
-      const timer = setTimeout(() => {
-        pendingInteractions.resolve(requestId);
-        log.warn(
-          { requestId, command: input.command },
-          "Host bash proxy request timed out",
-        );
-        const timeoutMessage = resolvedTargetClientId
-          ? `Host bash proxy timed out waiting for response from client ${resolvedTargetClientId}`
-          : "Host bash proxy timed out waiting for client response";
-        resolve(formatShellOutput("", timeoutMessage, null, true, timeoutSec));
-      }, proxyTimeoutSec * 1000);
-
-      if (signal) {
-        const onAbort = () => {
-          if (pendingInteractions.get(requestId)) {
-            pendingInteractions.resolve(requestId);
-            try {
-              broadcastMessage(
-                {
-                  type: "host_bash_cancel",
-                  requestId,
-                  conversationId,
-                  targetClientId: resolvedTargetClientId,
-                },
-                conversationId,
-                { targetClientId: resolvedTargetClientId },
-              );
-            } catch {
-              // Best-effort cancel notification
-            }
-            resolve(formatShellOutput("", "Aborted", null, false, 0));
-          }
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-        detachAbort = () => signal.removeEventListener("abort", onAbort);
-      }
-
-      pendingInteractions.register(requestId, {
-        conversationId,
-        kind: "host_bash",
-        rpcResolve: resolve as (v: unknown) => void,
-        rpcReject: reject,
-        timer,
-        detachAbort,
-        targetClientId: resolvedTargetClientId,
-        targetActorPrincipalId:
-          resolvedTargetClientId != null
-            ? assistantEventHub.getActorPrincipalIdForClient(
-                resolvedTargetClientId,
-              )
-            : undefined,
-        metadata: { timeoutSec },
-      });
-
-      try {
-        broadcastMessage(
-          {
-            type: "host_bash_request",
-            requestId,
-            conversationId,
-            command: input.command,
-            working_dir: input.working_dir,
-            timeout_seconds: input.timeout_seconds,
-            targetClientId: resolvedTargetClientId,
-            ...(input.env && Object.keys(input.env).length > 0
-              ? { env: input.env }
-              : {}),
-          },
+    return runAction<ToolExecutionResult>({
+      actionName: "host_bash.execute",
+      conversationId,
+      inputSummary: JSON.stringify({
+        command: input.command,
+        workingDir: input.working_dir ?? null,
+        timeoutSeconds: input.timeout_seconds ?? null,
+        targetClientId: resolvedTargetClientId ?? null,
+      }),
+      riskLevel: "High",
+      onLifecycle: (event) => {
+        const message: ActionLifecycleMessage = {
+          type: "action_lifecycle",
+          actionId: event.actionId,
+          actionName: event.actionName,
+          stage: event.stage,
+          ts: event.ts,
+          ...(event.message ? { message: event.message } : {}),
           conversationId,
-          { targetClientId: resolvedTargetClientId },
-        );
-      } catch (err) {
-        pendingInteractions.resolve(requestId);
-        log.warn(
-          { requestId, command: input.command, err },
-          "Host bash proxy send failed",
-        );
-        reject(err instanceof Error ? err : new Error(String(err)));
-      }
+        };
+        broadcastMessage(message, conversationId);
+      },
+      execute: async () =>
+        await new Promise<ToolExecutionResult>((resolve, reject) => {
+          const shellMaxTimeoutSec = getConfig().timeouts.shellMaxTimeoutSec;
+          const timeoutSec = input.timeout_seconds ?? shellMaxTimeoutSec;
+          const proxyTimeoutSec = timeoutSec + 3;
+
+          let detachAbort: () => void = () => {};
+
+          const timer = setTimeout(() => {
+            pendingInteractions.resolve(requestId);
+            log.warn(
+              { requestId, command: input.command },
+              "Host bash proxy request timed out",
+            );
+            const timeoutMessage = resolvedTargetClientId
+              ? `Host bash proxy timed out waiting for response from client ${resolvedTargetClientId}`
+              : "Host bash proxy timed out waiting for client response";
+            resolve(
+              formatShellOutput("", timeoutMessage, null, true, timeoutSec),
+            );
+          }, proxyTimeoutSec * 1000);
+
+          if (signal) {
+            const onAbort = () => {
+              if (pendingInteractions.get(requestId)) {
+                pendingInteractions.resolve(requestId);
+                try {
+                  broadcastMessage(
+                    {
+                      type: "host_bash_cancel",
+                      requestId,
+                      conversationId,
+                      targetClientId: resolvedTargetClientId,
+                    },
+                    conversationId,
+                    { targetClientId: resolvedTargetClientId },
+                  );
+                } catch {
+                  // Best-effort cancel notification
+                }
+                resolve(formatShellOutput("", "Aborted", null, false, 0));
+              }
+            };
+            signal.addEventListener("abort", onAbort, { once: true });
+            detachAbort = () => signal.removeEventListener("abort", onAbort);
+          }
+
+          pendingInteractions.register(requestId, {
+            conversationId,
+            kind: "host_bash",
+            rpcResolve: resolve as (v: unknown) => void,
+            rpcReject: reject,
+            timer,
+            detachAbort,
+            targetClientId: resolvedTargetClientId,
+            targetActorPrincipalId:
+              resolvedTargetClientId != null
+                ? assistantEventHub.getActorPrincipalIdForClient(
+                    resolvedTargetClientId,
+                  )
+                : undefined,
+            metadata: { timeoutSec },
+          });
+
+          try {
+            broadcastMessage(
+              {
+                type: "host_bash_request",
+                requestId,
+                conversationId,
+                command: input.command,
+                working_dir: input.working_dir,
+                timeout_seconds: input.timeout_seconds,
+                targetClientId: resolvedTargetClientId,
+                ...(input.env && Object.keys(input.env).length > 0
+                  ? { env: input.env }
+                  : {}),
+              },
+              conversationId,
+              { targetClientId: resolvedTargetClientId },
+            );
+          } catch (err) {
+            pendingInteractions.resolve(requestId);
+            log.warn(
+              { requestId, command: input.command, err },
+              "Host bash proxy send failed",
+            );
+            reject(err instanceof Error ? err : new Error(String(err)));
+          }
+        }),
     });
   }
 

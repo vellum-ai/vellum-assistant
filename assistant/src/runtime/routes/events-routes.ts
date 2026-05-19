@@ -114,6 +114,7 @@ export function handleSubscribeAssistantEvents(
     "host_file",
     "host_cu",
     "host_app_control",
+    "host_camera",
     "host_browser",
   ];
 

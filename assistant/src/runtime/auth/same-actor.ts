@@ -5,8 +5,7 @@
  * Verifies that the submitting (source) actor's principal id matches the
  * actor principal id captured for the target client at SSE subscription
  * time. This is the authoritative gate that prevents cross-user
- * execution and cross-user result submission across all three host-proxy
- * capabilities (host_bash, host_file, host_cu).
+ * execution and cross-user result submission across host-proxy capabilities.
  *
  * Two entry points map onto the two control-flow styles in the codebase:
  *   - {@link enforceSameActorOrErrorResult} for proxies — returns a
@@ -46,6 +45,7 @@ export type SameActorOp =
   | "host_file"
   | "host_cu"
   | "host_browser"
+  | "host_camera"
   | "host_transfer";
 
 /**

@@ -46,6 +46,7 @@ import {
 } from "./conversation-store.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
+import { HostCameraProxy } from "./host-camera-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 
@@ -173,6 +174,13 @@ async function prepareConversationForMessage(
     }
   } else if (!conversation.isProcessing()) {
     conversation.setHostAppControlProxy(undefined);
+  }
+  if (supportsHostProxy(resolvedInterface, "host_camera")) {
+    if (!conversation.isProcessing() || !conversation.hostCameraProxy) {
+      conversation.setHostCameraProxy(new HostCameraProxy());
+    }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostCameraProxy(undefined);
   }
   // The early `isProcessing()` throw above guarantees the conversation is
   // idle here, so preactivation is unconditional once the proxies are wired.

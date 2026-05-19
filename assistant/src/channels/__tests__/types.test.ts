@@ -80,9 +80,13 @@ describe("parseInterfaceId", () => {
 });
 
 describe("supportsHostProxy", () => {
-  // ── macOS: supports all four host proxy capabilities. ──
+  // ── Desktop clients: support all host proxy capabilities. ──
   test("macos returns true (no capability)", () => {
     expect(supportsHostProxy("macos")).toBe(true);
+  });
+
+  test("tauri returns true (no capability)", () => {
+    expect(supportsHostProxy("tauri")).toBe(true);
   });
 
   test("macos returns true for host_bash", () => {
@@ -99,6 +103,14 @@ describe("supportsHostProxy", () => {
 
   test("macos returns true for host_browser", () => {
     expect(supportsHostProxy("macos", "host_browser")).toBe(true);
+  });
+
+  test("tauri returns true for desktop host capabilities", () => {
+    expect(supportsHostProxy("tauri", "host_bash")).toBe(true);
+    expect(supportsHostProxy("tauri", "host_file")).toBe(true);
+    expect(supportsHostProxy("tauri", "host_cu")).toBe(true);
+    expect(supportsHostProxy("tauri", "host_browser")).toBe(true);
+    expect(supportsHostProxy("tauri", "host_app_control")).toBe(true);
   });
 
   // ── chrome-extension: only host_browser. ──

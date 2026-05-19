@@ -11,6 +11,7 @@ mock.module("../util/logger.js", () => ({
 
 /** Events published through the mock event hub. */
 let publishedEvents: unknown[] = [];
+let lifecycleEvents: Array<Record<string, unknown>> = [];
 let mockHasConnection = true;
 
 /**
@@ -49,7 +50,11 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
       mockClients.find((c) => c.clientId === clientId)?.actorPrincipalId,
   },
   broadcastMessage: (msg: unknown) => {
-    publishedEvents.push(msg);
+    if ((msg as { type?: string }).type === "action_lifecycle") {
+      lifecycleEvents.push(msg as Record<string, unknown>);
+    } else {
+      publishedEvents.push(msg);
+    }
   },
 }));
 
@@ -72,6 +77,7 @@ describe("HostBrowserProxy", () => {
     HostBrowserProxy.reset();
     pendingInteractions.clear();
     publishedEvents = [];
+    lifecycleEvents = [];
     mockHasConnection = true;
     mockClients = [];
     proxy = HostBrowserProxy.instance;
@@ -154,6 +160,25 @@ describe("HostBrowserProxy", () => {
       const result = await resultPromise;
       expect(result.isError).toBe(true);
       expect(result.content).toContain("Navigation failed");
+    });
+
+    test("emits action lifecycle events for host_browser execution", async () => {
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.reload" },
+        "session-1",
+      );
+
+      const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.resolveResult(requestId, { content: "ok", isError: false });
+      await resultPromise;
+
+      expect(lifecycleEvents.length).toBeGreaterThanOrEqual(3);
+      expect(lifecycleEvents.map((m) => m.stage)).toEqual([
+        "started",
+        "executing",
+        "completed",
+      ]);
     });
   });
 

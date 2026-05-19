@@ -117,6 +117,8 @@ import * as subagentSpawn from "./bundled-skills/subagent/tools/subagent-spawn.j
 import * as subagentStatus from "./bundled-skills/subagent/tools/subagent-status.js";
 // ── transcribe ─────────────────────────────────────────────────────────────────
 import * as transcribeMedia from "./bundled-skills/transcribe/tools/transcribe-media.js";
+// ── webcam-snapshot ────────────────────────────────────────────────────────────
+import * as describeCameraOnce from "./bundled-skills/webcam-snapshot/tools/describe-camera-once.js";
 
 // ─── Registry ────────────────────────────────────────────────────────────────
 
@@ -249,4 +251,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // transcribe
   ["transcribe:tools/transcribe-media.ts", transcribeMedia],
+
+  // webcam-snapshot
+  ["webcam-snapshot:tools/describe-camera-once.ts", describeCameraOnce],
 ]);

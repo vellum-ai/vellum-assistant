@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+import { runAction } from "../actions/run-action.js";
 import type { InterfaceId } from "../channels/types.js";
 import {
   assistantEventHub,
@@ -10,6 +11,7 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import type { ActionLifecycleMessage } from "./message-types/actions.js";
 import type { HostBrowserRequest } from "./message-types/host-browser.js";
 
 /** Distributive omit that preserves union variant fields. */
@@ -120,7 +122,9 @@ export class HostBrowserProxy {
    * a valid extension transport.
    */
   hasExtensionClient(): boolean {
-    return assistantEventHub.listClientsByInterface("chrome-extension").length > 0;
+    return (
+      assistantEventHub.listClientsByInterface("chrome-extension").length > 0
+    );
   }
 
   /**
@@ -176,78 +180,106 @@ export class HostBrowserProxy {
     const targetActorPrincipalId = preferredClient?.actorPrincipalId;
     const requestId = uuid();
 
-    return new Promise<ToolExecutionResult>((resolve, reject) => {
-      const timeoutSec = input.timeout_seconds ?? 30;
-
-      let detachAbort: () => void = () => {};
-
-      const timer = setTimeout(() => {
-        pendingInteractions.resolve(requestId);
-        log.warn(
-          { requestId, cdpMethod: input.cdpMethod },
-          "Host browser proxy request timed out",
-        );
-        resolve({
-          content:
-            "Host browser proxy timed out waiting for extension response (check SSE connectivity and /v1/host-browser-result callback failures such as 404/401).",
-          isError: true,
-        });
-      }, timeoutSec * 1000);
-
-      if (signal) {
-        const onAbort = () => {
-          if (pendingInteractions.get(requestId)) {
-            pendingInteractions.resolve(requestId);
-            try {
-              broadcastMessage({
-                type: "host_browser_cancel",
-                requestId,
-              });
-            } catch {
-              // Best-effort cancel notification
-            }
-            resolve({ content: "Aborted", isError: true });
-          }
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-        detachAbort = () => signal.removeEventListener("abort", onAbort);
-      }
-
-      pendingInteractions.register(requestId, {
-        conversationId,
-        kind: "host_browser",
-        targetClientId,
-        targetActorPrincipalId,
-        rpcResolve: resolve as (v: unknown) => void,
-        rpcReject: reject,
-        timer,
-        detachAbort,
-      });
-
-      try {
-        if (!preferredClient) {
-          pendingInteractions.resolve(requestId);
-          reject(
-            new Error(
-              "host_browser send failed: no active extension connection",
-            ),
-          );
-          return;
-        }
-
-        broadcastMessage(
-          { ...input, type: "host_browser_request", requestId, conversationId },
+    return runAction<ToolExecutionResult>({
+      actionName: "host_browser.cdp_request",
+      conversationId,
+      inputSummary: JSON.stringify({
+        cdpMethod: input.cdpMethod,
+        cdpSessionId: input.cdpSessionId ?? null,
+        targetClientId: targetClientId ?? null,
+      }),
+      riskLevel: "Medium",
+      onLifecycle: (event) => {
+        const message: ActionLifecycleMessage = {
+          type: "action_lifecycle",
+          actionId: event.actionId,
+          actionName: event.actionName,
+          stage: event.stage,
+          ts: event.ts,
+          ...(event.message ? { message: event.message } : {}),
           conversationId,
-          { targetClientId: preferredClient.clientId },
-        );
-      } catch (err) {
-        pendingInteractions.resolve(requestId);
-        log.warn(
-          { requestId, cdpMethod: input.cdpMethod, err },
-          "Host browser proxy send failed",
-        );
-        reject(err instanceof Error ? err : new Error(String(err)));
-      }
+        };
+        broadcastMessage(message, conversationId);
+      },
+      execute: async () =>
+        await new Promise<ToolExecutionResult>((resolve, reject) => {
+          const timeoutSec = input.timeout_seconds ?? 30;
+
+          let detachAbort: () => void = () => {};
+
+          const timer = setTimeout(() => {
+            pendingInteractions.resolve(requestId);
+            log.warn(
+              { requestId, cdpMethod: input.cdpMethod },
+              "Host browser proxy request timed out",
+            );
+            resolve({
+              content:
+                "Host browser proxy timed out waiting for extension response (check SSE connectivity and /v1/host-browser-result callback failures such as 404/401).",
+              isError: true,
+            });
+          }, timeoutSec * 1000);
+
+          if (signal) {
+            const onAbort = () => {
+              if (pendingInteractions.get(requestId)) {
+                pendingInteractions.resolve(requestId);
+                try {
+                  broadcastMessage({
+                    type: "host_browser_cancel",
+                    requestId,
+                  });
+                } catch {
+                  // Best-effort cancel notification
+                }
+                resolve({ content: "Aborted", isError: true });
+              }
+            };
+            signal.addEventListener("abort", onAbort, { once: true });
+            detachAbort = () => signal.removeEventListener("abort", onAbort);
+          }
+
+          pendingInteractions.register(requestId, {
+            conversationId,
+            kind: "host_browser",
+            targetClientId,
+            targetActorPrincipalId,
+            rpcResolve: resolve as (v: unknown) => void,
+            rpcReject: reject,
+            timer,
+            detachAbort,
+          });
+
+          try {
+            if (!preferredClient) {
+              pendingInteractions.resolve(requestId);
+              reject(
+                new Error(
+                  "host_browser send failed: no active extension connection",
+                ),
+              );
+              return;
+            }
+
+            broadcastMessage(
+              {
+                ...input,
+                type: "host_browser_request",
+                requestId,
+                conversationId,
+              },
+              conversationId,
+              { targetClientId: preferredClient.clientId },
+            );
+          } catch (err) {
+            pendingInteractions.resolve(requestId);
+            log.warn(
+              { requestId, cdpMethod: input.cdpMethod, err },
+              "Host browser proxy send failed",
+            );
+            reject(err instanceof Error ? err : new Error(String(err)));
+          }
+        }),
     });
   }
 
