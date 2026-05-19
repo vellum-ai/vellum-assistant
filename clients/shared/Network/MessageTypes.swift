@@ -1706,6 +1706,58 @@ public struct HostCuCancelRequest: Decodable, Sendable {
     public let requestId: String
 }
 
+// MARK: - Host Camera Proxy
+
+/// Request from the daemon to capture one webcam snapshot and return it for
+/// immediate summarization. The client must stop the camera after one frame.
+public struct HostCameraRequest: Decodable, Sendable {
+    public let type: String
+    public let requestId: String
+    public let conversationId: String
+    public let toolName: String
+    public let input: [String: AnyCodable]
+    public let targetClientId: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case requestId
+        case conversationId
+        case toolName
+        case input
+        case targetClientId
+    }
+}
+
+public struct HostCameraCancelRequest: Decodable, Sendable {
+    public let type: String
+    public let requestId: String
+}
+
+public struct HostCameraResultPayload: Codable, Sendable {
+    public let requestId: String
+    public let imageBase64: String?
+    public let mediaType: String?
+    public let width: Int?
+    public let height: Int?
+    public let error: String?
+
+    public init(
+        requestId: String,
+        imageBase64: String? = nil,
+        mediaType: String? = nil,
+        width: Int? = nil,
+        height: Int? = nil,
+        error: String? = nil
+    ) {
+        self.requestId = requestId
+        self.imageBase64 = imageBase64
+        self.mediaType = mediaType
+        self.width = width
+        self.height = height
+        self.error = error
+    }
+}
+
 // MARK: - Host App Control
 
 /// Request from the daemon to execute an app-control action on the host.
@@ -2970,6 +3022,8 @@ public enum ServerMessage: Decodable, Sendable {
     case hostFileCancel(HostFileCancelRequest)
     case hostCuRequest(HostCuRequest)
     case hostCuCancel(HostCuCancelRequest)
+    case hostCameraRequest(HostCameraRequest)
+    case hostCameraCancel(HostCameraCancelRequest)
     case hostAppControlRequest(HostAppControlRequest)
     case hostAppControlCancel(HostAppControlCancel)
     case hostBrowserRequest(HostBrowserRequest)
@@ -3473,6 +3527,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_cu_cancel":
             let message = try HostCuCancelRequest(from: decoder)
             self = .hostCuCancel(message)
+        case "host_camera_request":
+            let message = try HostCameraRequest(from: decoder)
+            self = .hostCameraRequest(message)
+        case "host_camera_cancel":
+            let message = try HostCameraCancelRequest(from: decoder)
+            self = .hostCameraCancel(message)
         case "host_app_control_request":
             let message = try HostAppControlRequest(from: decoder)
             self = .hostAppControlRequest(message)

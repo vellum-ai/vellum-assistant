@@ -145,6 +145,29 @@ public final class WatchSession {
                 log.error("Failed to send watch observation")
             }
 
+            // Phase 10C: also publish a `screen_snapshot` perception event so the
+            // perception spine can reason over the same data. The daemon gates this
+            // on its own feature flag + per-conversation consent grant — a failure
+            // here is normal when the flag is off and must not interrupt the watch
+            // loop. The legacy `watch_observation` path above remains the
+            // authoritative producer until 10C ships fully.
+            let truncatedOcr = String(screenContent.prefix(2048))
+            let perceptionMsg = ScreenSnapshotPerceptionMessage(
+                eventId: "screen-snapshot:\(watchId):\(captureCount)",
+                ts: ISO8601DateFormatter().string(from: Date()),
+                source: ScreenSnapshotPerceptionMessage.Source(module: "clients/macos/WatchSession"),
+                payload: ScreenSnapshotPerceptionMessage.Payload(
+                    appId: bundleIdentifier ?? appName,
+                    appName: appName,
+                    windowTitle: windowTitle ?? "",
+                    ocrTextRedacted: truncatedOcr,
+                    redacted: false,
+                    captureMethod: "ocr",
+                    confidence: 0.8
+                )
+            )
+            _ = await computerUseClient.sendScreenSnapshotPerception(perceptionMsg)
+
             try? await Task.sleep(nanoseconds: UInt64(intervalSeconds) * 1_000_000_000)
         }
 

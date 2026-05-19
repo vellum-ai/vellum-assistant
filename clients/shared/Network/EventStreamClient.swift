@@ -625,6 +625,11 @@ public final class EventStreamClient {
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
             log.warning("Ignoring host_cu_request for non-local conversation \(msg.conversationId, privacy: .public)")
             return true
+        case .hostCameraRequest(let msg):
+            if msg.targetClientId != nil { return false }
+            if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
+            log.warning("Ignoring host_camera_request for non-local conversation \(msg.conversationId, privacy: .public)")
+            return true
         case .hostAppControlRequest(let msg):
             if locallyOwnedConversationIds.contains(msg.conversationId) { return false }
             log.warning("Ignoring host_app_control_request for non-local conversation \(msg.conversationId, privacy: .public)")
