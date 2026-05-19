@@ -29,6 +29,9 @@
 import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
 import { supportsHostProxy } from "../channels/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { getLogger } from "../util/logger.js";
+
+const log = getLogger("host-proxy-preactivation");
 
 /**
  * Subset of Conversation/ProcessConversationContext that
@@ -36,7 +39,27 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
  * `ProcessConversationContext` satisfy this structurally.
  */
 export interface HostProxyPreactivationTarget {
+  readonly conversationId: string;
   addPreactivatedSkillId(id: string): void;
+}
+
+/**
+ * Why an attachment decision went the way it did. Logged per turn so that
+ * silent-gate failures (e.g. ATL-609: computer-use never reaches the LLM
+ * surface for a macOS user) can be diagnosed from production logs without
+ * extra instrumentation.
+ */
+export type HostProxyAttachmentReason =
+  | "native_support"
+  | "cross_client"
+  | "denied_no_interface"
+  | "denied_chrome_extension"
+  | "denied_no_clients";
+
+export interface HostProxyAttachmentDecision {
+  shouldAttach: boolean;
+  reason: HostProxyAttachmentReason;
+  clientCount?: number;
 }
 
 /**
@@ -62,45 +85,89 @@ export const HOST_PROXY_SKILL_PREACTIVATIONS: ReadonlyArray<{
 ];
 
 /**
- * Returns true when a host-proxy for the given capability should be attached
- * (instantiated and preactivated) for the current turn. Two cases qualify:
+ * Returns the full attachment decision for a host-proxy capability — used both
+ * to gate proxy instantiation and to feed the structured preactivation log so
+ * silent gates can be diagnosed without re-instrumenting after the fact.
  *
- *  1. The source interface natively supports the capability (e.g. macOS → host_cu).
- *  2. The source interface doesn't support the capability natively but at least
- *     one connected client does — cross-client routing. `chrome-extension` is
- *     excluded as a security boundary: it is its own executor context and cannot
- *     broker cross-client routing to a macOS client.
+ *  1. No source interface → `denied_no_interface`.
+ *  2. Source interface natively supports the capability → `native_support`.
+ *  3. `chrome-extension` source can never broker cross-client routing to a
+ *     macOS client (security boundary) → `denied_chrome_extension`.
+ *  4. At least one connected client advertises the capability →
+ *     `cross_client` with `clientCount`.
+ *  5. Otherwise → `denied_no_clients` with `clientCount: 0`.
  *
- * This is the single source of truth for both preactivation and proxy
- * instantiation, so the two decisions stay in sync.
+ * Single source of truth for preactivation and proxy instantiation.
+ */
+export function evaluateHostProxyAttachment(
+  capability: HostProxyCapability,
+  sourceInterface: InterfaceId | undefined,
+): HostProxyAttachmentDecision {
+  if (!sourceInterface) {
+    return { shouldAttach: false, reason: "denied_no_interface" };
+  }
+  if (supportsHostProxy(sourceInterface, capability)) {
+    return { shouldAttach: true, reason: "native_support" };
+  }
+  if (sourceInterface === "chrome-extension") {
+    return { shouldAttach: false, reason: "denied_chrome_extension" };
+  }
+  const clientCount =
+    assistantEventHub.listClientsByCapability(capability).length;
+  if (clientCount > 0) {
+    return { shouldAttach: true, reason: "cross_client", clientCount };
+  }
+  return { shouldAttach: false, reason: "denied_no_clients", clientCount: 0 };
+}
+
+/**
+ * Boolean wrapper retained for the proxy-instantiation call sites that only
+ * need the gate result. Prefer `evaluateHostProxyAttachment` when the reason
+ * is also useful (e.g. for logging or telemetry).
  */
 export function shouldAttachHostProxyForCapability(
   capability: HostProxyCapability,
   sourceInterface: InterfaceId | undefined,
 ): boolean {
-  if (!sourceInterface) return false;
-  if (supportsHostProxy(sourceInterface, capability)) return true;
-  if (sourceInterface === "chrome-extension") return false;
-  return assistantEventHub.listClientsByCapability(capability).length > 0;
+  return evaluateHostProxyAttachment(capability, sourceInterface).shouldAttach;
 }
 
 /**
  * Preactivate every host-proxy-backed skill that the given source interface
- * supports. No-op when `sourceInterface` is undefined.
+ * supports, and emit one structured `log.info` line per turn capturing each
+ * capability's decision + the final preactivated skill IDs.
+ *
+ * The log line fires unconditionally — even when `sourceInterface` is
+ * undefined — because "preactivation never ran because no interface" is
+ * itself the diagnostic signal we want visible in production.
  *
  * Callers are responsible for any additional gating (e.g. only preactivating
  * when the conversation is idle vs. when re-adding after dequeue), since
- * those constraints differ across create vs. drain paths. This helper just
- * iterates the registry and dispatches.
+ * those constraints differ across create vs. drain paths.
  */
 export function preactivateHostProxySkills(
   conversation: HostProxyPreactivationTarget,
   sourceInterface: InterfaceId | undefined,
 ): void {
-  if (!sourceInterface) return;
+  const decisions: Record<string, HostProxyAttachmentDecision> = {};
+  const preactivatedSkillIds: string[] = [];
+
   for (const { capability, skillId } of HOST_PROXY_SKILL_PREACTIVATIONS) {
-    if (shouldAttachHostProxyForCapability(capability, sourceInterface)) {
+    const decision = evaluateHostProxyAttachment(capability, sourceInterface);
+    decisions[capability] = decision;
+    if (decision.shouldAttach) {
       conversation.addPreactivatedSkillId(skillId);
+      preactivatedSkillIds.push(skillId);
     }
   }
+
+  log.info(
+    {
+      conversationId: conversation.conversationId,
+      sourceInterface,
+      decisions,
+      preactivatedSkillIds,
+    },
+    "host-proxy preactivation decision",
+  );
 }
