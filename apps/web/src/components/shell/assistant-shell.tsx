@@ -201,7 +201,7 @@ export function AssistantShell({
       return;
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key !== "k") {
+      if (!shouldHandleShortcut(event, document.activeElement, "k")) {
         return;
       }
       event.preventDefault();
