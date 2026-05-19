@@ -54,6 +54,7 @@ If you need to run the web app without the full `vel up` orchestration
 ```bash
 cd apps/web
 bun install
+bun run openapi-ts  # generate API client from OpenAPI schemas (required before typecheck/dev)
 bun run dev        # Vite dev server on localhost:3001
 ```
 
