@@ -338,17 +338,10 @@ async function checkManagedProvider(
     ) as Array<{ id: string; account_label?: string }>;
 
     if (connections.length === 0) {
-      // No active managed connections — report as missing so the
-      // heartbeat can notify the user.
-      results.push({
-        connectionId: `managed:${providerRow.provider}`,
-        provider: providerRow.provider,
-        accountInfo: null,
-        status: "missing_token",
-        details: `No active managed connection for ${providerRow.provider}. Reconnect on the Vellum platform.`,
-        missingScopes: [],
-        canAutoRecover: false,
-      });
+      // No managed connections exist — the user has never connected this
+      // provider. The suggested-prompts system handles prompting them to
+      // connect; generating a missing_token alert here would create
+      // false-positive "reconnect" notifications.
       return results;
     }
 
