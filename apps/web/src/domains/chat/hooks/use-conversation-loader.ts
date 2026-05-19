@@ -34,7 +34,7 @@ import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/ty
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DomainEvent } from "@/domains/chat/lib/turn-state-machine.js";
 import type { InteractionEvent, InteractionState } from "@/domains/chat/lib/interaction-state-machine.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import { useConversationListStore } from "@/domains/chat/lib/conversation-list-state.js";
 import type { SubagentAction } from "@/domains/chat/lib/subagent-state.js";
 import { haptic } from "@/utils/haptics.js";
 
@@ -126,7 +126,6 @@ interface UseConversationLoaderParams {
 
   // State setters
   setAssistantId: Dispatch<SetStateAction<string | null>>;
-  dispatchConversationList: Dispatch<ConversationListAction>;
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
   setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
@@ -220,7 +219,6 @@ export function useConversationLoader({
   loadEpochRef,
   pendingInitialMessageRef,
   setAssistantId,
-  dispatchConversationList,
   setMessages,
   setTranscriptPagination,
   setIsLoadingHistory,
@@ -240,6 +238,8 @@ export function useConversationLoader({
   onDraftRestored,
   shouldSuppressGenericChatErrorNotice,
 }: UseConversationLoaderParams) {
+  const dispatchConversationList = useConversationListStore((s) => s.dispatch);
+
   // -------------------------------------------------------------------------
   // Internal refs
   // -------------------------------------------------------------------------
@@ -463,7 +463,6 @@ export function useConversationLoader({
     isLoadingOlderRef,
     historyLoadedRef,
     loadEpochRef,
-    dispatchConversationList,
     setMessages,
     setTranscriptPagination,
     setIsLoadingHistory,
@@ -495,7 +494,6 @@ export function useConversationLoader({
     attentionKeys,
     conversationsRef,
     processingSnapshotsRef,
-    dispatchConversationList,
   });
 
   // -------------------------------------------------------------------------

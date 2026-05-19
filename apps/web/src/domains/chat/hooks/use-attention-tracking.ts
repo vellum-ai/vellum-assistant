@@ -1,7 +1,6 @@
 
 import * as Sentry from "@sentry/react";
 import {
-  type Dispatch,
   type MutableRefObject,
   useEffect,
   useRef,
@@ -12,7 +11,7 @@ import {
   listConversationKeysWithPendingInteractions,
   markConversationSeen,
 } from "@/domains/chat/lib/api.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import { useConversationListStore } from "@/domains/chat/lib/conversation-list-state.js";
 import type { AssistantStateKind } from "@/domains/chat/types.js";
 
 interface UseAttentionTrackingParams {
@@ -29,9 +28,6 @@ interface UseAttentionTrackingParams {
   // Refs
   conversationsRef: MutableRefObject<Conversation[]>;
   processingSnapshotsRef: MutableRefObject<Map<string, string | undefined>>;
-
-  // State setters
-  dispatchConversationList: Dispatch<ConversationListAction>;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,8 +91,8 @@ export function useAttentionTracking({
   attentionKeys,
   conversationsRef,
   processingSnapshotsRef,
-  dispatchConversationList,
 }: UseAttentionTrackingParams) {
+  const dispatchConversationList = useConversationListStore((s) => s.dispatch);
   const lastSeenOnOpenConversationKeyRef = useRef<string | null>(null);
   const initialAttentionSweepDoneRef = useRef(false);
 

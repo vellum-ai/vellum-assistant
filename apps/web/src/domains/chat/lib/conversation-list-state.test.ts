@@ -1,10 +1,11 @@
-import { describe, it, expect } from "bun:test";
+import { afterEach, describe, it, expect } from "bun:test";
 
 import type { Conversation, ConversationGroup } from "@/domains/chat/lib/api.js";
 import {
   type ConversationListState,
   INITIAL_CONVERSATION_LIST_STATE,
   conversationListReducer,
+  useConversationListStore,
 } from "@/domains/chat/lib/conversation-list-state.js";
 
 function makeConversation(key: string, overrides?: Partial<Conversation>): Conversation {
@@ -428,5 +429,55 @@ describe("conversationListReducer", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const next = conversationListReducer(state, { type: "UNKNOWN" } as any);
     expect(next).toBe(state);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Zustand store
+// ---------------------------------------------------------------------------
+
+describe("useConversationListStore", () => {
+  afterEach(() => {
+    useConversationListStore.setState({
+      ...INITIAL_CONVERSATION_LIST_STATE,
+    });
+  });
+
+  it("initializes with INITIAL_CONVERSATION_LIST_STATE", () => {
+    const state = useConversationListStore.getState();
+    expect(state.conversations).toEqual([]);
+    expect(state.conversationGroups).toEqual([]);
+    expect(state.activeConversationKey).toBeNull();
+    expect(state.editingConversationKey).toBeNull();
+    expect(state.processingKeys.size).toBe(0);
+    expect(state.attentionKeys.size).toBe(0);
+  });
+
+  it("dispatch applies reducer transitions", () => {
+    const { dispatch } = useConversationListStore.getState();
+    const convs = [makeConversation("a"), makeConversation("b")];
+    dispatch({ type: "SET_CONVERSATIONS", conversations: convs });
+    expect(useConversationListStore.getState().conversations).toEqual(convs);
+  });
+
+  it("dispatch updates active key", () => {
+    const { dispatch } = useConversationListStore.getState();
+    dispatch({ type: "SET_ACTIVE_KEY", key: "conv-1" });
+    expect(useConversationListStore.getState().activeConversationKey).toBe("conv-1");
+  });
+
+  it("dispatch adds and removes processing keys", () => {
+    const { dispatch } = useConversationListStore.getState();
+    dispatch({ type: "ADD_PROCESSING_KEY", key: "p1" });
+    expect(useConversationListStore.getState().processingKeys.has("p1")).toBe(true);
+    dispatch({ type: "REMOVE_PROCESSING_KEY", key: "p1" });
+    expect(useConversationListStore.getState().processingKeys.has("p1")).toBe(false);
+  });
+
+  it("dispatch is a stable reference", () => {
+    const d1 = useConversationListStore.getState().dispatch;
+    useConversationListStore.getState().dispatch({ type: "SET_ACTIVE_KEY", key: "x" });
+    const d2 = useConversationListStore.getState().dispatch;
+    expect(d1).toBe(d2);
   });
 });

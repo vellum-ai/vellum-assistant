@@ -41,7 +41,7 @@ import { newStableId } from "@/domains/chat/lib/stable-id.js";
 import { saveDismissedSurfaceIds } from "@/domains/chat/lib/dismissedSurfacesStorage.js";
 import { isSending, type TurnState, type DomainEvent } from "@/domains/chat/lib/turn-state-machine.js";
 import type { InteractionEvent } from "@/domains/chat/lib/interaction-state-machine.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import { useConversationListStore } from "@/domains/chat/lib/conversation-list-state.js";
 import type { SubagentAction } from "@/domains/chat/lib/subagent-state.js";
 import type { PreChatOnboardingContext } from "@/lib/onboarding/prechat.js";
 
@@ -108,7 +108,6 @@ interface UseSendMessageParams {
   // State setters
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   setError: Dispatch<SetStateAction<ChatError | null>>;
-  dispatchConversationList: Dispatch<ConversationListAction>;
   dispatchInteraction: Dispatch<InteractionEvent>;
   setStreamRetryNonce: Dispatch<SetStateAction<number>>;
   setInput: Dispatch<SetStateAction<string>>;
@@ -155,7 +154,6 @@ export function useSendMessage({
   confirmationToolCallMapRef,
   setMessages,
   setError,
-  dispatchConversationList,
   dispatchInteraction,
   setStreamRetryNonce,
   setInput,
@@ -167,6 +165,8 @@ export function useSendMessage({
   navRemapKey,
   replaceUrl,
 }: UseSendMessageParams) {
+  const dispatchConversationList = useConversationListStore((s) => s.dispatch);
+
   // -------------------------------------------------------------------------
   // Queue management (delegated to useMessageQueue)
   // -------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 
 import * as Sentry from "@sentry/react";
-import { type Dispatch, useCallback } from "react";
+import { useCallback } from "react";
 
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import { useConversationListStore } from "@/domains/chat/lib/conversation-list-state.js";
 
 import {
   type ConversationGroup,
@@ -38,24 +38,20 @@ export function patchGroup(
  * before hitting the API. On failure, create/rename roll back optimistically;
  * delete refetches the full conversation list for accuracy.
  *
- * @param dispatchConversationList - Dispatch function from the
- *   `conversationListReducer`. Used for all optimistic group mutations.
  * @returns Stable callbacks: `handleCreateGroup`, `handleRenameGroup`,
  *   `handleDeleteGroup`.
  */
 interface UseConversationGroupActionsParams {
   assistantId: string | null;
-  conversationGroups: ConversationGroup[];
-  dispatchConversationList: Dispatch<ConversationListAction>;
   refreshConversations: () => Promise<void>;
 }
 
 export function useConversationGroupActions({
   assistantId,
-  conversationGroups,
-  dispatchConversationList,
   refreshConversations,
 }: UseConversationGroupActionsParams) {
+  const conversationGroups = useConversationListStore((s) => s.conversationGroups);
+  const dispatchConversationList = useConversationListStore((s) => s.dispatch);
   const handleCreateGroup = useCallback(async () => {
     if (!assistantId) return;
     haptic.light();

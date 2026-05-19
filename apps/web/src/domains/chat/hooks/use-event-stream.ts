@@ -50,7 +50,7 @@ import type {
   WebSyncRouter,
 } from "@/lib/sync/web-sync-router.js";
 
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import { useConversationListStore } from "@/domains/chat/lib/conversation-list-state.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import type { DomainEvent as TurnAction, TurnState } from "@/domains/chat/lib/turn-state-machine.js";
 import { isSending } from "@/domains/chat/lib/turn-state-machine.js";
@@ -95,7 +95,6 @@ export interface UseEventStreamParams {
   turnStateRef: MutableRefObject<TurnState>;
 
   // Conversation list
-  dispatchConversationList: Dispatch<ConversationListAction>;
   processingSnapshotsRef: MutableRefObject<Map<string, string | undefined>>;
 
   // Messages
@@ -149,7 +148,6 @@ export function useEventStream({
   reachabilityReset,
   dispatchTurn,
   turnStateRef,
-  dispatchConversationList,
   processingSnapshotsRef,
   setMessages,
   setError,
@@ -182,6 +180,7 @@ export function useEventStream({
   const dispatchTurnRef = useRef(dispatchTurn);
   dispatchTurnRef.current = dispatchTurn;
 
+  const dispatchConversationList = useConversationListStore((s) => s.dispatch);
   const dispatchConversationListRef = useRef(dispatchConversationList);
   dispatchConversationListRef.current = dispatchConversationList;
 

@@ -1,9 +1,8 @@
 /**
- * Conversation-list state machine.
+ * Conversation-list state — Zustand store.
  *
- * Manages the sidebar / conversation-selection state as a single
- * `useReducer` with typed domain events. All state transitions go through
- * `conversationListReducer`, keeping updates atomic and testable.
+ * Manages the sidebar / conversation-selection state as a Zustand store
+ * backed by a pure reducer for atomic, testable transitions.
  *
  * **State managed:**
  * - `conversations` — the full list of conversations for the sidebar
@@ -13,11 +12,17 @@
  * - `processingKeys` — conversations with in-flight assistant responses
  * - `attentionKeys` — conversations needing user attention (pending interactions)
  *
- * Follows the same pattern as `interaction-state-machine.ts` and
- * `turn-state-machine.ts`.
+ * Consumers read state via selectors and write via `dispatch(action)`:
  *
- * @see https://react.dev/learn/extracting-state-logic-into-a-reducer
+ * ```ts
+ * const conversations = useConversationListStore((s) => s.conversations);
+ * const dispatch = useConversationListStore((s) => s.dispatch);
+ * ```
+ *
+ * @see https://zustand.docs.pmnd.rs/
  */
+
+import { create } from "zustand";
 
 import type { Conversation, ConversationGroup } from "@/domains/chat/lib/api.js";
 
@@ -35,7 +40,7 @@ export interface ConversationListState {
   attentionKeys: Set<string>;
 }
 
-/** Empty initial state — used as the `useReducer` initializer. */
+/** Empty initial state — used as the store initializer. */
 export const INITIAL_CONVERSATION_LIST_STATE: ConversationListState = {
   conversations: [],
   conversationGroups: [],
@@ -458,3 +463,22 @@ export function conversationListReducer(
       return state;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Zustand store
+// ---------------------------------------------------------------------------
+
+interface ConversationListStore extends ConversationListState {
+  dispatch: (action: ConversationListAction) => void;
+}
+
+export const useConversationListStore = create<ConversationListStore>(
+  (set) => ({
+    ...INITIAL_CONVERSATION_LIST_STATE,
+    dispatch: (action) =>
+      set((store) => {
+        const { dispatch: _, ...state } = store;
+        return conversationListReducer(state, action);
+      }),
+  }),
+);

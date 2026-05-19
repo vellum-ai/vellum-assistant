@@ -13,6 +13,8 @@
 import * as Sentry from "@sentry/react";
 import { type Dispatch, type MutableRefObject, type SetStateAction, useCallback, useState } from "react";
 
+import { useConversationListStore } from "@/domains/chat/lib/conversation-list-state.js";
+
 import {
   type AllowlistOption,
   type ConfirmationDecision,
@@ -28,7 +30,6 @@ import {
 import { addTrustRule } from "@/domains/trust-rules/api.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import type { InteractionState, InteractionEvent } from "@/domains/chat/lib/interaction-state-machine.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
 import type { DomainEvent as TurnEvent } from "@/domains/chat/lib/turn-state-machine.js";
 
 import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils.js";
@@ -76,7 +77,6 @@ export interface UseInteractionActionsParams {
   interactionState: InteractionState;
   interactionStateRef: MutableRefObject<InteractionState>;
   dispatchInteraction: Dispatch<InteractionEvent>;
-  dispatchConversationList: Dispatch<ConversationListAction>;
   dispatchTurn: Dispatch<TurnEvent>;
   setMessages: Dispatch<DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[])>;
   setError: Dispatch<ChatError | null>;
@@ -118,7 +118,6 @@ export function useInteractionActions({
   interactionState,
   interactionStateRef,
   dispatchInteraction,
-  dispatchConversationList,
   dispatchTurn,
   setMessages,
   setError,
@@ -127,6 +126,7 @@ export function useInteractionActions({
   activeConversationKeyRef,
   confirmationToolCallMapRef,
 }: UseInteractionActionsParams): UseInteractionActionsReturn {
+  const dispatchConversationList = useConversationListStore((s) => s.dispatch);
   const {
     pendingSecret,
     isSubmittingSecret,

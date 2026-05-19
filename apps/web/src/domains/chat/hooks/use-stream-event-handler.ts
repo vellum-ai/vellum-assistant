@@ -10,7 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import type { InteractionEvent } from "@/domains/chat/lib/interaction-state-machine.js";
 import type { SubagentAction } from "@/domains/chat/lib/subagent-state.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import { useConversationListStore } from "@/domains/chat/lib/conversation-list-state.js";
 import type {
   AssistantEvent,
   AssistantSyncChangedEvent,
@@ -104,7 +104,6 @@ export interface UseStreamEventHandlerParams {
   turnStateRef: MutableRefObject<TurnState>;
 
   // --- Processing ---
-  dispatchConversationList: Dispatch<ConversationListAction>;
   processingSnapshotsRef: MutableRefObject<
     Map<string, string | undefined>
   >;
@@ -193,7 +192,6 @@ export function useStreamEventHandler(
     needsNewBubbleRef,
     dispatchTurn,
     turnStateRef,
-    dispatchConversationList,
     processingSnapshotsRef,
     setError,
     streamRef,
@@ -233,6 +231,8 @@ export function useStreamEventHandler(
   refreshAssistantIdentityRef.current = refreshAssistantIdentity;
   const invalidateAvatarRef = useRef(invalidateAvatar);
   invalidateAvatarRef.current = invalidateAvatar;
+
+  const dispatchConversationList = useConversationListStore((s) => s.dispatch);
 
   /** Remove a conversation key from the processing set and snapshots map. */
   const clearProcessingKey = useCallback(
@@ -489,7 +489,6 @@ export function useStreamEventHandler(
       dismissedSurfaceIdsRef,
       contextWindowUsageByConversationRef,
       setContextWindowUsage,
-      dispatchConversationList,
       setCompactionCircuitOpenUntil,
       pendingQueuedStableIdsRef,
       requestIdToStableIdRef,

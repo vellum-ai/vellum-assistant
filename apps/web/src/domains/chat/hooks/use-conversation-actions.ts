@@ -1,8 +1,8 @@
 
 import * as Sentry from "@sentry/react";
-import { type Dispatch, type MutableRefObject, useCallback } from "react";
+import { type MutableRefObject, useCallback } from "react";
 
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import { useConversationListStore } from "@/domains/chat/lib/conversation-list-state.js";
 import { patchConversation as _patchConversation } from "@/domains/chat/lib/conversation-list-state.js";
 import { isSlackConversation } from "@/domains/chat/lib/groupConversations.js";
 
@@ -49,18 +49,15 @@ export function resolveUnpinGroupId(
  * Conversation CRUD actions: archive, unarchive, rename, mark read/unread,
  * pin/unpin, and move between groups.
  *
- * All mutations apply an optimistic update via `dispatchConversationList`
+ * All mutations apply an optimistic update via the conversation-list store
  * before calling the API, and roll back on failure.
  *
- * @param dispatchConversationList - Dispatch function from the
- *   `conversationListReducer`. Used for all optimistic state updates.
  * @returns Stable callbacks for each conversation action.
  */
 interface UseConversationActionsParams {
   assistantId: string | null;
   activeConversationKey: string | null;
   conversations: Conversation[];
-  dispatchConversationList: Dispatch<ConversationListAction>;
   refreshConversations: () => Promise<void>;
   switchConversation: (key: string) => void;
   startNewConversation: (opts?: { silent?: boolean }) => void;
@@ -71,12 +68,12 @@ export function useConversationActions({
   assistantId,
   activeConversationKey,
   conversations,
-  dispatchConversationList,
   refreshConversations,
   switchConversation,
   startNewConversation,
   prePinGroupIdsRef,
 }: UseConversationActionsParams) {
+  const dispatchConversationList = useConversationListStore((s) => s.dispatch);
   const handleArchiveConversation = useCallback(
     async (conversation: Conversation) => {
       if (!assistantId) return;

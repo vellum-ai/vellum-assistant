@@ -13,6 +13,8 @@
 import * as Sentry from "@sentry/react";
 import { type Dispatch, type MutableRefObject, type RefObject, useCallback, useEffect, useRef } from "react";
 
+import { useConversationListStore } from "@/domains/chat/lib/conversation-list-state.js";
+
 import { toast } from "@vellum/design-library";
 import { openApp, shareApp } from "@/domains/chat/lib/apps.js";
 import { fetchDocumentContent } from "@/domains/chat/lib/documents.js";
@@ -26,7 +28,6 @@ import type {
   ViewerState,
 } from "@/domains/chat/lib/viewer-state.js";
 import type { Conversation } from "@/domains/chat/lib/api.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
 import { haptic } from "@/utils/haptics.js";
 
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
@@ -44,7 +45,6 @@ export interface UseAppViewerActionsParams {
   isDeploying: boolean;
   pendingDeployAppId: string | null;
   dispatchViewer: Dispatch<ViewerAction>;
-  dispatchConversationList: Dispatch<ConversationListAction>;
   viewerStateRef: MutableRefObject<ViewerState>;
   lastConversationKeyRef: MutableRefObject<string | null>;
   deepLinkAppId: RefObject<string | undefined>;
@@ -89,7 +89,6 @@ export function useAppViewerActions({
   isDeploying,
   pendingDeployAppId,
   dispatchViewer,
-  dispatchConversationList,
   viewerStateRef,
   lastConversationKeyRef,
   deepLinkAppId,
@@ -100,6 +99,8 @@ export function useAppViewerActions({
   navGoForward,
   pushConversationKeyParam,
 }: UseAppViewerActionsParams) {
+  const dispatchConversationList = useConversationListStore((s) => s.dispatch);
+
   // Ref-stabilize unstable callbacks so consuming useCallbacks keep stable identity.
   const switchConversationRef = useRef(switchConversation);
   switchConversationRef.current = switchConversation;

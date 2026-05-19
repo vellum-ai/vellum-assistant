@@ -30,7 +30,7 @@ import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/ty
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DomainEvent } from "@/domains/chat/lib/turn-state-machine.js";
 import type { InteractionEvent, InteractionState } from "@/domains/chat/lib/interaction-state-machine.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import { useConversationListStore } from "@/domains/chat/lib/conversation-list-state.js";
 import type { SubagentAction } from "@/domains/chat/lib/subagent-state.js";
 import type { SubagentStatus } from "@/domains/chat/lib/event-types.js";
 
@@ -119,7 +119,6 @@ interface UseConversationHistoryParams {
   loadEpochRef: MutableRefObject<number>;
 
   // State setters
-  dispatchConversationList: Dispatch<ConversationListAction>;
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
   setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
@@ -196,7 +195,6 @@ export function useConversationHistory({
   isLoadingOlderRef,
   historyLoadedRef,
   loadEpochRef,
-  dispatchConversationList,
   setMessages,
   setTranscriptPagination,
   setIsLoadingHistory,
@@ -214,6 +212,7 @@ export function useConversationHistory({
   onDraftRestored,
   shouldSuppressGenericChatErrorNotice,
 }: UseConversationHistoryParams) {
+  const dispatchConversationList = useConversationListStore((s) => s.dispatch);
   const transcriptPaginationRef = useRef(transcriptPagination);
   useEffect(() => {
     transcriptPaginationRef.current = transcriptPagination;
