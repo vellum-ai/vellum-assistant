@@ -70,6 +70,11 @@ CLAUDE.md
 !assistant/CLAUDE.md
 .agents/*
 !.agents/skills/
+
+# Shared claude-skills symlinks under .agents/skills/ are gitignored; only
+# repo-local skills are tracked. Mirrors the .claude/skills/ pattern above.
+.agents/skills/*
+!.agents/skills/testing-design-library-storybook/
 .codex
 .vellum
 
