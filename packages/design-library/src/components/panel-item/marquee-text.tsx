@@ -71,6 +71,7 @@ function MarqueeText({ children, className }: MarqueeTextProps) {
 
   return (
     <span
+      data-slot="marquee-text"
       ref={containerRef}
       className={cn("relative min-w-0 flex-1 overflow-hidden", className)}
     >

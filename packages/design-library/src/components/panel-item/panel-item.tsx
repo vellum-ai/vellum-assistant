@@ -132,8 +132,11 @@ const ROW_BASE_CLASSES = [
   "transition-colors",
   "bg-transparent",
   "text-[var(--content-secondary)]",
-  "hover:bg-[var(--surface-hover)]",
   "outline-none",
+].join(" ");
+
+const INTERACTIVE_CLASSES = [
+  "hover:bg-[var(--surface-hover)]",
   "focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
   "cursor-pointer select-none",
 ].join(" ");
@@ -254,7 +257,10 @@ function PanelItem({
   const trailingNode = trailingAction ? (
     <span
       className={TRAILING_ACTION_CLASSES}
-      onClick={(event) => event.stopPropagation()}
+      onClick={(event: MouseEvent<HTMLSpanElement>) => {
+        event.stopPropagation();
+        event.preventDefault();
+      }}
     >
       {trailingAction}
     </span>
@@ -276,7 +282,13 @@ function PanelItem({
 
   const activeClasses =
     activeVariant === "branded" ? ACTIVE_BRANDED_CLASSES : ACTIVE_DEFAULT_CLASSES;
-  const rowClasses = cn(ROW_BASE_CLASSES, activeClasses, className);
+  const isInteractive = asChild || !!href || !!onSelect;
+  const rowClasses = cn(
+    ROW_BASE_CLASSES,
+    isInteractive && INTERACTIVE_CLASSES,
+    activeClasses,
+    className,
+  );
 
   // ── asChild variant ──────────────────────────────────────────────────
   if (asChild) {
