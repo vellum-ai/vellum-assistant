@@ -316,8 +316,8 @@ The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment
 **macOS** (`clients/macos/build.sh`):
 - `test` => `test`
 - `release` / `release-application` => `staging` when `DISPLAY_VERSION` contains `-staging` (e.g. `0.6.0-staging.3`), otherwise `production`
-- `run` with localhost platform/web URL overrides => `local`
-- `run` => `local`
+- `run` with localhost platform/web URL overrides => `local` (this is the `vel up` path)
+- `run` (without URL overrides) => `dev`
 - all other commands => `dev`
 
 **Chrome extension** (`clients/chrome-extension/build.sh`):
