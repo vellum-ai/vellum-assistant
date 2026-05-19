@@ -241,6 +241,16 @@ export class ToolExecutor {
       // the inner execute-with-timeout wrapper agree on the same budget.
       let execResult: ToolExecutionResult;
       const toolTimeoutMs = computePerToolTimeoutMs(name, input);
+      const toolExecStart = Date.now();
+
+      log.info(
+        {
+          toolName: name,
+          conversationId: context.conversationId,
+          timeoutMs: toolTimeoutMs,
+        },
+        `Tool "${name}" execution start`,
+      );
 
       const execContext = context;
 
@@ -278,6 +288,17 @@ export class ToolExecutor {
           name,
         );
       }
+
+      const toolExecDurationMs = Date.now() - toolExecStart;
+      log.info(
+        {
+          toolName: name,
+          conversationId: context.conversationId,
+          durationMs: toolExecDurationMs,
+          isError: execResult.isError,
+        },
+        `Tool "${name}" execution complete (${toolExecDurationMs}ms)`,
+      );
 
       // CES approval bridge: if the tool returned an approval_required
       // indicator, present the proposal to the guardian via the existing
