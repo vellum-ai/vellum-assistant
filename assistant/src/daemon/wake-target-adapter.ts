@@ -133,6 +133,7 @@ function translateAgentEventToServerMessage(
         conversationId,
       };
     case "input_json_delta":
+    case "tool_progress":
     case "usage":
     case "error":
     case "provider_error":

@@ -1242,6 +1242,15 @@ export async function dispatchAgentEvent(
       case "input_json_delta":
         handleInputJsonDelta(state, deps, event);
         break;
+      case "tool_progress":
+        deps.onEvent({
+          type: "tool_progress",
+          toolName: event.toolName,
+          elapsedSec: event.elapsedSec,
+          conversationId: deps.ctx.conversationId,
+          toolUseId: event.toolUseId,
+        });
+        break;
       case "tool_result":
         handleToolResult(state, deps, event);
         break;

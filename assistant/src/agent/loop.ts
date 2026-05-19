@@ -116,6 +116,12 @@ export type AgentEvent =
     }
   | { type: "tool_output_chunk"; toolUseId: string; chunk: string }
   | {
+      type: "tool_progress";
+      toolUseId: string;
+      toolName: string;
+      elapsedSec: number;
+    }
+  | {
       type: "tool_result";
       toolUseId: string;
       content: string;
@@ -1023,6 +1029,22 @@ export class AgentLoop {
           }),
         );
 
+        // Emit periodic tool_progress events so clients can show a
+        // "still working" indicator for long-running tool executions.
+        // The first progress fires after 10s; subsequent ones every 10s.
+        const TOOL_PROGRESS_INTERVAL_MS = 10_000;
+        const progressHandle = setInterval(() => {
+          const elapsedSec = Math.round((Date.now() - toolExecStart) / 1000);
+          for (const toolUse of toolUseBlocks) {
+            onEvent({
+              type: "tool_progress",
+              toolUseId: toolUse.id,
+              toolName: toolUse.name,
+              elapsedSec,
+            });
+          }
+        }, TOOL_PROGRESS_INTERVAL_MS);
+
         let toolResults: Awaited<typeof toolExecutionPromise>;
         if (signal && !signal.aborted) {
           let abortHandler!: () => void;
@@ -1039,12 +1061,17 @@ export class AgentLoop {
               abortPromise,
             ]);
           } finally {
+            clearInterval(progressHandle);
             signal.removeEventListener("abort", abortHandler);
             // Suppress unhandled rejection from abandoned tool executions
             toolExecutionPromise.catch(() => {});
           }
         } else {
-          toolResults = await toolExecutionPromise;
+          try {
+            toolResults = await toolExecutionPromise;
+          } finally {
+            clearInterval(progressHandle);
+          }
         }
 
         rlog.info(

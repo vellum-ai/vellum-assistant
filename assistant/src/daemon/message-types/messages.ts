@@ -120,6 +120,16 @@ export interface ToolInputDelta {
   toolUseId?: string;
 }
 
+export interface ToolProgress {
+  type: "tool_progress";
+  toolName: string;
+  /** Elapsed time in seconds since tool execution started. */
+  elapsedSec: number;
+  conversationId?: string;
+  /** The tool_use block ID for client-side correlation. */
+  toolUseId?: string;
+}
+
 export interface ToolResult {
   type: "tool_result";
   toolName: string;
@@ -487,6 +497,7 @@ export type _MessagesServerMessages =
   | ToolUsePreviewStart
   | ToolOutputChunk
   | ToolInputDelta
+  | ToolProgress
   | ToolResult
   | ConfirmationRequest
   | SecretRequest
