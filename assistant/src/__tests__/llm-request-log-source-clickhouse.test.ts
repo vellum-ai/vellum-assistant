@@ -53,12 +53,42 @@ function fakeFetchReturning(
   }) as typeof fetch;
 }
 
+function fakeFetchReturningSequence(
+  bodies: string[],
+  recorder?: FakeFetchCall[],
+): typeof fetch {
+  let idx = 0;
+  return ((url: string | URL | Request, init?: RequestInit) => {
+    recorder?.push({
+      url: typeof url === "string" ? url : url.toString(),
+      init,
+    });
+    const body = bodies[Math.min(idx, bodies.length - 1)] ?? "";
+    idx += 1;
+    return Promise.resolve(
+      new Response(body, {
+        status: 200,
+        headers: { "content-type": "application/x-ndjson" },
+      }),
+    );
+  }) as typeof fetch;
+}
+
 function makeSource(opts: {
   body?: string;
   status?: number;
   recorder?: FakeFetchCall[];
   resolveTurnMessageIds?: (messageId: string) => string[];
-  resolveMessage?: (messageId: string) => { metadata: string | null } | null;
+  resolveMessage?: (messageId: string) => {
+    metadata: string | null;
+    conversationId?: string;
+    createdAt?: number;
+  } | null;
+  resolveTurnTimeBounds?: (
+    conversationId: string,
+    messageCreatedAt: number,
+  ) => { startTime: number; endTime: number } | null;
+  fetchImpl?: typeof fetch;
 }) {
   return new ClickHouseLlmRequestLogSource(DEFAULT_CONFIG, {
     resolveUrl: async () => "https://ch.example.test:8443",
@@ -66,11 +96,10 @@ function makeSource(opts: {
     resolveAssistantId: async () => "asst-fixture-001",
     resolveTurnMessageIds: opts.resolveTurnMessageIds ?? (() => []),
     resolveMessage: opts.resolveMessage ?? (() => null),
-    fetchImpl: fakeFetchReturning(
-      opts.body ?? "",
-      opts.status ?? 200,
-      opts.recorder,
-    ),
+    resolveTurnTimeBounds: opts.resolveTurnTimeBounds ?? (() => null),
+    fetchImpl:
+      opts.fetchImpl ??
+      fakeFetchReturning(opts.body ?? "", opts.status ?? 200, opts.recorder),
   });
 }
 
@@ -132,7 +161,9 @@ describe("ClickHouseLlmRequestLogSource", () => {
     const call = recorder[0]!;
     const parsed = new URL(call.url);
     expect(parsed.searchParams.get("database")).toBe("default");
-    expect(parsed.searchParams.get("param_assistant_id")).toBe("asst-fixture-001");
+    expect(parsed.searchParams.get("param_assistant_id")).toBe(
+      "asst-fixture-001",
+    );
     expect(parsed.searchParams.get("param_log_id")).toBe("log-1");
     expect(call.init?.method).toBe("POST");
     const auth = (call.init?.headers as Record<string, string>).Authorization;
@@ -162,6 +193,69 @@ describe("ClickHouseLlmRequestLogSource", () => {
     const src = makeSource({ body: "" });
     const rows = await src.getRequestLogsByMessageId("msg-x");
     expect(rows).toEqual([]);
+  });
+
+  test("getRequestLogsByMessageId recovers rows mirrored before message_id backfill", async () => {
+    const recorder: FakeFetchCall[] = [];
+    const unlinkedRow = {
+      ...SAMPLE_ROW,
+      id: "log-unlinked",
+      message_id: "",
+      created_at: "1778465138000",
+    };
+    const src = makeSource({
+      recorder,
+      resolveTurnMessageIds: () => ["msg-assistant"],
+      resolveMessage: () => ({
+        metadata: null,
+        conversationId: "conv-1",
+        createdAt: 1778465139000,
+      }),
+      resolveTurnTimeBounds: () => ({
+        startTime: 1778465137000,
+        endTime: 1778465140000,
+      }),
+      fetchImpl: fakeFetchReturningSequence(
+        ["", JSON.stringify(unlinkedRow) + "\n"],
+        recorder,
+      ),
+    });
+
+    const rows = await src.getRequestLogsByMessageId("msg-assistant");
+
+    expect(rows).toEqual([
+      {
+        id: "log-unlinked",
+        conversationId: "conv-1",
+        messageId: null,
+        provider: "anthropic",
+        requestPayload: '{"foo":1}',
+        responsePayload: '{"bar":2}',
+        createdAt: 1778465138000,
+        agentLoopExitReason: "no_tool_calls",
+      },
+    ]);
+    expect(recorder).toHaveLength(2);
+
+    const exactQuery = recorder[0]!;
+    expect(String(exactQuery.init?.body)).toContain(
+      "message_id IN ({id_0:String})",
+    );
+
+    const recoveryQuery = recorder[1]!;
+    const parsed = new URL(recoveryQuery.url);
+    expect(parsed.searchParams.get("param_conversation_id")).toBe("conv-1");
+    expect(parsed.searchParams.get("param_start_ms")).toBe("1778465137000");
+    expect(parsed.searchParams.get("param_end_ms")).toBe("1778465140000");
+    const body = String(recoveryQuery.init?.body ?? "");
+    expect(body).toContain("conversation_id = {conversation_id:String}");
+    expect(body).toContain("message_id = ''");
+    expect(body).toContain(
+      "created_at >= fromUnixTimestamp64Milli({start_ms:Int64})",
+    );
+    expect(body).toContain(
+      "created_at <= fromUnixTimestamp64Milli({end_ms:Int64})",
+    );
   });
 
   test("getRequestLogsByMessageId binds message ids via parameterized placeholders", async () => {

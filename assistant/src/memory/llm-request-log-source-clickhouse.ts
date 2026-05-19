@@ -8,12 +8,10 @@
  * (`clickhouse:url`, `clickhouse:password`); database/table/user come
  * from workspace config.
  *
- * Known limitation: the mirror is INSERT-only. A row inserted locally
- * with `message_id = NULL` and backfilled later will appear in
- * ClickHouse with `message_id = ''` forever. Reads via this source for
- * the most-recent ~minute of activity therefore have lower fidelity
- * than the local source. Acceptable for the "internal use while we
- * finetune prompts" use case; revisit when mirror updates are added.
+ * The mirror is INSERT-only. A row inserted locally with `message_id = NULL`
+ * and backfilled later will appear in ClickHouse with `message_id = ''`
+ * forever, so message-id reads also recover empty-message-id rows inside the
+ * local turn time window.
  */
 import type { LlmRequestLogsClickHouseConfig } from "../config/schemas/llm-request-logs.js";
 import { credentialKey } from "../security/credential-key.js";
@@ -22,6 +20,7 @@ import { getLogger } from "../util/logger.js";
 import {
   getAssistantMessageIdsInTurn,
   getMessageById,
+  getTurnTimeBounds,
   messageMetadataSchema,
 } from "./conversation-crud.js";
 import type { LlmRequestLogSource } from "./llm-request-log-source.js";
@@ -66,6 +65,8 @@ export type ClickHouseFetch = typeof fetch;
 /** Minimal subset of the SQLite message row the fork-source fallback needs. */
 export interface ClickHouseMessageRow {
   metadata: string | null;
+  conversationId?: string;
+  createdAt?: number;
 }
 
 export interface ClickHouseLlmRequestLogSourceDeps {
@@ -79,6 +80,11 @@ export interface ClickHouseLlmRequestLogSourceDeps {
   resolveTurnMessageIds?: (messageId: string) => string[];
   /** Override the message lookup (default: `getMessageById`). */
   resolveMessage?: (messageId: string) => ClickHouseMessageRow | null;
+  /** Override turn time-bound resolution (default: `getTurnTimeBounds`). */
+  resolveTurnTimeBounds?: (
+    conversationId: string,
+    messageCreatedAt: number,
+  ) => { startTime: number; endTime: number } | null;
   /** Override fetch for testing. */
   fetchImpl?: ClickHouseFetch;
 }
@@ -95,6 +101,10 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
   private readonly resolveMessage: (
     messageId: string,
   ) => ClickHouseMessageRow | null;
+  private readonly resolveTurnTimeBounds: (
+    conversationId: string,
+    messageCreatedAt: number,
+  ) => { startTime: number; endTime: number } | null;
   private readonly fetchImpl: ClickHouseFetch;
 
   constructor(
@@ -112,6 +122,8 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
     this.resolveTurnMessageIds =
       deps.resolveTurnMessageIds ?? getAssistantMessageIdsInTurn;
     this.resolveMessage = deps.resolveMessage ?? getMessageById;
+    this.resolveTurnTimeBounds =
+      deps.resolveTurnTimeBounds ?? getTurnTimeBounds;
     this.fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis);
   }
 
@@ -137,8 +149,7 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
   }
 
   async getRequestLogsByMessageId(messageId: string): Promise<LogRow[]> {
-    const turnIds = this.resolveTurnMessageIds(messageId);
-    let rows = await this.selectByMessageIds(turnIds);
+    let rows = await this.selectRowsForMessage(messageId);
 
     if (rows.length === 0) {
       // Fork-source fallback. Mirror behavior of the local source: when no
@@ -157,8 +168,7 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
               ? parsed.data.forkSourceMessageId
               : null;
           if (sourceMessageId && sourceMessageId !== messageId) {
-            const sourceTurnIds = this.resolveTurnMessageIds(sourceMessageId);
-            rows = await this.selectByMessageIds(sourceTurnIds);
+            rows = await this.selectRowsForMessage(sourceMessageId);
           }
         } catch {
           // metadata not JSON / schema mismatch — no fork fallback, return []
@@ -169,6 +179,22 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
     return rows.sort(
       (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
     );
+  }
+
+  private async selectRowsForMessage(messageId: string): Promise<LogRow[]> {
+    const turnIds = this.resolveTurnMessageIds(messageId);
+    const rows = await this.selectByMessageIds(turnIds);
+    const unlinkedRows = await this.selectUnlinkedLogsInTurn(messageId);
+    if (unlinkedRows.length === 0) return rows;
+
+    const seen = new Set(rows.map((row) => row.id));
+    const merged = [...rows];
+    for (const row of unlinkedRows) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      merged.push(row);
+    }
+    return merged;
   }
 
   private async selectByMessageIds(ids: string[]): Promise<LogRow[]> {
@@ -205,6 +231,49 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       LIMIT 1 BY id
       FORMAT JSONEachRow`;
     const rows = await this.exec(sql, params);
+    return rows.map((r) => this.toLogRow(r));
+  }
+
+  private async selectUnlinkedLogsInTurn(messageId: string): Promise<LogRow[]> {
+    const message = this.resolveMessage(messageId);
+    if (
+      !message ||
+      typeof message.conversationId !== "string" ||
+      typeof message.createdAt !== "number"
+    ) {
+      return [];
+    }
+    const bounds = this.resolveTurnTimeBounds(
+      message.conversationId,
+      message.createdAt,
+    );
+    if (!bounds || bounds.endTime <= bounds.startTime) return [];
+
+    const aid = await this.assistantId();
+    const sql = `SELECT
+        id,
+        conversation_id,
+        message_id,
+        provider,
+        request_payload,
+        response_payload,
+        toUnixTimestamp64Milli(created_at) AS created_at,
+        agent_loop_exit_reason
+      FROM ${this.tableRef()}
+      WHERE assistant_id = {assistant_id:String}
+        AND conversation_id = {conversation_id:String}
+        AND message_id = ''
+        AND created_at >= fromUnixTimestamp64Milli({start_ms:Int64})
+        AND created_at <= fromUnixTimestamp64Milli({end_ms:Int64})
+      ORDER BY created_at ASC, id ASC
+      LIMIT 1 BY id
+      FORMAT JSONEachRow`;
+    const rows = await this.exec(sql, {
+      assistant_id: aid,
+      conversation_id: message.conversationId,
+      start_ms: String(bounds.startTime),
+      end_ms: String(bounds.endTime),
+    });
     return rows.map((r) => this.toLogRow(r));
   }
 
@@ -248,7 +317,11 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       log.error(
-        { status: res.status, table: this.config.table, bodySnippet: body.slice(0, 200) },
+        {
+          status: res.status,
+          table: this.config.table,
+          bodySnippet: body.slice(0, 200),
+        },
         "ClickHouse query failed",
       );
       throw new Error(
