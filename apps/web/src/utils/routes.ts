@@ -37,6 +37,7 @@ export const routes = {
     providerCallback: r("/account/provider/callback"),
     oauth: {
       popupComplete: r("/account/oauth/popup-complete"),
+      desktopComplete: r("/account/oauth/desktop-complete"),
     },
   },
 
