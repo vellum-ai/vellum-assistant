@@ -11,7 +11,7 @@ export function SelfHostedScreen() {
         style={{ animation: "fadeInUp 0.5s ease-out forwards" }}
       >
         {/* typography: off-scale — emoji hero sized via text-3xl */}
-        {/* eslint-disable-next-line no-restricted-syntax */}
+        { }
         <span className="text-3xl" role="img" aria-label="house">
           &#x1F3E0;
         </span>

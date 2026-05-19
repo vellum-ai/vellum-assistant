@@ -112,7 +112,7 @@ export function getDiskPressureChatBlockReason({
 }
 
 export function getDiskPressureChatBlockMessage(
-  reason: DiskPressureChatBlockReason,
+  _reason: DiskPressureChatBlockReason,
 ): string {
   return "Storage cleanup mode must be acknowledged before sending messages.";
 }

@@ -640,7 +640,7 @@ export function ToolCallProgressCard({
                         })
                       }
                       // typography: off-scale — inline link within body-small nudge
-                      // eslint-disable-next-line no-restricted-syntax
+                       
                       className="font-medium text-[var(--content-default)] underline underline-offset-2 hover:text-[var(--content-secondary)]"
                     >
                       Create a rule

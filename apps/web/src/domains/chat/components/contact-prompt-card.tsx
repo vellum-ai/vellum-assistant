@@ -66,7 +66,7 @@ export function ContactPromptCard({
 
       {accepted ? (
         // typography: off-scale — inline status badge, not prose
-        // eslint-disable-next-line no-restricted-syntax
+         
         <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
           <CheckCircle size={16} />
           Contact saved
@@ -87,7 +87,7 @@ export function ContactPromptCard({
               onClick={onCancel}
               disabled={isSubmitting}
               // typography: off-scale — inline form button, not prose
-              // eslint-disable-next-line no-restricted-syntax
+               
               className="rounded px-3 py-1.5 text-sm text-[var(--content-secondary)] hover:bg-[var(--surface-secondary)]"
             >
               Cancel
@@ -96,7 +96,7 @@ export function ContactPromptCard({
               type="submit"
               disabled={!canSubmit}
               // typography: off-scale — inline form button, not prose
-              // eslint-disable-next-line no-restricted-syntax
+               
               className="flex items-center gap-1.5 rounded bg-[var(--color-accent)] px-3 py-1.5 text-sm text-white disabled:opacity-50"
             >
               {isSubmitting ? (

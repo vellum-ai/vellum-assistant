@@ -198,7 +198,7 @@ const ACTIVE_BRANDED_CLASSES = [
   "aria-[current=page]:text-[var(--primary-base)]",
   // typography: off-scale — variant-prefixed weight bump (400→500) for branded active;
   // text-body-medium-default isn't a @utility so Tailwind v4 can't variant-prefix it
-  // eslint-disable-next-line no-restricted-syntax
+   
   "aria-[current=page]:font-medium",
 ].join(" ");
 

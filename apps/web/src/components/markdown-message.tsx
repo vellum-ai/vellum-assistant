@@ -111,7 +111,7 @@ function CodeBlockWrapper({ children }: { children: ReactNode }) {
       {language && (
         <div className="flex items-center justify-between px-3 pt-2">
           {/* typography: off-scale — monospace language label */}
-          {/* eslint-disable-next-line no-restricted-syntax */}
+          { }
           <span className="font-mono text-xs font-medium uppercase text-[var(--content-tertiary)]">
             {language}
           </span>
@@ -177,17 +177,17 @@ const markdownComponents: Components = {
   // so a plain `font-bold` loses to the custom rule; `!important` wins).
   h1: ({ children }) => (
     // typography: off-scale — bold weight override on canonical size
-    // eslint-disable-next-line no-restricted-syntax
+     
     <h1 className="mb-2 mt-3 text-title-medium !font-bold first:mt-0">{children}</h1>
   ),
   h2: ({ children }) => (
     // typography: off-scale — bold weight override on canonical size
-    // eslint-disable-next-line no-restricted-syntax
+     
     <h2 className="mb-2 mt-3 text-title-small !font-bold first:mt-0">{children}</h2>
   ),
   h3: ({ children }) => (
     // typography: off-scale — bold weight override on canonical size
-    // eslint-disable-next-line no-restricted-syntax
+     
     <h3 className="mb-1 mt-2 text-body-medium-default !font-bold first:mt-0">{children}</h3>
   ),
   ul: ({ children }) => (
@@ -231,7 +231,7 @@ const markdownComponents: Components = {
     <thead className="bg-stone-50 dark:bg-moss-800">{children}</thead>
   ),
   th: ({ children }) => (
-    // eslint-disable-next-line no-restricted-syntax
+     
     <th className={"border border-stone-200 px-2 py-1 text-left font-semibold dark:border-moss-600" /* typography: off-scale — no canonical variant */}>
       {children}
     </th>

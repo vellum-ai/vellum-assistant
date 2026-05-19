@@ -143,14 +143,14 @@ function InlineConfirmationCard({
       {/* Row 1: title + risk badge */}
       <div className="flex items-center gap-2">
         {/* typography: off-scale — semibold to match macOS bodyMediumEmphasised */}
-        {/* eslint-disable-next-line no-restricted-syntax */}
+        { }
         <span className="text-body-medium-default font-semibold text-[var(--content-default)]">
           {confirmation.title ?? "Confirmation required"}
         </span>
         {riskBadge && (
           <span
             // typography: off-scale — compact risk badge pill
-            // eslint-disable-next-line no-restricted-syntax
+             
             className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${riskBadge.bg} ${riskBadge.text}`}
           >
             {riskBadge.label}
@@ -330,7 +330,7 @@ export function ToolCallChip({
               });
             }}
             // typography: off-scale — compact risk badge pill
-            // eslint-disable-next-line no-restricted-syntax
+             
             className={`${embedded ? "" : "ml-auto "}max-w-[45%] shrink-0 truncate rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${badge.bg} ${badge.text} ${onOpenRuleEditor ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
             title={displayLabel}
           >

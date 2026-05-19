@@ -179,7 +179,7 @@ export const TranscriptRow = memo(function TranscriptRow({
       // Minimal fallback — full UI provided via renderPendingContactRequest in AssistantPageClient.
       return (
         // typography: off-scale — compact card fallback, not prose
-        // eslint-disable-next-line no-restricted-syntax
+         
         <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--surface-secondary)] p-4 text-sm text-[var(--content-secondary)]">
           {item.label ?? "Enter contact info"}
         </div>
@@ -244,13 +244,13 @@ function MinimalSecretPrompt({
         type="password"
         name="secret"
         // typography: off-scale — minimal stub for isolated rendering; production uses renderPendingSecret slot
-        // eslint-disable-next-line no-restricted-syntax
+         
         className="flex-1 rounded-md border border-[var(--border-base)] bg-white px-2 py-1 text-sm"
       />
       <button
         type="submit"
         // typography: off-scale — minimal stub for isolated rendering; production uses renderPendingSecret slot
-        // eslint-disable-next-line no-restricted-syntax
+         
         className="rounded-md bg-[var(--primary-base)] px-3 py-1 text-sm font-medium text-[var(--content-inset)]"
       >
         Save
@@ -272,7 +272,7 @@ function MinimalConfirmationPrompt({
         type="button"
         onClick={() => onDecision(requestId, "allow")}
         // typography: off-scale — minimal stub for isolated rendering; production uses renderPendingConfirmation slot
-        // eslint-disable-next-line no-restricted-syntax
+         
         className="rounded-md bg-[var(--system-positive-strong)] px-3 py-1 text-sm font-medium text-white"
       >
         Allow
@@ -281,7 +281,7 @@ function MinimalConfirmationPrompt({
         type="button"
         onClick={() => onDecision(requestId, "deny")}
         // typography: off-scale — minimal stub for isolated rendering; production uses renderPendingConfirmation slot
-        // eslint-disable-next-line no-restricted-syntax
+         
         className="rounded-md border border-[var(--system-negative-strong)] px-3 py-1 text-sm font-medium text-[var(--system-negative-strong)]"
       >
         Deny

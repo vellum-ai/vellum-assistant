@@ -106,7 +106,6 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         if (organizationId) {
           headers["Vellum-Organization-Id"] = organizationId;
         }
-        // eslint-disable-next-line no-restricted-syntax
         const response = await fetch(`/v1/assistants/${assistantId}/attachments/${attachment.id}/content`, { headers });
         if (!response.ok) {
           throw new Error(`Failed to load file: ${response.statusText}`);
@@ -225,7 +224,6 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
 
     if (isImage && effectiveUrl) {
       return (
-        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={effectiveUrl}
           alt={attachment.filename}

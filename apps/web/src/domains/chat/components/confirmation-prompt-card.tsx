@@ -70,7 +70,7 @@ export function ConfirmationPromptCard({
             {riskBadge && (
               <span
                 // typography: off-scale — compact risk badge pill
-                // eslint-disable-next-line no-restricted-syntax
+                 
                 className={`ml-1 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${riskBadge.bg} ${riskBadge.text}`}
               >
                 {riskBadge.label}

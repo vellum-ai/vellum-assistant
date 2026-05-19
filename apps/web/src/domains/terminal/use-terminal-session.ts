@@ -426,7 +426,6 @@ export function useTerminalSession({
         });
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return {

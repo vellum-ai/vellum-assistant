@@ -33,7 +33,7 @@ export function CleanupScreen() {
       <CleanupLayout>
         <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-[var(--system-mid-weak)]">
           {/* typography: off-scale — emoji hero sized via text-3xl */}
-          {/* eslint-disable-next-line no-restricted-syntax */}
+          { }
           <span className="text-3xl" role="img" aria-label="warning">
             &#x26A0;&#xFE0F;
           </span>
@@ -62,7 +62,7 @@ export function CleanupScreen() {
         style={{ animation: "fadeInUp 0.5s ease-out forwards" }}
       >
         {/* typography: off-scale — emoji hero sized via text-3xl */}
-        {/* eslint-disable-next-line no-restricted-syntax */}
+        { }
         <span className="text-3xl" role="img" aria-label="broom">
           🧹
         </span>

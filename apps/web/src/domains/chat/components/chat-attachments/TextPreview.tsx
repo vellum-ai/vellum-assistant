@@ -190,7 +190,7 @@ export const TextPreview: FC<TextPreviewProps> = ({ url, filename, mimeType: _mi
   return (
     <div
       // typography: off-scale — verbatim source code rendering
-      // eslint-disable-next-line no-restricted-syntax
+       
       className="max-h-[80vh] max-w-[90vw] overflow-auto rounded bg-[var(--surface-base)] p-4 font-mono text-xs"
       dangerouslySetInnerHTML={html ? { __html: html } : undefined}
     />

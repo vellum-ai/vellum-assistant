@@ -70,7 +70,6 @@ export function useMacOsNudgeState(): {
   const [sidebarDismissed, setSidebarDismissed] = useState(false);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDownloaded(readMacOsAppDownloaded());
     setBannerDismissed(readMacOsAppBannerDismissed());
     setSidebarDismissed(readSidebarDismissed());

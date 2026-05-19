@@ -46,7 +46,7 @@ export function EmojiPickerPopup({ entries, selectedIndex, onSelect }: EmojiPick
             className="flex h-auto w-full items-center gap-3 rounded-none px-4 py-2 text-left"
           >
             {/* typography: off-scale — emoji glyph sized to match row height, not a text style */}
-            {/* eslint-disable-next-line no-restricted-syntax */}
+            { }
             <span className="text-xl leading-none">{entry.emoji}</span>
             <span className="text-body-small-default text-[var(--content-secondary)]">
               :{entry.shortcode}:

@@ -367,7 +367,7 @@ function HeroSection({
           </div>
           {currentTempStr !== null && (
             // typography: off-scale -- large hero temperature display matching macOS weather widget
-            // eslint-disable-next-line no-restricted-syntax
+             
             <div className="mt-1 text-4xl font-light text-stone-800 dark:text-stone-100">
               {currentTempStr}&deg;{unitSymbol}
             </div>
