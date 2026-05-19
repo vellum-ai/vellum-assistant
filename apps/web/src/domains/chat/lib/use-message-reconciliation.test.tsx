@@ -20,6 +20,7 @@ import { createElement, type Dispatch, type RefObject, type SetStateAction } fro
 import type { RuntimeMessage } from "@/domains/chat/lib/api.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import { INITIAL_TURN_STATE, type DomainEvent, type TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import { useTurnStore } from "@/domains/chat/turn-store.js";
 import { newStableId } from "@/domains/chat/lib/stable-id.js";
 
 // ---------------------------------------------------------------------------
@@ -106,8 +107,6 @@ interface HarnessProps {
   streamContextRef: RefObject<{ assistantId: string; conversationKey: string } | null>;
   streamEpochRef: RefObject<number>;
   activeConversationKeyRef: RefObject<string | null>;
-  dispatchTurn: Dispatch<DomainEvent>;
-  turnStateRef: RefObject<TurnState>;
   initialPageOldestTsRef?: RefObject<number | null>;
   collect: (result: HookReturn) => void;
 }
@@ -122,8 +121,6 @@ function HookHarness(props: HarnessProps): null {
     streamContextRef: props.streamContextRef,
     streamEpochRef: props.streamEpochRef,
     activeConversationKeyRef: props.activeConversationKeyRef,
-    dispatchTurn: props.dispatchTurn,
-    turnStateRef: props.turnStateRef,
     initialPageOldestTsRef: props.initialPageOldestTsRef ?? makeRef(null),
   });
   props.collect(result);
@@ -152,14 +149,21 @@ function createHarness(overrides?: {
   streamEpochRef?: RefObject<number>;
   activeConversationKey?: string | null;
   turnState?: TurnState;
-  turnStateRef?: RefObject<TurnState>;
 }): HookReturn {
   const setMessages: Dispatch<SetStateAction<DisplayMessage[]>> = (updater) => {
     messages = typeof updater === "function" ? updater(messages) : updater;
   };
-  const dispatchTurn: Dispatch<DomainEvent> = (event) => {
-    dispatchedEvents.push(event);
-  };
+
+  // Set turn store state before rendering the hook
+  const turnState = overrides?.turnState ?? INITIAL_TURN_STATE;
+  useTurnStore.setState({ ...turnState, dispatch: useTurnStore.getState().dispatch }, true);
+
+  // Spy on dispatch events (record-only, no reducer side effects)
+  useTurnStore.setState({
+    dispatch: (event: DomainEvent) => {
+      dispatchedEvents.push(event);
+    },
+  });
 
   let captured: HookReturn | null = null;
   renderToStaticMarkup(
@@ -168,8 +172,6 @@ function createHarness(overrides?: {
       streamContextRef: makeRef(overrides?.streamContext ?? null),
       streamEpochRef: overrides?.streamEpochRef ?? makeRef(overrides?.streamEpoch ?? 0),
       activeConversationKeyRef: makeRef(overrides?.activeConversationKey ?? "conv-1"),
-      dispatchTurn,
-      turnStateRef: overrides?.turnStateRef ?? makeRef(overrides?.turnState ?? INITIAL_TURN_STATE),
       collect: (result) => { captured = result; },
     }),
   );
@@ -192,6 +194,7 @@ beforeEach(async () => {
   mockFetchError = null;
   mockFetchSideEffect = null;
   fetchCallCount = 0;
+  useTurnStore.setState({ ...INITIAL_TURN_STATE, dispatch: useTurnStore.getState().dispatch }, true);
 });
 
 // ---------------------------------------------------------------------------
@@ -562,14 +565,6 @@ describe("reconcileActiveConversation", () => {
     // User starts a new turn while the visibility reconciliation fetch
     // is in-flight. The new turn has a different activeTurnId, so
     // wasStuck is false (turnId mismatch).
-    const turnStateRef = makeRef<TurnState>({
-      phase: "streaming",
-      pendingQueuedCount: 0,
-      activeToolCallCount: 0,
-      activeTurnId: "turn-old",
-      lastTerminalReason: null,
-      statusText: null,
-    });
     messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
     mockFetchResult = [
       { id: "m1", role: "user", content: "Hello" },
@@ -577,19 +572,26 @@ describe("reconcileActiveConversation", () => {
     ];
     // During fetch, a new turn starts with a different turnId
     mockFetchSideEffect = () => {
-      turnStateRef.current = {
+      useTurnStore.setState({
         phase: "thinking",
         pendingQueuedCount: 0,
         activeToolCallCount: 0,
         activeTurnId: "turn-new",
         lastTerminalReason: null,
-      statusText: null,
-      };
+        statusText: null,
+      });
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
       activeConversationKey: "conv-1",
-      turnStateRef,
+      turnState: {
+        phase: "streaming",
+        pendingQueuedCount: 0,
+        activeToolCallCount: 0,
+        activeTurnId: "turn-old",
+        lastTerminalReason: null,
+        statusText: null,
+      },
     });
     await reconcileActiveConversation();
     expect(dispatchedEvents).toHaveLength(0);

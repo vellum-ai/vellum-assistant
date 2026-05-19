@@ -2,6 +2,7 @@ import {
   type MutableRefObject,
   type RefObject,
   useCallback,
+  useEffect,
   useReducer,
   useRef,
   useState,
@@ -14,10 +15,8 @@ import {
   interactionReducer,
   INITIAL_INTERACTION_STATE,
 } from "@/domains/chat/lib/interaction-state-machine.js";
-import {
-  turnReducer,
-  INITIAL_TURN_STATE,
-} from "@/domains/chat/lib/turn-state-machine.js";
+import { INITIAL_TURN_STATE } from "@/domains/chat/lib/turn-state-machine.js";
+import { useTurnStore } from "@/domains/chat/turn-store.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import { useSyncChatStore } from "@/domains/chat/chat-store.js";
 import {
@@ -54,7 +53,11 @@ export function ChatPage() {
   const { assistantState, assistantId } = lifecycle;
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
-  const [turnState, dispatchTurn] = useReducer(turnReducer, INITIAL_TURN_STATE);
+  // Reset turn state when the page mounts so navigating away mid-turn
+  // and returning doesn't inherit stale phase/activeTurnId.
+  useEffect(() => {
+    useTurnStore.setState(INITIAL_TURN_STATE);
+  }, []);
   const [interactionState, dispatchInteraction] = useReducer(
     interactionReducer,
     INITIAL_INTERACTION_STATE,
@@ -94,7 +97,6 @@ export function ChatPage() {
     activeConversationKey: null,
     assistantId,
     sendMessage,
-    dispatchTurn,
     dispatchInteraction,
   });
 
@@ -128,8 +130,6 @@ export function ChatPage() {
     isKeyboardOpen: false,
     messages,
     setMessages,
-    turnState,
-    dispatchTurn,
     input,
     setInput,
     error,

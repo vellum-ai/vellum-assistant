@@ -28,7 +28,7 @@ import {
 } from "@/domains/chat/lib/diagnostics.js";
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import type { DomainEvent } from "@/domains/chat/lib/turn-state-machine.js";
+import { useTurnStore } from "@/domains/chat/turn-store.js";
 import type { InteractionEvent, InteractionState } from "@/domains/chat/lib/interaction-state-machine.js";
 import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
 import type { SubagentAction } from "@/domains/chat/lib/subagent-state.js";
@@ -130,7 +130,6 @@ interface UseConversationHistoryParams {
   setSuggestion: Dispatch<SetStateAction<string | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
   setInput: Dispatch<SetStateAction<string>>;
-  dispatchTurn: Dispatch<DomainEvent>;
   dispatchSubagent: Dispatch<SubagentAction>;
 
   // Callbacks
@@ -207,7 +206,6 @@ export function useConversationHistory({
   setSuggestion,
   setCompactionCircuitOpenUntil,
   setInput,
-  dispatchTurn,
   dispatchSubagent,
   resetChatAttachments,
   syncNeedsNewBubbleFromMessages,
@@ -326,7 +324,7 @@ export function useConversationHistory({
       previousPagination: transcriptPaginationRef.current,
       cacheSize: conversationCacheRef.current.size,
     });
-    dispatchTurn({ type: "TURN_RESET" });
+    useTurnStore.getState().dispatch({ type: "TURN_RESET" });
     setIsLoadingHistory(true);
     needsNewBubbleRef.current = true;
     setMessages([]);
@@ -672,7 +670,6 @@ export function useConversationHistory({
     setSuggestion,
     setCompactionCircuitOpenUntil,
     setInput,
-    dispatchTurn,
     dispatchSubagent,
     onDraftRestored,
     shouldSuppressGenericChatErrorNotice,

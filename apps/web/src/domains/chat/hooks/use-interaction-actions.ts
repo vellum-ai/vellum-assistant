@@ -29,7 +29,7 @@ import { addTrustRule } from "@/domains/trust-rules/api.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import type { InteractionState, InteractionEvent } from "@/domains/chat/lib/interaction-state-machine.js";
 import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
-import type { DomainEvent as TurnEvent } from "@/domains/chat/lib/turn-state-machine.js";
+import { useTurnStore } from "@/domains/chat/turn-store.js";
 
 import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils.js";
 import { deriveCommandText } from "@/domains/chat/utils/chat-utils.js";
@@ -77,7 +77,6 @@ export interface UseInteractionActionsParams {
   interactionStateRef: MutableRefObject<InteractionState>;
   dispatchInteraction: Dispatch<InteractionEvent>;
   dispatchConversationList: Dispatch<ConversationListAction>;
-  dispatchTurn: Dispatch<TurnEvent>;
   setMessages: Dispatch<DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[])>;
   setError: Dispatch<ChatError | null>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
@@ -119,7 +118,7 @@ export function useInteractionActions({
   interactionStateRef,
   dispatchInteraction,
   dispatchConversationList,
-  dispatchTurn,
+
   setMessages,
   setError,
   messagesRef,
@@ -205,7 +204,7 @@ export function useInteractionActions({
     if (convKey) {
       dispatchConversationList({ type: "REMOVE_ATTENTION_KEY", key: convKey });
     }
-    dispatchTurn({ type: "STREAM_ERROR" });
+    useTurnStore.getState().dispatch({ type: "STREAM_ERROR" });
   }, []);
 
   // -------------------------------------------------------------------------
@@ -258,7 +257,7 @@ export function useInteractionActions({
 
   const handleContactPromptCancel = useCallback(() => {
     dispatchInteraction({ type: "DISMISS_CONTACT_REQUEST" });
-    dispatchTurn({ type: "STREAM_ERROR" });
+    useTurnStore.getState().dispatch({ type: "STREAM_ERROR" });
   }, []);
 
   // -------------------------------------------------------------------------
@@ -677,7 +676,7 @@ export function useInteractionActions({
         throw new Error("Surface action failed");
       }
 
-      dispatchTurn({ type: "USER_SEND_REQUESTED" });
+      useTurnStore.getState().dispatch({ type: "USER_SEND_REQUESTED" });
 
       const ONE_SHOT_SURFACE_TYPES = ["form", "confirmation", "file_upload", "card", "list", "table", "browser_view"];
       setMessages((prev: DisplayMessage[]) => {

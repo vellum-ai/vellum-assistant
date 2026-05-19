@@ -11,7 +11,8 @@ import {
   summarizeRuntimeMessages,
 } from "@/domains/chat/lib/diagnostics.js";
 import { type DisplayMessage, reconcileMessages } from "@/domains/chat/lib/reconcile.js";
-import { isSending, type DomainEvent, type TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import { isSending } from "@/domains/chat/lib/turn-state-machine.js";
+import { useTurnStore } from "@/domains/chat/turn-store.js";
 
 const RECONCILE_DELAY_MS = 5000;
 const RECONCILE_MAX_MS = 60_000;
@@ -22,8 +23,6 @@ interface UseMessageReconciliationArgs {
   streamContextRef: RefObject<{ assistantId: string; conversationKey: string } | null>;
   streamEpochRef: RefObject<number>;
   activeConversationKeyRef: RefObject<string | null>;
-  dispatchTurn: Dispatch<DomainEvent>;
-  turnStateRef: RefObject<TurnState>;
   initialPageOldestTsRef: RefObject<number | null>;
 }
 
@@ -121,8 +120,6 @@ export function useMessageReconciliation({
   streamContextRef,
   streamEpochRef,
   activeConversationKeyRef,
-  dispatchTurn,
-  turnStateRef,
   initialPageOldestTsRef,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -208,10 +205,10 @@ export function useMessageReconciliation({
         changed &&
         assistantProgress &&
         snapshotTurnId &&
-        isSending(turnStateRef.current) &&
-        turnStateRef.current.activeTurnId === snapshotTurnId;
+        isSending(useTurnStore.getState()) &&
+        useTurnStore.getState().activeTurnId === snapshotTurnId;
       if (wasStuck) {
-        dispatchTurn({ type: "POLL_RECONCILED", turnId: snapshotTurnId });
+        useTurnStore.getState().dispatch({ type: "POLL_RECONCILED", turnId: snapshotTurnId });
         // `POLL_RECONCILED` is the silent-stall rescue: the server
         // reports assistant progress that the client never observed
         // via SSE, meaning a terminal event (`message_complete`
@@ -243,10 +240,10 @@ export function useMessageReconciliation({
       }
 
       // Clear stale isStreaming flags.  After POLL_RECONCILED the turn
-      // is conceptually idle, but turnStateRef won't reflect the
-      // dispatch until the next render (synced via useEffect), so we
-      // check both the ref AND whether we just dispatched.
-      if (wasStuck || !isSending(turnStateRef.current)) {
+      // is conceptually idle, but the store won't reflect the
+      // dispatch until the next synchronous read, so we check both
+      // wasStuck AND whether the store still shows sending.
+      if (wasStuck || !isSending(useTurnStore.getState())) {
         setMessages((prev) => {
           const hasStale = prev.some((m) => m.isStreaming);
           if (!hasStale) return prev;
@@ -258,7 +255,7 @@ export function useMessageReconciliation({
 
       return { changed, assistantProgress, messagesAdded };
     },
-    [dispatchTurn, reconcileFromServerDetailed, setMessages, turnStateRef],
+    [reconcileFromServerDetailed, setMessages],
   );
 
   const startReconciliationLoop = useCallback(
@@ -290,7 +287,7 @@ export function useMessageReconciliation({
           });
           return;
         }
-        const snapshotTurnId = turnStateRef.current.activeTurnId;
+        const snapshotTurnId = useTurnStore.getState().activeTurnId;
 
         fetchConversationMessages(ctx.assistantId, ctx.conversationKey)
           .then((serverMessages) => {
@@ -360,7 +357,6 @@ export function useMessageReconciliation({
       reconcileFetchedMessages,
       streamContextRef,
       streamEpochRef,
-      turnStateRef,
     ],
   );
 
@@ -378,7 +374,7 @@ export function useMessageReconciliation({
       // POLL_RECONCILED dispatch is scoped to THIS turn. If the user
       // starts a new send while the fetch is in-flight, the turnId guard
       // in the reducer prevents stale reconciliation from idling it.
-      const snapshotTurnId = turnStateRef.current.activeTurnId;
+      const snapshotTurnId = useTurnStore.getState().activeTurnId;
       const snapshotEpoch = streamEpochRef.current;
 
       try {
@@ -413,7 +409,6 @@ export function useMessageReconciliation({
     streamEpochRef,
     activeConversationKeyRef,
     reconcileFetchedMessages,
-    turnStateRef,
   ]);
 
   return {

@@ -23,7 +23,8 @@ import {
   VoiceInputButton,
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button.js";
-import { isSending, type TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import { isSending } from "@/domains/chat/lib/turn-state-machine.js";
+import { useTurnStore } from "@/domains/chat/turn-store.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude.js";
@@ -189,7 +190,6 @@ export interface ChatComposerProps {
   onVoiceBeforeStart?: () => boolean | Promise<boolean>;
 
   // turn state
-  turnState: TurnState;
   onStopGenerating: () => void;
 
   // assistant id used by AttachFileButton's disabled guard
@@ -249,7 +249,6 @@ export function ChatComposer({
   voiceInterim,
   onVoiceError,
   onVoiceBeforeStart,
-  turnState,
   onStopGenerating,
   assistantId,
   thresholdPickerSlot,
@@ -360,6 +359,7 @@ export function ChatComposer({
     [emojiState, input, inputRef, setInput, onTextChange],
   );
 
+  const turnState = useTurnStore();
   const isGenerating =
     isSending(turnState) && turnState.phase !== "awaiting_user_input";
 

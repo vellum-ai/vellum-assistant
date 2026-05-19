@@ -18,6 +18,7 @@ import {
   type ChatAttachment,
 } from "@/domains/chat/components/chat-attachments/index.js";
 import { INITIAL_TURN_STATE, type TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import { useTurnStore } from "@/domains/chat/turn-store.js";
 
 import { ChatComposer, computeGhostSuffix, shouldSubmitOnEnter } from "@/domains/chat/components/chat-composer/chat-composer.js";
 
@@ -294,7 +295,6 @@ function renderComposer(props: Partial<Parameters<typeof ChatComposer>[0]> = {})
       chatAttachments={[]}
       onAddAttachmentFiles={() => {}}
       onRemoveAttachment={() => {}}
-      turnState={INITIAL_TURN_STATE}
       onStopGenerating={() => {}}
       assistantId="asst_test"
       {...props}
@@ -316,7 +316,8 @@ describe("ChatComposer — placeholder", () => {
 
 describe("ChatComposer — send/stop button visibility", () => {
   test("idle state renders a Send button (aria-label='Send message')", () => {
-    const html = renderComposer({ turnState: INITIAL_TURN_STATE });
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    const html = renderComposer();
     expect(html).toContain('aria-label="Send message"');
     expect(html).not.toContain('aria-label="Stop generating"');
   });
@@ -327,7 +328,8 @@ describe("ChatComposer — send/stop button visibility", () => {
       ...INITIAL_TURN_STATE,
       phase: "streaming",
     };
-    const html = renderComposer({ turnState: sending });
+    useTurnStore.setState(sending);
+    const html = renderComposer();
     expect(html).toContain('aria-label="Stop generating"');
     expect(html).not.toContain('aria-label="Send message"');
   });
@@ -338,7 +340,8 @@ describe("ChatComposer — send/stop button visibility", () => {
       ...INITIAL_TURN_STATE,
       phase: "streaming",
     };
-    const html = renderComposer({ turnState: sending, input: "" });
+    useTurnStore.setState(sending);
+    const html = renderComposer({ input: "" });
     expect(html).toContain('aria-label="Stop generating"');
     expect(html).not.toContain('aria-label="Send message"');
     mockIsMobile = false;
@@ -350,7 +353,8 @@ describe("ChatComposer — send/stop button visibility", () => {
       ...INITIAL_TURN_STATE,
       phase: "streaming",
     };
-    const html = renderComposer({ turnState: sending, input: "hello" });
+    useTurnStore.setState(sending);
+    const html = renderComposer({ input: "hello" });
     expect(html).not.toContain('aria-label="Stop generating"');
     expect(html).toContain('aria-label="Send message"');
     mockIsMobile = false;
@@ -363,7 +367,8 @@ describe("ChatComposer — send/stop button visibility", () => {
       ...INITIAL_TURN_STATE,
       phase: "awaiting_user_input",
     };
-    const html = renderComposer({ turnState: awaiting });
+    useTurnStore.setState(awaiting);
+    const html = renderComposer();
     expect(html).toContain('aria-label="Send message"');
     expect(html).not.toContain('aria-label="Stop generating"');
   });
@@ -430,8 +435,8 @@ describe("ChatComposer — Stop button click invokes onStopGenerating", () => {
     // Button.test.tsx). We assert the prop wiring contract by invoking the
     // captured callback directly.
     const onStopGenerating = mock(() => {});
+    useTurnStore.setState({ ...INITIAL_TURN_STATE, phase: "streaming" });
     renderComposer({
-      turnState: { ...INITIAL_TURN_STATE, phase: "streaming" },
       onStopGenerating,
     });
     onStopGenerating();

@@ -18,7 +18,8 @@ import type {
 } from "@/domains/chat/lib/api.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import type { DomainEvent, TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import type { TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import { useTurnStore } from "@/domains/chat/turn-store.js";
 import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
 import {
   recordChatDiagnostic,
@@ -98,10 +99,6 @@ export interface UseStreamEventHandlerParams {
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
   needsNewBubbleRef: MutableRefObject<boolean>;
-
-  // --- Turn state ---
-  dispatchTurn: Dispatch<DomainEvent>;
-  turnStateRef: MutableRefObject<TurnState>;
 
   // --- Processing ---
   dispatchConversationList: Dispatch<ConversationListAction>;
@@ -191,8 +188,6 @@ export function useStreamEventHandler(
     setMessages,
     messagesRef,
     needsNewBubbleRef,
-    dispatchTurn,
-    turnStateRef,
     dispatchConversationList,
     processingSnapshotsRef,
     setError,
@@ -301,8 +296,8 @@ export function useStreamEventHandler(
         setMessages,
         messagesRef,
         needsNewBubbleRef,
-        dispatchTurn,
-        turnStateRef,
+        dispatchTurn: useTurnStore.getState().dispatch,
+        turnStateRef: { get current() { return useTurnStore.getState(); } } as MutableRefObject<TurnState>,
         clearProcessingKey,
         setError,
         streamRef,
@@ -478,8 +473,6 @@ export function useStreamEventHandler(
       setMessages,
       messagesRef,
       needsNewBubbleRef,
-      dispatchTurn,
-      turnStateRef,
       setError,
       streamRef,
       dispatchInteraction,
