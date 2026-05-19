@@ -54,6 +54,11 @@ struct HomeRecapRow: View {
         return isHovering ? VColor.surfaceLift : VColor.surfaceOverlay
     }
 
+    private var contentOpacity: Double {
+        if isUrgent { return 1.0 }
+        return status == .new ? 1.0 : 0.55
+    }
+
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: VSpacing.sm) {
@@ -99,6 +104,7 @@ struct HomeRecapRow: View {
                 }
             }
             .contentShape(Rectangle())
+            .opacity(contentOpacity)
         }
         .buttonStyle(.plain)
         .pointerCursor()
