@@ -129,6 +129,12 @@ struct CallSiteOverrideRow: View {
 
             if isOverrideOn {
                 inlineProfilePicker
+            } else if let dp = draft.defaultProfile,
+                      let match = profiles.first(where: { $0.name == dp }) {
+                Text("Default: \(match.displayName)")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(.secondary)
+                    .opacity(0.6)
             }
 
             VToggle(
@@ -137,23 +143,17 @@ struct CallSiteOverrideRow: View {
                     set: { newValue in
                         if newValue {
                             if !draft.hasOverride {
-                                // Seed from the same filtered list the
-                                // picker uses (active profiles only) so
-                                // toggle-on can't silently select a
-                                // disabled profile when one happens to
-                                // sort first in `profileOrder`. Codex P1
-                                // + Devin findings on PR #30349.
                                 let candidates = Self.visibleProfilesForPicker(
                                     profiles
                                 )
-                                if let firstActive = candidates.first {
+                                let defaultMatch = draft.defaultProfile.flatMap { dp in
+                                    candidates.first { $0.name == dp }
+                                }
+                                if let defaultMatch {
+                                    draft.profile = defaultMatch.name
+                                } else if let firstActive = candidates.first {
                                     draft.profile = firstActive.name
                                 } else if let firstAny = profiles.first {
-                                    // Edge case: every profile is disabled.
-                                    // Better to seed with *something* the
-                                    // user can immediately swap than to
-                                    // silently fall through to a custom
-                                    // fragment they didn't ask for.
                                     draft.profile = firstAny.name
                                 } else {
                                     seedCustomFragment()
