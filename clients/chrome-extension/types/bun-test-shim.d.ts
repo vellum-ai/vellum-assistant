@@ -53,6 +53,7 @@ declare module 'bun:test' {
     toBeLessThanOrEqual(expected: number): R;
     toBeString(): R;
     toContain(expected: unknown): R;
+    toHaveProperty(path: string, value?: unknown): R;
     not: Matchers<R>;
     rejects: {
       toThrow(expected?: string | RegExp | Error): Promise<void>;

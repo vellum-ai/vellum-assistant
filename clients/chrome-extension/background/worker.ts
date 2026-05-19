@@ -51,6 +51,11 @@ import {
   storeSelectedAssistant,
   clearSelectedAssistant,
 } from "./cloud-auth.js";
+import {
+  collectDiagnosticBundle,
+  submitFeedback,
+  type FeedbackFormData,
+} from "./feedback.js";
 
 // ── Environment resolution ──────────────────────────────────────────
 //
@@ -1406,9 +1411,52 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     return false;
   }
 
+  if (message.type === "submit-feedback") {
+    (async () => {
+      const form = message.form as FeedbackFormData | undefined;
+      if (!form || typeof form.message !== "string" || form.message.trim().length === 0) {
+        sendResponseFn({ ok: false, error: "Message is required" });
+        return;
+      }
+      const env = await resolveEnvContext();
+      const mode = await getStoredUserMode();
+      const bundle = form.includeDiagnostics
+        ? await collectDiagnosticBundle({
+            env,
+            mode,
+            sseState: connectionHealth,
+            sseDetail: connectionHealthDetail as unknown as Record<string, unknown>,
+          })
+        : null;
+      await submitFeedback(form, bundle, env);
+      sendResponseFn({ ok: true });
+    })().catch((err) =>
+      sendResponseFn({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return true;
+  }
+
   // Unknown message type — let Chrome close the port naturally.
   return false;
 });
+
+/**
+ * Build the environment context used by the Share Feedback flow.
+ *
+ * Combines the popup-persisted environment override (if any) with the
+ * build-time default and the static URL mapping.
+ */
+async function resolveEnvContext(): Promise<{
+  environment: ExtensionEnvironment;
+  apiBaseUrl: string;
+}> {
+  const environment = await getEffectiveEnvironment();
+  const { apiBaseUrl } = cloudUrlsForEnvironment(environment);
+  return { environment, apiBaseUrl };
+}
 
 // Auto-connect on service worker start if previously connected.
 // Only fires when the sticky `autoConnect` flag is `true` (set by a

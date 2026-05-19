@@ -8,6 +8,7 @@ import { useStatusPoll } from './hooks/use-status-poll.js';
 import { sendMessage } from './lib/chrome-message.js';
 import { ActivityScreen } from './screens/ActivityScreen.js';
 import { DetailScreen } from './screens/DetailScreen.js';
+import { FeedbackScreen } from './screens/FeedbackScreen.js';
 import { MainScreen } from './screens/MainScreen.js';
 import { PickerScreen } from './screens/PickerScreen.js';
 import { WelcomeScreen } from './screens/WelcomeScreen.js';
@@ -262,6 +263,8 @@ export function App() {
                 onBack={handleBackToActivity}
               />
             );
+          case 'feedback':
+            return <FeedbackScreen onBack={handleBackToMain} />;
         }
       })()}
     </AppContext.Provider>

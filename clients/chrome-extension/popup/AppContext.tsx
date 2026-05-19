@@ -10,7 +10,8 @@ export type Screen =
   | { name: 'picker'; assistants: CloudAssistant[]; email?: string }
   | { name: 'main' }
   | { name: 'activity' }
-  | { name: 'detail'; operation: OperationEntry };
+  | { name: 'detail'; operation: OperationEntry }
+  | { name: 'feedback' };
 
 export interface AppContextValue {
   mode: 'self-hosted' | 'cloud' | null;

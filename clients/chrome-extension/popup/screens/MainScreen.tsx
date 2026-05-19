@@ -47,6 +47,10 @@ export function MainScreen() {
     setScreen({ name: 'activity' });
   }, [setScreen]);
 
+  const handleFeedbackClick = useCallback(() => {
+    setScreen({ name: 'feedback' });
+  }, [setScreen]);
+
   const isCloud = mode === 'cloud';
   const isSelfHosted = mode === 'self-hosted';
 
@@ -110,6 +114,29 @@ export function MainScreen() {
       )}
 
       {showSelfHostedSettings && <SelfHostedSettings onPaired={handlePaired} />}
+
+      <button
+        type="button"
+        onClick={handleFeedbackClick}
+        className="mb-2.5 flex w-full cursor-pointer items-center justify-between rounded-xl border border-edge bg-surface px-4 py-3.5 transition-colors hover:border-edge-hover hover:bg-surface-alt"
+      >
+        <span className="text-[13px] font-medium text-fg">Share Feedback</span>
+        <svg
+          className="shrink-0 text-fg-subtle"
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          fill="none"
+        >
+          <path
+            d="M5 2L10 7L5 12"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
 
       <SessionActions paired={paired} onBack={onSignOut} />
     </div>
