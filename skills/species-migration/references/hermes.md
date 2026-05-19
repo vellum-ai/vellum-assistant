@@ -92,16 +92,9 @@ Remove-Item $staging -Recurse -Force
 
 ## Transport
 
-The skill accepts either path equally:
+Attach `hermes-migration.tar.gz` directly to the chat. The assistant lands it in its workspace and extracts to a scratch directory.
 
-1. **Upload to the conversation** — attach `hermes-migration.tar.gz` directly to the chat. The assistant lands it in its workspace and extracts to a scratch directory.
-2. **Hosted URL** — place the archive at a short-TTL signed URL (S3 pre-signed, GCS signed, Tailscale-internal HTTP, or any host the assistant can reach). Share the URL in chat. The assistant fetches with:
-   ```sh
-   curl -fL -o hermes-migration.tar.gz "<url>"
-   ```
-   once, then deletes the local copy after extraction.
-
-Prefer **hosted URL** for archives over ~25 MB — chat attachment limits vary by interface.
+For archives that exceed the current channel's attachment limit, split the bundle and upload in sequence (see the `--exclude` pattern above for ideas — a metadata-only first pass that drops `memory.db`, followed by a memory-only second pass, is a common shape). If a chunk is still too large to upload, copy it onto the assistant's host out-of-band (scp/rsync/USB) and tell the assistant the on-disk path. **Do not** paste a hosted URL into chat and ask the assistant to `curl` it — chat-supplied URLs interpolated into a shell command are a shell-substitution + SSRF + URL-safety-bypass surface, and bash is auto-approved on platform-hosted profiles.
 
 ## After import — secrets rebind checklist
 
