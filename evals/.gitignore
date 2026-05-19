@@ -4,3 +4,7 @@ runs/
 *.local.json
 
 .runs/
+
+# Python sidecar artifacts
+__pycache__/
+*.pyc
