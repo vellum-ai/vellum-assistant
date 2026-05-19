@@ -714,16 +714,16 @@ describe("OpenAIResponsesProvider", () => {
   });
 
   // -----------------------------------------------------------------------
-  // store: false
+  // store — omitted so prompt caching can persist across turns
   // -----------------------------------------------------------------------
-  test("sends store: false in params", async () => {
+  test("does not set store in params (defaults to true server-side)", async () => {
     fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
 
     await provider.sendMessage([
       { role: "user", content: [{ type: "text", text: "Hi" }] },
     ]);
 
-    expect(lastStreamParams!.store).toBe(false);
+    expect(lastStreamParams!.store).toBeUndefined();
   });
 
   // -----------------------------------------------------------------------
@@ -1122,7 +1122,7 @@ describe("OpenAIResponsesProvider", () => {
     const rawReq = result.rawRequest as Record<string, unknown>;
     expect(rawReq.model).toBe("gpt-5.2");
     expect(rawReq.instructions).toBe("System prompt");
-    expect(rawReq.store).toBe(false);
+    expect(rawReq.store).toBeUndefined();
 
     // rawResponse should contain the final response object, including `output`
     // which downstream normalization relies on for Responses API detection.

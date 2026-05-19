@@ -1152,7 +1152,6 @@ describe("normalizeLlmContextPayloads", () => {
         reasoning: { effort: "high" },
         max_output_tokens: 64000,
         stream: true,
-        store: false,
       },
       responsePayload: {
         id: "resp_abc123",
@@ -1245,7 +1244,6 @@ describe("normalizeLlmContextPayloads", () => {
           reasoning: { effort: "high" },
           max_output_tokens: 64000,
           stream: true,
-          store: false,
         },
         language: "json",
       },
