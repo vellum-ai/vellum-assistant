@@ -8,7 +8,7 @@ import {
   Clock,
   X,
 } from "lucide-react";
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { BusyIndicator } from "@/domains/chat/components/busy-indicator.js";
 import { ToolCallChip } from "@/domains/chat/components/tool-call-chip/tool-call-chip.js";
@@ -16,7 +16,6 @@ import {
   extractInputSummary,
   friendlyRunningLabel,
   progressiveLabels,
-  toolCategory,
 } from "@/domains/chat/components/tool-call-chip/utils.js";
 import type {
   AllowlistOption,
@@ -243,155 +242,6 @@ function CardStatusIcon({
   }
 }
 
-/**
- * Dynamically shows as many permission chips as fit in the available space,
- * with a "+N" overflow indicator for the rest. Uses ResizeObserver to
- * recalculate on container resize.
- *
- * The component returns a Fragment with a divider + a flex-1 container so the
- * chip area fills the remaining header space between headline and time/chevron.
- */
-function CollapsedPermissionChips({
-  toolCalls,
-}: {
-  toolCalls: ChatMessageToolCall[];
-}) {
-  const containerRef = useRef<HTMLSpanElement>(null);
-  const chipWidthsRef = useRef<Map<string, number>>(new Map());
-  const [maxVisible, setMaxVisible] = useState<number | null>(null);
-
-  const decidedCalls = useMemo(
-    () => toolCalls.filter((tc) => tc.riskLevel != null && toolCategory(tc.toolName) !== "Run Command"),
-    [toolCalls],
-  );
-
-  // Measure chip widths and calculate how many fit. useLayoutEffect prevents
-  // a visible flash on first render (all chips are rendered initially to
-  // measure them, then trimmed before the browser paints).
-  useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!container || decidedCalls.length === 0) return;
-
-    const GAP = 6; // gap-1.5
-    const OVERFLOW_BADGE_WIDTH = 32; // approximate "+N" width
-
-    const recalculate = () => {
-      const containerWidth = container.offsetWidth;
-      if (containerWidth <= 0) {
-        setMaxVisible(0);
-        return;
-      }
-
-      // Cache widths of any chip elements currently in the DOM
-      const chipEls = container.querySelectorAll<HTMLElement>("[data-chip-id]");
-      chipEls.forEach((el) => {
-        chipWidthsRef.current.set(el.dataset.chipId!, el.offsetWidth);
-      });
-
-      let usedWidth = 0;
-      let count = 0;
-
-      for (let i = 0; i < decidedCalls.length; i++) {
-        const tc = decidedCalls[i];
-        if (!tc) break;
-        const chipWidth = chipWidthsRef.current.get(tc.id) ?? 140;
-        const needed = (count > 0 ? GAP : 0) + chipWidth;
-
-        if (i === decidedCalls.length - 1) {
-          // Last chip — only needs to fit (no overflow badge)
-          if (usedWidth + needed <= containerWidth) count++;
-        } else {
-          // Not last — needs room for chip + gap + overflow badge
-          if (
-            usedWidth + needed + GAP + OVERFLOW_BADGE_WIDTH <=
-            containerWidth
-          ) {
-            usedWidth += needed;
-            count++;
-          } else {
-            break;
-          }
-        }
-      }
-
-      setMaxVisible(count);
-    };
-
-    recalculate();
-    const observer = new ResizeObserver(recalculate);
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, [decidedCalls]);
-
-  if (decidedCalls.length === 0) return null;
-
-  // On initial render (maxVisible === null), show all chips so we can measure
-  // them. overflow-hidden on the container prevents the user from seeing any
-  // overflow before the layout effect trims the list.
-  const effectiveMax = maxVisible ?? decidedCalls.length;
-  const visible = decidedCalls.slice(0, effectiveMax);
-  const overflowCount = decidedCalls.length - effectiveMax;
-
-  return (
-    <>
-      <span className="h-4 w-px shrink-0 bg-[var(--border-base)]" />
-      <span
-        ref={containerRef}
-        className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden"
-      >
-        {visible.map((tc) => {
-          const isTimeout = tc.confirmationDecision === "timed_out";
-          const isDenied = tc.confirmationDecision === "denied";
-          // 3-state color matching macOS CompactPermissionChip:
-          // approved → primaryBase, denied → systemNegativeStrong, timedOut → contentTertiary
-          const color = isDenied
-            ? "var(--system-negative-strong)"
-            : isTimeout
-              ? "var(--content-tertiary)"
-              : "var(--primary-base)";
-          // timedOut chips show "Timed Out" label override, matching macOS CompactPermissionChip.
-          // Non-timeout chips use toolCategory for short category labels ("Run Command",
-          // "Write File", "Browser") instead of past-tense contextual text.
-          const label = isTimeout
-            ? "Timed Out"
-            : toolCategory(tc.toolName);
-
-          return (
-            <span
-              key={tc.id}
-              data-chip-id={tc.id}
-              className="flex items-center gap-0.5 text-label-small-default rounded-full px-1.5 py-0.5 shrink-0"
-              style={{
-                color,
-                // Colored capsule border at 30% opacity — mirrors macOS
-                // Capsule().stroke(chipColor.opacity(0.3), lineWidth: 1)
-                boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${color} 30%, transparent)`,
-              }}
-            >
-              {isDenied ? (
-                <AlertCircle className="h-2.5 w-2.5 shrink-0" />
-              ) : isTimeout ? (
-                <Clock className="h-2.5 w-2.5 shrink-0" />
-              ) : (
-                <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />
-              )}
-              <span className="truncate max-w-[8rem]">{label}</span>
-            </span>
-          );
-        })}
-        {overflowCount > 0 && (
-          <span
-            data-overflow
-            className="text-label-small-default text-[var(--content-tertiary)] shrink-0"
-          >
-            +{overflowCount}
-          </span>
-        )}
-      </span>
-    </>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // ThinkingRow — post-tool synthetic thinking phase row
 // ---------------------------------------------------------------------------
@@ -580,9 +430,6 @@ export function ToolCallProgressCard({
         <span className="shrink-0 text-[var(--content-default)]">
           {headline}
         </span>
-        {!expanded && (
-          <CollapsedPermissionChips toolCalls={toolCalls} />
-        )}
         <span className="ml-auto flex items-center gap-1.5 shrink-0">
           {elapsed && (
             <span className="text-label-small-default text-[var(--content-tertiary)]">

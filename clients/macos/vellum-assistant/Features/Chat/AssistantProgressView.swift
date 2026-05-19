@@ -58,7 +58,6 @@ struct AssistantProgressView: View {
     @State private var isExpanded: Bool
     @State private var startDate: Date
     @State private var processingStartDate: Date?
-    @State private var isOverflowPopoverShown: Bool = false
     @State private var suppressNextExpand: Bool = false
     /// When the post-tool-completion thinking phase started (typically the last
     /// tool's `completedAt`). Nil until all tools complete and the card remains active.
@@ -788,49 +787,7 @@ struct AssistantProgressView: View {
 
     @ViewBuilder
     private var inlinePermissionChips: some View {
-        let resolved = decidedConfirmations.filter { $0.state != .pending && $0.toolCategory != "Run Command" }
-        if !resolved.isEmpty {
-            // Vertical divider
-            Divider()
-                .frame(height: 16)
-
-            // Show up to 2 chips inline
-            let visible = Array(resolved.prefix(2))
-            let overflow = resolved.count - visible.count
-
-            ForEach(Array(visible.enumerated()), id: \.offset) { _, confirmation in
-                CompactPermissionChip(state: confirmation.state, label: confirmation.toolCategory)
-            }
-
-            // +N overflow badge with popover
-            if overflow > 0 {
-                Button(action: {
-                    suppressNextExpand = true
-                    isOverflowPopoverShown.toggle()
-                }) {
-                    Text("+\(overflow)")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                        .padding(EdgeInsets(top: VSpacing.xxs, leading: VSpacing.xs, bottom: VSpacing.xxs, trailing: VSpacing.xs))
-                        .background(
-                            Capsule().fill(VColor.surfaceBase)
-                        )
-                        .overlay(
-                            Capsule().stroke(VColor.borderBase, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(overflow) more permissions")
-                .popover(isPresented: $isOverflowPopoverShown, arrowEdge: .bottom) {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        ForEach(Array(resolved.dropFirst(2).enumerated()), id: \.offset) { _, confirmation in
-                            CompactPermissionChip(state: confirmation.state, label: confirmation.toolCategory)
-                        }
-                    }
-                    .padding(VSpacing.sm)
-                }
-            }
-        }
+        EmptyView()
     }
 
 }
@@ -1196,20 +1153,9 @@ struct ToolCallStepDetailRow: View {
         }
     }
 
-    /// Permission chip rendered before the duration label on the right side.
-    /// The original layout left an extra `xs` of trailing padding between the
-    /// chip and the duration — preserved via `.padding(.trailing, xs)` so the
-    /// pixel-level spacing is identical.
     @ViewBuilder
     private var trailingAccessory: some View {
-        if let decision = toolCall.confirmationDecision,
-           toolCall.toolCategory != "Run Command" {
-            CompactPermissionChip(
-                state: decision,
-                label: toolCall.confirmationLabel ?? toolCall.friendlyName
-            )
-            .padding(.trailing, VSpacing.xs)
-        }
+        EmptyView()
     }
 
     // MARK: - Scope Options
@@ -1796,49 +1742,6 @@ private struct ElapsedTimeLabel: View {
         .onReceive(timer) { date in
             now = date
         }
-    }
-}
-
-// MARK: - Compact Permission Chip
-
-/// Shared permission chip used in both the collapsed header (inline chips)
-/// and expanded step detail rows (per-tool-call badge).
-private struct CompactPermissionChip: View {
-    let state: ToolConfirmationState
-    let label: String
-
-    private var chipColor: Color {
-        switch state {
-        case .approved: VColor.primaryBase
-        case .denied: VColor.systemNegativeStrong
-        default: VColor.contentTertiary
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: VSpacing.xxs) {
-            switch state {
-            case .approved:
-                VIconView(.circleCheck, size: 10)
-                    .foregroundStyle(chipColor)
-            case .denied:
-                VIconView(.circleAlert, size: 10)
-                    .foregroundStyle(chipColor)
-            case .timedOut:
-                VIconView(.clock, size: 10)
-                    .foregroundStyle(chipColor)
-            default:
-                EmptyView()
-            }
-
-            Text(state == .approved || state == .denied ? label : "Timed Out")
-                .font(VFont.labelSmall)
-                .foregroundStyle(chipColor)
-        }
-        .padding(EdgeInsets(top: VSpacing.xxs, leading: VSpacing.xs, bottom: VSpacing.xxs, trailing: VSpacing.xs))
-        .overlay(
-            Capsule().stroke(chipColor.opacity(0.3), lineWidth: 1)
-        )
     }
 }
 
