@@ -604,9 +604,21 @@ struct AssistantUpgradeSection: View {
         }
 
         do {
+            // Server-side upgrade/rollback orchestration runs an 8-phase
+            // pipeline that can legitimately take up to the lifecycle lock
+            // ceiling (LIFECYCLE_LOCK_TTL_SECONDS = 900s on the platform).
+            // URLSession's 30s default was surfacing successful upgrades as
+            // "The request timed out." Bump to 900s so the client waits long
+            // enough for orchestration to complete.
+            //
+            // This is a tactical stop-gap. The architectural fix (ATL-557 /
+            // platform PR #7249) makes /upgrade/ return 202 + operation_id
+            // immediately and polls /upgrade-status/ — once that lands and
+            // this client moves to polling, this timeout becomes irrelevant.
             let response = try await GatewayHTTPClient.post(
                 path: path,
                 json: body,
+                timeout: 900,
                 unprefixed: true
             )
 
