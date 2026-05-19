@@ -11,6 +11,26 @@ export const CALL_SITE_DOMAINS = [
 
 export type CallSiteDomainId = (typeof CALL_SITE_DOMAINS)[number]["id"];
 
+export const CALL_SITE_TIERS = [
+  {
+    id: "perception",
+    displayName: "Perception",
+    description: "Fast signal interpretation and lightweight classification.",
+  },
+  {
+    id: "reflex",
+    displayName: "Reflex",
+    description: "Low-latency decisions and UI copy generation.",
+  },
+  {
+    id: "deliberation",
+    displayName: "Deliberation",
+    description: "Deep reasoning, planning, and long-form synthesis.",
+  },
+] as const;
+
+export type CallSiteTierId = (typeof CALL_SITE_TIERS)[number]["id"];
+
 export interface CallSiteDomainEntry {
   id: CallSiteDomainId;
   displayName: string;
@@ -21,6 +41,7 @@ export interface CallSiteEntry {
   displayName: string;
   description: string;
   domain: CallSiteDomainId;
+  tier: CallSiteTierId;
 }
 
 /**
@@ -36,6 +57,57 @@ type CatalogRecord = {
     domain: CallSiteDomainId;
   };
 };
+
+function resolveCallSiteTier(id: LLMCallSite): CallSiteTierId {
+  switch (id) {
+    case "perception":
+    case "preferenceFeedback":
+    case "interactionClassifier":
+    case "meetConsentMonitor":
+      return "perception";
+    case "conversationStarters":
+    case "conversationTitle":
+    case "commitMessage":
+    case "emptyStateGreeting":
+    case "notificationDecision":
+    case "preferenceExtraction":
+    case "guardianQuestionCopy":
+    case "approvalCopy":
+    case "feedEventCopy":
+    case "trustRuleSuggestion":
+    case "styleAnalyzer":
+    case "inviteInstructionGenerator":
+    case "skillCategoryInference":
+    case "meetChatOpportunity":
+      return "reflex";
+    case "mainAgent":
+    case "subagentSpawn":
+    case "heartbeatAgent":
+    case "filingAgent":
+    case "compactionAgent":
+    case "analyzeConversation":
+    case "callAgent":
+    case "memoryExtraction":
+    case "memoryConsolidation":
+    case "memoryRetrieval":
+    case "memoryV2Migration":
+    case "memoryV2Sweep":
+    case "recall":
+    case "narrativeRefinement":
+    case "patternScan":
+    case "conversationSummarization":
+    case "identityIntro":
+    case "approvalConversation":
+    case "inference":
+    case "proactiveArtifactDecision":
+    case "proactiveArtifactBuild":
+      return "deliberation";
+    default: {
+      const exhaustive: never = id;
+      return exhaustive;
+    }
+  }
+}
 
 const CATALOG_RECORD: CatalogRecord = {
   // agentLoop
@@ -278,8 +350,27 @@ const CATALOG_RECORD: CatalogRecord = {
       "Builds the personalized artifact in a background conversation with tool access.",
     domain: "agentLoop",
   },
+  perception: {
+    id: "perception",
+    displayName: "Perception Interpreter",
+    description:
+      "Interprets ambient perception signals into higher-level structured events.",
+    domain: "agentLoop",
+  },
+  preferenceFeedback: {
+    id: "preferenceFeedback",
+    displayName: "Preference Feedback Observer",
+    description:
+      "Classifies just-completed conversation turns for preference reinforcements or contradictions so the personal-knowledge base learns from real use.",
+    domain: "memory",
+  },
 };
 
 // Source of truth for call-site display metadata. API responses and usage
 // display paths should reuse this catalog instead of defining separate labels.
-export const CALL_SITE_CATALOG: CallSiteEntry[] = Object.values(CATALOG_RECORD);
+export const CALL_SITE_CATALOG: CallSiteEntry[] = Object.values(
+  CATALOG_RECORD,
+).map((entry) => ({
+  ...entry,
+  tier: resolveCallSiteTier(entry.id),
+}));

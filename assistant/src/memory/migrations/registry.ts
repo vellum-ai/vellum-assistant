@@ -48,6 +48,7 @@ import { downMemoryV2ActivationLogs } from "./234-memory-v2-activation-logs.js";
 import { downSlackCompactionWatermark } from "./235-slack-compaction-watermark.js";
 import { downToolInvocationsMatchedRuleId } from "./236-tool-invocations-matched-rule-id.js";
 import { downHeartbeatRuns } from "./237-heartbeat-runs.js";
+import { downPkbQualityFields } from "./242-pkb-quality-fields.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -411,6 +412,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Create heartbeat_runs table for tracking heartbeat execution lifecycle with CAS state transitions",
     down: downHeartbeatRuns,
+  },
+  {
+    key: "migration_pkb_quality_fields_v1",
+    version: 48,
+    description:
+      "Add evidence_count / provenance / decay anchor columns to pkb_entities and pkb_preferences, plus idempotency_key on pkb_episodes — Memory Maturation MVP",
+    down: downPkbQualityFields,
   },
 ];
 

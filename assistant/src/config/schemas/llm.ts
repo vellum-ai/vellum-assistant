@@ -19,6 +19,7 @@ const LLMProvider = z.enum([
   "gemini",
   "ollama",
   "fireworks",
+  "minimax",
   "openrouter",
 ]);
 type LLMProvider = z.infer<typeof LLMProvider>;
@@ -72,6 +73,8 @@ export const LLMCallSiteEnum = z.enum([
   "trustRuleSuggestion",
   "proactiveArtifactDecision",
   "proactiveArtifactBuild",
+  "perception",
+  "preferenceFeedback",
 ]);
 export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
 

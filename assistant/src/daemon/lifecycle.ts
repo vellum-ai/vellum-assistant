@@ -57,6 +57,7 @@ import {
 } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import { startPerception } from "../perception/startup.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
@@ -323,9 +324,21 @@ export async function runDaemon(): Promise<void> {
     // so a slow or unreachable gateway doesn't delay daemon startup (the
     // IPC call has a 3s connect + 5s call timeout that would otherwise
     // stall the critical path).
-    void initFeatureFlagOverrides().catch((err) =>
-      log.warn({ err }, "Background feature flag init failed"),
-    );
+    void initFeatureFlagOverrides()
+      .then(() => {
+        // Perception startup is flag-gated and idempotent. Retrying after
+        // async override hydration closes the startup race where the initial
+        // call to startPerception() can observe only registry defaults.
+        try {
+          startPerception();
+        } catch (err) {
+          log.warn(
+            { err },
+            "Failed to start perception spine after feature-flag init",
+          );
+        }
+      })
+      .catch((err) => log.warn({ err }, "Background feature flag init failed"));
 
     maybeSeedMemoryV2Skills(loadConfig());
 
@@ -996,6 +1009,18 @@ export async function runDaemon(): Promise<void> {
       log.warn(
         { err },
         "Failed to start home feed scheduler — continuing startup",
+      );
+    }
+
+    // Perception spine: ambient context buffer fed by perception.* events on
+    // the assistant event hub. Gated by the `perception` feature flag and a
+    // safe no-op when off. See `docs/jarvis-roadmap.md`.
+    try {
+      startPerception();
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to start perception spine — continuing startup",
       );
     }
 

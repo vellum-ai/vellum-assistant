@@ -133,6 +133,9 @@ import {
   migrateOAuthProvidersScopeSeparator,
   migrateOAuthProvidersTokenAuthMethodDefault,
   migrateOAuthProvidersTokenExchangeBodyFormat,
+  migratePerceptionConsentGrants,
+  migratePkbEntityEpisodeTables,
+  migratePkbQualityFields,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
   migrateRenameConversationTypeColumn,
@@ -410,6 +413,9 @@ export function initializeDb(): void {
     },
     migrateScheduleRetryPolicy,
     migrateTraceEventsCreatedAtIndex,
+    migratePkbEntityEpisodeTables,
+    migratePkbQualityFields,
+    migratePerceptionConsentGrants,
   ];
 
   // Run each migration step, catching and logging individual failures so one

@@ -78,6 +78,8 @@ import { ROUTES as NOTIFICATION_ROUTES } from "./notification-routes.js";
 import { ROUTES as OAUTH_APPS_ROUTES } from "./oauth-apps.js";
 import { ROUTES as OAUTH_CONNECT_ROUTES } from "./oauth-connect-routes.js";
 import { ROUTES as OAUTH_PROVIDERS_ROUTES } from "./oauth-providers.js";
+import { ROUTES as PERCEPTION_ROUTES } from "./perception-routes.js";
+import { ROUTES as PERSONAL_KNOWLEDGE_ROUTES } from "./personal-knowledge-routes.js";
 import { ROUTES as PLAYGROUND_ROUTES } from "./playground/index.js";
 import { ROUTES as PROFILER_ROUTES } from "./profiler-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
@@ -175,6 +177,8 @@ export const ROUTES: RouteDefinition[] = [
   ...NOTIFICATION_ROUTES,
   ...OAUTH_APPS_ROUTES,
   ...OAUTH_PROVIDERS_ROUTES,
+  ...PERCEPTION_ROUTES,
+  ...PERSONAL_KNOWLEDGE_ROUTES,
   ...PLAYGROUND_ROUTES,
   ...PROFILER_ROUTES,
   ...PS_ROUTES,

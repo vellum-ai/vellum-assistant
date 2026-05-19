@@ -8,4 +8,6 @@ export * from "./memory-core.js";
 export * from "./memory-graph.js";
 export * from "./notifications.js";
 export * from "./oauth.js";
+export * from "./perception-consent.js";
+export * from "./personal-knowledge.js";
 export * from "./tasks.js";
