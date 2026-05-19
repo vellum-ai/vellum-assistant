@@ -29,6 +29,7 @@ import { isPlainObject } from "../util/object.js";
 import { buildConversationErrorMessage } from "./conversation-error.js";
 import { launchConversation } from "./conversation-launch.js";
 import type { HostAppControlProxy } from "./host-app-control-proxy.js";
+import type { HostCameraProxy } from "./host-camera-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   CardSurfaceData,
@@ -474,6 +475,8 @@ export interface SurfaceConversationContext {
   hostCuProxy?: HostCuProxy;
   /** Optional proxy for delegating per-app app-control actions to a connected desktop client. */
   hostAppControlProxy?: HostAppControlProxy;
+  /** Optional proxy for requesting a one-shot webcam snapshot from a connected desktop client. */
+  hostCameraProxy?: HostCameraProxy;
   /**
    * Setter that lets the resolver detach the conversation's app-control proxy
    * after `app_control_stop`. Disposes the existing proxy when transitioning
@@ -481,6 +484,7 @@ export interface SurfaceConversationContext {
    * rather than dispatching to a torn-down proxy.
    */
   setHostAppControlProxy?(proxy: HostAppControlProxy | undefined): void;
+  setHostCameraProxy?(proxy: HostCameraProxy | undefined): void;
   /** True when no interactive client is connected (headless / channel-only). */
   readonly hasNoClient?: boolean;
   isProcessing(): boolean;
@@ -2066,6 +2070,31 @@ export async function surfaceProxyResolver(
       inputWithTool,
       ctx.conversationId,
       signal ?? new AbortController().signal,
+    );
+  }
+
+  if (toolName === "describe_camera_once") {
+    if (!ctx.hostCameraProxy || !ctx.hostCameraProxy.isAvailable()) {
+      return {
+        content:
+          "Camera snapshot is not available — enable the `webcam-snapshot` feature flag and connect a macOS or Tauri client.",
+        isError: true,
+      };
+    }
+
+    const sourceActorPrincipalId = ctx.trustContext?.guardianPrincipalId;
+    return ctx.hostCameraProxy.request(
+      "describe_camera_once",
+      {
+        ...(typeof input.prompt === "string" ? { prompt: input.prompt } : {}),
+        ...(typeof input.target_client_id === "string" &&
+        input.target_client_id !== ""
+          ? { target_client_id: input.target_client_id }
+          : {}),
+      },
+      ctx.conversationId,
+      signal,
+      sourceActorPrincipalId,
     );
   }
 
