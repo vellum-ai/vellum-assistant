@@ -136,6 +136,8 @@ import {
   migratePerceptionConsentGrants,
   migratePkbEntityEpisodeTables,
   migratePkbQualityFields,
+  migratePlanExecutionTables,
+  migratePlanStepBlockedReason,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
   migrateRenameConversationTypeColumn,
@@ -414,8 +416,10 @@ export function initializeDb(): void {
     migrateScheduleRetryPolicy,
     migrateTraceEventsCreatedAtIndex,
     migratePkbEntityEpisodeTables,
+    migratePlanExecutionTables,
     migratePkbQualityFields,
     migratePerceptionConsentGrants,
+    migratePlanStepBlockedReason,
   ];
 
   // Run each migration step, catching and logging individual failures so one
