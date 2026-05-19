@@ -412,6 +412,49 @@ access the property from the result.
 
 Reference: [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors)
 
+### Data fetching: React Query vs direct SDK calls
+
+Use **React Query** for data consumed primarily by React components —
+it provides stale-while-revalidate, automatic background refetching,
+cache sharing between components, and error/loading states. This covers
+most API data: chat messages, assistant state, billing, settings, etc.
+
+Use **direct SDK calls** inside Zustand stores for infrastructure-level
+shared state that must be readable outside the React tree (middleware,
+API interceptors, loaders) via `.getState()`. This applies when:
+
+1. **Non-React consumers exist** — middleware or interceptors need the
+   data synchronously before any component renders.
+2. **The fetch is simple** — a single call on login or on demand,
+   with no benefit from background refetching or cache sharing.
+3. **The store is the single source of truth** — no need to sync
+   between React Query cache and a separate module-level variable.
+
+Auth and organization state both fit this category. The generated SDK
+client (`sdk.gen.ts`) exposes the same typed API functions that React
+Query wraps, so switching from `useQuery(optionsFn())` to a direct
+`apiFunction()` call uses the same endpoint, types, and interceptors.
+
+```ts
+// Infrastructure store — direct SDK call
+import { organizationsList } from "@/generated/api/sdk.gen.js";
+
+const useOrgStoreBase = create<OrgStore>()((set) => ({
+  organizations: [],
+  fetchOrganizations: async () => {
+    const result = await organizationsList();
+    set({ organizations: result.data?.results ?? [] });
+  },
+}));
+
+// Domain data — React Query (used only in components)
+const { data } = useQuery(assistantsListOptions());
+```
+
+References:
+- [TkDodo — Working with Zustand](https://tkdodo.eu/blog/working-with-zustand) — React Query maintainer's guidance on the boundary between server state (RQ) and client/infrastructure state (Zustand)
+- [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
+
 ### useReducer for component-local state only
 
 When two or more pieces of **component-local** state change together
