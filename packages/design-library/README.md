@@ -241,7 +241,7 @@ References:
 
 ```bash
 cd packages/design-library
-bun install                # installs deps + Playwright Chromium via postinstall
+bun install                # installs deps + Playwright Chromium via @playwright/browser-chromium
 bun run storybook          # dev server → http://localhost:6006
 bun run build-storybook    # static build → storybook-static/
 ```
@@ -261,7 +261,7 @@ bun run test               # run all render tests (Playwright Chromium)
 
 Tests run in a real browser (headless Chromium via [Playwright](https://playwright.dev/)) and verify that each story renders without errors. No extra test files needed — stories _are_ the tests.
 
-Playwright Chromium is installed automatically by the `postinstall` script. The Storybook dev server also uses Playwright to power the in-UI testing widget — if you see a "Failed to initialize Vitest" error on startup, run `bunx playwright install chromium` to fix it.
+Playwright Chromium is installed automatically by the [`@playwright/browser-chromium`](https://www.npmjs.com/package/@playwright/browser-chromium) package (listed in `trustedDependencies` so bun runs its install script). The Storybook dev server also uses Playwright to power the in-UI testing widget — if you see a "Failed to initialize Vitest" error on startup, run `bunx playwright install chromium` to fix it.
 
 ### MCP (AI agent integration)
 

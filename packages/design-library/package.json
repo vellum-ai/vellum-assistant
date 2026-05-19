@@ -14,8 +14,8 @@
     "./utils/*": "./src/utils/*.ts",
     "./utils/portal-container": "./src/utils/portal-container.tsx"
   },
+  "trustedDependencies": ["@playwright/browser-chromium"],
   "scripts": {
-    "postinstall": "playwright install chromium",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "test": "vitest",
@@ -38,6 +38,7 @@
     "@types/react-dom": "19.2.3",
     "@vitest/browser": "4.1.6",
     "@vitest/browser-playwright": "4.1.6",
+    "@playwright/browser-chromium": "1.60.0",
     "@vitest/runner": "4.1.6",
     "playwright": "1.60.0",
     "react": "19.2.6",
