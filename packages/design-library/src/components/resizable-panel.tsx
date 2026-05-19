@@ -149,6 +149,7 @@ export function ResizablePanel({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
       >
         <div className="h-full w-px bg-[var(--border-base)]" />
         <div
