@@ -9,7 +9,6 @@ import type {
   ReachabilityState,
 } from "@/domains/assistant/use-assistant-reachability.js";
 import { MAX_ATTEMPTS } from "@/domains/assistant/use-assistant-reachability.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
 import { routes } from "@/utils/routes.js";
 
 interface ConnectingToAssistantProps {
@@ -115,19 +114,14 @@ const FailureBody: FC<FailureBodyProps> = ({
   lastServerState,
   onRetry,
 }) => {
-  const { doctor: doctorEnabled } = useAppFeatureFlags();
   const isCrashLoop = lastServerState === "crash_loop";
 
   const title = isCrashLoop
     ? "Your assistant hit an error"
     : "Couldn't connect to your assistant";
   const description = isCrashLoop
-    ? doctorEnabled
-      ? "Your assistant reported an error while starting. Try running the Doctor to diagnose the issue. Please contact support if the problem persists."
-      : "Your assistant reported an error while starting. Please contact support if the problem persists."
-    : doctorEnabled
-      ? `We tried ${MAX_ATTEMPTS} times over 60 seconds and still can't reach your assistant. Try running the Doctor to diagnose the issue. Please contact support if the problem persists.`
-      : `We tried ${MAX_ATTEMPTS} times over 60 seconds and still can't reach your assistant. Please contact support if the problem persists.`;
+    ? "Your assistant reported an error while starting. Try running the Doctor to diagnose the issue. Please contact support if the problem persists."
+    : `We tried ${MAX_ATTEMPTS} times over 60 seconds and still can't reach your assistant. Try running the Doctor to diagnose the issue. Please contact support if the problem persists.`;
 
   return (
     <StatusLayout
@@ -148,25 +142,15 @@ const FailureBody: FC<FailureBodyProps> = ({
           >
             Try again
           </Button>
-          {doctorEnabled ? (
-            <Button
-              asChild
-              variant="outlined"
-              data-testid="connection-go-to-doctor-button"
-            >
-              <Link to={`${routes.settings.debug}?tab=doctor`}>
-                Go to Doctor
-              </Link>
-            </Button>
-          ) : (
-            <Button
-              asChild
-              variant="outlined"
-              data-testid="connection-contact-support-button"
-            >
-              <a href="mailto:support@vellum.ai">Contact support</a>
-            </Button>
-          )}
+          <Button
+            asChild
+            variant="outlined"
+            data-testid="connection-go-to-doctor-button"
+          >
+            <Link to={`${routes.settings.debug}?tab=doctor`}>
+              Go to Doctor
+            </Link>
+          </Button>
         </>
       }
     />
