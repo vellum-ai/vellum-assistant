@@ -402,7 +402,7 @@ export const MANAGED_CONNECTION_NAMES: ReadonlySet<string> = new Set(
  *
  * Status handling: the upsert never touches `status` so user customization
  * is preserved across reboots. New rows default to `status: "active"` via the
- * column default. Off-platform installs flip the three canonical rows to
+ * column default. Off-platform installs flip canonical managed rows to
  * `status: "disabled"` ONCE at hatch time via
  * `disableManagedConnectionsForByokHatch` (called from `seedInferenceProfiles`
  * when `isHatch && !isPlatform`); subsequent boots leave whatever the user
@@ -446,7 +446,7 @@ export function seedCanonicalConnections(db: DrizzleDb): void {
 }
 
 /**
- * Flip the three canonical managed connections to `status: "disabled"` at
+ * Flip canonical managed connections to `status: "disabled"` at
  * hatch time on BYOK (off-platform) installs.
  *
  * Why hatch-time only: managed connections need platform auth that a fresh
@@ -461,10 +461,18 @@ export function seedCanonicalConnections(db: DrizzleDb): void {
  *
  * Idempotent: a second hatch (workspace reset) re-disables the rows, which
  * is the right call — re-hatch means re-onboard.
+ *
+ * When onboarding explicitly selected a managed profile, callers may exclude
+ * that selected connection so the managed route remains usable for the first
+ * post-onboarding message.
  */
-export function disableManagedConnectionsForByokHatch(db: DrizzleDb): void {
+export function disableManagedConnectionsForByokHatch(
+  db: DrizzleDb,
+  options: { excludeConnection?: string } = {},
+): void {
   const now = Date.now();
   for (const name of MANAGED_CONNECTION_NAMES) {
+    if (name === options.excludeConnection) continue;
     db.update(providerConnections)
       .set({ status: "disabled", updatedAt: now })
       .where(eq(providerConnections.name, name))
