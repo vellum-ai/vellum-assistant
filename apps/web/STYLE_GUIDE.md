@@ -42,6 +42,13 @@ Files that export a custom hook as their primary export are prefixed
 with `use-`. This mirrors the React convention that hooks are functions
 whose names start with `use`.
 
+**Zustand store files are not hook files.** A store module's primary
+export is a store — a module-level singleton with both React
+(`useChatStore(selector)`) and non-React (`.getState()`,
+`.setState()`, `.subscribe()`) APIs. Store files use
+`{domain}-store.ts`, not `use-{domain}-store.ts`. See
+[CONVENTIONS.md — Zustand store conventions](./CONVENTIONS.md#zustand-store-conventions).
+
 Reference: [React — Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks)
 
 ### Test files use `.test.ts` / `.test.tsx`
@@ -106,13 +113,13 @@ feature module.
 
 ```ts
 // Good — alias for cross-module imports
-import { useMessageStore } from "@/domains/messages/use-message-store.js";
+import { useMessageStore } from "@/domains/messages/message-store.js";
 
 // Good — relative within same domain
 import { messageReducer } from "./message-reducer.js";
 
 // Avoid — deep relative path crossing module boundaries
-import { useMessageStore } from "../../../domains/messages/use-message-store.js";
+import { useMessageStore } from "../../../domains/messages/message-store.js";
 ```
 
 Reference: [Vite — resolve.alias](https://vite.dev/config/shared-options.html#resolve-alias)
@@ -130,7 +137,7 @@ import { useCallback, useMemo } from "react";
 import { useParams } from "react-router";
 import { Button } from "@vellum/design-library";
 
-import { useMessageStore } from "@/domains/messages/use-message-store.js";
+import { useMessageStore } from "@/domains/messages/message-store.js";
 
 import { messageReducer } from "./message-reducer.js";
 ```

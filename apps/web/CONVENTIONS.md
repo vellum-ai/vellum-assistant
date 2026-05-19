@@ -80,7 +80,7 @@ top-level folder for domain modules is called **`domains/`**.
 src/
   domains/                         # business domain modules
     messages/                      # message lifecycle
-      use-message-store.ts
+      message-store.ts
       use-send-message.ts
       message-handlers.ts
       message-handlers.test.ts
@@ -88,13 +88,13 @@ src/
       components/
         chat-body.tsx
     conversations/                 # conversation CRUD, grouping, selection
-      use-conversation-store.ts
+      conversation-store.ts
       use-conversation-loader.ts
       conversation-reducer.ts
       conversation-reducer.test.ts
       types.ts
     streaming/                     # SSE transport, event parsing
-      use-stream-store.ts
+      stream-store.ts
       stream-transport.ts
       event-parser.ts
       event-types.ts
@@ -103,7 +103,7 @@ src/
         interaction-handlers.ts
         types.ts
     interactions/                   # user-facing prompts
-      use-interaction-store.ts
+      interaction-store.ts
       interaction-state-machine.ts
       interaction-state-machine.test.ts
       types.ts
@@ -234,8 +234,21 @@ References:
 ### Zustand store conventions
 
 Each domain owns its store, colocated within the domain folder:
-`domains/messages/use-message-store.ts`. File naming follows hook
-convention since stores are accessed as hooks: `use-{domain}-store.ts`.
+`domains/messages/message-store.ts`. Store files use
+`{domain}-store.ts` — **not** `use-{domain}-store.ts`. The `use-`
+prefix is reserved for custom hook files (see
+[STYLE_GUIDE.md](./STYLE_GUIDE.md#hook-files-start-with-use-)).
+Zustand stores are module-level singletons with both React hook and
+non-React APIs (`.getState()`, `.setState()`, `.subscribe()`), so the
+file describes what the module *is* (a store), while the exported
+variable uses the `use` prefix because that's how React's
+[Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks)
+identify hooks at the call site.
+
+References:
+- [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript) (`store.ts` file naming)
+- [Cal.com — feature store](https://github.com/calcom/cal.com/blob/f7b2f276/packages/features/bookings/Booker/store.ts) (`store.ts` naming)
+- [Bulletproof React — stores directory](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md) (no `use-` prefix)
 
 Store creation pattern:
 
@@ -248,7 +261,7 @@ interface MessageStore extends MessageState {
   dispatch: (action: MessageAction) => void;
 }
 
-export const useMessageStore = create<MessageStore>((set) => ({
+export const useMessageStore = create<MessageStore>()((set) => ({
   messages: [],
   // ... initial state
   dispatch: (action) => set((state) => messageReducer(state, action)),

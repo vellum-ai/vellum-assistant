@@ -108,7 +108,7 @@ src/
 Use `@/` to import from `src/`:
 
 ```ts
-import { useMessageStore } from "@/domains/messages/use-message-store.js";
+import { useMessageStore } from "@/domains/messages/message-store.js";
 ```
 
 Configured in both `vite.config.ts` (`resolve.alias`) and
