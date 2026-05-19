@@ -403,11 +403,11 @@ export function useAppViewerActions({
 
   const handleActiveAppUnpinned = useCallback(
     (appId: string) => {
+      const { activeAppId, mainView } = useViewerStore.getState();
       useViewerStore.getState().handleAppUnpinned(appId);
-      const state = useViewerStore.getState();
       if (
-        state.activeAppId === appId &&
-        (state.mainView === "app" || state.mainView === "app-editing")
+        activeAppId === appId &&
+        (mainView === "app" || mainView === "app-editing")
       ) {
         dispatchConversationList({ type: "SET_EDITING_KEY", key: null });
       }

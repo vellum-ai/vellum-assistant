@@ -262,12 +262,13 @@ References:
 - [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
 - [Bulletproof React — project structure](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md)
 
-Store creation pattern — separate `State` and `Actions` interfaces
-so consumers can subscribe to only the slice they need:
+Store creation pattern — separate `State` and `Actions` interfaces,
+wrap with `createSelectors` for auto-generated per-field hooks:
 
 ```ts
 import { create } from "zustand";
-import { useShallow } from "zustand/shallow";
+
+import { createSelectors } from "@/utils/create-selectors.js";
 import type { Message } from "./types.js";
 
 // State — the data
@@ -286,7 +287,7 @@ export interface MessageActions {
 // Combined store type
 export type MessageStore = MessageState & MessageActions;
 
-export const useMessageStore = create<MessageStore>()((set) => ({
+const useMessageStoreBase = create<MessageStore>()((set) => ({
   messages: [],
   activeThreadId: null,
   addMessage: (message) =>
@@ -297,31 +298,19 @@ export const useMessageStore = create<MessageStore>()((set) => ({
     set({ messages: [], activeThreadId: null }),
 }));
 
-// Convenience hooks for common access patterns
-export function useMessageState(): MessageState {
-  return useMessageStore(
-    useShallow((s) => ({
-      messages: s.messages,
-      activeThreadId: s.activeThreadId,
-    })),
-  );
-}
-
-export function useMessageActions(): MessageActions {
-  return useMessageStore(
-    useShallow((s) => ({
-      addMessage: s.addMessage,
-      setActiveThread: s.setActiveThread,
-      clearMessages: s.clearMessages,
-    })),
-  );
-}
+export const useMessageStore = createSelectors(useMessageStoreBase);
 ```
+
+Consumers use `.use.field()` in render bodies and `.getState()` in
+callbacks — see
+[Reading state: `.use.*` vs `.getState()`](#reading-state-use-vs-getstate).
 
 Keep store definitions in their domain folder — adding or removing a
 domain means adding or removing a folder.
 
-Reference: [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
+References:
+- [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
+- [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors)
 
 ### Auth state lives in a Zustand store
 
@@ -422,9 +411,78 @@ const { bears } = useBearStore.getState();
 
 Prefer `.use.field()` over manual `(s) => s.field` selectors. For
 derived/computed values (e.g. `user?.id`), use `.use.user()` and
-access the property from the result.
+access the property from the result. See
+[Reading state: `.use.*` vs `.getState()`](#reading-state-use-vs-getstate)
+for when to use each API.
 
 Reference: [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors)
+
+### Reading state: `.use.*` vs `.getState()`
+
+Zustand exposes two ways to read store state. Using the wrong one
+causes either missed re-renders or unnecessary subscriptions.
+
+| Context | API | Why |
+|---------|-----|-----|
+| **React render body** (component/hook top level) | `useStore.use.field()` | Creates a subscription — component re-renders when `field` changes. Required for reactive UI. |
+| **Event handlers, callbacks, effects, `useCallback` bodies** | `useStore.getState().field` | Reads the latest value at call time without creating a subscription. No stale-closure risk. |
+| **Outside React** (middleware, interceptors, stream handlers, `main.tsx`) | `useStore.getState().field` | No React context available — `.use.*` would throw. |
+| **Calling actions** (anywhere) | `useStore.getState().actionName()` | Actions are stable references — calling via `.getState()` is always correct and avoids adding the action to dependency arrays. |
+
+```ts
+// ✅ Component render body — reactive subscription
+function MessageCount() {
+  const count = useMessageStore.use.count();
+  return <span>{count}</span>;
+}
+
+// ✅ Event handler — imperative read + action call
+const handleClick = useCallback(() => {
+  const current = useMessageStore.getState().count;
+  useMessageStore.getState().increment();
+  console.log("was", current);
+}, []);
+
+// ✅ Outside React — middleware
+const authMiddleware: MiddlewareFunction = async (args, next) => {
+  const { isLoggedIn } = useAuthStore.getState();
+  if (!isLoggedIn) throw redirect("/login");
+  return next();
+};
+
+// ❌ WRONG — .use.* in a callback creates a subscription leak
+const handleClick = useCallback(() => {
+  const count = useMessageStore.use.count(); // breaks Rules of Hooks
+}, []);
+
+// ❌ WRONG — .getState() in render body misses updates
+function MessageCount() {
+  const count = useMessageStore.getState().count; // won't re-render
+  return <span>{count}</span>;
+}
+```
+
+**Read-before-mutate rule:** When you need to check state and then call
+an action that changes that same state, always read *before* calling the
+action. Zustand mutations are synchronous — `.getState()` after a `set()`
+returns the already-mutated values.
+
+```ts
+// ✅ Correct — snapshot before mutation
+const { activeAppId, mainView } = useViewerStore.getState();
+useViewerStore.getState().handleAppUnpinned(appId);
+if (activeAppId === appId && mainView === "app") {
+  // condition uses pre-mutation values
+}
+
+// ❌ WRONG — reads post-mutation state, condition is always false
+useViewerStore.getState().handleAppUnpinned(appId);
+const { activeAppId } = useViewerStore.getState(); // already null
+```
+
+References:
+- [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/extracting-state-outside-components)
+- [React — Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks)
 
 ### Data fetching: React Query vs direct SDK calls
 
