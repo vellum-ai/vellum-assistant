@@ -138,7 +138,7 @@ enum TranscriptProjector {
             $0.toolCalls.contains(where: { !$0.isComplete })
         })
 
-        let wouldShowThinking = isSending
+        let wouldShowThinking = (isSending || isThinking)
             && (isThinking || !(lastVisible?.isStreaming == true))
             && !hasActiveToolCall
         let lastVisibleIsAssistant = lastVisible?.role == .assistant
