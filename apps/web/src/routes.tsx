@@ -14,6 +14,7 @@ import { LoginPage } from "@/domains/account/pages/login-page.js";
 import { SignupPage } from "@/domains/account/pages/signup-page.js";
 import { ProviderCallbackPage } from "@/domains/account/pages/provider-callback-page.js";
 import { ProviderSignupPage } from "@/domains/account/pages/provider-signup-page.js";
+import { LogoutPage } from "@/domains/account/pages/logout-page.js";
 import { OAuthPopupCompletePage } from "@/domains/account/pages/oauth-popup-complete-page.js";
 import { routes } from "@/utils/routes.js";
 
@@ -44,6 +45,8 @@ function HomePageRoute() {
  *   │  ├── ProviderSignupPage (/account/provider/signup)
  *   │  └── OAuthPopupCompletePage (/account/oauth/popup-complete)
  *   │
+ *   /logout        — standalone logout (calls API, redirects to login)
+ *   │
  *   /assistant/* — auth-protected app with RootLayout
  *   │  middleware: [authMiddleware] — redirects to login when auth required
  *   │  └── ChatLayout — sidebar rail, drawer, shortcuts
@@ -70,6 +73,9 @@ export const router = createBrowserRouter([
       { path: "oauth/popup-complete", element: <OAuthPopupCompletePage /> },
     ],
   },
+
+  // Logout — standalone page, no app chrome
+  { path: "/logout", element: <LogoutPage /> },
 
   // Assistant routes — auth-protected app with layout
   {
