@@ -194,7 +194,9 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       seen.add(row.id);
       merged.push(row);
     }
-    return merged;
+    return merged.sort(
+      (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
+    );
   }
 
   private async selectByMessageIds(ids: string[]): Promise<LogRow[]> {

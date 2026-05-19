@@ -258,6 +258,41 @@ describe("ClickHouseLlmRequestLogSource", () => {
     );
   });
 
+  test("getRequestLogsByMessageId keeps recovered rows chronologically ordered", async () => {
+    const linkedRow = {
+      ...SAMPLE_ROW,
+      id: "log-linked",
+      message_id: "msg-assistant",
+      created_at: "1778465139000",
+    };
+    const unlinkedRow = {
+      ...SAMPLE_ROW,
+      id: "log-unlinked",
+      message_id: "",
+      created_at: "1778465138000",
+    };
+    const src = makeSource({
+      resolveTurnMessageIds: () => ["msg-assistant"],
+      resolveMessage: () => ({
+        metadata: null,
+        conversationId: "conv-1",
+        createdAt: 1778465139000,
+      }),
+      resolveTurnTimeBounds: () => ({
+        startTime: 1778465137000,
+        endTime: 1778465140000,
+      }),
+      fetchImpl: fakeFetchReturningSequence([
+        JSON.stringify(linkedRow) + "\n",
+        JSON.stringify(unlinkedRow) + "\n",
+      ]),
+    });
+
+    const rows = await src.getRequestLogsByMessageId("msg-assistant");
+
+    expect(rows.map((row) => row.id)).toEqual(["log-unlinked", "log-linked"]);
+  });
+
   test("getRequestLogsByMessageId binds message ids via parameterized placeholders", async () => {
     // Regression for ATL-537. `getAssistantMessageIdsInTurn` returns the
     // caller-supplied id straight through when the message lookup misses,
