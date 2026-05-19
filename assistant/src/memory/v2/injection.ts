@@ -766,6 +766,7 @@ const INJECTION_HEADER =
  *   - <skill-2 content>
  *
  *   ### CLI Commands You Can Use
+ *   Run `assistant <command> --help` for full usage.
  *   - `assistant <name-1>`: <description-1>
  *   - `assistant <name-2>`: <description-2>
  */
@@ -835,13 +836,11 @@ async function renderInjectionBlock(
   for (const slug of cliCommandSlugs) {
     const entry = getCliCommandCapability(slug);
     if (!entry) continue;
-    cliCommandLines.push(
-      `- \`assistant ${entry.id}\`: ${entry.description} (run \`assistant ${entry.id} --help\` for full usage)`,
-    );
+    cliCommandLines.push(`- \`assistant ${entry.id}\`: ${entry.description}`);
   }
   if (cliCommandLines.length > 0) {
     sections.push(
-      `### CLI Commands You Can Use\n${cliCommandLines.join("\n")}`,
+      `### CLI Commands You Can Use\nRun \`assistant <command> --help\` for full usage.\n${cliCommandLines.join("\n")}`,
     );
   }
 
