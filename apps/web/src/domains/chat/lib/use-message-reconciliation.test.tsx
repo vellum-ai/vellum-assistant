@@ -113,7 +113,7 @@ interface HarnessProps {
 }
 
 // Lazy-import to avoid hoisting above mock.module
-let hookModule: typeof import("./use-message-reconciliation") | null = null;
+let hookModule: typeof import("./use-message-reconciliation.js") | null = null;
 
 function HookHarness(props: HarnessProps): null {
   if (!hookModule) throw new Error("hookModule not loaded");
@@ -184,7 +184,7 @@ function createHarness(overrides?: {
 
 beforeEach(async () => {
   if (!hookModule) {
-    hookModule = await import("./use-message-reconciliation");
+    hookModule = await import("./use-message-reconciliation.js");
   }
   messages = [];
   dispatchedEvents.length = 0;

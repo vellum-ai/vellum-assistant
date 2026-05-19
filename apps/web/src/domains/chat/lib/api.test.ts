@@ -1345,7 +1345,7 @@ describe("envelope format parsing", () => {
 describe("RuntimeMessage metadata types", () => {
   test("RuntimeMessage interface accepts optional metadata fields", () => {
     // Type-level test: ensure RuntimeMessage can carry metadata
-    const msg: import("./api").RuntimeMessage = {
+    const msg: import("./api.js").RuntimeMessage = {
       id: "msg-1",
       role: "assistant",
       content: "Hello",
@@ -1372,7 +1372,7 @@ describe("RuntimeMessage metadata types", () => {
   });
 
   test("RuntimeMessage works without metadata fields", () => {
-    const msg: import("./api").RuntimeMessage = {
+    const msg: import("./api.js").RuntimeMessage = {
       id: "msg-2",
       role: "user",
       content: "Hi",
@@ -1384,7 +1384,7 @@ describe("RuntimeMessage metadata types", () => {
   });
 
   test("ChatMessage interface accepts optional metadata fields", () => {
-    const msg: import("./api").ChatMessage = {
+    const msg: import("./api.js").ChatMessage = {
       id: "msg-3",
       role: "assistant",
       content: "With metadata",

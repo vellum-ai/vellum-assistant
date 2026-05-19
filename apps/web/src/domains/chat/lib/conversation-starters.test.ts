@@ -59,10 +59,10 @@ beforeEach(() => {
 
   (client as unknown as Record<string, unknown>).get = mock(async (options: Record<string, unknown>) => {
     capturedOptions.push({
-      url: options.url,
-      path: options.path,
-      query: options.query,
-      throwOnError: options.throwOnError,
+      url: options.url as string,
+      path: options.path as Record<string, string>,
+      query: options.query as Record<string, string>,
+      throwOnError: options.throwOnError as boolean,
     });
     if (!nextResult) {
       throw new Error("test setup forgot to set nextResult");

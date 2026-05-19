@@ -40,7 +40,7 @@ describe("listConversationKeysWithPendingInteractions", () => {
       ],
     });
     const { listConversationKeysWithPendingInteractions } = await import(
-      "@/lib/chat/api"
+      "@/domains/chat/lib/api.js"
     );
     const keys = await listConversationKeysWithPendingInteractions("asst-1");
     expect(keys.size).toBe(2);
@@ -51,7 +51,7 @@ describe("listConversationKeysWithPendingInteractions", () => {
   test("returns empty set when no interactions are pending", async () => {
     mockFetch(200, { interactions: [] });
     const { listConversationKeysWithPendingInteractions } = await import(
-      "@/lib/chat/api"
+      "@/domains/chat/lib/api.js"
     );
     const keys = await listConversationKeysWithPendingInteractions("asst-1");
     expect(keys.size).toBe(0);
@@ -60,7 +60,7 @@ describe("listConversationKeysWithPendingInteractions", () => {
   test("returns empty set when interactions field is missing", async () => {
     mockFetch(200, {});
     const { listConversationKeysWithPendingInteractions } = await import(
-      "@/lib/chat/api"
+      "@/domains/chat/lib/api.js"
     );
     const keys = await listConversationKeysWithPendingInteractions("asst-1");
     expect(keys.size).toBe(0);
@@ -75,7 +75,7 @@ describe("listConversationKeysWithPendingInteractions", () => {
     ) as unknown as typeof fetch;
     globalThis.fetch = fetchSpy;
     const { listConversationKeysWithPendingInteractions } = await import(
-      "@/lib/chat/api"
+      "@/domains/chat/lib/api.js"
     );
     await listConversationKeysWithPendingInteractions("asst-1");
     expect((fetchSpy as unknown as { mock: { calls: unknown[] } }).mock.calls)
@@ -94,7 +94,7 @@ describe("listConversationKeysWithPendingInteractions", () => {
       );
     }) as unknown as typeof fetch;
     const { listConversationKeysWithPendingInteractions } = await import(
-      "@/lib/chat/api"
+      "@/domains/chat/lib/api.js"
     );
     await listConversationKeysWithPendingInteractions("asst-1");
     expect(capturedUrl).toBeTruthy();
@@ -111,7 +111,7 @@ describe("listConversationKeysWithPendingInteractions", () => {
       ],
     });
     const { listConversationKeysWithPendingInteractions } = await import(
-      "@/lib/chat/api"
+      "@/domains/chat/lib/api.js"
     );
     const keys = await listConversationKeysWithPendingInteractions("asst-1");
     expect(keys.size).toBe(1);
@@ -121,7 +121,7 @@ describe("listConversationKeysWithPendingInteractions", () => {
   test("returns empty set on 4xx response (silent failure)", async () => {
     mockFetch(404, { detail: "not found" });
     const { listConversationKeysWithPendingInteractions } = await import(
-      "@/lib/chat/api"
+      "@/domains/chat/lib/api.js"
     );
     const keys = await listConversationKeysWithPendingInteractions("asst-1");
     expect(keys.size).toBe(0);
@@ -130,7 +130,7 @@ describe("listConversationKeysWithPendingInteractions", () => {
   test("throws on 5xx response so callers can decide whether to retry", async () => {
     mockFetch(500, { detail: "internal error" });
     const { listConversationKeysWithPendingInteractions } = await import(
-      "@/lib/chat/api"
+      "@/domains/chat/lib/api.js"
     );
     await expect(
       listConversationKeysWithPendingInteractions("asst-1"),
@@ -140,7 +140,7 @@ describe("listConversationKeysWithPendingInteractions", () => {
   test("returns empty set when response body is not an object", async () => {
     mockFetch(200, "not-an-object");
     const { listConversationKeysWithPendingInteractions } = await import(
-      "@/lib/chat/api"
+      "@/domains/chat/lib/api.js"
     );
     const keys = await listConversationKeysWithPendingInteractions("asst-1");
     expect(keys.size).toBe(0);
@@ -149,7 +149,7 @@ describe("listConversationKeysWithPendingInteractions", () => {
   test("returns empty set when interactions is not an array", async () => {
     mockFetch(200, { interactions: "broken" });
     const { listConversationKeysWithPendingInteractions } = await import(
-      "@/lib/chat/api"
+      "@/domains/chat/lib/api.js"
     );
     const keys = await listConversationKeysWithPendingInteractions("asst-1");
     expect(keys.size).toBe(0);
