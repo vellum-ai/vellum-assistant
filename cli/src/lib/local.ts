@@ -43,6 +43,14 @@ function applyRepoDotenvFallback(
   assistantIndex: string,
   target: Record<string, string | undefined>,
 ): void {
+  // Preserve vars that already existed in the environment before reading any
+  // dotenv file. Those always win over repo fallback files.
+  const preexistingKeys = new Set(
+    Object.entries(target)
+      .filter(([, value]) => value !== undefined)
+      .map(([key]) => key),
+  );
+
   // assistantIndex is `<repoRoot>/assistant/src/index.ts` in the source tree.
   const repoRoot = dirname(dirname(dirname(assistantIndex)));
   // Standard precedence: `.env.local` overrides `.env`. Both are optional.
@@ -70,9 +78,7 @@ function applyRepoDotenvFallback(
         value = value.slice(1, -1);
       }
       if (value.length === 0) continue;
-      if (target[key] === undefined) {
-        target[key] = value;
-      }
+      if (!preexistingKeys.has(key)) target[key] = value;
     }
   }
 }
