@@ -16,17 +16,31 @@ cp .env.example .env
 
 bun run src/cli.ts run \
   --profiles p1,p2 \
-  --tests t1
+  --tests t1 \
+  --label "baseline-after-cache-fix"
 
 bun run src/cli.ts server
 ```
 
+`--label` is optional and tags every (profile, test) execution in the
+invocation with the same `sessionId`, so the report server can show them
+as a single grouped run.
+
 ## Commands
 
-| Command                                    | Description                                               |
-| ------------------------------------------ | --------------------------------------------------------- |
-| `evals run --profiles <ids> --tests <ids>` | Cartesian profile × test runner.                          |
-| `evals server`                             | Local report-card server for `.runs` at `localhost:3005`. |
+| Command                                    | Description                                                     |
+| ------------------------------------------ | --------------------------------------------------------------- |
+| `evals run --profiles <ids> --tests <ids>` | Cartesian profile × test runner. `--label <text>` tags the run. |
+| `evals server`                             | Local report-card server for `.runs` at `localhost:3005`.       |
+
+The report server is organized as a hierarchy:
+
+- `/` – list of runs (sessions). One card per `evals run` invocation.
+- `/sessions/<id>` – per-profile score aggregates and the list of tests.
+- `/sessions/<id>/tests/<testId>` – per-profile summaries on that test.
+- `/sessions/<id>/tests/<testId>/profiles/<profileId>` – execution detail
+  with the metric card, transcript, container event log, and test-runner
+  progress log for that specific run.
 
 ## Layout
 

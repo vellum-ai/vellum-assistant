@@ -80,11 +80,12 @@ let cache: CachedIndex | null = null;
 /**
  * Return a `PageIndex` for `workspaceDir`. Cached module-locally; the cache
  * is invalidated by `invalidatePageIndex` (called by daemon-side hooks when
- * concept pages or skill entries change).
+ * concept pages, skill entries, or CLI-command entries change).
  *
  * Cold builds list every concept page in parallel, drop pages whose read
- * rejects, append seeded skill entries from `listSkillEntries()`, sort by
- * slug for deterministic IDs, then resolve outgoing edges to numeric IDs.
+ * rejects, append seeded skill entries from `listSkillEntries()` and CLI
+ * command entries from `listCliCommandEntries()`, sort by slug for
+ * deterministic IDs, then resolve outgoing edges to numeric IDs.
  */
 export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
   if (cache && cache.workspaceDir === workspaceDir) {
@@ -107,19 +108,28 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     outgoingSlugs: string[];
   }
 
-  const { listSkillEntries, SKILL_SLUG_PREFIX } =
-    await import("./skill-store.js");
+  const [
+    { listSkillEntries, SKILL_SLUG_PREFIX },
+    { listCliCommandEntries, CLI_COMMAND_SLUG_PREFIX },
+  ] = await Promise.all([
+    import("./skill-store.js"),
+    import("./cli-command-store.js"),
+  ]);
 
-  // Build the skill-slug set first so we can drop colliding concept pages.
-  // Collision policy: **skill entries win**. Skill rows are seeded from the
-  // curated catalog and the router needs them to be reachable under their
-  // canonical slugs; a hand-authored page sitting under `skills/<id>` is
-  // either a stale leftover from a prior write or a user mistake. `bySlug`
-  // is last-writer-wins, so without explicit dedupe one side would silently
-  // shadow the other depending on iteration order.
+  // Build the synthetic-slug sets first so we can drop colliding concept
+  // pages. Collision policy: **synthetic entries win**. Skill and CLI rows
+  // are seeded from authoritative in-process catalogs; a hand-authored page
+  // sitting under `skills/<id>` or `cli-commands/<name>` is either a stale
+  // leftover from a prior write or a user mistake. `bySlug` is last-writer-
+  // wins, so without explicit dedupe one side would silently shadow the
+  // other depending on iteration order.
   const skillEntries = listSkillEntries();
   const skillSlugs = new Set(
     skillEntries.map((entry) => `${SKILL_SLUG_PREFIX}${entry.id}`),
+  );
+  const cliCommandEntries = listCliCommandEntries();
+  const cliCommandSlugs = new Set(
+    cliCommandEntries.map((entry) => `${CLI_COMMAND_SLUG_PREFIX}${entry.id}`),
   );
 
   const drafts: DraftEntry[] = [];
@@ -142,6 +152,13 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       );
       continue;
     }
+    if (cliCommandSlugs.has(slug)) {
+      log.warn(
+        { slug },
+        "Dropping concept page from index — slug collides with a seeded CLI-command entry; CLI command wins",
+      );
+      continue;
+    }
     const summarySource = page.frontmatter.summary?.trim() || page.body.trim();
     drafts.push({
       slug,
@@ -154,6 +171,14 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     drafts.push({
       slug: `${SKILL_SLUG_PREFIX}${entry.id}`,
       summary: normalizeSummary(entry.content),
+      outgoingSlugs: [],
+    });
+  }
+
+  for (const entry of cliCommandEntries) {
+    drafts.push({
+      slug: `${CLI_COMMAND_SLUG_PREFIX}${entry.id}`,
+      summary: normalizeSummary(entry.description),
       outgoingSlugs: [],
     });
   }

@@ -21,6 +21,9 @@ coverage/
 /build
 dist
 
+# storybook
+storybook-static/
+
 # Generated from meta/feature-flags/feature-flag-registry.json
 assistant/src/config/feature-flag-registry.json
 gateway/src/feature-flag-registry.json
@@ -65,7 +68,13 @@ temp.sh
 context.md
 CLAUDE.md
 !assistant/CLAUDE.md
-.agents
+.agents/*
+!.agents/skills/
+
+# Shared claude-skills symlinks under .agents/skills/ are gitignored; only
+# repo-local skills are tracked. Mirrors the .claude/skills/ pattern above.
+.agents/skills/*
+!.agents/skills/testing-design-library-storybook/
 .codex
 .vellum
 

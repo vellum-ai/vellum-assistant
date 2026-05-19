@@ -28,6 +28,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Generate API clients
+        run: bun run openapi-ts
+
       - name: Lint
         run: bun run lint
 

@@ -20,7 +20,6 @@ const SCANNED_FILES = [
   "calls/call-controller.ts",
   "calls/guardian-action-sweep.ts",
   "runtime/routes/inbound-message-handler.ts",
-  "runtime/guardian-action-conversation-turn.ts",
   "daemon/conversation-process.ts",
 ];
 

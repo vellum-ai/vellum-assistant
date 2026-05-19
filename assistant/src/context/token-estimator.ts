@@ -33,18 +33,24 @@ const OTHER_BLOCK_TOKENS = 16;
 const SYSTEM_PROMPT_OVERHEAD_TOKENS = 8;
 const GEMINI_INLINE_FILE_MIME_TYPES = new Set(["application/pdf"]);
 
-// Anthropic scales images to fit within 1568x1568 maintaining aspect ratio,
-// then charges ~(width * height) / 750 tokens.
-const ANTHROPIC_IMAGE_MAX_DIMENSION = 1568;
-// Anthropic caps images at ~1.2 megapixels in addition to the 1568px dimension limit.
-// Images exceeding this are further scaled down. The docs state images above ~1,600 tokens
-// are resized. 1,200,000 / 750 = 1,600 tokens, matching the documented threshold.
-// Reference table (max sizes that won't be resized):
+// Dimension-based image token estimate, used as a universal default for every
+// provider. The formula and constants below come from Anthropic's published
+// vision spec — scale to a 1568x1568 bounding box, then charge
+// ~(width * height) / 750 tokens, with a ~1.2-megapixel cap that lands at
+// ~1,600 tokens per image. Reference table (max sizes that won't be resized):
 //   1:1 → 1092x1092 (~1,590 tokens)   1:2 → 784x1568 (~1,639 tokens)
 // See: https://platform.claude.com/docs/en/build-with-claude/vision#evaluate-image-size
-const ANTHROPIC_IMAGE_MAX_PIXELS = 1_200_000;
-const ANTHROPIC_IMAGE_TOKENS_PER_PIXEL = 1 / 750;
-const ANTHROPIC_IMAGE_MAX_TOKENS = 1_600;
+//
+// Other multimodal providers (OpenAI/GPT-4V tile pricing, Moonshot/Kimi,
+// Gemini fixed-cost, OpenRouter pass-through) price differently in detail,
+// but every published rate lands in the same hundreds-to-low-thousands range
+// per image. Using this formula as the default gets compaction within ~2-3x
+// of reality instead of the ~30-100x over-counting produced by treating the
+// raw base64 payload as if it were text.
+const IMAGE_MAX_DIMENSION = 1568;
+const IMAGE_MAX_PIXELS = 1_200_000;
+const IMAGE_TOKENS_PER_PIXEL = 1 / 750;
+const IMAGE_MAX_TOKENS = 1_600;
 
 // Anthropic renders each PDF page as an image (~1,568 tokens at standard
 // resolution) plus any extracted text. Typical PDF pages are 50-150 KB.
@@ -103,45 +109,37 @@ function estimateFileDataTokens(
   return 0;
 }
 
-function estimateAnthropicImageTokens(width: number, height: number): number {
+function estimateImageTokensByDimensions(
+  width: number,
+  height: number,
+): number {
   // Step 1: Scale to fit within 1568px bounding box
-  const dimScale = Math.min(
-    1,
-    ANTHROPIC_IMAGE_MAX_DIMENSION / Math.max(width, height),
-  );
+  const dimScale = Math.min(1, IMAGE_MAX_DIMENSION / Math.max(width, height));
   let scaledWidth = Math.round(width * dimScale);
   let scaledHeight = Math.round(height * dimScale);
 
   // Step 2: Scale further if exceeds megapixel budget
   const pixels = scaledWidth * scaledHeight;
-  if (pixels > ANTHROPIC_IMAGE_MAX_PIXELS) {
-    const mpScale = Math.sqrt(ANTHROPIC_IMAGE_MAX_PIXELS / pixels);
+  if (pixels > IMAGE_MAX_PIXELS) {
+    const mpScale = Math.sqrt(IMAGE_MAX_PIXELS / pixels);
     scaledWidth = Math.round(scaledWidth * mpScale);
     scaledHeight = Math.round(scaledHeight * mpScale);
   }
 
-  return Math.ceil(
-    scaledWidth * scaledHeight * ANTHROPIC_IMAGE_TOKENS_PER_PIXEL,
-  );
+  return Math.ceil(scaledWidth * scaledHeight * IMAGE_TOKENS_PER_PIXEL);
 }
 
 function estimateImageTokens(
   block: Extract<ContentBlock, { type: "image" }>,
-  options?: TokenEstimatorOptions,
 ): number {
-  if (options?.providerName === "anthropic") {
-    const dims = parseImageDimensions(
-      block.source.data,
-      block.source.media_type,
-    );
-    if (dims) {
-      return estimateAnthropicImageTokens(dims.width, dims.height);
-    }
-    // Fallback: if dimensions can't be parsed, use Anthropic's max
-    return ANTHROPIC_IMAGE_MAX_TOKENS;
+  const dims = parseImageDimensions(block.source.data, block.source.media_type);
+  if (dims) {
+    return estimateImageTokensByDimensions(dims.width, dims.height);
   }
-  // Non-Anthropic: keep existing base64-size heuristic
-  return estimateTextTokens(block.source.data);
+  // Dimensions unparseable (corrupt header, exotic format): use the per-image
+  // cap rather than the raw base64 length, which over-counts by 30-100x for
+  // non-Anthropic providers and trips spurious compaction.
+  return IMAGE_MAX_TOKENS;
 }
 
 export function estimateContentBlockTokens(
@@ -188,7 +186,7 @@ export function estimateContentBlockTokens(
       return (
         IMAGE_BLOCK_OVERHEAD_TOKENS +
         estimateTextTokens(block.source.media_type) +
-        estimateImageTokens(block, options)
+        estimateImageTokens(block)
       );
     case "file":
       return (

@@ -65,7 +65,6 @@ import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
   GuardianActionCopyGenerator,
-  GuardianFollowUpConversationGenerator,
   MessageProcessor,
 } from "../../runtime/http-types.js";
 import {
@@ -113,7 +112,6 @@ export async function handleChannelInbound(
   _approvalCopyGenerator?: ApprovalCopyGenerator,
   _approvalConversationGenerator?: ApprovalConversationGenerator,
   _guardianActionCopyGenerator?: GuardianActionCopyGenerator,
-  _guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator,
 ): Promise<Response> {
   const body = await req.json();
   return wrapHandler(() => _handleChannelInbound({ body }));

@@ -1,6 +1,7 @@
 import type { AgentEvent, AgentMessage } from "../adapter";
 import {
   appendAssistantEvents,
+  appendProgressEvent,
   appendSimulatorMessage,
   appendTranscriptTurn,
   ensureRunArtifacts,
@@ -15,11 +16,14 @@ import type { Profile } from "../profile";
 import type { TestDef } from "../test-def";
 import type { TranscriptTurn } from "../transcript";
 import { summarizeAssistantUsage } from "../usage";
-import { UserSimulator } from "../simulator/user-simulator";
+import {
+  SimulatorParseError,
+  UserSimulator,
+} from "../simulator/user-simulator";
 import type { Simulator } from "../simulator/types";
 import { createAgent } from "./create-agent";
 import { AgentEventCollector } from "./event-collector";
-import type { EvalProgressReporter } from "./progress";
+import type { EvalProgressReporter, EvalProgressStep } from "./progress";
 
 export const EVENT_QUIET_MS = 5_000;
 export const EVENT_MAX_MS = 30_000;
@@ -28,6 +32,10 @@ export interface EvalRunInput {
   profile: Profile;
   test: TestDef;
   runId: string;
+  /** Logical session this execution belongs to. Defaults to the runId itself. */
+  sessionId?: string;
+  /** Human-readable label propagated from the originating `evals run`. */
+  sessionLabel?: string;
   simulator?: Simulator;
   maxTurns?: number;
   progress?: EvalProgressReporter;
@@ -91,20 +99,36 @@ async function sendAndPersistSimulatorMessage(input: {
 }
 
 export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
+  const sessionId = input.sessionId ?? input.runId;
+  const sessionLabel = input.sessionLabel;
   // Wrap the caller's reporter so a buggy reporter (stream write error,
   // throwing custom reporter, etc.) can never interrupt the run — most
   // importantly, it cannot prevent `agent.shutdown()` in the `finally`
   // block from running and leaking a hatched container.
+  // Also tee every event to disk so the report server can render the
+  // test-runner side of the timeline alongside the container event stream.
   const userProgress = input.progress;
-  const progress: EvalProgressReporter = userProgress
-    ? (event) => {
-        try {
-          userProgress(event);
-        } catch {
-          // Progress reporting is best-effort; swallow.
-        }
+  let currentStep: EvalProgressStep | undefined;
+  let currentTurn: number | undefined;
+  const progress: EvalProgressReporter = (event) => {
+    if (event.status === "start") {
+      currentStep = event.step;
+      currentTurn = event.turn;
+    }
+    if (userProgress) {
+      try {
+        userProgress(event);
+      } catch {
+        // Progress reporting is best-effort; swallow.
       }
-    : () => undefined;
+    }
+    // Persistence is best-effort; never break a run because the log file
+    // could not be appended to.
+    void appendProgressEvent(input.runId, {
+      ...event,
+      emittedAt: new Date().toISOString(),
+    }).catch(() => undefined);
+  };
   const agent = createAgent({
     profile: input.profile,
     testId: input.test.id,
@@ -129,6 +153,8 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
   const startedAt = new Date().toISOString();
   await writeRunMetadata(input.runId, {
     runId: input.runId,
+    sessionId,
+    sessionLabel,
     profileId: input.profile.id,
     testId: input.test.id,
     status: "running",
@@ -266,6 +292,8 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
     await writeMetricResults(input.runId, metrics);
     await writeRunMetadata(input.runId, {
       runId: input.runId,
+      sessionId,
+      sessionLabel,
       profileId: input.profile.id,
       testId: input.test.id,
       status: "completed",
@@ -284,6 +312,8 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
   } catch (err) {
     await writeRunMetadata(input.runId, {
       runId: input.runId,
+      sessionId,
+      sessionLabel,
       profileId: input.profile.id,
       testId: input.test.id,
       status: "failed",
@@ -292,6 +322,29 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       error: err instanceof Error ? err.message : String(err),
       artifactDir: artifacts.runDir,
     });
+    // Surface the failure through the progress reporter so operators see a
+    // red `✗ <headline>` line under the step that was in flight, with the
+    // structured details (stop_reason / parts / body for simulator parse
+    // errors; raw err.message for everything else) nested beneath it.
+    // Falls back to the simulator step when nothing has started yet — the
+    // for-loop simulator turn is by far the most common throw site.
+    const failedStep: EvalProgressStep = currentStep ?? "simulator";
+    if (err instanceof SimulatorParseError) {
+      progress({
+        step: failedStep,
+        status: "error",
+        message: err.headline,
+        details: err.details,
+        turn: currentTurn,
+      });
+    } else {
+      progress({
+        step: failedStep,
+        status: "error",
+        message: err instanceof Error ? err.message : String(err),
+        turn: currentTurn,
+      });
+    }
     throw err;
   } finally {
     progress({

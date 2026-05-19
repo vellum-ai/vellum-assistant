@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Assembles the redesigned Home page: a centered editorial column with
-/// three blocks — a greeting header (avatar + title + "New Chat" CTA), an
+/// three blocks — a greeting header (avatar + "New Chat" CTA), an
 /// optional dismissible "have you tried…" suggestion bar, and a
 /// time-grouped feed of recap rows (Today / Yesterday / Older).
 ///
@@ -65,11 +65,9 @@ struct HomePageView: View {
                 MeetStatusPanel(viewModel: meetStatusViewModel)
 
                 HomeGreetingHeader(
-                    greeting: "Here's what's been going on",
-                    onStartNewChat: onStartNewChat
+                    onStartNewChat: onStartNewChat,
+                    name: store.state?.assistantName
                 ) {
-                    // Inline avatar rendering so this view owns its own
-                    // avatar resolution without depending on other views.
                     greetingAvatar
                 }
                 .padding(.top, VSpacing.xxl)
@@ -151,12 +149,12 @@ struct HomePageView: View {
     // MARK: - Greeting avatar
 
     /// Inline avatar rendering so this view doesn't depend on another
-    /// view's internals. 40pt sizing matches the Figma spec for the new
-    /// greeting row.
+    /// view's internals. 56pt sizing gives the greeting row visual weight
+    /// alongside the display-name heading.
     @ViewBuilder
     private var greetingAvatar: some View {
         let appearance = AvatarAppearanceManager.shared
-        let avatarSize: CGFloat = 40
+        let avatarSize: CGFloat = 56
         if appearance.customAvatarImage != nil {
             VAvatarImage(
                 image: appearance.fullAvatarImage,
@@ -258,12 +256,17 @@ struct HomePageView: View {
     /// items live in the inbox, not the activity section.
     @ViewBuilder
     private func recapRow(for item: FeedItem, showsUrgency: Bool) -> some View {
+        // Fall back to `summary` when `title` is nil — the daemon omits
+        // the title when no source title was supplied.
         HomeRecapRow(
             icon: icon(for: item),
             iconForeground: iconForeground(for: item),
             iconBackground: iconBackground(for: item),
-            title: item.title,
+            title: item.title ?? item.summary,
+            timestamp: item.timestamp,
+            status: item.status,
             isUrgent: showsUrgency && isUrgent(item),
+            showsPersonaAvatar: item.fromAssistant == true,
             onDismiss: { dismissItem(item) },
             onTap: { openItem(item) }
         )
@@ -329,16 +332,14 @@ struct HomePageView: View {
     // MARK: - Skeleton
 
     /// Skeleton silhouette that mirrors the new three-block layout:
-    /// a greeting row (avatar + title bone), the "have you tried…"
+    /// a greeting row (avatar + New Chat CTA), the "have you tried…"
     /// suggestion bar (rounded 16pt pill bar, ~60pt tall), and a single
     /// "Today" group header with three 48pt recap bones. Designed so the
     /// first paint doesn't shift when real data lands.
     private var skeleton: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
-            // Greeting row: avatar + title bone + New Chat CTA bone
             HStack(spacing: VSpacing.md) {
                 VSkeletonBone(width: 40, height: 40, radius: 20)
-                VSkeletonBone(width: 280, height: 28)
                 Spacer()
                 VSkeletonBone(width: 96, height: 32, radius: VRadius.md)
             }

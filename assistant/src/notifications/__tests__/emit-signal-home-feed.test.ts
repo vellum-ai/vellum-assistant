@@ -144,6 +144,7 @@ describe("emitNotificationSignal home-feed wire-up", () => {
       sourceEventName: "schedule.notify",
       sourceChannel: "scheduler",
       sourceContextId: "conv-source-1",
+      contextPayload: { title: "Background job done" },
       attentionHints: {
         requiresAction: false,
         urgency: "medium",

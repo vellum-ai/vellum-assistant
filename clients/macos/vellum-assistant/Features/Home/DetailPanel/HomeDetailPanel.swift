@@ -43,6 +43,11 @@ struct HomeDetailPanel<Content: View>: View {
     /// attachments footer to the bottom and wants the body text field to
     /// expand into the empty space above it.
     var scrollable: Bool = true
+    /// When `true`, render the 32pt persona avatar in the header's leading
+    /// slot instead of the category icon chip. Used for assistant-initiated
+    /// feed rows (`FeedItem.fromAssistant == true`) so the detail header
+    /// matches its list-row counterpart.
+    var showsPersonaAvatar: Bool = false
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -83,7 +88,11 @@ struct HomeDetailPanel<Content: View>: View {
     private var header: some View {
         HStack(spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
-                if let icon {
+                if showsPersonaAvatar {
+                    personaAvatar
+                        .frame(width: 32, height: 32)
+                        .accessibilityHidden(true)
+                } else if let icon {
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .fill(iconBackground ?? VColor.surfaceBase)
                         .frame(width: 32, height: 32)
@@ -132,5 +141,39 @@ struct HomeDetailPanel<Content: View>: View {
             bottom: VSpacing.md,
             trailing: VSpacing.lg
         ))
+    }
+
+    /// 32pt persona avatar rendered into the header's leading slot for
+    /// assistant-initiated rows. Mirrors `HomeRecapRow.personaAvatar` at a
+    /// larger size; a follow-up extraction can dedupe this with
+    /// `HomePageView.greetingAvatar` and `HomeRecapRow.personaAvatar`.
+    @ViewBuilder
+    private var personaAvatar: some View {
+        let appearance = AvatarAppearanceManager.shared
+        let size: CGFloat = 32
+        if appearance.customAvatarImage != nil {
+            VAvatarImage(
+                image: appearance.fullAvatarImage,
+                size: size,
+                showBorder: false
+            )
+        } else if let bodyShape = appearance.characterBodyShape,
+                  let eyes = appearance.characterEyeStyle,
+                  let color = appearance.characterColor {
+            AnimatedAvatarView(
+                bodyShape: bodyShape,
+                eyeStyle: eyes,
+                color: color,
+                size: size,
+                entryAnimationEnabled: false
+            )
+            .frame(width: size, height: size)
+        } else {
+            VAvatarImage(
+                image: appearance.fullAvatarImage,
+                size: size,
+                showBorder: false
+            )
+        }
     }
 }

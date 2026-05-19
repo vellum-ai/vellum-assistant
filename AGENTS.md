@@ -193,7 +193,7 @@ Feature flags use simple kebab-case keys (e.g., `browser`, `ces-tools`). Declare
 
 All LLM calls must go through the provider abstraction — use `getConfiguredProvider(callSite)` from `providers/provider-send-message.ts`. The `callSite: LLMCallSite` argument is required so the resolver can pick the right per-call-site config. Never import `@anthropic-ai/sdk` directly (only `providers/anthropic/client.ts` may). Guard test: `no-direct-anthropic-sdk-imports.test.ts`.
 
-Each LLM call site has a stable identifier (`LLMCallSite` from `assistant/src/config/schemas/llm.ts`). Pick the appropriate call-site ID for the request — the provider layer resolves provider/model/maxTokens/effort/thinking/contextWindow/etc. via `resolveCallSiteConfig` (in `assistant/src/config/llm-resolver.ts`). Non-main-agent call sites deep-merge five layers from highest to lowest precedence: (1) `llm.callSites.<id>` (call-site override), (2) `llm.profiles.<site.profile>` (the call-site's named profile, if any), (3) `llm.profiles.<overrideProfile>` (per-call ad-hoc override passed to the resolver), (4) `llm.profiles.<activeProfile>` (workspace-wide active profile), (5) `llm.default` (required base). `mainAgent` is the exception: the active profile and per-conversation override profile are the user's chat-model selection and therefore override static `llm.callSites.mainAgent` defaults. A missing `site.profile` reference throws because it is statically referenced from config and validated by schema; missing `overrideProfile`/`activeProfile` references silently fall through because `overrideProfile` is a runtime parameter that cannot be schema-validated and `activeProfile` must degrade gracefully if pointed at a deleted profile mid-edit. Use provider-agnostic language in comments and logs ('LLM' not 'Haiku'/'Sonnet'). Route text generation through the daemon process — direct provider calls discard user context and preferences.
+Each LLM call site has a stable identifier (`LLMCallSite` from `assistant/src/config/schemas/llm.ts`). Pick the appropriate call-site ID for the request — the provider layer resolves provider/model/maxTokens/effort/thinking/contextWindow/etc. via `resolveCallSiteConfig` (in `assistant/src/config/llm-resolver.ts`). Non-main-agent call sites deep-merge five layers from highest to lowest precedence: (1) `llm.callSites.<id>` (call-site override), (2) `llm.profiles.<site.profile>` (the call-site's named profile, if any), (3) `llm.profiles.<overrideProfile>` (per-call ad-hoc override passed to the resolver), (4) `llm.profiles.<activeProfile>` (workspace-wide active profile), (5) `llm.default` (required base). `mainAgent` is the exception: the active profile and per-conversation override profile are the user's chat-model selection and therefore override static `llm.callSites.mainAgent` defaults. When `llm.callSites.<id>` is absent, the resolver falls back to shipped defaults from `assistant/src/config/call-site-defaults.ts`, which assign each call site to a profile (`balanced` or `cost-optimized`) with optional per-site tuning overrides. The shipped default's `profile` reference is silently stripped when the target profile isn't defined in `llm.profiles` (backward compat for BYOK setups) or when `overrideProfile` is provided (per-call overrides must win). A missing `site.profile` reference in user config throws because it is statically referenced and validated by schema; missing `overrideProfile`/`activeProfile` references silently fall through because `overrideProfile` is a runtime parameter that cannot be schema-validated and `activeProfile` must degrade gracefully if pointed at a deleted profile mid-edit. Use provider-agnostic language in comments and logs ('LLM' not 'Haiku'/'Sonnet'). Route text generation through the daemon process — direct provider calls discard user context and preferences.
 
 ## Skill Isolation
 
@@ -311,13 +311,21 @@ The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment
 | `staging` | QA against staging platform before production rollout. Default for release branch builds. |
 | `production` | Full production behavior, no developer shortcuts. Set explicitly for final production releases. |
 
-**Defaults**: `build.sh` sets the value automatically when `VELLUM_ENVIRONMENT` is unset:
-- `test` command => `test`
-- `release` / `release-application` => `staging` for `*-staging*` display versions, otherwise `production`
-- `run` command => `local` (for local full-stack development, e.g. `vel up`)
-- all other local build commands (plain `build`, etc.) => `dev`
+**Defaults**: Each `build.sh` sets the value automatically when `VELLUM_ENVIRONMENT` is unset. The staging-detection logic differs by client:
 
-CI and developers can always override by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence.
+**macOS** (`clients/macos/build.sh`):
+- `test` => `test`
+- `release` / `release-application` => `staging` when `DISPLAY_VERSION` contains `-staging` (e.g. `0.6.0-staging.3`), otherwise `production`
+- `run` with localhost platform/web URL overrides => `local` (this is the `vel up` path)
+- `run` (without URL overrides) => `dev`
+- all other commands => `dev`
+
+**Chrome extension** (`clients/chrome-extension/build.sh`):
+- `release` => `production` (no in-script staging detection; CI workflows set `VELLUM_ENVIRONMENT` explicitly)
+- `run` => `local`
+- all other commands => `dev`
+
+CI and developers can always override by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence. All CI release workflows set the variable explicitly, so the in-script defaults only affect local development.
 
 **Reading the value at runtime** (Swift):
 ```swift
@@ -328,6 +336,7 @@ let env = ProcessInfo.processInfo.environment["VELLUM_ENVIRONMENT"] ?? "producti
 - Use `VELLUM_ENVIRONMENT` for behavior that varies by deployment target (e.g. local image builds, telemetry sampling, API base URLs).
 - Do **not** use it as a substitute for feature flags — flags gate features per-user/org, environments gate per-deployment.
 - Do **not** check for `DEBUG` / `RELEASE` compiler flags (`#if DEBUG`) when the distinction is really about deployment environment. A debug build pointed at staging is still `staging`, not `local`.
+- Client `build.sh` scripts must be **self-contained** — install their own dependencies (e.g. `bun install --frozen-lockfile`) before building. Do not rely on `setup.sh`, `vel up`, or CI workflows to pre-install client dependencies. This ensures the build works regardless of invocation path.
 
 ## Sentry & Linear Integration
 

@@ -7961,6 +7961,8 @@ paths:
                             - system
                         noteworthy:
                           type: boolean
+                        fromAssistant:
+                          type: boolean
                         metadata:
                           type: object
                           propertyNames:
@@ -7972,7 +7974,6 @@ paths:
                         - id
                         - type
                         - priority
-                        - title
                         - summary
                         - timestamp
                         - status
@@ -8125,6 +8126,8 @@ paths:
                       - system
                   noteworthy:
                     type: boolean
+                  fromAssistant:
+                    type: boolean
                   metadata:
                     type: object
                     propertyNames:
@@ -8136,7 +8139,6 @@ paths:
                   - id
                   - type
                   - priority
-                  - title
                   - summary
                   - timestamp
                   - status

@@ -1,5 +1,2 @@
-# OpenAPI spec — fetched at codegen time, not committed.
-openapi-schemas/
-
 # HeyAPI generated output — regenerate locally via `bun run openapi-ts`
 src/generated/

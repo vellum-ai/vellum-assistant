@@ -35,3 +35,21 @@ extension String {
         return try? Date.ISO8601FormatStyle().parse(self)
     }
 }
+
+// MARK: - Relative time
+
+extension Date {
+
+    /// Compact relative-time string for inline metadata ("just now", "2h ago").
+    ///
+    /// `RelativeDateTimeFormatter` rounds anything under a minute to "0 sec.
+    /// ago" / "in 0 sec." which reads as a glitch in a feed; collapse that
+    /// window to "just now". `now` is injected so tests can pin a reference.
+    public func relativeShortString(now: Date = Date()) -> String {
+        let delta = abs(now.timeIntervalSince(self))
+        if delta < 60 { return "just now" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: self, relativeTo: now)
+    }
+}

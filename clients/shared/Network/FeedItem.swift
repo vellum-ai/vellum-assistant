@@ -115,7 +115,11 @@ public struct FeedItem: Codable, Sendable, Identifiable {
     public let type: FeedItemType
     /// Integer in [0, 100]; higher values sort earlier.
     public let priority: Int
-    public let title: String
+    /// Optional short header. The daemon omits this when the source did
+    /// not supply one (e.g. `notifications send` without `--title`) — the
+    /// notification pipeline never manufactures a title from rendered
+    /// copy. Renderers fall back to `summary` when nil.
+    public let title: String?
     public let summary: String
     /// Event time.
     public let timestamp: Date
@@ -133,6 +137,8 @@ public struct FeedItem: Codable, Sendable, Identifiable {
     public let category: FeedItemCategory?
     /// True when this item represents an assistant-initiated share or a high-importance system event. Used by clients to split inbox vs activity surfaces.
     public let noteworthy: Bool?
+    /// True when the assistant herself emitted this item (e.g. via the `notifications send` skill). Drives clients to swap the row's leading icon for the persona avatar; system-generated items keep the category icon.
+    public let fromAssistant: Bool?
     /// Arbitrary structured data the detail panel or other consumers can use.
     public let metadata: [String: AnyCodable]?
     /// Internal: writer-record time, used for ordering + TTL.
@@ -142,7 +148,7 @@ public struct FeedItem: Codable, Sendable, Identifiable {
         id: String,
         type: FeedItemType,
         priority: Int,
-        title: String,
+        title: String? = nil,
         summary: String,
         timestamp: Date,
         status: FeedItemStatus,
@@ -153,6 +159,7 @@ public struct FeedItem: Codable, Sendable, Identifiable {
         detailPanel: FeedItemDetailPanel? = nil,
         category: FeedItemCategory? = nil,
         noteworthy: Bool? = nil,
+        fromAssistant: Bool? = nil,
         metadata: [String: AnyCodable]? = nil,
         createdAt: Date
     ) {
@@ -170,6 +177,7 @@ public struct FeedItem: Codable, Sendable, Identifiable {
         self.detailPanel = detailPanel
         self.category = category
         self.noteworthy = noteworthy
+        self.fromAssistant = fromAssistant
         self.metadata = metadata
         self.createdAt = createdAt
     }
@@ -191,6 +199,7 @@ extension FeedItem: Equatable {
             && lhs.detailPanel == rhs.detailPanel
             && lhs.category == rhs.category
             && lhs.noteworthy == rhs.noteworthy
+            && lhs.fromAssistant == rhs.fromAssistant
             && lhs.metadata == rhs.metadata
             && lhs.createdAt == rhs.createdAt
     }

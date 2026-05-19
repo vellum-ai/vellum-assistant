@@ -2,6 +2,7 @@
  * Tests for `assistant/src/memory/v2/frontmatter-sweep.ts`.
  *
  * Coverage:
+ *   - v2 disabled → returns early, no warns, no throw.
  *   - Empty workspace → no warns, no throw.
  *   - One bad page (unknown frontmatter key) → exactly one warn carrying
  *     `errCode: "unrecognized_keys"` and the offending slug.
@@ -12,6 +13,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type { AssistantConfig } from "../../../config/schema.js";
 
 const warnCalls: Array<{ data: Record<string, unknown>; msg: string }> = [];
 const recordingLogger = {
@@ -31,6 +34,17 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 const { sweepConceptPageFrontmatter } = await import("../frontmatter-sweep.js");
+
+/** Minimal config shape the sweep touches; cast to AssistantConfig at the boundary. */
+function makeConfig(v2Enabled: boolean): AssistantConfig {
+  return {
+    memory: {
+      v2: { enabled: v2Enabled },
+    },
+  } as unknown as AssistantConfig;
+}
+
+const v2On = makeConfig(true);
 
 function makeWorkspace(pages: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), "frontmatter-sweep-"));
@@ -55,10 +69,17 @@ describe("sweepConceptPageFrontmatter", () => {
     warnCalls.length = 0;
   });
 
+  test("does nothing when memory.v2.enabled is false", async () => {
+    // Pass a non-existent dir to prove the gate short-circuits BEFORE any I/O:
+    // if the body ran, listPages would surface a warn for the unreadable path.
+    await sweepConceptPageFrontmatter(makeConfig(false), "/nonexistent/path");
+    expect(warnCalls).toHaveLength(0);
+  });
+
   test("empty workspace: no warns, no throw", async () => {
     const dir = makeWorkspace({});
     try {
-      await sweepConceptPageFrontmatter(dir);
+      await sweepConceptPageFrontmatter(v2On, dir);
       expect(warnCalls).toHaveLength(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -68,7 +89,7 @@ describe("sweepConceptPageFrontmatter", () => {
   test("one bad page emits exactly one unrecognized_keys warn", async () => {
     const dir = makeWorkspace({ "bad-one": badPage });
     try {
-      await sweepConceptPageFrontmatter(dir);
+      await sweepConceptPageFrontmatter(v2On, dir);
       expect(warnCalls).toHaveLength(1);
       expect(warnCalls[0].data.slug).toBe("bad-one");
       expect(warnCalls[0].data.errCode).toBe("unrecognized_keys");
@@ -85,7 +106,7 @@ describe("sweepConceptPageFrontmatter", () => {
       "bad-b": badPage,
     });
     try {
-      await sweepConceptPageFrontmatter(dir);
+      await sweepConceptPageFrontmatter(v2On, dir);
       const slugs = warnCalls.map((c) => c.data.slug).sort();
       expect(slugs).toEqual(["bad-a", "bad-b"]);
       for (const call of warnCalls) {
@@ -101,7 +122,7 @@ describe("sweepConceptPageFrontmatter", () => {
       mangled: `---\nedges: [unterminated\n---\nbody\n`,
     });
     try {
-      await sweepConceptPageFrontmatter(dir);
+      await sweepConceptPageFrontmatter(v2On, dir);
       expect(warnCalls.length).toBeGreaterThanOrEqual(1);
       expect(warnCalls.some((c) => c.data.slug === "mangled")).toBe(true);
     } finally {

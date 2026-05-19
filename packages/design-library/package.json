@@ -4,12 +4,17 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "files": ["src/"],
   "exports": {
     ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens.css",
     "./components/*": "./src/components/*.tsx",
-    "./utils/*": "./src/utils/*.ts"
+    "./utils/*": "./src/utils/*.ts",
+    "./utils/portal-container": "./src/utils/portal-container.tsx"
   },
   "scripts": {
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build",
     "typecheck": "bunx tsc --noEmit"
   },
   "peerDependencies": {
@@ -18,16 +23,32 @@
     "tailwindcss": ">=4.0.0"
   },
   "devDependencies": {
+    "@storybook/addon-a11y": "10.4.0",
+    "@storybook/addon-docs": "10.4.0",
+    "@storybook/react-vite": "10.4.0",
+    "@tailwindcss/vite": "4.3.0",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "typescript": "5.9.3"
+    "storybook": "10.4.0",
+    "typescript": "5.9.3",
+    "vite": "8.0.11"
   },
   "dependencies": {
+    "@radix-ui/react-checkbox": "1.3.3",
+    "@radix-ui/react-context-menu": "2.2.16",
+    "@radix-ui/react-dialog": "1.1.15",
+    "@radix-ui/react-dropdown-menu": "2.1.16",
+    "@radix-ui/react-popover": "1.1.15",
+    "@radix-ui/react-radio-group": "1.3.8",
+    "@radix-ui/react-slider": "1.3.6",
     "@radix-ui/react-slot": "1.2.4",
+    "@radix-ui/react-tabs": "1.1.13",
+    "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "lucide-react": "1.16.0",
+    "sonner": "2.0.7",
     "tailwind-merge": "3.6.0"
   }
 }

@@ -162,6 +162,38 @@ mock.module("../skill-store.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// CLI-command-store mock
+// ---------------------------------------------------------------------------
+//
+// Mirrors the skill-store mock. CLI subcommand synthetic entries flow through
+// the unified pipeline under the `cli-commands/<name>` slug prefix and render
+// under `### CLI Commands You Can Use`. Tests stage `cliCommandState.entries`
+// and rely on `stageTurn` plumbing to land slugs in the candidate set.
+
+interface CliCommandEntryStub {
+  id: string;
+  description: string;
+  content: string;
+}
+
+const cliCommandState = {
+  entries: new Map<string, CliCommandEntryStub>(),
+};
+
+mock.module("../cli-command-store.js", () => ({
+  getCliCommandCapability: (idOrSlug: string) => {
+    const id = idOrSlug.startsWith("cli-commands/")
+      ? idOrSlug.slice("cli-commands/".length)
+      : idOrSlug;
+    return cliCommandState.entries.get(id) ?? null;
+  },
+  isCliCommandSlug: (slug: string) => slug.startsWith("cli-commands/"),
+  CLI_COMMAND_SLUG_PREFIX: "cli-commands/",
+  cliCommandSlugFor: (name: string) => `cli-commands/${name}`,
+  listCliCommandEntries: () => Array.from(cliCommandState.entries.values()),
+}));
+
+// ---------------------------------------------------------------------------
 // Activation-log store mock
 // ---------------------------------------------------------------------------
 //
@@ -484,6 +516,7 @@ function resetState(): void {
   state.queryResponses.dense.length = 0;
   state.queryResponses.sparse.length = 0;
   skillState.entries.clear();
+  cliCommandState.entries.clear();
   telemetryState.recordCalls.length = 0;
   telemetryState.recordShouldThrow = false;
   pageStoreState.failingSlugs.clear();
@@ -500,6 +533,13 @@ function resetState(): void {
 function stageSkills(entries: SkillEntry[]): void {
   for (const entry of entries) {
     skillState.entries.set(entry.id, entry);
+  }
+}
+
+/** Stage cli-command-store cache entries for the upcoming render. */
+function stageCliCommands(entries: CliCommandEntryStub[]): void {
+  for (const entry of entries) {
+    cliCommandState.entries.set(entry.id, entry);
   }
 }
 
@@ -1058,6 +1098,153 @@ describe("injectMemoryV2Block", () => {
 
     expect(result.toInject).toEqual([]);
     expect(result.block).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // CLI-command synthetic entries — same unified-pool plumbing as skills.
+  // ---------------------------------------------------------------------------
+
+  test("renders a retrieved cli-commands/<name> slug under CLI Commands You Can Use", async () => {
+    stageTurn([{ slug: "cli-commands/attachment", denseScore: 0.9 }]);
+    stageCliCommands([
+      {
+        id: "attachment",
+        description: "Manage file attachments for conversations",
+        content: 'The "assistant attachment" CLI command is available...',
+      },
+    ]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "How do I register a video?",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.toInject).toEqual(["cli-commands/attachment"]);
+    expect(result.block).not.toBeNull();
+    const headerIdx = result.block!.indexOf("### CLI Commands You Can Use");
+    const lineIdx = result.block!.indexOf(
+      "- `assistant attachment`: Manage file attachments for conversations",
+    );
+    expect(headerIdx).toBeGreaterThan(-1);
+    expect(lineIdx).toBeGreaterThan(headerIdx);
+  });
+
+  test("renders concepts, skills, then cli-commands in that order in mixed blocks", async () => {
+    stageTurn([
+      { slug: "alice-vscode", denseScore: 0.95 },
+      { slug: "skills/example-skill-a", denseScore: 0.85 },
+      { slug: "cli-commands/config", denseScore: 0.75 },
+    ]);
+    stageSkills([
+      {
+        id: "example-skill-a",
+        content:
+          'The "Example Skill A" skill (example-skill-a) is available. Helps with examples.',
+      },
+    ]);
+    stageCliCommands([
+      {
+        id: "config",
+        description: "Manage configuration",
+        content: 'The "assistant config" CLI command is available...',
+      },
+    ]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Help me",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(new Set(result.toInject)).toEqual(
+      new Set([
+        "alice-vscode",
+        "skills/example-skill-a",
+        "cli-commands/config",
+      ]),
+    );
+    const conceptIdx = result.block!.indexOf(
+      "# memory/concepts/alice-vscode.md",
+    );
+    const skillsIdx = result.block!.indexOf("### Skills You Can Use");
+    const cliIdx = result.block!.indexOf("### CLI Commands You Can Use");
+    expect(conceptIdx).toBeGreaterThan(-1);
+    expect(skillsIdx).toBeGreaterThan(conceptIdx);
+    expect(cliIdx).toBeGreaterThan(skillsIdx);
+  });
+
+  test("cli-command slugs whose entry is missing from the cache are dropped silently", async () => {
+    stageTurn([{ slug: "cli-commands/missing-command", denseScore: 0.9 }]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "anything",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.toInject).toEqual([]);
+    expect(result.block).toBeNull();
+
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.everInjected).toEqual([]);
+  });
+
+  test("cli-commands participate in everInjected so they dedupe across turns", async () => {
+    const entry = {
+      id: "config",
+      description: "Manage configuration",
+      content: 'The "assistant config" CLI command is available...',
+    };
+    stageTurn([{ slug: "cli-commands/config", denseScore: 0.9 }]);
+    stageCliCommands([entry]);
+    const result1 = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "config",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+    expect(result1.toInject).toEqual(["cli-commands/config"]);
+    expect(result1.block).toContain("### CLI Commands You Can Use");
+
+    stageTurn([{ slug: "cli-commands/config", denseScore: 0.9 }]);
+    stageCliCommands([entry]);
+    const result2 = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 2,
+      userMessage: "more config",
+      assistantMessage: "ok",
+      nowText: "Now",
+      messageId: "msg-2",
+      config: makeConfig(),
+    });
+    expect(result2.toInject).toEqual([]);
+    expect(result2.block).toBeNull();
+
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.everInjected).toEqual([
+      { slug: "cli-commands/config", turn: 1 },
+    ]);
   });
 
   test("context-load mode renders topNow even when every slug was previously injected", async () => {

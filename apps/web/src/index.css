@@ -1,2 +1,3 @@
 @import "tailwindcss";
+@import "@vellum/design-library/tokens.css";
 @source "../node_modules/@vellum/design-library/src/**/*.tsx";

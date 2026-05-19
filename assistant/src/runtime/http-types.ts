@@ -14,10 +14,6 @@ import type {
 export type { SlackInboundMessageMetadata };
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { AssistantEventHub } from "./assistant-event-hub.js";
-import type {
-  ApprovalCopyGenerator,
-  GuardianActionCopyGenerator,
-} from "./message-composer-types.js";
 
 export type {
   ApprovalCopyGenerator,
@@ -60,41 +56,6 @@ export interface ApprovalConversationContext {
 export type ApprovalConversationGenerator = (
   context: ApprovalConversationContext,
 ) => Promise<ApprovalConversationResult>;
-
-// ---------------------------------------------------------------------------
-// Guardian follow-up conversation flow types
-// ---------------------------------------------------------------------------
-
-/** The disposition returned by the guardian follow-up conversation engine. */
-export type GuardianFollowUpDisposition =
-  | "call_back"
-  | "decline"
-  | "keep_pending";
-
-/** Structured result from a single turn of the guardian follow-up conversation. */
-export interface GuardianFollowUpTurnResult {
-  disposition: GuardianFollowUpDisposition;
-  replyText: string;
-}
-
-/** Input context for the guardian follow-up conversation engine. */
-export interface GuardianFollowUpConversationContext {
-  /** The original question that was asked during the voice call. */
-  questionText: string;
-  /** The guardian's late answer text that initiated the follow-up. */
-  lateAnswerText: string;
-  /** The guardian's latest reply in the follow-up conversation. */
-  guardianReply: string;
-}
-
-/**
- * Daemon-injected function that processes one turn of a guardian follow-up
- * conversation. Classifies the guardian's intent into a structured disposition
- * and produces a natural reply.
- */
-export type GuardianFollowUpConversationGenerator = (
-  context: GuardianFollowUpConversationContext,
-) => Promise<GuardianFollowUpTurnResult>;
 
 export interface RuntimeMessageConversationOptions {
   transport?: {
@@ -173,14 +134,6 @@ export interface RuntimeHttpServerOptions {
   port?: number;
   /** Hostname / IP to bind to. Defaults to '127.0.0.1' (loopback-only). */
   hostname?: string;
-  /** Daemon-injected generator for approval copy (provider-backed). */
-  approvalCopyGenerator?: ApprovalCopyGenerator;
-  /** Daemon-injected generator for conversational approval flow (provider-backed). */
-  approvalConversationGenerator?: ApprovalConversationGenerator;
-  /** Daemon-injected generator for guardian action copy (provider-backed). */
-  guardianActionCopyGenerator?: GuardianActionCopyGenerator;
-  /** Daemon-injected generator for guardian follow-up conversation (provider-backed). */
-  guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
 }
 
 export interface RuntimeAttachmentMetadata {

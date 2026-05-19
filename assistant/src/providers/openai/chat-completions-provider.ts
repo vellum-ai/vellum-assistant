@@ -309,8 +309,16 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
             // Compatibility providers disagree on the field name: Fireworks /
             // DeepSeek / Together / Groq stream `reasoning_content`; OpenRouter
-            // (per its ChatAssistantMessage spec) streams `reasoning`. Accept
-            // both so we don't silently drop thinking from either family.
+            // (per its ChatAssistantMessage spec) streams `reasoning`, and for
+            // reasoning summaries (e.g. Kimi K2.6) also populates
+            // `delta.reasoning_details[]` (entries are `reasoning.summary`,
+            // `reasoning.text`, or opaque `reasoning.encrypted`).
+            //
+            // Kimi K2.6 mirrors the same token into BOTH `delta.reasoning` and
+            // `delta.reasoning_details[].text` per chunk — prefer details when
+            // they carry visible text, otherwise fall through to the flat
+            // field. The encrypted-only case must fall through too, so the
+            // flat `reasoning` field isn't silently dropped.
             const deltaWithReasoning = choice.delta as {
               reasoning?: string | null;
               reasoning_content?: string | null;
@@ -320,29 +328,31 @@ export class OpenAIChatCompletionsProvider implements Provider {
                 text?: string | null;
               }> | null;
             };
-            const reasoningContent =
-              deltaWithReasoning.reasoning_content ??
-              deltaWithReasoning.reasoning;
-            if (reasoningContent) {
-              reasoningText += reasoningContent;
-              onEvent?.({ type: "thinking_delta", thinking: reasoningContent });
-            }
 
-            // OpenRouter's documented streaming shape for reasoning summaries
-            // (e.g. Kimi K2.6) puts visible thinking under
-            // `delta.reasoning_details[]` with entries like
-            // `{ type: "reasoning.summary", summary: "..." }` or
-            // `{ type: "reasoning.text", text: "..." }`. `reasoning.encrypted`
-            // entries are opaque and skipped.
+            let sawVisibleDetail = false;
             const reasoningDetails = deltaWithReasoning.reasoning_details;
             if (Array.isArray(reasoningDetails)) {
               for (const entry of reasoningDetails) {
                 if (entry.type === "reasoning.encrypted") continue;
                 const piece = entry.summary ?? entry.text;
                 if (piece) {
+                  sawVisibleDetail = true;
                   reasoningText += piece;
                   onEvent?.({ type: "thinking_delta", thinking: piece });
                 }
+              }
+            }
+
+            if (!sawVisibleDetail) {
+              const reasoningContent =
+                deltaWithReasoning.reasoning_content ??
+                deltaWithReasoning.reasoning;
+              if (reasoningContent) {
+                reasoningText += reasoningContent;
+                onEvent?.({
+                  type: "thinking_delta",
+                  thinking: reasoningContent,
+                });
               }
             }
 

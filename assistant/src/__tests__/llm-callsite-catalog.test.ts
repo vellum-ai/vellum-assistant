@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { CALL_SITE_DEFAULTS } from "../config/call-site-defaults.js";
 import { getLLMCallSiteLabel } from "../config/llm-callsite-catalog.js";
 import { CALL_SITE_CATALOG } from "../config/schemas/call-site-catalog.js";
 import { LLMCallSiteEnum, LLMSchema } from "../config/schemas/llm.js";
@@ -49,5 +50,29 @@ describe("LLM call-site catalog", () => {
       callSites: { memoryRouter: { model: "claude-sonnet-4-6" } },
     });
     expect(parsed.callSites.memoryRouter?.model).toBe("claude-sonnet-4-6");
+  });
+
+  test("CALL_SITE_DEFAULTS covers every LLMCallSite enum value", () => {
+    const defaultIds = new Set(Object.keys(CALL_SITE_DEFAULTS));
+    const missing = LLMCallSiteEnum.options.filter(
+      (id) => !defaultIds.has(id),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  test("CALL_SITE_DEFAULTS contains no unknown call-site keys", () => {
+    const enumIds = new Set<string>(LLMCallSiteEnum.options);
+    const extra = Object.keys(CALL_SITE_DEFAULTS).filter(
+      (id) => !enumIds.has(id),
+    );
+    expect(extra).toEqual([]);
+  });
+
+  test("every CALL_SITE_DEFAULTS entry has a profile field", () => {
+    for (const [, config] of Object.entries(CALL_SITE_DEFAULTS)) {
+      expect(config.profile).toBeDefined();
+      expect(typeof config.profile).toBe("string");
+      expect(config.profile!.length).toBeGreaterThan(0);
+    }
   });
 });

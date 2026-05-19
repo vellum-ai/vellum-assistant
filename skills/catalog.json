@@ -329,7 +329,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-05-14T16:08:22-04:00"
+      "updatedAt": "2026-05-18T17:16:06-04:00"
     },
     {
       "id": "macos-automation",
@@ -625,7 +625,6 @@
         "emoji": "🧬",
         "vellum": {
           "display-name": "Species Migration",
-          "feature-flag": "species-migration",
           "activation-hints": [
             "User wants to migrate from OpenClaw, Hermes, Manus, or another assistant species into Vellum",
             "User has an assistant export, workspace, prompt bundle, memory dump, tool config, or migration request from another assistant system",
@@ -637,7 +636,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-14T18:21:04-06:00"
+      "updatedAt": "2026-05-18T17:46:52-06:00"
     },
     {
       "id": "start-the-day",
@@ -746,7 +745,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-18T09:42:41-06:00"
+      "updatedAt": "2026-05-18T14:08:28-06:00"
     },
     {
       "id": "typescript-eval",

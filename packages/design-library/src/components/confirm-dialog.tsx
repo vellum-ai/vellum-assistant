@@ -1,0 +1,95 @@
+import { AlertTriangle } from "lucide-react";
+
+import { Button } from "./button.js";
+import { Modal } from "./modal.js";
+
+/**
+ * Pre-composed confirmation dialog built on `Modal`.
+ *
+ * Renders a small modal with a title, message, and Cancel / Confirm
+ * buttons. Supports a `destructive` variant that styles the confirm
+ * button as danger and shows a warning icon.
+ *
+ * Focus is auto-directed to the confirm button on open so pressing
+ * Enter confirms without requiring Tab. Escape closes only this dialog,
+ * not any parent modal it may be stacked inside.
+ */
+
+interface ConfirmDialogProps {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+const CONFIRM_BUTTON_ATTR = "data-confirm-dialog-confirm";
+
+function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  destructive = false,
+  onConfirm,
+  onCancel,
+}: ConfirmDialogProps) {
+  return (
+    <Modal.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          onCancel();
+        }
+      }}
+    >
+      <Modal.Content
+        size="sm"
+        hideCloseButton
+        onOpenAutoFocus={(event) => {
+          const content = event.currentTarget as HTMLElement | null;
+          const confirmButton = content?.querySelector<HTMLButtonElement>(
+            `[${CONFIRM_BUTTON_ATTR}]`,
+          );
+          if (confirmButton) {
+            event.preventDefault();
+            confirmButton.focus();
+          }
+        }}
+        onEscapeKeyDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onCancel();
+        }}
+      >
+        <Modal.Header>
+          <Modal.Title icon={destructive ? AlertTriangle : undefined}>
+            {title}
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Modal.Description>{message}</Modal.Description>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="outlined" onClick={onCancel}>
+            {cancelLabel}
+          </Button>
+          <Button
+            variant={destructive ? "danger" : "primary"}
+            onClick={onConfirm}
+            {...{ [CONFIRM_BUTTON_ATTR]: "" }}
+          >
+            {confirmLabel}
+          </Button>
+        </Modal.Footer>
+      </Modal.Content>
+    </Modal.Root>
+  );
+}
+
+export { ConfirmDialog };
+export type { ConfirmDialogProps };

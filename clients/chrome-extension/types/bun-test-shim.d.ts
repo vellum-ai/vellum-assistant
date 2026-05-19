@@ -49,9 +49,11 @@ declare module 'bun:test' {
     toBeUndefined(): R;
     toBeGreaterThan(expected: number): R;
     toBeGreaterThanOrEqual(expected: number): R;
+    toBeLessThan(expected: number): R;
     toBeLessThanOrEqual(expected: number): R;
     toBeString(): R;
     toContain(expected: unknown): R;
+    toHaveProperty(path: string, value?: unknown): R;
     not: Matchers<R>;
     rejects: {
       toThrow(expected?: string | RegExp | Error): Promise<void>;

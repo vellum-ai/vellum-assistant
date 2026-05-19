@@ -89,7 +89,13 @@ export interface FeedItem {
   type: FeedItemType;
   /** Integer in [0, 100]; higher values sort earlier. */
   priority: number;
-  title: string;
+  /**
+   * Optional short header. Omit when the source did not supply one — the
+   * notification pipeline never manufactures a title from rendered copy
+   * (LLM-echoed bodies stutter against `summary`). Clients fall back to
+   * `summary` when rendering a row.
+   */
+  title?: string;
   summary: string;
   /** Event time (ISO-8601). */
   timestamp: string;
@@ -108,6 +114,8 @@ export interface FeedItem {
   category?: FeedItemCategory;
   /** True when this item represents an assistant-initiated share or a high-importance system event. Used by clients to split inbox vs activity surfaces. */
   noteworthy?: boolean;
+  /** True when the assistant herself emitted this item (e.g. via the `notifications send` skill). Drives clients to swap the row's leading icon for the persona avatar; system-generated items keep the category icon. */
+  fromAssistant?: boolean;
   /** Arbitrary structured data the detail panel or other consumers can use. */
   metadata?: Record<string, unknown>;
   /** Internal: ISO-8601 writer-record time, used for ordering + TTL. */
@@ -200,7 +208,7 @@ export const feedItemSchema = z.object({
   id: z.string(),
   type: feedItemTypeSchema,
   priority: z.number().int().min(0).max(100),
-  title: z.string(),
+  title: z.string().optional(),
   summary: z.string(),
   timestamp: z.string(),
   status: feedItemStatusSchema.default("new"),
@@ -211,6 +219,7 @@ export const feedItemSchema = z.object({
   detailPanel: feedItemDetailPanelSchema.optional(),
   category: feedItemCategorySchema.optional(),
   noteworthy: z.boolean().optional(),
+  fromAssistant: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   createdAt: z.string(),
 });

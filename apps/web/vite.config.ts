@@ -10,6 +10,7 @@ export default defineConfig({
     alias: {
       "@/": path.resolve(import.meta.dirname, "src") + "/",
     },
+    preserveSymlinks: true,
   },
   server: {
     port: 3001,

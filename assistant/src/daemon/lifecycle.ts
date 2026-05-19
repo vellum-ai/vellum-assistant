@@ -49,6 +49,7 @@ import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient, resolveQdrantUrl } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
+import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import {
   emitNotificationSignal,
   registerBroadcastFn,
@@ -97,10 +98,6 @@ import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import {
-  createApprovalConversationGenerator,
-  createApprovalCopyGenerator,
-} from "./approval-generators.js";
-import {
   cleanupPidFile,
   cleanupPidFileIfOwner,
   writePid,
@@ -111,10 +108,6 @@ import {
   stopDiskPressureGuard,
 } from "./disk-pressure-guard.js";
 import { bootstrapPlugins } from "./external-plugins-bootstrap.js";
-import {
-  createGuardianActionCopyGenerator,
-  createGuardianFollowUpConversationGenerator,
-} from "./guardian-action-generators.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
 import {
@@ -322,19 +315,7 @@ export async function runDaemon(): Promise<void> {
     const signingKey = resolveSigningKey();
     initAuthSigningKey(signingKey);
 
-    // Start the runtime HTTP server as early as possible so /healthz and
-    // /readyz probes can succeed during the rest of startup (DB init,
-    // workspace migrations, CES handshake, plugin bootstrap, DaemonServer
-    // start, ...). The probe handlers return 200 OK from the moment the
-    // socket is bound — they don't touch the DB, config, or any other
-    // subsystem.
-    //
-    // The 4 generator factories below return closures that defer all
-    // provider/config resolution to call time, so they're cheap to build
-    // at this point. The remaining runtime-HTTP wiring (registerSecretsDeps,
-    // setVoiceBridgeDeps, setRelayBroadcast, setPointerMessageProcessor,
-    // server.broadcastStatus) happens further below — those depend on the
-    // DaemonServer, which is not constructed yet.
+    // Start the runtime HTTP server early so /healthz answers ASAP.
     let runtimeHttp: RuntimeHttpServer | null = null;
     const httpPort = getRuntimeHttpPort();
     const httpHostname = getRuntimeHttpHost();
@@ -343,11 +324,6 @@ export async function runDaemon(): Promise<void> {
     runtimeHttp = new RuntimeHttpServer({
       port: httpPort,
       hostname: httpHostname,
-      approvalCopyGenerator: createApprovalCopyGenerator(),
-      approvalConversationGenerator: createApprovalConversationGenerator(),
-      guardianActionCopyGenerator: createGuardianActionCopyGenerator(),
-      guardianFollowUpConversationGenerator:
-        createGuardianFollowUpConversationGenerator(),
     });
 
     // Isolated try/catch around start() — a bind failure (port in use,
@@ -907,34 +883,16 @@ export async function runDaemon(): Promise<void> {
           })();
         }
 
-        // Build the BM25 corpus stats (per-token document frequencies and
-        // average document length) used by the v2 sparse channel, then
-        // re-seed v2 skill entries so any skill vectors written during the
-        // cold-start window with the legacy TF encoder get rewritten with
-        // stemmed BM25 vectors. Fire-and-forget for the same reason as PKB
-        // reconcile — the stats and skill reseed are optional optimizations,
-        // never boot-blocking dependencies.
         void rebuildBm25CorpusStatsAndReseedSkills(config);
 
-        // Validate every concept page's frontmatter against the strict
-        // schema and emit a `warn` per offender. Surfaces schema drift
-        // (unknown keys, type mismatches) at boot time instead of waiting
-        // for the failure to manifest as a silent V2 retrieval no-op when
-        // a bad page first lands in a conversation's top-K. Fire-and-forget
-        // and the sweep itself never throws — defense in depth via the
-        // outer try/catch.
-        void (async () => {
-          try {
-            const { sweepConceptPageFrontmatter } =
-              await import("../memory/v2/frontmatter-sweep.js");
-            await sweepConceptPageFrontmatter(getWorkspaceDir());
-          } catch (err) {
-            log.warn(
-              { err },
-              "Concept page frontmatter sweep threw — continuing startup",
-            );
-          }
-        })();
+        try {
+          await sweepConceptPageFrontmatter(config, getWorkspaceDir());
+        } catch (err) {
+          log.warn(
+            { err },
+            "Concept page frontmatter sweep threw — continuing startup",
+          );
+        }
       }
 
       log.info("Daemon startup: starting memory worker");

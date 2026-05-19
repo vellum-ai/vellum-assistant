@@ -310,6 +310,19 @@ interface ChromeDebuggerNamespace {
   ): void;
   onEvent: ChromeDebuggerOnEventEvent;
   onDetach: ChromeDebuggerOnDetachEvent;
+  getTargets(callback: (result: ChromeDebuggerTargetInfo[]) => void): void;
+  getTargets(): Promise<ChromeDebuggerTargetInfo[]>;
+}
+
+interface ChromeDebuggerTargetInfo {
+  id: string;
+  type: string;
+  title: string;
+  url: string;
+  attached: boolean;
+  tabId?: number;
+  extensionId?: string;
+  faviconUrl?: string;
 }
 
 interface ChromeActionSetIconDetails {

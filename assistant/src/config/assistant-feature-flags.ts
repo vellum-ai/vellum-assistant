@@ -110,20 +110,22 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
 }
 
 // ---------------------------------------------------------------------------
-// Override loading — reads from gateway IPC socket or local file
+// Override loading — reads from gateway IPC socket
 // ---------------------------------------------------------------------------
 
 /**
- * Module-level cache of feature flag override values. Populated lazily on
- * first access, invalidated by `clearFeatureFlagOverridesCache()`.
+ * Module-level cache of feature flag override values. Populated by
+ * `initFeatureFlagOverrides()` at startup, invalidated by
+ * `clearFeatureFlagOverridesCache()`.
  */
 let cachedOverrides: Record<string, boolean> | null = null;
 
 /**
- * True when `cachedOverrides` was populated by the gateway IPC fetch (or
- * preseeded by a test). False/unset when the cache was populated by the sync
- * file fallback in `loadOverrides()`, which must not prevent a subsequent
- * authoritative gateway fetch from running.
+ * True when `cachedOverrides` was populated by the gateway IPC fetch or
+ * preseeded by a test via `_setOverridesForTesting()`. Guards
+ * `initFeatureFlagOverrides()` from clobbering an existing populated cache
+ * when called a second time (e.g. by a CLI entry point after the daemon
+ * has already initialized).
  */
 let cachedOverridesFromGateway = false;
 
@@ -247,59 +249,30 @@ function loadOverrides(): Record<string, boolean> {
   return cachedOverrides ?? {};
 }
 
-// ---------------------------------------------------------------------------
-// Remote values — platform-pushed flags cached in a local JSON file
-// ---------------------------------------------------------------------------
-
 /**
- * Module-level cache of remote feature flag values. Populated lazily on
- * first access, invalidated by `clearFeatureFlagOverridesCache()`.
- */
-let cachedRemoteValues: Record<string, boolean> | null = null;
-
-/**
- * Load remote values with module-level caching.
+ * Invalidate the cached overrides so the next call to
+ * `isAssistantFeatureFlagEnabled` re-reads from the gateway.
  *
- * Remote values are now always included in the gateway IPC response (merged
- * server-side), so this only returns the injected test cache. In production,
- * remote values flow through the overrides cache.
- */
-function loadRemoteValues(): Record<string, boolean> {
-  return cachedRemoteValues ?? {};
-}
-
-/**
- * Invalidate the cached override and remote values so the next call to
- * `isAssistantFeatureFlagEnabled` re-reads from the source.
- *
- * Called by the config watcher when the feature-flags file changes.
+ * Used by tests between cases to reset module state.
  */
 export function clearFeatureFlagOverridesCache(): void {
   cachedOverrides = null;
   cachedOverridesFromGateway = false;
-  cachedRemoteValues = null;
 }
 
 /**
  * Directly inject override values into the module-level cache.
  *
- * **Test-only** — bypasses file/gateway loading so unit tests can control
- * flag state without writing to disk. Production code should never call this;
- * use `clearFeatureFlagOverridesCache()` instead and let the resolver
- * re-read from the appropriate source.
- *
- * Forces `cachedRemoteValues` to an empty record (not `null`) so the resolver
- * does not fall through to reading `feature-flags-remote.json` from disk. This
- * matters because a developer's local remote-cache file can leak platform-set
- * values into the test environment (e.g. `email-channel: true`), defeating
- * test isolation.
+ * **Test-only** — bypasses the gateway IPC fetch so unit tests can control
+ * flag state without standing up a real gateway. Production code should
+ * never call this; use `clearFeatureFlagOverridesCache()` instead and let
+ * the resolver re-read from the gateway.
  */
 export function _setOverridesForTesting(
   overrides: Record<string, boolean>,
 ): void {
   cachedOverrides = { ...overrides };
   cachedOverridesFromGateway = true;
-  cachedRemoteValues = {};
 }
 
 // ---------------------------------------------------------------------------
@@ -310,9 +283,11 @@ export function _setOverridesForTesting(
  * Resolve whether an assistant feature flag is enabled.
  *
  * Resolution order:
- *   1. Override from gateway IPC socket
- *   2. defaults registry `defaultEnabled`         (for declared assistant-scope keys)
- *   3. `true`                                     (for undeclared keys with no override)
+ *   1. Override from the gateway IPC fetch (includes platform-pushed remote
+ *      values, which the gateway merges server-side: persisted > remote >
+ *      registry)
+ *   2. Registry `defaultEnabled` (for declared assistant-scope keys)
+ *   3. `true` (for undeclared keys with no override)
  */
 export function isAssistantFeatureFlagEnabled(
   key: string,
@@ -322,18 +297,13 @@ export function isAssistantFeatureFlagEnabled(
   const declared = defaults[key];
   const overrides = loadOverrides();
 
-  // 1. Check overrides from gateway / local file
+  // 1. Check overrides from the gateway IPC cache.
   const explicit = overrides[key];
   if (typeof explicit === "boolean") return explicit;
 
-  // 2. Check remote values (platform-pushed, cached locally)
-  const remote = loadRemoteValues();
-  const remoteValue = remote[key];
-  if (typeof remoteValue === "boolean") return remoteValue;
-
-  // 3. For declared keys, use the registry default
+  // 2. For declared keys, use the registry default.
   if (declared) return declared.defaultEnabled;
 
-  // 4. Undeclared keys with no persisted override default to enabled
+  // 3. Undeclared keys with no override default to enabled.
   return true;
 }

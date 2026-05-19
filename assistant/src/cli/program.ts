@@ -62,6 +62,20 @@ import { log } from "./logger.js";
  */
 export async function buildCliProgram(): Promise<Command> {
   await initFeatureFlagOverrides({ retryBackoffsMs: [], callTimeoutMs: 200 });
+  return buildCliProgramTree();
+}
+
+/**
+ * Synchronously build the CLI program tree without pre-populating the
+ * feature-flag cache. Use this from inside the daemon, where flags are
+ * already initialized — calling `buildCliProgram` from there would round-trip
+ * to the gateway unnecessarily.
+ *
+ * Same shape as `buildCliProgram` minus the async feature-flag init: registers
+ * the full subcommand set (conditionally gated on email / external-plugins
+ * flags via `getConfigReadOnly()`) and installs the workspace-preAction hook.
+ */
+export function buildCliProgramTree(): Command {
   const program = new Command();
 
   program

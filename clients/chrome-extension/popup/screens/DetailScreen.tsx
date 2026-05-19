@@ -21,7 +21,10 @@ function formatResponseContent(operation: OperationEntry): string {
 }
 
 export function DetailScreen({ operation, onBack }: DetailScreenProps) {
-  const [activeTab, setActiveTab] = useState<'request' | 'response'>('request');
+  const hasCallbackFailure = operation.callbackStatus !== undefined;
+  const [activeTab, setActiveTab] = useState<'request' | 'response' | 'callback'>(
+    hasCallbackFailure ? 'callback' : 'request',
+  );
 
   const metaParts: string[] = [formatTime(operation.requestedAt)];
   if (operation.durationMs != null) {
@@ -29,6 +32,11 @@ export function DetailScreen({ operation, onBack }: DetailScreenProps) {
   }
   if (operation.isError) {
     metaParts.push('Error');
+  }
+  if (hasCallbackFailure) {
+    metaParts.push(
+      `POST ${operation.callbackStatus === 0 ? 'dropped' : operation.callbackStatus}`,
+    );
   }
 
   const tabBase = 'flex-1 py-2 px-3 text-xs text-center border-b-2';
@@ -84,6 +92,15 @@ export function DetailScreen({ operation, onBack }: DetailScreenProps) {
         >
           Response
         </button>
+        {hasCallbackFailure && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('callback')}
+            className={activeTab === 'callback' ? tabActive : tabInactive}
+          >
+            Callback
+          </button>
+        )}
       </div>
 
       {activeTab === 'request' && (
@@ -99,6 +116,29 @@ export function DetailScreen({ operation, onBack }: DetailScreenProps) {
           {formatResponseContent(operation)}
         </pre>
       )}
+
+      {activeTab === 'callback' && (
+        <pre className={panelClass}>
+          {formatCallbackFailure(operation)}
+        </pre>
+      )}
     </div>
   );
+}
+
+function formatCallbackFailure(operation: OperationEntry): string {
+  if (operation.callbackStatus === undefined) {
+    return 'Callback POST has not failed.';
+  }
+  const lines: string[] = [];
+  if (operation.callbackStatus === 0) {
+    lines.push('Status: dropped (POST never reached the wire)');
+  } else {
+    lines.push(`Status: HTTP ${operation.callbackStatus}`);
+  }
+  if (operation.callbackError) {
+    lines.push('');
+    lines.push(operation.callbackError);
+  }
+  return lines.join('\n');
 }

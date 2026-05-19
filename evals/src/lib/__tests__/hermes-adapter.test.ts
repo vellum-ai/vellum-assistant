@@ -6,10 +6,15 @@ import {
   EXEC_PATH,
   selectProviderEnvFlags,
 } from "../adapters/hermes";
+import {
+  HERMES_EVAL_SESSION_SOURCE,
+  HERMES_STATE_DB_PATH,
+} from "../adapters/hermes-seed";
 import type { Profile } from "../profile";
 import type {
   CommandResult,
   CommandRunner,
+  RunOptions,
   SpawnedProcess,
 } from "../runtime/command-runner";
 
@@ -35,15 +40,26 @@ class FakeProcess implements SpawnedProcess {
 }
 
 class FakeRunner implements CommandRunner {
-  readonly runs: Array<{ command: string; args: string[] }> = [];
+  readonly runs: Array<{
+    command: string;
+    args: string[];
+    stdin?: string;
+  }> = [];
   readonly spawns: Array<{ command: string; args: string[] }> = [];
   readonly process = new FakeProcess();
 
-  async run(command: string, args: string[]): Promise<CommandResult> {
-    this.runs.push({ command, args });
-    const script = args.at(-1) ?? "";
-    const stdout = script.includes("conversations new")
-      ? "Created conversation: New Conversation (conv-456), conversation key: generated-hermes-key, seeded 2 messages\n"
+  async run(
+    command: string,
+    args: string[],
+    opts?: RunOptions,
+  ): Promise<CommandResult> {
+    this.runs.push({ command, args, stdin: opts?.stdin });
+    // Mirror what the in-container python helper prints on success so
+    // assertSuccess sees a clean exit and the seed helper's stdout
+    // assertions stay realistic.
+    const isSeed = args[0] === "exec" && args.includes("python3");
+    const stdout = isSeed
+      ? '{"session_id": "evals_timeline-recall_eval-hermes-seed", "messages": 2}\n'
       : "ok";
     return { exitCode: 0, stdout, stderr: "" };
   }
@@ -116,7 +132,7 @@ describe("HermesAgent", () => {
       `PATH=${EXEC_PATH}`,
       "eval-hermes-1-hermes",
       "sh",
-      "-lc",
+      "-c",
       "hermes plugins install simple-memory",
     ]);
     expect(runner.spawns).toEqual([]);
@@ -182,7 +198,12 @@ describe("HermesAgent", () => {
     ]);
   });
 
-  test("seeds a deterministic conversation history through docker cp + exec", async () => {
+  test("seed-conversation injects rows directly into the container's state.db", async () => {
+    // Seeding must (1) write to /opt/data/state.db via `docker exec -i
+    // python3 -`, (2) pipe the messages on stdin (no command-line
+    // escaping of user content), (3) re-point conversationKey at the
+    // newly-minted session id, and (4) never invoke the model — no
+    // `hermes message` calls between hatch and seed.
     const runner = new FakeRunner();
     const agent = new HermesAgent({
       runner,
@@ -193,6 +214,8 @@ describe("HermesAgent", () => {
     });
 
     await agent.hatch();
+    const runsBeforeSeed = runner.runs.length;
+
     await agent.runSetupCommand({
       type: "seed-conversation",
       messages: [
@@ -201,36 +224,121 @@ describe("HermesAgent", () => {
       ],
     });
 
-    const copyRun = runner.runs.at(-2)!;
-    expect(copyRun.command).toBe("docker");
-    expect(copyRun.args[0]).toBe("cp");
-    expect(copyRun.args[2]).toBe(
-      "eval-hermes-seed-hermes:/tmp/eval-hermes-seed-conversation-seed.json",
+    // Exactly one extra `docker exec` was emitted — the seed call.
+    expect(runner.runs.length).toBe(runsBeforeSeed + 1);
+    const seedCall = runner.runs[runsBeforeSeed]!;
+    expect(seedCall.command).toBe("docker");
+    expect(seedCall.args).toEqual([
+      "exec",
+      "-i",
+      "eval-hermes-seed-hermes",
+      "python3",
+      "-",
+    ]);
+
+    // stdin carries the inline Python script PLUS a JSON payload with
+    // the messages, the target DB path, and the session id we'll use as
+    // the new conversationKey.
+    const stdin = seedCall.stdin ?? "";
+    expect(stdin).toContain("INSERT INTO messages");
+    expect(stdin).toContain("INSERT OR IGNORE INTO sessions");
+    expect(stdin).toContain(HERMES_STATE_DB_PATH);
+    expect(stdin).toContain(HERMES_EVAL_SESSION_SOURCE);
+    // Payload JSON sits on the trailing line — pluck it out and confirm
+    // the messages survived the trip without shell escaping.
+    const lastLine = stdin.trim().split("\n").at(-1)!;
+    const payload = JSON.parse(lastLine);
+    expect(payload).toEqual({
+      db_path: HERMES_STATE_DB_PATH,
+      session_id: "evals_timeline-recall_eval-hermes-seed",
+      source: HERMES_EVAL_SESSION_SOURCE,
+      title: "evals seed: timeline-recall",
+      messages: [
+        { role: "user", content: "remember this exact note" },
+        { role: "assistant", content: "noted" },
+      ],
+    });
+
+    // conversationKey now routes subsequent send/events at the seeded
+    // session id, not the deterministic-default key.
+    expect(agent.conversationKey).toBe(
+      "evals_timeline-recall_eval-hermes-seed",
     );
 
-    const seedRun = runner.runs.at(-1)!;
-    expect(seedRun.command).toBe("docker");
-    expect(seedRun.args.slice(0, 6)).toEqual([
-      "exec",
-      "--env",
-      `PATH=${EXEC_PATH}`,
-      "eval-hermes-seed-hermes",
-      "sh",
-      "-lc",
-    ]);
-    const script = seedRun.args[6]!;
-    expect(script).toContain("set -e");
-    expect(script).toContain("hermes conversations new");
-    expect(script).toContain(
-      "--content-file '/tmp/eval-hermes-seed-conversation-seed.json'",
+    // No `hermes message ...` was issued — seeding does not invoke the
+    // model.
+    const sendCalls = runner.runs.filter(
+      (r) =>
+        r.command === "docker" &&
+        r.args.includes("exec") &&
+        r.args.includes("message"),
     );
-    expect(script).toContain(
-      "rm -f '/tmp/eval-hermes-seed-conversation-seed.json'",
+    expect(sendCalls).toEqual([]);
+  });
+
+  test("seed-conversation refuses to run before hatch", async () => {
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-prehatch",
+      processEnv: {},
+    });
+
+    await expect(
+      agent.runSetupCommand({
+        type: "seed-conversation",
+        messages: [{ role: "user", content: "noop" }],
+      }),
+    ).rejects.toThrow(/has not been hatched/);
+
+    // No docker side effects fired.
+    expect(runner.runs).toEqual([]);
+  });
+
+  test("seed-conversation surfaces the in-container error when state.db write fails", async () => {
+    class BrokenSeedRunner extends FakeRunner {
+      override async run(
+        command: string,
+        args: string[],
+        opts?: RunOptions,
+      ): Promise<CommandResult> {
+        this.runs.push({ command, args, stdin: opts?.stdin });
+        if (args[0] === "exec" && args.includes("python3")) {
+          return {
+            exitCode: 1,
+            stdout: "",
+            stderr:
+              'Traceback (most recent call last):\n  File "<stdin>", line 22\n    OperationalError: database is locked\n',
+          };
+        }
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      }
+    }
+    const runner = new BrokenSeedRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-seed-fail",
+      processEnv: {},
+    });
+
+    await agent.hatch();
+
+    await expect(
+      agent.runSetupCommand({
+        type: "seed-conversation",
+        messages: [{ role: "user", content: "x" }],
+      }),
+    ).rejects.toThrow(/database is locked/);
+
+    // conversationKey stays at the deterministic-default value on
+    // failure — no half-rotated state.
+    expect(agent.conversationKey).toBe(
+      "evals:timeline-recall:eval-hermes-seed-fail",
     );
-    // Message bodies must NOT leak through the seed payload via the shell.
-    expect(script).not.toContain("remember this exact note");
-    expect(script).not.toContain("noted");
-    expect(agent.conversationKey).toBe("generated-hermes-key");
   });
 
   test("sends through the running container and tears down on shutdown", async () => {
@@ -278,7 +386,8 @@ describe("HermesAgent", () => {
           return {
             exitCode: 1,
             stdout: "",
-            stderr: "Unable to find image 'nousresearch/hermes-agent:latest'",
+            stderr:
+              "Unable to find image 'nousresearch/hermes-agent:v2026.5.16'",
           };
         }
         return { exitCode: 0, stdout: "ok", stderr: "" };
@@ -295,7 +404,7 @@ describe("HermesAgent", () => {
     });
 
     await expect(agent.hatch()).rejects.toThrow(
-      "Unable to find image 'nousresearch/hermes-agent:latest'",
+      "Unable to find image 'nousresearch/hermes-agent:v2026.5.16'",
     );
     // Pre-flight rm -f always runs; then the failed `docker run -d` aborts
     // hatch without firing a follow-up rm -f for the container that never

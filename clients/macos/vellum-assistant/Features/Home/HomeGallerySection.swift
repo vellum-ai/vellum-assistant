@@ -105,6 +105,8 @@ struct HomeGallerySection: View {
                             iconForeground: VColor.feedDigestStrong,
                             iconBackground: VColor.feedDigestWeak,
                             title: "While you were away, I ran the email clean job and deleted 26 emails…",
+                            timestamp: Date().addingTimeInterval(-2 * 60 * 60),
+                            status: .new,
                             onDismiss: {},
                             onTap: {}
                         )
@@ -114,6 +116,8 @@ struct HomeGallerySection: View {
                             iconForeground: VColor.feedDigestStrong,
                             iconBackground: VColor.feedDigestWeak,
                             title: "There's also 4 low priority updates if you want to have a look.",
+                            timestamp: Date().addingTimeInterval(-30 * 60),
+                            status: .seen,
                             onDismiss: {},
                             onTap: {}
                         )
@@ -123,6 +127,8 @@ struct HomeGallerySection: View {
                             iconForeground: VColor.feedDigestStrong,
                             iconBackground: VColor.feedDigestWeak,
                             title: "Urgent: your flight to SFO boards in 35 minutes.",
+                            timestamp: Date(),
+                            status: .new,
                             isUrgent: true,
                             onDismiss: {},
                             onTap: {}
@@ -143,16 +149,30 @@ struct HomeGallerySection: View {
                     description: "Reusable white right-side panel container with a standardized header (icon + title + \"Go to Thread\" action + dismiss)."
                 )
 
-                HomeDetailPanel(
-                    icon: .file,
-                    title: "Panel title",
-                    onGoToThread: {},
-                    onDismiss: {}
-                ) {
-                    Text("Detail content goes here.")
-                        .padding(VSpacing.lg)
+                VStack(spacing: VSpacing.lg) {
+                    HomeDetailPanel(
+                        icon: .file,
+                        title: "Panel title",
+                        onGoToThread: {},
+                        onDismiss: {}
+                    ) {
+                        Text("Detail content goes here.")
+                            .padding(VSpacing.lg)
+                    }
+                    .frame(height: 260)
+
+                    HomeDetailPanel(
+                        icon: .bell,
+                        title: "Assistant-initiated",
+                        onGoToThread: {},
+                        onDismiss: {},
+                        showsPersonaAvatar: true
+                    ) {
+                        Text("Persona avatar replaces the category chip when the row originated from the assistant.")
+                            .padding(VSpacing.lg)
+                    }
+                    .frame(height: 260)
                 }
-                .frame(height: 520)
             }
 
             // MARK: - HomeSuggestionPillBar
@@ -224,20 +244,20 @@ struct HomeGallerySection: View {
 
                 GallerySectionHeader(
                     title: "HomeGreetingHeader",
-                    description: "Home feed header with a leading avatar, a greeting title, and a trailing New Chat pill CTA."
+                    description: "Home feed header with a leading avatar and a trailing New Chat pill CTA."
                 )
 
                 VCard(background: VColor.surfaceBase) {
                     HomeGreetingHeader(
-                        greeting: "Here's what's been going on",
-                        onStartNewChat: {}
+                        onStartNewChat: {},
+                        name: "Example Assistant"
                     ) {
                         if let image = NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil) {
-                            VAvatarImage(image: image, size: 40)
+                            VAvatarImage(image: image, size: 56)
                         } else {
                             Circle()
                                 .fill(VColor.surfaceActive)
-                                .frame(width: 40, height: 40)
+                                .frame(width: 56, height: 56)
                         }
                     }
                 }

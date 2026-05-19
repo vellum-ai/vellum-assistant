@@ -1,0 +1,122 @@
+import { describe, expect, test } from "bun:test";
+
+import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import { newStableId } from "@/domains/chat/lib/stable-id.js";
+import { partitionLatestTurn } from "@/domains/chat/lib/transcript/partition-latest-turn.js";
+import type {
+  ErrorItem,
+  MessageItem,
+  ThinkingItem,
+  TranscriptItem,
+} from "@/domains/chat/lib/transcript/types.js";
+
+function makeMessage(
+  overrides: Omit<DisplayMessage, "stableId"> & { stableId?: string },
+): DisplayMessage {
+  const { stableId, ...rest } = overrides;
+  return {
+    stableId: stableId ?? newStableId("test"),
+    ...rest,
+  };
+}
+
+function messageItem(message: DisplayMessage): MessageItem {
+  return { kind: "message", key: message.stableId, message };
+}
+
+function thinkingItem(): ThinkingItem {
+  return { kind: "thinking", key: "thinking" };
+}
+
+function errorItem(message: string): ErrorItem {
+  return { kind: "error", key: "error-notice", message };
+}
+
+describe("partitionLatestTurn", () => {
+  test("empty items → null anchor, empty history + response", () => {
+    const partition = partitionLatestTurn([]);
+    expect(partition).toEqual({
+      historyItems: [],
+      anchorMessage: null,
+      responseItems: [],
+    });
+  });
+
+  test("no user messages at all → anchor null, history = full items, response = []", () => {
+    const a1 = makeMessage({ id: "m1", role: "assistant", content: "A", stableId: "s-a1" });
+    const a2 = makeMessage({ id: "m2", role: "assistant", content: "B", stableId: "s-a2" });
+    const items: TranscriptItem[] = [messageItem(a1), messageItem(a2), thinkingItem()];
+
+    const partition = partitionLatestTurn(items);
+    expect(partition.anchorMessage).toBeNull();
+    expect(partition.historyItems).toEqual(items);
+    expect(partition.responseItems).toEqual([]);
+    // returns a fresh slice, not the original array
+    expect(partition.historyItems).not.toBe(items);
+  });
+
+  test("single user message, no response → anchor matches, response empty", () => {
+    const user = makeMessage({ id: "m1", role: "user", content: "Hi", stableId: "s-u1" });
+    const userItem = messageItem(user);
+    const items: TranscriptItem[] = [userItem];
+
+    const partition = partitionLatestTurn(items);
+    expect(partition.anchorMessage).toBe(userItem);
+    expect(partition.historyItems).toEqual([]);
+    expect(partition.responseItems).toEqual([]);
+  });
+
+  test("multi-turn history with trailing assistant + thinking/surface/error all end up in responseItems", () => {
+    const u1 = makeMessage({ id: "m1", role: "user", content: "Hi", stableId: "s-u1" });
+    const a1 = makeMessage({ id: "m2", role: "assistant", content: "Hello", stableId: "s-a1" });
+    const u2 = makeMessage({ id: "m3", role: "user", content: "More", stableId: "s-u2" });
+    const a2 = makeMessage({ id: "m4", role: "assistant", content: "Sure", stableId: "s-a2" });
+
+    const u1Item = messageItem(u1);
+    const a1Item = messageItem(a1);
+    const u2Item = messageItem(u2);
+    const a2Item = messageItem(a2);
+    const think = thinkingItem();
+    const err = errorItem("oops");
+
+    const items: TranscriptItem[] = [u1Item, a1Item, u2Item, a2Item, think, err];
+
+    const partition = partitionLatestTurn(items);
+    expect(partition.anchorMessage).toBe(u2Item);
+    expect(partition.historyItems).toEqual([u1Item, a1Item]);
+    expect(partition.responseItems).toEqual([a2Item, think, err]);
+  });
+
+  test("picks the LAST user message when multiple user messages exist", () => {
+    const u1 = makeMessage({ id: "m1", role: "user", content: "First", stableId: "s-u1" });
+    const u2 = makeMessage({ id: "m2", role: "user", content: "Second", stableId: "s-u2" });
+    const u1Item = messageItem(u1);
+    const u2Item = messageItem(u2);
+
+    const partition = partitionLatestTurn([u1Item, u2Item]);
+    expect(partition.anchorMessage).toBe(u2Item);
+    expect(partition.historyItems).toEqual([u1Item]);
+    expect(partition.responseItems).toEqual([]);
+  });
+
+  test("does not treat a non-message item as an anchor", () => {
+    // Trailers alone must not become the anchor even though they come
+    // after all messages.
+    const items: TranscriptItem[] = [thinkingItem(), errorItem("oops")];
+    const partition = partitionLatestTurn(items);
+    expect(partition.anchorMessage).toBeNull();
+    expect(partition.historyItems).toEqual(items);
+    expect(partition.responseItems).toEqual([]);
+  });
+
+  test("assistant-only MessageItems never anchor", () => {
+    const a1 = makeMessage({ id: "m1", role: "assistant", content: "A", stableId: "s-a1" });
+    const a2 = makeMessage({ id: "m2", role: "assistant", content: "B", stableId: "s-a2" });
+    const items: TranscriptItem[] = [messageItem(a1), messageItem(a2)];
+
+    const partition = partitionLatestTurn(items);
+    expect(partition.anchorMessage).toBeNull();
+    expect(partition.historyItems).toEqual(items);
+    expect(partition.responseItems).toEqual([]);
+  });
+});

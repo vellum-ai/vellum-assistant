@@ -57,6 +57,20 @@ export interface OperationEntry {
   request?: Record<string, unknown>;
   /** Raw response content string (for detail view). */
   responseContent?: string;
+  /**
+   * HTTP status code returned by the assistant when the extension POSTed
+   * the result back to `/v1/host-browser-result`. `0` means the POST
+   * never reached the wire (network error or "no active connection"
+   * drop). Absent when the POST has not been attempted yet or no
+   * failure was recorded.
+   */
+  callbackStatus?: number;
+  /**
+   * Response body (or thrown error message) captured when the result
+   * callback POST failed. Truncated to {@link MAX_CALLBACK_ERROR_LEN}
+   * characters to keep operation rows bounded.
+   */
+  callbackError?: string;
 }
 
 // ── Storage keys ────────────────────────────────────────────────────
@@ -68,6 +82,7 @@ const STORAGE_KEY_NEXT_OP_ID = "eventLog:nextOpId";
 
 const MAX_ENTRIES = 100;
 const MAX_OPERATIONS = 50;
+const MAX_CALLBACK_ERROR_LEN = 2048;
 
 let nextId = 1;
 const buffer: EventLogEntry[] = [];
@@ -213,6 +228,32 @@ export function recordResponse(
   op.isError = opts?.isError;
   op.responseContent = opts?.responseContent;
   op.durationMs = new Date(op.respondedAt).getTime() - new Date(op.requestedAt).getTime();
+  persistOperations();
+}
+
+/**
+ * Record a failure that occurred when the extension POSTed the result
+ * callback back to the assistant's `/v1/host-browser-result` endpoint.
+ *
+ * Status `0` is reserved for failures that never reached the wire —
+ * network errors caught around `fetch`, or the "no active connection"
+ * drop. Non-zero values are HTTP status codes returned by the assistant.
+ *
+ * No-op when the requestId is unknown (the operation was evicted from
+ * the ring buffer before the callback failed).
+ */
+export function recordCallbackFailure(
+  requestId: string,
+  status: number,
+  error: string,
+): void {
+  const op = operationsByRequestId.get(requestId);
+  if (!op) return;
+  op.callbackStatus = status;
+  op.callbackError =
+    error.length > MAX_CALLBACK_ERROR_LEN
+      ? error.slice(0, MAX_CALLBACK_ERROR_LEN) + "…[truncated]"
+      : error;
   persistOperations();
 }
 

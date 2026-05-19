@@ -41,7 +41,7 @@ import {
 } from "./host-browser-dispatcher.js";
 import { SseConnection, type SseMode } from "./sse-connection.js";
 import { fetchAssistants } from "./cloud-api.js";
-import { appendEvent, clearEventLog, getEventLog, getOperations, getOperationById, recordRequest, recordResponse } from "./event-log.js";
+import { appendEvent, clearEventLog, getEventLog, getOperations, getOperationById, recordCallbackFailure, recordRequest, recordResponse } from "./event-log.js";
 import { getClientId } from "./client-identity.js";
 import {
   startCloudLogin,
@@ -51,6 +51,11 @@ import {
   storeSelectedAssistant,
   clearSelectedAssistant,
 } from "./cloud-auth.js";
+import {
+  collectDiagnosticBundle,
+  submitFeedback,
+  type FeedbackFormData,
+} from "./feedback.js";
 
 // ── Environment resolution ──────────────────────────────────────────
 //
@@ -403,14 +408,26 @@ async function dispatchHostBrowserResult(
     } else if (selfHostedPairToken) {
       headers["authorization"] = `Bearer ${selfHostedPairToken}`;
     }
-    const resp = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(result),
-      credentials: mode.kind === "vellum-cloud" ? "include" : "omit",
-    });
-    if (!resp.ok) {
-      console.warn("[vellum] host-browser-result POST failed", resp.status);
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(result),
+        credentials: mode.kind === "vellum-cloud" ? "include" : "omit",
+      });
+      if (!resp.ok) {
+        const body = await safeReadBody(resp);
+        recordCallbackFailure(result.requestId, resp.status, body);
+        console.warn(
+          "[vellum] host-browser-result POST failed",
+          resp.status,
+          body,
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      recordCallbackFailure(result.requestId, 0, `fetch threw: ${msg}`);
+      console.warn("[vellum] host-browser-result POST threw", err);
     }
     return;
   }
@@ -437,15 +454,45 @@ async function dispatchHostBrowserResult(
         },
       );
       if (!resp.ok) {
-        console.warn("[vellum] host-browser-result fallback POST failed", resp.status);
+        const body = await safeReadBody(resp);
+        recordCallbackFailure(result.requestId, resp.status, `fallback: ${body}`);
+        console.warn(
+          "[vellum] host-browser-result fallback POST failed",
+          resp.status,
+          body,
+        );
       }
       return;
-    } catch {
-      // Network error — fall through to drop warning
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      recordCallbackFailure(result.requestId, 0, `fallback fetch threw: ${msg}`);
+      console.warn("[vellum] host-browser-result fallback POST threw", err);
+      return;
     }
   }
 
+  recordCallbackFailure(
+    result.requestId,
+    0,
+    "dropped: no active SSE connection and no self-hosted fallback available",
+  );
   console.warn("[vellum] host_browser_result dropped: no active connection");
+}
+
+/**
+ * Read a `Response` body as text without ever throwing — defaults to an
+ * empty string when the body has already been consumed or the read
+ * fails. Bounded to keep oversized error payloads from blowing up the
+ * operations ring buffer (the {@link recordCallbackFailure} helper
+ * applies its own cap as the second line of defense).
+ */
+async function safeReadBody(resp: Response): Promise<string> {
+  try {
+    const text = await resp.text();
+    return text.length > 4096 ? text.slice(0, 4096) + "…[truncated]" : text;
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -1364,9 +1411,52 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     return false;
   }
 
+  if (message.type === "submit-feedback") {
+    (async () => {
+      const form = message.form as FeedbackFormData | undefined;
+      if (!form || typeof form.message !== "string" || form.message.trim().length === 0) {
+        sendResponseFn({ ok: false, error: "Message is required" });
+        return;
+      }
+      const env = await resolveEnvContext();
+      const mode = await getStoredUserMode();
+      const bundle = form.includeDiagnostics
+        ? await collectDiagnosticBundle({
+            env,
+            mode,
+            sseState: connectionHealth,
+            sseDetail: connectionHealthDetail as unknown as Record<string, unknown>,
+          })
+        : null;
+      await submitFeedback(form, bundle, env);
+      sendResponseFn({ ok: true });
+    })().catch((err) =>
+      sendResponseFn({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return true;
+  }
+
   // Unknown message type — let Chrome close the port naturally.
   return false;
 });
+
+/**
+ * Build the environment context used by the Share Feedback flow.
+ *
+ * Combines the popup-persisted environment override (if any) with the
+ * build-time default and the static URL mapping.
+ */
+async function resolveEnvContext(): Promise<{
+  environment: ExtensionEnvironment;
+  apiBaseUrl: string;
+}> {
+  const environment = await getEffectiveEnvironment();
+  const { apiBaseUrl } = cloudUrlsForEnvironment(environment);
+  return { environment, apiBaseUrl };
+}
 
 // Auto-connect on service worker start if previously connected.
 // Only fires when the sticky `autoConnect` flag is `true` (set by a

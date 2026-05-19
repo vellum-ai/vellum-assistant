@@ -179,7 +179,7 @@ directories. If something is domain-specific, it belongs inside
 | `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
 | `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
 
-| `generated/` | Auto-generated code (HeyAPI, catalogs) | `heyapi/`, `catalogs/` |
+| `generated/` | Auto-generated code (HeyAPI, catalogs) | `api/`, `catalogs/` |
 
 #### Why `lib/` exists
 
@@ -449,6 +449,10 @@ import { Button, Typography } from "@vellum/design-library";
 Design system components accept props and render UI. They must not
 import domain state, feature hooks, or application-specific logic.
 
+For component authoring conventions (React 19 ref-as-prop, `data-slot`,
+variant patterns, file organization), see
+[`packages/design-library/README.md`](../../packages/design-library/README.md).
+
 References:
 - [Node.js — Package exports](https://nodejs.org/api/packages.html#exports)
 - [Bun — Workspaces](https://bun.sh/docs/install/workspaces)
@@ -484,20 +488,30 @@ References:
 ### HeyAPI for OpenAPI client generation
 
 The API client is generated from the platform's OpenAPI spec using
-[HeyAPI (`@hey-api/openapi-ts`)](https://heyapi.dev/). Codegen runs in
-this repo — the platform publishes the spec, we generate the client
-locally.
+[HeyAPI (`@hey-api/openapi-ts`)](https://heyapi.dev/). The public-facing
+specs (`openapi-schemas/platform.yaml`, `openapi-schemas/auth.yaml`) are
+committed to this repo so anyone can regenerate the client locally:
 
-Plugins:
+```bash
+bun run openapi-ts
+```
+
+Generated output lives in `src/generated/api/` (gitignored).
+
+**Vellum developers** updating the specs after platform API changes:
+
+```bash
+./scripts/sync-openapi-specs.sh   # copies from sibling platform checkout
+bun run openapi-ts                # regenerate client
+```
+
+Plugins (configured in `openapi-ts.config.ts`):
+- `@hey-api/client-fetch` — Fetch-based HTTP client, bundled inline
+  in the generated output ([no runtime dep needed](https://github.com/hey-api/openapi-ts/pull/790))
 - `@tanstack/react-query` — generates `*Options()` helpers for
   `useQuery` / `useMutation` / `useInfiniteQuery`
-- `@hey-api/client-fetch` — Fetch-based HTTP client (no Axios/Node
-  dependency)
 - `@hey-api/typescript` — generates TypeScript types from schemas
-
-Generated output lives in `src/generated/heyapi/`. This directory is
-fully auto-generated — do not hand-edit files in it. Run
-`bun run openapi-ts` to regenerate.
+  (included by default, does not need explicit config)
 
 References:
 - [HeyAPI — Configuration](https://heyapi.dev/openapi-ts/configuration)

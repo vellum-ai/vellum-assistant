@@ -1,12 +1,16 @@
 /**
- * Tests for `preactivateHostProxySkills` and `shouldAttachHostProxyForCapability`
- * in `host-proxy-preactivation.ts`.
+ * Tests for `evaluateHostProxyAttachment`, `preactivateHostProxySkills`, and
+ * `shouldAttachHostProxyForCapability` in `host-proxy-preactivation.ts`.
  *
  * Covers:
  *  - Source interface natively supports capability → preactivate (regression)
  *  - Source interface doesn't support but capable client connected → preactivate
  *  - Source interface doesn't support and no capable client → don't preactivate
  *  - chrome-extension source + capable client connected → don't preactivate (security boundary)
+ *  - `evaluateHostProxyAttachment` returns the correct `reason` for each branch
+ *  - `preactivateHostProxySkills` emits one structured log line per call with
+ *    conversationId, sourceInterface, per-capability decisions, and final
+ *    preactivatedSkillIds (used by ATL-609-class silent-gate diagnosis)
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -26,31 +30,74 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
+// ---------------------------------------------------------------------------
+// Mock the logger so we can assert on the structured info call.
+// `info` calls are pushed into `loggedInfoCalls` for inspection.
+// `child()` is exposed for callers that wrap the logger that way.
+// ---------------------------------------------------------------------------
+
+interface LoggedCall {
+  fields: Record<string, unknown>;
+  message: string;
+}
+const loggedInfoCalls: LoggedCall[] = [];
+function captureInfo(fields: unknown, message: unknown) {
+  loggedInfoCalls.push({
+    fields: fields as Record<string, unknown>,
+    message: message as string,
+  });
+}
+
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+  getLogger: () => ({
+    info: captureInfo,
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    trace: () => {},
+    fatal: () => {},
+    child: () => ({
+      info: captureInfo,
+      warn: () => {},
+      error: () => {},
+      debug: () => {},
+      trace: () => {},
+      fatal: () => {},
+    }),
+  }),
 }));
 
 // ---------------------------------------------------------------------------
-// Imports under test (after mocks are registered)
+// Imports under test
+//
+// Type-only imports are erased at runtime and safe to hoist. The value import
+// of `host-proxy-preactivation` must be dynamic (`await import`) so it
+// resolves AFTER the `mock.module(...)` calls above — otherwise ES module
+// hoisting loads the real logger before the mock registers, the production
+// `const log = getLogger(...)` binds to real pino, and assertions against
+// `loggedInfoCalls` see an empty array. Same pattern as
+// `secret-prompt-log-hygiene.test.ts`.
 // ---------------------------------------------------------------------------
 
 import type { HostProxyCapability } from "../channels/types.js";
-import {
-  type HostProxyPreactivationTarget,
+import type { HostProxyPreactivationTarget } from "../daemon/host-proxy-preactivation.js";
+
+const {
+  evaluateHostProxyAttachment,
   preactivateHostProxySkills,
   shouldAttachHostProxyForCapability,
-} from "../daemon/host-proxy-preactivation.js";
+} = await import("../daemon/host-proxy-preactivation.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeTarget(): HostProxyPreactivationTarget & {
-  preactivatedSkillIds: string[];
-} {
+function makeTarget(
+  conversationId = "conv-test",
+): HostProxyPreactivationTarget & { preactivatedSkillIds: string[] } {
   const preactivatedSkillIds: string[] = [];
   return {
+    conversationId,
     preactivatedSkillIds,
     addPreactivatedSkillId(id: string) {
       preactivatedSkillIds.push(id);
@@ -73,6 +120,7 @@ function setCapableClient(
 
 beforeEach(() => {
   mockClientsByCapability = new Map();
+  loggedInfoCalls.length = 0;
 });
 
 // ---------------------------------------------------------------------------
@@ -143,7 +191,10 @@ describe("shouldAttachHostProxyForCapability", () => {
     test("returns false for chrome-extension source even when a capable client is connected", () => {
       setCapableClient("host_app_control", true);
       expect(
-        shouldAttachHostProxyForCapability("host_app_control", "chrome-extension"),
+        shouldAttachHostProxyForCapability(
+          "host_app_control",
+          "chrome-extension",
+        ),
       ).toBe(false);
     });
   });
@@ -154,7 +205,7 @@ describe("shouldAttachHostProxyForCapability", () => {
 // ---------------------------------------------------------------------------
 
 describe("preactivateHostProxySkills", () => {
-  test("no-ops when sourceInterface is undefined", () => {
+  test("preactivates no skills when sourceInterface is undefined", () => {
     const target = makeTarget();
     preactivateHostProxySkills(target, undefined);
     expect(target.preactivatedSkillIds).toEqual([]);
@@ -207,5 +258,141 @@ describe("preactivateHostProxySkills", () => {
     const target = makeTarget();
     preactivateHostProxySkills(target, "chrome-extension");
     expect(target.preactivatedSkillIds).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// evaluateHostProxyAttachment — reason coverage
+// ---------------------------------------------------------------------------
+
+describe("evaluateHostProxyAttachment", () => {
+  test("returns denied_no_interface when sourceInterface is undefined", () => {
+    expect(evaluateHostProxyAttachment("host_cu", undefined)).toEqual({
+      shouldAttach: false,
+      reason: "denied_no_interface",
+    });
+  });
+
+  test("returns native_support for macos + host_cu", () => {
+    expect(evaluateHostProxyAttachment("host_cu", "macos")).toEqual({
+      shouldAttach: true,
+      reason: "native_support",
+    });
+  });
+
+  test("returns denied_chrome_extension for chrome-extension source even when capable clients exist", () => {
+    setCapableClient("host_cu", true);
+    expect(evaluateHostProxyAttachment("host_cu", "chrome-extension")).toEqual({
+      shouldAttach: false,
+      reason: "denied_chrome_extension",
+    });
+  });
+
+  test("returns cross_client with clientCount when a capable client is connected", () => {
+    setCapableClient("host_cu", true);
+    expect(evaluateHostProxyAttachment("host_cu", "web")).toEqual({
+      shouldAttach: true,
+      reason: "cross_client",
+      clientCount: 1,
+    });
+  });
+
+  test("returns denied_no_clients with clientCount 0 when no capable client is connected", () => {
+    setCapableClient("host_cu", false);
+    expect(evaluateHostProxyAttachment("host_cu", "web")).toEqual({
+      shouldAttach: false,
+      reason: "denied_no_clients",
+      clientCount: 0,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// preactivateHostProxySkills — structured logging
+// ---------------------------------------------------------------------------
+
+describe("preactivateHostProxySkills logging", () => {
+  test("emits exactly one info log per call", () => {
+    const target = makeTarget();
+    preactivateHostProxySkills(target, "macos");
+    expect(loggedInfoCalls).toHaveLength(1);
+    expect(loggedInfoCalls[0].message).toBe(
+      "host-proxy preactivation decision",
+    );
+  });
+
+  test("log includes conversationId, sourceInterface, per-capability decisions, and preactivatedSkillIds for macos", () => {
+    const target = makeTarget("conv-macos-123");
+    preactivateHostProxySkills(target, "macos");
+
+    expect(loggedInfoCalls).toHaveLength(1);
+    const { fields } = loggedInfoCalls[0];
+    expect(fields.conversationId).toBe("conv-macos-123");
+    expect(fields.sourceInterface).toBe("macos");
+    expect(fields.decisions).toEqual({
+      host_cu: { shouldAttach: true, reason: "native_support" },
+      host_app_control: { shouldAttach: true, reason: "native_support" },
+    });
+    expect(fields.preactivatedSkillIds).toEqual([
+      "computer-use",
+      "app-control",
+    ]);
+  });
+
+  test("log captures denied_no_interface for undefined sourceInterface (silent-gate diagnostic)", () => {
+    const target = makeTarget("conv-no-interface");
+    preactivateHostProxySkills(target, undefined);
+
+    expect(loggedInfoCalls).toHaveLength(1);
+    const { fields } = loggedInfoCalls[0];
+    expect(fields.conversationId).toBe("conv-no-interface");
+    expect(fields.sourceInterface).toBeUndefined();
+    expect(fields.decisions).toEqual({
+      host_cu: { shouldAttach: false, reason: "denied_no_interface" },
+      host_app_control: { shouldAttach: false, reason: "denied_no_interface" },
+    });
+    expect(fields.preactivatedSkillIds).toEqual([]);
+  });
+
+  test("log captures cross_client + clientCount when a web source has a connected host_cu client", () => {
+    setCapableClient("host_cu", true);
+    const target = makeTarget();
+    preactivateHostProxySkills(target, "web");
+
+    expect(loggedInfoCalls).toHaveLength(1);
+    const decisions = loggedInfoCalls[0].fields.decisions as Record<
+      string,
+      unknown
+    >;
+    expect(decisions.host_cu).toEqual({
+      shouldAttach: true,
+      reason: "cross_client",
+      clientCount: 1,
+    });
+    expect(decisions.host_app_control).toEqual({
+      shouldAttach: false,
+      reason: "denied_no_clients",
+      clientCount: 0,
+    });
+    expect(loggedInfoCalls[0].fields.preactivatedSkillIds).toEqual([
+      "computer-use",
+    ]);
+  });
+
+  test("log captures denied_chrome_extension reason for chrome-extension source", () => {
+    setCapableClient("host_cu", true);
+    const target = makeTarget();
+    preactivateHostProxySkills(target, "chrome-extension");
+
+    expect(loggedInfoCalls).toHaveLength(1);
+    const decisions = loggedInfoCalls[0].fields.decisions as Record<
+      string,
+      unknown
+    >;
+    expect(decisions.host_cu).toEqual({
+      shouldAttach: false,
+      reason: "denied_chrome_extension",
+    });
+    expect(loggedInfoCalls[0].fields.preactivatedSkillIds).toEqual([]);
   });
 });

@@ -71,6 +71,13 @@ mock.module("../memory/v2/skill-store.js", () => ({
   },
 }));
 
+// Mock the sibling CLI-command seeder so `rebuildBm25CorpusStatsAndReseedSkills`
+// (which runs both reseeds in parallel) does not invoke the real Qdrant-backed
+// implementation and emit warnings that break the no-warnings assertions below.
+mock.module("../memory/v2/cli-command-store.js", () => ({
+  seedV2CliCommandEntries: async (): Promise<void> => {},
+}));
+
 mock.module("../memory/v2/qdrant.js", () => ({
   ensureConceptPageCollection: async (): Promise<{ migrated: boolean }> => {
     state.ensureCollectionCallCount += 1;
@@ -312,10 +319,10 @@ describe("rebuildBm25CorpusStatsAndReseedSkills", () => {
     expect(state.warnCalls).toHaveLength(0);
   });
 
-  test("builds corpus stats but skips skill reseed when v2 is disabled", async () => {
+  test("skips both corpus stats and skill reseed when v2 is disabled", async () => {
     await rebuildBm25CorpusStatsAndReseedSkills(makeConfig(false));
 
-    expect(state.corpusStatsBuildCount).toBe(1);
+    expect(state.corpusStatsBuildCount).toBe(0);
     expect(state.seedCallCount).toBe(0);
     expect(state.warnCalls).toHaveLength(0);
   });

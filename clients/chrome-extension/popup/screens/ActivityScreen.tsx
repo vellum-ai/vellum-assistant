@@ -58,15 +58,24 @@ export function ActivityScreen({
       ) : (
         <div className="flex flex-col gap-0.5">
           {sorted.map((op) => {
-            const iconClass = op.respondedAt
-              ? op.isError ? 'bg-danger-soft text-danger' : 'bg-success-soft text-success'
-              : 'bg-warning-soft text-warning';
-            const iconSymbol = op.respondedAt
-              ? op.isError ? '✗' : '✓'
-              : '⋯';
+            const hasCallbackFailure = op.callbackStatus !== undefined;
+            const iconClass = hasCallbackFailure
+              ? 'bg-danger-soft text-danger'
+              : op.respondedAt
+                ? op.isError ? 'bg-danger-soft text-danger' : 'bg-success-soft text-success'
+                : 'bg-warning-soft text-warning';
+            const iconSymbol = hasCallbackFailure
+              ? '!'
+              : op.respondedAt
+                ? op.isError ? '✗' : '✓'
+                : '⋯';
 
             const durationText = op.durationMs != null
               ? ` · ${formatDuration(op.durationMs)}`
+              : '';
+
+            const callbackText = hasCallbackFailure
+              ? ` · POST ${op.callbackStatus === 0 ? 'dropped' : op.callbackStatus}`
               : '';
 
             return (
@@ -89,6 +98,7 @@ export function ActivityScreen({
                     {formatTime(op.requestedAt)}
                     {durationText}
                     {op.isError ? ' · Error' : ''}
+                    {callbackText}
                   </p>
                 </div>
                 <svg

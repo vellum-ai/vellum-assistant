@@ -145,6 +145,30 @@ final class FeedItemCodingTests: XCTestCase {
         XCTAssertNil(item.noteworthy)
     }
 
+    /// The daemon omits `title` when the source did not supply one (e.g.
+    /// `notifications send` without `--title`) so it never echoes the
+    /// LLM-rendered body into the title. Codable's synthesized decoder
+    /// must accept the missing key and leave `title == nil`.
+    func testDecodesWithMissingTitle() throws {
+        let json = Data(
+            """
+            {
+              "id": "notif-no-title",
+              "type": "notification",
+              "priority": 50,
+              "summary": "hi husband. thinking about you",
+              "timestamp": "2026-04-14T10:00:00Z",
+              "status": "new",
+              "createdAt": "2026-04-14T10:00:00Z"
+            }
+            """.utf8
+        )
+
+        let item = try decoder.decode(FeedItem.self, from: json)
+        XCTAssertNil(item.title)
+        XCTAssertEqual(item.summary, "hi husband. thinking about you")
+    }
+
     // MARK: - Noteworthy flag (PR 9)
 
     /// Synthesized `Codable` handles the optional `noteworthy: Bool?`

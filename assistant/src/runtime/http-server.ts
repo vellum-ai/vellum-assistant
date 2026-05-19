@@ -28,6 +28,8 @@ import {
 import { isHttpAuthDisabled } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
+import { createApprovalCopyGenerator } from "../daemon/approval-generators.js";
+import { createGuardianActionCopyGenerator } from "../daemon/guardian-action-generators.js";
 import { processMessage } from "../daemon/process-message.js";
 import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
 import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
@@ -96,10 +98,8 @@ import { matchSkillRoute } from "./skill-route-registry.js";
 export { isPrivateAddress } from "./middleware/auth.js";
 
 import type {
-  ApprovalConversationGenerator,
   ApprovalCopyGenerator,
   GuardianActionCopyGenerator,
-  GuardianFollowUpConversationGenerator,
   RuntimeHttpServerOptions,
 } from "./http-types.js";
 
@@ -161,10 +161,8 @@ export class RuntimeHttpServer {
   private port: number;
   private hostname: string;
 
-  private approvalCopyGenerator?: ApprovalCopyGenerator;
-  private approvalConversationGenerator?: ApprovalConversationGenerator;
-  private guardianActionCopyGenerator?: GuardianActionCopyGenerator;
-  private guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
+  private readonly approvalCopyGenerator: ApprovalCopyGenerator;
+  private readonly guardianActionCopyGenerator: GuardianActionCopyGenerator;
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
 
@@ -175,11 +173,8 @@ export class RuntimeHttpServer {
     this.port = options.port ?? DEFAULT_PORT;
     this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
 
-    this.approvalCopyGenerator = options.approvalCopyGenerator;
-    this.approvalConversationGenerator = options.approvalConversationGenerator;
-    this.guardianActionCopyGenerator = options.guardianActionCopyGenerator;
-    this.guardianFollowUpConversationGenerator =
-      options.guardianFollowUpConversationGenerator;
+    this.approvalCopyGenerator = createApprovalCopyGenerator();
+    this.guardianActionCopyGenerator = createGuardianActionCopyGenerator();
     this.liveVoiceSessionManager = new LiveVoiceSessionManager({
       createSession: (context) => createLiveVoiceSession(context),
     });
@@ -560,11 +555,7 @@ export class RuntimeHttpServer {
       const endpoint = url.pathname.slice("/v1/".length).replace(/\/$/, "");
       meta = this.router.findLoggingMetadata(req.method, endpoint) ?? undefined;
     }
-    return withRequestLogging(
-      req,
-      () => this.routeRequest(req, server),
-      meta,
-    );
+    return withRequestLogging(req, () => this.routeRequest(req, server), meta);
   }
 
   private async routeRequest(

@@ -1,0 +1,654 @@
+/**
+ * SSE event type definitions for the assistant chat stream.
+ *
+ * Contains all event interfaces, the discriminated `AssistantEvent` union,
+ * and supporting types (tool calls, messages, confirmation decisions, etc.)
+ * consumed by event-parser.ts and the stream handler domain modules.
+ */
+
+import type { DiskPressureStatus } from "@/lib/assistants/types.js";
+import type { Surface } from "@/domains/chat/lib/types.js";
+import type { SyncChangedEvent } from "@/lib/sync/types.js";
+
+/** Data needed to render an inline permission prompt inside a ToolCallChip. */
+export interface PendingToolConfirmation {
+  requestId: string;
+  title?: string;
+  description?: string;
+  toolName?: string;
+  riskLevel?: string;
+  riskReason?: string;
+  input?: Record<string, unknown>;
+  allowlistOptions?: AllowlistOption[];
+  scopeOptions?: ScopeOption[];
+  directoryScopeOptions?: DirectoryScopeOption[];
+  persistentDecisionsAllowed?: boolean;
+}
+
+export interface ChatMessageToolCall {
+  id: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  status: "running" | "completed" | "error";
+  result?: string;
+  isError?: boolean;
+  riskLevel?: string;
+  riskReason?: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
+  /** How the approval decision was reached: "prompted" | "auto" | "blocked" | "unknown". */
+  approvalMode?: string;
+  /** Why the approval decision was reached (stable enum for client display). */
+  approvalReason?: string;
+  /** Snapshot of the auto-approve threshold at execution time. */
+  riskThreshold?: string;
+  allowlistOptions?: AllowlistOption[];
+  scopeOptions?: ScopeOption[];
+  directoryScopeOptions?: DirectoryScopeOption[];
+  pendingConfirmation?: PendingToolConfirmation | null;
+  workingDir?: string;
+  /** ms since epoch, set locally when tool_use_start SSE event arrives */
+  startedAt?: number;
+  /** ms since epoch, set locally when tool_result SSE event arrives */
+  completedAt?: number;
+  /** Explicit decision made during the confirmation flow ("approved" | "denied" | "timed_out"). */
+  confirmationDecision?: "approved" | "denied" | "timed_out";
+}
+
+export interface ChatMessage {
+  id?: string;
+  role: "user" | "assistant";
+  content: string;
+  surfaces?: Surface[];
+  textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
+  contentOrder?: Array<{ type: string; id: string }>;
+  metadata?: Record<string, unknown>;
+  toolCalls?: ChatMessageToolCall[];
+  /** Server-provided timestamp in milliseconds since epoch. */
+  timestamp?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Runtime event types
+// ---------------------------------------------------------------------------
+
+export interface AssistantTextDeltaEvent {
+  type: "assistant_text_delta";
+  text: string;
+  messageId?: string;
+  conversationKey?: string;
+}
+
+/** An attachment emitted by the assistant alongside a completed message. */
+export interface AssistantOutboundAttachment {
+  id?: string;
+  filename: string;
+  mimeType: string;
+  /** Base64-encoded file data. May be empty when `fileBacked` is true. */
+  data: string;
+  sourceType?: "sandbox_file" | "host_file" | "tool_block";
+  sizeBytes?: number;
+  thumbnailData?: string;
+  fileBacked?: boolean;
+}
+
+export interface MessageCompleteEvent {
+  type: "message_complete";
+  messageId?: string;
+  displayMessageId?: string;
+  content?: string;
+  conversationKey?: string;
+  attachments?: AssistantOutboundAttachment[];
+}
+
+export interface GenerationHandoffEvent {
+  type: "generation_handoff";
+  messageId?: string;
+  displayMessageId?: string;
+  conversationKey?: string;
+  attachments?: AssistantOutboundAttachment[];
+}
+
+export interface StreamErrorEvent {
+  type: "error";
+  code?: string;
+  errorCategory?: string;
+  message: string;
+  conversationKey?: string;
+}
+
+export interface SecretRequestEvent {
+  type: "secret_request";
+  requestId: string;
+  service?: string;
+  field?: string;
+  label?: string;
+  description?: string;
+  placeholder?: string;
+  allowOneTimeSend?: boolean;
+  allowedTools?: string[];
+  allowedDomains?: string[];
+  purpose?: string;
+  conversationKey?: string;
+}
+
+/** Valid decisions accepted by the assistant runtime's POST /v1/confirm endpoint. */
+export type ConfirmationDecision = "allow" | "deny";
+
+export interface AllowlistOption {
+  /** Short display label for the radio row in the rule editor. */
+  label: string;
+  /**
+   * Optional longer-form description shown beneath/alongside the label.
+   * Daemon includes this on `riskAllowlistOptions` (shared with macOS); the
+   * web modal renders the label today and may surface description later.
+   */
+  description?: string;
+  /**
+   * Minimatch-glob compatible pattern saved as the trust rule's `pattern`
+   * field. The gateway matches incoming tool calls against this string —
+   * it is NOT a regex despite some legacy emit sites prefixing with `^`.
+   * See `gateway/src/risk/bash-risk-classifier.ts` for the matching contract.
+   */
+  pattern: string;
+}
+
+export interface ScopeOption {
+  label: string;
+  scope: string;
+}
+
+export interface DirectoryScopeOption {
+  label: string;
+  scope: string;
+}
+
+export interface ConfirmationRequestEvent {
+  type: "confirmation_request";
+  requestId: string;
+  title?: string;
+  description?: string;
+  confirmLabel?: string;
+  denyLabel?: string;
+  conversationKey?: string;
+  toolName?: string;
+  executionTarget?: string;
+  riskLevel?: string;
+  riskReason?: string;
+  allowlistOptions?: AllowlistOption[];
+  scopeOptions?: ScopeOption[];
+  directoryScopeOptions?: DirectoryScopeOption[];
+  persistentDecisionsAllowed?: boolean;
+  input?: Record<string, unknown>;
+  toolUseId?: string;
+}
+
+export interface ContactRequestEvent {
+  type: "contact_request";
+  requestId: string;
+  /** Suggested channel type hint (e.g. "phone", "email", "telegram"). */
+  channel?: string;
+  placeholder?: string;
+  label?: string;
+  description?: string;
+  /** Suggested role for the new contact. */
+  role?: string;
+  conversationKey?: string;
+}
+
+export interface QuestionOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface QuestionEntry {
+  id: string;
+  question: string;
+  description?: string;
+  options: QuestionOption[];
+  freeTextPlaceholder?: string;
+}
+
+export interface QuestionRequestEvent {
+  type: "question_request";
+  requestId: string;
+  /** New shape — present when the daemon ships the batched-questions PR. */
+  questions?: QuestionEntry[];
+  /** Legacy flat fields — still emitted by older daemons. */
+  question?: string;
+  description?: string;
+  options?: QuestionOption[];
+  freeTextPlaceholder?: string;
+  conversationKey?: string;
+  toolUseId?: string;
+}
+
+export type QuestionResponseEntry =
+  | { questionId: string; kind: "option"; optionId: string }
+  | { questionId: string; kind: "free_text"; text: string }
+  | { questionId: string; kind: "skip" };
+
+export type QuestionSubmission =
+  | { kind: "submit"; responses: QuestionResponseEntry[] }
+  | { kind: "close" };
+
+export function normalizeQuestionRequest(
+  event: QuestionRequestEvent,
+): QuestionEntry[] {
+  if (event.questions && event.questions.length > 0) {
+    return event.questions.map((entry, i) => ({
+      id:
+        typeof entry.id === "string" && entry.id.trim() !== ""
+          ? entry.id
+          : `q${i + 1}`,
+      question: entry.question ?? "",
+      description: entry.description,
+      options: Array.isArray(entry.options) ? entry.options : [],
+      freeTextPlaceholder: entry.freeTextPlaceholder,
+    }));
+  }
+  const hasLegacyFields =
+    event.question !== undefined ||
+    event.options !== undefined ||
+    event.description !== undefined ||
+    event.freeTextPlaceholder !== undefined;
+  if (hasLegacyFields) {
+    return [
+      {
+        id: "q1",
+        question: event.question ?? "",
+        description: event.description,
+        options: Array.isArray(event.options) ? event.options : [],
+        freeTextPlaceholder: event.freeTextPlaceholder,
+      },
+    ];
+  }
+  return [];
+}
+
+export interface UISurfaceShowEvent {
+  type: "ui_surface_show";
+  surfaceId: string;
+  surfaceType: string;
+  title?: string;
+  data: Record<string, unknown>;
+  actions?: Array<{ id: string; label: string; style?: string; data?: Record<string, unknown> }>;
+  display?: "inline" | "panel";
+  messageId?: string;
+  conversationKey?: string;
+}
+
+export interface UISurfaceUpdateEvent {
+  type: "ui_surface_update";
+  surfaceId: string;
+  data: Record<string, unknown>;
+  conversationKey?: string;
+}
+
+export interface UISurfaceDismissEvent {
+  type: "ui_surface_dismiss";
+  surfaceId: string;
+  conversationKey?: string;
+}
+
+export interface UISurfaceCompleteEvent {
+  type: "ui_surface_complete";
+  surfaceId: string;
+  summary: string;
+  submittedData?: Record<string, unknown>;
+  conversationKey?: string;
+}
+
+export interface ToolUseStartEvent {
+  type: "tool_use_start";
+  toolName: string;
+  input: Record<string, unknown>;
+  toolUseId?: string;
+  conversationKey?: string;
+}
+
+export interface ToolResultEvent {
+  type: "tool_result";
+  toolName: string;
+  result: string;
+  isError?: boolean;
+  toolUseId?: string;
+  conversationKey?: string;
+  riskLevel?: string;
+  riskReason?: string;
+  matchedTrustRuleId?: string;
+  approvalMode?: string;
+  approvalReason?: string;
+  riskThreshold?: string;
+  allowlistOptions?: AllowlistOption[];
+  scopeOptions?: ScopeOption[];
+  directoryScopeOptions?: DirectoryScopeOption[];
+}
+
+/**
+ * Periodic usage update emitted by the daemon with token counts for the
+ * current conversation. `contextWindowTokens` / `contextWindowMaxTokens`
+ * reflect the size of the most recent model request (input + cached tokens)
+ * and the model's max input window. Either may be absent if unknown.
+ */
+export interface UsageUpdateEvent {
+  type: "usage_update";
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  contextWindowTokens?: number;
+  contextWindowMaxTokens?: number;
+  conversationKey?: string;
+}
+
+export interface GenerationCancelledEvent {
+  type: "generation_cancelled";
+  conversationKey?: string;
+}
+
+/**
+ * Server-side assistant activity lifecycle for thinking-indicator placement
+ * and turn-state recovery.
+ *
+ * The daemon emits one of these whenever the conversation transitions
+ * between activity phases (`thinking`, `streaming`, `tool_running`,
+ * `awaiting_confirmation`, `idle`). The `idle` phase is always terminal
+ * for the active turn — daemon emit sites use it only with reason
+ * `message_complete`, `generation_cancelled`, or `error_terminal`.
+ *
+ * `activityVersion` is monotonically increasing per conversation. Clients
+ * must ignore events with a version older than the highest already
+ * observed for that conversation.
+ *
+ * Mirrors `AssistantActivityState` in the daemon's
+ * `assistant/src/daemon/message-types/messages.ts`.
+ */
+export type AssistantActivityPhase =
+  | "idle"
+  | "thinking"
+  | "streaming"
+  | "tool_running"
+  | "awaiting_confirmation";
+
+export type AssistantActivityReason =
+  | "message_dequeued"
+  | "thinking_delta"
+  | "first_text_delta"
+  | "tool_use_start"
+  | "preview_start"
+  | "tool_result_received"
+  | "confirmation_requested"
+  | "confirmation_resolved"
+  | "context_compacting"
+  | "message_complete"
+  | "generation_cancelled"
+  | "error_terminal";
+
+export interface AssistantActivityStateEvent {
+  type: "assistant_activity_state";
+  activityVersion: number;
+  phase: AssistantActivityPhase;
+  anchor: "assistant_turn" | "user_turn" | "global";
+  reason: AssistantActivityReason;
+  requestId?: string;
+  statusText?: string;
+  conversationKey?: string;
+}
+
+export interface OpenUrlEvent {
+  type: "open_url";
+  url: string;
+  title?: string;
+  conversationKey?: string;
+}
+
+export interface NavigateSettingsEvent {
+  type: "navigate_settings";
+  tab: string;
+  conversationKey?: string;
+}
+
+export interface HomeFeedUpdatedEvent {
+  type: "home_feed_updated";
+  updatedAt: string;
+  newItemCount: number;
+  conversationKey?: string;
+}
+
+export interface RelationshipStateUpdatedEvent {
+  type: "relationship_state_updated";
+  updatedAt: string;
+  conversationKey?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Subagent event types
+// ---------------------------------------------------------------------------
+
+export type SubagentStatus = "pending" | "running" | "awaiting_input" | "completed" | "failed" | "aborted";
+
+export interface SubagentSpawnedEvent {
+  type: "subagent_spawned";
+  subagentId: string;
+  parentConversationId?: string;
+  label: string;
+  objective: string;
+  isFork?: boolean;
+  conversationKey?: string;
+}
+
+export interface SubagentStatusChangedEvent {
+  type: "subagent_status_changed";
+  subagentId: string;
+  status: SubagentStatus;
+  error?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalCost?: number;
+  conversationKey?: string;
+}
+
+export interface SubagentInnerEvent {
+  type: string;
+  content?: string;
+  /** `assistant_text_delta` events carry text in `text`, not `content`. */
+  text?: string;
+  /** `tool_result` events carry output in `result`, not `content`. */
+  result?: string;
+  /** `tool_use_start` events carry a JSON object with tool arguments. */
+  input?: Record<string, unknown>;
+  toolName?: string;
+  isError?: boolean;
+}
+
+export interface SubagentEventWrapperEvent {
+  type: "subagent_event";
+  subagentId: string;
+  conversationId?: string;
+  event: SubagentInnerEvent;
+  conversationKey?: string;
+}
+
+export interface UnknownEvent {
+  type: "unknown";
+  rawType: string;
+  data: Record<string, unknown>;
+  conversationKey?: string;
+}
+
+/**
+ * Reasons the server may invalidate a client's conversation list — mirrors
+ * `ConversationListInvalidatedReason` on the daemon.
+ */
+export type ConversationListInvalidatedReason =
+  | "created"
+  | "renamed"
+  | "deleted"
+  | "reordered"
+  | "seen_changed";
+
+/**
+ * Server push notifying clients that their sidebar conversation list is
+ * stale and should be refetched (e.g. after a create/rename/delete/reorder
+ * from another client). Global to the assistant — not scoped to a single
+ * conversationKey.
+ */
+export interface ConversationListInvalidatedEvent {
+  type: "conversation_list_invalidated";
+  reason: ConversationListInvalidatedReason;
+  conversationKey?: string;
+}
+
+/**
+ * Server push notifying clients that a single conversation's title has
+ * changed. Emitted on auto-title generation (agent loop, first turn),
+ * auto-title regeneration (after 3 turns), and explicit renames. Clients
+ * should update the matching conversation's title in-place rather than
+ * refetching the whole list.
+ */
+export interface ConversationTitleUpdatedEvent {
+  type: "conversation_title_updated";
+  conversationId: string;
+  title: string;
+  conversationKey?: string;
+}
+
+/**
+ * Server push asking the client to display a native notification. Mirrors
+ * the daemon's `NotificationIntent` message (see
+ * `assistant/src/daemon/message-types/notifications.ts`). The macOS client
+ * turns these into `UNUserNotificationCenter` banners; the web / Capacitor
+ * client turns them into local notifications (Capacitor iOS) or browser
+ * notifications (desktop web).
+ *
+ * `targetGuardianPrincipalId`, when set, scopes the notification to clients
+ * bound to that guardian identity. The web/Capacitor client does not yet
+ * participate in guardian binding, so guardian-scoped notifications are
+ * skipped to avoid leaking them to unintended devices.
+ */
+export interface NotificationIntentEvent {
+  type: "notification_intent";
+  deliveryId?: string;
+  sourceEventName: string;
+  title: string;
+  body: string;
+  deepLinkMetadata?: Record<string, unknown>;
+  targetGuardianPrincipalId?: string;
+  conversationKey?: string;
+}
+
+/** Cache-invalidation signal: refetch identity from the canonical endpoint. */
+export interface IdentityChangedEvent {
+  type: "identity_changed";
+  conversationKey?: string;
+}
+
+/** Broadcast by the daemon when avatar files change on disk. */
+export interface AvatarUpdatedEvent {
+  type: "avatar_updated";
+  conversationKey?: string;
+}
+
+export interface ConversationErrorEvent {
+  type: "conversation_error";
+  conversationId: string;
+  code: string;
+  userMessage: string;
+  retryable: boolean;
+  debugDetails?: string;
+  errorCategory?: string;
+  conversationKey?: string;
+}
+
+export interface CompactionCircuitOpenEvent {
+  type: "compaction_circuit_open";
+  conversationId: string;
+  reason: string;
+  openUntil: number;
+  conversationKey?: string;
+}
+
+export interface CompactionCircuitClosedEvent {
+  type: "compaction_circuit_closed";
+  conversationId: string;
+  conversationKey?: string;
+}
+
+export interface DiskPressureStatusChangedEvent {
+  type: "disk_pressure_status_changed";
+  status: DiskPressureStatus | null;
+  conversationKey?: string;
+}
+
+export interface MessageQueuedEvent {
+  type: "message_queued";
+  requestId: string;
+  position: number;
+  conversationKey?: string;
+}
+
+export interface MessageDequeuedEvent {
+  type: "message_dequeued";
+  requestId: string;
+  conversationKey?: string;
+}
+
+export interface MessageQueuedDeletedEvent {
+  type: "message_queued_deleted";
+  requestId: string;
+  conversationKey?: string;
+}
+
+export interface MessageRequestCompleteEvent {
+  type: "message_request_complete";
+  requestId: string;
+  runStillActive?: boolean;
+  conversationKey?: string;
+}
+
+export interface AssistantSyncChangedEvent extends SyncChangedEvent {
+  conversationKey?: string;
+}
+
+export type AssistantEvent =
+  | AssistantTextDeltaEvent
+  | MessageCompleteEvent
+  | GenerationHandoffEvent
+  | StreamErrorEvent
+  | SecretRequestEvent
+  | ConfirmationRequestEvent
+  | ContactRequestEvent
+  | QuestionRequestEvent
+  | UISurfaceShowEvent
+  | UISurfaceUpdateEvent
+  | UISurfaceDismissEvent
+  | UISurfaceCompleteEvent
+  | ToolUseStartEvent
+  | ToolResultEvent
+  | ConversationListInvalidatedEvent
+  | ConversationTitleUpdatedEvent
+  | NotificationIntentEvent
+  | UsageUpdateEvent
+  | GenerationCancelledEvent
+  | AssistantActivityStateEvent
+  | OpenUrlEvent
+  | NavigateSettingsEvent
+  | IdentityChangedEvent
+  | AvatarUpdatedEvent
+  | ConversationErrorEvent
+  | CompactionCircuitOpenEvent
+  | CompactionCircuitClosedEvent
+  | DiskPressureStatusChangedEvent
+  | MessageQueuedEvent
+  | MessageDequeuedEvent
+  | MessageQueuedDeletedEvent
+  | MessageRequestCompleteEvent
+  | AssistantSyncChangedEvent
+  | HomeFeedUpdatedEvent
+  | RelationshipStateUpdatedEvent
+  | SubagentSpawnedEvent
+  | SubagentStatusChangedEvent
+  | SubagentEventWrapperEvent
+  | UnknownEvent;

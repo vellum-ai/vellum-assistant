@@ -115,3 +115,26 @@ export interface SkillEntry {
   id: string;
   content: string;
 }
+
+// ---------------------------------------------------------------------------
+// CLI-command entries (synthetic concept-collection rows, not on-disk pages)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-CLI-subcommand capability snapshot held in-process and embedded into the
+ * unified `memory_v2_concept_pages` Qdrant collection under the slug
+ * `cli-commands/<name>`. `content` is the full `helpInformation()` output for
+ * the top-level subcommand — the embedding target, intentionally uncapped so
+ * activation hints in flag descriptions and examples carry semantic weight.
+ * `description` is the one-line Commander description, rendered terse in
+ * `### CLI Commands You Can Use` so the injection block stays compact even
+ * for verbose `--help` outputs.
+ *
+ * Plain interface (no Zod) — same in-process-only justification as
+ * `SkillEntry`.
+ */
+export interface CliCommandEntry {
+  id: string;
+  description: string;
+  content: string;
+}
