@@ -520,12 +520,11 @@ export interface AgentLoopConversationContext {
   /** Per-turn snapshot of channelCapabilities, frozen at message-processing start. */
   currentTurnChannelCapabilities?: ChannelCapabilities;
   /**
-   * Per-turn snapshot of the resolved inference-profile override. Read by
+   * Current inference-profile override for this turn. Read by
    * `createToolExecutor` so `ToolContext.overrideProfile` carries the same
-   * profile the agent loop is sending to the provider. Without this, a tool
-   * that spawns nested subagents (e.g. `subagent_spawn`) cannot recover the
-   * override from a row read because the in-flight subagent's own row never
-   * had `inferenceProfile` set.
+   * profile the agent loop is sending to the provider. Refreshed between
+   * model calls so an explicitly confirmed profile session opened mid-turn
+   * is inherited by later tool executions and nested subagents.
    */
   currentTurnOverrideProfile?: string;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
@@ -690,6 +689,10 @@ export async function runAgentLoopImpl(
   // spawned subagent's background conversation) wins over the row read
   // so the agent loop's own background-skip rule doesn't zero out an
   // explicitly inherited override.
+  const readCurrentOverrideProfile = (): string | undefined =>
+    options?.overrideProfile ??
+    getConversationOverrideProfileFromRow(getConversation(ctx.conversationId));
+
   const turnOverrideProfile =
     options?.overrideProfile ??
     getConversationOverrideProfileFromRow(turnStartConversation);
@@ -706,15 +709,43 @@ export async function runAgentLoopImpl(
     }).contextWindow,
     effectiveContextWindow,
   );
-  (
+  const contextWindowManager =
     ctx.contextWindowManager as ContextWindowManager & {
       updateConfig?: (config: ContextWindowConfig) => void;
-    }
-  ).updateConfig?.(turnContextWindowConfig);
+    };
+  contextWindowManager.updateConfig?.(turnContextWindowConfig);
 
-  // Snapshot for `createToolExecutor` to read into `ToolContext.overrideProfile`
-  // — see field doc on `AgentLoopConversationContext` for why the tool needs
-  // it (nested subagent spawns can't recover the override from a row read).
+  let appliedOverrideProfile = turnOverrideProfile;
+  const resolveCurrentOverrideProfile = (): string | undefined => {
+    const currentOverrideProfile = readCurrentOverrideProfile();
+    if (currentOverrideProfile !== appliedOverrideProfile) {
+      const latestEffectiveContextWindow = resolveEffectiveContextWindow({
+        llm: config.llm,
+        callSite: turnCallSite,
+        overrideProfile: currentOverrideProfile,
+      });
+      contextWindowManager.updateConfig?.(
+        contextWindowConfigFromEffective(
+          resolveCallSiteConfig(turnCallSite, config.llm, {
+            overrideProfile: currentOverrideProfile,
+          }).contextWindow,
+          latestEffectiveContextWindow,
+        ),
+      );
+      appliedOverrideProfile = currentOverrideProfile;
+      rlog.info(
+        { overrideProfile: currentOverrideProfile ?? null },
+        "Turn inference profile changed mid-loop",
+      );
+    }
+    ctx.currentTurnOverrideProfile = currentOverrideProfile;
+    return currentOverrideProfile;
+  };
+
+  // Initial value for `createToolExecutor` to read into
+  // `ToolContext.overrideProfile`. `resolveCurrentOverrideProfile` refreshes
+  // this between model calls so a confirmed profile session opened by a tool
+  // applies to later tool executions and nested subagents in the same turn.
   ctx.currentTurnOverrideProfile = turnOverrideProfile;
 
   // Capture the turn channel context *before* any awaits so a second
@@ -2126,6 +2157,7 @@ export async function runAgentLoopImpl(
       loopTurnCtx,
       turnOverrideProfile,
       effectiveContextWindow.maxInputTokens,
+      resolveCurrentOverrideProfile,
     );
 
     rlog.info(
@@ -2279,6 +2311,7 @@ export async function runAgentLoopImpl(
         loopTurnCtx,
         turnOverrideProfile,
         effectiveContextWindow.maxInputTokens,
+        resolveCurrentOverrideProfile,
       );
     }
 
@@ -2336,6 +2369,7 @@ export async function runAgentLoopImpl(
         loopTurnCtx,
         turnOverrideProfile,
         effectiveContextWindow.maxInputTokens,
+        resolveCurrentOverrideProfile,
       );
 
       if (state.orderingErrorDetected) {
@@ -2405,6 +2439,7 @@ export async function runAgentLoopImpl(
         loopTurnCtx,
         turnOverrideProfile,
         effectiveContextWindow.maxInputTokens,
+        resolveCurrentOverrideProfile,
       );
       if (state.imageTooLargeDetected) {
         rlog.error(
@@ -2667,6 +2702,7 @@ export async function runAgentLoopImpl(
           loopTurnCtx,
           turnOverrideProfile,
           effectiveContextWindow.maxInputTokens,
+          resolveCurrentOverrideProfile,
         );
 
         // If the rerun still yields at checkpoint, the turn is still
@@ -2828,6 +2864,7 @@ export async function runAgentLoopImpl(
             loopTurnCtx,
             turnOverrideProfile,
             effectiveContextWindow.maxInputTokens,
+            resolveCurrentOverrideProfile,
           );
         }
         // action === "fail_gracefully" falls through to the final error below

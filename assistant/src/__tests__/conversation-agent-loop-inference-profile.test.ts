@@ -350,11 +350,15 @@ import {
 
 // Captures every positional argument the loop passes to `agentLoop.run`.
 // The 8th positional argument is the per-turn `overrideProfile`, which is
-// what these tests assert on.
+// what most tests assert on. The 10th positional argument re-resolves that
+// profile between provider calls.
 interface CapturedAgentLoopRun {
   callSite: LLMCallSite | undefined;
   overrideProfile: string | undefined;
+  resolvedOverrideProfile: string | undefined;
 }
+
+let mutateBeforeResolveOverrideProfile: (() => void) | undefined;
 
 function makeCtx(
   captured: CapturedAgentLoopRun[],
@@ -371,8 +375,15 @@ function makeCtx(
     callSite?: LLMCallSite,
     _turnContext?: unknown,
     overrideProfile?: string,
+    _effectiveMaxInputTokens?: number,
+    resolveOverrideProfile?: () => string | undefined,
   ): Promise<Message[]> => {
-    captured.push({ callSite, overrideProfile });
+    mutateBeforeResolveOverrideProfile?.();
+    captured.push({
+      callSite,
+      overrideProfile,
+      resolvedOverrideProfile: resolveOverrideProfile?.(),
+    });
     return [
       ...messages,
       {
@@ -511,6 +522,7 @@ beforeEach(() => {
     totalEstimatedCost: 0,
     title: null,
   };
+  mutateBeforeResolveOverrideProfile = undefined;
   resetPluginRegistryAndRegisterDefaults();
 });
 
@@ -630,5 +642,35 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     for (const call of captured) {
       expect(call.overrideProfile).toBe("fast");
     }
+  });
+
+  test("re-resolves inferenceProfile when a tool changes it mid-turn", async () => {
+    mockConversationRow = {
+      id: "conv-1",
+      conversationType: "standard",
+      inferenceProfile: null,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      title: null,
+    };
+    mutateBeforeResolveOverrideProfile = () => {
+      mockConversationRow = {
+        ...mockConversationRow!,
+        inferenceProfile: "quality-optimized",
+      };
+    };
+
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured);
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+    expect(captured.length).toBeGreaterThan(0);
+    expect(captured[0].overrideProfile).toBeUndefined();
+    expect(captured[0].resolvedOverrideProfile).toBe("quality-optimized");
+    expect(ctx.currentTurnOverrideProfile).toBeUndefined();
   });
 });

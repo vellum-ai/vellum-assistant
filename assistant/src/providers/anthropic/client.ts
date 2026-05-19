@@ -927,8 +927,9 @@ export class AnthropicProvider implements Provider {
 
       // Thinking blocks are stripped at rest by DB migration 209 so
       // historical messages are clean when loaded. Within a turn,
-      // assistant messages have original thinking with valid signatures
-      // — the API accepts them. No provider-side stripping needed.
+      // Anthropic-native assistant messages have original thinking with
+      // valid signatures — the API accepts them. Non-Anthropic providers can
+      // emit unsigned thinking blocks, which `toAnthropicBlockSafe` drops.
 
       sentMessages = ensureToolPairing(
         repairOrphanedServerToolBlocks(formatted),
@@ -1544,6 +1545,9 @@ export class AnthropicProvider implements Provider {
       case "text":
         return { type: "text", text: block.text };
       case "thinking":
+        if (!block.signature) {
+          return null;
+        }
         return {
           type: "thinking",
           thinking: block.thinking,
