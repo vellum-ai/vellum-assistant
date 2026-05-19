@@ -173,6 +173,52 @@ function shellWords(command: string): string[] {
 }
 
 /** Container name suffix differentiates Hermes from Vellum runs side-by-side. */
+/**
+ * The set of `hermes events --json` event types whose `text` or `chunk`
+ * field carries assistant transcript content. Hermes streams a slightly
+ * different taxonomy than Vellum — `message_chunk` is the cross-species
+ * incremental-text event; `assistant_text_delta` is also accepted in
+ * case a Hermes build adopts that naming. Everything else (user-message
+ * echoes, tool events, thinking, errors, status) is preserved on the
+ * stream but stripped of its stringy payload so it can't be misread as
+ * transcript text.
+ */
+const HERMES_ASSISTANT_TRANSCRIPT_EVENT_TYPES = new Set([
+  "message_chunk",
+  "assistant_text_delta",
+]);
+
+/**
+ * Wrap a raw `parseNdjson<AgentEvent>` stream from `hermes events --json`
+ * with a normalization step that clears `text` and `chunk` on events
+ * that aren't assistant transcript. Mirror of
+ * `normalizeVellumEventStream` — same shape, species-specific allowlist.
+ *
+ * Exported for unit tests.
+ */
+export async function* normalizeHermesEventStream(
+  source: AsyncIterable<AgentEvent>,
+): AsyncIterable<AgentEvent> {
+  for await (const event of source) {
+    const type = event.message?.type;
+    if (
+      typeof type === "string" &&
+      HERMES_ASSISTANT_TRANSCRIPT_EVENT_TYPES.has(type)
+    ) {
+      yield event;
+      continue;
+    }
+    yield {
+      ...event,
+      message: {
+        ...event.message,
+        text: undefined,
+        chunk: undefined,
+      },
+    };
+  }
+}
+
 function hermesContainerName(runId: string): string {
   return `${runId}-hermes`;
 }
@@ -322,7 +368,13 @@ export class HermesAgent implements BaseAgent {
       this.conversationKey,
       "--json",
     ]);
-    return parseNdjson<AgentEvent>(this.eventsProcess.stdout);
+    // Normalize the species-specific event stream at the adapter
+    // boundary so the runner can treat `event.message.text` /
+    // `event.message.chunk` as "assistant transcript text, or
+    // undefined" without knowing the Hermes daemon's event taxonomy.
+    return normalizeHermesEventStream(
+      parseNdjson<AgentEvent>(this.eventsProcess.stdout),
+    );
   }
 
   async shutdown(): Promise<void> {

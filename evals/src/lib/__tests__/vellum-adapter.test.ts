@@ -2,7 +2,8 @@ import { resolve } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
-import { VellumAgent } from "../adapters/vellum";
+import type { AgentEvent } from "../adapter";
+import { VellumAgent, normalizeVellumEventStream } from "../adapters/vellum";
 import type { Profile } from "../profile";
 import type {
   CommandResult,
@@ -302,5 +303,118 @@ describe("VellumAgent", () => {
         "preexisting",
       ],
     ]);
+  });
+});
+
+async function collect(
+  source: AsyncIterable<AgentEvent>,
+): Promise<AgentEvent[]> {
+  const out: AgentEvent[] = [];
+  for await (const event of source) out.push(event);
+  return out;
+}
+
+function source(events: AgentEvent[]): AsyncIterable<AgentEvent> {
+  return (async function* () {
+    for (const event of events) yield event;
+  })();
+}
+
+describe("normalizeVellumEventStream", () => {
+  test("passes through assistant_text_delta events unchanged", async () => {
+    const out = await collect(
+      normalizeVellumEventStream(
+        source([
+          { message: { type: "assistant_text_delta", text: "hello" } },
+          { message: { type: "assistant_text_delta", text: " world" } },
+        ]),
+      ),
+    );
+    expect(out).toEqual([
+      { message: { type: "assistant_text_delta", text: "hello" } },
+      { message: { type: "assistant_text_delta", text: " world" } },
+    ]);
+  });
+
+  test("passes through message_chunk events unchanged", async () => {
+    const out = await collect(
+      normalizeVellumEventStream(
+        source([{ message: { type: "message_chunk", chunk: "hi" } }]),
+      ),
+    );
+    expect(out).toEqual([{ message: { type: "message_chunk", chunk: "hi" } }]);
+  });
+
+  test("strips text on user_message_echo (the iter-2 echo bug)", async () => {
+    // The exact failure mode from the iter-2 timeline-recall eval: the
+    // Vellum daemon broadcasts `user_message_echo` with the user's own
+    // outbound on `message.text`. A naive `text ?? chunk` in the runner
+    // captured it as the assistant's first reply, 72 ms after send.
+    // Adapter-level normalization must clear `text` so it can never
+    // land as transcript.
+    const out = await collect(
+      normalizeVellumEventStream(
+        source([
+          {
+            message: {
+              type: "user_message_echo",
+              text: "What date did I mention my partner's peanut allergy?",
+            },
+          },
+        ]),
+      ),
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]?.message.type).toBe("user_message_echo");
+    expect(out[0]?.message.text).toBeUndefined();
+    expect(out[0]?.message.chunk).toBeUndefined();
+  });
+
+  test("strips text/chunk on tool, thinking, error, complete, usage events but preserves them on the stream", async () => {
+    const out = await collect(
+      normalizeVellumEventStream(
+        source([
+          { message: { type: "tool_use_start", toolName: "shell" } },
+          { message: { type: "tool_input_delta", content: '{"cmd": "ls' } },
+          { message: { type: "tool_output_chunk", chunk: "file.txt" } },
+          { message: { type: "assistant_thinking_delta", thinking: "hmm" } },
+          { message: { type: "error", message: "boom" } },
+          { message: { type: "message_complete" } },
+          {
+            message: {
+              type: "assistant_usage",
+              provider: "anthropic",
+              model: "claude-sonnet-4-5",
+              input_tokens: 100,
+              output_tokens: 50,
+            },
+          },
+        ]),
+      ),
+    );
+    expect(out).toHaveLength(7);
+    for (const event of out) {
+      expect(event.message.text).toBeUndefined();
+      expect(event.message.chunk).toBeUndefined();
+    }
+    // Other fields preserved so the artifact log + metrics layer can
+    // still inspect tool args / thinking / usage records.
+    expect(out[0]?.message.toolName).toBe("shell");
+    expect(out[3]?.message.thinking).toBe("hmm");
+    expect(out[6]?.message.input_tokens).toBe(100);
+  });
+
+  test("strips when `type` field is missing or non-string (defensive — unknown shapes shouldn't slip through as transcript)", async () => {
+    const out = await collect(
+      normalizeVellumEventStream(
+        source([
+          { message: { type: "", text: "nope" } },
+          // @ts-expect-error -- intentionally malformed
+          { message: { text: "also nope" } },
+        ]),
+      ),
+    );
+    expect(out[0]?.message.text).toBeUndefined();
+    expect(out[1]?.message.text).toBeUndefined();
   });
 });

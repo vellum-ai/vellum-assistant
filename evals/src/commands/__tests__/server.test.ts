@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { handleRequest } from "../server";
+import {
+  handleRequest,
+  openInBrowser,
+  resolveBrowserCommand,
+  startReportServer,
+} from "../server";
 import {
   ensureRunArtifacts,
   writeMetricResults,
@@ -144,5 +149,84 @@ describe("evals server routing", () => {
     await seedRun({ sessionId, profileId: "p1", testId: "t1" });
     const res = await handleRequest(req(`/sessions/${sessionId}/`));
     expect(res.status).toBe(200);
+  });
+});
+
+describe("resolveBrowserCommand", () => {
+  test("darwin uses `open`", () => {
+    const { command, args } = resolveBrowserCommand(
+      "darwin",
+      "http://127.0.0.1:3005/sessions/x",
+    );
+    expect(command).toBe("open");
+    expect(args).toEqual(["http://127.0.0.1:3005/sessions/x"]);
+  });
+
+  test("win32 uses `cmd /c start` with an empty title arg", () => {
+    const { command, args } = resolveBrowserCommand(
+      "win32",
+      "http://127.0.0.1:3005/sessions/x",
+    );
+    expect(command).toBe("cmd");
+    // The empty `""` title arg prevents URLs with `&` from being
+    // misparsed as window titles by `start`. Keep it second.
+    expect(args).toEqual([
+      "/c",
+      "start",
+      '""',
+      "http://127.0.0.1:3005/sessions/x",
+    ]);
+  });
+
+  test("linux uses `xdg-open`", () => {
+    const { command, args } = resolveBrowserCommand(
+      "linux",
+      "http://127.0.0.1:3005/sessions/x",
+    );
+    expect(command).toBe("xdg-open");
+    expect(args).toEqual(["http://127.0.0.1:3005/sessions/x"]);
+  });
+
+  test("unknown platforms fall back to xdg-open rather than throwing", () => {
+    // freebsd is a real NodeJS.Platform value but we don't special-case
+    // it; verify the fallback branch returns something usable.
+    const { command, args } = resolveBrowserCommand(
+      "freebsd",
+      "http://127.0.0.1:3005/sessions/x",
+    );
+    expect(command).toBe("xdg-open");
+    expect(args).toEqual(["http://127.0.0.1:3005/sessions/x"]);
+  });
+});
+
+describe("openInBrowser", () => {
+  test("does not throw when the helper binary is missing", () => {
+    // Even in environments without xdg-open / open / cmd, the helper
+    // must silently swallow the failure — the URL has already been
+    // printed to stdout for the user to click.
+    expect(() => {
+      openInBrowser("http://127.0.0.1:3005/sessions/nope");
+    }).not.toThrow();
+  });
+});
+
+describe("startReportServer", () => {
+  test("returns a bound URL and serves /api/sessions", async () => {
+    // Bind to an OS-chosen ephemeral port to avoid collisions with
+    // other test runs on the same box. Bun.serve accepts port 0 for
+    // this.
+    const handle = startReportServer({ host: "127.0.0.1", port: 0 });
+    try {
+      expect(handle.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+
+      const res = await fetch(`${handle.url}/api/sessions`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("application/json");
+      // We don't seed here — just confirm the route plumbing is live.
+      const body = await res.json();
+      expect(Array.isArray(body)).toBe(true);
+    } finally {
+      await handle.stop();
+    }
   });
 });

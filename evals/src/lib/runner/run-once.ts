@@ -50,9 +50,23 @@ export interface EvalRunResult {
   metrics: MetricResult[];
 }
 
-function assistantContent(event: AgentEvent): string | undefined {
-  const message = event.message;
-  return message.text ?? message.content ?? message.message ?? message.chunk;
+/**
+ * Pull the text payload an event contributes to the assistant's transcript
+ * turn, or `undefined` if the event is not an assistant content event.
+ *
+ * **Species-specific filtering lives in the adapter, not here.** Each
+ * adapter (`adapters/vellum.ts`, `adapters/hermes.ts`) wraps its raw
+ * event stream with a normalization step that clears `text` and `chunk`
+ * on events that don't carry assistant transcript content (echoes, tool
+ * I/O, thinking, errors, usage, …). By the time an event reaches this
+ * function, `text` / `chunk` are either set (transcript) or undefined
+ * (everything else) — so the getter is a trivial coalesce.
+ *
+ * Exported for unit-tests; only `collectAndPersistEvents` calls it in
+ * production.
+ */
+export function assistantContent(event: AgentEvent): string | undefined {
+  return event.message.text ?? event.message.chunk;
 }
 
 async function collectAndPersistEvents(input: {

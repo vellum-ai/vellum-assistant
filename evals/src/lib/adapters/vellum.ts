@@ -96,6 +96,66 @@ function shellWords(command: string): string[] {
   return ["sh", "-lc", command];
 }
 
+/**
+ * The set of `vellum events --json` event types whose `text` field carries
+ * assistant transcript content. Everything else the daemon emits over SSE
+ * (user_message_echo, tool_use_start, tool_input_delta, tool_output_chunk,
+ * assistant_thinking_delta, message_complete, error, assistant_usage, …)
+ * may also carry stringy fields, but those represent the user's outbound
+ * text, tool I/O, internal thinking, status flags, etc. — none of them
+ * are assistant-transcript text and none should land in the eval's
+ * accumulated transcript.
+ *
+ * Notably this filter is what stops the `user_message_echo` event (where
+ * `msg.text` is the user's own outbound) from being read back as the
+ * assistant's first reply — the "vellum echoes the user" symptom from
+ * the iter-2 evals run.
+ *
+ * `message_chunk` is the cross-species transcript event some species
+ * emit; the Vellum daemon doesn't emit it today, but if it ever did it
+ * should also count as transcript.
+ */
+const VELLUM_ASSISTANT_TRANSCRIPT_EVENT_TYPES = new Set([
+  "assistant_text_delta",
+  "message_chunk",
+]);
+
+/**
+ * Wrap a raw `parseNdjson<AgentEvent>` stream from `vellum events --json`
+ * with a normalization step that **clears `text` and `chunk` on events
+ * that don't carry assistant transcript text**. The event itself is
+ * preserved (artifact logs still show it) — only the stringy fields
+ * that downstream consumers read as transcript are zeroed out.
+ *
+ * Doing this filtering at the adapter boundary means the runner's
+ * `assistantContent()` getter stays trivial: `event.message.text ??
+ * event.message.chunk`, with no species-specific switch table.
+ *
+ * Exported for unit tests.
+ */
+export async function* normalizeVellumEventStream(
+  source: AsyncIterable<AgentEvent>,
+): AsyncIterable<AgentEvent> {
+  for await (const event of source) {
+    const type = event.message?.type;
+    if (
+      typeof type === "string" &&
+      VELLUM_ASSISTANT_TRANSCRIPT_EVENT_TYPES.has(type)
+    ) {
+      yield event;
+      continue;
+    }
+    yield {
+      ...event,
+      message: {
+        ...event.message,
+        text: undefined,
+        chunk: undefined,
+      },
+    };
+  }
+}
+
 function shellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
@@ -260,7 +320,13 @@ export class VellumAgent implements BaseAgent {
       this.conversationKey,
       "--json",
     ]);
-    return parseNdjson<AgentEvent>(this.eventsProcess.stdout);
+    // Normalize the species-specific event stream at the adapter
+    // boundary so the runner can treat `event.message.text` as
+    // "assistant transcript text, or undefined" without knowing the
+    // Vellum daemon's full SSE event taxonomy.
+    return normalizeVellumEventStream(
+      parseNdjson<AgentEvent>(this.eventsProcess.stdout),
+    );
   }
 
   async shutdown(): Promise<void> {
