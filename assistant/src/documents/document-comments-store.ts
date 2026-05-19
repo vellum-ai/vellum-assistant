@@ -201,6 +201,20 @@ export function reopenComment(id: string): boolean {
   return changes > 0;
 }
 
+export function updateCommentContent(id: string, content: string): boolean {
+  const now = Date.now();
+  const changes = rawRun(
+    /*sql*/ `UPDATE document_comments SET content = ?, updated_at = ? WHERE id = ?`,
+    content,
+    now,
+    id,
+  );
+  if (changes > 0) {
+    log.info({ id }, "Updated comment content");
+  }
+  return changes > 0;
+}
+
 export function deleteComment(id: string): boolean {
   const changes = rawRun(
     /*sql*/ `DELETE FROM document_comments WHERE id = ?`,

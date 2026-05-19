@@ -13,8 +13,8 @@ import {
   listComments,
   reopenComment,
   resolveComment,
+  updateCommentContent,
 } from "../../documents/document-comments-store.js";
-import { rawRun } from "../../memory/raw-query.js";
 import { getLogger } from "../../util/logger.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
@@ -192,13 +192,7 @@ export const ROUTES: RouteDefinition[] = [
       }
 
       if (content !== undefined) {
-        const now = Date.now();
-        rawRun(
-          /*sql*/ `UPDATE document_comments SET content = ?, updated_at = ? WHERE id = ?`,
-          content,
-          now,
-          commentId,
-        );
+        updateCommentContent(commentId, content);
       }
 
       const updated = getComment(commentId);
