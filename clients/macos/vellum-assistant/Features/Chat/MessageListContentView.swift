@@ -506,6 +506,7 @@ private struct PinnedLatestTurnSection: View {
             .id(anchorRow.id)
 
             responseCluster
+                .alignmentBarrier()
 
             Spacer(minLength: 0)
 
@@ -536,6 +537,7 @@ private struct PinnedLatestTurnSection: View {
                     thinkingLabel: thinkingLabel,
                     isFlipped: false
                 )
+                .alignmentBarrier()
             }
 
             contentView.latestEdgeActivityRow(isFlipped: false)
