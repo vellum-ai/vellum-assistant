@@ -209,6 +209,16 @@ home for this category of code.
 
 Reference: [Bulletproof React — `lib/` directory](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md)
 
+#### No `lib/` inside domains
+
+The top-level `lib/` is for configured third-party wrappers only.
+Domain directories must **not** contain a `lib/` subdirectory. Use
+the standard subdirectories instead: `hooks/`, `utils/`, `types/`,
+`components/`. The existing `domains/chat/lib/` is legacy from the
+platform port and is being redistributed
+([LUM-1627](https://linear.app/vellum/issue/LUM-1627)). Do not add
+new files there.
+
 ### No barrel files
 
 Do not use barrel files (`index.ts` that re-export siblings). Import
