@@ -8,6 +8,7 @@ public protocol HostProxyClientProtocol {
     func postBashResult(_ result: HostBashResultPayload) async -> Bool
     func postFileResult(_ result: HostFileResultPayload) async -> Bool
     func postCuResult(_ result: HostCuResultPayload) async -> Bool
+    func postCameraResult(_ result: HostCameraResultPayload) async -> Bool
     func postAppControlResult(_ result: HostAppControlResultPayload) async -> Bool
     func postBrowserResult(_ result: HostBrowserResultPayload) async -> Bool
     func postTransferResult(_ result: HostTransferResultPayload) async -> Bool
@@ -80,6 +81,29 @@ public struct HostProxyClient: HostProxyClientProtocol {
             return true
         } catch {
             log.error("postCuResult error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func postCameraResult(_ result: HostCameraResultPayload) async -> Bool {
+        do {
+            let body = try JSONEncoder().encode(result)
+            let timeout: TimeInterval = result.imageBase64 != nil
+                ? max(30, TimeInterval(body.count) / (1024 * 1024) * 5 + 30)
+                : 30
+            let response = try await GatewayHTTPClient.post(
+                path: "host-camera-result",
+                body: body,
+                extraHeaders: ["X-Vellum-Client-Id": DeviceIdStore.getOrCreate()],
+                timeout: timeout
+            )
+            guard response.isSuccess else {
+                log.error("postCameraResult failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("postCameraResult error: \(error.localizedDescription)")
             return false
         }
     }
