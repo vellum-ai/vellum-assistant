@@ -15,6 +15,14 @@ import { getLogger } from "./logger.js";
 const log = getLogger("config-file-watcher");
 
 const DEBOUNCE_MS = 500;
+const FALLBACK_POLL_MS = 1_000;
+
+type IntervalHandle = ReturnType<typeof setInterval>;
+
+type TimerApi = {
+  setInterval: (fn: () => void, delayMs: number) => IntervalHandle;
+  clearInterval: (timer: IntervalHandle) => void;
+};
 
 export type ConfigChangeEvent = {
   /** Full parsed config.json data. */
@@ -32,16 +40,27 @@ export type ConfigChangeCallback = (event: ConfigChangeEvent) => void;
 
 export class ConfigFileWatcher {
   private watcher: FSWatcher | null = null;
+  private pollTimer: IntervalHandle | null = null;
   private watchingDirectory = false;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastSerialized: Map<string, string> = new Map();
   private lastValues: Map<string, unknown> = new Map();
   private callback: ConfigChangeCallback;
   private configPath: string;
+  private pollIntervalMs: number;
+  private timerApi: TimerApi;
 
-  constructor(callback: ConfigChangeCallback) {
+  constructor(
+    callback: ConfigChangeCallback,
+    opts?: { pollIntervalMs?: number; timerApi?: TimerApi },
+  ) {
     this.callback = callback;
     this.configPath = getConfigPath();
+    this.pollIntervalMs = opts?.pollIntervalMs ?? FALLBACK_POLL_MS;
+    this.timerApi = opts?.timerApi ?? {
+      setInterval,
+      clearInterval,
+    };
   }
 
   start(): void {
@@ -77,6 +96,8 @@ export class ConfigFileWatcher {
         "Failed to start config file watcher",
       );
     }
+
+    this.startFallbackPolling();
   }
 
   stop(): void {
@@ -84,10 +105,32 @@ export class ConfigFileWatcher {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+    if (this.pollTimer) {
+      this.timerApi.clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
     if (this.watcher) {
       this.watcher.close();
       this.watcher = null;
     }
+  }
+
+  private startFallbackPolling(): void {
+    if (this.pollIntervalMs <= 0 || this.pollTimer) return;
+
+    this.pollTimer = this.timerApi.setInterval(() => {
+      this.pollOnce();
+
+      if (this.watchingDirectory && existsSync(this.configPath)) {
+        this.upgradeWatcher();
+      }
+    }, this.pollIntervalMs);
+    (this.pollTimer as { unref?: () => void }).unref?.();
+
+    log.info(
+      { intervalMs: this.pollIntervalMs },
+      "Polling config file for missed change events",
+    );
   }
 
   private scheduleCheck(): void {
