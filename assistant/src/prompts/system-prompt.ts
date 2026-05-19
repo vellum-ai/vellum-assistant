@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 
@@ -34,6 +35,16 @@ const BOOTSTRAP_VOICE_BLOCKS: Record<string, string> = {
     "## Voice\nFast and generative. Lean into momentum. Enthusiasm is in the pace, not the exclamations.",
   poetic:
     "## Voice\nThoughtful and unhurried. Notice things. Word choice matters. Don't rush to close — sometimes the observation is the value.",
+};
+
+/**
+ * Maps onboarding cohort identifiers to their cohort-specific bootstrap
+ * template filenames.  When a cohort key is present in OnboardingContext,
+ * `maybeReseedBootstrapForCohort` swaps the generic BOOTSTRAP.md with the
+ * cohort-specific variant — but only if the workspace file is still pristine.
+ */
+const COHORT_BOOTSTRAP_TEMPLATES: Record<string, string> = {
+  "gtm-v1": "BOOTSTRAP-GTM.md",
 };
 
 const log = getLogger("system-prompt");
@@ -210,6 +221,51 @@ export function ensurePromptFiles(): void {
 }
 
 /**
+ * One-shot swap: if the workspace BOOTSTRAP.md is still the unmodified generic
+ * template AND a cohort-specific template exists, overwrite the workspace file
+ * with the cohort variant.  No-op when BOOTSTRAP.md has been deleted, modified,
+ * or the cohort has no mapped template.
+ */
+export function maybeReseedBootstrapForCohort(cohort: string): void {
+  const templateFileName = COHORT_BOOTSTRAP_TEMPLATES[cohort];
+  if (!templateFileName) return;
+
+  const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
+  if (!existsSync(bootstrapPath)) return;
+
+  const currentContent = readPromptFile(bootstrapPath);
+  if (!isTemplateContent(currentContent, "BOOTSTRAP.md")) return;
+
+  const templatesDir = resolveBundledDir(
+    import.meta.dirname ?? __dirname,
+    "templates",
+    "templates",
+  );
+  const cohortTemplatePath = join(templatesDir, templateFileName);
+  if (!existsSync(cohortTemplatePath)) {
+    log.warn(
+      { cohort, templateFileName },
+      "Cohort bootstrap template not found, keeping generic BOOTSTRAP.md",
+    );
+    return;
+  }
+
+  try {
+    const cohortContent = readFileSync(cohortTemplatePath, "utf-8");
+    writeFileSync(bootstrapPath, cohortContent, "utf-8");
+    log.info(
+      { cohort, templateFileName },
+      "Replaced generic BOOTSTRAP.md with cohort-specific template",
+    );
+  } catch (err) {
+    log.warn(
+      { err, cohort, templateFileName },
+      "Failed to reseed BOOTSTRAP.md for cohort",
+    );
+  }
+}
+
+/**
  * Build the system prompt from ~/.vellum prompt files.
  *
  * Composition:
@@ -257,6 +313,13 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
   };
+
+  // One-shot cohort swap: if the user has a cohort and BOOTSTRAP.md is still
+  // the generic template, replace it with the cohort-specific variant before
+  // the prompt reads the file.
+  if (options?.onboardingContext?.cohort) {
+    maybeReseedBootstrapForCohort(options.onboardingContext.cohort);
+  }
 
   // Single array.  Everything pushed before `dynamicStart` lands in the
   // static (cached) prefix; everything after lands in the dynamic suffix.
