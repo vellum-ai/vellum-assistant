@@ -19,7 +19,7 @@ import {
   INITIAL_TURN_STATE,
 } from "@/domains/chat/lib/turn-state-machine.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import { ChatProvider } from "@/domains/chat/chat-context.js";
+import { useSyncChatStore } from "@/domains/chat/chat-context.js";
 import {
   ChatRouteContent,
   type ChatRouteContentProps,
@@ -88,6 +88,15 @@ export function ChatPage() {
     },
     [],
   );
+
+  useSyncChatStore({
+    messages,
+    activeConversationKey: null,
+    assistantId,
+    sendMessage,
+    dispatchTurn,
+    dispatchInteraction,
+  });
 
   if (authLoading || assistantState.kind === "loading") {
     return (
@@ -261,16 +270,5 @@ export function ChatPage() {
     isChannelReadonly: false,
   };
 
-  return (
-    <ChatProvider
-      messages={messages}
-      activeConversationKey={null}
-      assistantId={assistantId}
-      sendMessage={sendMessage}
-      dispatchTurn={dispatchTurn}
-      dispatchInteraction={dispatchInteraction}
-    >
-      <ChatRouteContent {...chatRouteProps} />
-    </ChatProvider>
-  );
+  return <ChatRouteContent {...chatRouteProps} />;
 }
