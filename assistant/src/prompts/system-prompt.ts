@@ -303,6 +303,13 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   }
   if (options?.userPersona) systemParts.push(options.userPersona);
   if (options?.channelPersona) systemParts.push(options.channelPersona);
+
+  // Surface accumulated voice markers when VOICE.md has content.
+  const voiceContent = readPromptFile(getWorkspacePromptPath("VOICE.md"));
+  if (voiceContent) {
+    systemParts.push("# Voice Profile\n\n" + voiceContent);
+  }
+
   if (includeBootstrap) {
     const userSlug = options?.userSlug ?? "default";
     const bootstrapWithSlug = bootstrap.replaceAll(
