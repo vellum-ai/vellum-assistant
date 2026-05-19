@@ -51,6 +51,9 @@ import * as contactMerge from "./bundled-skills/contacts/tools/contact-merge.js"
 import * as contactSearch from "./bundled-skills/contacts/tools/contact-search.js";
 import * as googleContacts from "./bundled-skills/contacts/tools/google-contacts.js";
 // ── document-editor ───────────────────────────────────────────────────────────
+import * as commentList from "./bundled-skills/document-editor/tools/comment-list.js";
+import * as commentReply from "./bundled-skills/document-editor/tools/comment-reply.js";
+import * as commentResolve from "./bundled-skills/document-editor/tools/comment-resolve.js";
 import * as documentCreate from "./bundled-skills/document-editor/tools/document-create.js";
 import * as documentDelete from "./bundled-skills/document-editor/tools/document-delete.js";
 import * as documentList from "./bundled-skills/document-editor/tools/document-list.js";
@@ -170,6 +173,9 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["contacts:tools/google-contacts.ts", googleContacts],
 
   // document-editor
+  ["document-editor:tools/comment-list.ts", commentList],
+  ["document-editor:tools/comment-reply.ts", commentReply],
+  ["document-editor:tools/comment-resolve.ts", commentResolve],
   ["document-editor:tools/document-create.ts", documentCreate],
   ["document-editor:tools/document-delete.ts", documentDelete],
   ["document-editor:tools/document-list.ts", documentList],
