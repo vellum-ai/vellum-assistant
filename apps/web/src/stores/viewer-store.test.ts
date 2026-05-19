@@ -1,14 +1,18 @@
-import { describe, it, expect } from "bun:test";
+import { beforeEach, describe, it, expect } from "bun:test";
 
-import {
-  type ViewerState,
-  INITIAL_VIEWER_STATE,
-  viewerReducer,
-} from "@/stores/viewer-store.js";
+import { useViewerStore } from "@/stores/viewer-store.js";
 
-function stateWith(overrides: Partial<ViewerState>): ViewerState {
-  return { ...INITIAL_VIEWER_STATE, ...overrides };
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function getState() {
+  return useViewerStore.getState();
 }
+
+beforeEach(() => {
+  getState().reset();
+});
 
 const SAMPLE_APP = { appId: "app-1", dirName: "my-app", name: "My App", html: "<h1>App</h1>" };
 const SAMPLE_DOC = { surfaceId: "surf-1", conversationId: "conv-1", documentName: "README.md", content: "# Hello" };
@@ -17,419 +21,368 @@ const SAMPLE_DOC = { surfaceId: "surf-1", conversationId: "conv-1", documentName
 // View navigation
 // ---------------------------------------------------------------------------
 
-describe("viewerReducer", () => {
-  describe("SET_MAIN_VIEW", () => {
-    it("switches the main view", () => {
-      const next = viewerReducer(INITIAL_VIEWER_STATE, {
-        type: "SET_MAIN_VIEW",
-        view: "intelligence",
-      });
-      expect(next.mainView).toBe("intelligence");
-    });
-
-    it("returns the same state when view is unchanged", () => {
-      const state = stateWith({ mainView: "chat" });
-      const next = viewerReducer(state, { type: "SET_MAIN_VIEW", view: "chat" });
-      expect(next).toBe(state);
-    });
+describe("setMainView", () => {
+  it("switches the main view", () => {
+    getState().setMainView("intelligence");
+    expect(getState().mainView).toBe("intelligence");
   });
 
-  describe("SET_INTELLIGENCE_TAB", () => {
-    it("switches the intelligence tab", () => {
-      const next = viewerReducer(INITIAL_VIEWER_STATE, {
-        type: "SET_INTELLIGENCE_TAB",
-        tab: "skills",
-      });
-      expect(next.intelligenceTab).toBe("skills");
-    });
+  it("is a no-op when view is unchanged", () => {
+    getState().setMainView("chat");
+    expect(getState().mainView).toBe("chat");
+  });
+});
 
-    it("returns the same state when tab is unchanged", () => {
-      const state = stateWith({ intelligenceTab: "identity" });
-      const next = viewerReducer(state, {
-        type: "SET_INTELLIGENCE_TAB",
-        tab: "identity",
-      });
-      expect(next).toBe(state);
-    });
+describe("setIntelligenceTab", () => {
+  it("switches the intelligence tab", () => {
+    getState().setIntelligenceTab("skills");
+    expect(getState().intelligenceTab).toBe("skills");
   });
 
-  // ---------------------------------------------------------------------------
-  // App viewer
-  // ---------------------------------------------------------------------------
+  it("is a no-op when tab is unchanged", () => {
+    getState().setIntelligenceTab("identity");
+    expect(getState().intelligenceTab).toBe("identity");
+  });
+});
 
-  describe("OPEN_APP_START", () => {
-    it("sets activeAppId, clears openedAppState, switches to app view, resets minimized", () => {
-      const state = stateWith({
-        mainView: "chat",
-        openedAppState: SAMPLE_APP,
-        isAppMinimized: true,
-      });
-      const next = viewerReducer(state, {
-        type: "OPEN_APP_START",
-        appId: "app-2",
-      });
-      expect(next.mainView).toBe("app");
-      expect(next.activeAppId).toBe("app-2");
-      expect(next.openedAppState).toBeNull();
-      expect(next.isAppMinimized).toBe(false);
-    });
+// ---------------------------------------------------------------------------
+// App viewer
+// ---------------------------------------------------------------------------
+
+describe("openApp", () => {
+  it("sets activeAppId, clears openedAppState, switches to app view, resets minimized", () => {
+    useViewerStore.setState({ openedAppState: SAMPLE_APP, isAppMinimized: true });
+    getState().openApp("app-2");
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeAppId).toBe("app-2");
+    expect(state.openedAppState).toBeNull();
+    expect(state.isAppMinimized).toBe(false);
+  });
+});
+
+describe("setLoadedApp", () => {
+  it("sets the opened app state", () => {
+    getState().setLoadedApp(SAMPLE_APP);
+    expect(getState().openedAppState).toBe(SAMPLE_APP);
+  });
+});
+
+describe("handleAppLoadFailed", () => {
+  it("resets to chat view and clears app state", () => {
+    useViewerStore.setState({ mainView: "app", activeAppId: "app-1", openedAppState: SAMPLE_APP });
+    getState().handleAppLoadFailed();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeAppId).toBeNull();
+    expect(state.openedAppState).toBeNull();
+  });
+});
+
+describe("closeApp", () => {
+  it("clears app state and resets minimized", () => {
+    useViewerStore.setState({ activeAppId: "app-1", openedAppState: SAMPLE_APP, isAppMinimized: true });
+    getState().closeApp();
+    const state = getState();
+    expect(state.activeAppId).toBeNull();
+    expect(state.openedAppState).toBeNull();
+    expect(state.isAppMinimized).toBe(false);
   });
 
-  describe("APP_LOADED", () => {
-    it("sets the opened app state", () => {
-      const next = viewerReducer(INITIAL_VIEWER_STATE, {
-        type: "APP_LOADED",
-        app: SAMPLE_APP,
-      });
-      expect(next.openedAppState).toBe(SAMPLE_APP);
-    });
+  it("does not change mainView (caller decides)", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().closeApp();
+    expect(getState().mainView).toBe("app");
+  });
+});
+
+describe("toggleAppMinimized", () => {
+  it("toggles from false to true", () => {
+    getState().toggleAppMinimized();
+    expect(getState().isAppMinimized).toBe(true);
   });
 
-  describe("APP_LOAD_FAILED", () => {
-    it("resets to chat view and clears app state", () => {
-      const state = stateWith({
-        mainView: "app",
-        activeAppId: "app-1",
-        openedAppState: SAMPLE_APP,
-      });
-      const next = viewerReducer(state, { type: "APP_LOAD_FAILED" });
-      expect(next.mainView).toBe("chat");
-      expect(next.activeAppId).toBeNull();
-      expect(next.openedAppState).toBeNull();
-    });
+  it("toggles from true to false", () => {
+    useViewerStore.setState({ isAppMinimized: true });
+    getState().toggleAppMinimized();
+    expect(getState().isAppMinimized).toBe(false);
+  });
+});
+
+describe("handleAppUnpinned", () => {
+  it("resets to chat when the pinned app matches the active app in 'app' view", () => {
+    useViewerStore.setState({ mainView: "app", activeAppId: "app-1", openedAppState: SAMPLE_APP });
+    getState().handleAppUnpinned("app-1");
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeAppId).toBeNull();
+    expect(state.openedAppState).toBeNull();
   });
 
-  describe("CLOSE_APP", () => {
-    it("clears app state and resets minimized", () => {
-      const state = stateWith({
-        activeAppId: "app-1",
-        openedAppState: SAMPLE_APP,
-        isAppMinimized: true,
-      });
-      const next = viewerReducer(state, { type: "CLOSE_APP" });
-      expect(next.activeAppId).toBeNull();
-      expect(next.openedAppState).toBeNull();
-      expect(next.isAppMinimized).toBe(false);
-    });
-
-    it("does not change mainView (caller decides)", () => {
-      const state = stateWith({ mainView: "app" });
-      const next = viewerReducer(state, { type: "CLOSE_APP" });
-      expect(next.mainView).toBe("app");
-    });
+  it("resets when in app-editing view", () => {
+    useViewerStore.setState({ mainView: "app-editing", activeAppId: "app-1" });
+    getState().handleAppUnpinned("app-1");
+    expect(getState().mainView).toBe("chat");
   });
 
-  describe("TOGGLE_APP_MINIMIZED", () => {
-    it("toggles from false to true", () => {
-      const next = viewerReducer(INITIAL_VIEWER_STATE, { type: "TOGGLE_APP_MINIMIZED" });
-      expect(next.isAppMinimized).toBe(true);
-    });
-
-    it("toggles from true to false", () => {
-      const state = stateWith({ isAppMinimized: true });
-      const next = viewerReducer(state, { type: "TOGGLE_APP_MINIMIZED" });
-      expect(next.isAppMinimized).toBe(false);
-    });
+  it("is a no-op when appId does not match", () => {
+    useViewerStore.setState({ mainView: "app", activeAppId: "app-1" });
+    getState().handleAppUnpinned("app-2");
+    expect(getState().mainView).toBe("app");
+    expect(getState().activeAppId).toBe("app-1");
   });
 
-  describe("ACTIVE_APP_UNPINNED", () => {
-    it("resets to chat when the pinned app matches the active app in 'app' view", () => {
-      const state = stateWith({
-        mainView: "app",
-        activeAppId: "app-1",
-        openedAppState: SAMPLE_APP,
-      });
-      const next = viewerReducer(state, {
-        type: "ACTIVE_APP_UNPINNED",
-        appId: "app-1",
-      });
-      expect(next.mainView).toBe("chat");
-      expect(next.activeAppId).toBeNull();
-      expect(next.openedAppState).toBeNull();
-    });
+  it("is a no-op when not in app or app-editing view", () => {
+    useViewerStore.setState({ mainView: "chat", activeAppId: "app-1" });
+    getState().handleAppUnpinned("app-1");
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeAppId).toBe("app-1");
+  });
+});
 
-    it("resets when in app-editing view", () => {
-      const state = stateWith({
-        mainView: "app-editing",
-        activeAppId: "app-1",
-      });
-      const next = viewerReducer(state, {
-        type: "ACTIVE_APP_UNPINNED",
-        appId: "app-1",
-      });
-      expect(next.mainView).toBe("chat");
-    });
+describe("enterAppEditing", () => {
+  it("switches to app-editing view", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().enterAppEditing();
+    expect(getState().mainView).toBe("app-editing");
+  });
+});
 
-    it("returns same state when appId does not match", () => {
-      const state = stateWith({
-        mainView: "app",
-        activeAppId: "app-1",
-      });
-      const next = viewerReducer(state, {
-        type: "ACTIVE_APP_UNPINNED",
-        appId: "app-2",
-      });
-      expect(next).toBe(state);
-    });
+describe("exitAppEditing", () => {
+  it("switches back to app view", () => {
+    useViewerStore.setState({ mainView: "app-editing" });
+    getState().exitAppEditing();
+    expect(getState().mainView).toBe("app");
+  });
+});
 
-    it("returns same state when not in app or app-editing view", () => {
-      const state = stateWith({
-        mainView: "chat",
-        activeAppId: "app-1",
-      });
-      const next = viewerReducer(state, {
-        type: "ACTIVE_APP_UNPINNED",
-        appId: "app-1",
-      });
-      expect(next).toBe(state);
-    });
+// ---------------------------------------------------------------------------
+// Subagent detail
+// ---------------------------------------------------------------------------
+
+describe("openSubagentDetail", () => {
+  it("saves current view and switches to subagent-detail", () => {
+    getState().openSubagentDetail("sa-1");
+    const state = getState();
+    expect(state.mainView).toBe("subagent-detail");
+    expect(state.activeSubagentId).toBe("sa-1");
+    expect(state.viewBeforeSubagentDetail).toBe("chat");
   });
 
-  describe("ENTER_APP_EDITING", () => {
-    it("switches to app-editing view", () => {
-      const state = stateWith({ mainView: "app" });
-      const next = viewerReducer(state, { type: "ENTER_APP_EDITING" });
-      expect(next.mainView).toBe("app-editing");
+  it("preserves existing viewBeforeSubagentDetail when already in subagent-detail", () => {
+    useViewerStore.setState({
+      mainView: "subagent-detail",
+      viewBeforeSubagentDetail: "intelligence",
+      activeSubagentId: "sa-1",
     });
+    getState().openSubagentDetail("sa-2");
+    const state = getState();
+    expect(state.viewBeforeSubagentDetail).toBe("intelligence");
+    expect(state.activeSubagentId).toBe("sa-2");
   });
 
-  describe("EXIT_APP_EDITING", () => {
-    it("switches back to app view", () => {
-      const state = stateWith({ mainView: "app-editing" });
-      const next = viewerReducer(state, { type: "EXIT_APP_EDITING" });
-      expect(next.mainView).toBe("app");
+  it("saves non-chat view correctly", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openSubagentDetail("sa-1");
+    expect(getState().viewBeforeSubagentDetail).toBe("app");
+  });
+});
+
+describe("closeSubagentDetail", () => {
+  it("restores viewBeforeSubagentDetail and clears activeSubagentId", () => {
+    useViewerStore.setState({
+      mainView: "subagent-detail",
+      viewBeforeSubagentDetail: "chat",
+      activeSubagentId: "sa-1",
     });
+    getState().closeSubagentDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeSubagentId).toBeNull();
   });
 
-  // ---------------------------------------------------------------------------
-  // Subagent detail
-  // ---------------------------------------------------------------------------
-
-  describe("OPEN_SUBAGENT_DETAIL", () => {
-    it("saves current view and switches to subagent-detail", () => {
-      const state = stateWith({ mainView: "chat" });
-      const next = viewerReducer(state, {
-        type: "OPEN_SUBAGENT_DETAIL",
-        subagentId: "sa-1",
-      });
-      expect(next.mainView).toBe("subagent-detail");
-      expect(next.activeSubagentId).toBe("sa-1");
-      expect(next.viewBeforeSubagentDetail).toBe("chat");
+  it("restores a non-chat view", () => {
+    useViewerStore.setState({
+      mainView: "subagent-detail",
+      viewBeforeSubagentDetail: "library",
+      activeSubagentId: "sa-1",
     });
+    getState().closeSubagentDetail();
+    const state = getState();
+    expect(state.mainView).toBe("library");
+    expect(state.activeSubagentId).toBeNull();
+  });
+});
 
-    it("preserves existing viewBeforeSubagentDetail when already in subagent-detail", () => {
-      const state = stateWith({
-        mainView: "subagent-detail",
-        viewBeforeSubagentDetail: "intelligence",
-        activeSubagentId: "sa-1",
-      });
-      const next = viewerReducer(state, {
-        type: "OPEN_SUBAGENT_DETAIL",
-        subagentId: "sa-2",
-      });
-      expect(next.viewBeforeSubagentDetail).toBe("intelligence");
-      expect(next.activeSubagentId).toBe("sa-2");
-    });
+// ---------------------------------------------------------------------------
+// Document viewer
+// ---------------------------------------------------------------------------
 
-    it("saves non-chat view correctly", () => {
-      const state = stateWith({ mainView: "app" });
-      const next = viewerReducer(state, {
-        type: "OPEN_SUBAGENT_DETAIL",
-        subagentId: "sa-1",
-      });
-      expect(next.viewBeforeSubagentDetail).toBe("app");
-    });
+describe("openDocument", () => {
+  it("saves current view as viewBeforeDocument and switches to document", () => {
+    useViewerStore.setState({ mainView: "intelligence" });
+    getState().openDocument();
+    const state = getState();
+    expect(state.mainView).toBe("document");
+    expect(state.viewBeforeDocument).toBe("intelligence");
+    expect(state.openedDocumentState).toBeNull();
   });
 
-  describe("CLOSE_SUBAGENT_DETAIL", () => {
-    it("restores viewBeforeSubagentDetail and clears activeSubagentId", () => {
-      const state = stateWith({
-        mainView: "subagent-detail",
-        viewBeforeSubagentDetail: "chat",
-        activeSubagentId: "sa-1",
-      });
-      const next = viewerReducer(state, { type: "CLOSE_SUBAGENT_DETAIL" });
-      expect(next.mainView).toBe("chat");
-      expect(next.activeSubagentId).toBeNull();
+  it("preserves existing viewBeforeDocument when already in document view", () => {
+    useViewerStore.setState({
+      mainView: "document",
+      viewBeforeDocument: "library",
     });
+    getState().openDocument();
+    expect(getState().viewBeforeDocument).toBe("library");
+  });
+});
 
-    it("restores a non-chat view", () => {
-      const state = stateWith({
-        mainView: "subagent-detail",
-        viewBeforeSubagentDetail: "library",
-        activeSubagentId: "sa-1",
-      });
-      const next = viewerReducer(state, { type: "CLOSE_SUBAGENT_DETAIL" });
-      expect(next.mainView).toBe("library");
-      expect(next.activeSubagentId).toBeNull();
+describe("setLoadedDocument", () => {
+  it("sets the document state", () => {
+    getState().setLoadedDocument(SAMPLE_DOC);
+    expect(getState().openedDocumentState).toBe(SAMPLE_DOC);
+  });
+});
+
+describe("handleDocumentLoadFailed", () => {
+  it("restores viewBeforeDocument and clears document state", () => {
+    useViewerStore.setState({
+      mainView: "document",
+      viewBeforeDocument: "library",
+      openedDocumentState: SAMPLE_DOC,
     });
+    getState().handleDocumentLoadFailed();
+    const state = getState();
+    expect(state.mainView).toBe("library");
+    expect(state.openedDocumentState).toBeNull();
+  });
+});
+
+describe("closeDocument", () => {
+  it("restores viewBeforeDocument and clears document state", () => {
+    useViewerStore.setState({
+      mainView: "document",
+      viewBeforeDocument: "app",
+      openedDocumentState: SAMPLE_DOC,
+    });
+    getState().closeDocument();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.openedDocumentState).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Assets
+// ---------------------------------------------------------------------------
+
+describe("refreshAssets", () => {
+  it("increments the refresh key", () => {
+    useViewerStore.setState({ assetsRefreshKey: 5 });
+    getState().refreshAssets();
+    expect(getState().assetsRefreshKey).toBe(6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Share / Deploy
+// ---------------------------------------------------------------------------
+
+describe("startSharing", () => {
+  it("sets isSharing to true", () => {
+    getState().startSharing();
+    expect(getState().isSharing).toBe(true);
+  });
+});
+
+describe("finishSharing", () => {
+  it("sets isSharing to false", () => {
+    useViewerStore.setState({ isSharing: true });
+    getState().finishSharing();
+    expect(getState().isSharing).toBe(false);
+  });
+});
+
+describe("startDeploying", () => {
+  it("sets isDeploying to true", () => {
+    getState().startDeploying();
+    expect(getState().isDeploying).toBe(true);
+  });
+});
+
+describe("finishDeploying", () => {
+  it("sets isDeploying to false and keeps pendingDeployAppId by default", () => {
+    useViewerStore.setState({ isDeploying: true, pendingDeployAppId: "app-1" });
+    getState().finishDeploying();
+    const state = getState();
+    expect(state.isDeploying).toBe(false);
+    expect(state.pendingDeployAppId).toBe("app-1");
   });
 
-  // ---------------------------------------------------------------------------
-  // Document viewer
-  // ---------------------------------------------------------------------------
+  it("clears pendingDeployAppId when clearPendingAppId is true", () => {
+    useViewerStore.setState({ isDeploying: true, pendingDeployAppId: "app-1" });
+    getState().finishDeploying(true);
+    const state = getState();
+    expect(state.isDeploying).toBe(false);
+    expect(state.pendingDeployAppId).toBeNull();
+  });
+});
 
-  describe("OPEN_DOCUMENT_START", () => {
-    it("saves current view as viewBeforeDocument and switches to document", () => {
-      const state = stateWith({ mainView: "intelligence" });
-      const next = viewerReducer(state, { type: "OPEN_DOCUMENT_START" });
-      expect(next.mainView).toBe("document");
-      expect(next.viewBeforeDocument).toBe("intelligence");
-      expect(next.openedDocumentState).toBeNull();
-    });
+describe("showTokenDialog", () => {
+  it("opens dialog, sets pending app, and stops deploying", () => {
+    useViewerStore.setState({ isDeploying: true });
+    getState().showTokenDialog("app-1");
+    const state = getState();
+    expect(state.isTokenDialogOpen).toBe(true);
+    expect(state.pendingDeployAppId).toBe("app-1");
+    expect(state.isDeploying).toBe(false);
+  });
+});
 
-    it("preserves existing viewBeforeDocument when already in document view", () => {
-      const state = stateWith({
-        mainView: "document",
-        viewBeforeDocument: "library",
-      });
-      const next = viewerReducer(state, { type: "OPEN_DOCUMENT_START" });
-      expect(next.viewBeforeDocument).toBe("library");
-    });
+describe("hideTokenDialog", () => {
+  it("closes the dialog", () => {
+    useViewerStore.setState({ isTokenDialogOpen: true });
+    getState().hideTokenDialog();
+    expect(getState().isTokenDialogOpen).toBe(false);
+  });
+});
+
+describe("setComplexDeployApp", () => {
+  it("sets the complex deploy app", () => {
+    const app = { appId: "app-1", name: "My App" };
+    getState().setComplexDeployApp(app);
+    expect(getState().complexDeployApp).toBe(app);
   });
 
-  describe("DOCUMENT_LOADED", () => {
-    it("sets the document state", () => {
-      const next = viewerReducer(INITIAL_VIEWER_STATE, {
-        type: "DOCUMENT_LOADED",
-        document: SAMPLE_DOC,
-      });
-      expect(next.openedDocumentState).toBe(SAMPLE_DOC);
-    });
+  it("clears the complex deploy app when null", () => {
+    useViewerStore.setState({ complexDeployApp: { appId: "app-1", name: "My App" } });
+    getState().setComplexDeployApp(null);
+    expect(getState().complexDeployApp).toBeNull();
   });
+});
 
-  describe("DOCUMENT_LOAD_FAILED", () => {
-    it("restores viewBeforeDocument and clears document state", () => {
-      const state = stateWith({
-        mainView: "document",
-        viewBeforeDocument: "library",
-        openedDocumentState: SAMPLE_DOC,
-      });
-      const next = viewerReducer(state, { type: "DOCUMENT_LOAD_FAILED" });
-      expect(next.mainView).toBe("library");
-      expect(next.openedDocumentState).toBeNull();
+// ---------------------------------------------------------------------------
+// Reset
+// ---------------------------------------------------------------------------
+
+describe("reset", () => {
+  it("restores all state to defaults", () => {
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: "app-1",
+      openedAppState: SAMPLE_APP,
+      isSharing: true,
+      isDeploying: true,
+      isTokenDialogOpen: true,
     });
-  });
-
-  describe("CLOSE_DOCUMENT", () => {
-    it("restores viewBeforeDocument and clears document state", () => {
-      const state = stateWith({
-        mainView: "document",
-        viewBeforeDocument: "app",
-        openedDocumentState: SAMPLE_DOC,
-      });
-      const next = viewerReducer(state, { type: "CLOSE_DOCUMENT" });
-      expect(next.mainView).toBe("app");
-      expect(next.openedDocumentState).toBeNull();
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Assets
-  // ---------------------------------------------------------------------------
-
-  describe("REFRESH_ASSETS", () => {
-    it("increments the refresh key", () => {
-      const state = stateWith({ assetsRefreshKey: 5 });
-      const next = viewerReducer(state, { type: "REFRESH_ASSETS" });
-      expect(next.assetsRefreshKey).toBe(6);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Share / Deploy
-  // ---------------------------------------------------------------------------
-
-  describe("START_SHARING", () => {
-    it("sets isSharing to true", () => {
-      const next = viewerReducer(INITIAL_VIEWER_STATE, { type: "START_SHARING" });
-      expect(next.isSharing).toBe(true);
-    });
-  });
-
-  describe("SHARING_DONE", () => {
-    it("sets isSharing to false", () => {
-      const state = stateWith({ isSharing: true });
-      const next = viewerReducer(state, { type: "SHARING_DONE" });
-      expect(next.isSharing).toBe(false);
-    });
-  });
-
-  describe("START_DEPLOYING", () => {
-    it("sets isDeploying to true", () => {
-      const next = viewerReducer(INITIAL_VIEWER_STATE, { type: "START_DEPLOYING" });
-      expect(next.isDeploying).toBe(true);
-    });
-  });
-
-  describe("DEPLOYING_DONE", () => {
-    it("sets isDeploying to false and keeps pendingDeployAppId by default", () => {
-      const state = stateWith({ isDeploying: true, pendingDeployAppId: "app-1" });
-      const next = viewerReducer(state, { type: "DEPLOYING_DONE" });
-      expect(next.isDeploying).toBe(false);
-      expect(next.pendingDeployAppId).toBe("app-1");
-    });
-
-    it("clears pendingDeployAppId when clearPendingAppId is true", () => {
-      const state = stateWith({ isDeploying: true, pendingDeployAppId: "app-1" });
-      const next = viewerReducer(state, {
-        type: "DEPLOYING_DONE",
-        clearPendingAppId: true,
-      });
-      expect(next.isDeploying).toBe(false);
-      expect(next.pendingDeployAppId).toBeNull();
-    });
-  });
-
-  describe("SHOW_TOKEN_DIALOG", () => {
-    it("opens dialog, sets pending app, and stops deploying", () => {
-      const state = stateWith({ isDeploying: true });
-      const next = viewerReducer(state, {
-        type: "SHOW_TOKEN_DIALOG",
-        pendingAppId: "app-1",
-      });
-      expect(next.showTokenDialog).toBe(true);
-      expect(next.pendingDeployAppId).toBe("app-1");
-      expect(next.isDeploying).toBe(false);
-    });
-  });
-
-  describe("HIDE_TOKEN_DIALOG", () => {
-    it("closes the dialog", () => {
-      const state = stateWith({ showTokenDialog: true });
-      const next = viewerReducer(state, { type: "HIDE_TOKEN_DIALOG" });
-      expect(next.showTokenDialog).toBe(false);
-    });
-  });
-
-  describe("SET_COMPLEX_DEPLOY_APP", () => {
-    it("sets the complex deploy app", () => {
-      const app = { appId: "app-1", name: "My App" };
-      const next = viewerReducer(INITIAL_VIEWER_STATE, {
-        type: "SET_COMPLEX_DEPLOY_APP",
-        app,
-      });
-      expect(next.complexDeployApp).toBe(app);
-    });
-
-    it("clears the complex deploy app when null", () => {
-      const state = stateWith({ complexDeployApp: { appId: "app-1", name: "My App" } });
-      const next = viewerReducer(state, {
-        type: "SET_COMPLEX_DEPLOY_APP",
-        app: null,
-      });
-      expect(next.complexDeployApp).toBeNull();
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Unknown action passthrough
-  // ---------------------------------------------------------------------------
-
-  it("returns the same state for an unknown action type", () => {
-    const state = stateWith({ mainView: "app" });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const next = viewerReducer(state, { type: "UNKNOWN" } as any);
-    expect(next).toBe(state);
+    getState().reset();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeAppId).toBeNull();
+    expect(state.openedAppState).toBeNull();
+    expect(state.isSharing).toBe(false);
+    expect(state.isDeploying).toBe(false);
+    expect(state.isTokenDialogOpen).toBe(false);
   });
 });

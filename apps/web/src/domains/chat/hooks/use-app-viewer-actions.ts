@@ -7,7 +7,7 @@
  * is delegated to adapter callbacks (`pushConversationKeyParam`) so the hook
  * stays portable for the Vite + React Router v7 migration.
  *
- * @see stores/viewer-store.ts — the reducer that owns viewer UI state
+ * @see stores/viewer-store.ts — Zustand store for viewer UI state
  */
 
 import * as Sentry from "@sentry/react";
@@ -22,9 +22,8 @@ import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/l
 import type {
   MainView,
   OpenedAppState,
-  ViewerAction,
-  ViewerState,
 } from "@/stores/viewer-store.js";
+import { useViewerStore } from "@/stores/viewer-store.js";
 import type { Conversation } from "@/domains/chat/lib/api.js";
 import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
 import { haptic } from "@/utils/haptics.js";
@@ -43,9 +42,7 @@ export interface UseAppViewerActionsParams {
   isSharing: boolean;
   isDeploying: boolean;
   pendingDeployAppId: string | null;
-  dispatchViewer: Dispatch<ViewerAction>;
   dispatchConversationList: Dispatch<ConversationListAction>;
-  viewerStateRef: MutableRefObject<ViewerState>;
   lastConversationKeyRef: MutableRefObject<string | null>;
   deepLinkAppId: RefObject<string | undefined>;
   switchConversation: (key: string) => void;
@@ -77,8 +74,7 @@ export interface UseAppViewerActionsParams {
  * - Deep-link auto-open on mount
  * - Pin-sync side-effect (navigates away when the active app is unpinned)
  *
- * All handlers dispatch to `viewerReducer` / `conversationListReducer` and
- * call domain API functions — no direct framework imports.
+ * Viewer state is managed via the Zustand `useViewerStore`.
  */
 export function useAppViewerActions({
   assistantId,
@@ -88,9 +84,7 @@ export function useAppViewerActions({
   isSharing,
   isDeploying,
   pendingDeployAppId,
-  dispatchViewer,
   dispatchConversationList,
-  viewerStateRef,
   lastConversationKeyRef,
   deepLinkAppId,
   switchConversation,
@@ -121,47 +115,44 @@ export function useAppViewerActions({
     async (appId: string) => {
       if (!assistantId) return;
       openAppRequestRef.current = appId;
-      dispatchViewer({ type: "OPEN_APP_START", appId });
+      useViewerStore.getState().openApp(appId);
       try {
         const result = await openApp(assistantId, appId);
         if (openAppRequestRef.current !== appId) return;
-        dispatchViewer({ type: "APP_LOADED", app: { appId: result.appId, dirName: result.dirName, name: result.name, html: result.html } });
+        useViewerStore.getState().setLoadedApp({ appId: result.appId, dirName: result.dirName, name: result.name, html: result.html });
       } catch (err) {
         if (openAppRequestRef.current !== appId) return;
         Sentry.captureException(err, { tags: { context: "openApp" } });
-        dispatchViewer({ type: "APP_LOAD_FAILED" });
+        useViewerStore.getState().handleAppLoadFailed();
       }
     },
-    [assistantId, dispatchViewer],
+    [assistantId],
   );
 
   const loadDocument = useCallback(
     async (documentSurfaceId: string) => {
       if (!assistantId) return;
       openDocumentRequestRef.current = documentSurfaceId;
-      dispatchViewer({ type: "OPEN_DOCUMENT_START" });
+      useViewerStore.getState().openDocument();
       try {
         const result = await fetchDocumentContent(assistantId, documentSurfaceId);
         if (openDocumentRequestRef.current !== documentSurfaceId) return;
         if (!result) {
-          dispatchViewer({ type: "DOCUMENT_LOAD_FAILED" });
+          useViewerStore.getState().handleDocumentLoadFailed();
           return;
         }
-        dispatchViewer({
-          type: "DOCUMENT_LOADED",
-          document: {
-            surfaceId: result.surfaceId,
-            conversationId: result.conversationId,
-            documentName: result.title ?? "Untitled",
-            content: result.content ?? "",
-          },
+        useViewerStore.getState().setLoadedDocument({
+          surfaceId: result.surfaceId,
+          conversationId: result.conversationId,
+          documentName: result.title ?? "Untitled",
+          content: result.content ?? "",
         });
       } catch {
         if (openDocumentRequestRef.current !== documentSurfaceId) return;
-        dispatchViewer({ type: "DOCUMENT_LOAD_FAILED" });
+        useViewerStore.getState().handleDocumentLoadFailed();
       }
     },
-    [assistantId, dispatchViewer],
+    [assistantId],
   );
 
   // ---------------------------------------------------------------------------
@@ -227,28 +218,28 @@ export function useAppViewerActions({
   );
 
   const handleCloseDocument = useCallback(() => {
-    const prev = viewerStateRef.current.viewBeforeDocument;
-    dispatchViewer({ type: "CLOSE_DOCUMENT" });
+    const prev = useViewerStore.getState().viewBeforeDocument;
+    useViewerStore.getState().closeDocument();
     if (prev !== "library" && prev !== "intelligence") {
       if (lastConversationKeyRef.current) {
         switchConversationRef.current(lastConversationKeyRef.current);
       }
     }
-  }, [dispatchViewer, viewerStateRef, lastConversationKeyRef]);
+  }, [lastConversationKeyRef]);
 
   const handleCloseApp = useCallback(() => {
-    dispatchViewer({ type: "CLOSE_APP" });
+    useViewerStore.getState().closeApp();
     dispatchConversationList({ type: "SET_EDITING_KEY", key: null });
     if (lastConversationKeyRef.current) {
       switchConversationRef.current(lastConversationKeyRef.current);
     } else {
-      dispatchViewer({ type: "SET_MAIN_VIEW", view: "chat" });
+      useViewerStore.getState().setMainView("chat");
     }
-  }, [dispatchViewer, dispatchConversationList, lastConversationKeyRef]);
+  }, [dispatchConversationList, lastConversationKeyRef]);
 
   const handleToggleAppMinimized = useCallback(() => {
-    dispatchViewer({ type: "TOGGLE_APP_MINIMIZED" });
-  }, [dispatchViewer]);
+    useViewerStore.getState().toggleAppMinimized();
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Edit mode
@@ -279,7 +270,7 @@ export function useAppViewerActions({
       }
 
       dispatchConversationList({ type: "SET_EDITING_KEY", key: conversationKey });
-      dispatchViewer({ type: "ENTER_APP_EDITING" });
+      useViewerStore.getState().enterAppEditing();
       if (activeConversationKey !== conversationKey) {
         pushConversationKeyParamRef.current(conversationKey);
       }
@@ -289,7 +280,6 @@ export function useAppViewerActions({
       conversations,
       activeConversationKey,
       dispatchConversationList,
-      dispatchViewer,
     ],
   );
 
@@ -299,22 +289,23 @@ export function useAppViewerActions({
   }, [openedAppState, enterEditingForLoadedApp]);
 
   // Used when an app is opened outside the chat viewer (e.g. from the library
-  // grid, which keeps its own local viewer state). Hydrates the viewer reducer
+  // grid, which keeps its own local viewer state). Hydrates the viewer store
   // with the already-loaded app so the edit transition has a canonical
   // `openedAppState` to land on, then enters editing mode.
   const handleEditAppFromDetached = useCallback(
     (app: { appId: string; dirName?: string; name: string; html: string }) => {
-      dispatchViewer({ type: "OPEN_APP_START", appId: app.appId });
-      dispatchViewer({ type: "APP_LOADED", app });
+      const store = useViewerStore.getState();
+      store.openApp(app.appId);
+      store.setLoadedApp(app);
       enterEditingForLoadedApp(app.appId);
     },
-    [dispatchViewer, enterEditingForLoadedApp],
+    [enterEditingForLoadedApp],
   );
 
   const handleCloseEditPanel = useCallback(() => {
     dispatchConversationList({ type: "SET_EDITING_KEY", key: null });
-    dispatchViewer({ type: "EXIT_APP_EDITING" });
-  }, [dispatchConversationList, dispatchViewer]);
+    useViewerStore.getState().exitAppEditing();
+  }, [dispatchConversationList]);
 
   // ---------------------------------------------------------------------------
   // Share / Deploy
@@ -322,7 +313,7 @@ export function useAppViewerActions({
 
   const handleShareApp = useCallback(async () => {
     if (!openedAppState || !assistantId || isSharing) return;
-    dispatchViewer({ type: "START_SHARING" });
+    useViewerStore.getState().startSharing();
     try {
       await shareApp(assistantId, openedAppState.appId, openedAppState.name);
       toast.success("App exported", { description: `${openedAppState.name}.vellum` });
@@ -331,27 +322,27 @@ export function useAppViewerActions({
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
-      dispatchViewer({ type: "SHARING_DONE" });
+      useViewerStore.getState().finishSharing();
     }
-  }, [openedAppState, assistantId, isSharing, dispatchViewer]);
+  }, [openedAppState, assistantId, isSharing]);
 
   const handleDeployApp = useCallback(async () => {
     if (!openedAppState || !assistantId || isDeploying) return;
     if (openedAppState.html.includes("vellum.fetch") || openedAppState.html.includes("vellum.sendAction") || openedAppState.html.includes("/v1/x/") || openedAppState.html.includes("/v1/apps/") ) {
-      dispatchViewer({ type: "SET_COMPLEX_DEPLOY_APP", app: { appId: openedAppState.appId, name: openedAppState.name } });
+      useViewerStore.getState().setComplexDeployApp({ appId: openedAppState.appId, name: openedAppState.name });
       return;
     }
-    dispatchViewer({ type: "START_DEPLOYING" });
+    useViewerStore.getState().startDeploying();
     try {
       const config = await getVercelConfig(assistantId);
       if (!config.hasToken) {
-        dispatchViewer({ type: "SHOW_TOKEN_DIALOG", pendingAppId: openedAppState.appId });
+        useViewerStore.getState().showTokenDialog(openedAppState.appId);
         return;
       }
       const result = await publishApp(assistantId, openedAppState.appId);
       if (!result.success) {
         if (isCredentialError(result)) {
-          dispatchViewer({ type: "SHOW_TOKEN_DIALOG", pendingAppId: openedAppState.appId });
+          useViewerStore.getState().showTokenDialog(openedAppState.appId);
         } else {
           toast.error("Failed to deploy", { description: result.error });
         }
@@ -371,14 +362,14 @@ export function useAppViewerActions({
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
-      dispatchViewer({ type: "DEPLOYING_DONE" });
+      useViewerStore.getState().finishDeploying();
     }
-  }, [openedAppState, assistantId, isDeploying, dispatchViewer]);
+  }, [openedAppState, assistantId, isDeploying]);
 
   const handleDeployTokenSaved = useCallback(() => {
-    dispatchViewer({ type: "HIDE_TOKEN_DIALOG" });
+    useViewerStore.getState().hideTokenDialog();
     if (pendingDeployAppId && assistantId) {
-      dispatchViewer({ type: "START_DEPLOYING" });
+      useViewerStore.getState().startDeploying();
       void publishApp(assistantId, pendingDeployAppId)
         .then((result) => {
           if (!result.success) {
@@ -401,10 +392,10 @@ export function useAppViewerActions({
           });
         })
         .finally(() => {
-          dispatchViewer({ type: "DEPLOYING_DONE", clearPendingAppId: true });
+          useViewerStore.getState().finishDeploying(true);
         });
     }
-  }, [pendingDeployAppId, assistantId, dispatchViewer]);
+  }, [pendingDeployAppId, assistantId]);
 
   // ---------------------------------------------------------------------------
   // Pin-sync side-effect
@@ -412,15 +403,16 @@ export function useAppViewerActions({
 
   const handleActiveAppUnpinned = useCallback(
     (appId: string) => {
-      dispatchViewer({ type: "ACTIVE_APP_UNPINNED", appId });
+      const { activeAppId, mainView } = useViewerStore.getState();
+      useViewerStore.getState().handleAppUnpinned(appId);
       if (
-        viewerStateRef.current.activeAppId === appId &&
-        (viewerStateRef.current.mainView === "app" || viewerStateRef.current.mainView === "app-editing")
+        activeAppId === appId &&
+        (mainView === "app" || mainView === "app-editing")
       ) {
         dispatchConversationList({ type: "SET_EDITING_KEY", key: null });
       }
     },
-    [dispatchViewer, dispatchConversationList, viewerStateRef],
+    [dispatchConversationList],
   );
 
   useActiveAppPinSync(handleActiveAppUnpinned);
