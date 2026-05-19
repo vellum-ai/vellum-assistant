@@ -378,7 +378,7 @@ export function ChatRouteContent({
   assistantIdentity: _assistantIdentity,
   chatPullToRefresh,
   deployToVercel,
-  doctor: doctorEnabled,
+  doctor: _doctorEnabled,
   isMobile,
   isKeyboardOpen,
   messages,
@@ -590,13 +590,13 @@ export function ChatRouteContent({
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
         message: error.message,
-        actions: doctorEnabled ? (
+        actions: (
           <Button asChild variant="outlined" size="compact">
             <Link to={`${routes.settings.debug}?tab=doctor`}>
               Go to Doctor
             </Link>
           </Button>
-        ) : undefined,
+        ),
       }
     : null;
 
