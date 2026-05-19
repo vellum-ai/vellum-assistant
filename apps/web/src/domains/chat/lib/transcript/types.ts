@@ -1,0 +1,113 @@
+// Pure types for the windowed transcript. This module must stay free of
+// React / DOM imports so `buildTranscriptItems` and `partitionLatestTurn`
+// can be unit-tested under `bun test` without a Node test runner.
+
+import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { RuntimeSubagentNotification } from "@/domains/chat/lib/messages.js";
+import type { Surface } from "@/domains/chat/lib/types.js";
+
+export type TranscriptItemKind =
+  | "message"
+  | "thinking"
+  | "pendingSecret"
+  | "pendingConfirmation"
+  | "pendingContactRequest"
+  | "surface"
+  | "queuedMarker"
+  | "error";
+
+export interface TranscriptItemBase {
+  key: string;
+  kind: TranscriptItemKind;
+}
+
+export interface MessageItem extends TranscriptItemBase {
+  kind: "message";
+  message: DisplayMessage;
+}
+
+export interface ThinkingItem extends TranscriptItemBase {
+  kind: "thinking";
+  /** Daemon-provided activity label (e.g. "Processing bash results").
+   *  When absent, the render layer falls back to a generic default. */
+  label?: string;
+}
+
+export interface PendingSecretItem extends TranscriptItemBase {
+  kind: "pendingSecret";
+  requestId: string;
+}
+
+export interface PendingConfirmationItem extends TranscriptItemBase {
+  kind: "pendingConfirmation";
+  requestId: string;
+}
+
+export interface PendingContactRequestItem extends TranscriptItemBase {
+  kind: "pendingContactRequest";
+  requestId: string;
+  /** Channel type hint from the daemon (e.g. "phone", "email"). */
+  channel?: string;
+  placeholder?: string;
+  label?: string;
+  description?: string;
+  role?: string;
+}
+
+export interface SurfaceItem extends TranscriptItemBase {
+  kind: "surface";
+  surface: Surface;
+}
+
+export interface QueuedMarkerItem extends TranscriptItemBase {
+  kind: "queuedMarker";
+  count: number;
+}
+
+export interface ErrorItem extends TranscriptItemBase {
+  kind: "error";
+  message: string;
+}
+
+export type TranscriptItem =
+  | MessageItem
+  | ThinkingItem
+  | PendingSecretItem
+  | PendingConfirmationItem
+  | PendingContactRequestItem
+  | SurfaceItem
+  | QueuedMarkerItem
+  | ErrorItem;
+
+/** Result of splitting the transcript into stable history and the
+ *  currently-in-progress turn. `anchorMessage` is the most recent user
+ *  message (the pivot); everything before it is stable history the
+ *  scroll coordinator can pin, everything after is the actively
+ *  rendering response. */
+export interface LatestTurnPartition {
+  historyItems: TranscriptItem[];
+  anchorMessage: MessageItem | null;
+  responseItems: TranscriptItem[];
+}
+
+/** Result shape returned by the paginated history fetchers in
+ *  `../history.ts`. Lives here so the transcript-state machine and the
+ *  fetchers share a single source-of-truth definition. */
+export interface PaginatedHistoryResult {
+  messages: DisplayMessage[];
+  hasMore: boolean;
+  oldestTimestamp: number | null;
+  oldestMessageId: string | null;
+  /** Subagent notifications extracted from history messages for state reconstruction. */
+  subagentNotifications?: RuntimeSubagentNotification[];
+}
+
+/** Snapshot of the transcript pagination state held by the scroll
+ *  coordinator. */
+export interface TranscriptPaginationState {
+  items: TranscriptItem[];
+  hasMore: boolean;
+  oldestTimestamp: number | null;
+  isLoadingOlder: boolean;
+  isPinnedToLatest: boolean;
+}

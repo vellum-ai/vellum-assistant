@@ -1,0 +1,863 @@
+/**
+ * Tests for `useMessageReconciliation`.
+ *
+ * Since the workspace doesn't ship `@testing-library/react`, we follow the
+ * project convention of rendering a tiny component via `renderToStaticMarkup`
+ * to capture the hook's return value.  The hook accepts external refs so the
+ * test harness controls all mutable state.
+ *
+ * Key behaviors under test:
+ * - `reconcileFromServer`: delegates to `reconcileMessages`,
+ *   reports changed vs unchanged.
+ * - `reconcileActiveConversation`: orchestrates fetch, reconciliation,
+ *   turn-state dispatch (`POLL_RECONCILED`), and stale-`isStreaming` cleanup.
+ */
+
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createElement, type Dispatch, type RefObject, type SetStateAction } from "react";
+
+import type { RuntimeMessage } from "@/domains/chat/lib/api.js";
+import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import { INITIAL_TURN_STATE, type DomainEvent, type TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import { newStableId } from "@/domains/chat/lib/stable-id.js";
+
+// ---------------------------------------------------------------------------
+// Mocks — module mocks MUST come before importing the subject under test.
+// ---------------------------------------------------------------------------
+
+let mockFetchResult: RuntimeMessage[] = [];
+let mockFetchError: Error | null = null;
+let mockFetchSideEffect: (() => void) | null = null;
+let fetchCallCount = 0;
+
+// The api module has side-effect-heavy imports (HeyAPI client, CSRF, etc.)
+// that can't load in a test environment. We mock the entire module, providing
+// the pure functions that reconcile.ts needs plus our controllable fetch stub.
+mock.module("./api", () => ({
+  fetchConversationMessages: async (_assistantId: string, _conversationKey: string) => {
+    fetchCallCount++;
+    if (mockFetchSideEffect) mockFetchSideEffect();
+    if (mockFetchError) throw mockFetchError;
+    return mockFetchResult;
+  },
+  mapRuntimeToolCalls: (
+    toolCalls: Array<{ name: string; input?: unknown; result?: unknown; isError?: boolean }>,
+    messageId: string,
+  ) =>
+    toolCalls.map((tc, idx) => ({
+      id: `tool-history-${messageId}-${idx}`,
+      toolName: tc.name,
+      input: tc.input,
+      status: tc.isError ? "error" : tc.result === undefined ? "running" : "completed",
+      ...(tc.result !== undefined ? { result: tc.result } : {}),
+      ...(tc.isError !== undefined ? { isError: tc.isError } : {}),
+    })),
+  normalizeContentOrder: (raw: unknown[] | undefined) => {
+    if (!raw || raw.length === 0) return undefined;
+    const result: Array<{ type: string; id: string }> = [];
+    for (const entry of raw) {
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+        const obj = entry as Record<string, unknown>;
+        if (typeof obj.type === "string" && typeof obj.id === "string") {
+          result.push({ type: obj.type, id: obj.id });
+        }
+      } else if (typeof entry === "string") {
+        const colonIdx = entry.indexOf(":");
+        if (colonIdx > 0) result.push({ type: entry.slice(0, colonIdx), id: entry.slice(colonIdx + 1) });
+      }
+    }
+    return result.length > 0 ? result : undefined;
+  },
+  normalizeTextSegments: (raw: unknown[] | undefined) => {
+    if (!raw || raw.length === 0) return undefined;
+    const result: Array<{ type: string; content: string }> = [];
+    for (const entry of raw) {
+      if (typeof entry === "string") {
+        result.push({ type: "text", content: entry });
+      } else if (entry && typeof entry === "object") {
+        const obj = entry as Record<string, unknown>;
+        if (typeof obj.content === "string") {
+          result.push({
+            type: typeof obj.type === "string" ? obj.type : "text",
+            content: obj.content,
+          });
+        }
+      }
+    }
+    return result.length > 0 ? result : undefined;
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Subject under test (imported AFTER module mocks).
+// ---------------------------------------------------------------------------
+
+import type { useMessageReconciliation } from "@/domains/chat/lib/use-message-reconciliation.js";
+
+type HookReturn = ReturnType<typeof useMessageReconciliation>;
+
+// ---------------------------------------------------------------------------
+// Test harness — captures hook result via a callback prop.
+// ---------------------------------------------------------------------------
+
+interface HarnessProps {
+  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
+  streamContextRef: RefObject<{ assistantId: string; conversationKey: string } | null>;
+  streamEpochRef: RefObject<number>;
+  activeConversationKeyRef: RefObject<string | null>;
+  dispatchTurn: Dispatch<DomainEvent>;
+  turnStateRef: RefObject<TurnState>;
+  initialPageOldestTsRef?: RefObject<number | null>;
+  collect: (result: HookReturn) => void;
+}
+
+// Lazy-import to avoid hoisting above mock.module
+let hookModule: typeof import("./use-message-reconciliation") | null = null;
+
+function HookHarness(props: HarnessProps): null {
+  if (!hookModule) throw new Error("hookModule not loaded");
+  const result = hookModule.useMessageReconciliation({
+    setMessages: props.setMessages,
+    streamContextRef: props.streamContextRef,
+    streamEpochRef: props.streamEpochRef,
+    activeConversationKeyRef: props.activeConversationKeyRef,
+    dispatchTurn: props.dispatchTurn,
+    turnStateRef: props.turnStateRef,
+    initialPageOldestTsRef: props.initialPageOldestTsRef ?? makeRef(null),
+  });
+  props.collect(result);
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Shared state + helpers
+// ---------------------------------------------------------------------------
+
+let messages: DisplayMessage[] = [];
+const dispatchedEvents: DomainEvent[] = [];
+
+function makeRef<T>(value: T): RefObject<T> {
+  return { current: value };
+}
+
+function makeMessage(overrides: Omit<DisplayMessage, "stableId"> & { stableId?: string }): DisplayMessage {
+  const { stableId, ...rest } = overrides;
+  return { stableId: stableId ?? newStableId("test"), ...rest };
+}
+
+function createHarness(overrides?: {
+  streamContext?: { assistantId: string; conversationKey: string } | null;
+  streamEpoch?: number;
+  streamEpochRef?: RefObject<number>;
+  activeConversationKey?: string | null;
+  turnState?: TurnState;
+  turnStateRef?: RefObject<TurnState>;
+}): HookReturn {
+  const setMessages: Dispatch<SetStateAction<DisplayMessage[]>> = (updater) => {
+    messages = typeof updater === "function" ? updater(messages) : updater;
+  };
+  const dispatchTurn: Dispatch<DomainEvent> = (event) => {
+    dispatchedEvents.push(event);
+  };
+
+  let captured: HookReturn | null = null;
+  renderToStaticMarkup(
+    createElement(HookHarness, {
+      setMessages,
+      streamContextRef: makeRef(overrides?.streamContext ?? null),
+      streamEpochRef: overrides?.streamEpochRef ?? makeRef(overrides?.streamEpoch ?? 0),
+      activeConversationKeyRef: makeRef(overrides?.activeConversationKey ?? "conv-1"),
+      dispatchTurn,
+      turnStateRef: overrides?.turnStateRef ?? makeRef(overrides?.turnState ?? INITIAL_TURN_STATE),
+      collect: (result) => { captured = result; },
+    }),
+  );
+
+  if (!captured) throw new Error("HookHarness did not invoke the hook");
+  return captured;
+}
+
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
+beforeEach(async () => {
+  if (!hookModule) {
+    hookModule = await import("./use-message-reconciliation");
+  }
+  messages = [];
+  dispatchedEvents.length = 0;
+  mockFetchResult = [];
+  mockFetchError = null;
+  mockFetchSideEffect = null;
+  fetchCallCount = 0;
+});
+
+// ---------------------------------------------------------------------------
+// reconcileFromServer
+// ---------------------------------------------------------------------------
+
+describe("reconcileFromServer", () => {
+  test("returns false for empty server messages", () => {
+    const { reconcileFromServer } = createHarness();
+    expect(reconcileFromServer([])).toBe(false);
+  });
+
+  test("returns true when messages change", () => {
+    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    const { reconcileFromServer } = createHarness();
+    const serverMessages: RuntimeMessage[] = [
+      { id: "m1", role: "user", content: "Hello" },
+      { id: "m2", role: "assistant", content: "World" },
+    ];
+    expect(reconcileFromServer(serverMessages)).toBe(true);
+  });
+
+  test("completes without error when server messages match local (smoke test)", () => {
+    const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
+    messages = [msg];
+    const { reconcileFromServer } = createHarness();
+    const serverMessages: RuntimeMessage[] = [
+      { id: "m1", role: "user", content: "Hello" },
+    ];
+    // reconcileMessages rebuilds messages from server data, so the array
+    // reference changes even when content is identical. This is a smoke
+    // test that the round-trip completes without error.
+    const result = reconcileFromServer(serverMessages);
+    expect(typeof result).toBe("boolean");
+  });
+
+  test("updates messages state with reconciled result", () => {
+    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    const { reconcileFromServer } = createHarness();
+    const serverMessages: RuntimeMessage[] = [
+      { id: "m1", role: "user", content: "Hello" },
+      { id: "m2", role: "assistant", content: "Response" },
+    ];
+    reconcileFromServer(serverMessages);
+    expect(messages).toHaveLength(2);
+    expect(messages[1]).toMatchObject({ id: "m2", role: "assistant", content: "Response" });
+  });
+
+  test("surfaces on server messages are preserved in reconciled messages", () => {
+    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    const { reconcileFromServer } = createHarness();
+    const serverMessages: RuntimeMessage[] = [
+      { id: "m1", role: "user", content: "Hello" },
+      {
+        id: "m2",
+        role: "assistant",
+        content: "Here is a form",
+        surfaces: [{ surfaceId: "surf-1", surfaceType: "form", data: { field: "value" } }],
+      },
+    ];
+    reconcileFromServer(serverMessages);
+    // Surfaces now live directly on messages, not in a separate Map
+    const assistantMsg = messages.find((m) => m.id === "m2");
+    expect(assistantMsg).toBeDefined();
+    expect(assistantMsg!.surfaces).toHaveLength(1);
+    expect(assistantMsg!.surfaces![0]!.surfaceId).toBe("surf-1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reconcileActiveConversation
+// ---------------------------------------------------------------------------
+
+describe("reconcileActiveConversation", () => {
+  test("returns no-change when streamContext is null", async () => {
+    const { reconcileActiveConversation } = createHarness({ streamContext: null });
+    const result = await reconcileActiveConversation();
+    expect(result).toEqual({
+      changed: false,
+      messagesAdded: 0,
+      assistantProgress: false,
+    });
+    expect(fetchCallCount).toBe(0);
+  });
+
+  test("fetches messages and reconciles when context exists", async () => {
+    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    mockFetchResult = [
+      { id: "m1", role: "user", content: "Hello" },
+      { id: "m2", role: "assistant", content: "Response" },
+    ];
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+    });
+    const result = await reconcileActiveConversation();
+    expect(fetchCallCount).toBe(1);
+    expect(result.changed).toBe(true);
+    // Server has [user, assistant], local had [user]: one new
+    // assistant message was added.
+    expect(result.messagesAdded).toBe(1);
+    expect(result.assistantProgress).toBe(true);
+    expect(messages).toHaveLength(2);
+  });
+
+  test("returns false when conversation key changed during fetch (stale guard)", async () => {
+    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    mockFetchResult = [
+      { id: "m1", role: "user", content: "Hello" },
+      { id: "m2", role: "assistant", content: "Response" },
+    ];
+    // streamContext says "conv-1" but activeConversationKey is now "conv-2"
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-2",
+    });
+    const result = await reconcileActiveConversation();
+    expect(fetchCallCount).toBe(1);
+    expect(result.changed).toBe(false);
+    expect(result.messagesAdded).toBe(0);
+    // Messages should NOT have been updated
+    expect(messages).toHaveLength(1);
+  });
+
+  test("dispatches POLL_RECONCILED when messages changed and turn is stuck sending", async () => {
+    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    mockFetchResult = [
+      { id: "m1", role: "user", content: "Hello" },
+      { id: "m2", role: "assistant", content: "Response" },
+    ];
+    const stuckTurnState: TurnState = {
+      phase: "thinking",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-42",
+      lastTerminalReason: null,
+      statusText: null,
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnState: stuckTurnState,
+    });
+    await reconcileActiveConversation();
+    expect(dispatchedEvents).toHaveLength(1);
+    expect(dispatchedEvents[0]).toEqual({ type: "POLL_RECONCILED", turnId: "turn-42" });
+  });
+
+  test("does NOT dispatch POLL_RECONCILED when turnId is null", async () => {
+    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    mockFetchResult = [
+      { id: "m1", role: "user", content: "Hello" },
+      { id: "m2", role: "assistant", content: "Response" },
+    ];
+    const noTurnIdState: TurnState = {
+      phase: "thinking",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: null,
+      lastTerminalReason: null,
+      statusText: null,
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnState: noTurnIdState,
+    });
+    await reconcileActiveConversation();
+    expect(dispatchedEvents).toHaveLength(0);
+  });
+
+  test("does NOT dispatch POLL_RECONCILED when turn is already idle", async () => {
+    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    mockFetchResult = [
+      { id: "m1", role: "user", content: "Hello" },
+      { id: "m2", role: "assistant", content: "Response" },
+    ];
+    const idleTurnState: TurnState = {
+      phase: "idle",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-42",
+      lastTerminalReason: null,
+      statusText: null,
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnState: idleTurnState,
+    });
+    await reconcileActiveConversation();
+    expect(dispatchedEvents).toHaveLength(0);
+  });
+
+  test("does NOT dispatch POLL_RECONCILED when server returns empty messages", async () => {
+    // Empty server response — the turn may be legitimately starting up,
+    // so we don't treat it as evidence the turn should be idle.
+    messages = [];
+    mockFetchResult = [];
+    const stuckTurnState: TurnState = {
+      phase: "thinking",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-42",
+      lastTerminalReason: null,
+      statusText: null,
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnState: stuckTurnState,
+    });
+    await reconcileActiveConversation();
+    expect(dispatchedEvents).toHaveLength(0);
+  });
+
+  test("dispatches POLL_RECONCILED when local message has stale isStreaming flag", async () => {
+    // Local assistant message has isStreaming: true (turn stuck in
+    // streaming after message_complete was lost during backgrounding).
+    // Server returns the same content WITHOUT isStreaming, so
+    // reconcileMessages detects a change → changed = true → dispatch.
+    const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
+    const assistantMsg = makeMessage({ id: "m2", role: "assistant", content: "Response", isStreaming: true });
+    messages = [msg, assistantMsg];
+    mockFetchResult = [
+      { id: "m1", role: "user", content: "Hello" },
+      { id: "m2", role: "assistant", content: "Response" },
+    ];
+    const stuckTurnState: TurnState = {
+      phase: "streaming",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-42",
+      lastTerminalReason: null,
+      statusText: null,
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnState: stuckTurnState,
+    });
+    await reconcileActiveConversation();
+    expect(dispatchedEvents).toHaveLength(1);
+    expect(dispatchedEvents[0]).toEqual({ type: "POLL_RECONCILED", turnId: "turn-42" });
+  });
+
+  test("does NOT dispatch POLL_RECONCILED when messages match during thinking phase", async () => {
+    // User backgrounds during "thinking" (before first delta). Server
+    // has the same messages from prior history. changed = false, so
+    // no premature idle dispatch — the turn is legitimately active.
+    const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
+    messages = [msg];
+    mockFetchResult = [
+      { id: "m1", role: "user", content: "Hello" },
+    ];
+    const thinkingTurnState: TurnState = {
+      phase: "thinking",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-42",
+      lastTerminalReason: null,
+      statusText: null,
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnState: thinkingTurnState,
+    });
+    await reconcileActiveConversation();
+    expect(dispatchedEvents).toHaveLength(0);
+  });
+
+  test("does NOT dispatch POLL_RECONCILED when only optimistic user message id changes", async () => {
+    messages = [
+      makeMessage({ id: "m-old-a", role: "assistant", content: "Prior response" }),
+      makeMessage({ role: "user", content: "Continue the story" }),
+    ];
+    mockFetchResult = [
+      { id: "m-old-a", role: "assistant", content: "Prior response" },
+      { id: "m-user-1", role: "user", content: "Continue the story" },
+    ];
+    const thinkingTurnState: TurnState = {
+      phase: "thinking",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-42",
+      lastTerminalReason: null,
+      statusText: null,
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnState: thinkingTurnState,
+    });
+    const result = await reconcileActiveConversation();
+    expect(result.changed).toBe(true);
+    // Optimistic user message gets its server-assigned id, but no
+    // new row was added — length is unchanged.
+    expect(result.messagesAdded).toBe(0);
+    expect(messages[1]).toMatchObject({ id: "m-user-1", role: "user" });
+    expect(dispatchedEvents).toHaveLength(0);
+  });
+
+  test("does NOT dispatch POLL_RECONCILED when only older assistant history changes", async () => {
+    messages = [
+      makeMessage({ id: "m-user-old", role: "user", content: "Start the story" }),
+      makeMessage({ id: "m-old-a", role: "assistant", content: "Prior response" }),
+      makeMessage({ role: "user", content: "Continue the story" }),
+    ];
+    mockFetchResult = [
+      { id: "m-user-old", role: "user", content: "Start the story" },
+      { id: "m-old-a", role: "assistant", content: "Prior response with more detail" },
+      { id: "m-user-1", role: "user", content: "Continue the story" },
+    ];
+    const thinkingTurnState: TurnState = {
+      phase: "thinking",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-42",
+      lastTerminalReason: null,
+      statusText: null,
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnState: thinkingTurnState,
+    });
+    const result = await reconcileActiveConversation();
+    expect(result.changed).toBe(true);
+    expect(messages[1]).toMatchObject({
+      id: "m-old-a",
+      role: "assistant",
+      content: "Prior response with more detail",
+    });
+    expect(dispatchedEvents).toHaveLength(0);
+  });
+
+  test("bails out when epoch changes during fetch", async () => {
+    // Simulate the page going hidden while the fetch is in-flight:
+    // the hidden handler bumps the epoch, so this reconciliation is stale.
+    const epochRef = makeRef(1);
+    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    mockFetchResult = [
+      { id: "m1", role: "user", content: "Hello" },
+      { id: "m2", role: "assistant", content: "Response" },
+    ];
+    mockFetchSideEffect = () => { epochRef.current = 2; };
+    const stuckTurnState: TurnState = {
+      phase: "streaming",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-42",
+      lastTerminalReason: null,
+      statusText: null,
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamEpochRef: epochRef,
+      activeConversationKey: "conv-1",
+      turnState: stuckTurnState,
+    });
+    const result = await reconcileActiveConversation();
+    expect(result.changed).toBe(false);
+    expect(dispatchedEvents).toHaveLength(0);
+  });
+
+  test("does NOT dispatch POLL_RECONCILED when activeTurnId changed during fetch", async () => {
+    // User starts a new turn while the visibility reconciliation fetch
+    // is in-flight. The new turn has a different activeTurnId, so
+    // wasStuck is false (turnId mismatch).
+    const turnStateRef = makeRef<TurnState>({
+      phase: "streaming",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-old",
+      lastTerminalReason: null,
+      statusText: null,
+    });
+    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    mockFetchResult = [
+      { id: "m1", role: "user", content: "Hello" },
+      { id: "m2", role: "assistant", content: "Response" },
+    ];
+    // During fetch, a new turn starts with a different turnId
+    mockFetchSideEffect = () => {
+      turnStateRef.current = {
+        phase: "thinking",
+        pendingQueuedCount: 0,
+        activeToolCallCount: 0,
+        activeTurnId: "turn-new",
+        lastTerminalReason: null,
+      statusText: null,
+      };
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnStateRef,
+    });
+    await reconcileActiveConversation();
+    expect(dispatchedEvents).toHaveLength(0);
+  });
+
+  test("clears stale isStreaming flags when turn is idle and fetch returns empty", async () => {
+    // When the server returns no messages, reconcileFromServer bails early
+    // (returns false) and does NOT update the messages array. The local
+    // messages — including their isStreaming flags — survive unchanged.
+    // The stale-cleanup branch then detects and clears those flags.
+    messages = [
+      makeMessage({ id: "m1", role: "user", content: "Hello" }),
+      makeMessage({ id: "m2", role: "assistant", content: "Response", isStreaming: true }),
+    ];
+    mockFetchResult = [];
+    const idleTurnState: TurnState = {
+      phase: "idle",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: null,
+      lastTerminalReason: null,
+      statusText: null,
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnState: idleTurnState,
+    });
+    const result = await reconcileActiveConversation();
+    expect(result.changed).toBe(false);
+    // The cleanup branch should have cleared the stale isStreaming flag
+    const streamingMessages = messages.filter((m) => m.isStreaming);
+    expect(streamingMessages).toHaveLength(0);
+    expect(messages[1]!.isStreaming).toBe(false);
+  });
+
+  test("does NOT clear isStreaming when turn is sending and server returns empty", async () => {
+    // Empty server response + active turn → neither POLL_RECONCILED nor
+    // isStreaming cleanup fires, because we treat empty responses as
+    // "server hasn't caught up yet."
+    messages = [
+      makeMessage({ id: "m1", role: "user", content: "Hello" }),
+      makeMessage({ id: "m2", role: "assistant", content: "Response", isStreaming: true }),
+    ];
+    mockFetchResult = [];
+    const streamingTurnState: TurnState = {
+      phase: "streaming",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-42",
+      lastTerminalReason: null,
+      statusText: null,
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnState: streamingTurnState,
+    });
+    await reconcileActiveConversation();
+    expect(messages[1]!.isStreaming).toBe(true);
+    expect(dispatchedEvents).toHaveLength(0);
+  });
+
+  test("returns no-change on fetch error", async () => {
+    mockFetchError = new Error("Network error");
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+    });
+    const result = await reconcileActiveConversation();
+    expect(result).toEqual({
+      changed: false,
+      messagesAdded: 0,
+      assistantProgress: false,
+    });
+    expect(dispatchedEvents).toHaveLength(0);
+  });
+
+  test("dispatches POLL_RECONCILED for all sending phases", async () => {
+    const sendingPhases = ["queued", "thinking", "streaming", "awaiting_user_input"] as const;
+    for (const phase of sendingPhases) {
+      messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+      dispatchedEvents.length = 0;
+      mockFetchResult = [
+        { id: "m1", role: "user", content: "Hello" },
+        { id: "m2", role: "assistant", content: "Response" },
+      ];
+      const turnState: TurnState = {
+        phase,
+        pendingQueuedCount: 0,
+        activeToolCallCount: 0,
+        activeTurnId: "turn-99",
+        lastTerminalReason: null,
+      statusText: null,
+      };
+      const { reconcileActiveConversation } = createHarness({
+        streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+        activeConversationKey: "conv-1",
+        turnState,
+      });
+      await reconcileActiveConversation();
+      expect(dispatchedEvents).toHaveLength(1);
+      expect(dispatchedEvents[0]).toEqual({ type: "POLL_RECONCILED", turnId: "turn-99" });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reconcileActiveConversation — fetch failure
+// ---------------------------------------------------------------------------
+
+describe("reconcileActiveConversation — fetch failure", () => {
+  test("does NOT dispatch POLL_RECONCILED when fetch fails, even if turn is stuck", async () => {
+    messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+    dispatchedEvents.length = 0;
+    mockFetchError = new Error("network timeout");
+    const turnState: TurnState = {
+      phase: "streaming",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-stuck",
+      lastTerminalReason: null,
+      statusText: null,
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnState,
+    });
+    const result = await reconcileActiveConversation();
+    expect(result.changed).toBe(false);
+    expect(dispatchedEvents).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cancelReconciliation
+// ---------------------------------------------------------------------------
+
+describe("cancelReconciliation", () => {
+  test("can be called without error when no timer is active", () => {
+    const { cancelReconciliation } = createHarness();
+    expect(() => cancelReconciliation()).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// startReconciliationLoop
+// ---------------------------------------------------------------------------
+
+describe("startReconciliationLoop", () => {
+  test("dispatches POLL_RECONCILED when resume polling finds assistant progress", async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const timers: Array<() => void> = [];
+
+    globalThis.setTimeout = ((callback: TimerHandler) => {
+      if (typeof callback === "function") {
+        timers.push(callback as () => void);
+      }
+      return timers.length as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = (() => {}) as unknown as typeof clearTimeout;
+
+    try {
+      messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
+      mockFetchResult = [
+        { id: "m1", role: "user", content: "Hello" },
+        { id: "m2", role: "assistant", content: "Response" },
+      ];
+
+      const { startReconciliationLoop, cancelReconciliation } = createHarness({
+        streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+        streamEpoch: 7,
+        activeConversationKey: "conv-1",
+        turnState: {
+          phase: "streaming",
+          pendingQueuedCount: 0,
+          activeToolCallCount: 0,
+          activeTurnId: "turn-resume",
+          lastTerminalReason: null,
+      statusText: null,
+        },
+      });
+
+      startReconciliationLoop(7);
+      expect(timers).toHaveLength(1);
+      timers.shift()!();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(fetchCallCount).toBe(1);
+      expect(dispatchedEvents).toEqual([
+        { type: "POLL_RECONCILED", turnId: "turn-resume" },
+      ]);
+      expect(messages).toHaveLength(2);
+      expect(messages[1]).toMatchObject({
+        id: "m2",
+        role: "assistant",
+        content: "Response",
+      });
+
+      cancelReconciliation();
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
+  });
+
+  test("exits via stable-count after two unchanged ticks without reaching RECONCILE_MAX_MS", async () => {
+    // Regression guard: `tick()`'s caller of `reconcileFetchedMessages`
+    // destructures `{ changed }` from the result object. If a future
+    // refactor reverts to `const changed = reconcileFetchedMessages(...)`,
+    // the truthiness check passes for any non-null object, `stableCount`
+    // never increments, and the loop runs to RECONCILE_MAX_MS instead of
+    // exiting after two stable polls.
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const timers: Array<() => void> = [];
+
+    globalThis.setTimeout = ((callback: TimerHandler) => {
+      if (typeof callback === "function") {
+        timers.push(callback as () => void);
+      }
+      return timers.length as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = (() => {}) as unknown as typeof clearTimeout;
+
+    try {
+      const baseline: RuntimeMessage[] = [
+        { id: "m1", role: "user", content: "Hello" },
+        { id: "m2", role: "assistant", content: "Response" },
+      ];
+      messages = baseline.map((m) =>
+        makeMessage({ id: m.id, role: m.role, content: m.content }),
+      );
+      mockFetchResult = baseline;
+
+      const { startReconciliationLoop, cancelReconciliation } = createHarness({
+        streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+        streamEpoch: 1,
+        activeConversationKey: "conv-1",
+        turnState: INITIAL_TURN_STATE,
+      });
+
+      startReconciliationLoop(1);
+      expect(timers).toHaveLength(1);
+
+      // Tick 1: server matches local → changed=false → stableCount=1 →
+      // loop schedules another tick.
+      timers.shift()!();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(fetchCallCount).toBe(1);
+      expect(timers).toHaveLength(1);
+
+      // Tick 2: still matches → changed=false → stableCount=2 →
+      // RECONCILE_STABLE_COUNT reached → loop exits without scheduling.
+      timers.shift()!();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(fetchCallCount).toBe(2);
+      expect(timers).toHaveLength(0);
+
+      cancelReconciliation();
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
+  });
+});
