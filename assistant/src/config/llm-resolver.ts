@@ -80,6 +80,25 @@ export function resolveCallSiteConfig(
 
 type Mergeable = Record<string, unknown>;
 
+/**
+ * Returns the resolved default profile key for a call site, accounting for
+ * the `custom-*` user-profile fallback when the managed profile is unavailable.
+ */
+export function resolveDefaultProfileKey(
+  callSite: LLMCallSite,
+  llm: z.infer<typeof LLMSchema>,
+): string | undefined {
+  const dflt = CALL_SITE_DEFAULTS[callSite];
+  if (dflt?.profile == null) return undefined;
+  const target = llm.profiles?.[dflt.profile];
+  if (target != null && target.status !== "disabled") return dflt.profile;
+  const customKey = `custom-${dflt.profile}`;
+  const customTarget = llm.profiles?.[customKey];
+  if (customTarget != null && customTarget.status !== "disabled")
+    return customKey;
+  return undefined;
+}
+
 function effectiveDefault(
   callSite: LLMCallSite,
   llm: z.infer<typeof LLMSchema>,
@@ -89,10 +108,19 @@ function effectiveDefault(
   if (dflt == null) return undefined;
   const targetProfile =
     dflt.profile != null ? llm.profiles?.[dflt.profile] : undefined;
-  const stripProfile =
-    hasOverrideProfile ||
-    (dflt.profile != null &&
-      (targetProfile == null || targetProfile.status === "disabled"));
+  const profileUnavailable =
+    dflt.profile != null &&
+    (targetProfile == null || targetProfile.status === "disabled");
+
+  if (profileUnavailable && !hasOverrideProfile) {
+    const customKey = `custom-${dflt.profile}`;
+    const customProfile = llm.profiles?.[customKey];
+    if (customProfile != null && customProfile.status !== "disabled") {
+      return { ...dflt, profile: customKey };
+    }
+  }
+
+  const stripProfile = hasOverrideProfile || profileUnavailable;
   if (stripProfile) {
     const { profile: _profile, ...rest } = dflt;
     return Object.keys(rest).length > 0 ? rest : undefined;

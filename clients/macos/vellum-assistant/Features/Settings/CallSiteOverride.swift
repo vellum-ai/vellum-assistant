@@ -38,6 +38,10 @@ public struct CallSiteOverride: Identifiable, Equatable, Hashable {
     /// Domain ID matching a `CallSiteDomain.id` from the API catalog.
     public let domain: String
 
+    /// The shipped default profile key for this call site, resolved by the
+    /// daemon to account for `custom-*` user-profile fallback.
+    public let defaultProfile: String?
+
     /// Provider override; `nil` means "follows the default".
     public var provider: String?
 
@@ -53,6 +57,7 @@ public struct CallSiteOverride: Identifiable, Equatable, Hashable {
         displayName: String,
         callSiteDescription: String = "",
         domain: String,
+        defaultProfile: String? = nil,
         provider: String? = nil,
         model: String? = nil,
         profile: String? = nil
@@ -61,6 +66,7 @@ public struct CallSiteOverride: Identifiable, Equatable, Hashable {
         self.displayName = displayName
         self.callSiteDescription = callSiteDescription
         self.domain = domain
+        self.defaultProfile = defaultProfile
         self.provider = provider
         self.model = model
         self.profile = profile
@@ -207,7 +213,8 @@ public final class CallSiteCatalog {
                 id: $0.id,
                 displayName: $0.displayName,
                 callSiteDescription: $0.description,
-                domain: $0.domain
+                domain: $0.domain,
+                defaultProfile: $0.defaultProfile
             )
         }
     }
