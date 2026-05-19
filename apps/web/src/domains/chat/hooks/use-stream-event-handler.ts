@@ -490,6 +490,7 @@ export function useStreamEventHandler(
       pendingQueuedStableIdsRef,
       requestIdToStableIdRef,
       pendingLocalDeletionsRef,
+      dispatchConversationList,
     ],
   );
 
