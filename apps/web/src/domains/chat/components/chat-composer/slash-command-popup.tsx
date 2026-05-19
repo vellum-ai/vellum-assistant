@@ -1,4 +1,4 @@
-import { PanelItem } from "@/components/panel-item.js";
+import { PanelItem } from "@vellum/design-library";
 
 import type { SlashCommand } from "@/domains/chat/components/chat-composer/slash-command-catalog.js";
 

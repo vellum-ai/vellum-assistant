@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { BottomSheet } from "@vellum/design-library";
 import { Button } from "@vellum/design-library";
 import { Menu } from "@vellum/design-library";
-import { PanelItem } from "@/components/panel-item.js";
+import { PanelItem } from "@vellum/design-library";
 import { client } from "@/generated/api/client.gen.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import {

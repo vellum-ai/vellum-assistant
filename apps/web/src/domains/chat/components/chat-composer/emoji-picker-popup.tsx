@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import { PanelItem } from "@/components/panel-item.js";
+import { PanelItem } from "@vellum/design-library";
 
 import type { EmojiEntry } from "@/domains/chat/components/chat-composer/emoji-catalog.js";
 
