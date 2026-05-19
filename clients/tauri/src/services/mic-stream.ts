@@ -160,11 +160,11 @@ function downsampleFloat32(
   }
 
   const ratio = sourceRate / targetRate;
-  const outputLength = Math.floor((input.length - state.remainder) / ratio);
+  const outputLength = Math.floor((input.length + state.remainder) / ratio);
   const output = new Float32Array(Math.max(0, outputLength));
 
   let outputIndex = 0;
-  let inputIndex = state.remainder;
+  let inputIndex = -state.remainder;
   while (outputIndex < outputLength) {
     const lower = Math.floor(inputIndex);
     const upper = Math.min(lower + 1, input.length - 1);

@@ -77,6 +77,11 @@ export function useVoiceEngine(options: UseVoiceEngineOptions): VoiceEngineApi {
   const sessionActiveRef = useRef(false);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const turnStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modeRef = useRef<AssistantMode>(mode);
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   const gatewayClient = useMemo(
     () => (connection ? new GatewayClient(connection) : null),
@@ -113,6 +118,7 @@ export function useVoiceEngine(options: UseVoiceEngineOptions): VoiceEngineApi {
         ingestEvent(event, {
           appendTranscript,
           updateTranscript,
+          setTranscript,
           partialIdsRef,
           setConnectionStatus,
         });
@@ -219,8 +225,8 @@ export function useVoiceEngine(options: UseVoiceEngineOptions): VoiceEngineApi {
         onError: (err) =>
           setConnectionStatus((prev) => ({ ...prev, lastError: errorMessage(err) })),
       });
-      await liveVoiceRef.current.open();
     }
+    await liveVoiceRef.current.open();
     liveVoiceRef.current.start();
     sessionActiveRef.current = true;
     setMode("listening");
@@ -250,7 +256,7 @@ export function useVoiceEngine(options: UseVoiceEngineOptions): VoiceEngineApi {
   const handleMicFrame = useCallback(
     async (samples: Int16Array, rms: number) => {
       if (rms > 0.04 && sessionActiveRef.current) {
-        if (mode === "speaking") {
+        if (modeRef.current === "speaking") {
           ttsRef.current?.stop();
           liveVoiceRef.current?.interrupt();
         }
@@ -273,7 +279,7 @@ export function useVoiceEngine(options: UseVoiceEngineOptions): VoiceEngineApi {
         await wakeWordRef.current.pushFrame(samples);
       }
     },
-    [armSilenceTimer, mode, voiceConfig.alwaysOn, voiceConfig.wakeWord.enabled],
+    [armSilenceTimer, voiceConfig.alwaysOn, voiceConfig.wakeWord.enabled],
   );
 
   // Mic / wake-word lifecycle.
@@ -425,6 +431,7 @@ export function useVoiceEngine(options: UseVoiceEngineOptions): VoiceEngineApi {
 interface IngestContext {
   appendTranscript: (entry: Omit<TranscriptEntry, "timestamp"> & { timestamp?: number }) => void;
   updateTranscript: (id: string, mutation: (current: TranscriptEntry) => TranscriptEntry) => void;
+  setTranscript: React.Dispatch<React.SetStateAction<readonly TranscriptEntry[]>>;
   partialIdsRef: React.MutableRefObject<{ user: string | null; assistant: string | null }>;
   setConnectionStatus: React.Dispatch<React.SetStateAction<ConnectionStatus>>;
 }
@@ -438,15 +445,14 @@ function ingestEvent(event: GatewayEventEnvelope, ctx: IngestContext): void {
       const text = typeof message.delta === "string" ? message.delta : message.text;
       if (typeof text !== "string") return;
       const id = ensurePartial(ctx.partialIdsRef, "assistant");
-       
-      ctx.updateTranscript(id, (current) => ({
-        ...current,
-        text: current.text + text,
-        timestamp: Date.now(),
-      }));
+      const ts = Date.now();
+      ctx.setTranscript((prev) =>
+        upsertPartial(prev, id, "assistant", text, ts, "partial", true),
+      );
       break;
     }
     case "assistant_message_complete":
+    case "message_complete":
     case "assistant_text_complete": {
       const id = ctx.partialIdsRef.current.assistant;
       if (id) {

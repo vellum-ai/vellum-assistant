@@ -92,9 +92,12 @@ function parseLockfile(raw: string): Lockfile | null {
 function pickEntry(
   assistants: LockfileAssistantEntry[],
 ): LockfileAssistantEntry | null {
-  if (assistants.length === 0) return null;
+  const localAssistants = assistants.filter(
+    (entry) => (entry.cloud ?? "local").toLowerCase() === "local",
+  );
+  if (localAssistants.length === 0) return null;
   // Most-recently-hatched wins (string comparison is fine for ISO-8601).
-  return assistants.reduce<LockfileAssistantEntry | null>((best, current) => {
+  return localAssistants.reduce<LockfileAssistantEntry | null>((best, current) => {
     if (!best) return current;
     const bestStamp = best.hatchedAt ?? "";
     const currentStamp = current.hatchedAt ?? "";
