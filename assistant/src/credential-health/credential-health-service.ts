@@ -347,7 +347,7 @@ async function checkManagedProvider(
     }
 
     const connections = allConnections.filter(
-      (c) => c.status?.toUpperCase() === "ACTIVE",
+      (c) => (c.status ?? "ACTIVE").toUpperCase() === "ACTIVE",
     );
 
     if (connections.length === 0) {
