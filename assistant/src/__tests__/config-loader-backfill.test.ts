@@ -523,7 +523,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles["custom-balanced"].provider_connection).toBe(
       "anthropic-personal",
     );
-    // Managed profiles are also seeded for anthropic-managed.
+    // Managed balanced profile is seeded for anthropic-managed.
     expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
       "anthropic-managed",
@@ -589,11 +589,8 @@ describe("loadConfig startup behavior", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
-      JSON.stringify(
-        { llm: { default: { provider: "openai" } } },
-        null,
-        2,
-      ) + "\n",
+      JSON.stringify({ llm: { default: { provider: "openai" } } }, null, 2) +
+        "\n",
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
@@ -617,7 +614,7 @@ describe("loadConfig startup behavior", () => {
       "gpt-5.4-nano",
     );
 
-    // Managed anthropic profiles are also seeded.
+    // Managed profiles are also seeded (balanced uses Anthropic).
     expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
       "anthropic-managed",
@@ -981,11 +978,8 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
-      JSON.stringify(
-        { llm: { default: { provider: "anthropic" } } },
-        null,
-        2,
-      ) + "\n",
+      JSON.stringify({ llm: { default: { provider: "anthropic" } } }, null, 2) +
+        "\n",
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
@@ -1029,11 +1023,8 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
-      JSON.stringify(
-        { llm: { default: { provider: "anthropic" } } },
-        null,
-        2,
-      ) + "\n",
+      JSON.stringify({ llm: { default: { provider: "anthropic" } } }, null, 2) +
+        "\n",
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 

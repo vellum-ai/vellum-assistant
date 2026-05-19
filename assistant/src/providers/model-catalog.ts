@@ -581,6 +581,21 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "accounts/fireworks/models/kimi-k2p6",
+        displayName: "Kimi K2.6",
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.95,
+          outputPer1mTokens: 4.0,
+          cacheReadPer1mTokens: 0.16,
+        },
+      },
+      {
         id: "accounts/fireworks/models/kimi-k2p5",
         displayName: "Kimi K2.5",
         contextWindowTokens: 256000,
@@ -1056,6 +1071,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     setupHint:
       "Enter the base URL of your endpoint and at least one model identifier.",
     apiKeyPlaceholder: "Your provider's API key",
+    featureFlag: "openai-compatible-endpoints",
     models: [],
     defaultModel: "",
   },

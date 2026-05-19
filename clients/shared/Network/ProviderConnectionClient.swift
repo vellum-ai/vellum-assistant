@@ -34,9 +34,9 @@ public protocol ProviderConnectionClientProtocol {
     func listProviderConnections(provider: String?) async -> [ProviderConnection]?
     func getProviderConnection(name: String) async -> ProviderConnection?
     /// `label` and `status` are optional extras; pass `nil` to omit from the request body.
-    func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth, label: String?, status: ConnectionStatus?) async -> ProviderConnectionCreateResult
+    func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth, label: String?, status: ConnectionStatus?, baseUrl: String?, models: [ConnectionModel]?) async -> ProviderConnectionCreateResult
     /// `status`: nil = omit from body (no change). `label`: nil outer = omit; `.some(nil)` = send null (clear); `.some("v")` = set.
-    func updateProviderConnection(name: String, auth: ProviderConnectionAuth, status: ConnectionStatus?, label: String??) async -> ProviderConnection?
+    func updateProviderConnection(name: String, auth: ProviderConnectionAuth, status: ConnectionStatus?, label: String??, baseUrl: String??, models: [ConnectionModel]??) async -> ProviderConnection?
     func deleteProviderConnection(name: String) async -> ProviderConnectionDeleteResult
 }
 
@@ -100,7 +100,9 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
         provider: String,
         auth: ProviderConnectionAuth,
         label: String? = nil,
-        status: ConnectionStatus? = nil
+        status: ConnectionStatus? = nil,
+        baseUrl: String? = nil,
+        models: [ConnectionModel]? = nil
     ) async -> ProviderConnectionCreateResult {
         var body: [String: Any] = [
             "name": name,
@@ -109,6 +111,8 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
         ]
         if let label { body["label"] = label }
         if let status { body["status"] = status.rawValue }
+        if let baseUrl { body["base_url"] = baseUrl }
+        if let models { body["models"] = models.map { model -> [String: Any] in var d: [String: Any] = ["id": model.id]; if let dn = model.displayName { d["displayName"] = dn }; return d } }
         do {
             let response = try await GatewayHTTPClient.post(
                 path: "inference/provider-connections",
@@ -153,13 +157,25 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
         name: String,
         auth: ProviderConnectionAuth,
         status: ConnectionStatus? = nil,
-        label: String?? = nil
+        label: String?? = nil,
+        baseUrl: String?? = nil,
+        models: [ConnectionModel]?? = nil
     ) async -> ProviderConnection? {
         let encoded = Self.encodePath(name)
         var body: [String: Any] = ["auth": Self.authDict(for: auth)]
         if let status { body["status"] = status.rawValue }
         if let outerLabel = label {
             body["label"] = outerLabel ?? NSNull()
+        }
+        if let outerBaseUrl = baseUrl {
+            body["base_url"] = outerBaseUrl ?? NSNull()
+        }
+        if let outerModels = models {
+            if let m = outerModels {
+                body["models"] = m.map { model -> [String: Any] in var d: [String: Any] = ["id": model.id]; if let dn = model.displayName { d["displayName"] = dn }; return d }
+            } else {
+                body["models"] = NSNull()
+            }
         }
         do {
             let response = try await GatewayHTTPClient.patch(
@@ -238,7 +254,9 @@ extension ProviderConnection {
             label: label,
             createdAt: createdAt,
             updatedAt: updatedAt,
-            isManaged: isManaged
+            isManaged: isManaged,
+            baseUrl: baseUrl,
+            models: models
         )
     }
 }

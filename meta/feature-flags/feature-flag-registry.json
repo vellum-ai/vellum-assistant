@@ -146,6 +146,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "openai-compatible-endpoints",
+      "scope": "assistant",
+      "key": "openai-compatible-endpoints",
+      "label": "OpenAI-Compatible Endpoints",
+      "description": "Enable user-configured OpenAI-compatible inference endpoints with custom base URLs and model identifiers",
+      "defaultEnabled": false
+    },
+    {
       "id": "backward-releases",
       "scope": "assistant",
       "key": "backward-releases",

@@ -18,10 +18,6 @@ import {
 
 const log = getLogger("seed-inference-profiles");
 
-const MANAGED_CONNECTION_NAME = "anthropic-managed";
-const MANAGED_PROFILE_PROVIDER: NonNullable<ProfileEntry["provider"]> =
-  "anthropic";
-
 /**
  * Template for a daemon-managed inference profile. The profile's model is
  * resolved at seed time from `PROVIDER_MODEL_INTENTS` so the catalog stays the
@@ -32,16 +28,20 @@ type ManagedProfileTemplate = Omit<
   "provider" | "model" | "provider_connection"
 > & {
   intent: ModelIntent;
+  provider: NonNullable<ProfileEntry["provider"]>;
+  connectionName: string;
 };
 
 /**
- * Managed Anthropic profiles. Overwritten on every daemon boot so Vellum can
- * push model/config updates to customers in new releases. Platform overlays
+ * Managed profiles. Overwritten on every daemon boot so Vellum can push
+ * model/config updates to customers in new releases. Platform overlays
  * (`preserveProfileNames`) take precedence when present.
  */
 const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   balanced: {
     intent: "balanced",
+    provider: "anthropic",
+    connectionName: "anthropic-managed",
     source: "managed",
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
@@ -52,6 +52,8 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
   "quality-optimized": {
     intent: "quality-optimized",
+    provider: "anthropic",
+    connectionName: "anthropic-managed",
     source: "managed",
     label: "Quality",
     description: "Best results with the most capable model",
@@ -62,6 +64,8 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
   "cost-optimized": {
     intent: "latency-optimized",
+    provider: "anthropic",
+    connectionName: "anthropic-managed",
     source: "managed",
     label: "Speed",
     description: "Fastest responses at lower cost",
@@ -75,11 +79,15 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
 /**
  * User profile templates. Materialized at hatch time for off-platform
  * installations. Each points at the user's personal provider connection
- * (backed by their API key in CES).
+ * (backed by their API key in CES). The `provider` and `connectionName`
+ * fields are placeholders — they are overridden at hatch time with the
+ * user's chosen provider and personal connection name.
  */
 const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   "custom-balanced": {
     intent: "balanced",
+    provider: "anthropic",
+    connectionName: "",
     source: "user",
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
@@ -90,6 +98,8 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
   "custom-quality-optimized": {
     intent: "quality-optimized",
+    provider: "anthropic",
+    connectionName: "",
     source: "user",
     label: "Quality",
     description: "Best results with the most capable model",
@@ -100,6 +110,8 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
   "custom-cost-optimized": {
     intent: "latency-optimized",
+    provider: "anthropic",
+    connectionName: "",
     source: "user",
     label: "Speed",
     description: "Fastest responses at lower cost",
@@ -213,8 +225,8 @@ export function seedInferenceProfiles(
       : template;
     const next = materializeProfile(
       effectiveTemplate,
-      MANAGED_PROFILE_PROVIDER,
-      MANAGED_CONNECTION_NAME,
+      template.provider,
+      template.connectionName,
     ) as Record<string, unknown>;
     if (isByokMode && options.isHatch && !previous) {
       next.status = "disabled";
@@ -274,8 +286,7 @@ export function seedInferenceProfiles(
         }
       }
 
-      const provider =
-        hatchProvider as NonNullable<ProfileEntry["provider"]>;
+      const provider = hatchProvider as NonNullable<ProfileEntry["provider"]>;
       for (const [name, template] of Object.entries(USER_PROFILE_TEMPLATES)) {
         if (preservedProfileNames.has(name)) continue;
         profiles[name] = materializeProfile(
@@ -347,7 +358,7 @@ function materializeProfile(
   provider: NonNullable<ProfileEntry["provider"]>,
   connectionName: string,
 ): ProfileEntry {
-  const { intent, ...rest } = template;
+  const { intent, provider: _p, connectionName: _c, ...rest } = template;
   return {
     ...rest,
     provider,
