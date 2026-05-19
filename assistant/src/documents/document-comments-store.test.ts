@@ -250,6 +250,26 @@ describe("deleteComment", () => {
   test("returns false for non-existent comment", () => {
     expect(deleteComment("comment-nonexistent")).toBe(false);
   });
+
+  test("cascades to child replies", () => {
+    const parent = createComment({
+      surfaceId: SURFACE_ID,
+      conversationId: CONVERSATION_ID,
+      author: "user1",
+      content: "Parent",
+    });
+    const reply = createComment({
+      surfaceId: SURFACE_ID,
+      conversationId: CONVERSATION_ID,
+      author: "user1",
+      content: "Reply",
+      parentCommentId: parent.id,
+    });
+
+    expect(deleteComment(parent.id)).toBe(true);
+    expect(getComment(parent.id)).toBeNull();
+    expect(getComment(reply.id)).toBeNull();
+  });
 });
 
 describe("getCommentCountForDocument", () => {
