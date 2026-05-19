@@ -9,7 +9,6 @@
     "preview": "vite preview",
     "lint": "eslint",
     "typecheck": "bunx tsc --noEmit",
-    "typecheck:test": "bunx tsc --project tsconfig.test.json --noEmit",
     "postinstall": "rm -rf ../../packages/design-library/node_modules/react ../../packages/design-library/node_modules/@types/react ../../packages/design-library/node_modules/react-dom ../../packages/design-library/node_modules/@types/react-dom 2>/dev/null; true",
     "openapi-ts": "openapi-ts"
   },
@@ -37,10 +36,10 @@
   "devDependencies": {
     "@hey-api/openapi-ts": "0.97.1",
     "@tailwindcss/vite": "4.1.8",
+    "@types/bun": "1.3.14",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.1",
-    "bun-types": "1.3.14",
     "eslint": "10.2.0",
     "tailwindcss": "4.1.8",
     "typescript": "5.9.3",
