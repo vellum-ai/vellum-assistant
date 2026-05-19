@@ -268,8 +268,7 @@ so consumers can subscribe to only the slice they need:
 ```ts
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
-import { messageReducer } from "./message-reducer.js";
-import type { MessageAction } from "./types.js";
+import type { Message } from "./types.js";
 
 // State — the data
 export interface MessageState {
@@ -277,9 +276,11 @@ export interface MessageState {
   activeThreadId: string | null;
 }
 
-// Actions — stable function refs
+// Actions — direct named functions (no dispatch/reducer)
 export interface MessageActions {
-  dispatch: (action: MessageAction) => void;
+  addMessage: (message: Message) => void;
+  setActiveThread: (threadId: string | null) => void;
+  clearMessages: () => void;
 }
 
 // Combined store type
@@ -288,7 +289,12 @@ export type MessageStore = MessageState & MessageActions;
 export const useMessageStore = create<MessageStore>()((set) => ({
   messages: [],
   activeThreadId: null,
-  dispatch: (action) => set((state) => messageReducer(state, action)),
+  addMessage: (message) =>
+    set((s) => ({ messages: [...s.messages, message] })),
+  setActiveThread: (threadId) =>
+    set({ activeThreadId: threadId }),
+  clearMessages: () =>
+    set({ messages: [], activeThreadId: null }),
 }));
 
 // Convenience hooks for common access patterns
@@ -303,7 +309,11 @@ export function useMessageState(): MessageState {
 
 export function useMessageActions(): MessageActions {
   return useMessageStore(
-    useShallow((s) => ({ dispatch: s.dispatch })),
+    useShallow((s) => ({
+      addMessage: s.addMessage,
+      setActiveThread: s.setActiveThread,
+      clearMessages: s.clearMessages,
+    })),
   );
 }
 ```
