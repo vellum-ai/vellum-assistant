@@ -201,6 +201,19 @@ describe("disableManagedConnectionsForByokHatch", () => {
     expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
   });
 
+  test("leaves an excluded managed connection active", () => {
+    const db = bootDb();
+    seedCanonicalConnections(db);
+
+    disableManagedConnectionsForByokHatch(db, {
+      excludeConnection: "anthropic-managed",
+    });
+
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("active");
+    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
+    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
+  });
+
   test("subsequent seedCanonicalConnections call does NOT re-flip a user-re-enabled connection", () => {
     // Models the post-hatch lifecycle: at hatch we disable; the user
     // later flips one back to active (e.g. after Vellum login). Every
