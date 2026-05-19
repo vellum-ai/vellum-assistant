@@ -1,13 +1,13 @@
 import * as Sentry from "@sentry/node";
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import {
   estimatePromptTokensRaw,
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { calculateMaxToolResultChars } from "../context/tool-result-truncation.js";
+import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response.js";
 import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error.js";
 import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate.js";
