@@ -345,8 +345,9 @@ References:
 
 Turn lifecycle (sending, thinking, streaming, idle, errored), queue
 depth, active tool-call count, and current turn identity are managed
-by the turn store. Use `useTurnStore(selector)` in React components
-and `useTurnStore.getState()` in non-React code (stream handlers,
+by the turn store. Wrapped with `createSelectors` — use
+`useTurnStore.use.phase()` for single-field subscriptions and
+`useTurnStore.getState()` in non-React code (stream handlers,
 reconciliation). Do not prop-drill turn state or dispatch functions.
 
 Action naming follows the
