@@ -1,6 +1,8 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 
 import {
+  buildBundleTarGz,
+  BUNDLE_TAR_MEMBER_NAME,
   collectDiagnosticBundle,
   gzipJson,
   submitFeedback,
@@ -122,6 +124,40 @@ function seedStorage(stores: MockStores, opts: {
   }
 }
 
+async function decompressGzip(blob: Blob): Promise<Uint8Array> {
+  const stream = blob.stream().pipeThrough(new DecompressionStream("gzip"));
+  const buf = await new Response(stream).arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+function readTrimmedString(bytes: Uint8Array, offset: number, length: number): string {
+  const slice = bytes.slice(offset, offset + length);
+  let end = slice.length;
+  while (end > 0 && slice[end - 1] === 0x00) end -= 1;
+  return new TextDecoder().decode(slice.slice(0, end));
+}
+
+interface ParsedTarMember {
+  name: string;
+  typeflag: string;
+  magic: string;
+  size: number;
+  payload: string;
+}
+
+function parseFirstTarMember(tarBytes: Uint8Array): ParsedTarMember {
+  if (tarBytes.length < 1024) {
+    throw new Error(`tar archive is implausibly small: ${tarBytes.length} bytes`);
+  }
+  const name = readTrimmedString(tarBytes, 0, 100);
+  const sizeOctal = readTrimmedString(tarBytes, 124, 12).trim();
+  const size = parseInt(sizeOctal, 8);
+  const typeflag = String.fromCharCode(tarBytes[156]!);
+  const magic = readTrimmedString(tarBytes, 257, 6).trim();
+  const payload = new TextDecoder().decode(tarBytes.slice(512, 512 + size));
+  return { name, typeflag, magic, size, payload };
+}
+
 describe("feedback.gzipJson", () => {
   test("round-trips a JSON value through gzip", async () => {
     installChromeMock({ local: {}, session: {} });
@@ -134,6 +170,42 @@ describe("feedback.gzipJson", () => {
       .pipeThrough(new DecompressionStream("gzip"));
     const text = await new Response(decompressed).text();
     expect(JSON.parse(text)).toEqual(payload);
+  });
+});
+
+describe("feedback.buildBundleTarGz", () => {
+  test("produces a single-member ustar archive with the JSON payload inside", async () => {
+    installChromeMock({ local: {}, session: {} });
+    const payload = { hello: "world", n: 42, nested: { ok: true } };
+    const archive = await buildBundleTarGz(payload);
+    expect(archive.size).toBeGreaterThan(0);
+
+    const tarBytes = await decompressGzip(archive);
+    const member = parseFirstTarMember(tarBytes);
+
+    expect(member.name).toBe(BUNDLE_TAR_MEMBER_NAME);
+    expect(member.typeflag).toBe("0");
+    expect(member.magic).toBe("ustar");
+    expect(JSON.parse(member.payload)).toEqual(payload);
+
+    // Archive is laid out as header + padded content + 2 zero trailer blocks.
+    // The trailer must be present so the platform's `tarfile.open` stops cleanly.
+    const trailerStart = tarBytes.length - 1024;
+    for (let i = trailerStart; i < tarBytes.length; i++) {
+      expect(tarBytes[i]).toBe(0);
+    }
+  });
+
+  test("writes an octal-encoded size that round-trips with Python's tarfile semantics", async () => {
+    installChromeMock({ local: {}, session: {} });
+    // A non-trivially-sized payload so the size field uses multiple digits.
+    const payload = { junk: "x".repeat(2048) };
+    const archive = await buildBundleTarGz(payload);
+    const tarBytes = await decompressGzip(archive);
+    const member = parseFirstTarMember(tarBytes);
+
+    const expectedSize = new TextEncoder().encode(JSON.stringify(payload)).length;
+    expect(member.size).toBe(expectedSize);
   });
 });
 
@@ -266,7 +338,7 @@ describe("feedback.submitFeedback", () => {
     expect(formData.get("logs_file")).toBeNull();
   });
 
-  test("attaches gzipped logs_file when a bundle is provided", async () => {
+  test("attaches a tar.gz logs_file when a bundle is provided", async () => {
     seedStorage(stores, { clientId: "client-uuid" });
     const { calls, fetchImpl } = captureFetch();
 
@@ -282,8 +354,26 @@ describe("feedback.submitFeedback", () => {
     const file = formData.get("logs_file") as File | null;
     expect(file).not.toBeNull();
     expect(file!.type).toBe("application/gzip");
-    expect(file!.name).toBe("vellum-extension-diagnostics.json.gz");
+    expect(file!.name).toBe("vellum-extension-diagnostics.tar.gz");
     expect(file!.size).toBeGreaterThan(0);
+
+    // Gzip magic bytes — sanity check that the file is actually gzipped.
+    const head = new Uint8Array(await file!.slice(0, 2).arrayBuffer());
+    expect(head[0]).toBe(0x1f);
+    expect(head[1]).toBe(0x8b);
+
+    // Decompress and verify the tar header — the platform's
+    // `sanitize_tar_gz` validator runs `tarfile.open(..., mode="r|")`, so
+    // a plain gzipped JSON blob would be silently dropped on the floor.
+    const tarBytes = await decompressGzip(file!);
+    const { name, typeflag, magic, size, payload } = parseFirstTarMember(tarBytes);
+    expect(name).toBe(BUNDLE_TAR_MEMBER_NAME);
+    expect(typeflag).toBe("0"); // regular file
+    expect(magic).toBe("ustar");
+    expect(size).toBeGreaterThan(0);
+
+    const parsed = JSON.parse(payload) as Record<string, unknown>;
+    expect((parsed.extension as { version: string }).version).toBe("1.2.3");
   });
 
   test("attaches X-Session-Token + Vellum-Organization-Id in cloud mode", async () => {
