@@ -323,6 +323,24 @@ domain means adding or removing a folder.
 
 Reference: [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
 
+### Auth state lives in a Zustand store
+
+Auth is cross-domain shared state — used by middleware, route
+components, API interceptors, and platform bridges. It lives in a
+Zustand store (`stores/auth-store.ts`), not a React Context. This
+is critical because:
+
+- **Middleware and loaders** need auth state outside the React tree —
+  `useAuthStore.getState()` works anywhere; Context requires a
+  component.
+- **API interceptors** need to read/write auth state synchronously.
+- **Selector support** — components subscribe to only the auth slice
+  they need (e.g., `useAuthStore(s => s.isAuthenticated)`).
+
+References:
+- [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
+- [React Router — Middleware](https://reactrouter.com/how-to/middleware)
+
 ### Selector patterns and `useShallow`
 
 Selectors control re-render granularity. Choose the right pattern based
@@ -532,6 +550,81 @@ themselves.
 References:
 - [React Router v7 — Data Loading](https://reactrouter.com/how-to/data-loading)
 - [React — Separating Events from Effects](https://react.dev/learn/separating-events-from-effects)
+
+### Route protection via middleware
+
+Protected routes use React Router v7
+[middleware](https://reactrouter.com/how-to/middleware) (enabled via the
+`v8_middleware`
+[future flag](https://reactrouter.com/upgrading/future#futurev8_middleware)).
+Middleware runs **before** the route component renders — no flash of
+protected content, no `useEffect`-based redirects.
+
+```ts
+createBrowserRouter([
+  // Public — no middleware
+  { path: "/account/login", Component: LoginPage },
+
+  // Protected — auth middleware gates access
+  {
+    path: "/assistant",
+    middleware: [authMiddleware],
+    Component: RootLayout,
+    children: [/* ... */],
+  },
+], {
+  future: { v8_middleware: true },
+});
+```
+
+The auth middleware reads from the Zustand auth store (via
+`.getState()` — no hook needed) and throws `redirect("/account/login")`
+when unauthenticated. User data is passed downstream via React Router's
+typed
+[`context`](https://reactrouter.com/start/data/route-object/#middleware),
+accessible in loaders and components.
+
+#### Auth is optional — controlled by environment config
+
+Authentication is **not always required.** The hosted Vellum service
+(`vellum.ai`) and the App Store iOS app enforce login. But contributors
+running the app locally (`bun run dev`) or self-hosting it can use it
+without logging in — the same way they'd use a local desktop app.
+
+A `VITE_AUTH_REQUIRED` environment variable controls enforcement.
+Hosted deployments set it to `"true"`; the default is `"false"` so
+the app works out of the box for local development and self-hosting.
+
+| Environment | `VITE_AUTH_REQUIRED` | Behavior |
+|---|---|---|
+| Hosted web (`vellum.ai`) | `"true"` | Middleware redirects to `/account/login` |
+| App Store iOS (Capacitor) | `"true"` | Same — native login flow via ASWebAuthenticationSession |
+| Local dev / self-hosted | `"false"` (default) | Middleware passes through with anonymous context |
+| Future Electron/macOS | `"false"` (default) | Same — app usable without login |
+
+```ts
+async function authMiddleware({ context }) {
+  const { isAuthenticated, user } = useAuthStore.getState();
+
+  if (!requiresAuth()) {
+    // Local/self-hosted — allow anonymous usage
+    context.set(userContext, user ?? ANONYMOUS_USER);
+    return;
+  }
+
+  if (!isAuthenticated) {
+    throw redirect("/account/login");
+  }
+
+  context.set(userContext, user);
+}
+```
+
+References:
+- [React Router — Middleware](https://reactrouter.com/how-to/middleware)
+- [React Router — Future Flags (`v8_middleware`)](https://reactrouter.com/upgrading/future#futurev8_middleware)
+- [React Router collaborator recommendation for SPA auth](https://github.com/remix-run/react-router/discussions/14697)
+- [Vite — Env Variables](https://vite.dev/guide/env-and-mode.html)
 
 ### URL-driven routing
 

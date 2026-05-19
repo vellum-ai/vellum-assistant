@@ -25,6 +25,8 @@ Read these before making changes:
 - Route constants: `src/utils/routes.ts` — all paths are absolute browser paths
 - No `basename` on the router — `/account/*` and `/assistant/*` are explicit top-level branches
 - Routes must match the platform repo exactly during migration (no URL changes)
+- **Route protection**: uses React Router v7 [middleware](https://reactrouter.com/how-to/middleware) (`v8_middleware` future flag), not layout gate components or `useEffect` redirects. See [CONVENTIONS.md — Route protection via middleware](./CONVENTIONS.md#route-protection-via-middleware).
+- **Auth is runtime-configurable**: `requiresAuth()` controls whether middleware enforces login — true for web/iOS, false for future Electron/macOS. See [CONVENTIONS.md — Auth is optional based on runtime](./CONVENTIONS.md#auth-is-optional-based-on-runtime).
 
 ## Commands
 
