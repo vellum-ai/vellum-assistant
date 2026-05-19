@@ -30,13 +30,13 @@ const ANONYMOUS_USER: AuthUser = {
 
 export const authUserContext = createRouterContext<AuthUser>(ANONYMOUS_USER);
 
-export const authMiddleware: MiddlewareFunction = async ({ context }, next) => {
+export const authMiddleware: MiddlewareFunction = async ({ request, context }, next) => {
   const { isLoggedIn, isLoading, user } = useAuthStore.getState();
 
   if (isLoading) {
     // Session probe still in flight — wait for it.
     await waitForAuthReady();
-    return authMiddleware({ context } as Parameters<MiddlewareFunction>[0], next);
+    return authMiddleware({ request, context } as Parameters<MiddlewareFunction>[0], next);
   }
 
   if (!requiresAuth()) {
@@ -45,7 +45,8 @@ export const authMiddleware: MiddlewareFunction = async ({ context }, next) => {
   }
 
   if (!isLoggedIn || !user) {
-    const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+    const url = new URL(request.url);
+    const returnTo = encodeURIComponent(url.pathname + url.search);
     throw redirect(`/account/login?returnTo=${returnTo}`);
   }
 
