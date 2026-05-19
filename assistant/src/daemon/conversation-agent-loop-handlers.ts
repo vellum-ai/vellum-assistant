@@ -677,6 +677,7 @@ export function handleToolResult(
     approvalMode: event.approvalMode,
     approvalReason: event.approvalReason,
     riskThreshold: event.riskThreshold,
+    activityMetadata: event.activityMetadata,
   });
 }
 
@@ -1296,6 +1297,7 @@ export async function dispatchAgentEvent(
           isError: event.isError,
           conversationId: deps.ctx.conversationId,
           toolUseId: event.toolUseId,
+          activityMetadata: undefined,
         });
         break;
       }

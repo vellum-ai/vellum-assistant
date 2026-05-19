@@ -7,6 +7,7 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { calculateMaxToolResultChars } from "../context/tool-result-truncation.js";
+import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response.js";
 import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error.js";
 import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate.js";
@@ -142,6 +143,7 @@ export type AgentEvent =
       approvalMode?: string;
       approvalReason?: string;
       riskThreshold?: string;
+      activityMetadata?: ToolActivityMetadata;
     }
   | { type: "tool_use_preview_start"; toolUseId: string; toolName: string }
   | {
@@ -371,6 +373,7 @@ export type LoopToolExecutor = (
   approvalMode?: string;
   approvalReason?: string;
   riskThreshold?: string;
+  activityMetadata?: ToolActivityMetadata;
 }>;
 
 export class AgentLoop {
@@ -1155,6 +1158,7 @@ export class AgentLoop {
             approvalMode: result.approvalMode,
             approvalReason: result.approvalReason,
             riskThreshold: result.riskThreshold,
+            activityMetadata: result.activityMetadata,
           });
         }
 
