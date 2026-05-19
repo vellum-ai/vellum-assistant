@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "describe_camera_once",
+      "description": "Request one user-approved webcam snapshot from the connected desktop client, summarize it, and discard the raw image. Use only for explicit one-shot camera requests.",
+      "category": "webcam-snapshot",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Optional question or focus area for the snapshot summary"
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "Optional client id to target when multiple macOS/Tauri clients support host_camera"
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/describe-camera-once.ts",
+      "execution_target": "host"
+    }
+  ]
+}

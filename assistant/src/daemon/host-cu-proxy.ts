@@ -16,6 +16,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import { runAction } from "../actions/run-action.js";
 import { escapeAxTreeContent } from "../agent/loop.js";
 import { loadConfig } from "../config/loader.js";
 import type { ContentBlock } from "../providers/types.js";
@@ -28,6 +29,7 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import type { ActionLifecycleMessage } from "./message-types/actions.js";
 
 const log = getLogger("host-cu-proxy");
 
@@ -190,83 +192,108 @@ export class HostCuProxy {
 
     const requestId = uuid();
 
-    return new Promise<ToolExecutionResult>((resolve, reject) => {
-      let detachAbort: () => void = () => {};
+    return runAction<ToolExecutionResult>({
+      actionName: toolName,
+      conversationId,
+      inputSummary: JSON.stringify({
+        stepNumber,
+        targetClientId: targetClientId ?? null,
+      }),
+      riskLevel: "High",
+      onLifecycle: (event) => {
+        const message: ActionLifecycleMessage = {
+          type: "action_lifecycle",
+          actionId: event.actionId,
+          actionName: event.actionName,
+          stage: event.stage,
+          ts: event.ts,
+          ...(event.message ? { message: event.message } : {}),
+          conversationId,
+        };
+        broadcastMessage(message, conversationId);
+      },
+      execute: async () =>
+        await new Promise<ToolExecutionResult>((resolve, reject) => {
+          let detachAbort: () => void = () => {};
 
-      const timer = setTimeout(() => {
-        this._ownedRequests.delete(requestId);
-        pendingInteractions.resolve(requestId);
-        log.warn({ requestId, toolName }, "Host CU proxy request timed out");
-        resolve({
-          content: "Host CU proxy timed out waiting for client response",
-          isError: true,
-        });
-      }, REQUEST_TIMEOUT_SEC * 1000);
-
-      if (signal) {
-        const onAbort = () => {
-          if (pendingInteractions.get(requestId)) {
+          const timer = setTimeout(() => {
             this._ownedRequests.delete(requestId);
             pendingInteractions.resolve(requestId);
-            try {
-              broadcastMessage(
-                {
-                  type: "host_cu_cancel",
-                  requestId,
-                  conversationId,
-                  ...(targetClientId != null ? { targetClientId } : {}),
-                },
-                conversationId,
-                { targetClientId },
-              );
-            } catch {
-              // Best-effort cancel notification
-            }
-            resolve({ content: "Aborted", isError: true });
+            log.warn(
+              { requestId, toolName },
+              "Host CU proxy request timed out",
+            );
+            resolve({
+              content: "Host CU proxy timed out waiting for client response",
+              isError: true,
+            });
+          }, REQUEST_TIMEOUT_SEC * 1000);
+
+          if (signal) {
+            const onAbort = () => {
+              if (pendingInteractions.get(requestId)) {
+                this._ownedRequests.delete(requestId);
+                pendingInteractions.resolve(requestId);
+                try {
+                  broadcastMessage(
+                    {
+                      type: "host_cu_cancel",
+                      requestId,
+                      conversationId,
+                      ...(targetClientId != null ? { targetClientId } : {}),
+                    },
+                    conversationId,
+                    { targetClientId },
+                  );
+                } catch {
+                  // Best-effort cancel notification
+                }
+                resolve({ content: "Aborted", isError: true });
+              }
+            };
+            signal.addEventListener("abort", onAbort, { once: true });
+            detachAbort = () => signal.removeEventListener("abort", onAbort);
           }
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-        detachAbort = () => signal.removeEventListener("abort", onAbort);
-      }
 
-      this._ownedRequests.add(requestId);
+          this._ownedRequests.add(requestId);
 
-      pendingInteractions.register(requestId, {
-        conversationId,
-        kind: "host_cu",
-        targetClientId,
-        targetActorPrincipalId:
-          targetClientId != null
-            ? assistantEventHub.getActorPrincipalIdForClient(targetClientId)
-            : undefined,
-        rpcResolve: resolve as (v: unknown) => void,
-        rpcReject: reject,
-        timer,
-        detachAbort,
-      });
-
-      try {
-        broadcastMessage(
-          {
-            type: "host_cu_request",
-            requestId,
+          pendingInteractions.register(requestId, {
             conversationId,
-            toolName,
-            input,
-            stepNumber,
-            reasoning,
-            // Include in body so receiving client can verify targeted endpoint.
-            ...(targetClientId != null ? { targetClientId } : {}),
-          },
-          conversationId,
-          { targetClientId },
-        );
-      } catch (err) {
-        this._ownedRequests.delete(requestId);
-        pendingInteractions.resolve(requestId);
-        log.warn({ requestId, toolName, err }, "Host CU proxy send failed");
-        reject(err instanceof Error ? err : new Error(String(err)));
-      }
+            kind: "host_cu",
+            targetClientId,
+            targetActorPrincipalId:
+              targetClientId != null
+                ? assistantEventHub.getActorPrincipalIdForClient(targetClientId)
+                : undefined,
+            rpcResolve: resolve as (v: unknown) => void,
+            rpcReject: reject,
+            timer,
+            detachAbort,
+          });
+
+          try {
+            broadcastMessage(
+              {
+                type: "host_cu_request",
+                requestId,
+                conversationId,
+                toolName,
+                input,
+                stepNumber,
+                reasoning,
+                // Include in body so receiving client can verify targeted endpoint.
+                ...(targetClientId != null ? { targetClientId } : {}),
+              },
+              conversationId,
+              { targetClientId },
+            );
+          } catch (err) {
+            this._ownedRequests.delete(requestId);
+            pendingInteractions.resolve(requestId);
+            log.warn({ requestId, toolName, err }, "Host CU proxy send failed");
+            reject(err instanceof Error ? err : new Error(String(err)));
+          }
+        }),
     });
   }
 

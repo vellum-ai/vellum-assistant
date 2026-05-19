@@ -16,6 +16,7 @@ import { isHostProxyTransport } from "../daemon/message-types/conversations.js";
 describe("supportsHostProxy (runtime)", () => {
   test("no-arg form returns true for host-proxy interfaces", () => {
     expect(supportsHostProxy("macos")).toBe(true);
+    expect(supportsHostProxy("tauri")).toBe(true);
   });
 
   test("no-arg form returns false for interfaces without host-proxy support", () => {
@@ -40,13 +41,25 @@ describe("supportsHostProxy (runtime)", () => {
     expect(supportsHostProxy("chrome-extension", "host_bash")).toBe(false);
     expect(supportsHostProxy("chrome-extension", "host_file")).toBe(false);
     expect(supportsHostProxy("chrome-extension", "host_cu")).toBe(false);
+    expect(supportsHostProxy("chrome-extension", "host_camera")).toBe(false);
   });
 
-  test("capability form grants all four capabilities to macOS including host_browser", () => {
+  test("capability form grants all desktop capabilities to macOS including host_browser", () => {
     expect(supportsHostProxy("macos", "host_bash")).toBe(true);
     expect(supportsHostProxy("macos", "host_file")).toBe(true);
     expect(supportsHostProxy("macos", "host_cu")).toBe(true);
     expect(supportsHostProxy("macos", "host_browser")).toBe(true);
+    expect(supportsHostProxy("macos", "host_app_control")).toBe(true);
+    expect(supportsHostProxy("macos", "host_camera")).toBe(true);
+  });
+
+  test("capability form grants all capabilities to Tauri HUD", () => {
+    expect(supportsHostProxy("tauri", "host_bash")).toBe(true);
+    expect(supportsHostProxy("tauri", "host_file")).toBe(true);
+    expect(supportsHostProxy("tauri", "host_cu")).toBe(true);
+    expect(supportsHostProxy("tauri", "host_browser")).toBe(true);
+    expect(supportsHostProxy("tauri", "host_app_control")).toBe(true);
+    expect(supportsHostProxy("tauri", "host_camera")).toBe(true);
   });
 
   test("capability form rejects everything for non-host-proxy interfaces", () => {
@@ -179,6 +192,11 @@ describe("macOS host_browser capability", () => {
     // The no-arg form gates computer-use preactivation and full proxy restore.
     // macOS must still pass this check.
     expect(supportsHostProxy("macos")).toBe(true);
+  });
+
+  test("Tauri passes the no-arg host-proxy check (full HUD proxy)", () => {
+    expect(supportsHostProxy("tauri")).toBe(true);
+    expect(supportsHostProxy("tauri", "host_browser")).toBe(true);
   });
 
   test("non-macOS non-extension interfaces remain host_browser-ineligible", () => {

@@ -208,6 +208,10 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
         conversationId,
         kind: this.resultPendingKind,
         ...(targetClientId != null ? { targetClientId } : {}),
+        targetActorPrincipalId:
+          targetClientId != null
+            ? assistantEventHub.getActorPrincipalIdForClient(targetClientId)
+            : undefined,
       });
 
       try {

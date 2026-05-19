@@ -120,6 +120,7 @@ import {
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
 import { canonicalizeTimeZone } from "./date-context.js";
 import type { HostAppControlProxy } from "./host-app-control-proxy.js";
+import type { HostCameraProxy } from "./host-camera-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   ServerMessage,
@@ -205,6 +206,7 @@ export class Conversation {
    * @internal
    */
   hostAppControlProxy?: HostAppControlProxy;
+  /** @internal */ hostCameraProxy?: HostCameraProxy;
   /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
@@ -759,6 +761,8 @@ export class Conversation {
     this.hostCuProxy?.dispose();
     this.hostAppControlProxy?.dispose();
     this.hostAppControlProxy = undefined;
+    this.hostCameraProxy?.dispose();
+    this.hostCameraProxy = undefined;
     // CES client is owned by DaemonServer — just drop the reference.
     // Do NOT close it here; the server manages the CES lifecycle.
     this.cesClient = undefined;
@@ -941,6 +945,13 @@ export class Conversation {
       this.hostAppControlProxy.dispose();
     }
     this.hostAppControlProxy = proxy;
+  }
+
+  setHostCameraProxy(proxy: HostCameraProxy | undefined): void {
+    if (this.hostCameraProxy && this.hostCameraProxy !== proxy) {
+      this.hostCameraProxy.dispose();
+    }
+    this.hostCameraProxy = proxy;
   }
 
   // ── Server-authoritative state signals ─────────────────────────────

@@ -37,10 +37,13 @@
 
 import { createHash } from "node:crypto";
 
+import { runAction } from "../actions/run-action.js";
 import type { ContentBlock } from "../providers/types.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { HostProxyBase, HostProxyRequestError } from "./host-proxy-base.js";
+import type { ActionLifecycleMessage } from "./message-types/actions.js";
 import type {
   HostAppControlInput,
   HostAppControlResultPayload,
@@ -253,12 +256,30 @@ export class HostAppControlProxy extends HostProxyBase<
     }
 
     try {
-      const payload = await this.dispatchRequest(
-        toolName,
-        input,
+      const payload = await runAction({
+        actionName: `host_app_control.${input.tool}`,
         conversationId,
-        signal,
-      );
+        inputSummary: JSON.stringify({
+          tool: input.tool,
+          app:
+            "app" in input && typeof input.app === "string" ? input.app : null,
+        }),
+        riskLevel: "Medium",
+        execute: async () =>
+          await this.dispatchRequest(toolName, input, conversationId, signal),
+        onLifecycle: (event) => {
+          const message: ActionLifecycleMessage = {
+            type: "action_lifecycle",
+            actionId: event.actionId,
+            actionName: event.actionName,
+            stage: event.stage,
+            ts: event.ts,
+            ...(event.message ? { message: event.message } : {}),
+            conversationId,
+          };
+          broadcastMessage(message, conversationId);
+        },
+      });
       return this.handleSuccess(input, payload);
     } catch (err) {
       if (err instanceof HostProxyRequestError) {

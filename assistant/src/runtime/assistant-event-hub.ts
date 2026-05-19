@@ -26,6 +26,7 @@ const HOST_PREFIX_TO_CAPABILITY: Record<string, HostProxyCapability> = {
   host_cu: "host_cu",
   host_browser: "host_browser",
   host_app_control: "host_app_control",
+  host_camera: "host_camera",
 };
 
 /**
@@ -619,7 +620,6 @@ function resolveCanonicalRequestSourceType(
   if (sourceChannel === "vellum") return "desktop";
   return "channel";
 }
-
 
 /**
  * Lazily load heavy dependencies and create a canonical guardian request +

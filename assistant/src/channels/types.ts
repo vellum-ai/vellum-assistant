@@ -38,6 +38,7 @@ export const INTERFACE_IDS = [
   "slack",
   "email",
   "chrome-extension",
+  "tauri",
 ] as const;
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];
@@ -84,6 +85,7 @@ export const INTERACTIVE_INTERFACES: ReadonlySet<InterfaceId> = new Set([
   "ios",
   "cli",
   "web",
+  "tauri",
 ]);
 
 export function isInteractiveInterface(id: InterfaceId): boolean {
@@ -100,7 +102,8 @@ export type HostProxyCapability =
   | "host_file"
   | "host_cu"
   | "host_browser"
-  | "host_app_control";
+  | "host_app_control"
+  | "host_camera";
 
 /**
  * Interfaces that support the full desktop host-proxy set (all five
@@ -112,7 +115,7 @@ export type HostProxyCapability =
  * below in lock-step when adding a new host-capable client (e.g. a native
  * Linux or Windows desktop).
  */
-export type HostProxyInterfaceId = "macos";
+export type HostProxyInterfaceId = "macos" | "tauri";
 
 /**
  * Whether the interface supports a host proxy capability.
@@ -137,11 +140,11 @@ export function supportsHostProxy(
   id: InterfaceId,
   capability?: HostProxyCapability,
 ): boolean {
-  // macOS supports all five host proxy capabilities including host_browser
-  // and host_app_control. The host_browser proxy is provisioned via the
-  // assistant event hub. When no extension is connected, browser tools fall
-  // through to cdp-inspect/local via the CDP factory's candidate chain.
-  if (id === "macos") return true;
+  // macOS and the Tauri HUD support all desktop host proxy capabilities including
+  // host_browser, host_app_control, and host_camera. The host_browser proxy is provisioned
+  // via the assistant event hub. When no extension is connected, browser tools
+  // fall through to cdp-inspect/local via the CDP factory's candidate chain.
+  if (id === "macos" || id === "tauri") return true;
   if (id === "chrome-extension" && capability === "host_browser") return true;
   return false;
 }

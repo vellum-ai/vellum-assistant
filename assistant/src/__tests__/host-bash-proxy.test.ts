@@ -16,6 +16,7 @@ mock.module("../config/loader.js", () => ({
 
 const sentMessages: unknown[] = [];
 const sentMessageOptions: unknown[] = [];
+const lifecycleMessages: Array<Record<string, unknown>> = [];
 let mockHasClient = false;
 type MockClient = {
   clientId: string;
@@ -31,8 +32,12 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
     _conversationId?: string,
     options?: unknown,
   ) => {
-    sentMessages.push(msg);
-    sentMessageOptions.push(options);
+    if ((msg as { type?: string }).type === "action_lifecycle") {
+      lifecycleMessages.push(msg as Record<string, unknown>);
+    } else {
+      sentMessages.push(msg);
+      sentMessageOptions.push(options);
+    }
   },
   assistantEventHub: {
     getMostRecentClientByCapability: (cap: string) =>
@@ -54,6 +59,7 @@ describe("HostBashProxy", () => {
   function setup() {
     sentMessages.length = 0;
     sentMessageOptions.length = 0;
+    lifecycleMessages.length = 0;
     mockHasClient = false;
     mockCapableClients = [];
     mockClientRegistry = new Map();
@@ -216,6 +222,34 @@ describe("HostBashProxy", () => {
       const result = await resultPromise;
       expect(result.isError).toBe(true);
       expect(result.content).toContain("command_timeout");
+    });
+
+    test("emits action lifecycle events for host_bash execution", async () => {
+      setup();
+
+      const resultPromise = proxy.request(
+        { command: "echo lifecycle" },
+        "session-1",
+      );
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+      proxy.resolveResult(requestId, {
+        stdout: "ok\n",
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      });
+
+      await resultPromise;
+      expect(lifecycleMessages.length).toBeGreaterThanOrEqual(3);
+      expect(lifecycleMessages.map((m) => m.stage)).toEqual([
+        "started",
+        "executing",
+        "completed",
+      ]);
+      expect(
+        lifecycleMessages.every((m) => m.type === "action_lifecycle"),
+      ).toBe(true);
     });
   });
 

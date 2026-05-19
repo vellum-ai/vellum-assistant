@@ -55,6 +55,7 @@ import { ROUTES as HOME_STATE_ROUTES } from "./home-state-routes.js";
 import { ROUTES as HOST_APP_CONTROL_ROUTES } from "./host-app-control-routes.js";
 import { ROUTES as HOST_BASH_ROUTES } from "./host-bash-routes.js";
 import { ROUTES as HOST_BROWSER_ROUTES } from "./host-browser-routes.js";
+import { ROUTES as HOST_CAMERA_ROUTES } from "./host-camera-routes.js";
 import { ROUTES as HOST_CU_ROUTES } from "./host-cu-routes.js";
 import { ROUTES as HOST_FILE_ROUTES } from "./host-file-routes.js";
 import { ROUTES as HOST_TRANSFER_ROUTES } from "./host-transfer-routes.js";
@@ -157,6 +158,7 @@ export const ROUTES: RouteDefinition[] = [
   ...HOST_APP_CONTROL_ROUTES,
   ...HOST_BASH_ROUTES,
   ...HOST_BROWSER_ROUTES,
+  ...HOST_CAMERA_ROUTES,
   ...HOST_CU_ROUTES,
   ...HOST_FILE_ROUTES,
   ...HOST_TRANSFER_ROUTES,

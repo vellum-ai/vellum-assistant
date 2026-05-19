@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
 const sentMessages: unknown[] = [];
+const lifecycleMessages: Array<Record<string, unknown>> = [];
 let mockHasClient = false;
 
 interface MockClient {
@@ -12,7 +13,13 @@ interface MockClient {
 let mockClients: MockClient[] = [];
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: unknown) => sentMessages.push(msg),
+  broadcastMessage: (msg: unknown) => {
+    if ((msg as { type?: string }).type === "action_lifecycle") {
+      lifecycleMessages.push(msg as Record<string, unknown>);
+    } else {
+      sentMessages.push(msg);
+    }
+  },
   assistantEventHub: {
     getMostRecentClientByCapability: (cap: string) => {
       if (mockClients.length > 0) {
@@ -51,6 +58,7 @@ describe("HostFileProxy", () => {
 
   function setup() {
     sentMessages.length = 0;
+    lifecycleMessages.length = 0;
     mockHasClient = false;
     mockClients = [];
     pendingInteractions.clear();
@@ -208,6 +216,30 @@ describe("HostFileProxy", () => {
 
       const result = await resultPromise;
       expect(result.isError).toBe(false);
+    });
+
+    test("emits action lifecycle events for host_file execution", async () => {
+      setup();
+
+      const resultPromise = proxy.request(
+        { operation: "read", path: "/tmp/lifecycle.txt" },
+        "session-1",
+      );
+
+      const requestId = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.resolve(requestId, {
+        content: "ok",
+        isError: false,
+      });
+      await resultPromise;
+
+      expect(lifecycleMessages.length).toBeGreaterThanOrEqual(3);
+      expect(lifecycleMessages.map((m) => m.stage)).toEqual([
+        "started",
+        "executing",
+        "completed",
+      ]);
     });
   });
 

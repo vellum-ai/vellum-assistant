@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+import { runAction } from "../actions/run-action.js";
 import {
   assistantEventHub,
   broadcastMessage,
@@ -14,6 +15,7 @@ import { readImageBase64 } from "../tools/shared/filesystem/image-read.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import type { ActionLifecycleMessage } from "./message-types/actions.js";
 import type { HostFileRequest } from "./message-types/host-file.js";
 
 /** Distributive omit that preserves union variant fields. */
@@ -130,93 +132,116 @@ export class HostFileProxy {
 
     const requestId = uuid();
 
-    return new Promise<ToolExecutionResult>((resolve, reject) => {
-      const timeoutSec = 30;
-
-      let detachAbort: () => void = () => {};
-
-      const timer = setTimeout(() => {
-        pendingInteractions.resolve(requestId);
-        log.warn(
-          { requestId, operation: input.operation },
-          "Host file proxy request timed out",
-        );
-        resolve({
-          content: resolvedTargetClientId
-            ? `Host file proxy timed out waiting for response from client '${resolvedTargetClientId}'`
-            : "Host file proxy timed out waiting for client response",
-          isError: true,
-        });
-      }, timeoutSec * 1000);
-
-      if (signal) {
-        const onAbort = () => {
-          if (pendingInteractions.get(requestId)) {
-            pendingInteractions.resolve(requestId);
-            try {
-              broadcastMessage(
-                {
-                  type: "host_file_cancel",
-                  requestId,
-                  conversationId,
-                  ...(resolvedTargetClientId != null
-                    ? { targetClientId: resolvedTargetClientId }
-                    : {}),
-                },
-                conversationId,
-                { targetClientId: resolvedTargetClientId },
-              );
-            } catch {
-              // Best-effort cancel notification
-            }
-            resolve({ content: "Aborted", isError: true });
-          }
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-        detachAbort = () => signal.removeEventListener("abort", onAbort);
-      }
-
-      pendingInteractions.register(requestId, {
-        conversationId,
-        kind: "host_file",
-        targetClientId: resolvedTargetClientId,
-        targetActorPrincipalId:
-          resolvedTargetClientId != null
-            ? assistantEventHub.getActorPrincipalIdForClient(
-                resolvedTargetClientId,
-              )
-            : undefined,
-        rpcResolve: resolve as (v: unknown) => void,
-        rpcReject: reject,
-        timer,
-        detachAbort,
-        metadata: { operation: input.operation, path: input.path },
-      });
-
-      try {
-        broadcastMessage(
-          {
-            ...input,
-            type: "host_file_request",
-            requestId,
-            conversationId,
-            // Always include in message body so the receiving client can verify
-            // which endpoint was targeted (even when auto-resolved).
-            ...(resolvedTargetClientId != null
-              ? { targetClientId: resolvedTargetClientId }
-              : {}),
-          },
+    return runAction<ToolExecutionResult>({
+      actionName: `host_file.${input.operation}`,
+      conversationId,
+      inputSummary: JSON.stringify({
+        operation: input.operation,
+        path: input.path,
+        targetClientId: resolvedTargetClientId ?? null,
+      }),
+      riskLevel: "Medium",
+      onLifecycle: (event) => {
+        const message: ActionLifecycleMessage = {
+          type: "action_lifecycle",
+          actionId: event.actionId,
+          actionName: event.actionName,
+          stage: event.stage,
+          ts: event.ts,
+          ...(event.message ? { message: event.message } : {}),
           conversationId,
-          { targetClientId: resolvedTargetClientId },
-        );
-      } catch (err) {
-        pendingInteractions.resolve(requestId);
-        log.warn(
-          { requestId, operation: input.operation, err },
-          "Host file proxy send failed",
-        );
-        reject(err instanceof Error ? err : new Error(String(err)));
-      }
+        };
+        broadcastMessage(message, conversationId);
+      },
+      execute: async () =>
+        await new Promise<ToolExecutionResult>((resolve, reject) => {
+          const timeoutSec = 30;
+
+          let detachAbort: () => void = () => {};
+
+          const timer = setTimeout(() => {
+            pendingInteractions.resolve(requestId);
+            log.warn(
+              { requestId, operation: input.operation },
+              "Host file proxy request timed out",
+            );
+            resolve({
+              content: resolvedTargetClientId
+                ? `Host file proxy timed out waiting for response from client '${resolvedTargetClientId}'`
+                : "Host file proxy timed out waiting for client response",
+              isError: true,
+            });
+          }, timeoutSec * 1000);
+
+          if (signal) {
+            const onAbort = () => {
+              if (pendingInteractions.get(requestId)) {
+                pendingInteractions.resolve(requestId);
+                try {
+                  broadcastMessage(
+                    {
+                      type: "host_file_cancel",
+                      requestId,
+                      conversationId,
+                      ...(resolvedTargetClientId != null
+                        ? { targetClientId: resolvedTargetClientId }
+                        : {}),
+                    },
+                    conversationId,
+                    { targetClientId: resolvedTargetClientId },
+                  );
+                } catch {
+                  // Best-effort cancel notification
+                }
+                resolve({ content: "Aborted", isError: true });
+              }
+            };
+            signal.addEventListener("abort", onAbort, { once: true });
+            detachAbort = () => signal.removeEventListener("abort", onAbort);
+          }
+
+          pendingInteractions.register(requestId, {
+            conversationId,
+            kind: "host_file",
+            targetClientId: resolvedTargetClientId,
+            targetActorPrincipalId:
+              resolvedTargetClientId != null
+                ? assistantEventHub.getActorPrincipalIdForClient(
+                    resolvedTargetClientId,
+                  )
+                : undefined,
+            rpcResolve: resolve as (v: unknown) => void,
+            rpcReject: reject,
+            timer,
+            detachAbort,
+            metadata: { operation: input.operation, path: input.path },
+          });
+
+          try {
+            broadcastMessage(
+              {
+                ...input,
+                type: "host_file_request",
+                requestId,
+                conversationId,
+                // Always include in message body so the receiving client can verify
+                // which endpoint was targeted (even when auto-resolved).
+                ...(resolvedTargetClientId != null
+                  ? { targetClientId: resolvedTargetClientId }
+                  : {}),
+              },
+              conversationId,
+              { targetClientId: resolvedTargetClientId },
+            );
+          } catch (err) {
+            pendingInteractions.resolve(requestId);
+            log.warn(
+              { requestId, operation: input.operation, err },
+              "Host file proxy send failed",
+            );
+            reject(err instanceof Error ? err : new Error(String(err)));
+          }
+        }),
     });
   }
 

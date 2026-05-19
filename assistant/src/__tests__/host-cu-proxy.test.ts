@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
 const sentMessages: unknown[] = [];
+const lifecycleMessages: Array<Record<string, unknown>> = [];
 let mockHasClient = false;
 type MockClient = {
   clientId: string;
@@ -10,7 +11,13 @@ type MockClient = {
 let mockClients: MockClient[] = [];
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: unknown) => sentMessages.push(msg),
+  broadcastMessage: (msg: unknown) => {
+    if ((msg as { type?: string }).type === "action_lifecycle") {
+      lifecycleMessages.push(msg as Record<string, unknown>);
+    } else {
+      sentMessages.push(msg);
+    }
+  },
   assistantEventHub: {
     getMostRecentClientByCapability: (cap: string) =>
       cap === "host_cu" && mockHasClient ? { id: "mock-client" } : null,
@@ -30,6 +37,7 @@ describe("HostCuProxy", () => {
 
   function setup(maxSteps?: number) {
     sentMessages.length = 0;
+    lifecycleMessages.length = 0;
     mockHasClient = false;
     mockClients = [];
     pendingInteractions.clear();
@@ -145,6 +153,29 @@ describe("HostCuProxy", () => {
       setup();
       // Should not throw
       proxy.processObservation("unknown-id", { axTree: "something" });
+    });
+
+    test("emits action lifecycle events for host_cu execution", async () => {
+      setup();
+
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+
+      const requestId = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.processObservation(requestId, { axTree: "ok" });
+      await resultPromise;
+
+      expect(lifecycleMessages.length).toBeGreaterThanOrEqual(3);
+      expect(lifecycleMessages.map((m) => m.stage)).toEqual([
+        "started",
+        "executing",
+        "completed",
+      ]);
     });
   });
 
