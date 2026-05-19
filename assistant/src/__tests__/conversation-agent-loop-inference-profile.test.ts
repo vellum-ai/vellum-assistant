@@ -78,7 +78,11 @@ mock.module("../config/loader.js", () => ({
           },
         },
       },
-      profiles: {},
+      profiles: {
+        "quality-optimized": {
+          contextWindow: { maxInputTokens: 50000 },
+        },
+      },
       callSites: {},
       pricingOverrides: [],
     },
@@ -350,12 +354,13 @@ import {
 
 // Captures every positional argument the loop passes to `agentLoop.run`.
 // The 8th positional argument is the per-turn `overrideProfile`, which is
-// what most tests assert on. The 10th positional argument re-resolves that
-// profile between provider calls.
+// what most tests assert on. The 10th and 11th positional arguments re-resolve
+// that profile and its max-token budget between provider calls.
 interface CapturedAgentLoopRun {
   callSite: LLMCallSite | undefined;
   overrideProfile: string | undefined;
   resolvedOverrideProfile: string | undefined;
+  resolvedEffectiveMaxInputTokens: number | undefined;
 }
 
 let mutateBeforeResolveOverrideProfile: (() => void) | undefined;
@@ -377,12 +382,14 @@ function makeCtx(
     overrideProfile?: string,
     _effectiveMaxInputTokens?: number,
     resolveOverrideProfile?: () => string | undefined,
+    resolveEffectiveMaxInputTokens?: () => number | undefined,
   ): Promise<Message[]> => {
     mutateBeforeResolveOverrideProfile?.();
     captured.push({
       callSite,
       overrideProfile,
       resolvedOverrideProfile: resolveOverrideProfile?.(),
+      resolvedEffectiveMaxInputTokens: resolveEffectiveMaxInputTokens?.(),
     });
     return [
       ...messages,
@@ -671,6 +678,7 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     expect(captured.length).toBeGreaterThan(0);
     expect(captured[0].overrideProfile).toBeUndefined();
     expect(captured[0].resolvedOverrideProfile).toBe("quality-optimized");
+    expect(captured[0].resolvedEffectiveMaxInputTokens).toBe(50000);
     expect(ctx.currentTurnOverrideProfile).toBeUndefined();
   });
 });

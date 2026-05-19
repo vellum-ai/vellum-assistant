@@ -459,6 +459,7 @@ export class AgentLoop {
     overrideProfile?: string,
     effectiveMaxInputTokens?: number,
     resolveOverrideProfile?: () => string | undefined,
+    resolveEffectiveMaxInputTokens?: () => number | undefined,
   ): Promise<Message[]> {
     const history = [...messages];
     const initialHistoryLength = messages.length;
@@ -1085,7 +1086,10 @@ export class AgentLoop {
         // truncation strategy (e.g. a summariser) while the default
         // middleware preserves the historical tail-drop behaviour.
         const contextWindowTokens =
-          effectiveMaxInputTokens ?? this.config.maxInputTokens ?? 180_000;
+          resolveEffectiveMaxInputTokens?.() ??
+          effectiveMaxInputTokens ??
+          this.config.maxInputTokens ??
+          180_000;
         const maxChars = calculateMaxToolResultChars(contextWindowTokens);
         const truncateMiddlewares = getMiddlewaresFor("toolResultTruncate");
 
