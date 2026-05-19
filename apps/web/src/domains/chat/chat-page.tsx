@@ -218,7 +218,7 @@ export function ChatPage() {
     handleDeployApp: noopVoid,
     handleForkConversation: noopAsync as ChatRouteContentProps["handleForkConversation"],
     subagentEntries: [],
-    subagentState: { byId: new Map(), orderedIds: [], entries: [] } as unknown as ChatRouteContentProps["subagentState"],
+    subagentState: { byId: {}, orderedIds: [] },
     activeSubagentId: null,
     onSubagentClick: noopVoid,
     onCloseSubagentDetail: noopVoid,

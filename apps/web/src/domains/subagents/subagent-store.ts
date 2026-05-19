@@ -86,16 +86,6 @@ export interface SubagentActions {
     timestamp: number;
   }) => void;
 
-  loadDetail: (params: {
-    subagentId: string;
-    status?: SubagentStatus;
-    objective?: string;
-    inputTokens?: number;
-    outputTokens?: number;
-    totalCost?: number;
-    events: SubagentTimelineEvent[];
-  }) => void;
-
   setConversationId: (subagentId: string, conversationId: string) => void;
 
   reset: () => void;
@@ -277,27 +267,6 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
         [params.subagentId]: {
           ...existing,
           events: [...existing.events, timelineEvent],
-        },
-      },
-    });
-  },
-
-  loadDetail: (params) => {
-    const { byId } = get();
-    const existing = byId[params.subagentId];
-    if (!existing) return;
-
-    set({
-      byId: {
-        ...byId,
-        [params.subagentId]: {
-          ...existing,
-          status: params.status ?? existing.status,
-          objective: params.objective ?? existing.objective,
-          inputTokens: params.inputTokens ?? existing.inputTokens,
-          outputTokens: params.outputTokens ?? existing.outputTokens,
-          totalCost: params.totalCost ?? existing.totalCost,
-          events: params.events.length > 0 ? params.events : existing.events,
         },
       },
     });
