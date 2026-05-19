@@ -1,10 +1,9 @@
 /**
  * Root provider composition for the web SPA.
  *
- * Wraps the app in Organization → scope-keyed QueryClient so that:
- * 1. Organization context resolves the active org for API headers.
- * 2. The React Query cache is keyed by (user, org) — switching users or
- *    orgs yields a fresh cache instead of leaking stale data.
+ * Wraps the app in auth-scoped → org-scoped QueryClients so that
+ * switching users or orgs yields a fresh React Query cache instead of
+ * leaking stale data.
  *
  * Only third-party library providers (React Query) belong here.
  * App state uses Zustand stores — see `src/stores/`.
@@ -15,10 +14,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
 import { useAuthStore } from "@/stores/auth-store.js";
-import {
-  OrganizationProvider,
-  useOrganization,
-} from "@/domains/organization/organization-provider.js";
+import { useOrganizationStore } from "@/stores/organization-store.js";
 
 function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -59,7 +55,8 @@ function ScopeKeyedQueryClientProvider({
 }) {
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const user = useAuthStore.use.user();
-  const { currentOrganizationId } = useOrganization();
+  const currentOrganizationId =
+    useOrganizationStore.use.currentOrganizationId();
   const scopeKey = `${
     isLoggedIn ? `user:${user?.id ?? "unknown"}` : "anonymous"
   }:org:${currentOrganizationId ?? "none"}`;
@@ -80,11 +77,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   return (
     <AuthScopedQueryClientProvider key={authScopeKey}>
-      <OrganizationProvider>
-        <ScopeKeyedQueryClientProvider>
-          {children}
-        </ScopeKeyedQueryClientProvider>
-      </OrganizationProvider>
+      <ScopeKeyedQueryClientProvider>
+        {children}
+      </ScopeKeyedQueryClientProvider>
     </AuthScopedQueryClientProvider>
   );
 }

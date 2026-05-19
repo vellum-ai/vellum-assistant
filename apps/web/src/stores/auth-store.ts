@@ -21,7 +21,7 @@ import {
   getSession,
   logout as allauthLogout,
 } from "@/lib/auth/allauth-client.js";
-import { setActiveOrganizationIdForRequests } from "@/domains/organization/organization-state.js";
+import { clearOrganization } from "@/stores/organization-store.js";
 
 export interface AuthUser {
   id: string | null;
@@ -76,7 +76,7 @@ let broadcastChannel: BroadcastChannel | null = null;
 
 function syncOrganizationState(nextUserId: string | null): void {
   if (!nextUserId || (previousUserId && previousUserId !== nextUserId)) {
-    setActiveOrganizationIdForRequests(null);
+    clearOrganization();
   }
   previousUserId = nextUserId;
 }
