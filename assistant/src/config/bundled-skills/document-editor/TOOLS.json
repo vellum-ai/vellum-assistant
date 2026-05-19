@@ -101,6 +101,72 @@
       },
       "executor": "tools/document-delete.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "comment_list",
+      "description": "List open comments on a document. Returns all unresolved comments with their content, anchor text, and thread context so you can address user feedback.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The document surface ID"
+          }
+        },
+        "required": ["surface_id"]
+      },
+      "executor": "tools/comment-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "comment_resolve",
+      "description": "Mark a comment as resolved after you have addressed the feedback. Use this after editing the document to satisfy the comment.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The document surface ID"
+          },
+          "comment_id": {
+            "type": "string",
+            "description": "The comment ID to resolve"
+          }
+        },
+        "required": ["surface_id", "comment_id"]
+      },
+      "executor": "tools/comment-resolve.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "comment_reply",
+      "description": "Reply to a comment thread. Use this to ask clarifying questions or explain your approach before or after making changes.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The document surface ID"
+          },
+          "comment_id": {
+            "type": "string",
+            "description": "The parent comment ID to reply to"
+          },
+          "content": {
+            "type": "string",
+            "description": "Reply text"
+          }
+        },
+        "required": ["surface_id", "comment_id", "content"]
+      },
+      "executor": "tools/comment-reply.ts",
+      "execution_target": "host"
     }
   ]
 }

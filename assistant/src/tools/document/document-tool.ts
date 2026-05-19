@@ -17,7 +17,7 @@ function isPrivilegedDocumentActor(context: ToolContext): boolean {
   );
 }
 
-function documentNotFound(surfaceId: string): ToolExecutionResult {
+export function documentNotFound(surfaceId: string): ToolExecutionResult {
   return {
     content: JSON.stringify({
       success: false,
@@ -28,7 +28,10 @@ function documentNotFound(surfaceId: string): ToolExecutionResult {
   };
 }
 
-function canAccessDocument(surfaceId: string, context: ToolContext): boolean {
+export function canAccessDocument(
+  surfaceId: string,
+  context: ToolContext,
+): boolean {
   return (
     isPrivilegedDocumentActor(context) ||
     isDocumentAssociatedWithConversation(surfaceId, context.conversationId)
