@@ -125,8 +125,11 @@ export function Notice({
             {children}
           </Typography>
         ) : null}
-        {actions ? <div className="mt-2 flex flex-wrap gap-2">{actions}</div> : null}
       </div>
+
+      {actions ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+      ) : null}
 
       {onDismiss ? (
         <button
