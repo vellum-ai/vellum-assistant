@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { getCatalogProviderForModel } from "../providers/model-catalog.js";
+import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
 import {
   type LLMCallSite,
   LLMConfigBase,
@@ -56,7 +57,9 @@ export function resolveCallSiteConfig(
     opts.overrideProfile != null
       ? llm.profiles?.[opts.overrideProfile]
       : undefined;
-  const site = llm.callSites?.[callSite];
+  const site =
+    llm.callSites?.[callSite] ??
+    effectiveDefault(callSite, llm, opts.overrideProfile != null);
 
   if (callSite === "mainAgent") {
     appendCallSiteLayers(layers, callSite, llm, site);
@@ -76,6 +79,24 @@ export function resolveCallSiteConfig(
 // ---------------------------------------------------------------------------
 
 type Mergeable = Record<string, unknown>;
+
+function effectiveDefault(
+  callSite: LLMCallSite,
+  llm: z.infer<typeof LLMSchema>,
+  hasOverrideProfile = false,
+): z.infer<typeof LLMSchema>["callSites"][LLMCallSite] | undefined {
+  const dflt = CALL_SITE_DEFAULTS[callSite];
+  if (dflt == null) return undefined;
+  const stripProfile =
+    hasOverrideProfile ||
+    (dflt.profile != null &&
+      (llm.profiles == null || llm.profiles[dflt.profile] == null));
+  if (stripProfile) {
+    const { profile: _profile, ...rest } = dflt;
+    return Object.keys(rest).length > 0 ? rest : undefined;
+  }
+  return dflt;
+}
 
 function withImpliedProviderForKnownModel(source: Mergeable): Mergeable {
   if (source.provider !== undefined) return source;

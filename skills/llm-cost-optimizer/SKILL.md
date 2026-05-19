@@ -115,7 +115,7 @@ assistant config set llm.callSites.memoryExtraction.profile cost-optimized
 
 This covers **every known call site** — nothing falls back to default. Copy, paste, apply:
 
-> **Note:** The canonical call-site list lives in `assistant/src/config/schemas/call-site-catalog.ts`. If new call sites have been added since this skill was written, add them to the blob below (default to `cost-optimized` unless they involve reasoning or memory consolidation).
+> **Note:** The canonical shipped defaults live in `assistant/src/config/call-site-defaults.ts`. The blob below can be used to override a user's config, but call sites without explicit user overrides already resolve to the defaults defined in that file. If new call sites have been added since this skill was written, add them there (default to `cost-optimized` unless they involve reasoning or memory consolidation).
 
 ```bash
 assistant config set llm.callSites '{
@@ -140,7 +140,7 @@ assistant config set llm.callSites '{
   "recall":                   {"profile":"balanced","maxTokens":4096,"effort":"low","thinking":{"enabled":false,"streamThinking":false},"temperature":0},
   "memoryV2Migration":        {"profile":"cost-optimized"},
   "memoryV2Sweep":            {"profile":"cost-optimized"},
-  "memoryV2Consolidation":    {"profile":"cost-optimized"},
+  "memoryV2Consolidation":    {"profile":"balanced"},
 
   "conversationSummarization":{"profile":"cost-optimized"},
   "commitMessage":            {"profile":"cost-optimized","maxTokens":120,"temperature":0.2,"effort":"low","thinking":{"enabled":false}},
