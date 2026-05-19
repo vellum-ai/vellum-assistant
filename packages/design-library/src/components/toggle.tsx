@@ -104,7 +104,6 @@ export function Toggle({
             id={labelId}
             htmlFor={buttonId}
             className={cn(
-              "text-body-medium-default",
               disabled
                 ? "cursor-not-allowed text-[var(--content-disabled)]"
                 : "cursor-pointer text-[var(--content-default)]",

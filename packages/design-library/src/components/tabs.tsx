@@ -56,7 +56,7 @@ function TabsTrigger({ className, ref, ...rest }: TabsTriggerProps) {
         "text-body-medium-default whitespace-nowrap",
         "text-[var(--content-tertiary)] transition-colors",
         "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-0",
-        "hover:bg-[var(--ghost-hover)] hover:text-[var(--content-default)]",
+        "hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
         "data-[state=active]:border-[var(--primary-base)] data-[state=active]:text-[var(--content-default)]",
         "data-[state=active]:hover:bg-transparent",
         "disabled:cursor-not-allowed disabled:text-[var(--content-disabled)]",
