@@ -106,8 +106,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [setUser]);
 
   useEffect(() => {
+    let cancelled = false;
     async function initSession() {
       const result = await getSession();
+      if (cancelled) return;
       if (result.ok && result.data.user) {
         setUser(result.data.user);
         setIsLoading(false);
@@ -118,15 +120,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setIsLoading(false);
     }
     initSession().catch((err) => {
+      if (cancelled) return;
       console.error("auth.initSession failed", err);
       setIsLoading(false);
     });
+    return () => {
+      cancelled = true;
+    };
   }, [setUser]);
 
   useEffect(() => {
-    const onFocus = () => refreshSession();
+    const safeRefresh = () =>
+      refreshSession().catch((err) =>
+        console.warn("auth.refreshSession failed", err),
+      );
+    const onFocus = () => safeRefresh();
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") refreshSession();
+      if (document.visibilityState === "visible") safeRefresh();
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibilityChange);

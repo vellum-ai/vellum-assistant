@@ -132,9 +132,10 @@ export function OrganizationProvider({ children }: OrganizationProviderProps) {
     [organizations],
   );
 
+  const { refetch: refetchOrganizations } = organizationsQuery;
   const refreshOrganizations = useCallback(async () => {
-    await organizationsQuery.refetch();
-  }, [organizationsQuery]);
+    await refetchOrganizations();
+  }, [refetchOrganizations]);
 
   const currentOrganizationId = useMemo(() => {
     const candidateOrganizationId =
