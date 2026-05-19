@@ -93,7 +93,7 @@ function Checkbox({
   );
 
   if (!label && !helperText) {
-    return <span className={className}>{checkbox}</span>;
+    return <span data-slot="checkbox" className={className}>{checkbox}</span>;
   }
 
   return (

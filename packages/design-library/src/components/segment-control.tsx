@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type KeyboardEvent, type ReactNode, useCallback, useRef } from "react";
 
 import { Button } from "./button.js";
 import { cn } from "../utils/cn.js";
@@ -40,6 +40,24 @@ export function resolveSegmentSelection<T extends string>(
   return item.value;
 }
 
+/**
+ * Finds the next enabled item index in the given direction, wrapping around.
+ */
+function findEnabledIndex<T extends string>(
+  items: SegmentControlItem<T>[],
+  fromIndex: number,
+  direction: 1 | -1,
+): number {
+  const len = items.length;
+  let idx = (fromIndex + direction + len) % len;
+  let attempts = 0;
+  while (items[idx]?.disabled && attempts < len) {
+    idx = (idx + direction + len) % len;
+    attempts++;
+  }
+  return idx;
+}
+
 export function SegmentControl<T extends string>({
   items,
   value,
@@ -48,11 +66,57 @@ export function SegmentControl<T extends string>({
   iconOnly = false,
   className,
 }: SegmentControlProps<T>) {
+  const groupRef = useRef<HTMLDivElement>(null);
+
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      const currentIndex = items.findIndex((item) => item.value === value);
+      if (currentIndex === -1) return;
+
+      let nextIndex: number | null = null;
+
+      switch (event.key) {
+        case "ArrowRight":
+        case "ArrowDown":
+          nextIndex = findEnabledIndex(items, currentIndex, 1);
+          break;
+        case "ArrowLeft":
+        case "ArrowUp":
+          nextIndex = findEnabledIndex(items, currentIndex, -1);
+          break;
+        case "Home":
+          nextIndex = findEnabledIndex(items, items.length - 1, 1);
+          break;
+        case "End":
+          nextIndex = findEnabledIndex(items, 0, -1);
+          break;
+        default:
+          return;
+      }
+
+      event.preventDefault();
+      const nextItem = items[nextIndex];
+      if (!nextItem || nextItem.disabled) return;
+
+      if (nextItem.value !== value) {
+        onChange(nextItem.value);
+      }
+
+      const buttons = groupRef.current?.querySelectorAll<HTMLButtonElement>(
+        '[role="radio"]',
+      );
+      buttons?.[nextIndex]?.focus();
+    },
+    [items, value, onChange],
+  );
+
   return (
     <div
+      ref={groupRef}
       role="radiogroup"
       aria-label={ariaLabel}
       data-slot="segment-control"
+      onKeyDown={handleKeyDown}
       className={cn(
         "inline-flex rounded-lg bg-[var(--surface-active)] p-0.5",
         !iconOnly && "w-full",
@@ -70,6 +134,7 @@ export function SegmentControl<T extends string>({
             aria-checked={isActive}
             aria-label={iconOnly ? item.label : undefined}
             disabled={isDisabled}
+            tabIndex={isActive ? 0 : -1}
             onClick={() => {
               const next = resolveSegmentSelection(items, value, item.value);
               if (next !== null) {

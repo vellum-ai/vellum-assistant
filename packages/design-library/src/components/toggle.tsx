@@ -83,7 +83,7 @@ export function Toggle({
   );
 
   if (!label && !helperText) {
-    return <span className={className}>{toggleButton}</span>;
+    return <span data-slot="toggle" className={className}>{toggleButton}</span>;
   }
 
   return (
