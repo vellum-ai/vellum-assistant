@@ -41,6 +41,23 @@ export async function fetchCharacterTraits(
   }
 }
 
+export async function saveCharacterTraits(
+  assistantId: string,
+  traits: CharacterTraits,
+): Promise<void> {
+  try {
+    await client.put({
+      url: "/v1/assistants/{assistant_id}/avatar/character-traits",
+      path: { assistant_id: assistantId },
+      body: traits,
+    });
+  } catch {
+    // Best-effort — avatar traits are non-critical. The assistant still
+    // functions without persisted traits; the next session fetch will
+    // regenerate random traits and the user can customise later.
+  }
+}
+
 export async function fetchAvatarImageUrl(
   assistantId: string,
 ): Promise<string | null> {

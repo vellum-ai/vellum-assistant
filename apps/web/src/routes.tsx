@@ -19,6 +19,9 @@ import { LogoutPage } from "@/domains/account/pages/logout-page.js";
 import { OAuthPopupCompletePage } from "@/domains/account/pages/oauth-popup-complete-page.js";
 import { PasswordResetPage } from "@/domains/account/pages/password-reset-page.js";
 import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { HatchingScreen } from "@/domains/onboarding/pages/hatching-screen.js";
+import { PreChatFlow } from "@/domains/onboarding/pages/pre-chat-flow.js";
+import { PrivacyScreen } from "@/domains/onboarding/pages/privacy-screen.js";
 import { routes } from "@/utils/routes.js";
 
 function HomePageRoute() {
@@ -56,6 +59,10 @@ function HomePageRoute() {
  *   │
  *   /assistant/* — auth-protected app with RootLayout
  *   │  middleware: [authMiddleware] — redirects to login when auth required
+ *   │  ├── Onboarding (no ChatLayout chrome)
+ *   │  │   ├── PrivacyScreen (/assistant/onboarding/privacy)
+ *   │  │   ├── PreChatFlow (/assistant/onboarding/prechat)
+ *   │  │   └── HatchingScreen (/assistant/onboarding/hatching)
  *   │  └── ChatLayout — sidebar rail, drawer, shortcuts
  *   │       ├── ChatPage (index, /assistant)
  *   │       ├── HomePageRoute (/assistant/home)
@@ -93,6 +100,11 @@ export const router = createBrowserRouter([
     middleware: [authMiddleware],
     element: <RootLayout />,
     children: [
+      // Onboarding routes — full-screen (no ChatLayout sidebar)
+      { path: "onboarding/privacy", element: <PrivacyScreen /> },
+      { path: "onboarding/prechat", element: <PreChatFlow /> },
+      { path: "onboarding/hatching", element: <HatchingScreen /> },
+
       {
         element: <ChatLayout />,
         children: [

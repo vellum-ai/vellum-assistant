@@ -1,6 +1,11 @@
 import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
 
+import {
+  oauthCompletionStorageKey,
+  type OAuthCompletePayload,
+} from "@/lib/oauth-popup.js";
+
 // ── SVG icons ────────────────────────────────────────────────────────────────
 
 function CheckmarkIcon() {
@@ -171,14 +176,6 @@ function formatProviderName(provider: string): string {
     .join(" ");
 }
 
-export interface DesktopOAuthCompletePayload {
-  type: "vellum:oauth-complete";
-  requestId: string | null;
-  oauthStatus: string | null;
-  oauthProvider: string | null;
-  oauthCode: string | null;
-}
-
 interface OAuthCompleteTarget {
   opener: { postMessage(message: unknown, targetOrigin: string): void } | null;
   origin: string;
@@ -186,12 +183,8 @@ interface OAuthCompleteTarget {
   close: () => void;
 }
 
-export function oauthCompletionStorageKey(requestId: string): string {
-  return `vellum:oauth-complete:${requestId}`;
-}
-
 export function completeOAuthPopup(
-  payload: DesktopOAuthCompletePayload,
+  payload: OAuthCompletePayload,
   target: OAuthCompleteTarget,
 ): void {
   if (target.opener) {
@@ -243,7 +236,7 @@ export function DesktopOAuthCompletePage() {
     if (completionSent.current) return;
     completionSent.current = true;
 
-    const payload: DesktopOAuthCompletePayload = {
+    const payload: OAuthCompletePayload = {
       type: "vellum:oauth-complete",
       requestId,
       oauthStatus: oauthStatus || null,
