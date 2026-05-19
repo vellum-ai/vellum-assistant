@@ -234,6 +234,11 @@ export function maybeReseedBootstrapForCohort(cohort: string): void {
   if (!existsSync(bootstrapPath)) return;
 
   const currentContent = readPromptFile(bootstrapPath);
+  // Compare against the GENERIC "BOOTSTRAP.md" template, not the cohort-
+  // specific one.  After the swap, the workspace content no longer matches
+  // the generic template, so this guard returns false on subsequent calls —
+  // making the swap idempotent.  Do NOT change the comparison target to the
+  // cohort template filename; that would re-swap on every prompt build.
   if (!isTemplateContent(currentContent, "BOOTSTRAP.md")) return;
 
   const templatesDir = resolveBundledDir(

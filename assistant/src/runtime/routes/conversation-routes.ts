@@ -1033,6 +1033,7 @@ export function persistOnboardingArtifacts(onboarding: {
   tone: string;
   userName?: string;
   assistantName?: string;
+  cohort?: string;
 }): void {
   writeOnboardingSidecar(onboarding);
 
@@ -1110,6 +1111,7 @@ export async function handleSendMessage(
       assistantName?: string;
       googleConnected?: boolean;
       googleScopes?: string[];
+      cohort?: string;
     };
   };
 
