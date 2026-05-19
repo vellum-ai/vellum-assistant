@@ -6,10 +6,11 @@ import {
   type ReactNode,
 } from "react";
 
+import { haptic } from "@/utils/haptics.js";
+import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
+import { useVisibleViewport } from "@/hooks/use-visible-viewport.js";
+
 import { AssistantShellHeader } from "./assistant-shell-header.js";
-import { haptic } from "../../utils/haptics.js";
-import { MOBILE_MEDIA_QUERY, useIsMobile } from "../../hooks/use-is-mobile.js";
-import { useVisibleViewport } from "../../hooks/use-visible-viewport.js";
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
@@ -35,9 +36,6 @@ const FOCUSABLE_SELECTOR = [
 ].join(",");
 
 export function readPersistedCollapsed(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
   try {
     return (
       window.localStorage.getItem(ASSISTANT_SIDEBAR_COLLAPSED_STORAGE_KEY) ===
@@ -135,9 +133,6 @@ export function AssistantShell({
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
     try {
       window.localStorage.setItem(
         ASSISTANT_SIDEBAR_COLLAPSED_STORAGE_KEY,
@@ -165,10 +160,6 @@ export function AssistantShell({
   const drawerVisible = isMobile && drawerOpen;
 
   const toggleSidebar = useCallback(() => {
-    if (typeof window === "undefined") {
-      setCollapsed((value) => !value);
-      return;
-    }
     haptic.light();
     if (window.matchMedia(MOBILE_MEDIA_QUERY).matches) {
       setDrawerOpen((value) => !value);
@@ -179,9 +170,6 @@ export function AssistantShell({
 
   // Ctrl/Cmd+\ shortcut to toggle sidebar
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
     const onKeyDown = (event: KeyboardEvent) => {
       if (!shouldHandleShortcut(event, document.activeElement, "\\")) {
         return;
@@ -197,7 +185,7 @@ export function AssistantShell({
 
   // Ctrl/Cmd+K shortcut for command palette
   useEffect(() => {
-    if (typeof window === "undefined" || !onToggleCommandPalette) {
+    if (!onToggleCommandPalette) {
       return;
     }
     const onKeyDown = (event: KeyboardEvent) => {
@@ -215,9 +203,6 @@ export function AssistantShell({
 
   // Ctrl/Cmd+[ and Ctrl/Cmd+] shortcuts for back/forward navigation
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
     const onKeyDown = (event: KeyboardEvent) => {
       if (!shouldHandleShortcut(event, document.activeElement, ["[", "]"])) {
         return;
@@ -344,7 +329,7 @@ export function AssistantShell({
         />
 
         {isMobile ? (
-          <main className="relative flex min-w-0 flex-1 min-h-0 overflow-hidden">
+          <main className="relative flex min-w-0 flex-1 min-h-0 overflow-y-auto">
             {children}
             {drawerVisible ? (
               <div

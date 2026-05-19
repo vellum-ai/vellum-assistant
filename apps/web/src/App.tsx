@@ -1,7 +1,8 @@
-import { Outlet, useLocation, useNavigate } from "react-router";
 import { useCallback, useRef } from "react";
-import { AssistantShell } from "./components/shell/assistant-shell.js";
-import { SideMenu } from "./components/shell/side-menu.js";
+import { Outlet, useLocation, useNavigate } from "react-router";
+
+import { AssistantShell } from "@/components/shell/assistant-shell.js";
+import { SideMenu } from "@/components/shell/side-menu.js";
 
 export function App() {
   const navigate = useNavigate();
@@ -31,6 +32,14 @@ export function App() {
     navigate("/home");
   }, [navigate]);
 
+  const handleGoBack = useCallback(() => {
+    navigate(-1);
+  }, [navigate]);
+
+  const handleGoForward = useCallback(() => {
+    navigate(1);
+  }, [navigate]);
+
   const isHomeActive = location.pathname === "/home";
 
   return (
@@ -41,8 +50,8 @@ export function App() {
       isHomeActive={isHomeActive}
       canGoBack={canGoBack}
       canGoForward={canGoForward}
-      onGoBack={() => navigate(-1)}
-      onGoForward={() => navigate(1)}
+      onGoBack={handleGoBack}
+      onGoForward={handleGoForward}
     >
       <Outlet />
     </AssistantShell>

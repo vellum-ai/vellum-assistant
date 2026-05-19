@@ -1,6 +1,8 @@
-import { House, Library, MessageSquare, Settings, X } from "lucide-react";
+import { type ReactNode } from "react";
 import { NavLink } from "react-router";
+import { House, Library, MessageSquare, Settings, X } from "lucide-react";
 import { Button } from "@vellum/design-library";
+
 import type { AssistantShellSideMenuArgs } from "./assistant-shell.js";
 
 function NavItem({
@@ -11,7 +13,7 @@ function NavItem({
   onClick,
 }: {
   to: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   collapsed: boolean;
   onClick?: () => void;

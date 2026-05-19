@@ -31,7 +31,7 @@ export interface VisibleViewport {
  * `window.visualViewport` without mounting React.
  */
 export function readVisibleViewport(): VisibleViewport | null {
-  if (typeof window === "undefined" || !window.visualViewport) {
+  if (!window.visualViewport) {
     return null;
   }
   const vv = window.visualViewport;
@@ -65,7 +65,7 @@ export function useVisibleViewport(): VisibleViewport | null {
   const [state, setState] = useState<VisibleViewport | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !window.visualViewport) {
+    if (!window.visualViewport) {
       return;
     }
     const vv = window.visualViewport;

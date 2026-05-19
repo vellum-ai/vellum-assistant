@@ -1,5 +1,5 @@
-import { ChevronLeft, ChevronRight, House, Menu as MenuIcon, MessageSquarePlus, PanelLeft, Search } from "lucide-react";
 import type { ReactNode } from "react";
+import { ChevronLeft, ChevronRight, House, Menu as MenuIcon, MessageSquarePlus, PanelLeft, Search } from "lucide-react";
 import { Button } from "@vellum/design-library";
 
 export interface AssistantShellHeaderProps {
