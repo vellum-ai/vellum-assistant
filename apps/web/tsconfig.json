@@ -14,7 +14,7 @@
     "noEmit": true,
     "allowJs": false,
     "isolatedModules": true,
-    "types": [],
+    "types": ["bun"],
     "paths": {
       "@/*": ["./src/*"]
     }
@@ -23,5 +23,5 @@
     "src/**/*.ts",
     "src/**/*.tsx"
   ],
-  "exclude": ["dist/**", "node_modules/**", "src/**/*.test.ts", "src/**/*.test.tsx"]
+  "exclude": ["dist/**", "node_modules/**"]
 }

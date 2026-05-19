@@ -1,0 +1,110 @@
+/**
+ * Centralized URL registry for app-internal navigation.
+ *
+ * Use these for any in-app `<Link to>`, `navigate()`, `returnTo` default,
+ * or pathname matching against canonical app paths.
+ *
+ * Captured paths (e.g. inputs to `sanitizeReturnTo`, query-string round-trips)
+ * are values, not constants — do NOT rewrite those through this module.
+ */
+
+const r = <const T extends string>(path: T): T => path;
+
+const dyn = (parent: string, id: string): string => `${parent}/${id}`;
+
+export const routes = {
+  assistant: r("/assistant"),
+  inspect: r("/assistant/inspect"),
+  logs: {
+    root: r("/assistant/logs"),
+    trace: r("/assistant/logs/trace"),
+    usage: r("/assistant/logs/usage"),
+    emails: r("/assistant/logs/emails"),
+    systemEvents: r("/assistant/logs/system-events"),
+  },
+  uiGallery: r("/ui-gallery"),
+  login: r("/account/login"),
+  signup: r("/account/signup"),
+  logout: r("/logout"),
+
+  account: {
+    root: r("/account"),
+    login: r("/account/login"),
+    signup: r("/account/signup"),
+    providerSignup: r("/account/provider/signup"),
+    providerCallback: r("/account/provider/callback"),
+    oauth: {
+      popupComplete: r("/account/oauth/popup-complete"),
+    },
+  },
+
+  onboarding: {
+    privacy: r("/assistant/onboarding/privacy"),
+    prechat: r("/assistant/onboarding/prechat"),
+    hatching: r("/assistant/onboarding/hatching"),
+  },
+
+  home: r("/assistant/home"),
+  identity: r("/assistant/identity"),
+  workspace: r("/assistant/workspace"),
+  library: {
+    root: r("/assistant/library"),
+    app: (slug: string) => dyn(r("/assistant/library"), slug),
+  },
+
+  contacts: {
+    root: r("/assistant/contacts"),
+    detail: (id: string) => dyn(r("/assistant/contacts"), id),
+  },
+
+  settings: {
+    root: r("/assistant/settings"),
+    general: r("/assistant/settings/general"),
+    ai: r("/assistant/settings/ai"),
+    integrations: r("/assistant/settings/integrations"),
+    schedules: r("/assistant/settings/schedules"),
+    notifications: r("/assistant/settings/notifications"),
+    sounds: r("/assistant/settings/sounds"),
+    voice: r("/assistant/settings/voice"),
+    devices: r("/assistant/settings/devices"),
+    privacy: r("/assistant/settings/privacy"),
+    archive: r("/assistant/settings/archive"),
+    billing: r("/assistant/settings/billing"),
+    community: r("/assistant/settings/community"),
+    debug: r("/assistant/settings/debug"),
+    developer: r("/assistant/settings/developer"),
+    advanced: r("/assistant/settings/advanced"),
+    dangerZone: r("/assistant/settings/danger-zone"),
+    systemEvents: r("/assistant/settings/system-events"),
+    upgradeCancel: r("/assistant/settings/billing/upgrade/cancel"),
+    upgradeSuccess: r("/assistant/settings/billing/upgrade/success"),
+  },
+
+  admin: {
+    root: r("/admin"),
+    assistants: r("/admin/assistants"),
+    assistant: (id: string) => dyn(r("/admin/assistants"), id),
+    users: r("/admin/users"),
+    user: (id: string) => dyn(r("/admin/users"), id),
+    organizations: r("/admin/organizations"),
+    organization: (id: string) => dyn(r("/admin/organizations"), id),
+    feedback: r("/admin/feedback"),
+    feedbackOne: (id: string) => dyn(r("/admin/feedback"), id),
+    referralCodes: r("/admin/referral-codes"),
+    analytics: r("/admin/analytics"),
+    inference: r("/admin/inference"),
+    onboarding: r("/admin/onboarding"),
+    integrations: r("/admin/integrations"),
+    infrastructure: r("/admin/infrastructure"),
+  },
+
+  docs: {
+    legal: {
+      privacyPolicy: r("/docs/privacy-policy"),
+      termsOfUse: r("/docs/vellum-terms-of-use"),
+      dataSharing: r("/docs/data-sharing"),
+      prohibitedUse: r("/docs/prohibited-use"),
+      privacyAndData: r("/docs/trust-security/privacy-and-data"),
+    },
+  },
+} as const;
