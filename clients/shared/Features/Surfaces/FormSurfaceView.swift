@@ -418,6 +418,7 @@ public struct FormSurfaceView: View {
 
     private var submittedIndicator: some View {
         HStack(spacing: VSpacing.sm) {
+            Spacer(minLength: 0)
             ProgressView()
                 .controlSize(.small)
             Text("Submitting\u{2026}")
