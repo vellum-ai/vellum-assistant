@@ -856,7 +856,7 @@ describe("multi-event sequences", () => {
       { type: "MESSAGE_COMPLETE" },
     ]);
     expect(state.phase).toBe("idle");
-    expect(isSendDisabled(state, defaultCtx)).toBe(false);
+    expect(isSendDisabled(defaultCtx)).toBe(false);
   });
 
   test("stream error mid-stream", () => {
@@ -1126,15 +1126,12 @@ describe("shouldShowThinkingIndicator", () => {
 
 describe("isSendDisabled", () => {
   test("enabled when sending (daemon queues messages)", () => {
-    const thinking = turnReducer(INITIAL_TURN_STATE, {
-      type: "USER_SEND_REQUESTED",
-    });
-    expect(isSendDisabled(thinking, defaultCtx)).toBe(false);
+    expect(isSendDisabled(defaultCtx)).toBe(false);
   });
 
   test("disabled when hasPendingSecret", () => {
     expect(
-      isSendDisabled(INITIAL_TURN_STATE, {
+      isSendDisabled({
         ...defaultCtx,
         hasPendingSecret: true,
       }),
@@ -1143,7 +1140,7 @@ describe("isSendDisabled", () => {
 
   test("disabled when hasPendingConfirmation", () => {
     expect(
-      isSendDisabled(INITIAL_TURN_STATE, {
+      isSendDisabled({
         ...defaultCtx,
         hasPendingConfirmation: true,
       }),
@@ -1152,7 +1149,7 @@ describe("isSendDisabled", () => {
 
   test("enabled when hasUncompletedVisibleSurface (sending implicitly dismisses)", () => {
     expect(
-      isSendDisabled(INITIAL_TURN_STATE, {
+      isSendDisabled({
         ...defaultCtx,
         hasUncompletedVisibleSurface: true,
       }),
@@ -1160,7 +1157,7 @@ describe("isSendDisabled", () => {
   });
 
   test("enabled when idle with no competing UI", () => {
-    expect(isSendDisabled(INITIAL_TURN_STATE, defaultCtx)).toBe(false);
+    expect(isSendDisabled(defaultCtx)).toBe(false);
   });
 });
 
@@ -1170,24 +1167,16 @@ describe("isSendDisabled", () => {
 
 describe("shouldShowAssistantBubble", () => {
   test("shows bubble when no active surfaces", () => {
-    expect(shouldShowAssistantBubble(INITIAL_TURN_STATE, defaultCtx)).toBe(true);
+    expect(shouldShowAssistantBubble(defaultCtx)).toBe(true);
   });
 
   test("shows bubble during streaming with no surfaces", () => {
-    const streaming = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "ASSISTANT_TEXT_DELTA" },
-    ]);
-    expect(shouldShowAssistantBubble(streaming, defaultCtx)).toBe(true);
+    expect(shouldShowAssistantBubble(defaultCtx)).toBe(true);
   });
 
   test("hides bubble when active inline surfaces are present and uncompleted", () => {
-    const streaming = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "ASSISTANT_TEXT_DELTA" },
-    ]);
     expect(
-      shouldShowAssistantBubble(streaming, {
+      shouldShowAssistantBubble({
         ...defaultCtx,
               hasUncompletedVisibleSurface: true,
       }),
@@ -1195,12 +1184,8 @@ describe("shouldShowAssistantBubble", () => {
   });
 
   test("hides bubble in awaiting_user_input with active surfaces", () => {
-    const awaiting = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "UI_SURFACE_SHOW", interactive: true },
-    ]);
     expect(
-      shouldShowAssistantBubble(awaiting, {
+      shouldShowAssistantBubble({
         ...defaultCtx,
               hasUncompletedVisibleSurface: true,
       }),
@@ -1208,15 +1193,8 @@ describe("shouldShowAssistantBubble", () => {
   });
 
   test("shows bubble after all surfaces complete", () => {
-    // Surfaces were active but are now all completed (removed from active map)
-    const afterComplete = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "UI_SURFACE_SHOW", interactive: true },
-      { type: "UI_SURFACE_COMPLETE" },
-      { type: "MESSAGE_COMPLETE" },
-    ]);
     expect(
-      shouldShowAssistantBubble(afterComplete, {
+      shouldShowAssistantBubble({
         ...defaultCtx,
               hasUncompletedVisibleSurface: false,
       }),
@@ -1225,7 +1203,7 @@ describe("shouldShowAssistantBubble", () => {
 
   test("shows bubble when no uncompleted visible surfaces", () => {
     expect(
-      shouldShowAssistantBubble(INITIAL_TURN_STATE, {
+      shouldShowAssistantBubble({
         ...defaultCtx,
         hasUncompletedVisibleSurface: false,
       }),
@@ -1233,31 +1211,16 @@ describe("shouldShowAssistantBubble", () => {
   });
 
   test("shows bubble when idle after error with no surfaces", () => {
-    const afterError = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "STREAM_ERROR" },
-    ]);
-    expect(shouldShowAssistantBubble(afterError, defaultCtx)).toBe(true);
+    expect(shouldShowAssistantBubble(defaultCtx)).toBe(true);
   });
 
   test("multi-message handoff: bubble visible between handoffs when no surfaces", () => {
-    const afterHandoff = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED", turnId: "t-1" },
-      { type: "ASSISTANT_TEXT_DELTA" },
-      { type: "GENERATION_HANDOFF" },
-    ]);
-    expect(shouldShowAssistantBubble(afterHandoff, defaultCtx)).toBe(true);
+    expect(shouldShowAssistantBubble(defaultCtx)).toBe(true);
   });
 
   test("multi-message handoff: bubble hidden when surface appears during second chunk", () => {
-    const withSurface = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED", turnId: "t-1" },
-      { type: "ASSISTANT_TEXT_DELTA" },
-      { type: "GENERATION_HANDOFF" },
-      { type: "UI_SURFACE_SHOW", interactive: true },
-    ]);
     expect(
-      shouldShowAssistantBubble(withSurface, {
+      shouldShowAssistantBubble({
         ...defaultCtx,
               hasUncompletedVisibleSurface: true,
       }),
@@ -1265,17 +1228,8 @@ describe("shouldShowAssistantBubble", () => {
   });
 
   test("multi-message handoff: bubble reappears after surface completes", () => {
-    const surfaceDone = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED", turnId: "t-1" },
-      { type: "ASSISTANT_TEXT_DELTA" },
-      { type: "GENERATION_HANDOFF" },
-      { type: "UI_SURFACE_SHOW", interactive: true },
-      { type: "UI_SURFACE_COMPLETE" },
-      { type: "ASSISTANT_TEXT_DELTA" },
-      { type: "MESSAGE_COMPLETE" },
-    ]);
     expect(
-      shouldShowAssistantBubble(surfaceDone, {
+      shouldShowAssistantBubble({
         ...defaultCtx,
               hasUncompletedVisibleSurface: false,
       }),
@@ -1283,13 +1237,8 @@ describe("shouldShowAssistantBubble", () => {
   });
 
   test("hides bubble during secret request with active surface", () => {
-    const withSecret = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "UI_SURFACE_SHOW", interactive: true },
-      { type: "SECRET_REQUEST" },
-    ]);
     expect(
-      shouldShowAssistantBubble(withSecret, {
+      shouldShowAssistantBubble({
         ...defaultCtx,
               hasUncompletedVisibleSurface: true,
         hasPendingSecret: true,
@@ -1298,13 +1247,8 @@ describe("shouldShowAssistantBubble", () => {
   });
 
   test("hides bubble during confirmation request with active surface", () => {
-    const withConf = applyEvents(INITIAL_TURN_STATE, [
-      { type: "USER_SEND_REQUESTED" },
-      { type: "UI_SURFACE_SHOW", interactive: true },
-      { type: "CONFIRMATION_REQUEST" },
-    ]);
     expect(
-      shouldShowAssistantBubble(withConf, {
+      shouldShowAssistantBubble({
         ...defaultCtx,
               hasUncompletedVisibleSurface: true,
         hasPendingConfirmation: true,

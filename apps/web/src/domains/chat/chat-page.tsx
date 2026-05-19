@@ -2,7 +2,7 @@ import {
   type MutableRefObject,
   type RefObject,
   useCallback,
-  useEffect,
+  useLayoutEffect,
   useReducer,
   useRef,
   useState,
@@ -56,7 +56,7 @@ export function ChatPage() {
   const { assistantState, assistantId } = lifecycle;
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     useTurnStore.setState(INITIAL_TURN_STATE);
   }, []);
 

@@ -65,7 +65,7 @@ export const INITIAL_TURN_STATE: TurnState = {
 // ---------------------------------------------------------------------------
 
 /** True when the turn is actively processing (not idle/errored). */
-export function isSending(state: TurnState): boolean {
+export function isSending(state: { phase: TurnPhase }): boolean {
   return (
     state.phase === "queued" ||
     state.phase === "thinking" ||
@@ -75,7 +75,7 @@ export function isSending(state: TurnState): boolean {
 }
 
 /** True when we are waiting for the first assistant text delta. */
-export function isThinking(state: TurnState): boolean {
+export function isThinking(state: { phase: TurnPhase }): boolean {
   return state.phase === "thinking";
 }
 

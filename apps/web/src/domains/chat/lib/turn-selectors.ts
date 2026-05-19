@@ -5,11 +5,11 @@
  * previously scattered across the component tree.
  */
 
-import { type TurnState, isSending, isThinking } from "@/domains/messaging/turn-store.js";
+import { type TurnPhase, isSending, isThinking } from "@/domains/messaging/turn-store.js";
 
 // ---------------------------------------------------------------------------
 // UI context — values provided by the component that are NOT part of the
-// turn state machine but are needed for render decisions.
+// turn store but are needed for render decisions.
 // ---------------------------------------------------------------------------
 
 export interface UIContext {
@@ -48,7 +48,7 @@ export interface UIContext {
  * clear the `isThinking` boolean, achieving the same suppression.
  */
 export function shouldShowThinkingIndicator(
-  state: TurnState,
+  state: { phase: TurnPhase; activeToolCallCount: number },
   ctx: UIContext,
 ): boolean {
   const restoredProcessing =
@@ -78,7 +78,6 @@ export function shouldShowThinkingIndicator(
  * is always visible.
  */
 export function shouldShowAssistantBubble(
-  _state: TurnState,
   ctx: UIContext,
 ): boolean {
   // If there are uncompleted visible surfaces, suppress the assistant
@@ -98,7 +97,7 @@ export function shouldShowAssistantBubble(
  * Mirrors macOS `effectiveStatusText`, which is projected from the
  * daemon's `assistant_activity_state.statusText` field.
  */
-export function getThinkingStatusText(state: TurnState): string | null {
+export function getThinkingStatusText(state: { statusText: string | null }): string | null {
   return state.statusText;
 }
 
@@ -108,7 +107,6 @@ export function getThinkingStatusText(state: TurnState): string | null {
  * them in `AssistantPageClient.sendMessage`.
  */
 export function isSendDisabled(
-  _state: TurnState,
   ctx: UIContext,
 ): boolean {
   return ctx.hasPendingSecret || ctx.hasPendingConfirmation;

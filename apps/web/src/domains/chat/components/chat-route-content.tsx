@@ -71,7 +71,7 @@ import type { SubagentEntry, SubagentMapState } from "@/domains/subagents/subage
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import { buildTranscriptItems } from "@/domains/chat/lib/transcript/build-items.js";
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
-import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/chat/lib/turn-selectors.js";
+import { isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/chat/lib/turn-selectors.js";
 import { isSurfaceInteractive } from "@/domains/chat/lib/types.js";
 
 import type { MainView, OpenedAppState, OpenedDocumentState, ViewerState } from "@/stores/viewer-store.js";
@@ -508,9 +508,11 @@ export function ChatRouteContent({
   } = refs;
 
   // -------------------------------------------------------------------------
-  // Turn state (read from Zustand store)
+  // Turn state (read from Zustand store — atomic selectors, no useShallow)
   // -------------------------------------------------------------------------
-  const turnState = useTurnStore();
+  const phase = useTurnStore.use.phase();
+  const activeToolCallCount = useTurnStore.use.activeToolCallCount();
+  const statusText = useTurnStore.use.statusText();
 
   // -------------------------------------------------------------------------
   // Derived interaction state
@@ -561,7 +563,10 @@ export function ChatRouteContent({
     hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
   };
 
-  const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
+  const showThinking = shouldShowThinkingIndicator(
+    { phase, activeToolCallCount },
+    uiContext,
+  );
 
   const diskPressureChatBlockReason = getDiskPressureChatBlockReason({
     monitorEnabled: diskPressure.diskPressureMonitorEnabled,
@@ -577,7 +582,7 @@ export function ChatRouteContent({
     isChannelReadonly;
 
   const sendDisabled =
-    isSendDisabled(turnState, uiContext) || typingDisabled;
+    isSendDisabled(uiContext) || typingDisabled;
 
   const isEmptyConversation =
     !!activeConversationKey &&
@@ -781,7 +786,7 @@ export function ChatRouteContent({
   // Transcript items
   // -------------------------------------------------------------------------
 
-  const thinkingLabel = getThinkingStatusText(turnState);
+  const thinkingLabel = statusText;
 
   const transcriptItems = useMemo(
     () =>
