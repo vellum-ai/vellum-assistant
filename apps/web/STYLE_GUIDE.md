@@ -91,8 +91,13 @@ one domain, it belongs inside `domains/<name>/`.
 Reusable, domain-agnostic UI components live in `components/` for
 cross-domain shared UI. The design system (Button, Card, Modal, etc.)
 lives in `packages/design-library/` and is imported as
-`@vellum/design-library`. Components must not import domain state or
-feature hooks.
+`@vellum/design-library`. Components in `components/` must not import
+domain state or feature hooks.
+
+Domain-specific compositions of design library components (e.g. a
+wrapper that injects OAuth link handling) belong in their domain
+directory (`domains/<name>/components/`), not in `components/`. See
+[CONVENTIONS.md — Injecting app-specific behavior](./CONVENTIONS.md#injecting-app-specific-behavior).
 
 ---
 

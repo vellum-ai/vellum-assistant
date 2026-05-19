@@ -3,7 +3,7 @@
  *
  * The repo doesn't run DOM-based tests (no `@testing-library/react`). We
  * exercise the component via `renderToStaticMarkup` and mock the LEAF
- * rendering deps (`MarkdownMessage`, `MessageHoverActions`, `ToolCallChip`,
+ * rendering deps (`ChatMarkdownMessage`, `MessageHoverActions`, `ToolCallChip`,
  * `surfaces`, `ChatAttachments`) so the real `TranscriptRow` runs and
  * produces queryable text content. We deliberately do NOT mock
  * `./TranscriptRow` — `mock.module()` is process-global in bun:test and
@@ -13,8 +13,8 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("@/components/markdown-message.js", () => ({
-  MarkdownMessage: ({ content }: { content: string }) => (
+mock.module("@/domains/chat/components/chat-markdown-message.js", () => ({
+  ChatMarkdownMessage: ({ content }: { content: string }) => (
     <div data-testid="markdown">{content}</div>
   ),
 }));

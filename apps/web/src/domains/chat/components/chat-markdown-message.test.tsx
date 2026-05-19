@@ -1,9 +1,8 @@
 /**
- * Tests for the app-level MarkdownMessage wrapper.
+ * Tests for the chat-domain ChatMarkdownMessage.
  *
  * Generic rendering tests live in `packages/design-library/`. These tests
- * cover the Vellum-specific OAuth popup link behaviour injected by the
- * app-layer wrapper.
+ * cover the OAuth popup link behaviour injected by the chat-domain wrapper.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -12,9 +11,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { shouldOpenMarkdownLinkInOAuthPopup } from "@/domains/chat/lib/oauth-popup-links.js";
 
-import { MarkdownMessage } from "@/components/markdown-message.js";
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
 
-describe("MarkdownMessage (OAuth link handling)", () => {
+describe("ChatMarkdownMessage (OAuth link handling)", () => {
   test("detects OAuth authorization links for popup handling", () => {
     const oauthUrl =
       "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=client-1&redirect_uri=http%3A%2F%2Flocalhost%3A8000%2Fcallback";
@@ -26,7 +25,7 @@ describe("MarkdownMessage (OAuth link handling)", () => {
 
   test("normal links include noopener noreferrer", () => {
     const html = renderToStaticMarkup(
-      createElement(MarkdownMessage, {
+      createElement(ChatMarkdownMessage, {
         content: "[Docs](https://example.com/docs)",
       }),
     );
@@ -39,7 +38,7 @@ describe("MarkdownMessage (OAuth link handling)", () => {
     const oauthUrl =
       "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=client-1&redirect_uri=http%3A%2F%2Flocalhost%3A8000%2Fcallback";
     const html = renderToStaticMarkup(
-      createElement(MarkdownMessage, {
+      createElement(ChatMarkdownMessage, {
         content: `[Connect](${oauthUrl})`,
       }),
     );

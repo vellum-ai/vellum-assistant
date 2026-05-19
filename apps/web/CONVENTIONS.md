@@ -449,6 +449,40 @@ import { Button, Typography } from "@vellum/design-library";
 Design system components accept props and render UI. They must not
 import domain state, feature hooks, or application-specific logic.
 
+### Injecting app-specific behavior
+
+Design library components expose callback or component props for
+customization (e.g. `linkComponent` on `MarkdownMessage`). Consumers
+pass domain-specific implementations via these props — this is the
+standard pattern used by
+[react-markdown](https://github.com/remarkjs/react-markdown#components),
+[MUI](https://mui.com/material-ui/integrations/routing/), and
+[Radix](https://www.radix-ui.com/docs/primitives/guides/composition).
+
+When many call sites pass the same prop, a **domain convenience wrapper**
+is acceptable — but it must:
+
+- Have a **distinct name** that signals what it adds (e.g.
+  `ChatMarkdownMessage`, not `MarkdownMessage`)
+- Live in the **domain directory** that owns the behavior (e.g.
+  `domains/chat/components/`), not in the cross-domain `components/`
+  directory
+- Never shadow the design library export name
+
+The design library component must always remain directly importable for
+contexts that don't need the domain behavior (e.g. auth-free local
+usage).
+
+```ts
+// Domain wrapper — lives in domains/chat/components/
+import { MarkdownMessage } from "@vellum/design-library";
+import { OAuthAwareLink } from "@/domains/chat/lib/oauth-aware-link.js";
+
+export function ChatMarkdownMessage(props: ChatMarkdownMessageProps) {
+  return <MarkdownMessage {...props} linkComponent={OAuthAwareLink} />;
+}
+```
+
 For component authoring conventions (React 19 ref-as-prop, `data-slot`,
 variant patterns, file organization), see
 [`packages/design-library/README.md`](../../packages/design-library/README.md).
@@ -456,6 +490,8 @@ variant patterns, file organization), see
 References:
 - [Node.js — Package exports](https://nodejs.org/api/packages.html#exports)
 - [Bun — Workspaces](https://bun.sh/docs/install/workspaces)
+- [React — Passing Props to a Component](https://react.dev/learn/passing-props-to-a-component)
+- [react-markdown — components prop](https://github.com/remarkjs/react-markdown#components)
 
 ---
 

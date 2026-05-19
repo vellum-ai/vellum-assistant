@@ -185,6 +185,32 @@ the same three-step pattern above and keep values in sync with the platform's
 [`appTheme.css`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/web/src/app/(app)/appTheme.css)
 and [`globals.css`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/web/src/app/globals.css).
 
+## Customization
+
+Components expose callback or component props for injecting
+domain-specific behavior. The library provides sensible defaults;
+consumers override only what they need.
+
+```tsx
+import { MarkdownMessage } from "@vellum/design-library";
+
+// Default behavior — links open in a new tab with noopener noreferrer
+<MarkdownMessage content={text} />
+
+// Custom link rendering — pass a component via the linkComponent prop
+<MarkdownMessage content={text} linkComponent={MyCustomLink} />
+```
+
+This is the standard composition pattern used by
+[react-markdown](https://github.com/remarkjs/react-markdown#components)
+(`components` prop),
+[MUI](https://mui.com/material-ui/integrations/routing/) (`component`
+prop), and [Radix](https://www.radix-ui.com/docs/primitives/guides/composition)
+(`asChild`).
+
+References:
+- [React — Passing Props to a Component](https://react.dev/learn/passing-props-to-a-component)
+
 ## Storybook
 
 [Storybook](https://storybook.js.org/) provides isolated component development and auto-generated documentation.

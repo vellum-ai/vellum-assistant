@@ -4,7 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import type { Surface } from "@/domains/chat/lib/types.js";
 
-import { MarkdownMessage } from "@/components/markdown-message.js";
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container.js";
 import { WeatherForecastDisplay } from "@/domains/chat/components/surfaces/weather-forecast-display.js";
 
@@ -217,14 +217,14 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
 
         {isWeather ? (
           <WeatherForecastDisplay templateData={data.templateData!} fallback={
-            <MarkdownMessage
+            <ChatMarkdownMessage
               content={data.body}
               className="mt-2 text-body-medium-lighter text-stone-600 dark:text-stone-300"
             />
           } />
         ) : (
           <>
-            <MarkdownMessage
+            <ChatMarkdownMessage
               content={data.body}
               className="mt-2 text-body-medium-lighter text-stone-600 dark:text-stone-300"
             />

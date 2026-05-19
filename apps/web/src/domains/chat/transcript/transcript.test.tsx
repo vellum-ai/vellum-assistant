@@ -12,11 +12,11 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-// `MarkdownMessage` pulls in `react-markdown` + `remark-gfm`. They render
+// `ChatMarkdownMessage` pulls in `react-markdown` + `remark-gfm`. They render
 // fine under `renderToStaticMarkup`, but to keep these tests hermetic we
 // replace it with a plain passthrough.
-mock.module("@/components/markdown-message.js", () => ({
-  MarkdownMessage: ({ content }: { content: string }) => (
+mock.module("@/domains/chat/components/chat-markdown-message.js", () => ({
+  ChatMarkdownMessage: ({ content }: { content: string }) => (
     <div data-testid="markdown">{content}</div>
   ),
 }));

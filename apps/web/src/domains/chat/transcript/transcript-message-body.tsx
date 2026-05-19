@@ -9,7 +9,7 @@ import {
 } from "react";
 
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/index.js";
-import { MarkdownMessage } from "@/components/markdown-message.js";
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions.js";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/index.js";
 import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js";
@@ -268,7 +268,7 @@ export function TranscriptMessageBody({
                   key={`text-${gi}`}
                   className={`text-[15px] break-words ${textBubbleClass}`}
                 >
-                  <MarkdownMessage content={text} hardLineBreaks={message.role === "user"} />
+                  <ChatMarkdownMessage content={text} hardLineBreaks={message.role === "user"} />
                 </div>
               );
             }
@@ -299,7 +299,7 @@ export function TranscriptMessageBody({
             <div
               className={`text-[15px] break-words ${textBubbleClass}`}
             >
-              <MarkdownMessage content={message.content} hardLineBreaks={message.role === "user"} />
+              <ChatMarkdownMessage content={message.content} hardLineBreaks={message.role === "user"} />
             </div>
           )}
           {message.attachments && message.attachments.length > 0 && (
@@ -337,7 +337,7 @@ export function TranscriptMessageBody({
             );
         const segText = seg?.content ?? entry.id;
         contentElements.push(
-          <MarkdownMessage key={`text-${entry.id}`} content={segText} hardLineBreaks={message.role === "user"} />,
+          <ChatMarkdownMessage key={`text-${entry.id}`} content={segText} hardLineBreaks={message.role === "user"} />,
         );
       } else if (entry.type === "surface") {
         const surface = resolveSurface(entry.id);
@@ -359,13 +359,13 @@ export function TranscriptMessageBody({
     }
     if (contentElements.length === 0 && message.content) {
       contentElements.push(
-        <MarkdownMessage key="fallback" content={message.content} hardLineBreaks={message.role === "user"} />,
+        <ChatMarkdownMessage key="fallback" content={message.content} hardLineBreaks={message.role === "user"} />,
       );
     }
   } else {
     contentElements.push(
       message.content ? (
-        <MarkdownMessage key="content" content={message.content} hardLineBreaks={message.role === "user"} />
+        <ChatMarkdownMessage key="content" content={message.content} hardLineBreaks={message.role === "user"} />
       ) : null,
     );
   }

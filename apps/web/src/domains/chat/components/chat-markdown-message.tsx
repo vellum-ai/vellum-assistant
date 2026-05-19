@@ -1,17 +1,13 @@
 /**
- * App-level MarkdownMessage that wires in OAuth popup link handling.
- *
- * The generic component lives in `@vellum/design-library`; this thin wrapper
- * provides the Vellum-specific link behaviour (OAuth authorization URLs open
- * in a popup and omit `rel="noopener noreferrer"` so the popup can
- * communicate back to the opener).
+ * Chat-domain MarkdownMessage that composes the design-library primitive
+ * with OAuth-aware link handling for authorization URLs in chat responses.
  */
 
 import type { AnchorHTMLAttributes } from "react";
 
 import {
-  MarkdownMessage as BaseMarkdownMessage,
-  type MarkdownMessageProps as BaseMarkdownMessageProps,
+  MarkdownMessage,
+  type MarkdownMessageProps,
 } from "@vellum/design-library";
 import {
   openMarkdownOAuthLinkInPopup,
@@ -41,8 +37,8 @@ function OAuthAwareLink({
   );
 }
 
-export type MarkdownMessageProps = Omit<BaseMarkdownMessageProps, "linkComponent">;
+export type ChatMarkdownMessageProps = Omit<MarkdownMessageProps, "linkComponent">;
 
-export function MarkdownMessage(props: MarkdownMessageProps) {
-  return <BaseMarkdownMessage {...props} linkComponent={OAuthAwareLink} />;
+export function ChatMarkdownMessage(props: ChatMarkdownMessageProps) {
+  return <MarkdownMessage {...props} linkComponent={OAuthAwareLink} />;
 }
