@@ -1652,6 +1652,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<interface_turn_context>", // backward-compat: strip legacy separate interface blocks
   // NOTE: <turn_context> is intentionally NOT stripped — unified turn context
   // blocks persist in history so the assistant retains temporal/actor grounding.
+  "<background_turn>",
   "<memory_context __injected>",
   "<memory_context>", // backward-compat: strip legacy blocks from pre-__injected history
   // The static `memory-v2-static` block (opens `<memory>\n…`) IS stripped
@@ -1966,6 +1967,13 @@ export interface RuntimeInjectionOptions {
   nowScratchpad?: string | null;
   subagentStatusBlock?: string | null;
   isNonInteractive?: boolean;
+  /**
+   * True when the active conversation's type is "background" or "scheduled".
+   * Forwarded to {@link TurnInjectionInputs.isBackgroundConversation} so the
+   * `background-turn` injector can wrap the tail user message with the
+   * configured reminder.
+   */
+  isBackgroundConversation?: boolean;
   transportHints?: string[] | null;
   slackRuntimeContextNotice?: string | null;
   /**
@@ -2056,6 +2064,7 @@ function buildTurnInjectionInputs(
     voiceCallControlPrompt: options.voiceCallControlPrompt,
     transportHints: options.transportHints,
     isNonInteractive: options.isNonInteractive,
+    isBackgroundConversation: options.isBackgroundConversation,
     activeDocuments: options.activeDocuments,
   };
 }

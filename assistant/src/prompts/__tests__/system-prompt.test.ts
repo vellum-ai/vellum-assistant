@@ -1,10 +1,9 @@
 /**
- * Tests for the Background Conversation gating in buildSystemPrompt.
- *
- * The Background Conversation guidance is gated on
- * `options.isBackgroundConversation === true`.  Interactive (default)
- * conversations must pay zero token cost — the section must be entirely
- * absent unless the flag is explicitly true.
+ * Smoke tests for buildSystemPrompt — covers tool-routing-guidance
+ * exclusions and other call-shape invariants. Background-conversation
+ * guidance is no longer rendered into the system prompt; see
+ * `__tests__/injector-background-turn.test.ts` for the per-turn
+ * user-message injection that replaced it.
  */
 
 import { mkdirSync } from "node:fs";
@@ -58,51 +57,7 @@ mock.module("../../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-const { buildSystemPrompt, SYSTEM_PROMPT_CACHE_BOUNDARY } =
-  await import("../system-prompt.js");
-
-describe("buildSystemPrompt — Background Conversation gating", () => {
-  beforeEach(() => {
-    mkdirSync(TEST_DIR, { recursive: true });
-  });
-
-  test("isBackgroundConversation: true — appends the Background Conversation section", () => {
-    const result = buildSystemPrompt({ isBackgroundConversation: true });
-    expect(result).toContain("## Background Conversation");
-    expect(result).toContain("`notifications` skill");
-    expect(result).toContain("assistant notifications send");
-  });
-
-  test("isBackgroundConversation: false — section is omitted", () => {
-    const result = buildSystemPrompt({ isBackgroundConversation: false });
-    expect(result).not.toContain("## Background Conversation");
-  });
-
-  test("options undefined — section is omitted (interactive default)", () => {
-    const result = buildSystemPrompt(undefined);
-    expect(result).not.toContain("## Background Conversation");
-  });
-
-  test("options provided without the flag — section is omitted", () => {
-    const result = buildSystemPrompt({});
-    expect(result).not.toContain("## Background Conversation");
-  });
-
-  test("section lives in the static (cached) block, not the dynamic suffix", () => {
-    // The section is deterministic for a given conversationType, so it
-    // belongs in staticParts to share the cache block with other
-    // call-time-stable instructions.
-    const result = buildSystemPrompt({ isBackgroundConversation: true });
-    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-    expect(boundaryIdx).toBeGreaterThan(-1);
-    const staticBlock = result.slice(0, boundaryIdx);
-    const dynamicBlock = result.slice(
-      boundaryIdx + SYSTEM_PROMPT_CACHE_BOUNDARY.length,
-    );
-    expect(staticBlock).toContain("## Background Conversation");
-    expect(dynamicBlock).not.toContain("## Background Conversation");
-  });
-});
+const { buildSystemPrompt } = await import("../system-prompt.js");
 
 describe("buildSystemPrompt — tool routing guidance", () => {
   beforeEach(() => {
