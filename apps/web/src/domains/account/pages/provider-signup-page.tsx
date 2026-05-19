@@ -12,18 +12,9 @@ import {
   isConflict,
   submitProviderSignup,
 } from "@/lib/auth/allauth-client.js";
-import { sanitizeReturnTo } from "@/lib/account/return-to.js";
+import { resolvePostLoginDestination } from "@/lib/account/login-flow.js";
 import { useAuth } from "@/lib/auth/auth-provider.js";
 import { routes } from "@/utils/routes.js";
-
-function shouldUseFullPageNavigation(destination: string): boolean {
-  return (
-    destination.startsWith("http") ||
-    destination.startsWith("/accounts/") ||
-    destination.startsWith("/v1/") ||
-    destination.startsWith("/_allauth/")
-  );
-}
 
 /**
  * Provider signup completion page. Shown when allauth's provider flow needs
@@ -48,15 +39,19 @@ export function ProviderSignupPage() {
     didLoad.current = true;
 
     (async () => {
-      const result = await getProviderSignup();
-      if (!result.ok) {
-        navigate(routes.account.login, { replace: true });
-        return;
-      }
+      try {
+        const result = await getProviderSignup();
+        if (!result.ok) {
+          navigate(routes.account.login, { replace: true });
+          return;
+        }
 
-      setEmail(result.data.user.email ?? "");
-      setUsername(result.data.user.username ?? "");
-      setIsLoadingContext(false);
+        setEmail(result.data.user.email ?? "");
+        setUsername(result.data.user.username ?? "");
+        setIsLoadingContext(false);
+      } catch {
+        navigate(routes.account.login, { replace: true });
+      }
     })();
   }, [navigate]);
 
@@ -71,11 +66,11 @@ export function ProviderSignupPage() {
       if (!result.ok) {
         if (isConflict(result)) {
           await refreshSession();
-          const conflictDestination = sanitizeReturnTo(returnTo, routes.account.root);
-          if (shouldUseFullPageNavigation(conflictDestination)) {
-            window.location.href = conflictDestination;
+          const conflict = resolvePostLoginDestination(returnTo, routes.account.root);
+          if (conflict.requiresFullPageNavigation) {
+            window.location.href = conflict.destination;
           } else {
-            navigate(conflictDestination);
+            navigate(conflict.destination);
           }
           return;
         }
@@ -87,11 +82,11 @@ export function ProviderSignupPage() {
       }
 
       await refreshSession();
-      const destination = sanitizeReturnTo(returnTo, routes.account.root);
-      if (shouldUseFullPageNavigation(destination)) {
-        window.location.href = destination;
+      const post = resolvePostLoginDestination(returnTo, routes.account.root);
+      if (post.requiresFullPageNavigation) {
+        window.location.href = post.destination;
       } else {
-        navigate(destination);
+        navigate(post.destination);
       }
     } catch {
       setError("Something went wrong. Please try again.");

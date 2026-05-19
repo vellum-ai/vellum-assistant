@@ -85,44 +85,48 @@ export function ProviderCallbackPage() {
     didRun.current = true;
 
     (async () => {
-      const result = await getSession();
+      try {
+        const result = await getSession();
 
-      const isAuthenticated = result.ok && !!result.data.user;
-      const pendingFlows = result.ok ? [] : (result.flows ?? []);
-      const outcome = classifyCallbackFlows(isAuthenticated, pendingFlows);
+        const isAuthenticated = result.ok && !!result.data.user;
+        const pendingFlows = result.ok ? [] : (result.flows ?? []);
+        const outcome = classifyCallbackFlows(isAuthenticated, pendingFlows);
 
-      switch (outcome.kind) {
-        case "authenticated": {
-          await refreshSession();
-          const fallback = routes.root;
-          const { destination, requiresFullPageNavigation } =
-            resolvePostLoginDestination(returnTo, fallback);
-          if (requiresFullPageNavigation) {
-            window.location.href = destination;
-          } else {
-            navigate(destination, { replace: true });
+        switch (outcome.kind) {
+          case "authenticated": {
+            await refreshSession();
+            const fallback = routes.root;
+            const { destination, requiresFullPageNavigation } =
+              resolvePostLoginDestination(returnTo, fallback);
+            if (requiresFullPageNavigation) {
+              window.location.href = destination;
+            } else {
+              navigate(destination, { replace: true });
+            }
+            break;
           }
-          break;
+          case "provider_signup": {
+            if (nativeParams) {
+              redirectToNativeApp(nativeParams, "provider_signup_required");
+              return;
+            }
+            const returnToParam = searchParams.get("returnTo");
+            const signupUrl = returnToParam
+              ? `${routes.account.providerSignup}?returnTo=${encodeURIComponent(returnToParam)}`
+              : routes.account.providerSignup;
+            navigate(signupUrl, { replace: true });
+            break;
+          }
+          case "error":
+            if (nativeParams) {
+              redirectToNativeApp(nativeParams, outcome.message);
+              return;
+            }
+            setFallbackError(outcome.message);
+            break;
         }
-        case "provider_signup": {
-          if (nativeParams) {
-            redirectToNativeApp(nativeParams, "provider_signup_required");
-            return;
-          }
-          const returnToParam = searchParams.get("returnTo");
-          const signupUrl = returnToParam
-            ? `${routes.account.providerSignup}?returnTo=${encodeURIComponent(returnToParam)}`
-            : routes.account.providerSignup;
-          navigate(signupUrl, { replace: true });
-          break;
-        }
-        case "error":
-          if (nativeParams) {
-            redirectToNativeApp(nativeParams, outcome.message);
-            return;
-          }
-          setFallbackError(outcome.message);
-          break;
+      } catch {
+        setFallbackError("Something went wrong. Please try signing in again.");
       }
     })();
   }, [error, nativeParams, refreshSession, returnTo, navigate, searchParams]);
