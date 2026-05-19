@@ -22,6 +22,7 @@ import {
   getPlatformUrl,
   hatchAssistant,
   readPlatformToken,
+  type PlatformHatchMode,
 } from "../lib/platform-client";
 import { validateAssistantName } from "../lib/retire-archive";
 
@@ -168,6 +169,7 @@ source ${INSTALL_SCRIPT_REMOTE_PATH}
 
 const DEFAULT_REMOTE: RemoteHost = "local";
 const UNSUPPORTED_REMOTE_HATCH_TARGETS = new Set<RemoteHost>(["aws", "gcp"]);
+const VALID_PLATFORM_HATCH_MODES: PlatformHatchMode[] = ["ensure", "create"];
 
 interface HatchArgs {
   species: Species;
@@ -175,6 +177,7 @@ interface HatchArgs {
   keepAlive: boolean;
   name: string | null;
   remote: RemoteHost;
+  platformMode: PlatformHatchMode;
   watch: boolean;
   sourcePath: string | null;
   configValues: Record<string, string>;
@@ -188,6 +191,7 @@ function parseArgs(): HatchArgs {
   let keepAlive = false;
   let name: string | null = null;
   let remote: RemoteHost = DEFAULT_REMOTE;
+  let platformMode: PlatformHatchMode = "ensure";
   let watch = false;
   let sourcePath: string | null = null;
   const configValues: Record<string, string> = {};
@@ -211,6 +215,9 @@ function parseArgs(): HatchArgs {
         "  --remote <host>           Remote host (local, gcp, aws, docker, custom, vellum)",
       );
       console.log(
+        "  --mode <ensure|create>    Platform hatch mode for --remote vellum. ensure reuses an existing assistant; create requests a new assistant.",
+      );
+      console.log(
         "  --watch                   Run assistant and gateway in watch mode (hot reload on source changes)",
       );
       console.log(
@@ -225,6 +232,11 @@ function parseArgs(): HatchArgs {
       console.log(
         "  --analyze                 Emit a structured hatch-timing log line on stdout",
       );
+      console.log("");
+      console.log("Examples:");
+      console.log("  vellum hatch");
+      console.log("  vellum hatch --remote docker --name local-test");
+      console.log("  vellum hatch --remote vellum --mode create");
       process.exit(0);
     } else if (arg === "-d") {
       detached = true;
@@ -268,6 +280,19 @@ function parseArgs(): HatchArgs {
       }
       remote = next as RemoteHost;
       i++;
+    } else if (arg === "--mode") {
+      const next = args[i + 1];
+      if (
+        !next ||
+        !VALID_PLATFORM_HATCH_MODES.includes(next as PlatformHatchMode)
+      ) {
+        console.error(
+          `Error: --mode requires one of: ${VALID_PLATFORM_HATCH_MODES.join(", ")}`,
+        );
+        process.exit(1);
+      }
+      platformMode = next as PlatformHatchMode;
+      i++;
     } else if (arg === "--config") {
       const next = args[i + 1];
       if (!next || next.startsWith("-")) {
@@ -289,7 +314,7 @@ function parseArgs(): HatchArgs {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --source <path>, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>, --analyze`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --source <path>, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --mode <${VALID_PLATFORM_HATCH_MODES.join("|")}>, --config <key=value>, --analyze`,
       );
       process.exit(1);
     }
@@ -301,6 +326,7 @@ function parseArgs(): HatchArgs {
     keepAlive,
     name,
     remote,
+    platformMode,
     watch,
     sourcePath,
     configValues,
@@ -535,6 +561,7 @@ export async function hatch(): Promise<void> {
     keepAlive,
     name,
     remote,
+    platformMode,
     watch,
     sourcePath,
     configValues,
@@ -552,6 +579,11 @@ export async function hatch(): Promise<void> {
     console.error(
       "Error: --source is only supported for docker hatch targets.",
     );
+    process.exit(1);
+  }
+
+  if (platformMode !== "ensure" && remote !== "vellum") {
+    console.error("Error: --mode is only supported with --remote vellum.");
     process.exit(1);
   }
 
@@ -579,7 +611,7 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "vellum") {
-    await hatchVellumPlatform();
+    await hatchVellumPlatform(platformMode);
     return;
   }
 
@@ -587,7 +619,7 @@ export async function hatch(): Promise<void> {
   process.exit(1);
 }
 
-async function hatchVellumPlatform(): Promise<void> {
+async function hatchVellumPlatform(mode: PlatformHatchMode): Promise<void> {
   const token = readPlatformToken();
   if (!token) {
     console.error("Not logged in. Run `vellum login --token <token>` first.");
@@ -603,7 +635,11 @@ async function hatchVellumPlatform(): Promise<void> {
   console.log("   Hatching assistant on Vellum platform...");
   console.log("");
 
-  const { assistant: result } = await hatchAssistant(token);
+  const { assistant: result, reusedExisting } = await hatchAssistant(
+    token,
+    undefined,
+    { mode },
+  );
 
   const platformUrl = getPlatformUrl();
 
@@ -621,5 +657,8 @@ async function hatchVellumPlatform(): Promise<void> {
   console.log(`   ID:     ${result.id}`);
   console.log(`   Name:   ${result.name}`);
   console.log(`   Status: ${result.status}`);
+  console.log(
+    `   Result: ${reusedExisting ? "reused existing assistant" : "created new assistant"}`,
+  );
   console.log("");
 }

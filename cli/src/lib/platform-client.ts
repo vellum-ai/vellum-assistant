@@ -184,6 +184,12 @@ export interface HatchAssistantResult {
   reusedExisting: boolean;
 }
 
+export type PlatformHatchMode = "ensure" | "create";
+
+export interface HatchAssistantOptions {
+  mode?: PlatformHatchMode;
+}
+
 // ---------------------------------------------------------------------------
 // Self-hosted local assistant registration
 // ---------------------------------------------------------------------------
@@ -482,11 +488,15 @@ export async function injectCredentialsIntoAssistant(
 export async function hatchAssistant(
   token: string,
   platformUrl?: string,
+  options: HatchAssistantOptions = {},
 ): Promise<HatchAssistantResult> {
   const resolvedUrl = platformUrl || getPlatformUrl();
-  const url = `${resolvedUrl}/v1/assistants/hatch/`;
+  const url = new URL("/v1/assistants/hatch/", resolvedUrl);
+  if (options.mode && options.mode !== "ensure") {
+    url.searchParams.set("mode", options.mode);
+  }
 
-  const response = await fetch(url, {
+  const response = await fetch(url.toString(), {
     method: "POST",
     headers: await authHeaders(token, platformUrl),
     body: JSON.stringify({}),

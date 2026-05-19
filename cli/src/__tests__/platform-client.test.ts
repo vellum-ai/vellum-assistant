@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   existsSync,
   mkdtempSync,
@@ -12,6 +12,7 @@ import { join } from "node:path";
 import {
   clearPlatformToken,
   getPlatformUrl,
+  hatchAssistant,
   readPlatformToken,
   savePlatformToken,
 } from "../lib/platform-client.js";
@@ -200,5 +201,64 @@ describe("getPlatformUrl resolution order", () => {
   test("trims whitespace from VELLUM_PLATFORM_URL", () => {
     process.env.VELLUM_PLATFORM_URL = "  https://trimmed.vellum.ai  ";
     expect(getPlatformUrl()).toBe("https://trimmed.vellum.ai");
+  });
+});
+
+describe("hatchAssistant", () => {
+  let originalFetch: typeof fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function mockHatchResponse(status: number) {
+    const fetchMock = mock(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            id: "assistant-123",
+            name: "Test Assistant",
+            status: "active",
+          }),
+          {
+            status,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    return fetchMock;
+  }
+
+  test("defaults to ensure mode without a query parameter", async () => {
+    const fetchMock = mockHatchResponse(201);
+
+    const result = await hatchAssistant("vak_test", "https://platform.test");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://platform.test/v1/assistants/hatch/",
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
+    expect(result.reusedExisting).toBe(false);
+    expect(result.assistant.id).toBe("assistant-123");
+  });
+
+  test("passes mode=create to the platform hatch endpoint", async () => {
+    const fetchMock = mockHatchResponse(200);
+
+    const result = await hatchAssistant("vak_test", "https://platform.test", {
+      mode: "create",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://platform.test/v1/assistants/hatch/?mode=create",
+    );
+    expect(result.reusedExisting).toBe(true);
   });
 });
