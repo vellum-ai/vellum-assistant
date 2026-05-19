@@ -22,6 +22,11 @@ import { logHatchNextSteps } from "./hatch-next-steps.js";
 import { isVellumProcess, stopProcess } from "./process";
 import { generateInstanceName } from "./random-name";
 import {
+  HOST_IMAGE_LOADER_URL,
+  isLocalBuildRef,
+  loadImageViaHost,
+} from "./host-image-loader.js";
+import {
   fetchLatestStableVersion,
   resolveImageRefs,
 } from "./platform-releases.js";
@@ -1101,11 +1106,27 @@ export async function hatchDocker(
       log(`     credential-executor:  ${imageTags["credential-executor"]}`);
       log("");
 
-      log("📦 Pulling Docker images...");
-      await exec("docker", ["pull", imageTags.assistant]);
-      await exec("docker", ["pull", imageTags.gateway]);
-      await exec("docker", ["pull", imageTags["credential-executor"]]);
-      log("✅ Docker images pulled");
+      // Per-ref branching: `vellum-local/*` refs only exist in `vel up`'s
+      // minikube docker daemon and need the host image-loader; everything
+      // else gets a normal `docker pull`. The two transports compose
+      // cleanly — a release can mix a local-built assistant ref with a
+      // DockerHub-fallback credential-executor.
+      log("📦 Acquiring Docker images...");
+      for (const service of [
+        "assistant",
+        "gateway",
+        "credential-executor",
+      ] as const) {
+        const ref = imageTags[service];
+        if (isLocalBuildRef(ref)) {
+          log(`   ↪ loading ${ref} via host image-loader`);
+          await loadImageViaHost(HOST_IMAGE_LOADER_URL, ref, log);
+        } else {
+          log(`   ↪ pulling ${ref}`);
+          await exec("docker", ["pull", ref]);
+        }
+      }
+      log("✅ Docker images acquired");
     }
 
     const res = dockerResourceNames(instanceName);
