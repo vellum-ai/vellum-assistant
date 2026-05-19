@@ -1042,6 +1042,44 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
   });
 
+  test("off-platform managed-inference hatch respects explicit non-managed active connection", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "anthropic" },
+            profiles: {
+              balanced: {
+                source: "managed",
+                provider: "anthropic",
+                provider_connection: "anthropic-personal",
+                model: "claude-sonnet-4-6",
+              },
+            },
+            activeProfile: "balanced",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.profiles.balanced.provider_connection).toBe(
+      "anthropic-personal",
+    );
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("disabled");
+    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
+    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
+  });
+
   test("off-platform BYOK hatch still disables managed connections", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(

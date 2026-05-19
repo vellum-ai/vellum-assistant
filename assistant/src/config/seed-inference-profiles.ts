@@ -407,11 +407,21 @@ function getHatchSelectedManagedConnection(
   const activeProfile = readString(llm.activeProfile);
   if (!activeProfile) return undefined;
 
-  const explicitConnection = readString(
-    readObject(profiles[activeProfile])?.provider_connection,
-  );
-  if (explicitConnection && MANAGED_CONNECTION_NAMES.has(explicitConnection)) {
-    return explicitConnection;
+  const activeProfileEntry = readObject(profiles[activeProfile]);
+  if (
+    activeProfileEntry &&
+    Object.prototype.hasOwnProperty.call(
+      activeProfileEntry,
+      "provider_connection",
+    )
+  ) {
+    const explicitConnection = readString(
+      activeProfileEntry.provider_connection,
+    );
+    return explicitConnection &&
+      MANAGED_CONNECTION_NAMES.has(explicitConnection)
+      ? explicitConnection
+      : undefined;
   }
 
   const templateConnection =
