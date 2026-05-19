@@ -12,7 +12,9 @@
  *
  * **Convenience hooks** — grouped slices for common patterns:
  * - `useChatState()` — state slice (messages, conversation key, assistant ID)
- * - `useChatActions()` — stable action refs (sendMessage, dispatchers)
+ * - `useChatActions()` — stable action refs (sendMessage, dispatchTurn)
+ *
+ * Interaction state lives in its own store (`useInteractionStore`).
  *
  * Reference: {@link https://zustand.docs.pmnd.rs/}
  */
@@ -23,7 +25,6 @@ import { useShallow } from "zustand/shallow";
 
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import type { DomainEvent } from "@/domains/messaging/turn-store.js";
-import type { InteractionEvent } from "@/domains/interactions/interaction-store.js";
 
 // ---------------------------------------------------------------------------
 // Store shape
@@ -43,8 +44,6 @@ export interface ChatActions {
   sendMessage: (content: string, attachments?: DisplayAttachment[]) => Promise<void>;
   /** Dispatch a turn state-machine event. */
   dispatchTurn: Dispatch<DomainEvent>;
-  /** Dispatch an interaction state-machine event. */
-  dispatchInteraction: Dispatch<InteractionEvent>;
 }
 
 export type ChatStore = ChatState & ChatActions;
@@ -62,7 +61,6 @@ export const useChatStore = create<ChatStore>()(() => ({
   assistantId: null,
   sendMessage: NOOP_SEND,
   dispatchTurn: NOOP_DISPATCH as Dispatch<DomainEvent>,
-  dispatchInteraction: NOOP_DISPATCH as Dispatch<InteractionEvent>,
 }));
 
 // ---------------------------------------------------------------------------
@@ -75,7 +73,6 @@ export interface ChatStoreSyncProps {
   assistantId: string | null;
   sendMessage: (content: string, attachments?: DisplayAttachment[]) => Promise<void>;
   dispatchTurn: Dispatch<DomainEvent>;
-  dispatchInteraction: Dispatch<InteractionEvent>;
 }
 
 /**
@@ -90,7 +87,6 @@ export function useSyncChatStore(props: ChatStoreSyncProps): void {
     assistantId,
     sendMessage,
     dispatchTurn,
-    dispatchInteraction,
   } = props;
 
   useEffect(() => {
@@ -105,9 +101,8 @@ export function useSyncChatStore(props: ChatStoreSyncProps): void {
     useChatStore.setState({
       sendMessage,
       dispatchTurn,
-      dispatchInteraction,
     });
-  }, [sendMessage, dispatchTurn, dispatchInteraction]);
+  }, [sendMessage, dispatchTurn]);
 }
 
 // ---------------------------------------------------------------------------
@@ -130,7 +125,7 @@ export function useChatState(): ChatState {
 }
 
 /**
- * Stable action dispatchers (sendMessage, dispatchTurn, dispatchInteraction).
+ * Stable action dispatchers (sendMessage, dispatchTurn).
  * Does **not** re-render when messages or active conversation change.
  */
 export function useChatActions(): ChatActions {
@@ -138,7 +133,6 @@ export function useChatActions(): ChatActions {
     useShallow((s) => ({
       sendMessage: s.sendMessage,
       dispatchTurn: s.dispatchTurn,
-      dispatchInteraction: s.dispatchInteraction,
     })),
   );
 }

@@ -25,7 +25,6 @@ export function makeCtx(
     streamRef: { current: { cancel: mock(() => {}) } as never },
     cancelReconciliation: mock(() => {}),
     startReconciliationLoop: mock(() => {}),
-    dispatchInteraction: mock(() => {}),
     confirmationToolCallMapRef: { current: new Map() },
     setAssetsRefreshKey: mock(() => {}),
     dismissedSurfaceIdsRef: { current: new Set() },

@@ -33,7 +33,7 @@ import {
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DomainEvent } from "@/domains/messaging/turn-store.js";
-import type { InteractionEvent, InteractionState } from "@/domains/interactions/interaction-store.js";
+
 import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
 import type { SubagentAction } from "@/domains/subagents/subagent-store.js";
 import { haptic } from "@/utils/haptics.js";
@@ -104,7 +104,6 @@ interface UseConversationLoaderParams {
   draftsRef: MutableRefObject<Map<string, string>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
   conversationsRef: MutableRefObject<Conversation[]>;
-  interactionStateRef: MutableRefObject<InteractionState>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   needsNewBubbleRef: MutableRefObject<boolean>;
@@ -131,7 +130,6 @@ interface UseConversationLoaderParams {
   setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
   setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
   setError: Dispatch<SetStateAction<ChatError | null>>;
-  dispatchInteraction: Dispatch<InteractionEvent>;
   setAutoGreetPending: Dispatch<SetStateAction<boolean>>;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
   setSuggestion: Dispatch<SetStateAction<string | null>>;
@@ -200,7 +198,6 @@ export function useConversationLoader({
   draftsRef,
   messagesRef,
   conversationsRef,
-  interactionStateRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   needsNewBubbleRef,
@@ -225,7 +222,6 @@ export function useConversationLoader({
   setTranscriptPagination,
   setIsLoadingHistory,
   setError,
-  dispatchInteraction,
   setAutoGreetPending,
   setContextWindowUsage,
   setSuggestion,
@@ -447,7 +443,6 @@ export function useConversationLoader({
     inputRef,
     draftsRef,
     messagesRef,
-    interactionStateRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     needsNewBubbleRef,
@@ -468,7 +463,6 @@ export function useConversationLoader({
     setTranscriptPagination,
     setIsLoadingHistory,
     setError,
-    dispatchInteraction,
     setAutoGreetPending,
     setContextWindowUsage,
     setSuggestion,

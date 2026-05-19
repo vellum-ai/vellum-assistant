@@ -10,10 +10,7 @@ import {
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuth } from "@/lib/auth/auth-provider.js";
 import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
-import {
-  interactionReducer,
-  INITIAL_INTERACTION_STATE,
-} from "@/domains/interactions/interaction-store.js";
+
 import {
   turnReducer,
   INITIAL_TURN_STATE,
@@ -55,10 +52,6 @@ export function ChatPage() {
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [turnState, dispatchTurn] = useReducer(turnReducer, INITIAL_TURN_STATE);
-  const [interactionState, dispatchInteraction] = useReducer(
-    interactionReducer,
-    INITIAL_INTERACTION_STATE,
-  );
   const [input, setInput] = useState("");
   const [error, setError] = useState<{ message: string } | null>(null);
   const [compactionCircuitOpenUntil, setCompactionCircuitOpenUntil] =
@@ -95,7 +88,6 @@ export function ChatPage() {
     assistantId,
     sendMessage,
     dispatchTurn,
-    dispatchInteraction,
   });
 
   if (authLoading || assistantState.kind === "loading") {
@@ -135,8 +127,6 @@ export function ChatPage() {
     error,
     setError,
     isLoadingHistory: false,
-    interactionState,
-    dispatchInteraction,
     conversations: [],
     activeConversationKey: null,
     activeConversation: undefined,
