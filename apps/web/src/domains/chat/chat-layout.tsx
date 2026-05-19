@@ -8,6 +8,7 @@ import {
 import { Outlet, useLocation, useNavigate } from "react-router";
 
 import { haptic } from "@/utils/haptics.js";
+import { routes } from "@/utils/routes.js";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
 
 import { ChatLayoutHeader } from "./chat-layout-header.js";
@@ -111,11 +112,11 @@ export function ChatLayout() {
   const canGoForward = historyIndexRef.current < maxHistoryIndexRef.current;
 
   const handleStartNewConversation = useCallback(() => {
-    navigate("/");
+    navigate(routes.assistant);
   }, [navigate]);
 
   const handleOpenHome = useCallback(() => {
-    navigate("/home");
+    navigate(routes.home);
   }, [navigate]);
 
   const handleGoBack = useCallback(() => {

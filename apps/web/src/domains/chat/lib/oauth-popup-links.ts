@@ -1,7 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 
 import { openUrl } from "@/runtime/browser.js";
-import { BASENAME } from "@/utils/routes.js";
 
 const OAUTH_POPUP_FEATURES = "width=500,height=600";
 
@@ -60,13 +59,7 @@ export function getSameOriginRoutePath(href: string | undefined): string | null 
     return null;
   }
 
-  // Strip the router basename so the returned path can be passed directly to
-  // React Router's navigate() / push() without double-prefixing.
-  const pathname = url.pathname.startsWith(BASENAME)
-    ? url.pathname.slice(BASENAME.length) || "/"
-    : url.pathname;
-
-  return `${pathname}${url.search}${url.hash}`;
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 export function getHttpUrl(href: string | undefined): string | null {

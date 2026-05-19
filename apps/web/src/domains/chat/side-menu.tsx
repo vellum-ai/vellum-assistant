@@ -3,6 +3,7 @@ import { NavLink } from "react-router";
 import { House, Library, MessageSquare, Settings, X } from "lucide-react";
 import { Button } from "@vellum/design-library";
 
+import { routes } from "@/utils/routes.js";
 import type { SideMenuRenderArgs } from "./chat-layout.js";
 
 function NavItem({
@@ -72,28 +73,28 @@ export function SideMenu({ collapsed, variant, onClose }: SideMenuRenderArgs) {
       ) : null}
 
       <NavItem
-        to="/home"
+        to={routes.home}
         icon={<House size={18} />}
         label="Home"
         collapsed={collapsed}
         onClick={handleNavClick}
       />
       <NavItem
-        to="/"
+        to={routes.assistant}
         icon={<MessageSquare size={18} />}
         label="Chat"
         collapsed={collapsed}
         onClick={handleNavClick}
       />
       <NavItem
-        to="/library"
+        to={routes.library.root}
         icon={<Library size={18} />}
         label="Library"
         collapsed={collapsed}
         onClick={handleNavClick}
       />
       <NavItem
-        to="/settings/general"
+        to={routes.settings.general}
         icon={<Settings size={18} />}
         label="Settings"
         collapsed={collapsed}

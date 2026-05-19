@@ -51,7 +51,7 @@ export function AccountPage() {
       />
       <div className="flex flex-col items-center gap-4">
         <Link
-          to={routes.root}
+          to={routes.assistant}
           className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-white no-underline transition-colors hover:bg-[var(--primary-hover)]"
         >
           Go to your assistant

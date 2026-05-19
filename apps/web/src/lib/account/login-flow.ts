@@ -1,14 +1,8 @@
 import { sanitizeReturnTo } from "@/lib/account/return-to.js";
-import { BASENAME, routes } from "@/utils/routes.js";
+import { routes } from "@/utils/routes.js";
 
 export const PROVIDER_ID = "workos-oidc";
-
-/**
- * Full browser path for the OAuth callback. Must include BASENAME because
- * this value is resolved to an absolute URL via `new URL(callbackUrl, origin)`
- * in `buildProviderRedirectFields` — React Router's basename is not involved.
- */
-export const PROVIDER_CALLBACK_URL = `${BASENAME}${routes.account.providerCallback}`;
+export const PROVIDER_CALLBACK_URL = routes.account.providerCallback;
 
 export function buildLoginRedirectUrl(
   pathname: string,
@@ -35,14 +29,6 @@ export function requiresFullPageNavigation(destination: string): boolean {
   );
 }
 
-/**
- * Resolve the post-login destination from a returnTo parameter.
- *
- * When the destination is a same-origin path intended for React Router's
- * `navigate()`, the BASENAME prefix is stripped so the router doesn't
- * double-prefix it (React Router applies the basename automatically).
- * Full-page navigations (`window.location.href`) keep the original value.
- */
 export function resolvePostLoginDestination(
   returnTo: string | null,
   fallback: string,
@@ -50,10 +36,9 @@ export function resolvePostLoginDestination(
   destination: string;
   requiresFullPageNavigation: boolean;
 } {
-  const raw = sanitizeReturnTo(returnTo, fallback);
-  const fullPage = requiresFullPageNavigation(raw);
-  const destination = !fullPage && raw.startsWith(BASENAME)
-    ? raw.slice(BASENAME.length) || "/"
-    : raw;
-  return { destination, requiresFullPageNavigation: fullPage };
+  const destination = sanitizeReturnTo(returnTo, fallback);
+  return {
+    destination,
+    requiresFullPageNavigation: requiresFullPageNavigation(destination),
+  };
 }

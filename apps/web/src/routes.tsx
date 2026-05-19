@@ -14,76 +14,81 @@ import { SignupPage } from "@/domains/account/pages/signup-page.js";
 import { ProviderCallbackPage } from "@/domains/account/pages/provider-callback-page.js";
 import { ProviderSignupPage } from "@/domains/account/pages/provider-signup-page.js";
 import { OAuthPopupCompletePage } from "@/domains/account/pages/oauth-popup-complete-page.js";
-import { BASENAME } from "@/utils/routes.js";
+import { routes } from "@/utils/routes.js";
 
 function HomePageRoute() {
   const navigate = useNavigate();
   return (
     <HomePage
       assistantId="default"
-      onStartNewChat={() => navigate("/")}
+      onStartNewChat={() => navigate(routes.assistant)}
       onOpenConversation={(conversationId) =>
-        navigate(`/conversations/${conversationId}`)
+        navigate(`${routes.assistant}/conversations/${conversationId}`)
       }
       onSuggestionSelected={(prompt) =>
-        navigate(`/?prompt=${encodeURIComponent(prompt)}`)
+        navigate(`${routes.assistant}?prompt=${encodeURIComponent(prompt)}`)
       }
     />
   );
 }
 
 /**
- * Route hierarchy:
+ * Route hierarchy (no basename — routes are absolute browser paths):
  *
- *   RootLayout (pathless — safe areas, viewport tracking)
- *   ├── Account routes (no sidebar, standalone pages)
- *   │   ├── AccountPage (/account)
- *   │   ├── LoginPage (/account/login)
- *   │   ├── SignupPage (/account/signup)
- *   │   ├── ProviderCallbackPage (/account/provider/callback)
- *   │   ├── ProviderSignupPage (/account/provider/signup)
- *   │   └── OAuthPopupCompletePage (/account/oauth/popup-complete)
- *   ├── ChatLayout (path="/") — sidebar rail, drawer, shortcuts
- *   │   ├── ChatPage (index)
- *   │   ├── HomePageRoute
- *   │   ├── LibraryPage / LibraryDetailPage
- *   │   └── SettingsTabPage
- *   └── NotFound (catch-all)
+ *   /account/*   — standalone auth pages, no app chrome
+ *   │  ├── AccountPage (/account)
+ *   │  ├── LoginPage (/account/login)
+ *   │  ├── SignupPage (/account/signup)
+ *   │  ├── ProviderCallbackPage (/account/provider/callback)
+ *   │  ├── ProviderSignupPage (/account/provider/signup)
+ *   │  └── OAuthPopupCompletePage (/account/oauth/popup-complete)
+ *   │
+ *   /assistant/* — full app with RootLayout (safe areas, viewport tracking)
+ *   │  └── ChatLayout — sidebar rail, drawer, shortcuts
+ *   │       ├── ChatPage (index, /assistant)
+ *   │       ├── HomePageRoute (/assistant/home)
+ *   │       ├── LibraryPage / LibraryDetailPage
+ *   │       └── SettingsTabPage
  *
  * References:
- * - React Router layout routes: https://reactrouter.com/start/data/routing
- * - React Router nested routes: https://reactrouter.com/start/data/routing#nested-routes
+ * - React Router data mode routing: https://reactrouter.com/start/data/routing
+ * - React Router prefix routes: https://reactrouter.com/start/data/routing#prefix-route
  */
-export const router = createBrowserRouter(
-  [
-    {
-      element: <RootLayout />,
-      children: [
-        // Account routes — standalone pages without the chat sidebar
-        { path: "account", element: <AccountPage /> },
-        { path: "account/login", element: <LoginPage /> },
-        { path: "account/signup", element: <SignupPage /> },
-        { path: "account/provider/callback", element: <ProviderCallbackPage /> },
-        { path: "account/provider/signup", element: <ProviderSignupPage /> },
-        { path: "account/oauth/popup-complete", element: <OAuthPopupCompletePage /> },
+export const router = createBrowserRouter([
+  // Account routes — standalone auth pages, no app chrome
+  {
+    path: "/account",
+    children: [
+      { index: true, element: <AccountPage /> },
+      { path: "login", element: <LoginPage /> },
+      { path: "signup", element: <SignupPage /> },
+      { path: "provider/callback", element: <ProviderCallbackPage /> },
+      { path: "provider/signup", element: <ProviderSignupPage /> },
+      { path: "oauth/popup-complete", element: <OAuthPopupCompletePage /> },
+    ],
+  },
 
-        // Chat layout — sidebar rail, drawer, shortcuts
-        {
-          path: "/",
-          element: <ChatLayout />,
-          children: [
-            { index: true, element: <ChatPage /> },
-            { path: "home", element: <HomePageRoute /> },
-            { path: "settings/:tab", element: <SettingsTabPage /> },
-            { path: "library", element: <LibraryPage /> },
-            { path: "library/:appId", element: <LibraryDetailPage /> },
-          ],
-        },
+  // Assistant routes — full app with layout (safe areas, viewport tracking)
+  {
+    path: "/assistant",
+    element: <RootLayout />,
+    children: [
+      {
+        element: <ChatLayout />,
+        children: [
+          { index: true, element: <ChatPage /> },
+          { path: "home", element: <HomePageRoute /> },
+          { path: "settings/:tab", element: <SettingsTabPage /> },
+          { path: "library", element: <LibraryPage /> },
+          { path: "library/:appId", element: <LibraryDetailPage /> },
+        ],
+      },
 
-        // Catch-all
-        { path: "*", element: <NotFound /> },
-      ],
-    },
-  ],
-  { basename: BASENAME },
-);
+      // Catch-all within /assistant/*
+      { path: "*", element: <NotFound /> },
+    ],
+  },
+
+  // Top-level catch-all
+  { path: "*", element: <NotFound /> },
+]);

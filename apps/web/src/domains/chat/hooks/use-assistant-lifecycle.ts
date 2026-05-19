@@ -17,7 +17,7 @@ import {
   shouldRecoverFromHatchFailure,
 } from "@/domains/assistant/lifecycle.js";
 import { resolveOnboardingRedirect } from "@/lib/onboarding/gate.js";
-import { BASENAME } from "@/utils/routes.js";
+import { routes } from "@/utils/routes.js";
 
 const POLL_INTERVAL_MS = 3000;
 const MAX_HATCH_RETRIES = 3;
@@ -204,7 +204,7 @@ export function useAssistantLifecycle({
         // New signups without completed onboarding should land on
         // `/onboarding/privacy` before we hatch an assistant for them.
         const onboardingRedirect = resolveOnboardingRedirect({
-          intendedDestination: BASENAME,
+          intendedDestination: routes.assistant,
         });
         if (onboardingRedirect) {
           onRedirectRef.current(onboardingRedirect);

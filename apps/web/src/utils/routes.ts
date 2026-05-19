@@ -1,32 +1,28 @@
 /**
  * Centralized URL registry for app-internal navigation.
  *
- * All paths are relative to the router basename (`/assistant`). Use them
- * directly with `<Link to>`, `navigate()`, and `pushRoute()`.
- *
- * For full browser paths (e.g. `window.location.href` redirects), prepend
- * `BASENAME`: `BASENAME + routes.home` → `"/assistant/home"`.
+ * All paths are absolute browser paths — pass them directly to
+ * `<Link to>`, `navigate()`, `window.location.href`, and pathname
+ * comparisons. No React Router basename is in play; the router runs
+ * at `/` and matches these paths as-is.
  *
  * Captured paths (e.g. inputs to `sanitizeReturnTo`, query-string round-trips)
  * are values, not constants — do NOT rewrite those through this module.
  */
-
-/** The React Router basename — the prefix stripped from/applied to all URLs. */
-export const BASENAME = "/assistant";
 
 const r = <const T extends string>(path: T): T => path;
 
 const dyn = (parent: string, id: string): string => `${parent}/${id}`;
 
 export const routes = {
-  root: r("/"),
-  inspect: r("/inspect"),
+  assistant: r("/assistant"),
+  inspect: r("/assistant/inspect"),
   logs: {
-    root: r("/logs"),
-    trace: r("/logs/trace"),
-    usage: r("/logs/usage"),
-    emails: r("/logs/emails"),
-    systemEvents: r("/logs/system-events"),
+    root: r("/assistant/logs"),
+    trace: r("/assistant/logs/trace"),
+    usage: r("/assistant/logs/usage"),
+    emails: r("/assistant/logs/emails"),
+    systemEvents: r("/assistant/logs/system-events"),
   },
   uiGallery: r("/ui-gallery"),
   login: r("/account/login"),
@@ -45,45 +41,45 @@ export const routes = {
   },
 
   onboarding: {
-    privacy: r("/onboarding/privacy"),
-    prechat: r("/onboarding/prechat"),
-    hatching: r("/onboarding/hatching"),
+    privacy: r("/assistant/onboarding/privacy"),
+    prechat: r("/assistant/onboarding/prechat"),
+    hatching: r("/assistant/onboarding/hatching"),
   },
 
-  home: r("/home"),
-  identity: r("/identity"),
-  workspace: r("/workspace"),
+  home: r("/assistant/home"),
+  identity: r("/assistant/identity"),
+  workspace: r("/assistant/workspace"),
   library: {
-    root: r("/library"),
-    app: (slug: string) => dyn(r("/library"), slug),
+    root: r("/assistant/library"),
+    app: (slug: string) => dyn(r("/assistant/library"), slug),
   },
 
   contacts: {
-    root: r("/contacts"),
-    detail: (id: string) => dyn(r("/contacts"), id),
+    root: r("/assistant/contacts"),
+    detail: (id: string) => dyn(r("/assistant/contacts"), id),
   },
 
   settings: {
-    root: r("/settings"),
-    general: r("/settings/general"),
-    ai: r("/settings/ai"),
-    integrations: r("/settings/integrations"),
-    schedules: r("/settings/schedules"),
-    notifications: r("/settings/notifications"),
-    sounds: r("/settings/sounds"),
-    voice: r("/settings/voice"),
-    devices: r("/settings/devices"),
-    privacy: r("/settings/privacy"),
-    archive: r("/settings/archive"),
-    billing: r("/settings/billing"),
-    community: r("/settings/community"),
-    debug: r("/settings/debug"),
-    developer: r("/settings/developer"),
-    advanced: r("/settings/advanced"),
-    dangerZone: r("/settings/danger-zone"),
-    systemEvents: r("/settings/system-events"),
-    upgradeCancel: r("/settings/billing/upgrade/cancel"),
-    upgradeSuccess: r("/settings/billing/upgrade/success"),
+    root: r("/assistant/settings"),
+    general: r("/assistant/settings/general"),
+    ai: r("/assistant/settings/ai"),
+    integrations: r("/assistant/settings/integrations"),
+    schedules: r("/assistant/settings/schedules"),
+    notifications: r("/assistant/settings/notifications"),
+    sounds: r("/assistant/settings/sounds"),
+    voice: r("/assistant/settings/voice"),
+    devices: r("/assistant/settings/devices"),
+    privacy: r("/assistant/settings/privacy"),
+    archive: r("/assistant/settings/archive"),
+    billing: r("/assistant/settings/billing"),
+    community: r("/assistant/settings/community"),
+    debug: r("/assistant/settings/debug"),
+    developer: r("/assistant/settings/developer"),
+    advanced: r("/assistant/settings/advanced"),
+    dangerZone: r("/assistant/settings/danger-zone"),
+    systemEvents: r("/assistant/settings/system-events"),
+    upgradeCancel: r("/assistant/settings/billing/upgrade/cancel"),
+    upgradeSuccess: r("/assistant/settings/billing/upgrade/success"),
   },
 
   admin: {

@@ -95,7 +95,7 @@ export function ProviderCallbackPage() {
         switch (outcome.kind) {
           case "authenticated": {
             await refreshSession();
-            const fallback = routes.root;
+            const fallback = routes.assistant;
             const { destination, requiresFullPageNavigation } =
               resolvePostLoginDestination(returnTo, fallback);
             if (requiresFullPageNavigation) {

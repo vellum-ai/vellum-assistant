@@ -24,7 +24,7 @@ import {
   openOAuthUrlInPopup,
   shouldOpenMarkdownLinkInOAuthPopup,
 } from "@/domains/chat/lib/oauth-popup-links.js";
-import { BASENAME, routes } from "@/utils/routes.js";
+import { routes } from "@/utils/routes.js";
 
 const originalWindow = globalThis.window;
 
@@ -74,10 +74,10 @@ describe("oauth popup links", () => {
 
     expect(
       getSameOriginRoutePath(
-        `${origin}${BASENAME}${routes.settings.integrations}?provider=gmail#top`,
+        `${origin}${routes.settings.integrations}?provider=gmail#top`,
       ),
     ).toBe(`${routes.settings.integrations}?provider=gmail#top`);
-    expect(getSameOriginRoutePath(`${BASENAME}${routes.settings.integrations}`)).toBe(
+    expect(getSameOriginRoutePath(routes.settings.integrations)).toBe(
       routes.settings.integrations,
     );
     expect(getSameOriginRoutePath("https://example.com/docs")).toBeNull();
@@ -87,8 +87,8 @@ describe("oauth popup links", () => {
     const origin = "https://app.vellum.ai";
     setMockWindow({ origin });
 
-    expect(getHttpUrl(`${BASENAME}${routes.settings.integrations}`)).toBe(
-      `${origin}${BASENAME}${routes.settings.integrations}`,
+    expect(getHttpUrl(routes.settings.integrations)).toBe(
+      `${origin}${routes.settings.integrations}`,
     );
     expect(getHttpUrl("x-apple.systempreferences:com.apple.preference.security")).toBeNull();
   });
@@ -143,7 +143,7 @@ describe("oauth popup links", () => {
       // query string, but `getHttpUrl` rejects the scheme so we never dispatch.
       expect(
         openOAuthUrlInPopup(
-          "javascript:alert(1)?response_type=code&client_id=x&redirect_uri=y",
+          "x-apple.systempreferences:foo?response_type=code&client_id=bar&redirect_uri=http%3A%2F%2Flocalhost",
         ),
       ).toBe(false);
       expect(openUrlMock).not.toHaveBeenCalled();
