@@ -143,6 +143,7 @@ enum TranscriptProjector {
             && !hasActiveToolCall
         let lastVisibleIsAssistant = lastVisible?.role == .assistant
         let canInlineProcessing = wouldShowThinking && lastVisibleIsAssistant
+            && (lastVisible?.text.isEmpty ?? true)
         let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
         let bubbleShowsOwnStreamingIndicator = !(lastVisible?.toolCalls.isEmpty ?? true)
             && (lastVisible?.toolCalls.allSatisfy { $0.isComplete } ?? false)
