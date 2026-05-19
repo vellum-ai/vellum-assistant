@@ -29,7 +29,7 @@ Use this format for new entries:
 - Perception route and consent-gated behavior.
 - Host camera proxy and route integration.
 - Live voice context quality after perception injection.
-- Tauri HUD event rendering from daemon lifecycle streams.
+- Tauri HUD event rendering from assistant lifecycle streams.
 
 ## Initial Seed Entries
 
@@ -46,4 +46,4 @@ Use this format for new entries:
   - Functional areas are implemented and tracked, but a consolidated proof pass is still pending for the current branch head.
 - Gaps / Follow-ups:
   - Add concrete command/test run notes and outcomes after each focused validation cycle.
-  - Confirm no regressions between daemon routes, client event wiring, and HUD rendering.
+  - Confirm no regressions between assistant routes, client event wiring, and HUD rendering.

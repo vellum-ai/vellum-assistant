@@ -15,7 +15,7 @@ This folder keeps day-to-day execution tracking separate from the long-range roa
   - Stabilize autonomous execution and plan recovery flow.
   - Validate multimodal perception (camera/snapshot + audio excerpt) end to end.
   - Keep memory maturation quality signals accurate over time.
-  - Keep Tauri HUD/client surfaces aligned with daemon events.
+- Keep Tauri HUD/client surfaces aligned with assistant events.
 - Blocked items:
   - No hard blockers recorded yet (update this line when one appears).
 - Next review checkpoint:
