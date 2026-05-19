@@ -51,7 +51,7 @@ export function ResizablePanel({
         const stored = localStorage.getItem(storageKey);
         if (stored != null) {
           const parsed = Number(stored);
-          if (Number.isFinite(parsed)) return parsed;
+          if (Number.isFinite(parsed)) return Math.max(minLeftWidth, parsed);
         }
       } catch {
         // localStorage access can throw under strict-privacy contexts.
@@ -116,6 +116,8 @@ export function ResizablePanel({
   );
 
   useEffect(() => {
+    setLeftWidth((prev) => clamp(prev));
+
     function onResize() {
       setLeftWidth((prev) => clamp(prev));
     }
