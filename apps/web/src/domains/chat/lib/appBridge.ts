@@ -11,7 +11,7 @@ export const FETCH_PROXY_ALLOWED_PATH_RE = /^\/v1\/x\//;
  * out of the script context in `srcdoc`. We replace the two dangerous sequences
  * after stringifying.
  */
-function jsonForScript(value: unknown): string {
+export function jsonForScript(value: unknown): string {
   return JSON.stringify(value).replace(/<\//g, "<\\/").replace(/<!--/g, "<\\!--");
 }
 

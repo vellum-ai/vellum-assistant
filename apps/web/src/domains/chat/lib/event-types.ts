@@ -471,6 +471,38 @@ export interface SubagentEventWrapperEvent {
   conversationKey?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Document comment event types — extend the canonical shapes from PR 9
+// with the standard `conversationKey` field for SSE stream routing.
+// ---------------------------------------------------------------------------
+
+import type {
+  DocumentCommentCreatedEvent,
+  DocumentCommentDeletedEvent,
+  DocumentCommentReopenedEvent,
+  DocumentCommentResolvedEvent,
+} from "@/domains/chat/lib/document-comment-events.js";
+
+export interface DocumentCommentCreatedSseEvent
+  extends DocumentCommentCreatedEvent {
+  conversationKey?: string;
+}
+
+export interface DocumentCommentResolvedSseEvent
+  extends DocumentCommentResolvedEvent {
+  conversationKey?: string;
+}
+
+export interface DocumentCommentReopenedSseEvent
+  extends DocumentCommentReopenedEvent {
+  conversationKey?: string;
+}
+
+export interface DocumentCommentDeletedSseEvent
+  extends DocumentCommentDeletedEvent {
+  conversationKey?: string;
+}
+
 export interface UnknownEvent {
   type: "unknown";
   rawType: string;
@@ -651,4 +683,8 @@ export type AssistantEvent =
   | SubagentSpawnedEvent
   | SubagentStatusChangedEvent
   | SubagentEventWrapperEvent
+  | DocumentCommentCreatedSseEvent
+  | DocumentCommentResolvedSseEvent
+  | DocumentCommentReopenedSseEvent
+  | DocumentCommentDeletedSseEvent
   | UnknownEvent;
