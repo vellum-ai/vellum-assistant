@@ -117,8 +117,13 @@ describe("buildManagedBaseUrl", () => {
     );
   });
 
+  test("returns managed URL for fireworks", async () => {
+    expect(await buildManagedBaseUrl("fireworks")).toBe(
+      "https://platform.example.com/v1/runtime-proxy/fireworks",
+    );
+  });
+
   test("returns undefined for non-managed providers", async () => {
-    expect(await buildManagedBaseUrl("fireworks")).toBeUndefined();
     expect(await buildManagedBaseUrl("openrouter")).toBeUndefined();
     expect(await buildManagedBaseUrl("ollama")).toBeUndefined();
   });

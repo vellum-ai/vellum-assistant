@@ -32,6 +32,10 @@ type ManagedProfileTemplate = Omit<
   "provider" | "model" | "provider_connection"
 > & {
   intent: ModelIntent;
+  /** Override the global MANAGED_PROFILE_PROVIDER for this template. */
+  providerOverride?: NonNullable<ProfileEntry["provider"]>;
+  /** Override the global MANAGED_CONNECTION_NAME for this template. */
+  connectionOverride?: string;
 };
 
 /**
@@ -49,6 +53,8 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+    providerOverride: "fireworks",
+    connectionOverride: "fireworks-managed",
   },
   "quality-optimized": {
     intent: "quality-optimized",
@@ -211,10 +217,14 @@ export function seedInferenceProfiles(
     const effectiveTemplate: ManagedProfileTemplate = isByokMode
       ? { ...template, label: `${template.label} (Managed)` }
       : template;
+    const effectiveProvider =
+      template.providerOverride ?? MANAGED_PROFILE_PROVIDER;
+    const effectiveConnection =
+      template.connectionOverride ?? MANAGED_CONNECTION_NAME;
     const next = materializeProfile(
       effectiveTemplate,
-      MANAGED_PROFILE_PROVIDER,
-      MANAGED_CONNECTION_NAME,
+      effectiveProvider,
+      effectiveConnection,
     ) as Record<string, unknown>;
     if (isByokMode && options.isHatch && !previous) {
       next.status = "disabled";
@@ -347,7 +357,7 @@ function materializeProfile(
   provider: NonNullable<ProfileEntry["provider"]>,
   connectionName: string,
 ): ProfileEntry {
-  const { intent, ...rest } = template;
+  const { intent, providerOverride: _po, connectionOverride: _co, ...rest } = template;
   return {
     ...rest,
     provider,

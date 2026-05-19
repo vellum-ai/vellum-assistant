@@ -113,7 +113,7 @@ const DIRECT_OR_MANAGED_PROVIDER_KEYS: string[] = [
   "fireworks",
   "openrouter",
 ];
-const MANAGED_FALLBACK_PROVIDERS: string[] = ["anthropic", "gemini", "openai"];
+const MANAGED_FALLBACK_PROVIDERS: string[] = ["anthropic", "gemini", "openai", "fireworks"];
 
 function enableManagedProxy() {
   mockPlatformBaseUrl = PLATFORM_BASE;
@@ -209,20 +209,19 @@ describe("managed proxy integration — credential precedence", () => {
       },
     );
 
-    test("managed bootstrap registers anthropic, openai, and gemini", async () => {
+    test("managed bootstrap registers anthropic, openai, gemini, and fireworks", async () => {
       enableManagedProxy();
       mockProviderKeys = {};
       await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
       expect(listProviders()).toEqual(
-        expect.arrayContaining(["anthropic", "openai", "gemini"]),
+        expect.arrayContaining(["anthropic", "openai", "gemini", "fireworks"]),
       );
-      expect(listProviders()).toHaveLength(3);
+      expect(listProviders()).toHaveLength(4);
       expect(getProviderRoutingSource("anthropic")).toBe("managed-proxy");
       expect(getProviderRoutingSource("openai")).toBe("managed-proxy");
       expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
-      for (const p of ["fireworks", "openrouter"]) {
-        expect(getProviderRoutingSource(p)).toBeUndefined();
-      }
+      expect(getProviderRoutingSource("fireworks")).toBe("managed-proxy");
+      expect(getProviderRoutingSource("openrouter")).toBeUndefined();
     });
 
     test("managed anthropic uses anthropic proxy path", async () => {
@@ -376,7 +375,7 @@ describe("managed proxy integration — credential precedence", () => {
   });
 
   describe("mixed: some user keys + managed fallback fills gaps", () => {
-    test("user key for anthropic routes direct and managed fallback fills openai and gemini", async () => {
+    test("user key for anthropic routes direct and managed fallback fills openai, gemini, and fireworks", async () => {
       enableManagedProxy();
       setUserKeysFor("anthropic");
       await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
@@ -387,13 +386,13 @@ describe("managed proxy integration — credential precedence", () => {
       expect(getProviderRoutingSource("openai")).toBe("managed-proxy");
       expect(registered).toContain("gemini");
       expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
-      for (const p of ["fireworks", "openrouter"]) {
-        expect(registered).not.toContain(p);
-        expect(getProviderRoutingSource(p)).toBeUndefined();
-      }
+      expect(registered).toContain("fireworks");
+      expect(getProviderRoutingSource("fireworks")).toBe("managed-proxy");
+      expect(registered).not.toContain("openrouter");
+      expect(getProviderRoutingSource("openrouter")).toBeUndefined();
     });
 
-    test("user key for openai routes direct while anthropic and gemini still bootstrap via managed proxy", async () => {
+    test("user key for openai routes direct while anthropic, gemini, and fireworks still bootstrap via managed proxy", async () => {
       enableManagedProxy();
       setUserKeysFor("openai");
       await initializeProviders(makeProvidersConfig("openai", "test-model"));
@@ -404,11 +403,10 @@ describe("managed proxy integration — credential precedence", () => {
       expect(getProviderRoutingSource("anthropic")).toBe("managed-proxy");
       expect(registered).toContain("gemini");
       expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
-      // OpenAI has a user key so it's user-key, not managed-proxy
-      for (const p of ["fireworks", "openrouter"]) {
-        expect(registered).not.toContain(p);
-        expect(getProviderRoutingSource(p)).toBeUndefined();
-      }
+      expect(registered).toContain("fireworks");
+      expect(getProviderRoutingSource("fireworks")).toBe("managed-proxy");
+      expect(registered).not.toContain("openrouter");
+      expect(getProviderRoutingSource("openrouter")).toBeUndefined();
     });
   });
 });
@@ -476,8 +474,8 @@ describe("config mode flip → provider reinit", () => {
 });
 
 describe("managed proxy integration — constants integrity", () => {
-  test("anthropic, openai, and gemini have metadata with managed=true and a proxyPath", () => {
-    for (const provider of ["anthropic", "openai", "gemini"]) {
+  test("anthropic, openai, gemini, and fireworks have metadata with managed=true and a proxyPath", () => {
+    for (const provider of ["anthropic", "openai", "gemini", "fireworks"]) {
       const meta = PLATFORM_PROVIDER_META[provider];
       expect(meta).toBeDefined();
       expect(meta.managed).toBe(true);
@@ -504,10 +502,14 @@ describe("managed proxy integration — constants integrity", () => {
     );
   });
 
-  test("fireworks and openrouter are not managed proxy capable", () => {
-    for (const provider of ["fireworks", "openrouter"]) {
-      expect(PLATFORM_PROVIDER_META[provider].managed).toBe(false);
-      expect(PLATFORM_PROVIDER_META[provider].proxyPath).toBeUndefined();
-    }
+  test("fireworks routes through fireworks proxy path", () => {
+    expect(PLATFORM_PROVIDER_META.fireworks.proxyPath).toBe(
+      "/v1/runtime-proxy/fireworks",
+    );
+  });
+
+  test("openrouter is not managed proxy capable", () => {
+    expect(PLATFORM_PROVIDER_META.openrouter.managed).toBe(false);
+    expect(PLATFORM_PROVIDER_META.openrouter.proxyPath).toBeUndefined();
   });
 });
