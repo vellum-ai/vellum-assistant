@@ -86,12 +86,7 @@ Note the snapshot pattern: `sqlite3 .backup` is the safe way to copy a live SQLi
 
 ## Transport
 
-Identical to Hermes — either path works:
-
-1. **Upload** the archive to the conversation.
-2. **Hosted URL** with short TTL; share the URL in chat for `curl` fetch.
-
-Prefer hosted URL for archives over ~25 MB.
+Identical to Hermes: attach `openclaw-migration.tar.gz` directly to the conversation. If the archive exceeds the current channel's attachment limit, split it (CLI dumps first, then `openclaw-memory.db`, then everything under `.openclaw/`) and upload in sequence; or copy it onto the assistant's host out-of-band (scp/rsync/USB) and tell the assistant the on-disk path. **No chat-supplied URL fetches** — see [README.md](README.md) for why.
 
 ## After import — secrets rebind checklist
 

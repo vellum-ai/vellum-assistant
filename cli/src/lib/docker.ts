@@ -21,7 +21,10 @@ import { leaseGuardianToken } from "./guardian-token";
 import { logHatchNextSteps } from "./hatch-next-steps.js";
 import { isVellumProcess, stopProcess } from "./process";
 import { generateInstanceName } from "./random-name";
-import { resolveImageRefs } from "./platform-releases.js";
+import {
+  fetchLatestStableVersion,
+  resolveImageRefs,
+} from "./platform-releases.js";
 import {
   configureHatchProviderApiKey,
   formatProviderName,
@@ -1059,8 +1062,28 @@ export async function hatchDocker(
         imageSource = "env override";
         log("Using image overrides from environment variables");
       } else {
-        const version = cliPkg.version;
-        const versionTag = version ? `v${version}` : "latest";
+        // Ask the platform for the most recently published stable release
+        // rather than pinning to the CLI's bundled package version. This
+        // matches `vellum upgrade --latest` and ensures docker hatch picks
+        // up dev/local builds registered with the platform (e.g. the
+        // `${base}-local.${ts}.${sha}` rows the `vel up` minikube watcher
+        // POSTs to /v1/internal/assistant-image-releases/ on every code
+        // change). If the platform is unreachable, fall back to the CLI's
+        // own version so users on prod/dockerhub env still resolve a tag.
+        log("🔍 Fetching latest stable release...");
+        const latestVersion = await fetchLatestStableVersion();
+        let versionTag: string;
+        if (latestVersion) {
+          versionTag = latestVersion.startsWith("v")
+            ? latestVersion
+            : `v${latestVersion}`;
+        } else {
+          const fallback = cliPkg.version;
+          versionTag = fallback ? `v${fallback}` : "latest";
+          log(
+            `⚠️  Platform releases unavailable; falling back to CLI version ${versionTag}`,
+          );
+        }
         log("🔍 Resolving image references...");
         const resolved = await resolveImageRefs(versionTag, log);
         imageTags.assistant = resolved.imageTags.assistant;

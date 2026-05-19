@@ -17,9 +17,7 @@ The migration skill is optimized for a **single archive** that moves from the so
 
 1. **Locate** — where the species stores its internals (per-platform paths)
 2. **Bundle** — an explicit `tar` recipe with `--exclude` flags for known secret-bearing paths
-3. **Transport** — two equally supported modes:
-   - **Upload**: creator attaches the archive directly to the Vellum conversation
-   - **Hosted URL**: creator places the archive at a private short-TTL URL (signed S3, ephemeral file share, Tailscale HTTP, etc.) and shares the URL in chat; the assistant fetches it once with `curl`
+3. **Transport** — the creator attaches the archive directly to the Vellum conversation. For archives that exceed the current channel's chat-attachment limit, split the bundle into smaller pieces (metadata-only first; memory, conversations, and skills as separate follow-ups) and upload them in sequence; the migration skill stitches them back together server-side during inspection. If a chunk is still too large to upload, the creator can copy it onto the assistant's host out-of-band (scp/rsync/USB) and tell the assistant the on-disk path — no chat-supplied URL fetches.
 4. **Inspect** — once the archive is in the assistant's workspace, the migration skill takes over: extract to a scratch directory, classify per the Vellum Primitive Map, walk the creator through the Review Surface
 5. **Rebind** — every credential is reconnected via the credential vault, OAuth flows, or per-setup skills. The archive **never** carries raw secrets
 
@@ -30,3 +28,4 @@ The migration skill is optimized for a **single archive** that moves from the so
 - **Runtime locks.** Call out conditions that mean the source is still running (a held SQLite WAL, a live socket, an open file descriptor) and tell the creator how to safely snapshot.
 - **After-import work.** Each reference ends with a rebind checklist: which providers need re-OAuth, which MCP servers need reconnecting, which channel bindings need their bot tokens re-pasted via the secure prompt.
 - **No deterministic adapters.** References describe paths and bundles. They do not generate scripts that encode the source species' private schema, parse its internal binaries, or assume undocumented file formats.
+- **No chat-supplied URL fetches.** Migration archives travel as chat attachments only. Do not introduce `curl`, `wget`, `web_fetch`, or any other fetcher invoked against a creator-pasted URL — interpolating an untrusted URL into a shell command is a shell-substitution + SSRF + URL-safety-bypass surface, and on platform-hosted profiles bash is auto-approved for guardians, so the entire path is auto-approved RCE. If the archive is too large to upload, split it or copy it onto the assistant's host out-of-band; never proxy the fetch through the assistant.
