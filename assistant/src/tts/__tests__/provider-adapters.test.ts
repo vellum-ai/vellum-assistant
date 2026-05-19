@@ -1018,7 +1018,7 @@ describe("xAI TTS provider adapter", () => {
     expect(socket.url).toContain("voice=eve");
     expect(socket.url).toContain("codec=pcm");
     expect(socket.url).toContain("sample_rate=16000");
-    expect(socket.url).toContain("optimize_streaming_latency=1");
+    expect(socket.url).toContain("optimize_streaming_latency=0");
     expect(socket.init.headers.Authorization).toBe("Bearer test-xai-api-key");
     // The streaming-session implementation sends `text.delta` then `text.done`
     // through separate async ticks (appendText → finalize). Wait for both to
