@@ -67,8 +67,6 @@ console.log('theme:', doc.documentElement.getAttribute('data-theme'));
 
 Note: The Storybook preview renders inside an iframe (`#storybook-preview-iframe`). You must access `iframe.contentDocument` to inspect component styles. The first few `<button>` elements in the iframe may be Storybook UI buttons (e.g., "Set string"), not the component under test — use `.vdl-btn-primary` or `[data-slot="notice"]` selectors to target actual components.
 
-**CDP/Console caveat:** The browser console (via CDP) may connect to the wrong page (e.g., Chrome profile picker) instead of the Storybook tab. If `browser_console` returns no Storybook DOM elements, rely on visual verification via screenshots instead. Navigating directly to the Storybook URL via the address bar may help reconnect CDP to the correct page.
-
 ### ResizablePanel Drag Testing
 
 Native mouse drag (via `left_click_drag`) does NOT work across Storybook's iframe boundary. Use dispatched PointerEvents instead:
