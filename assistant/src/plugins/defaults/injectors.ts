@@ -464,6 +464,15 @@ const activeDocumentsInjector: Injector = {
 const DOCUMENT_COMMENTS_CAP = 10;
 
 /**
+ * Escape closing `</document_comments>` inside user-controlled strings so
+ * they cannot break out of the XML wrapper — same pattern as
+ * {@link buildPkbContextBlock} and {@link buildMemoryV2StaticBlock}.
+ */
+function escapeDocCommentTag(s: string): string {
+  return s.replace(/<\/document_comments\s*>/gi, "&lt;/document_comments&gt;");
+}
+
+/**
  * `document-comments` injector — order 46, prepend-user-tail.
  *
  * Surfaces open top-level comments on active documents so the assistant
@@ -496,14 +505,14 @@ const documentCommentsInjector: Injector = {
       if (comments.length === 0) continue;
 
       const lines = comments.map((c) => {
+        const anchor =
+          c.anchorText != null ? escapeDocCommentTag(c.anchorText) : null;
         const label =
-          c.anchorText != null
-            ? `inline, anchored to "${c.anchorText}"`
-            : "doc-level";
-        return `- Comment #${c.id} (${label}): "${c.content}"`;
+          anchor != null ? `inline, anchored to "${anchor}"` : "doc-level";
+        return `- Comment #${c.id} (${label}): "${escapeDocCommentTag(c.content)}"`;
       });
       sections.push(
-        `Document: "${doc.title}" (surface_id: "${doc.surfaceId}")\n${lines.join("\n")}`,
+        `Document: "${escapeDocCommentTag(doc.title)}" (surface_id: "${doc.surfaceId}")\n${lines.join("\n")}`,
       );
     }
 
