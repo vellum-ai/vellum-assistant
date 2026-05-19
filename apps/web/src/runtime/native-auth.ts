@@ -7,7 +7,7 @@ import {
 } from "@/lib/account/social-auth.js";
 import { sanitizeReturnTo } from "@/lib/account/return-to.js";
 import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric.js";
-import { routes } from "@/utils/routes.js";
+import { BASENAME } from "@/utils/routes.js";
 
 /**
  * JS ↔ native bridge for the `NativeAuth` Capacitor plugin registered by
@@ -39,8 +39,8 @@ interface NativeAuthPlugin {
 
 const NativeAuth = registerPlugin<NativeAuthPlugin>("NativeAuth");
 
-/** Fallback destination after a successful native login. */
-const DEFAULT_POST_AUTH_DESTINATION = routes.assistant;
+/** Fallback destination after a successful native login (full browser path). */
+const DEFAULT_POST_AUTH_DESTINATION = BASENAME;
 
 /**
  * Origin to present to the native OAuth flow. The Capacitor shell's

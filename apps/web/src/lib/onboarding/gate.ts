@@ -10,7 +10,7 @@
  * Callers:
  *   - `/assistant` AssistantPageClient (auto-hatch branch for new signups)
  */
-import { routes } from "@/utils/routes.js";
+import { BASENAME, routes } from "@/utils/routes.js";
 
 import { readOnboardingCompleted } from "@/lib/onboarding/prefs.js";
 
@@ -21,7 +21,7 @@ import { readOnboardingCompleted } from "@/lib/onboarding/prefs.js";
  * Rules (short-circuit, top to bottom):
  *   1. If onboarding is already marked completed, let the user through.
  *   2. If the intended destination isn't the chat surface itself
- *      (`routes.assistant`), let them through — sibling paths
+ *      (`BASENAME`), let them through — sibling paths
  *      `/assistant/settings/...`, `/assistant/onboarding/...`,
  *      `/admin/...` etc. shouldn't be gated.
  *   3. Otherwise, route them to `routes.onboarding.privacy`.
@@ -38,7 +38,7 @@ export function resolveOnboardingRedirect({
   // `//assistant.host/`). Parse out the pathname before matching so we
   // don't miss absolute URLs whose path is the assistant surface.
   const path = extractPathname(intendedDestination);
-  if (path !== routes.assistant) return null;
+  if (path !== BASENAME) return null;
   return routes.onboarding.privacy;
 }
 
@@ -55,7 +55,7 @@ function extractPathname(destination: string): string {
       return new URL(destination, "http://placeholder.invalid").pathname;
     } catch {
       // Malformed URL — fall through and treat the raw string as a path. The
-      // exact-match check against `routes.assistant` will reject it, which
+      // exact-match check against `BASENAME` will reject it, which
       // is the safe default (don't intercept ambiguous destinations).
       return destination;
     }

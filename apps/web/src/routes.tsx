@@ -8,6 +8,7 @@ import { LibraryPage } from "@/domains/library/library-page.js";
 import { LibraryDetailPage } from "@/domains/library/library-detail-page.js";
 import { NotFound } from "@/components/not-found.js";
 import { SettingsTabPage } from "@/domains/settings/settings-tab-page.js";
+import { BASENAME } from "@/utils/routes.js";
 
 function HomePageRoute() {
   const navigate = useNavigate();
@@ -60,5 +61,5 @@ export const router = createBrowserRouter(
       ],
     },
   ],
-  { basename: "/assistant" },
+  { basename: BASENAME },
 );
