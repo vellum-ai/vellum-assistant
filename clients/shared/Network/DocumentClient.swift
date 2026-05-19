@@ -184,9 +184,9 @@ public struct DocumentClient: DocumentClientProtocol {
 
     public func resolveComment(surfaceId: String, commentId: String) async -> DocumentComment? {
         do {
-            let response = try await GatewayHTTPClient.post(
-                path: "documents/\(surfaceId)/comments/\(commentId)/resolve",
-                json: [:],
+            let response = try await GatewayHTTPClient.patch(
+                path: "documents/\(surfaceId)/comments/\(commentId)",
+                json: ["status": "resolved"],
                 timeout: 10
             )
             guard response.isSuccess else {
