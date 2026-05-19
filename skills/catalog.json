@@ -417,6 +417,19 @@
       "updatedAt": "2026-04-23T10:06:58-04:00"
     },
     {
+      "id": "plans",
+      "name": "plans",
+      "description": "Inspect or cancel autonomous multi-step plans the assistant is executing in the background",
+      "metadata": {
+        "emoji": "🧭",
+        "vellum": {
+          "display-name": "Plans"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants. Requires the assistant's autonomous-execution feature flag.",
+      "updatedAt": "2026-05-17T20:00:00-05:00"
+    },
+    {
       "id": "notion",
       "name": "notion",
       "description": "Read and write Notion pages and databases using the Notion API",
