@@ -46,6 +46,7 @@ import {
 } from "../../daemon/first-greeting.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostAppControlProxy } from "../../daemon/host-app-control-proxy.js";
+import { HostCameraProxy } from "../../daemon/host-camera-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { preactivateHostProxySkills } from "../../daemon/host-proxy-preactivation.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
@@ -101,6 +102,7 @@ import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { resolveDefaultConversationKey } from "../conversation-handoff.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import type {
@@ -1187,11 +1189,12 @@ export async function handleSendMessage(
       ? (canonicalizeTimeZone(body.clientTimezone) ?? undefined)
       : undefined;
 
-  // When conversationKey is omitted, derive a stable default from
-  // sourceChannel + sourceInterface so that repeated calls from the same
-  // channel/interface pair share a single conversation thread.
+  // When conversationKey is omitted, derive a stable default. Local first-party
+  // interfaces share one handoff thread so users can continue seamlessly
+  // between desktop/browser/mobile clients.
   const resolvedConversationKey =
-    conversationKey ?? `default:${sourceChannel}:${sourceInterface}`;
+    conversationKey ??
+    resolveDefaultConversationKey(sourceChannel, sourceInterface);
 
   // Reject non-string content values (numbers, objects, etc.)
   if (content != null && typeof content !== "string") {
@@ -1418,6 +1421,13 @@ export async function handleSendMessage(
     }
   } else if (!conversation.isProcessing()) {
     conversation.setHostAppControlProxy(undefined);
+  }
+  if (supportsHostProxy(sourceInterface, "host_camera")) {
+    if (!conversation.isProcessing() || !conversation.hostCameraProxy) {
+      conversation.setHostCameraProxy(new HostCameraProxy());
+    }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostCameraProxy(undefined);
   }
   // Only preactivate when the conversation is idle — if it's processing,
   // this message will be queued and preactivation is deferred to dequeue

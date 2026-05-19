@@ -3,6 +3,7 @@ import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import type {
   TtsProvider,
   TtsProviderId,
+  TtsStreamingSession,
   TtsSynthesisRequest,
   TtsUseCase,
 } from "../tts/types.js";
@@ -126,6 +127,144 @@ export async function streamLiveVoiceTtsAudio(
   } catch (err) {
     throw normalizeProviderError(err, providerId);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Persistent streaming sessions
+// ---------------------------------------------------------------------------
+
+/**
+ * Options for opening a persistent streaming TTS session for live voice.
+ *
+ * Sessions exist so callers can feed assistant text deltas to a single
+ * long-lived transport (typically a WebSocket) instead of opening a fresh
+ * connection per speakable segment. That eliminates ~300-500ms of handshake
+ * latency per segment for providers that support it (currently xAI).
+ */
+export interface LiveVoiceTtsSessionOptions {
+  voiceId?: string;
+  signal?: AbortSignal;
+  useCase?: TtsUseCase;
+  outputFormat?: TtsSynthesisRequest["outputFormat"];
+  sampleRate?: number;
+  config?: LiveVoiceTtsConfig;
+  onAudioChunk: (chunk: LiveVoiceTtsAudioChunk) => void;
+}
+
+/**
+ * Live-voice-friendly façade over {@link TtsStreamingSession}. The chunk
+ * callback receives audio in the same `LiveVoiceTtsAudioChunk` shape as the
+ * one-shot `streamLiveVoiceTtsAudio` path so downstream framing code is
+ * identical regardless of which mode is in use.
+ */
+export interface LiveVoiceTtsSession {
+  readonly provider: TtsProviderId;
+  readonly contentType: string;
+  readonly sampleRate: number;
+  appendText(text: string): Promise<void>;
+  finalize(): Promise<void>;
+  close(): Promise<void>;
+}
+
+export type LiveVoiceTtsSessionOpener = (
+  options: LiveVoiceTtsSessionOptions,
+) => Promise<LiveVoiceTtsSession>;
+
+/**
+ * Open a persistent streaming TTS session against the configured provider.
+ * Throws {@link LiveVoiceTtsError} with code `LIVE_VOICE_TTS_STREAMING_UNAVAILABLE`
+ * if the active provider doesn't support session-mode streaming — callers
+ * should fall back to per-segment `streamLiveVoiceTtsAudio` in that case.
+ */
+export async function openLiveVoiceTtsStreamingSession(
+  options: LiveVoiceTtsSessionOptions,
+): Promise<LiveVoiceTtsSession> {
+  const { provider, providerId, providerConfig } =
+    await resolveLiveVoiceStreamingTtsProvider(options.config);
+
+  if (
+    !provider.capabilities.supportsStreamingSessions ||
+    typeof provider.openStreamingSession !== "function"
+  ) {
+    throw new LiveVoiceTtsError(
+      "LIVE_VOICE_TTS_STREAMING_UNAVAILABLE",
+      `TTS provider "${providerId}" does not support persistent streaming sessions.`,
+      { provider: providerId },
+    );
+  }
+
+  const sampleRate = resolveSampleRate(options.sampleRate, providerConfig);
+  const chunkContentType = resolveChunkContentType(
+    provider,
+    providerConfig,
+    options.outputFormat,
+  );
+  const canStreamChunks = isRawPcmContentType(chunkContentType);
+
+  if (!canStreamChunks) {
+    // Non-PCM session output isn't currently routed to clients chunk-by-chunk
+    // — the live-voice WebSocket frame format assumes audio/pcm. Bail out
+    // early so callers can fall back to the buffered per-segment path.
+    throw new LiveVoiceTtsError(
+      "LIVE_VOICE_TTS_STREAMING_UNAVAILABLE",
+      `TTS provider "${providerId}" does not produce raw PCM output required by streaming-session mode.`,
+      { provider: providerId },
+    );
+  }
+
+  const emitAudioFrame = (audio: Uint8Array): void => {
+    if (audio.byteLength === 0) return;
+    options.onAudioChunk({
+      type: "tts_audio",
+      contentType: chunkContentType,
+      sampleRate,
+      dataBase64: Buffer.from(audio).toString("base64"),
+    });
+  };
+
+  let providerSession: TtsStreamingSession;
+  try {
+    providerSession = await provider.openStreamingSession({
+      useCase: options.useCase ?? "phone-call",
+      voiceId: options.voiceId,
+      outputFormat: options.outputFormat,
+      signal: options.signal,
+      onChunk: (chunk) => emitAudioFrame(chunk),
+    });
+  } catch (err) {
+    throw normalizeProviderError(err, providerId);
+  }
+
+  let closed = false;
+  return {
+    provider: providerId,
+    contentType: chunkContentType,
+    sampleRate,
+    async appendText(text: string): Promise<void> {
+      if (closed) return;
+      try {
+        await providerSession.appendText(text);
+      } catch (err) {
+        throw normalizeProviderError(err, providerId);
+      }
+    },
+    async finalize(): Promise<void> {
+      try {
+        await providerSession.finalize();
+      } catch (err) {
+        throw normalizeProviderError(err, providerId);
+      }
+    },
+    async close(): Promise<void> {
+      if (closed) return;
+      closed = true;
+      try {
+        await providerSession.close();
+      } catch {
+        // close errors are swallowed — the caller is already on a shutdown path
+      }
+    },
+  };
 }
 
 async function resolveLiveVoiceStreamingTtsProvider(

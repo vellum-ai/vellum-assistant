@@ -12,24 +12,33 @@ describe("llm-call-sites-routes", () => {
     expect(route.endpoint).toBe("config/llm/call-sites");
   });
 
-  test("response has domains and callSites arrays", async () => {
+  test("response has tiers, domains, and callSites arrays", async () => {
     const result = (await route.handler({})) as {
+      tiers: unknown[];
       domains: unknown[];
       callSites: unknown[];
     };
+    expect(Array.isArray(result.tiers)).toBe(true);
     expect(Array.isArray(result.domains)).toBe(true);
     expect(Array.isArray(result.callSites)).toBe(true);
   });
 
   test("all call site IDs match LLMCallSiteEnum", async () => {
     const result = (await route.handler({})) as {
-      callSites: Array<{ id: string; displayName: string; description: string; domain: string }>;
+      callSites: Array<{
+        id: string;
+        displayName: string;
+        description: string;
+        domain: string;
+        tier: string;
+      }>;
     };
     const validIds = new Set(LLMCallSiteEnum.options);
     for (const site of result.callSites) {
       expect(validIds.has(site.id as never)).toBe(true);
       expect(site.displayName).toBeTruthy();
       expect(site.description).toBeTruthy();
+      expect(site.tier).toBeTruthy();
     }
     expect(result.callSites.length).toBe(LLMCallSiteEnum.options.length);
   });
@@ -42,6 +51,17 @@ describe("llm-call-sites-routes", () => {
     const domainIds = new Set(result.domains.map((d) => d.id));
     for (const site of result.callSites) {
       expect(domainIds.has(site.domain)).toBe(true);
+    }
+  });
+
+  test("all call site tier references match defined tiers", async () => {
+    const result = (await route.handler({})) as {
+      tiers: Array<{ id: string; displayName: string }>;
+      callSites: Array<{ id: string; tier: string }>;
+    };
+    const tierIds = new Set(result.tiers.map((tier) => tier.id));
+    for (const site of result.callSites) {
+      expect(tierIds.has(site.tier)).toBe(true);
     }
   });
 

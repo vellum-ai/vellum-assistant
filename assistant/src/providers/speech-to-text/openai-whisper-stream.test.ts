@@ -45,7 +45,7 @@ function mockWhisperResponses(
  */
 function createTranscriberWithMock(
   responses: Array<{ text?: string } | { error: Error }>,
-  options?: { pollIntervalMs?: number },
+  options?: { pollIntervalMs?: number; minPcmPollDurationMs?: number },
 ): {
   transcriber: OpenAIWhisperStreamingTranscriber;
   transcribeFn: ReturnType<typeof mock>;
@@ -54,6 +54,10 @@ function createTranscriberWithMock(
   const { transcribeFn, calls } = mockWhisperResponses(responses);
   const transcriber = new OpenAIWhisperStreamingTranscriber(TEST_API_KEY, {
     pollIntervalMs: options?.pollIntervalMs ?? 10,
+    // Disable the PCM short-audio defer in tests so the existing
+    // micro-buffer fixtures still trigger polls. The hallucination
+    // mitigation is exercised in dedicated tests below.
+    minPcmPollDurationMs: options?.minPcmPollDurationMs ?? 0,
   });
 
   // Replace the internal transcribeAccumulated method with our mock.
@@ -384,6 +388,51 @@ describe("OpenAIWhisperStreamingTranscriber", () => {
       const errors = events.filter((e) => e.type === "error");
       expect(errors.length).toBeGreaterThanOrEqual(1);
     });
+
+    test("too-short Whisper poll input is ignored without an error event", async () => {
+      const { transcriber } = createTranscriberWithMock([
+        {
+          error: new Error(
+            'Whisper API error (400): {"error":{"message":"Audio file is too short. Minimum audio length is 0.1 seconds.","type":"invalid_request_error","param":"file","code":"audio_too_short","seconds":0}}',
+          ),
+        },
+        { text: "recovered" },
+        { text: "recovered final" },
+      ]);
+      const events = collectEvents(transcriber);
+
+      transcriber.sendAudio(Buffer.from("too-short"), "audio/webm");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(events.filter((e) => e.type === "error")).toEqual([]);
+
+      transcriber.sendAudio(Buffer.from("real-audio"), "audio/webm");
+      await waitFor(() => events.some((e) => e.type === "partial"));
+      transcriber.stop();
+      await waitFor(() => events.some((e) => e.type === "closed"));
+
+      expect(events.some((e) => e.type === "final")).toBe(true);
+    });
+
+    test("too-short Whisper final input closes as silence without an error event", async () => {
+      const { transcriber } = createTranscriberWithMock([
+        {
+          error: new Error(
+            'Whisper API error (400): {"error":{"message":"Audio file is too short. Minimum audio length is 0.1 seconds.","type":"invalid_request_error","param":"file","code":"audio_too_short","seconds":0}}',
+          ),
+        },
+      ]);
+      const events = collectEvents(transcriber);
+
+      transcriber.sendAudio(Buffer.from("too-short"), "audio/webm");
+      transcriber.stop();
+      await waitFor(() => events.some((e) => e.type === "closed"));
+
+      expect(events.filter((e) => e.type === "error")).toEqual([]);
+      expect(events.filter((e) => e.type === "final")).toEqual([
+        { type: "final", text: "" },
+      ]);
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -559,6 +608,90 @@ describe("OpenAIWhisperStreamingTranscriber", () => {
       for (const call of calls) {
         expect(call.mimeType).toBe("audio/webm");
       }
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Hallucination mitigation: defer first poll on very short PCM
+  // -----------------------------------------------------------------------
+
+  describe("short-audio hallucination mitigation", () => {
+    test("defers Whisper calls until enough PCM has accumulated", async () => {
+      const { transcriber, transcribeFn } = createTranscriberWithMock(
+        [{ text: "Hello there" }, { text: "Hello there friend" }],
+        {
+          pollIntervalMs: 10,
+          // Realistic threshold — 16 kHz mono PCM16, 500 ms = 16000 bytes.
+          minPcmPollDurationMs: 500,
+        },
+      );
+      const events = collectEvents(transcriber);
+
+      // Tiny PCM buffer: 32 bytes ≈ 1 ms at 16 kHz mono PCM16. Far below
+      // the 500 ms threshold, so the transcriber should not call the API.
+      transcriber.sendAudio(Buffer.alloc(32), "audio/pcm");
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      expect(transcribeFn).not.toHaveBeenCalled();
+      expect(events.filter((e) => e.type === "partial")).toEqual([]);
+
+      // Add a chunk that pushes us comfortably past the threshold:
+      // 32_000 bytes = 1 s at 16 kHz mono PCM16.
+      transcriber.sendAudio(Buffer.alloc(32_000), "audio/pcm");
+      await waitFor(() => events.some((e) => e.type === "partial"));
+
+      transcriber.stop();
+      await waitFor(() => events.some((e) => e.type === "closed"));
+
+      expect(
+        events.filter((e) => e.type === "partial").length,
+      ).toBeGreaterThanOrEqual(1);
+    });
+
+    test("does not defer non-PCM audio (compressed durations unknown)", async () => {
+      const { transcriber, transcribeFn } = createTranscriberWithMock(
+        [{ text: "compressed result" }],
+        {
+          pollIntervalMs: 10,
+          minPcmPollDurationMs: 5_000, // would defer forever if applied
+        },
+      );
+      const events = collectEvents(transcriber);
+
+      transcriber.sendAudio(Buffer.from("webm-chunk"), "audio/webm");
+      await waitFor(() => events.some((e) => e.type === "partial"));
+
+      transcriber.stop();
+      await waitFor(() => events.some((e) => e.type === "closed"));
+
+      expect(transcribeFn).toHaveBeenCalled();
+    });
+
+    test("threshold only applies before the first partial", async () => {
+      const { transcriber, transcribeFn } = createTranscriberWithMock(
+        [{ text: "first partial" }, { text: "first partial extended" }],
+        {
+          pollIntervalMs: 10,
+          minPcmPollDurationMs: 200,
+        },
+      );
+      const events = collectEvents(transcriber);
+
+      // 6_400 bytes = 200 ms at 16 kHz mono PCM16.
+      transcriber.sendAudio(Buffer.alloc(6_400), "audio/pcm");
+      await waitFor(() => events.some((e) => e.type === "partial"));
+
+      const callsAfterFirstPartial = transcribeFn.mock.calls.length;
+
+      // Tiny follow-up — should still be polled because we are past the
+      // initial hallucination window now that we have a partial.
+      transcriber.sendAudio(Buffer.alloc(32), "audio/pcm");
+      await waitFor(
+        () => transcribeFn.mock.calls.length > callsAfterFirstPartial,
+      );
+
+      transcriber.stop();
+      await waitFor(() => events.some((e) => e.type === "closed"));
     });
   });
 });

@@ -56,6 +56,8 @@ export interface LiveVoiceAudioConfig {
 export interface LiveVoiceClientStartFrame {
   readonly type: "start";
   readonly conversationId?: string;
+  readonly sourceChannel?: string;
+  readonly sourceInterface?: string;
   readonly audio: LiveVoiceAudioConfig;
 }
 
@@ -356,6 +358,22 @@ function validateStartFrame(
       "start",
     );
   }
+  if ("sourceChannel" in value && !isNonEmptyString(value.sourceChannel)) {
+    return protocolError(
+      "invalid_field",
+      "start frame field sourceChannel must be a non-empty string",
+      "sourceChannel",
+      "start",
+    );
+  }
+  if ("sourceInterface" in value && !isNonEmptyString(value.sourceInterface)) {
+    return protocolError(
+      "invalid_field",
+      "start frame field sourceInterface must be a non-empty string",
+      "sourceInterface",
+      "start",
+    );
+  }
 
   return {
     ok: true,
@@ -363,6 +381,12 @@ function validateStartFrame(
       type: "start",
       ...(typeof value.conversationId === "string"
         ? { conversationId: value.conversationId }
+        : {}),
+      ...(typeof value.sourceChannel === "string"
+        ? { sourceChannel: value.sourceChannel }
+        : {}),
+      ...(typeof value.sourceInterface === "string"
+        ? { sourceInterface: value.sourceInterface }
         : {}),
       audio: audioConfig.frame,
     },

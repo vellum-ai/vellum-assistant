@@ -939,11 +939,40 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     });
     expect(res2.status).toBe(202);
 
-    // Both should have resolved to the same default conversation key
-    // ("default:vellum:macos"), which maps to the same conversationId.
-    const mapping = getConversationByKey("default:vellum:macos");
+    // Both should resolve to the shared local handoff key, which allows
+    // first-party local interfaces to continue one conversation across devices.
+    const mapping = getConversationByKey("default:vellum:handoff");
     expect(mapping).not.toBeNull();
     expect(mapping!.conversationId).toBeTruthy();
+
+    await stopServer();
+  });
+
+  test("local first-party interfaces without conversationKey share one handoff conversation", async () => {
+    await startServer(() => makeCompletingConversation());
+
+    const interfaces = ["macos", "ios", "web", "chrome-extension", "tauri"];
+    for (const iface of interfaces) {
+      const res = await fetch(messagesUrl(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+        body: JSON.stringify({
+          content: `hello-from-${iface}`,
+          sourceChannel: "vellum",
+          interface: iface,
+        }),
+      });
+      expect(res.status).toBe(202);
+    }
+
+    const handoff = getConversationByKey("default:vellum:handoff");
+    expect(handoff).not.toBeNull();
+
+    // Legacy interface-scoped defaults are no longer used for first-party
+    // local interfaces when conversationKey is omitted.
+    expect(getConversationByKey("default:vellum:macos")).toBeNull();
+    expect(getConversationByKey("default:vellum:tauri")).toBeNull();
+    expect(getConversationByKey("default:vellum:web")).toBeNull();
 
     await stopServer();
   });

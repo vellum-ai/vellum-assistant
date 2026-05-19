@@ -90,6 +90,7 @@ function createSessionHarness(
     startVoiceTurn?: LiveVoiceTurnStarter;
     createTurnId?: () => string;
     emitMetrics?: boolean;
+    getPerceptionMemoryContext?: () => string | null;
   } = {},
 ) {
   const transcriber =
@@ -108,6 +109,7 @@ function createSessionHarness(
     startVoiceTurn,
     createTurnId: options.createTurnId ?? (() => "live-turn-1"),
     emitMetrics: options.emitMetrics ?? false,
+    getPerceptionMemoryContext: options.getPerceptionMemoryContext,
   });
 
   return { frames, session, startVoiceTurn, transcriber };
@@ -179,6 +181,9 @@ describe("LiveVoiceSession assistant turn", () => {
       isInbound: true,
     });
     expect(voiceTurnOptions?.signal).toBeInstanceOf(AbortSignal);
+    expect(voiceTurnOptions?.voiceControlPrompt).toContain(
+      "You are speaking in a local live voice session. Keep replies brief and conversational.",
+    );
     expect(frames.map((frame) => frame.type)).toEqual([
       "ready",
       "stt_final",
@@ -203,6 +208,72 @@ describe("LiveVoiceSession assistant turn", () => {
     expect(frames[6]).toMatchObject({
       type: "tts_done",
       turnId: "live-turn-1",
+    });
+  });
+
+  test("injects perception memory context into the live voice control prompt", async () => {
+    const startVoiceTurn = mock(async (_options: VoiceTurnOptions) => ({
+      turnId: "bridge-turn-1",
+      abort: mock(),
+    }));
+    const { session, transcriber } = createSessionHarness({
+      startVoiceTurn,
+      getPerceptionMemoryContext: () =>
+        "### Recent perceived episodes\n- Edited runtime routes.",
+    });
+
+    await session.start();
+    transcriber.emit({ type: "final", text: "hello" });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => startVoiceTurn.mock.calls.length > 0);
+
+    const voiceTurnOptions = startVoiceTurn.mock.calls[0]?.[0];
+    expect(voiceTurnOptions?.voiceControlPrompt).toContain(
+      "<perception_memory>",
+    );
+    expect(voiceTurnOptions?.voiceControlPrompt).toContain(
+      "Edited runtime routes.",
+    );
+  });
+
+  test("turns action lifecycle updates into assistant speech cues", async () => {
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.action_lifecycle?.({
+        type: "action_lifecycle",
+        actionId: "action-1",
+        actionName: "host_app_control",
+        stage: "executing",
+        ts: Date.now(),
+        conversationId: options.conversationId,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      options.callbacks?.message_complete?.({
+        type: "message_complete",
+        conversationId: options.conversationId,
+        messageId: "assistant-message-123",
+      });
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { frames, session, transcriber } = createSessionHarness({
+      startVoiceTurn,
+    });
+
+    await session.start();
+    transcriber.emit({ type: "final", text: "hello" });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(frames.map((frame) => frame.type)).toEqual([
+      "ready",
+      "stt_final",
+      "stt_final",
+      "thinking",
+      "assistant_text_delta",
+      "tts_done",
+    ]);
+    expect(frames[4]).toMatchObject({
+      type: "assistant_text_delta",
+      text: "Working on host app control. ",
     });
   });
 
@@ -285,6 +356,7 @@ describe("LiveVoiceSession assistant turn", () => {
       "ready",
       "stt_final",
       "metrics",
+      "tts_done",
     ]);
   });
 
@@ -304,10 +376,14 @@ describe("LiveVoiceSession assistant turn", () => {
 
     await session.start();
     await session.handleClientFrame({ type: "ptt_release" });
-    await waitForFrameCount(frames, 2);
+    await waitForFrameCount(frames, 3);
 
     expect(startVoiceTurn).not.toHaveBeenCalled();
-    expect(frames.map((frame) => frame.type)).toEqual(["ready", "stt_final"]);
+    expect(frames.map((frame) => frame.type)).toEqual([
+      "ready",
+      "stt_final",
+      "tts_done",
+    ]);
   });
 
   test("falls back to the session id when start omits a conversation id", async () => {
