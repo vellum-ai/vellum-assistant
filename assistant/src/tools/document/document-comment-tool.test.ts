@@ -319,7 +319,8 @@ describe("executeCommentReply", () => {
     // Verify SSE event
     expect(sent).toHaveLength(1);
     expect(sent[0].type).toBe("document_comment_created");
-    const eventComment = (sent[0] as { comment: { id: string } }).comment;
+    const eventComment = (sent[0] as unknown as { comment: { id: string } })
+      .comment;
     expect(eventComment.id).toBe(body.comment.id);
   });
 
