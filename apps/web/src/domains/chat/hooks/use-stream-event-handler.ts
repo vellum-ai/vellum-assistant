@@ -170,9 +170,6 @@ interface UseStreamEventHandlerReturn {
  * Builds a `StreamHandlerContext` on each call and delegates to the
  * appropriate handler based on event type via an exhaustive switch.
  *
- * @param params.dispatchConversationList - Dispatch function from the
- *   `conversationListReducer`. Passed through to handlers that update
- *   conversation state (e.g., title updates, processing key removal).
  * @returns `handleStreamEvent(event, epoch)` — call this for each SSE event.
  */
 export function useStreamEventHandler(
