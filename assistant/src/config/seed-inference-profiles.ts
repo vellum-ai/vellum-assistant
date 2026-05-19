@@ -46,6 +46,8 @@ type ManagedProfileTemplate = Omit<
 const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   balanced: {
     intent: "balanced",
+    provider: "anthropic",
+    connectionName: "anthropic-managed",
     source: "managed",
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
@@ -284,8 +286,7 @@ export function seedInferenceProfiles(
         }
       }
 
-      const provider =
-        hatchProvider as NonNullable<ProfileEntry["provider"]>;
+      const provider = hatchProvider as NonNullable<ProfileEntry["provider"]>;
       for (const [name, template] of Object.entries(USER_PROFILE_TEMPLATES)) {
         if (preservedProfileNames.has(name)) continue;
         profiles[name] = materializeProfile(
