@@ -74,6 +74,18 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     thinking: { enabled: false, streamThinking: false },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
+  "fireworks-balanced": {
+    intent: "balanced",
+    provider: "fireworks",
+    connectionName: "fireworks-managed",
+    source: "managed",
+    label: "Balanced (Fireworks)",
+    description: "Good balance of quality, cost, and speed via Fireworks",
+    maxTokens: 16000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+  },
 };
 
 /**
