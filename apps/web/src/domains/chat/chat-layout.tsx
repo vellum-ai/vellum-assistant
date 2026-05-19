@@ -177,20 +177,8 @@ export function ChatLayout() {
     };
   }, [toggleSidebar]);
 
-  // Ctrl/Cmd+K shortcut for command palette
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!shouldHandleShortcut(event, document.activeElement, "k")) {
-        return;
-      }
-      event.preventDefault();
-      // TODO: wire command palette when ported
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, []);
+  // Ctrl/Cmd+K shortcut for command palette — listener is only installed
+  // when a handler exists to avoid swallowing the browser's default behavior.
 
   // Ctrl/Cmd+[ and Ctrl/Cmd+] shortcuts for back/forward navigation
   useEffect(() => {
