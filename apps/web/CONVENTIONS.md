@@ -832,13 +832,22 @@ committed to this repo so anyone can regenerate the client locally:
 bun run openapi-ts
 ```
 
-Generated output lives in `src/generated/api/` (gitignored).
+Generated output lives in `src/generated/api/` (gitignored). Codegen runs
+automatically via [npm lifecycle hooks](https://docs.npmjs.com/cli/v10/using-npm/scripts#life-cycle-scripts):
+
+- **`postinstall`** — runs after every `bun install`; generates the client
+  when `src/generated/` doesn't exist yet (first-time bootstrap).
+- **`predev`** — runs before every `bun run dev`; always regenerates so
+  the client stays in sync with the committed specs.
+
+No manual codegen step is needed — both `bun install` + `bun run dev` and
+`vel up --vite` trigger these hooks automatically.
 
 **Vellum developers** updating the specs after platform API changes:
 
 ```bash
 ./scripts/sync-openapi-specs.sh   # copies from sibling platform checkout
-bun run openapi-ts                # regenerate client
+bun run dev                       # predev regenerates automatically
 ```
 
 Plugins (configured in `openapi-ts.config.ts`):
