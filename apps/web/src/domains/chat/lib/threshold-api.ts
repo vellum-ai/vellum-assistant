@@ -5,7 +5,7 @@ import {
   extractErrorMessage,
 } from "@/lib/api-errors.js";
 
-import "@/lib/vellum-api/client";
+import "@/lib/api-client.js";
 
 const SDK_BASE_OPTIONS =
   typeof window === "undefined"

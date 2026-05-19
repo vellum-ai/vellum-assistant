@@ -2,7 +2,7 @@
 import { client } from "@/generated/api/client.gen.js";
 
 // Import for side effects to configure the default HeyAPI client.
-import "@/lib/vellum-api/client";
+import "@/lib/api-client.js";
 
 // ---------------------------------------------------------------------------
 // Types

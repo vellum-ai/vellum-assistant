@@ -7,7 +7,7 @@ import { AppCard } from "@/domains/chat/components/app-card.js";
 import { clearAppHtmlCache, getCachedAppHtml } from "@/domains/chat/lib/apps.js";
 import { usePinnedAppsOptional } from "@/domains/chat/lib/pinnedAppsContext.js";
 import type { Surface } from "@/domains/chat/lib/types.js";
-import "@/lib/vellum-api/client";
+import "@/lib/api-client.js";
 import { getDynamicPageAppId } from "@/domains/chat/components/surfaces/dynamic-page-app-id.js";
 
 // ---------------------------------------------------------------------------

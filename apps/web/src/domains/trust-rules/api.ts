@@ -10,7 +10,7 @@ import {
   extractErrorMessage,
 } from "@/lib/api-errors.js";
 
-import "@/lib/vellum-api/client";
+import "@/lib/api-client.js";
 
 import type {
   AddTrustRuleBody,

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { AppNavBar } from "@/components/app-nav-bar.js";
 import { FETCH_PROXY_ALLOWED_PATH_RE, injectBridge } from "@/domains/chat/lib/app-bridge.js";
 import { client } from "@/generated/api/client.gen.js";
-import "@/lib/vellum-api/client";
+import "@/lib/api-client.js";
 
 // ---------------------------------------------------------------------------
 // Props
