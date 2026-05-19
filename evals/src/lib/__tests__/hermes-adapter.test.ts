@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AgentEvent } from "../adapter";
 import {
   HermesAgent,
   DEFAULT_HERMES_IMAGE,
   EXEC_PATH,
+  normalizeHermesEventStream,
   selectProviderEnvFlags,
 } from "../adapters/hermes";
 import {
@@ -200,10 +202,12 @@ describe("HermesAgent", () => {
 
   test("seed-conversation injects rows directly into the container's state.db", async () => {
     // Seeding must (1) write to /opt/data/state.db via `docker exec -i
-    // python3 -`, (2) pipe the messages on stdin (no command-line
-    // escaping of user content), (3) re-point conversationKey at the
-    // newly-minted session id, and (4) never invoke the model — no
-    // `hermes message` calls between hatch and seed.
+    // python3 -c <script>`, (2) pipe the messages JSON payload on
+    // stdin (no command-line escaping of user content, and stdin
+    // separated from the script body so `json.load(sys.stdin)` works),
+    // (3) re-point conversationKey at the newly-minted session id, and
+    // (4) never invoke the model — no `hermes message` calls between
+    // hatch and seed.
     const runner = new FakeRunner();
     const agent = new HermesAgent({
       runner,
@@ -228,26 +232,28 @@ describe("HermesAgent", () => {
     expect(runner.runs.length).toBe(runsBeforeSeed + 1);
     const seedCall = runner.runs[runsBeforeSeed]!;
     expect(seedCall.command).toBe("docker");
-    expect(seedCall.args).toEqual([
-      "exec",
-      "-i",
-      "eval-hermes-seed-hermes",
-      "python3",
-      "-",
-    ]);
 
-    // stdin carries the inline Python script PLUS a JSON payload with
-    // the messages, the target DB path, and the session id we'll use as
-    // the new conversationKey.
+    // The script body is passed as a single argv element to `python3
+    // -c`. Stdin is reserved for the JSON payload — `python3 -` would
+    // consume stdin as the program body and leave `json.load(sys.stdin)`
+    // staring at EOF (the bug we shipped in PR #31106 iter-2 and saw in
+    // the wild as `JSONDecodeError: Expecting value: line 1 column 1`).
+    expect(seedCall.args[0]).toBe("exec");
+    expect(seedCall.args[1]).toBe("-i");
+    expect(seedCall.args[2]).toBe("eval-hermes-seed-hermes");
+    expect(seedCall.args[3]).toBe("python3");
+    expect(seedCall.args[4]).toBe("-c");
+    const script = seedCall.args[5] ?? "";
+    expect(script).toContain("INSERT INTO messages");
+    expect(script).toContain("INSERT OR IGNORE INTO sessions");
+    expect(script).toContain("json.load(sys.stdin)");
+    expect(seedCall.args.length).toBe(6);
+
+    // stdin carries ONLY the JSON payload now — no script prefix, no
+    // separator newline. The payload has the messages, the target DB
+    // path, and the session id we'll use as the new conversationKey.
     const stdin = seedCall.stdin ?? "";
-    expect(stdin).toContain("INSERT INTO messages");
-    expect(stdin).toContain("INSERT OR IGNORE INTO sessions");
-    expect(stdin).toContain(HERMES_STATE_DB_PATH);
-    expect(stdin).toContain(HERMES_EVAL_SESSION_SOURCE);
-    // Payload JSON sits on the trailing line — pluck it out and confirm
-    // the messages survived the trip without shell escaping.
-    const lastLine = stdin.trim().split("\n").at(-1)!;
-    const payload = JSON.parse(lastLine);
+    const payload = JSON.parse(stdin);
     expect(payload).toEqual({
       db_path: HERMES_STATE_DB_PATH,
       session_id: "evals_timeline-recall_eval-hermes-seed",
@@ -505,5 +511,92 @@ describe("HermesAgent", () => {
         ["CUSTOM_KEY"],
       ),
     ).toEqual(["-e", "CUSTOM_KEY"]);
+  });
+});
+
+async function collectHermesEvents(
+  src: AsyncIterable<AgentEvent>,
+): Promise<AgentEvent[]> {
+  const out: AgentEvent[] = [];
+  for await (const event of src) out.push(event);
+  return out;
+}
+
+function hermesEventSource(events: AgentEvent[]): AsyncIterable<AgentEvent> {
+  return (async function* () {
+    for (const event of events) yield event;
+  })();
+}
+
+describe("normalizeHermesEventStream", () => {
+  test("passes through message_chunk events unchanged (the Hermes transcript event)", async () => {
+    const out = await collectHermesEvents(
+      normalizeHermesEventStream(
+        hermesEventSource([
+          { message: { type: "message_chunk", chunk: "hi from hermes" } },
+          { message: { type: "message_chunk", chunk: " more text" } },
+        ]),
+      ),
+    );
+    expect(out).toEqual([
+      { message: { type: "message_chunk", chunk: "hi from hermes" } },
+      { message: { type: "message_chunk", chunk: " more text" } },
+    ]);
+  });
+
+  test("passes through assistant_text_delta events unchanged (forward-compat with Vellum-style names)", async () => {
+    const out = await collectHermesEvents(
+      normalizeHermesEventStream(
+        hermesEventSource([
+          { message: { type: "assistant_text_delta", text: "hello" } },
+        ]),
+      ),
+    );
+    expect(out).toEqual([
+      { message: { type: "assistant_text_delta", text: "hello" } },
+    ]);
+  });
+
+  test("strips text on user_message_echo events", async () => {
+    // Same echo-guard contract as Vellum. If a Hermes build ever
+    // broadcasts a user-echo with `text`, the runner must not read it
+    // as transcript.
+    const out = await collectHermesEvents(
+      normalizeHermesEventStream(
+        hermesEventSource([
+          {
+            message: {
+              type: "user_message_echo",
+              text: "user's outbound text",
+            },
+          },
+        ]),
+      ),
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]?.message.type).toBe("user_message_echo");
+    expect(out[0]?.message.text).toBeUndefined();
+    expect(out[0]?.message.chunk).toBeUndefined();
+  });
+
+  test("strips text/chunk on tool, thinking, error, complete events but preserves them on the stream", async () => {
+    const out = await collectHermesEvents(
+      normalizeHermesEventStream(
+        hermesEventSource([
+          { message: { type: "tool_use_start", toolName: "shell" } },
+          { message: { type: "tool_output_chunk", chunk: "file.txt" } },
+          { message: { type: "assistant_thinking_delta", thinking: "hmm" } },
+          { message: { type: "error", message: "boom" } },
+          { message: { type: "message_complete" } },
+        ]),
+      ),
+    );
+    expect(out).toHaveLength(5);
+    for (const event of out) {
+      expect(event.message.text).toBeUndefined();
+      expect(event.message.chunk).toBeUndefined();
+    }
+    expect(out[0]?.message.toolName).toBe("shell");
+    expect(out[2]?.message.thinking).toBe("hmm");
   });
 });

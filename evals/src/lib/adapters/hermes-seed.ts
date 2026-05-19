@@ -37,11 +37,22 @@ import type { SeededConversationMessage } from "../setup-command";
  * `apt-get` in the Hermes Dockerfile does not install `sqlite3` — but
  * Python 3 is mandatory (it's how Hermes itself runs), and Python's
  * stdlib ships `sqlite3` everywhere. Driving a small Python helper via
- * `docker exec -i ... python3 -` lets us use real parameterized inserts
- * (no SQL-injection risk from message content), bind WAL-friendly
- * pragmas, and read structured stdout for diagnostics. The script reads
- * its payload from stdin as JSON, so command-line escaping isn't a
- * concern.
+ * `docker exec -i ... python3 -c <script>` lets us use real
+ * parameterized inserts (no SQL-injection risk from message content),
+ * bind WAL-friendly pragmas, and read structured stdout for diagnostics.
+ *
+ * ## How the script reaches Python
+ *
+ * The script body is passed as a single argv element to `python3 -c`.
+ * Stdin is reserved for the JSON payload (`db_path`, `session_id`,
+ * `source`, `title`, `messages`). The previous iteration used
+ * `python3 -` and concatenated `SCRIPT + "\n" + PAYLOAD` on stdin — that
+ * was wrong: `python3 -` reads stdin to EOF as the program body, then
+ * `json.load(sys.stdin)` saw EOF and raised `JSONDecodeError("Expecting
+ * value: line 1 column 1 (char 0)")`. Splitting the two channels —
+ * `-c` for code, stdin for data — fixes the failure mode cleanly and
+ * keeps shell-escaping out of the loop entirely (`spawn` passes argv
+ * directly to `execvp`, no shell).
  *
  * ## Concurrency
  *
@@ -172,8 +183,8 @@ export async function seedHermesSession({
 
   const result = await runner.run(
     "docker",
-    ["exec", "-i", containerName, pythonBinary, "-"],
-    { stdin: SEED_PYTHON_SCRIPT + "\n" + payload },
+    ["exec", "-i", containerName, pythonBinary, "-c", SEED_PYTHON_SCRIPT],
+    { stdin: payload },
   );
   assertSuccess(result, `seed Hermes session ${sessionId}`);
   return { sessionId };

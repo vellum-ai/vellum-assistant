@@ -8,6 +8,7 @@ import {
 } from "../lib/runner/progress";
 import { loadProfile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
+import { openInBrowser, startReportServer } from "./server";
 
 function splitCsv(raw: string): string[] {
   return raw
@@ -64,6 +65,10 @@ export function registerRunCommand(program: Command): void {
       "--quiet",
       "Suppress per-step progress output (only emit the final JSON result)",
     )
+    .option(
+      "--serve",
+      "After the run finishes, start the local report server and open this run's session in the default browser. The server blocks until ctrl-C.",
+    )
     .action(
       async (opts: {
         profiles: string;
@@ -71,6 +76,7 @@ export function registerRunCommand(program: Command): void {
         label?: string;
         maxTurns?: number;
         quiet?: boolean;
+        serve?: boolean;
       }) => {
         const profiles = await Promise.all(
           splitCsv(opts.profiles).map((id) => loadProfile(id)),
@@ -134,6 +140,20 @@ export function registerRunCommand(program: Command): void {
 
         if (anyFailed) {
           process.exitCode = 1;
+        }
+
+        if (opts.serve) {
+          // Boot the same report server as `evals server` (using its
+          // default host/port) and aim the browser at THIS run's
+          // session page. The server then blocks on Bun.serve until
+          // ctrl-C — we want failures to be reviewable inline, so the
+          // exitCode=1 above only takes effect once the user kills
+          // the server.
+          const { url } = startReportServer();
+          const sessionUrl = `${url}/sessions/${encodeURIComponent(session)}`;
+          console.log(`Evals report server listening on ${url}`);
+          console.log(`Opening ${sessionUrl}`);
+          openInBrowser(sessionUrl);
         }
       },
     );
