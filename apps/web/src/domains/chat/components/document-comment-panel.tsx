@@ -60,23 +60,28 @@ export function DocumentCommentPanel({
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
 
-  const loadComments = useCallback(async () => {
-    try {
-      const result = await fetchComments(assistantId, surfaceId);
-      if (mountedRef.current) {
-        setComments(result);
+  const loadComments = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const result = await fetchComments(assistantId, surfaceId);
+        if (!signal?.aborted && mountedRef.current) {
+          setComments(result);
+        }
+      } finally {
+        if (!signal?.aborted && mountedRef.current) {
+          setLoading(false);
+        }
       }
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-      }
-    }
-  }, [assistantId, surfaceId]);
+    },
+    [assistantId, surfaceId],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
-    void loadComments();
+    const controller = new AbortController();
+    void loadComments(controller.signal);
     return () => {
+      controller.abort();
       mountedRef.current = false;
     };
   }, [loadComments]);

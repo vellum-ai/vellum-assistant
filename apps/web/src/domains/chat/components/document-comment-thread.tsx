@@ -97,7 +97,6 @@ function CommentBubble({
           </Typography>
         </div>
 
-        {/* Anchor text badge for inline comments */}
         {isInline ? (
           <button
             type="button"
@@ -113,7 +112,6 @@ function CommentBubble({
           </button>
         ) : null}
 
-        {/* Comment content */}
         <Typography
           variant="body-small-default"
           as="p"
@@ -173,7 +171,6 @@ export function DocumentCommentThread({
           : "var(--surface-overlay)",
       }}
     >
-      {/* Status badge */}
       <div className="flex items-center justify-between">
         {isResolved ? (
           <Tag tone="positive" leftIcon={<CheckCircle />}>
@@ -185,7 +182,6 @@ export function DocumentCommentThread({
           </Tag>
         )}
 
-        {/* Actions */}
         <div className="flex items-center gap-1">
           {isResolved ? (
             <Button
@@ -216,10 +212,8 @@ export function DocumentCommentThread({
         </div>
       </div>
 
-      {/* Top-level comment */}
       <CommentBubble comment={comment} onCommentSelect={onCommentSelect} />
 
-      {/* Replies */}
       {replies.length > 0 ? (
         <div className="ml-8 flex flex-col gap-3 border-l-2 border-[var(--border-base)] pl-3">
           {replies.map((reply) => (
@@ -232,7 +226,6 @@ export function DocumentCommentThread({
         </div>
       ) : null}
 
-      {/* Reply toggle + form */}
       {replyOpen ? (
         <div className="ml-8">
           <DocumentCommentForm
