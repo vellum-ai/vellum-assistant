@@ -4,7 +4,20 @@
  * Wraps a store so every state key is available as `store.use.key()`,
  * each backed by an individual selector for minimal re-renders.
  *
- * Reference: https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors
+ * **Which API to use:**
+ *
+ * - `store.use.field()` — React render bodies. Creates a subscription;
+ *   the component re-renders when `field` changes.
+ * - `store.getState().field` — Event handlers, callbacks, effects,
+ *   middleware, and anywhere outside the React render cycle. Reads the
+ *   latest value without creating a subscription.
+ *
+ * Zustand's `set()` is synchronous, so `getState()` after an action
+ * returns the already-mutated values. Read state *before* calling an
+ * action when the caller needs pre-mutation values.
+ *
+ * @see {@link https://zustand.docs.pmnd.rs/guides/auto-generating-selectors}
+ * @see {@link https://zustand.docs.pmnd.rs/guides/updating-state}
  */
 import type { StoreApi, UseBoundStore } from "zustand";
 

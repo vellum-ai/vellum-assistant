@@ -430,57 +430,24 @@ causes either missed re-renders or unnecessary subscriptions.
 | **Calling actions** (anywhere) | `useStore.getState().actionName()` | Actions are stable references — calling via `.getState()` is always correct and avoids adding the action to dependency arrays. |
 
 ```ts
-// ✅ Component render body — reactive subscription
-function MessageCount() {
-  const count = useMessageStore.use.count();
-  return <span>{count}</span>;
-}
+// Render body — reactive subscription
+const count = useMessageStore.use.count();
 
-// ✅ Event handler — imperative read + action call
+// Event handler — imperative read + action
 const handleClick = useCallback(() => {
-  const current = useMessageStore.getState().count;
   useMessageStore.getState().increment();
-  console.log("was", current);
 }, []);
 
-// ✅ Outside React — middleware
-const authMiddleware: MiddlewareFunction = async (args, next) => {
-  const { isLoggedIn } = useAuthStore.getState();
-  if (!isLoggedIn) throw redirect("/login");
-  return next();
-};
-
-// ❌ WRONG — .use.* in a callback creates a subscription leak
-const handleClick = useCallback(() => {
-  const count = useMessageStore.use.count(); // breaks Rules of Hooks
-}, []);
-
-// ❌ WRONG — .getState() in render body misses updates
-function MessageCount() {
-  const count = useMessageStore.getState().count; // won't re-render
-  return <span>{count}</span>;
-}
+// Middleware — outside React
+const { isLoggedIn } = useAuthStore.getState();
 ```
 
-**Read-before-mutate rule:** When you need to check state and then call
-an action that changes that same state, always read *before* calling the
-action. Zustand mutations are synchronous — `.getState()` after a `set()`
-returns the already-mutated values.
-
-```ts
-// ✅ Correct — snapshot before mutation
-const { activeAppId, mainView } = useViewerStore.getState();
-useViewerStore.getState().handleAppUnpinned(appId);
-if (activeAppId === appId && mainView === "app") {
-  // condition uses pre-mutation values
-}
-
-// ❌ WRONG — reads post-mutation state, condition is always false
-useViewerStore.getState().handleAppUnpinned(appId);
-const { activeAppId } = useViewerStore.getState(); // already null
-```
+Zustand's `set()` is synchronous — `.getState()` after an action
+returns already-mutated values. Read state *before* calling an action
+when the caller needs pre-mutation values.
 
 References:
+- [Zustand — Updating state](https://zustand.docs.pmnd.rs/guides/updating-state)
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/extracting-state-outside-components)
 - [React — Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks)
 
