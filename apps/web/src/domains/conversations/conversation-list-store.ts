@@ -308,12 +308,12 @@ export const useConversationListStore = createSelectors(
     // --- Compound ---
 
     graduateProcessingKey: (key, hasPendingInteraction) => {
-      set({
-        processingKeys: removeFromSet(get().processingKeys, key),
+      set((state) => ({
+        processingKeys: removeFromSet(state.processingKeys, key),
         attentionKeys: hasPendingInteraction
-          ? addToSet(get().attentionKeys, key)
-          : get().attentionKeys,
-      });
+          ? addToSet(state.attentionKeys, key)
+          : state.attentionKeys,
+      }));
     },
 
     // --- Reset ---
