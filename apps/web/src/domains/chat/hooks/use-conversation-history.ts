@@ -29,7 +29,7 @@ import {
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
-import type { InteractionEvent, InteractionState } from "@/domains/interactions/interaction-store.js";
+import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
 import type { SubagentAction } from "@/domains/subagents/subagent-store.js";
 import type { SubagentStatus } from "@/domains/chat/lib/event-types.js";
@@ -101,7 +101,7 @@ interface UseConversationHistoryParams {
   inputRef: MutableRefObject<HTMLTextAreaElement | null>;
   draftsRef: MutableRefObject<Map<string, string>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  interactionStateRef: MutableRefObject<InteractionState>;
+
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   needsNewBubbleRef: MutableRefObject<boolean>;
@@ -124,7 +124,6 @@ interface UseConversationHistoryParams {
   setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
   setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
   setError: Dispatch<SetStateAction<ChatError | null>>;
-  dispatchInteraction: Dispatch<InteractionEvent>;
   setAutoGreetPending: Dispatch<SetStateAction<boolean>>;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
   setSuggestion: Dispatch<SetStateAction<string | null>>;
@@ -180,7 +179,6 @@ export function useConversationHistory({
   inputRef,
   draftsRef,
   messagesRef,
-  interactionStateRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   needsNewBubbleRef,
@@ -201,7 +199,6 @@ export function useConversationHistory({
   setTranscriptPagination,
   setIsLoadingHistory,
   setError,
-  dispatchInteraction,
   setAutoGreetPending,
   setContextWindowUsage,
   setSuggestion,
@@ -253,7 +250,8 @@ export function useConversationHistory({
       }
       // If the outgoing conversation has a pending interaction, mark it as
       // needing attention so the sidebar shows an alert icon.
-      if (interactionStateRef.current.pendingSecret || interactionStateRef.current.pendingConfirmation) {
+      const interactionSnapshot = useInteractionStore.getState();
+      if (interactionSnapshot.pendingSecret || interactionSnapshot.pendingConfirmation) {
         dispatchConversationList({ type: "ADD_ATTENTION_KEY", key: outgoingKey });
       }
       // Cache outgoing conversation's messages (LRU eviction)
@@ -339,7 +337,7 @@ export function useConversationHistory({
       isLoadingOlder: false,
       isPinnedToLatest: true,
     });
-    dispatchInteraction({ type: "RESET_ALL" });
+    useInteractionStore.getState().resetAll();
     confirmationToolCallMapRef.current.clear();
     setAutoGreetPending(false);
     resetChatAttachments();
@@ -393,7 +391,7 @@ export function useConversationHistory({
             interactions.pendingSecret as Record<string, unknown>,
           );
           if (loadEpochRef.current === epoch) {
-            dispatchInteraction({ type: "SHOW_SECRET", payload: parsed });
+            useInteractionStore.getState().showSecret(parsed);
           }
         }
         if (interactions.pendingConfirmation) {
@@ -401,7 +399,7 @@ export function useConversationHistory({
             interactions.pendingConfirmation as Record<string, unknown>,
           );
           if (loadEpochRef.current === epoch) {
-            dispatchInteraction({ type: "SHOW_CONFIRMATION", payload: state });
+            useInteractionStore.getState().showConfirmation(state);
           }
         }
         if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
@@ -643,7 +641,6 @@ export function useConversationHistory({
     inputRef,
     draftsRef,
     messagesRef,
-    interactionStateRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     needsNewBubbleRef,
@@ -665,7 +662,6 @@ export function useConversationHistory({
     setIsLoadingHistory,
     dispatchConversationList,
     setError,
-    dispatchInteraction,
     setAutoGreetPending,
     setContextWindowUsage,
     setSuggestion,
