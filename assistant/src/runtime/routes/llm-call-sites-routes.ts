@@ -1,7 +1,7 @@
 import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
+import { loadConfig } from "../../config/loader.js";
 import { CALL_SITE_CATALOG, CALL_SITE_DOMAINS } from "../../config/schemas/call-site-catalog.js";
 import type { LLMCallSite } from "../../config/schemas/llm.js";
-import { loadConfig } from "../../config/loader.js";
 import type { RouteDefinition } from "./types.js";
 
 async function handleGetCallSites() {
