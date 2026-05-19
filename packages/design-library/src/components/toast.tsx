@@ -32,6 +32,8 @@ interface ToastOptions {
   id?: string;
 }
 
+const ASSERTIVE_VARIANTS = new Set<ToastVariant>(["error", "warning"]);
+
 const VARIANT_STYLES: Record<
   ToastVariant,
   { container: string; icon: string; iconElement: ReactNode }
@@ -82,7 +84,7 @@ function ToastContent({
   const styles = VARIANT_STYLES[variant];
   return (
     <div
-      role="alert"
+      role={ASSERTIVE_VARIANTS.has(variant) ? "alert" : "status"}
       data-slot="toast"
       className={cn(
         "flex w-full max-h-[300px] items-start gap-3 rounded-lg border p-3 shadow-lg",
@@ -161,14 +163,15 @@ const toast = Object.assign(
 
 function Toaster() {
   return (
-    <SonnerToaster
-      data-slot="toaster"
-      position="bottom-right"
-      toastOptions={{
-        unstyled: true,
-        style: { width: "356px" },
-      }}
-    />
+    <div data-slot="toaster">
+      <SonnerToaster
+        position="bottom-right"
+        toastOptions={{
+          unstyled: true,
+          style: { width: "356px" },
+        }}
+      />
+    </div>
   );
 }
 
