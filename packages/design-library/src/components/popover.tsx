@@ -32,9 +32,24 @@ import { usePortalContainer } from "../utils/portal-container.js";
  * @see https://www.radix-ui.com/primitives/docs/components/popover
  */
 const Root = RadixPopover.Root;
-const Trigger = RadixPopover.Trigger;
-const Close = RadixPopover.Close;
-const Anchor = RadixPopover.Anchor;
+
+type TriggerProps = ComponentProps<typeof RadixPopover.Trigger>;
+
+function Trigger(props: TriggerProps) {
+  return <RadixPopover.Trigger data-slot="popover-trigger" {...props} />;
+}
+
+type CloseProps = ComponentProps<typeof RadixPopover.Close>;
+
+function Close(props: CloseProps) {
+  return <RadixPopover.Close data-slot="popover-close" {...props} />;
+}
+
+type AnchorProps = ComponentProps<typeof RadixPopover.Anchor>;
+
+function Anchor(props: AnchorProps) {
+  return <RadixPopover.Anchor data-slot="popover-anchor" {...props} />;
+}
 
 type ContentProps = ComponentProps<typeof RadixPopover.Content>;
 
