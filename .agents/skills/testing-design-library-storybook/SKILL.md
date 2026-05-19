@@ -51,6 +51,43 @@ console.log('theme:', doc.documentElement.getAttribute('data-theme'));
 
 Note: The Storybook preview renders inside an iframe (`#storybook-preview-iframe`). You must access `iframe.contentDocument` to inspect component styles. The first few `<button>` elements in the iframe may be Storybook UI buttons (e.g., "Set string"), not the component under test — use `.vdl-btn-primary` or `[data-slot="notice"]` selectors to target actual components.
 
+### ResizablePanel Drag Testing
+
+Native mouse drag (via `left_click_drag`) does NOT work across Storybook's iframe boundary. Use dispatched PointerEvents instead:
+
+```javascript
+const iframe = document.querySelector('#storybook-preview-iframe');
+const doc = iframe.contentDocument;
+const separator = doc.querySelector('[role="separator"]');
+const rect = separator.getBoundingClientRect();
+const startX = rect.left + rect.width / 2;
+const startY = rect.top + rect.height / 2;
+
+separator.dispatchEvent(new PointerEvent('pointerdown', {
+  clientX: startX, clientY: startY, bubbles: true, pointerId: 1,
+  isPrimary: true, button: 0, buttons: 1
+}));
+
+separator.dispatchEvent(new PointerEvent('pointermove', {
+  clientX: startX + 100, clientY: startY, bubbles: true, pointerId: 1,
+  isPrimary: true, button: 0, buttons: 1
+}));
+
+separator.dispatchEvent(new PointerEvent('pointerup', {
+  clientX: startX + 100, clientY: startY, bubbles: true, pointerId: 1,
+  isPrimary: true, button: 0
+}));
+
+const panel = doc.querySelector('[data-slot="resizable-panel"]');
+const leftPane = panel.children[0];
+console.log('left pane width:', leftPane.getBoundingClientRect().width);
+```
+
+Key points:
+- Include `isPrimary: true`, `button: 0`, `buttons: 1` — the component may check these.
+- The component uses `setPointerCapture`, so dispatch events directly on the separator element.
+- Verify width changes via `getBoundingClientRect()` before and after.
+
 ### Notice Component Tones
 
 Navigate to Notice > All Tones story. Verify each tone (info, success, warning, error, neutral) has a distinct background color that changes with theme:
@@ -60,6 +97,14 @@ const notices = doc.querySelectorAll('[data-slot="notice"]');
 notices.forEach((n, i) => {
   console.log(`notice[${i}] bg=${getComputedStyle(n).backgroundColor}`);
 });
+```
+
+## Verifying Storybook Version
+
+The bottom-left corner may show a "Storybook 10.x" marketing notification that does NOT reflect the actual running version. To verify the real version:
+
+```bash
+cat packages/design-library/node_modules/storybook/package.json | grep '"version"'
 ```
 
 ## Architecture Notes
@@ -75,6 +120,8 @@ notices.forEach((n, i) => {
 - **Port conflict**: Storybook may prompt to use a different port if 6006 is occupied. Accept or `lsof -ti:6006 | xargs kill` first.
 - **Styles not loading**: If components appear unstyled, verify `src/tokens.css` is imported in `.storybook/preview.css` and that `@tailwindcss/vite` is configured in `.storybook/main.ts`.
 - **Theme not switching**: Check that the decorator in `preview.ts` sets `data-theme` on both `document.documentElement` and `document.body`.
+- **Drag not working**: Native mouse drag does not cross iframe boundaries. Use the dispatched PointerEvent approach above.
+- **Story file errors after merge**: If Storybook shows ENOENT errors for story files, the working tree may be out of sync. Run `git pull` and restart Storybook.
 
 ## CI Checks
 
