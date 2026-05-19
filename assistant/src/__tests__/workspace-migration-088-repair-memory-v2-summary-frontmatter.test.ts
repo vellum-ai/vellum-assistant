@@ -95,6 +95,27 @@ describe("088-repair-memory-v2-summary-frontmatter migration", () => {
     );
   });
 
+  test("repairs quoted-looking summaries with unescaped inner quotes", () => {
+    const filePath = writeConcept(
+      "people/bob.md",
+      [
+        "---",
+        "edges: []",
+        "summary: 'Bob's project: track follow-ups.'",
+        "---",
+        "Body",
+      ].join("\n"),
+    );
+
+    expect(() => parseFrontmatter(filePath)).toThrow();
+
+    repairMemoryV2SummaryFrontmatterMigration.run(workspaceDir);
+
+    expect(parseFrontmatter(filePath).summary).toBe(
+      "Bob's project: track follow-ups.",
+    );
+  });
+
   test("removes null summary values", () => {
     const filePath = writeConcept(
       "objects/example-channel.md",
@@ -124,6 +145,22 @@ describe("088-repair-memory-v2-summary-frontmatter migration", () => {
     expect(parseFrontmatter(filePath).summary).toBe(
       "Already safe: quoted text.",
     );
+  });
+
+  test("leaves simple unquoted summaries unchanged", () => {
+    const original = [
+      "---",
+      "edges: []",
+      "summary: Simple text",
+      "---",
+      "Body",
+    ].join("\n");
+    const filePath = writeConcept("objects/simple.md", original);
+
+    repairMemoryV2SummaryFrontmatterMigration.run(workspaceDir);
+
+    expect(read(filePath)).toBe(original);
+    expect(parseFrontmatter(filePath).summary).toBe("Simple text");
   });
 
   test("ignores markdown outside memory concepts", () => {

@@ -91,12 +91,14 @@ function repairFrontmatterSummary(raw: string): string | null {
       continue;
     }
 
-    if (isAlreadySafeSingleLineYamlString(value)) {
+    if (!needsSummaryRepair(value)) {
       repairedLines.push(line);
       continue;
     }
 
-    repairedLines.push(`summary: ${JSON.stringify(value)}`);
+    repairedLines.push(
+      `summary: ${JSON.stringify(normalizeSummaryValue(value))}`,
+    );
     changed = true;
   }
 
@@ -110,13 +112,69 @@ function isNullSummaryValue(value: string): boolean {
   return value === "" || value === "~" || value.toLowerCase() === "null";
 }
 
-function isAlreadySafeSingleLineYamlString(value: string): boolean {
-  if (/^[|>][-+]?$/.test(value)) {
-    return true;
+function needsSummaryRepair(value: string): boolean {
+  if (/^[|>][-+]?$/.test(value)) return false;
+  if (isSafeQuotedYamlString(value)) return false;
+  if (startsOrEndsWithQuote(value)) return true;
+  return /:\s/.test(value);
+}
+
+function normalizeSummaryValue(value: string): string {
+  if (hasUnsafeOuterQuotes(value)) {
+    return value.slice(1, -1);
   }
+  return value;
+}
+
+function startsOrEndsWithQuote(value: string): boolean {
+  return (
+    value.startsWith('"') ||
+    value.endsWith('"') ||
+    value.startsWith("'") ||
+    value.endsWith("'")
+  );
+}
+
+function isSafeQuotedYamlString(value: string): boolean {
   if (value.length < 2) return false;
 
   const first = value[0];
   if (first !== '"' && first !== "'") return false;
-  return value[value.length - 1] === first;
+  if (value[value.length - 1] !== first) return false;
+
+  const inner = value.slice(1, -1);
+  return first === "'"
+    ? hasOnlyEscapedSingleQuotes(inner)
+    : hasOnlyEscapedDoubleQuotes(inner);
+}
+
+function hasUnsafeOuterQuotes(value: string): boolean {
+  return (
+    value.length >= 2 &&
+    value[0] === value[value.length - 1] &&
+    (value[0] === '"' || value[0] === "'") &&
+    !isSafeQuotedYamlString(value)
+  );
+}
+
+function hasOnlyEscapedSingleQuotes(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    if (value[i] !== "'") continue;
+    if (value[i + 1] !== "'") return false;
+    i += 1;
+  }
+  return true;
+}
+
+function hasOnlyEscapedDoubleQuotes(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    if (value[i] !== '"') continue;
+
+    let backslashes = 0;
+    for (let j = i - 1; j >= 0 && value[j] === "\\"; j -= 1) {
+      backslashes += 1;
+    }
+    if (backslashes % 2 === 0) return false;
+  }
+  return true;
 }
