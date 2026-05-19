@@ -3,25 +3,30 @@ import VellumAssistantShared
 
 /// Greeting header for the Home feed.
 ///
-/// Displays a caller-provided avatar on the leading edge and a primary
-/// "New Chat" pill CTA on the trailing edge. The avatar speaks for itself —
-/// the row deliberately carries no headline copy.
+/// Displays a caller-provided avatar on the leading edge and an optional
+/// display name next to it, with a primary "New Chat" pill CTA on the
+/// trailing edge.
 ///
-/// The caller is responsible for sizing the avatar (typical: 40x40pt) and for
-/// any outer padding around the header.
+/// The caller is responsible for sizing the avatar and for any outer padding
+/// around the header.
 struct HomeGreetingHeader<Avatar: View>: View {
     let onStartNewChat: () -> Void
+    let name: String?
     @ViewBuilder let avatar: () -> Avatar
 
     var body: some View {
         HStack(alignment: .center, spacing: VSpacing.md) {
             avatar()
 
+            if let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !trimmed.isEmpty {
+                Text(trimmed)
+                    .font(VFont.titleLarge)
+                    .foregroundStyle(VColor.contentEmphasized)
+            }
+
             Spacer()
 
-            // `leftIcon` is the VButton API for a leading icon (there is no
-            // `iconLeft`). `VIcon.squarePen` is the codebase's existing token
-            // for the "pen-to-square" / new conversation glyph.
             VButton(
                 label: "New Chat",
                 leftIcon: VIcon.squarePen.rawValue,

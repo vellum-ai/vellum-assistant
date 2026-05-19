@@ -64,9 +64,10 @@ struct HomePageView: View {
                 // greeting-first appearance.
                 MeetStatusPanel(viewModel: meetStatusViewModel)
 
-                HomeGreetingHeader(onStartNewChat: onStartNewChat) {
-                    // Inline avatar rendering so this view owns its own
-                    // avatar resolution without depending on other views.
+                HomeGreetingHeader(
+                    onStartNewChat: onStartNewChat,
+                    name: store.state?.assistantName
+                ) {
                     greetingAvatar
                 }
                 .padding(.top, VSpacing.xxl)
@@ -148,12 +149,12 @@ struct HomePageView: View {
     // MARK: - Greeting avatar
 
     /// Inline avatar rendering so this view doesn't depend on another
-    /// view's internals. 40pt sizing matches the Figma spec for the new
-    /// greeting row.
+    /// view's internals. 56pt sizing gives the greeting row visual weight
+    /// alongside the display-name heading.
     @ViewBuilder
     private var greetingAvatar: some View {
         let appearance = AvatarAppearanceManager.shared
-        let avatarSize: CGFloat = 40
+        let avatarSize: CGFloat = 56
         if appearance.customAvatarImage != nil {
             VAvatarImage(
                 image: appearance.fullAvatarImage,

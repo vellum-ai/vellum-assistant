@@ -234,13 +234,16 @@ struct HomeGallerySection: View {
                 )
 
                 VCard(background: VColor.surfaceBase) {
-                    HomeGreetingHeader(onStartNewChat: {}) {
+                    HomeGreetingHeader(
+                        onStartNewChat: {},
+                        name: "Example Assistant"
+                    ) {
                         if let image = NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil) {
-                            VAvatarImage(image: image, size: 40)
+                            VAvatarImage(image: image, size: 56)
                         } else {
                             Circle()
                                 .fill(VColor.surfaceActive)
-                                .frame(width: 40, height: 40)
+                                .frame(width: 56, height: 56)
                         }
                     }
                 }
