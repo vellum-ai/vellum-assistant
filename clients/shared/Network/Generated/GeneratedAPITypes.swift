@@ -5987,6 +5987,17 @@ public enum ConnectionStatus: String, Codable, Sendable {
     case disabled
 }
 
+/// A model entry exposed by an openai-compatible provider connection.
+public struct ConnectionModel: Codable, Sendable {
+    public let id: String
+    public let displayName: String?
+
+    public init(id: String, displayName: String? = nil) {
+        self.id = id
+        self.displayName = displayName
+    }
+}
+
 /// A named provider connection stored in the assistant database.
 public struct ProviderConnection: Codable, Sendable {
     public let name: String
@@ -6003,8 +6014,12 @@ public struct ProviderConnection: Codable, Sendable {
     /// it to render the read-only badge + view-only editor and to disable
     /// the delete affordance without mirroring the canonical name list.
     public let isManaged: Bool
+    /// Base URL for openai-compatible provider connections (e.g. `https://api.example.com/v1`).
+    public let baseUrl: String?
+    /// Model entries exposed by an openai-compatible provider connection.
+    public let models: [ConnectionModel]?
 
-    public init(name: String, provider: String, auth: ProviderConnectionAuth, status: ConnectionStatus = .active, label: String? = nil, createdAt: Int, updatedAt: Int, isManaged: Bool = false) {
+    public init(name: String, provider: String, auth: ProviderConnectionAuth, status: ConnectionStatus = .active, label: String? = nil, createdAt: Int, updatedAt: Int, isManaged: Bool = false, baseUrl: String? = nil, models: [ConnectionModel]? = nil) {
         self.name = name
         self.provider = provider
         self.auth = auth
@@ -6013,6 +6028,8 @@ public struct ProviderConnection: Codable, Sendable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.isManaged = isManaged
+        self.baseUrl = baseUrl
+        self.models = models
     }
 
     /// Decodes responses from daemons that predate the `status` or `isManaged`
@@ -6030,6 +6047,8 @@ public struct ProviderConnection: Codable, Sendable {
         self.createdAt = try container.decode(Int.self, forKey: .createdAt)
         self.updatedAt = try container.decode(Int.self, forKey: .updatedAt)
         self.isManaged = try container.decodeIfPresent(Bool.self, forKey: .isManaged) ?? false
+        self.baseUrl = try container.decodeIfPresent(String.self, forKey: .baseUrl)
+        self.models = try container.decodeIfPresent([ConnectionModel].self, forKey: .models)
     }
 }
 
