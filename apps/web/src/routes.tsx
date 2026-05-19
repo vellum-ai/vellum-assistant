@@ -1,5 +1,6 @@
 import { createBrowserRouter, useNavigate } from "react-router";
 
+import { authMiddleware } from "@/lib/auth/auth-middleware.js";
 import { RootLayout } from "@/components/layout/root-layout.js";
 import { ChatLayout } from "@/domains/chat/chat-layout.js";
 import { ChatPage } from "@/domains/chat/chat-page.js";
@@ -43,7 +44,8 @@ function HomePageRoute() {
  *   │  ├── ProviderSignupPage (/account/provider/signup)
  *   │  └── OAuthPopupCompletePage (/account/oauth/popup-complete)
  *   │
- *   /assistant/* — full app with RootLayout (safe areas, viewport tracking)
+ *   /assistant/* — auth-protected app with RootLayout
+ *   │  middleware: [authMiddleware] — redirects to login when auth required
  *   │  └── ChatLayout — sidebar rail, drawer, shortcuts
  *   │       ├── ChatPage (index, /assistant)
  *   │       ├── HomePageRoute (/assistant/home)
@@ -53,6 +55,7 @@ function HomePageRoute() {
  * References:
  * - React Router data mode routing: https://reactrouter.com/start/data/routing
  * - React Router prefix routes: https://reactrouter.com/start/data/routing#prefix-route
+ * - React Router middleware: https://reactrouter.com/how-to/middleware
  */
 export const router = createBrowserRouter([
   // Account routes — standalone auth pages, no app chrome
@@ -68,9 +71,10 @@ export const router = createBrowserRouter([
     ],
   },
 
-  // Assistant routes — full app with layout (safe areas, viewport tracking)
+  // Assistant routes — auth-protected app with layout
   {
     path: "/assistant",
+    middleware: [authMiddleware],
     element: <RootLayout />,
     children: [
       {
@@ -91,4 +95,6 @@ export const router = createBrowserRouter([
 
   // Top-level catch-all
   { path: "*", element: <NotFound /> },
-]);
+], {
+  future: { v8_middleware: true },
+});

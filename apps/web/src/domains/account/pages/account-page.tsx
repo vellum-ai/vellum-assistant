@@ -4,7 +4,7 @@ import { AccountHeading } from "@/components/account/account-form.js";
 import { AccountShell } from "@/components/account/account-shell.js";
 import { PROVIDER_CALLBACK_URL, PROVIDER_ID } from "@/lib/account/login-flow.js";
 import { startAuthFlow } from "@/runtime/native-auth.js";
-import { useAuth } from "@/lib/auth/auth-provider.js";
+import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
 
 /**
@@ -13,7 +13,10 @@ import { routes } from "@/utils/routes.js";
  */
 export function AccountPage() {
   const navigate = useNavigate();
-  const { isLoggedIn, isLoading, username, logout } = useAuth();
+  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isLoading = useAuthStore.use.isLoading();
+  const user = useAuthStore.use.user();
+  const logout = useAuthStore.use.logout();
 
   if (isLoading) {
     return (
@@ -46,7 +49,7 @@ export function AccountPage() {
   return (
     <AccountShell>
       <AccountHeading
-        title={`Welcome${username ? `, ${username}` : ""}!`}
+        title={`Welcome${user?.username ? `, ${user.username}` : ""}!`}
         subtitle="You are signed in."
       />
       <div className="flex flex-col items-center gap-4">

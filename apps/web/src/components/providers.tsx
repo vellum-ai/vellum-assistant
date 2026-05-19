@@ -1,18 +1,20 @@
 /**
  * Root provider composition for the web SPA.
  *
- * Wraps the app in Auth → Organization → scope-keyed QueryClient so that:
- * 1. Auth state is available to all descendants.
- * 2. Organization context resolves the active org for API headers.
- * 3. The React Query cache is keyed by (user, org) — switching users or
+ * Wraps the app in Organization → scope-keyed QueryClient so that:
+ * 1. Organization context resolves the active org for API headers.
+ * 2. The React Query cache is keyed by (user, org) — switching users or
  *    orgs yields a fresh cache instead of leaking stale data.
+ *
+ * Only third-party library providers (React Query) belong here.
+ * App state uses Zustand stores — see `src/stores/`.
  *
  * Reference: https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
-import { useAuth } from "@/lib/auth/auth-provider.js";
+import { useAuthStore } from "@/stores/auth-store.js";
 import {
   OrganizationProvider,
   useOrganization,
@@ -55,10 +57,11 @@ function ScopeKeyedQueryClientProvider({
 }: {
   children: ReactNode;
 }) {
-  const { isLoggedIn, userId } = useAuth();
+  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const user = useAuthStore.use.user();
   const { currentOrganizationId } = useOrganization();
   const scopeKey = `${
-    isLoggedIn ? `user:${userId ?? "unknown"}` : "anonymous"
+    isLoggedIn ? `user:${user?.id ?? "unknown"}` : "anonymous"
   }:org:${currentOrganizationId ?? "none"}`;
 
   return (
@@ -69,9 +72,10 @@ function ScopeKeyedQueryClientProvider({
 }
 
 export function AppProviders({ children }: { children: ReactNode }) {
-  const { isLoggedIn, userId } = useAuth();
+  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const user = useAuthStore.use.user();
   const authScopeKey = isLoggedIn
-    ? `user:${userId ?? "unknown"}`
+    ? `user:${user?.id ?? "unknown"}`
     : "anonymous";
 
   return (

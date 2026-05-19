@@ -20,7 +20,7 @@ import {
 
 import { organizationsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import type { OrganizationRead } from "@/generated/api/types.gen.js";
-import { useAuth } from "@/lib/auth/auth-provider.js";
+import { useAuthStore } from "@/stores/auth-store.js";
 
 import {
   getActiveOrganizationIdForRequests,
@@ -93,7 +93,8 @@ function getErrorMessage(error: unknown): string {
 }
 
 export function OrganizationProvider({ children }: OrganizationProviderProps) {
-  const { isLoggedIn, isLoading: isAuthLoading } = useAuth();
+  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isAuthLoading = useAuthStore.use.isLoading();
   const isOrganizationQueryEnabled = isLoggedIn && !isAuthLoading;
   const [selectedOrganizationId, setSelectedOrganizationId] = useState<
     string | null

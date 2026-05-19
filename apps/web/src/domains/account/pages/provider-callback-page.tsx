@@ -6,7 +6,7 @@ import { AccountShell } from "@/components/account/account-shell.js";
 import { getSession } from "@/lib/auth/allauth-client.js";
 import { resolvePostLoginDestination } from "@/lib/account/login-flow.js";
 import { classifyCallbackFlows } from "@/lib/account/social-auth.js";
-import { useAuth } from "@/lib/auth/auth-provider.js";
+import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
 
 const NATIVE_CALLBACK_PREFIX = "/accounts/native/callback";
@@ -64,7 +64,7 @@ function redirectToNativeApp(
 export function ProviderCallbackPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { refreshSession } = useAuth();
+  const refreshSession = useAuthStore.use.refreshSession();
   const error = searchParams.get("error");
   const [fallbackError, setFallbackError] = useState<string | null>(null);
   const didRun = useRef(false);
