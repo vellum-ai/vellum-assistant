@@ -4,14 +4,33 @@ import { getLogger } from "../../logger.js";
 const log = getLogger("cors");
 
 /**
- * Pattern matching origins from the embedded WKWebView.
+ * Pattern matching origins from a local Vellum HUD WebView.
  *
- * The macOS app loads webview content from `https://{appId}.vellum.local/`,
- * which is cross-origin relative to the local gateway at
- * `http://127.0.0.1:{port}`. Without CORS headers, the browser blocks
- * `window.vellum.fetch` requests from the webview to the gateway.
+ * Two HUD families produce cross-origin fetches against the loopback
+ * gateway and both need CORS headers reflected back:
+ *
+ *   - macOS WKWebView app — loads pages from
+ *     `https://{appId}.vellum.local/`.
+ *   - Tauri HUD — production builds use the `tauri://localhost`
+ *     custom protocol (or `http://tauri.localhost` on Windows), and
+ *     `tauri dev` loads the page from the Vite dev server at
+ *     `http://localhost:{port}`.
+ *
+ * All of these are cross-origin relative to the gateway at
+ * `http://127.0.0.1:{port}`, so the browser issues a preflight before
+ * any custom-header fetch. Without a matching CORS responder the
+ * preflight 404s and every authed call from the HUD silently fails
+ * with "gateway offline" in the UI.
+ *
+ * The loopback bearer-token check on every protected route is the
+ * actual security boundary — CORS just decides which browser-managed
+ * origins are allowed to read the response. Accepting `localhost`
+ * here matches whatever local Tauri/dev environment the user has
+ * running; an unauthenticated origin still cannot read protected
+ * data because it has no token.
  */
-const WEBVIEW_ORIGIN_RE = /^https:\/\/[a-z0-9-]+\.vellum\.local$/;
+const WEBVIEW_ORIGIN_RE =
+  /^(?:https:\/\/[a-z0-9-]+\.vellum\.local|tauri:\/\/localhost|https?:\/\/(?:tauri\.)?localhost(?::\d+)?)$/;
 
 /**
  * Methods the webview bridge may use when calling custom route handlers.
@@ -19,10 +38,14 @@ const WEBVIEW_ORIGIN_RE = /^https:\/\/[a-z0-9-]+\.vellum\.local$/;
 const ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS";
 
 /**
- * Headers the webview bridge sends (auth + content type + org id).
+ * Headers the webview bridge sends.
+ *
+ * `Accept`, `X-Vellum-Interface-Id`, and `X-Vellum-Client-Id` are
+ * required for the Tauri HUD's SSE client (`/v1/events` opens with
+ * `Accept: text/event-stream` + interface/client identifiers).
  */
 const ALLOWED_HEADERS =
-  "Authorization, Content-Type, X-Session-Token, Vellum-Organization-Id, X-Trace-Id";
+  "Accept, Authorization, Content-Type, X-Session-Token, Vellum-Organization-Id, X-Trace-Id, X-Vellum-Interface-Id, X-Vellum-Client-Id";
 
 /**
  * Check whether the request `Origin` header matches a known Vellum Chrome
