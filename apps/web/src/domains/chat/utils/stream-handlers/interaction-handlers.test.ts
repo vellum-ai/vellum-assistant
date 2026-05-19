@@ -19,9 +19,7 @@ describe("handleSecretRequest", () => {
       { type: "secret_request", requestId: "sr-1", label: "API Key" },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "SECRET_REQUEST",
-    });
+    expect(ctx.turnActions.onSecretRequest).toHaveBeenCalled();
     const state = useInteractionStore.getState();
     expect(state.pendingSecret).toMatchObject({ requestId: "sr-1", label: "API Key" });
   });
@@ -34,9 +32,7 @@ describe("handleConfirmationRequest", () => {
       { type: "confirmation_request", requestId: "cr-1", title: "Allow?" },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "CONFIRMATION_REQUEST",
-    });
+    expect(ctx.turnActions.onConfirmationRequest).toHaveBeenCalled();
     const state = useInteractionStore.getState();
     expect(state.pendingConfirmation).toMatchObject({ requestId: "cr-1" });
     expect(ctx.setMessages).toHaveBeenCalled();
@@ -50,9 +46,7 @@ describe("handleContactRequest", () => {
       { type: "contact_request", requestId: "ctc-1", channel: "email" },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "CONTACT_REQUEST",
-    });
+    expect(ctx.turnActions.onContactRequest).toHaveBeenCalled();
     const state = useInteractionStore.getState();
     expect(state.pendingContactRequest).toMatchObject({ requestId: "ctc-1" });
   });

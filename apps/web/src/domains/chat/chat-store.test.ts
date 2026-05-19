@@ -8,7 +8,6 @@ beforeEach(() => {
     activeConversationKey: null,
     assistantId: null,
     sendMessage: async () => {},
-    dispatchTurn: () => {},
   }, true);
 });
 
@@ -23,7 +22,6 @@ describe("useChatStore", () => {
   it("initializes with noop action refs", () => {
     const state = useChatStore.getState();
     expect(typeof state.sendMessage).toBe("function");
-    expect(typeof state.dispatchTurn).toBe("function");
   });
 
   it("setState updates only the targeted state fields", () => {
@@ -57,7 +55,6 @@ describe("useChatStore", () => {
       activeConversationKey: "conv-abc",
       assistantId: "ast-new",
       sendMessage: async () => {},
-      dispatchTurn: () => {},
     };
     useChatStore.setState(fullState, true);
 

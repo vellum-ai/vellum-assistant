@@ -14,7 +14,7 @@ export function handleSecretRequest(
   event: SecretRequestEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "SECRET_REQUEST" });
+  ctx.turnActions.onSecretRequest();
   useInteractionStore.getState().showSecret({
     requestId: event.requestId,
     label: event.label,
@@ -31,7 +31,7 @@ export function handleConfirmationRequest(
   event: ConfirmationRequestEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "CONFIRMATION_REQUEST" });
+  ctx.turnActions.onConfirmationRequest();
   const confData: PendingConfirmationState = {
     requestId: event.requestId,
     title: event.title,
@@ -68,7 +68,7 @@ export function handleContactRequest(
   event: ContactRequestEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "CONTACT_REQUEST" });
+  ctx.turnActions.onContactRequest();
   useInteractionStore.getState().showContactRequest({
     requestId: event.requestId,
     channel: event.channel,
@@ -85,7 +85,7 @@ export function handleQuestionRequest(
 ): void {
   const entries = normalizeQuestionRequest(event);
   if (entries.length === 0) return;
-  ctx.dispatchTurn({ type: "QUESTION_REQUEST" });
+  ctx.turnActions.onQuestionRequest();
   useInteractionStore.getState().showQuestion({
     requestId: event.requestId,
     entries,

@@ -2,7 +2,7 @@ import {
   type MutableRefObject,
   type RefObject,
   useCallback,
-  useReducer,
+  useEffect,
   useRef,
   useState,
 } from "react";
@@ -10,10 +10,9 @@ import {
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
-
 import {
-  turnReducer,
   INITIAL_TURN_STATE,
+  useTurnStore,
 } from "@/domains/messaging/turn-store.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import { useSyncChatStore } from "@/domains/chat/chat-store.js";
@@ -52,7 +51,9 @@ export function ChatPage() {
   const { assistantState, assistantId } = lifecycle;
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
-  const [turnState, dispatchTurn] = useReducer(turnReducer, INITIAL_TURN_STATE);
+  useEffect(() => {
+    useTurnStore.setState(INITIAL_TURN_STATE);
+  }, []);
   const [input, setInput] = useState("");
   const [error, setError] = useState<{ message: string } | null>(null);
   const [compactionCircuitOpenUntil, setCompactionCircuitOpenUntil] =
@@ -88,7 +89,6 @@ export function ChatPage() {
     activeConversationKey: null,
     assistantId,
     sendMessage,
-    dispatchTurn,
   });
 
   if (authLoading || assistantState.kind === "loading") {
@@ -121,8 +121,6 @@ export function ChatPage() {
     isKeyboardOpen: false,
     messages,
     setMessages,
-    turnState,
-    dispatchTurn,
     input,
     setInput,
     error,

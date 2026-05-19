@@ -16,7 +16,7 @@ export function handleMessageQueued(
   event: MessageQueuedEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "MESSAGE_QUEUED" });
+  ctx.turnActions.enqueueMessage();
   const { requestId, position } = event;
   const stableId = ctx.pendingQueuedStableIdsRef.current.shift();
   if (!stableId) return;
@@ -46,7 +46,7 @@ export function handleMessageDequeued(
   event: MessageDequeuedEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "MESSAGE_DEQUEUED" });
+  ctx.turnActions.dequeueMessage();
   const dequeuedStableId = ctx.requestIdToStableIdRef.current.get(
     event.requestId,
   );
@@ -61,7 +61,7 @@ export function handleMessageQueuedDeleted(
   event: MessageQueuedDeletedEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "MESSAGE_QUEUED_DELETED" });
+  ctx.turnActions.deleteQueuedMessage();
   const deletedStableId = ctx.requestIdToStableIdRef.current.get(
     event.requestId,
   );
