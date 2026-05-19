@@ -19,7 +19,7 @@ import {
   INITIAL_TURN_STATE,
 } from "@/domains/chat/lib/turn-state-machine.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import { useSyncChatStore } from "@/domains/chat/chat-store.js";
+import { useSyncChatStore } from "@/domains/chat/use-chat-store.js";
 import {
   ChatRouteContent,
   type ChatRouteContentProps,

@@ -1,9 +1,8 @@
 /**
- * Module-level Zustand store for deeply-shared chat state and actions.
+ * Zustand store for chat state shared across deeply-nested components.
  *
- * Replaces the former dual-Context provider pattern. Zustand's
- * `useStore(selector)` lets each consumer subscribe to only the slice
- * of state it needs — critical during streaming where `messages`
+ * Selector-based subscriptions let each consumer re-render only when
+ * its slice changes — critical during streaming where `messages`
  * updates at ~50 ms cadence.
  *
  * **Primary API** — selector-based (finest granularity):
@@ -14,7 +13,6 @@
  * **Convenience hooks** — grouped slices for common patterns:
  * - `useChatState()` — state slice (messages, conversation key, assistant ID)
  * - `useChatActions()` — stable action refs (sendMessage, dispatchers)
- * - `useChatContext()` — combined (use sparingly)
  *
  * Reference: {@link https://zustand.docs.pmnd.rs/}
  */
@@ -31,7 +29,7 @@ import type { InteractionEvent } from "@/domains/chat/lib/interaction-state-mach
 // Store shape
 // ---------------------------------------------------------------------------
 
-export interface ChatStateValue {
+export interface ChatState {
   /** Current transcript messages for the active conversation. */
   messages: DisplayMessage[];
   /** Key identifying the active conversation, or `null` when none is selected. */
@@ -40,7 +38,7 @@ export interface ChatStateValue {
   assistantId: string | null;
 }
 
-export interface ChatActionsValue {
+export interface ChatActions {
   /** Send a user message (with optional attachments) to the active conversation. */
   sendMessage: (content: string, attachments?: DisplayAttachment[]) => Promise<void>;
   /** Dispatch a turn state-machine event. */
@@ -49,16 +47,16 @@ export interface ChatActionsValue {
   dispatchInteraction: Dispatch<InteractionEvent>;
 }
 
-export type ChatContextValue = ChatStateValue & ChatActionsValue;
+export type ChatStore = ChatState & ChatActions;
 
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
 
-const NOOP_SEND: ChatActionsValue["sendMessage"] = async () => {};
+const NOOP_SEND: ChatActions["sendMessage"] = async () => {};
 const NOOP_DISPATCH: Dispatch<never> = () => {};
 
-export const useChatStore = create<ChatContextValue>()(() => ({
+export const useChatStore = create<ChatStore>()(() => ({
   messages: [],
   activeConversationKey: null,
   assistantId: null,
@@ -121,7 +119,7 @@ export function useSyncChatStore(props: ChatStoreSyncProps): void {
  * Re-renders only when one of these three values changes.
  * Use `useChatActions()` if you only need to dispatch.
  */
-export function useChatState(): ChatStateValue {
+export function useChatState(): ChatState {
   return useChatStore(
     useShallow((s) => ({
       messages: s.messages,
@@ -135,7 +133,7 @@ export function useChatState(): ChatStateValue {
  * Stable action dispatchers (sendMessage, dispatchTurn, dispatchInteraction).
  * Does **not** re-render when messages or active conversation change.
  */
-export function useChatActions(): ChatActionsValue {
+export function useChatActions(): ChatActions {
   return useChatStore(
     useShallow((s) => ({
       sendMessage: s.sendMessage,
@@ -146,10 +144,9 @@ export function useChatActions(): ChatActionsValue {
 }
 
 /**
- * Combined state + actions. Convenience hook for consumers that genuinely
- * need both — prefer `useChatState()` or `useChatActions()` when possible
- * to minimize re-renders.
+ * Full store contents. Prefer `useChatState()` or `useChatActions()`
+ * to minimize re-renders — this hook re-renders on any store change.
  */
-export function useChatContext(): ChatContextValue {
+export function useChatContext(): ChatStore {
   return useChatStore(useShallow((s) => s));
 }
