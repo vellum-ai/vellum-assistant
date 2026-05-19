@@ -269,6 +269,8 @@ async function startCesProcess(
 
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
+  const startupStartedAt = Date.now();
+  log.info({ version: APP_VERSION }, "Daemon starting");
   loadDotEnv();
   validateEnv();
 
@@ -1228,7 +1230,6 @@ export async function runDaemon(): Promise<void> {
     }
 
     writePid(process.pid);
-    log.info({ pid: process.pid }, "Daemon started");
 
     // Install the `assistant` CLI symlink idempotently on every daemon start.
     // Non-blocking — failures are logged but don't affect startup.
@@ -1345,6 +1346,15 @@ export async function runDaemon(): Promise<void> {
         cleanupPidFile();
       },
     });
+
+    log.info(
+      {
+        version: APP_VERSION,
+        durationMs: Date.now() - startupStartedAt,
+        pid: process.pid,
+      },
+      "Daemon started",
+    );
   } catch (err) {
     log.error({ err }, "Daemon startup failed — cleaning up");
     stopDiskPressureGuardForLifecycle();
