@@ -34,7 +34,7 @@ let fetchCallCount = 0;
 // The api module has side-effect-heavy imports (HeyAPI client, CSRF, etc.)
 // that can't load in a test environment. We mock the entire module, providing
 // the pure functions that reconcile.ts needs plus our controllable fetch stub.
-mock.module("./api", () => ({
+mock.module("./api.js", () => ({
   fetchConversationMessages: async (_assistantId: string, _conversationKey: string) => {
     fetchCallCount++;
     if (mockFetchSideEffect) mockFetchSideEffect();

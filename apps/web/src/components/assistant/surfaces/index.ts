@@ -1,0 +1,13 @@
+export { BrowserViewSurface } from "@/components/assistant/surfaces/BrowserViewSurface.js";
+export { CallSummarySurface } from "@/components/assistant/surfaces/CallSummarySurface.js";
+export { CardSurface } from "@/components/assistant/surfaces/CardSurface.js";
+export { ConfirmationSurface } from "@/components/assistant/surfaces/ConfirmationSurface.js";
+export { DocumentPreviewSurface } from "@/components/assistant/surfaces/DocumentPreviewSurface.js";
+export { DynamicPageSurface } from "@/components/assistant/surfaces/DynamicPageSurface.js";
+export { FileUploadSurface } from "@/components/assistant/surfaces/FileUploadSurface.js";
+export { FormSurface } from "@/components/assistant/surfaces/FormSurface.js";
+export { ListSurface } from "@/components/assistant/surfaces/ListSurface.js";
+export { SurfaceContainer } from "@/components/assistant/surfaces/SurfaceContainer.js";
+export { SurfaceRouter } from "@/components/assistant/surfaces/SurfaceRouter.js";
+export type { SurfaceRouterProps } from "@/components/assistant/surfaces/SurfaceRouter.js";
+export { TableSurface } from "@/components/assistant/surfaces/TableSurface.js";

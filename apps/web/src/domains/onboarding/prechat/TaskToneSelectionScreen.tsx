@@ -1,0 +1,182 @@
+
+import {
+  Calendar,
+  Check,
+  ChevronLeft,
+  ClipboardList,
+  Pencil,
+  Search,
+  User,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
+
+import { Button } from "@vellum/design-library/components/button";
+import { OnboardingLayout } from "@/components/app/onboarding/OnboardingLayout.js";
+import { PRECHAT_TASKS } from "@/lib/onboarding/prechat-tasks.js";
+
+/**
+ * Mapping from the data-layer `iconKey` strings (in `prechat-tasks.ts`) to
+ * the lucide-react icon components used by this screen. Keeps the catalog
+ * decoupled from the icon library — see `prechat-tasks.ts`.
+ */
+const TASK_ICONS = {
+  wrench: Wrench,
+  pencil: Pencil,
+  search: Search,
+  clipboardList: ClipboardList,
+  calendar: Calendar,
+  user: User,
+} as const satisfies Record<string, LucideIcon>;
+
+interface TaskToneSelectionScreenProps {
+  selectedTasks: Set<string>;
+  onChange: (next: Set<string>) => void;
+  onBack: () => void;
+  onContinue: () => void;
+  onSkip: () => void;
+}
+
+/**
+ * Second of the three PreChat onboarding screens. Mirrors macOS
+ * `TaskToneSelectionView.swift`: a centered title with a back chevron in
+ * the leading column, a subtitle, six task category cards (lucide icon +
+ * label/sublabel + selection indicator), and primary/skip CTAs at the
+ * bottom. Selection state is owned by the parent flow so a back/forward
+ * navigation preserves it.
+ */
+export function TaskToneSelectionScreen({
+  selectedTasks,
+  onChange,
+  onBack,
+  onContinue,
+  onSkip,
+}: TaskToneSelectionScreenProps) {
+  const toggle = (id: string) => {
+    const next = new Set(selectedTasks);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    onChange(next);
+  };
+
+  return (
+    <OnboardingLayout>
+      {/*
+        `pb-40` reserves clearance above OnboardingLayout's absolute
+        CreatureFooter (overflow-hidden parent + ~180px footer art) so
+        the primary CTA stays visible on short viewports. Matches the
+        pattern in NameExchangeScreen.
+      */}
+      <div className="mx-auto flex w-full max-w-xl flex-col items-center px-6 pb-40 pt-12 text-[var(--content-default)]">
+        {/* Header row: back chevron in the leading column, centered title */}
+        <div
+          className="grid w-full grid-cols-[auto_1fr_auto] items-center"
+          style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
+        >
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Back"
+            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-base)]"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          {/* typography: off-scale — hero onboarding h1 (30px) intentionally larger than text-title-large (24px) to match macOS onboarding visual weight */}
+          { }
+          <h1 className="text-center text-3xl font-semibold tracking-tight">
+            What are you working on?
+          </h1>
+          <div aria-hidden="true" className="h-8 w-8" />
+        </div>
+
+        <p
+          className="mt-4 text-center text-body-medium-lighter text-[var(--content-tertiary)]"
+          style={{ animation: "fadeInUp 0.3s ease-out 0.15s both" }}
+        >
+          Pick the one or two you do most — you can select more if it
+          really is all of it.
+        </p>
+
+        <div
+          className="mt-8 flex w-full flex-col gap-2"
+          style={{ animation: "fadeInUp 0.3s ease-out 0.2s both" }}
+        >
+          {PRECHAT_TASKS.map((task) => {
+            const Icon =
+              TASK_ICONS[task.iconKey as keyof typeof TASK_ICONS];
+            const isSelected = selectedTasks.has(task.id);
+            return (
+              <button
+                key={task.id}
+                type="button"
+                onClick={() => toggle(task.id)}
+                aria-pressed={isSelected}
+                className={`group flex w-full cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+                  isSelected
+                    ? "border-[var(--primary-base)] bg-[var(--primary-base)]/10"
+                    : "border-[var(--border-element)] bg-[var(--surface-lift)] hover:bg-[var(--surface-base)]"
+                }`}
+              >
+                <div className="flex w-6 shrink-0 items-center justify-center text-[var(--content-secondary)]">
+                  {Icon ? <Icon className="h-4 w-4" /> : null}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-body-medium-default text-[var(--content-default)]">
+                    {task.label}
+                  </div>
+                  <p className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
+                    {task.sublabel}
+                  </p>
+                </div>
+                <div
+                  aria-hidden="true"
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
+                    isSelected
+                      ? "bg-[var(--primary-base)]"
+                      : "border-[1.5px] border-[var(--border-element)]"
+                  }`}
+                >
+                  {isSelected ? (
+                    <Check className="h-3 w-3 text-[var(--content-inset)]" />
+                  ) : null}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div
+          className="mt-8 flex w-full flex-col gap-2"
+          style={{ animation: "fadeInUp 0.3s ease-out 0.3s both" }}
+        >
+          <Button
+            variant="primary"
+            size="regular"
+            fullWidth
+            disabled={selectedTasks.size === 0}
+            onClick={onContinue}
+            // typography: off-scale — CTA upsize; Button primitive only exposes regular/compact so text-base forces the spec's 16px "lg" size
+             
+            className="h-11 text-base"
+          >
+            Continue
+          </Button>
+          <Button
+            variant="ghost"
+            size="regular"
+            fullWidth
+            onClick={onSkip}
+            // typography: off-scale — ghost CTA paired with the primary above
+             
+            className="h-11 text-base"
+          >
+            I&apos;ll set this up later
+          </Button>
+        </div>
+      </div>
+    </OnboardingLayout>
+  );
+}

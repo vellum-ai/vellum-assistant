@@ -1,0 +1,61 @@
+
+import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/lib/empty-state-constants.js";
+
+import { ConversationStarterChip } from "@/components/app/core/ConversationStarterChip/ConversationStarterChip.js";
+
+/**
+ * A single conversation starter rendered by {@link ConversationStarterGrid}.
+ *
+ * Defined locally to keep the primitive's API minimal. PR 4's daemon client
+ * exports a richer type with the same shape; PR 10 will reconcile by
+ * importing from the client when wiring data.
+ */
+export interface ConversationStarter {
+  id: string;
+  label: string;
+  prompt: string;
+}
+
+export interface ConversationStarterGridProps {
+  /**
+   * Starters to render. Server returns these in strongest-first order; we
+   * preserve that order and drop any items beyond {@link maxVisible}.
+   */
+  starters: readonly ConversationStarter[];
+  /** Invoked with the full starter object when a chip is clicked. */
+  onSelect: (starter: ConversationStarter) => void;
+  /**
+   * Maximum number of chips rendered. Items beyond this cap are dropped.
+   * Defaults to {@link MAX_CONVERSATION_STARTER_CHIPS}.
+   */
+  maxVisible?: number;
+}
+
+/**
+ * 2-column grid wrapper that renders up to `maxVisible` conversation-starter
+ * chips for the chat empty state. Empty input renders nothing (returns
+ * `null`) so callers can drop the wrapper unconditionally without producing
+ * an empty grid box.
+ */
+export function ConversationStarterGrid({
+  starters,
+  onSelect,
+  maxVisible = MAX_CONVERSATION_STARTER_CHIPS,
+}: ConversationStarterGridProps) {
+  const visible = starters.slice(0, maxVisible);
+  if (visible.length === 0) {
+    return null;
+  }
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {visible.map((starter) => (
+        <ConversationStarterChip
+          key={starter.id}
+          label={starter.label}
+          onSelect={() => onSelect(starter)}
+          aria-label={`Send: ${starter.label}`}
+        />
+      ))}
+    </div>
+  );
+}

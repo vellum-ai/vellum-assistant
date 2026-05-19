@@ -221,6 +221,21 @@ declare -a SAFE_LINE_PATTERNS=(
     # crosses the 16-char threshold for some providers (e.g. salesforce-oauth).
     # The value is a routing identifier, not a credential.
     "managedServiceConfigKey['\"]?[[:space:]]*:[[:space:]]*['\"][a-z][a-z0-9-]*-oauth['\"]"
+    # TS/JS: client_secret assigned from a variable method call
+    # (e.g. `client_secret: clientSecret.trim(),`).
+    "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z][a-zA-Z0-9_]*\(\)[[:space:]]*[,;)][[:space:]]*$"
+    # TS/JS: client_secret in a TypeScript type annotation
+    # (e.g. `client_secret: string` inside an interface/type/parameter).
+    "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*(string|number|boolean|unknown|any)[[:space:]]*[;,})]"
+    # TS/JS: localStorage key constants whose values are key names, not secrets
+    # (e.g. `const LS_IMAGE_GEN_API_KEY = "vellum_gemini_key";`).
+    "(const|let|var)[[:space:]]+[A-Z_]+[[:space:]]*=[[:space:]]*['\"]vellum_[a-z_]+['\"]"
+    # TS/JS: catalog metadata fields storing key names for storage lookups
+    # (e.g. `apiKeyStorageKey: "vellum_perplexity_key"`).
+    "[Aa]pi[Kk]ey(Storage|Prefix|Name)[Kk]ey['\"]?:[[:space:]]*['\"][a-z][a-z0-9_]*['\"]"
+    # TS/JS: catalog metadata with short display prefixes
+    # (e.g. `apiKeyPrefix: "pplx-..."`).
+    "[Aa]pi[Kk]ey[Pp]refix['\"]?:[[:space:]]*['\"][a-zA-Z]{2,8}[-.]+['\"]"
 )
 
 matches_safe_line_pattern() {

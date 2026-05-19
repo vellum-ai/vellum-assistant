@@ -1,0 +1,463 @@
+/* appTheme.css
+ * Source of truth for app color tokens.
+ *
+ * Figma: cCGBcpVDbn22kj3OPU58W8
+ *   Light: node 2674:20625
+ *   Dark:  node 2674:20730
+ *
+ * Mode lives in the selector (.app-root vs .dark .app-root), so variable
+ * names strip the mode segment from Figma's Category-Mode/Variant format
+ * (e.g. Surface-Light/Base -> --surface-base).
+ *
+ * Derived tokens live in a separate section. They map to different Figma
+ * tokens per mode and exist because they express a component-level intent
+ * that isn't a single Figma style (e.g. `--ghost-hover`).
+ */
+
+/* Light mode — Figma node 2674:20625 */
+.app-root {
+  /* Surface */
+  --surface-base: #F6F5F4;
+  --surface-overlay: #FDFDFC;
+  --surface-active: #F2F0EE;
+  --surface-lift: #FFFFFF;
+  /* Semi-transparent tint for hoverable rows (e.g. PanelItem). Figma
+   * Sidepanel Item (1392:10339) specifies `rgba(185,180,172,0.08)` for
+   * light hover — that's Primary-Second-Hover at 8% alpha. Stored as an
+   * rgba literal so consumers can apply it via `bg-[var(--surface-hover)]`
+   * without needing a separate opacity utility. */
+  --surface-hover: rgba(185, 180, 172, 0.08);
+
+  /* Primary */
+  --primary-base: #17191C;
+  --primary-hover: #24292E;
+  --primary-active: #2D3339;
+  --primary-disabled: #F6F5F4;
+  --primary-second-hover: #B9B4AC;
+
+  /* Border */
+  --border-base: #F2F0EE;
+  --border-disabled: #E9E6E2;
+  --border-element: #CFCCC9;
+  --border-hover: #F6F5F4;
+  --border-active: #2D3339;
+
+  /* Content */
+  --content-default: #24292E;
+  --content-emphasised: #161616;
+  --content-secondary: #5A6672;
+  --content-tertiary: #71808E;
+  --content-disabled: #CFCCC9;
+  --content-inset: #FDFDFC;
+
+  /* System */
+  --system-positive-strong: #277E41;
+  --system-positive-weak: #E9F2EC;
+  --system-negative-strong: #DA491A;
+  --system-negative-hover: #E86B40;
+  --system-negative-weak: #F7DAC9;
+  --system-mid-strong: #F1B21E;
+  --system-mid-weak: #FCF3DD;
+
+  /* Feed identifier — glyph (strong) + tinted circle (weak) pairs.
+   * Synced with macOS ColorTokens.swift (light palette). */
+  --feed-nudge-strong: #DB4B77;
+  --feed-nudge-weak: #F0D9E0;
+  --feed-digest-strong: #0E9B8B;
+  --feed-digest-weak: #C8E5E2;
+  --feed-thread-strong: #E9C91A;
+  --feed-thread-weak: #EFE8C4;
+  --system-info-strong: #467CC8;
+  --system-info-weak: #CEDAEC;
+
+  /* Aux */
+  --aux-white: #FFFFFF;
+
+  /* Derived — mode-aware tokens composed from Figma styles */
+  --ring: color-mix(in srgb, var(--system-positive-strong) 30%, transparent);
+  --border-overlay: var(--border-disabled);
+  --ghost-hover: var(--surface-active);
+  --ghost-pressed: var(--border-disabled);
+  /* Shared background for form fields (Input, Dropdown trigger, etc.).
+   * Light: white. Dark: #2D3339 (Figma's "Content-Dark/Background" —
+   * labeled deprecated in Figma, but still the designer's prescribed
+   * field fill). No single Figma token maps to both values. */
+  --field-bg: var(--surface-lift);
+  /* Default border for form fields. Figma 670:2739 shows light-mode
+   * fields with a --border-element hairline and dark-mode fields with
+   * no default border (only a --border-active border on focus). */
+  --field-border: var(--border-element);
+  /* Neutral Tag background (Figma 816:4530 "Gray"). Light = --surface-base,
+   * Dark = --primary-disabled (both resolve to the exact Figma hexes).
+   * Composed because the underlying mapping differs by mode. */
+  --tag-bg-neutral: var(--surface-base);
+
+  /* Layout: shared max-width for the chat surface (transcript + composer +
+   * panel surfaces). Mode-agnostic — kept under .app-root so it inherits
+   * naturally. The chat column is centered and clamped to this width while
+   * the surrounding scroll container remains full-bleed. */
+  --chat-max-width: 800px;
+}
+
+/* Dark mode — Figma node 2674:20730 */
+.dark .app-root {
+  /* Surface */
+  --surface-base: #17191C;
+  --surface-overlay: #1C2024;
+  --surface-active: #444D56;
+  --surface-lift: #24292E;
+  /* Dark-mode counterpart to the light hover tint — Figma Sidepanel Item
+   * (1392:10339) Hover uses `rgba(233,230,226,0.06)`. */
+  --surface-hover: rgba(233, 230, 226, 0.06);
+
+  /* Primary */
+  --primary-base: #FDFDFC;
+  --primary-hover: #F2F0EE;
+  --primary-active: #E9E6E2;
+  --primary-disabled: #2D3339;
+  --primary-second-hover: #E9E6E2;
+
+  /* Border */
+  --border-base: #24292E;
+  --border-disabled: #1C2024;
+  --border-element: #5A6672;
+  --border-hover: #2D3339;
+  --border-active: #F6F5F4;
+
+  /* Content */
+  --content-default: #F6F5F4;
+  --content-emphasised: #FDFDFC;
+  --content-secondary: #A9B2BB;
+  --content-tertiary: #8D99A5;
+  --content-disabled: #5A6672;
+  --content-inset: #17191C;
+
+  /* System */
+  --system-positive-strong: #309C50;
+  --system-positive-weak: #2C3A31;
+  --system-negative-strong: #DA491A;
+  --system-negative-hover: #AB3F1C;
+  --system-negative-weak: #4F2D24;
+  --system-mid-strong: #F1B21E;
+  --system-mid-weak: #4B3D1E;
+
+  /* Feed identifier — dark palette (synced with macOS ColorTokens.swift). */
+  --feed-nudge-strong: #DB4B77;
+  --feed-nudge-weak: #432B33;
+  --feed-digest-strong: #0E9B8B;
+  --feed-digest-weak: #293D3B;
+  --feed-thread-strong: #E9C91A;
+  --feed-thread-weak: #464125;
+  --system-info-strong: #467CC8;
+  --system-info-weak: #2A3A50;
+
+  /* Aux */
+  --aux-white: #FFFFFF;
+
+  /* Derived — dark-mode overrides for tokens whose mapping differs from light.
+   * --ring re-derives automatically via the .app-root color-mix declaration
+   * since --system-positive-strong is re-evaluated in this scope.
+   */
+  --border-overlay: var(--border-hover);
+  --ghost-hover: var(--border-base);
+  --ghost-pressed: var(--primary-active);
+  /* Dark field fill — uses the "Content-Dark/Background" hex directly
+   * since no other Figma token maps to #2D3339 in dark mode. */
+  --field-bg: #2D3339;
+  /* Dark mode: no border by default — focus state re-introduces it via
+   * --border-active at the call site. */
+  --field-border: transparent;
+  /* Dark Tag neutral bg = --primary-disabled (#2D3339). */
+  --tag-bg-neutral: var(--primary-disabled);
+}
+
+/* Velvet mode — dark-mode structure with red/pink accents */
+.velvet .app-root {
+  /* Surface */
+  --surface-base: #121214;
+  --surface-overlay: #1A171B;
+  --surface-active: #30252B;
+  --surface-lift: #211D22;
+  --surface-hover: rgba(244, 63, 94, 0.08);
+
+  /* Primary */
+  --primary-base: #E83F5B;
+  --primary-hover: #F45A73;
+  --primary-active: #C92E48;
+  --primary-disabled: #30252B;
+  --primary-second-hover: #F43F5E;
+
+  /* Border */
+  --border-base: #24292E;
+  --border-disabled: #1C2024;
+  --border-element: #735261;
+  --border-hover: #30252B;
+  --border-active: #FFB3C7;
+
+  /* Content */
+  --content-default: #F6F5F4;
+  --content-emphasised: #FFF7FA;
+  --content-secondary: #C8B6BE;
+  --content-tertiary: #A98695;
+  --content-disabled: #6B5962;
+  --content-inset: #FFF7FA;
+
+  /* System */
+  --system-positive-strong: #E83F5B;
+  --system-positive-weak: #382027;
+  --system-negative-strong: #EF4444;
+  --system-negative-hover: #F87171;
+  --system-negative-weak: #3A2024;
+  --system-mid-strong: #F1B21E;
+  --system-mid-weak: #42321C;
+
+  /* Aux */
+  --aux-white: #FFFFFF;
+
+  /* Derived */
+  --border-overlay: var(--border-hover);
+  --ghost-hover: var(--border-base);
+  --ghost-pressed: var(--primary-active);
+  --field-bg: #242026;
+  --field-border: transparent;
+  --tag-bg-neutral: var(--primary-disabled);
+}
+
+/* Functional keyframes */
+@keyframes indeterminate {
+  0% { width: 0%; margin-left: 0%; }
+  50% { width: 60%; margin-left: 20%; }
+  100% { width: 0%; margin-left: 100%; }
+}
+
+@keyframes fadeInUp {
+  0% { transform: translateY(16px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes popoverIn {
+  0% { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes bottomSheetIn {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+/*
+ * Onboarding hatching avatar pulse.
+ *
+ * Matches the macOS HatchingStepView character animation:
+ *   - Scales between 0.9 and 1.0 on an ease-in-out, 1.2s cycle, infinite alternate.
+ *   - Opacity dimmed to 0.6 so the creature reads as "asleep" during hatching.
+ *
+ * When the assistant becomes active, consumers swap this class for
+ * `.onboarding-avatar-awake`, which settles the avatar back to full scale and
+ * opacity via a short transition with a slight spring-like overshoot.
+ */
+@keyframes morphPulse {
+  0% { transform: scale(0.9); }
+  100% { transform: scale(1.0); }
+}
+
+.onboarding-avatar-pulse {
+  animation: morphPulse 1.2s ease-in-out infinite alternate;
+  opacity: 0.6;
+  will-change: transform, opacity;
+}
+
+.onboarding-avatar-awake {
+  transform: scale(1.1);
+  opacity: 1;
+  transition:
+    transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.4s ease-out;
+}
+
+/*
+ * Failed hatch — mirrors the macOS `HatchingStepView` failure treatment:
+ * tilt the creature ~45° and desaturate it toward gray. The de-morph-*.svg
+ * assets are solid-color body paths, so CSS `grayscale(1)` + darkened
+ * brightness gives a roughly-gray result without needing a failure-specific
+ * asset.
+ */
+.onboarding-avatar-failed {
+  transform: rotate(45deg);
+  filter: grayscale(1) brightness(0.55);
+  opacity: 1;
+  /* No `transition`: the error branch mounts a fresh MorphAvatar rather
+     than swapping classes on a persistent node, so a transition would
+     have no prior value to ease from. If we ever want an animated entry,
+     use `@keyframes` triggered on mount instead. */
+}
+
+/* App shell sizing guards: keep routed pages from collapsing in flex main containers. */
+.app-shell {
+  width: 100%;
+  min-width: 0;
+}
+
+.app-shell-main > * {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Scrollbars — subtle, themed, replacing the default OS gray */
+.app-root {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 128, 142, 0.35) transparent;
+}
+
+.app-root *,
+.app-root *::before,
+.app-root *::after {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 128, 142, 0.35) transparent;
+}
+
+.app-root ::-webkit-scrollbar,
+.app-root::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.app-root ::-webkit-scrollbar-track,
+.app-root::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-root ::-webkit-scrollbar-thumb,
+.app-root::-webkit-scrollbar-thumb {
+  background: rgba(113, 128, 142, 0.35);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.app-root ::-webkit-scrollbar-thumb:hover,
+.app-root::-webkit-scrollbar-thumb:hover {
+  background: rgba(113, 128, 142, 0.6);
+  background-clip: padding-box;
+}
+
+/* Avatar breathing animation — gentle scale pulse matching macOS
+   AnimatedAvatarView.swift startBreathing() (2s in, 2s out). */
+@keyframes avatar-breathe-kf {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+
+/* Avatar streaming morph — asymmetric squash/stretch + rotation matching
+   macOS AnimatedAvatarView.swift startMorph(). Two separate keyframes so
+   they cycle at different periods (2.4s scale, 3.0s rotation) for an
+   organic feel. */
+/* Scale X/Y: ±2% deviation with inverted phase, matching macOS
+   scaleX.values = [1, 1.02, 0.99, 1.01, 1] and
+   scaleY.values = [1, 0.99, 1.02, 0.99, 1]. CSS can't animate scaleX/Y
+   independently on SVG, so we combine them into a single scale(). */
+@keyframes avatar-morph-scale {
+  0%, 100% { transform: scale(1, 1); }
+  25% { transform: scale(1.02, 0.99); }
+  50% { transform: scale(0.99, 1.02); }
+  75% { transform: scale(1.01, 0.99); }
+}
+
+/* Rotation: ±0.015 radians (~0.86°), 3s cycle for polyrhythmic effect. */
+@keyframes avatar-morph-rotate {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(0.86deg); }
+  50% { transform: rotate(0deg); }
+  75% { transform: rotate(-0.86deg); }
+}
+
+.app-root ::-webkit-scrollbar-corner,
+.app-root::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.dark .app-root {
+  scrollbar-color: rgba(169, 178, 187, 0.25) transparent;
+}
+
+.dark .app-root *,
+.dark .app-root *::before,
+.dark .app-root *::after {
+  scrollbar-color: rgba(169, 178, 187, 0.25) transparent;
+}
+
+.dark .app-root ::-webkit-scrollbar-thumb,
+.dark .app-root::-webkit-scrollbar-thumb {
+  background: rgba(169, 178, 187, 0.25);
+  background-clip: padding-box;
+}
+
+.dark .app-root ::-webkit-scrollbar-thumb:hover,
+.dark .app-root::-webkit-scrollbar-thumb:hover {
+  background: rgba(169, 178, 187, 0.5);
+  background-clip: padding-box;
+}
+
+.velvet .app-root {
+  scrollbar-color: rgba(232, 63, 91, 0.28) transparent;
+}
+
+.velvet .app-root *,
+.velvet .app-root *::before,
+.velvet .app-root *::after {
+  scrollbar-color: rgba(232, 63, 91, 0.28) transparent;
+}
+
+.velvet .app-root ::-webkit-scrollbar-thumb,
+.velvet .app-root::-webkit-scrollbar-thumb {
+  background: rgba(232, 63, 91, 0.28);
+  background-clip: padding-box;
+}
+
+.velvet .app-root ::-webkit-scrollbar-thumb:hover,
+.velvet .app-root::-webkit-scrollbar-thumb:hover {
+  background: rgba(232, 63, 91, 0.5);
+  background-clip: padding-box;
+}
+
+/* -------------------------------------------------------------------------
+ * BusyIndicator — mirrors macOS VBusyIndicator
+ * A filled circle pulsing in opacity (1→0.3) and scale (1→0.85) over 1s
+ * easeInOut. Used in ToolCallProgressCard for active/thinking phases.
+ * ------------------------------------------------------------------------- */
+@keyframes busy-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(0.85);
+  }
+}
+
+.busy-indicator {
+  animation: busy-pulse 1s ease-in-out infinite;
+}
+
+/* Typing indicator — 3-dot pulse matching macOS TypingIndicatorView.
+ * Sine-wave approximation: each dot pulses scale (0.6→1) and opacity
+ * (0.45→1) over 1s with 120° phase offsets via negative delay. */
+@keyframes typing-dot-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.6); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .busy-indicator {
+    animation: none;
+    opacity: 0.6;
+  }
+  .typing-dot {
+    animation: none !important;
+    opacity: 0.7 !important;
+  }
+}

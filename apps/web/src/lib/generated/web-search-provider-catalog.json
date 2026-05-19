@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "inference-provider-native",
+      "displayName": "Provider Native",
+      "kind": "managed"
+    },
+    {
+      "id": "perplexity",
+      "displayName": "Perplexity",
+      "kind": "byok",
+      "apiKeyPrefix": "pplx-...",
+      "apiKeyStorageKey": "vellum_perplexity_key",
+      "fallbackOrder": 1,
+      "privacyPolicyUrl": "https://www.perplexity.ai/hub/legal/privacy-policy"
+    },
+    {
+      "id": "brave",
+      "displayName": "Brave",
+      "displayNameLong": "Brave Search",
+      "kind": "byok",
+      "apiKeyPrefix": "BSA...",
+      "apiKeyStorageKey": "vellum_brave_key",
+      "fallbackOrder": 2,
+      "privacyPolicyUrl": "https://search.brave.com/help/privacy-policy"
+    },
+    {
+      "id": "tavily",
+      "displayName": "Tavily",
+      "kind": "byok",
+      "apiKeyPrefix": "tvly-...",
+      "apiKeyStorageKey": "vellum_tavily_key",
+      "fallbackOrder": 3,
+      "privacyPolicyUrl": "https://tavily.com/privacy"
+    }
+  ]
+}

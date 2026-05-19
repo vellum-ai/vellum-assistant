@@ -1,10 +1,11 @@
 import { client } from "@/generated/api/client.gen.js";
-import { assertHasResponse } from "@/lib/api-errors.js";
+import { assertHasResponse } from "@/lib/api/errors.js";
 import {
   type PreChatOnboardingContext,
   type PreChatOnboardingProfileFields,
   preChatOnboardingProfileFields,
 } from "@/lib/onboarding/prechat.js";
+import "@/lib/vellum-api/client.js";
 
 const SDK_BASE_OPTIONS =
   typeof window === "undefined"

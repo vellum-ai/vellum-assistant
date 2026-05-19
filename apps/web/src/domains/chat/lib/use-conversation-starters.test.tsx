@@ -78,7 +78,7 @@ let daemonResponse: ListConversationStartersResult = {
   status: "ready",
 };
 
-mock.module("./conversation-starters", () => ({
+mock.module("./conversation-starters.js", () => ({
   listConversationStarters: (
     assistantId: string,
     opts?: { limit?: number; offset?: number; scopeId?: string },

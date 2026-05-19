@@ -14,7 +14,7 @@ mock.module("@capacitor/core", () => ({
   },
 }));
 
-mock.module("@/lib/browser", () => ({
+mock.module("@/lib/browser.js", () => ({
   openUrl: (url: string) => openUrlMock(url),
 }));
 

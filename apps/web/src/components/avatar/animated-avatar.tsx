@@ -292,7 +292,7 @@ export function AnimatedAvatar({
           transition: "transform 0.15s ease-in-out",
         }}
       >
-        {eyeStyle.paths.map((p, i) => (
+        {eyeStyle.paths.map((p: { svgPath: string; color: string }, i: number) => (
           <path
             key={i}
             d={p.svgPath}

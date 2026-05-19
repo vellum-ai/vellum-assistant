@@ -95,7 +95,7 @@ export interface AssistantShellProps {
    * collapsed and which variant to render (`"rail"` on desktop, `"overlay"`
    * on mobile).
    */
-  sideMenu: (args: AssistantShellSideMenuArgs) => ReactNode;
+  sideMenu?: (args: AssistantShellSideMenuArgs) => ReactNode;
   topBarRightSlot?: ReactNode;
   topBarCenter?: ReactNode;
   onStartNewConversation?: () => void;
@@ -355,7 +355,7 @@ export function AssistantShell({
                       "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
                   }}
                 >
-                  {sideMenu({
+                  {sideMenu?.({
                     collapsed: false,
                     variant: "overlay",
                     onClose: () => setDrawerOpen(false),
@@ -372,7 +372,7 @@ export function AssistantShell({
               className="shrink-0"
               aria-label="Assistant navigation"
             >
-              {sideMenu({ collapsed, variant: "rail" })}
+              {sideMenu?.({ collapsed, variant: "rail" })}
             </aside>
             <main
               className="min-w-0 flex-1 overflow-y-auto"

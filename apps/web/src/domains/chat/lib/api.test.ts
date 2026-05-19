@@ -40,7 +40,7 @@ const sentryCaptureMessages: SentryCaptureMessageCall[] = [];
 // Sentry so fleet-wide passive telemetry can answer the L2/L3 question even
 // when users never submit a support snapshot. Capturing every call makes
 // those code paths assertable.
-mock.module("@sentry/nextjs", () => ({
+mock.module("@sentry/react", () => ({
   addBreadcrumb: (crumb: SentryBreadcrumbCall) => {
     sentryBreadcrumbs.push(crumb);
   },
