@@ -55,6 +55,7 @@ const stubConfig: {
     activeHoursStart: number | null;
     activeHoursEnd: number | null;
     maxConsecutiveRuns: number | null;
+    disposition: string;
   };
 } = {
   heartbeat: {
@@ -63,6 +64,7 @@ const stubConfig: {
     activeHoursStart: null,
     activeHoursEnd: null,
     maxConsecutiveRuns: null,
+    disposition: "Default disposition text.",
   },
 };
 mock.module("../../config/loader.js", () => ({
