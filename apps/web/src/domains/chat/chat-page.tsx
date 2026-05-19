@@ -9,7 +9,7 @@ import {
 
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
-import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+import { useAssistantContext } from "@/domains/chat/assistant-context.js";
 import {
   INITIAL_TURN_STATE,
   useTurnStore,
@@ -34,21 +34,9 @@ const EMPTY_MAP_MESSAGES = new Map<
 const EMPTY_SET_STRINGS = new Set<string>();
 
 export function ChatPage() {
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
   const authLoading = useAuthStore.use.isLoading();
   const isMobile = useIsMobile();
-
-  const navigate = useCallback((_path: string) => {}, []);
-
-  const lifecycle = useAssistantLifecycle({
-    isLoggedIn,
-    isLoading: authLoading,
-    isRetired: false,
-    isNonProduction: false,
-    onRedirect: navigate,
-  });
-
-  const { assistantState, assistantId } = lifecycle;
+  const { assistantId, assistantState } = useAssistantContext();
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   useEffect(() => {

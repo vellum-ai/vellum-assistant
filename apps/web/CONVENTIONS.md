@@ -707,47 +707,8 @@ typed
 [`context`](https://reactrouter.com/start/data/route-object/#middleware),
 accessible in loaders and components.
 
-#### Auth is optional — controlled by environment config
-
-Authentication is **not always required.** The hosted Vellum service
-(`vellum.ai`) and the App Store iOS app enforce login. But contributors
-running the app locally (`bun run dev`) or self-hosting it can use it
-without logging in — the same way they'd use a local desktop app.
-
-A `VITE_AUTH_REQUIRED` environment variable controls enforcement.
-Hosted deployments set it to `"true"`; the default is `"false"` so
-the app works out of the box for local development and self-hosting.
-
-| Environment | `VITE_AUTH_REQUIRED` | Behavior |
-|---|---|---|
-| Hosted web (`vellum.ai`) | `"true"` | Middleware redirects to `/account/login` |
-| App Store iOS (Capacitor) | `"true"` | Same — native login flow via ASWebAuthenticationSession |
-| Local dev / self-hosted | `"false"` (default) | Middleware passes through with anonymous context |
-| Future Electron/macOS | `"false"` (default) | Same — app usable without login |
-
-```ts
-async function authMiddleware({ context }) {
-  const { isAuthenticated, user } = useAuthStore.getState();
-
-  if (!requiresAuth()) {
-    // Local/self-hosted — allow anonymous usage
-    context.set(userContext, user ?? ANONYMOUS_USER);
-    return;
-  }
-
-  if (!isAuthenticated) {
-    throw redirect("/account/login");
-  }
-
-  context.set(userContext, user);
-}
-```
-
-References:
-- [React Router — Middleware](https://reactrouter.com/how-to/middleware)
-- [React Router — Future Flags (`v8_middleware`)](https://reactrouter.com/upgrading/future#futurev8_middleware)
-- [React Router collaborator recommendation for SPA auth](https://github.com/remix-run/react-router/discussions/14697)
-- [Vite — Env Variables](https://vite.dev/guide/env-and-mode.html)
+Authentication is always required. The middleware reads from the Zustand
+auth store and redirects unauthenticated users to `/account/login`.
 
 ### URL-driven routing
 

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -10,6 +11,9 @@ import { Outlet, useLocation, useNavigate } from "react-router";
 import { haptic } from "@/utils/haptics.js";
 import { routes } from "@/utils/routes.js";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
+import { useAuthStore } from "@/stores/auth-store.js";
+import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+import type { AssistantContextValue } from "@/domains/chat/assistant-context.js";
 
 import { ChatLayoutHeader } from "./chat-layout-header.js";
 import { SideMenu } from "./side-menu.js";
@@ -84,15 +88,48 @@ export interface SideMenuRenderArgs {
 
 /**
  * Chat-specific layout route providing sidebar rail, mobile drawer, keyboard
- * shortcuts (Ctrl+\, Ctrl+K, Ctrl+[/]), and the chat header bar. Renders
- * inside RootLayout and wraps chat child routes via `<Outlet />`.
+ * shortcuts (Ctrl+\, Ctrl+K, Ctrl+[/]), and the chat header bar. Owns the
+ * assistant lifecycle and passes the resolved state to child routes via
+ * outlet context.
  *
  * References:
  * - React Router nested layouts: https://reactrouter.com/start/data/routing
+ * - React Router outlet context: https://reactrouter.com/start/framework/outlet
  */
 export function ChatLayout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const authLoading = useAuthStore.use.isLoading();
+
+  const lifecycle = useAssistantLifecycle({
+    isLoggedIn,
+    isLoading: authLoading,
+    isRetired: false,
+    isNonProduction: false,
+    onRedirect: navigate,
+  });
+
+  const assistantContext = useMemo<AssistantContextValue>(
+    () => ({
+      assistantId: lifecycle.assistantId,
+      assistantState: lifecycle.assistantState,
+      checkAssistant: lifecycle.checkAssistant,
+      retryAssistant: lifecycle.retryAssistant,
+      hatchVersion: lifecycle.hatchVersion,
+      setAssistantId: lifecycle.setAssistantId,
+      autoGreetRef: lifecycle.autoGreetRef,
+    }),
+    [
+      lifecycle.assistantId,
+      lifecycle.assistantState,
+      lifecycle.checkAssistant,
+      lifecycle.retryAssistant,
+      lifecycle.hatchVersion,
+      lifecycle.setAssistantId,
+      lifecycle.autoGreetRef,
+    ],
+  );
 
   // --- History tracking for back/forward nav ---
   const historyIndexRef = useRef(0);
@@ -279,7 +316,7 @@ export function ChatLayout() {
 
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 overflow-y-auto">
-          <Outlet />
+          <Outlet context={assistantContext} />
           {drawerVisible ? (
             <div
               ref={drawerRef}
@@ -326,7 +363,7 @@ export function ChatLayout() {
             className="min-w-0 flex-1 overflow-y-auto"
             style={{ flex: 1 }}
           >
-            <Outlet />
+            <Outlet context={assistantContext} />
           </main>
         </div>
       )}

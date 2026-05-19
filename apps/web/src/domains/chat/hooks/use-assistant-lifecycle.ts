@@ -52,7 +52,7 @@ interface UseAssistantLifecycleOptions {
   onRedirect: (url: string) => void;
 }
 
-interface UseAssistantLifecycleReturn {
+export interface UseAssistantLifecycleReturn {
   assistantState: AssistantState;
   assistantId: string | null;
   setAssistantId: Dispatch<SetStateAction<string | null>>;

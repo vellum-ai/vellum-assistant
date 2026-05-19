@@ -18,13 +18,15 @@ import { DesktopOAuthCompletePage } from "@/domains/account/pages/desktop-oauth-
 import { LogoutPage } from "@/domains/account/pages/logout-page.js";
 import { OAuthPopupCompletePage } from "@/domains/account/pages/oauth-popup-complete-page.js";
 import { PasswordResetPage } from "@/domains/account/pages/password-reset-page.js";
+import { useAssistantContext } from "@/domains/chat/assistant-context.js";
 import { routes } from "@/utils/routes.js";
 
 function HomePageRoute() {
   const navigate = useNavigate();
+  const { assistantId } = useAssistantContext();
   return (
     <HomePage
-      assistantId="default"
+      assistantId={assistantId}
       onStartNewChat={() => navigate(routes.assistant)}
       onOpenConversation={(conversationId) =>
         navigate(`${routes.assistant}/conversations/${conversationId}`)

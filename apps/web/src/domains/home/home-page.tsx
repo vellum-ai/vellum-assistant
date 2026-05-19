@@ -41,7 +41,7 @@ function HomePageSkeleton() {
 }
 
 export interface HomePageProps {
-  assistantId: string;
+  assistantId: string | null;
   onStartNewChat: () => void;
   onOpenConversation: (conversationId: string) => void;
   onSuggestionSelected: (prompt: string) => void;
