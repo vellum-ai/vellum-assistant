@@ -130,6 +130,26 @@ import { Button } from "@vellum/design-library/components/button";
 import { cn } from "@vellum/design-library/utils/cn";
 ```
 
+### Just-in-Time compilation
+
+This package uses the **Just-in-Time (JIT) internal package** strategy —
+it exports raw TypeScript source that the consuming app's bundler (Vite)
+compiles on the fly. This means:
+
+- **No build step required** — clone, `bun install`, and start developing.
+  Changes to design library components are picked up immediately by HMR.
+- **Consumer apps must list this package's dependencies** in their own
+  `package.json` (e.g. `react-markdown`, `remark-gfm`, Radix packages).
+  Because the `file:` link resolves to raw source, TypeScript resolves
+  imports through the consumer's `node_modules`. These deps are deduplicated
+  at runtime by Vite — they only need to be listed for type resolution.
+
+References:
+- [Turborepo — Internal Packages: Just-in-Time strategy](https://turborepo.dev/docs/core-concepts/internal-packages#just-in-time-packages)
+- [Hiroki Osame — Think twice before importing package source files](https://hirok.io/posts/importing-source-files-in-dev) (tradeoffs of source imports)
+
+### Tailwind and token setup
+
 The consuming app must import the design token stylesheet and include this
 package's source in its Tailwind source scan:
 
