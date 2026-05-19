@@ -185,14 +185,14 @@ export function setupOrganizationStore(): () => void {
   let lastFetchedAt = 0;
 
   // Track when fetches complete so we can enforce staleTime on focus refetch.
-  useOrganizationStore.subscribe((state) => {
+  const unsubStale = useOrganizationStore.subscribe((state) => {
     if (state.status === "ready" || state.status === "error") {
       lastFetchedAt = Date.now();
     }
   });
 
   // 1. Auth transitions — login or user switch triggers org fetch.
-  useAuthStore.subscribe((state, prevState) => {
+  const unsubAuth = useAuthStore.subscribe((state, prevState) => {
     if (
       state.isLoggedIn &&
       (!prevState.isLoggedIn || state.user?.id !== prevState.user?.id)
@@ -221,6 +221,8 @@ export function setupOrganizationStore(): () => void {
   document.addEventListener("visibilitychange", onVisibilityChange);
 
   return () => {
+    unsubStale();
+    unsubAuth();
     window.removeEventListener("focus", onFocus);
     document.removeEventListener("visibilitychange", onVisibilityChange);
   };
