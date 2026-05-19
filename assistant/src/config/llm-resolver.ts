@@ -87,10 +87,12 @@ function effectiveDefault(
 ): z.infer<typeof LLMSchema>["callSites"][LLMCallSite] | undefined {
   const dflt = CALL_SITE_DEFAULTS[callSite];
   if (dflt == null) return undefined;
+  const targetProfile =
+    dflt.profile != null ? llm.profiles?.[dflt.profile] : undefined;
   const stripProfile =
     hasOverrideProfile ||
     (dflt.profile != null &&
-      (llm.profiles == null || llm.profiles[dflt.profile] == null));
+      (targetProfile == null || targetProfile.status === "disabled"));
   if (stripProfile) {
     const { profile: _profile, ...rest } = dflt;
     return Object.keys(rest).length > 0 ? rest : undefined;

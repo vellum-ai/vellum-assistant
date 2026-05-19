@@ -572,6 +572,35 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.effort).toBe("max");
   });
 
+  test("CALL_SITE_DEFAULTS profile is stripped when the target profile is disabled (BYOK)", () => {
+    const llm = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider: "openai",
+        model: "gpt-5.5",
+        provider_connection: "openai-personal",
+      },
+      profiles: {
+        "cost-optimized": {
+          status: "disabled",
+          model: "claude-haiku-4-5-20251001",
+          provider: "anthropic",
+          provider_connection: "anthropic-managed",
+        },
+        "custom-balanced": {
+          model: "gpt-5.5",
+          provider: "openai",
+          provider_connection: "openai-personal",
+        },
+      },
+      activeProfile: "custom-balanced",
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.model).toBe("gpt-5.5");
+    expect(resolved.provider_connection).toBe("openai-personal");
+  });
+
   test("overrideProfile wins over CALL_SITE_DEFAULTS profile for non-main call sites", () => {
     const llm = LLMSchema.parse({
       default: fullDefault,
