@@ -72,6 +72,7 @@ import {
   isReplaceableTitle,
   queueRegenerateConversationTitle,
 } from "../memory/conversation-title-service.js";
+import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { backfillMessageIdOnLogs } from "../memory/llm-request-log-store.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
@@ -1679,6 +1680,9 @@ export async function runAgentLoopImpl(
       transportHints: ctx.transportHints ?? null,
       slackRuntimeContextNotice: ctx.slackRuntimeContextNotice ?? null,
       isNonInteractive: !isInteractiveResolved,
+      isBackgroundConversation: isBackgroundConversationType(
+        turnStartConversation?.conversationType,
+      ),
       subagentStatusBlock,
       slackChronologicalMessages,
       slackActiveThreadFocusBlock,

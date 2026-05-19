@@ -930,6 +930,28 @@ describe("stripInjectionsForCompaction with NOW.md", () => {
       "Hello",
     );
   });
+
+  test("strips <background_turn> blocks", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<background_turn>\nGuardian isn't watching — notify on anything noteworthy.\n</background_turn>",
+          },
+          { type: "text", text: "Hello" },
+        ],
+      },
+    ];
+
+    const result = stripInjectionsForCompaction(messages);
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

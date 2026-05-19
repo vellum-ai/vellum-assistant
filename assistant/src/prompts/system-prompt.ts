@@ -286,14 +286,6 @@ export interface BuildSystemPromptOptions {
   channelPersona?: string | null;
   userSlug?: string | null;
   onboardingContext?: OnboardingContext;
-  /**
-   * When true, append the Background Conversation guidance instructing the
-   * model to invoke the `notifications` skill for progress, blockers, and
-   * completion. Set by callers when running a non-interactive
-   * background/scheduled conversation. Interactive conversations leave this
-   * unset so they pay zero token cost.
-   */
-  isBackgroundConversation?: boolean;
 }
 
 /**
