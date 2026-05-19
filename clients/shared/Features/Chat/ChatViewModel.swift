@@ -285,6 +285,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     func clearCurrentTurnTracking() {
         idleFallbackTask?.cancel()
         idleFallbackTask = nil
+        if let existingId = currentAssistantMessageId {
+            messageManager.batchUpdateMessages { msgs in
+                msgs.finalizeStreamingMessage(id: existingId)
+            }
+        }
         currentAssistantMessageId = nil
         currentTurnUserText = nil
         currentAssistantHasText = false
