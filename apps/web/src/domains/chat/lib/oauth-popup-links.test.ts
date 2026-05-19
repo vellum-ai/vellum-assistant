@@ -14,7 +14,7 @@ mock.module("@capacitor/core", () => ({
   },
 }));
 
-mock.module("@/lib/browser", () => ({
+mock.module("@/runtime/browser", () => ({
   openUrl: (url: string) => openUrlMock(url),
 }));
 
@@ -24,7 +24,7 @@ import {
   openOAuthUrlInPopup,
   shouldOpenMarkdownLinkInOAuthPopup,
 } from "@/domains/chat/lib/oauth-popup-links.js";
-import { routes } from "@/lib/routes.js";
+import { routes } from "@/utils/routes.js";
 
 const originalWindow = globalThis.window;
 

@@ -9,13 +9,13 @@ import type {
   NotificationIntentEvent,
   UsageUpdateEvent,
 } from "@/domains/chat/lib/api.js";
-import type { ContextWindowUsage } from "@/components/context-window-indicator.js";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import { saveContextWindowUsage } from "@/domains/chat/lib/contextWindowStorage.js";
 import {
   extractConversationKey,
   postLocalNotification,
   sendNotificationIntentAck,
-} from "@/lib/notifications/native.js";
+} from "@/runtime/notifications.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
 
 export function handleUsageUpdate(

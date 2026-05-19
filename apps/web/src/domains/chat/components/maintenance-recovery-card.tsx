@@ -1,8 +1,8 @@
 import { WrenchIcon } from "lucide-react";
 
-import { AppLink, type AppRoute } from "@/adapters/app-link.js";
+import { Link } from "react-router";
 
-import { routes } from "@/lib/routes.js";
+import { routes } from "@/utils/routes.js";
 
 /**
  * In-chat card shown in place of the empty state when the assistant is in
@@ -25,12 +25,12 @@ export function MaintenanceRecoveryCard() {
       <p className="mt-1 text-body-medium-lighter text-[var(--content-tertiary)]">
         Chat is unavailable while maintenance is active.
       </p>
-      <AppLink
-        href={`${routes.settings.debug}?tab=terminal` satisfies AppRoute}
+      <Link
+        to={`${routes.settings.debug}?tab=terminal`}
         className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-[var(--system-mid-strong)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-small-default text-[var(--system-mid-strong)] transition-colors hover:bg-[var(--system-mid-weak)]"
       >
         Go to Debug Settings
-      </AppLink>
+      </Link>
     </div>
   );
 }

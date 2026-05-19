@@ -1,4 +1,4 @@
-import { Typography } from "@vellum/design-library/components/typography";
+import { Typography } from "@vellum/design-library";
 import { CATEGORY_STYLES, CATEGORY_ORDER } from "../home-feed-filter-bar.js";
 import type { FeedItem, FeedItemCategory } from "../types.js";
 

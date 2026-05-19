@@ -1,35 +1,22 @@
-
 import { useCallback } from "react";
-
-import {
-  useAppNavigate,
-  useAppSearchParams,
-  type AppRoutingAdapter,
-} from "@/adapters/app-routing.js";
+import { useNavigate, useSearchParams } from "react-router";
 
 /**
- * Chat-domain routing adapter.
+ * Chat-domain routing hook.
  *
- * Delegates to the shared `useAppRouting` adapter and adds `replaceUrl`
- * for silent URL-bar updates specific to the chat domain.
- *
- * Every `next/navigation` import in the `(chat)/` directory should flow
- * through this hook so the rest of the domain code stays framework-agnostic.
- * When the codebase migrates to React Router v7, only the shared adapter
- * and this file change.
+ * Wraps React Router primitives and adds `replaceUrl` for silent URL-bar
+ * updates that don't trigger a full route re-evaluation.
  */
 export function useRouting() {
-  const { push, replace } = useAppNavigate();
-  const searchParams = useAppSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  /**
-   * Silently update the URL bar without triggering a framework navigation.
-   * In Next.js App Router this avoids a full re-render / remount of the
-   * page component. The RR v7 migration strategy for this is TBD —
-   * `navigate(url, { replace: true })` triggers a full route re-evaluation,
-   * so callers relying on no-re-render semantics may need to keep using
-   * `window.history.replaceState` or adopt a custom silent-update wrapper.
-   */
+  const push = useCallback((path: string) => navigate(path), [navigate]);
+  const replace = useCallback(
+    (path: string) => navigate(path, { replace: true }),
+    [navigate],
+  );
+
   const replaceUrl = useCallback(
     (url: string) => window.history.replaceState(null, "", url),
     [],
@@ -39,6 +26,3 @@ export function useRouting() {
 }
 
 export type RoutingAdapter = ReturnType<typeof useRouting>;
-
-// Re-export the shared adapter type for consumers that don't need replaceUrl.
-export type { AppRoutingAdapter };

@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { useState } from "react";
 
-import { cn } from "@vellum/design-library/utils/cn";
+import { cn } from "@vellum/design-library";
 import { CATEGORY_STYLES } from "./home-feed-filter-bar.js";
 import type { FeedItem, FeedItemCategory } from "./types.js";
 

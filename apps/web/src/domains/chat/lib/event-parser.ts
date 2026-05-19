@@ -9,7 +9,7 @@
 import type {
   DiskPressureBlockedCapability,
   DiskPressureStatus,
-} from "@/lib/assistants/types.js";
+} from "@/domains/assistant/types.js";
 import type {
   AllowlistOption,
   AssistantActivityPhase,

@@ -15,14 +15,12 @@ import {
   useState,
 } from "react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Button, Card, Typography } from "@vellum/design-library";
 import type {
   QuestionEntry,
   QuestionResponseEntry,
 } from "@/domains/chat/lib/api.js";
-import { useOptionHotkeys } from "@/lib/hooks/use-option-hotkeys.js";
+import { useOptionHotkeys } from "@/hooks/use-option-hotkeys.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 
 export interface QuestionPromptCardProps {

@@ -11,7 +11,7 @@
 import { client as authClient } from "@/generated/auth/client.gen.js";
 import { client as platformClient } from "@/generated/api/client.gen.js";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf.js";
-import { getActiveOrganizationIdForRequests } from "@/lib/organization/organization-state.js";
+import { getActiveOrganizationIdForRequests } from "@/domains/organization/organization-state.js";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 

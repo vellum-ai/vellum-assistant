@@ -22,7 +22,7 @@ import {
 
 import type { Conversation } from "@/domains/chat/lib/conversations.js";
 import { analyzeConversation, forkConversation } from "@/domains/chat/lib/conversations.js";
-import { routes } from "@/lib/routes.js";
+import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import type { ChatError } from "@/domains/chat/types.js";

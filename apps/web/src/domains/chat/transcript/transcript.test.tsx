@@ -31,15 +31,15 @@ mock.module("@/components/assistant/surfaces", () => ({
 
 // `MessageHoverActions` uses `navigator.clipboard` in a handler; replace
 // with a minimal stub so the server render is deterministic.
-mock.module("@/components/message-hover-actions/message-hover-actions.js", () => ({
+mock.module("@/domains/chat/components/message-hover-actions/message-hover-actions.js", () => ({
   MessageHoverActions: () => <div data-testid="hover-actions" />,
 }));
 
-mock.module("@/components/tool-call-chip/tool-call-chip.js", () => ({
+mock.module("@/domains/chat/components/tool-call-chip/tool-call-chip.js", () => ({
   ToolCallChip: () => <div data-testid="tool-call" />,
 }));
 
-mock.module("@/components/chat-attachments/index.js", () => ({
+mock.module("@/domains/chat/components/chat-attachments/index.js", () => ({
   MessageAttachments: () => <div data-testid="attachments" />,
 }));
 

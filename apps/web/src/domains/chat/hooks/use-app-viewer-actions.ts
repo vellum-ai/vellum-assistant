@@ -13,7 +13,7 @@
 import * as Sentry from "@sentry/react";
 import { type Dispatch, type MutableRefObject, type RefObject, useCallback, useEffect, useRef } from "react";
 
-import { toast } from "@/components/toast.js";
+import { toast } from "@vellum/design-library";
 import { openApp, shareApp } from "@/domains/chat/lib/apps.js";
 import { fetchDocumentContent } from "@/domains/chat/lib/documents.js";
 import { getEditChatKey, setEditChatKey } from "@/domains/chat/lib/edit-chat-session.js";

@@ -96,6 +96,6 @@ export async function downloadArtifact(
     throw new Error("Failed to download artifact");
   }
 
-  const { saveFile } = await import("@/lib/native-file.js");
+  const { saveFile } = await import("@/runtime/native-file.js");
   await saveFile(data, filename);
 }

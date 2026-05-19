@@ -21,7 +21,7 @@ import {
   getSession,
   logout as allauthLogout,
 } from "@/lib/auth/allauth-client.js";
-import { setActiveOrganizationIdForRequests } from "@/lib/organization/organization-state.js";
+import { setActiveOrganizationIdForRequests } from "@/domains/organization/organization-state.js";
 
 export interface AuthSessionUser {
   id?: string;

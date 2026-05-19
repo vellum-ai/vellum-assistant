@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
 
 import { AuthProvider } from "@/lib/auth/auth-provider.js";
-import { AppProviders } from "@/lib/providers/app-providers.js";
+import { AppProviders } from "@/components/providers.js";
 import { router } from "./routes.js";
 
 import "@/lib/api-interceptors.js";

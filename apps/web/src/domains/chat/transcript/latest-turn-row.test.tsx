@@ -19,11 +19,11 @@ mock.module("@/components/markdown-message.js", () => ({
   ),
 }));
 
-mock.module("@/components/message-hover-actions/message-hover-actions.js", () => ({
+mock.module("@/domains/chat/components/message-hover-actions/message-hover-actions.js", () => ({
   MessageHoverActions: () => <div data-testid="hover-actions" />,
 }));
 
-mock.module("@/components/tool-call-chip/tool-call-chip.js", () => ({
+mock.module("@/domains/chat/components/tool-call-chip/tool-call-chip.js", () => ({
   ToolCallChip: () => <div data-testid="tool-call-chip" />,
 }));
 
@@ -31,7 +31,7 @@ mock.module("@/components/assistant/surfaces", () => ({
   SurfaceRouter: () => <div data-testid="surface-router" />,
 }));
 
-mock.module("@/components/chat-attachments/index.js", () => ({
+mock.module("@/domains/chat/components/chat-attachments/index.js", () => ({
   MessageAttachments: () => <div data-testid="message-attachments" />,
 }));
 

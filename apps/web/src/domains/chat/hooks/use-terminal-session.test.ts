@@ -33,7 +33,7 @@ const mockSubscribeTerminalEvents = mock(
   },
 );
 
-mock.module("@/lib/terminal/api.js", () => ({
+mock.module("@/domains/terminal/api.js", () => ({
   createTerminalSession: mockCreateTerminalSession,
   destroyTerminalSession: mockDestroyTerminalSession,
   sendTerminalInput: mockSendTerminalInput,
@@ -55,7 +55,7 @@ import {
   resizeTerminal,
   sendTerminalInput,
   subscribeTerminalEvents,
-} from "@/lib/terminal/api.js";
+} from "@/domains/terminal/api.js";
 
 import {
   INITIAL_TERMINAL_STATE,

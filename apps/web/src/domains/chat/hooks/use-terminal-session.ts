@@ -2,4 +2,4 @@ export {
   useTerminalSession,
   type UseTerminalSessionArgs,
   type UseTerminalSessionResult,
-} from "@/lib/terminal/use-terminal-session.js";
+} from "@/domains/terminal/use-terminal-session.js";

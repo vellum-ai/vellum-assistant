@@ -30,7 +30,7 @@ mock.module(
   }),
 );
 
-mock.module("@/components/chat-skeleton.js", () => ({
+mock.module("@/domains/chat/components/chat-skeleton.js", () => ({
   ChatSkeleton: () => <div>SKELETON</div>,
 }));
 

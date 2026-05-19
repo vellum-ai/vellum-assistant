@@ -8,8 +8,8 @@ import {
   type RefreshFeedback,
 } from "@/domains/chat/refresh-feedback-pill.js";
 import { ScrollToLatestButton } from "@/domains/chat/components/scroll-to-latest-button.js";
-import { ChatComposer, type ChatComposerProps } from "@/components/chat-composer/chat-composer.js";
-import { Notice } from "@vellum/design-library/components/notice";
+import { ChatComposer, type ChatComposerProps } from "@/domains/chat/components/chat-composer/chat-composer.js";
+import { Notice } from "@vellum/design-library";
 
 /**
  * Single composition of a chat panel: a scrollable messages/empty-state

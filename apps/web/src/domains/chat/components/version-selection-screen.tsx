@@ -2,7 +2,7 @@
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { Dropdown } from "@/components/inputs/dropdown.js";
+import { Dropdown } from "@vellum/design-library";
 import { releasesList } from "@/generated/api/sdk.gen.js";
 import type { ReleaseListItem } from "@/generated/api/types.gen.js";
 

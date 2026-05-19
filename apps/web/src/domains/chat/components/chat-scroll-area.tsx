@@ -6,9 +6,9 @@ import {
   type TranscriptProps,
 } from "@/domains/chat/transcript/transcript.js";
 import { MaintenanceRecoveryCard } from "@/domains/chat/components/maintenance-recovery-card.js";
-import { ChatEmptyState } from "@/components/chat-empty-state/chat-empty-state.js";
-import type { ChatEmptyStateProps } from "@/components/chat-empty-state/chat-empty-state.js";
-import { ChatSkeleton } from "@/components/chat-skeleton.js";
+import { ChatEmptyState } from "@/domains/chat/components/chat-empty-state.js";
+import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state.js";
+import { ChatSkeleton } from "@/domains/chat/components/chat-skeleton.js";
 
 /**
  * Renders the scrollable content of a chat panel — the single source of

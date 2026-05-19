@@ -6,7 +6,7 @@
  * consumed by event-parser.ts and the stream handler domain modules.
  */
 
-import type { DiskPressureStatus } from "@/lib/assistants/types.js";
+import type { DiskPressureStatus } from "@/domains/assistant/types.js";
 import type { Surface } from "@/domains/chat/lib/types.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
 

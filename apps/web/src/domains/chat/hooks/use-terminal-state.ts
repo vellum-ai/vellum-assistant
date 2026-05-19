@@ -15,4 +15,4 @@ export {
   type TerminalReset,
   type TerminalState,
   type TerminalStatus,
-} from "@/lib/terminal/use-terminal-state.js";
+} from "@/domains/terminal/use-terminal-state.js";

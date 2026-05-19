@@ -23,7 +23,7 @@ import { Loader2 } from "lucide-react";
 import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, startTransition, useCallback, useEffect, useMemo, useRef } from "react";
 
 import { ChatBody } from "@/domains/chat/components/chat-body.js";
-import { ConversationStarterGrid } from "@/components/conversation-starter-grid.js";
+import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid.js";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices.js";
 import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card.js";
 import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card.js";
@@ -39,27 +39,25 @@ import type { ChatError } from "@/domains/chat/types.js";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 import {
   useChatAttachmentDropZone,
-} from "@/components/chat-attachments/index.js";
-import type { ChatAttachment } from "@/components/chat-attachments/use-chat-attachments.js";
-import type { ChatEmptyStateProps } from "@/components/chat-empty-state/chat-empty-state.js";
-import { CreditsExhaustedBanner } from "@/components/credits-exhausted-banner.js";
-import { DiscordNudgeBanner } from "@/components/discord-nudge-banner.js";
-import { GitHubNudgeBanner } from "@/components/github-nudge-banner.js";
-import { IOSAppBanner } from "@/components/ios-app-banner.js";
-import { MacOSAppBanner } from "@/components/macos-app-banner.js";
-import { Notice } from "@vellum/design-library/components/notice";
-import { ProviderBillingBanner } from "@/components/provider-billing-banner.js";
-import { QueuedMessagesDrawer } from "@/components/queued-messages-drawer.js";
-import { ResizablePanel } from "@vellum/design-library/components/resizable-panel";
-import { AppViewerContainer } from "@/components/app-viewer-container.js";
-import { DocumentViewerContainer } from "@/components/document-viewer-container.js";
+} from "@/domains/chat/components/chat-attachments/index.js";
+import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
+import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state.js";
+import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner.js";
+import { DiscordNudgeBanner } from "@/domains/nudges/components/discord-nudge-banner.js";
+import { GitHubNudgeBanner } from "@/domains/nudges/components/github-nudge-banner.js";
+import { IOSAppBanner } from "@/domains/nudges/components/ios-app-banner.js";
+import { MacOSAppBanner } from "@/domains/nudges/components/macos-app-banner.js";
+import { Button, Notice, ResizablePanel } from "@vellum/design-library";
+import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner.js";
+import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer.js";
+import { AppViewerContainer } from "@/domains/chat/components/app-viewer-container.js";
+import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container.js";
 import { ChatAvatar } from "@/components/avatar/chat-avatar.js";
-import { ComposerSettingsMenu } from "@/components/composer-settings-menu.js";
-import { ContextWindowIndicator, type ContextWindowUsage } from "@/components/context-window-indicator.js";
-import { SubagentDetailPanel } from "@/components/subagent-detail-panel/subagent-detail-panel.js";
+import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu.js";
+import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
+import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel.js";
 
-import { AppLink } from "@/adapters/app-link.js";
-import { Button } from "@vellum/design-library/components/button";
+import { Link } from "react-router";
 import type { AssistantIdentity, ChatEventStream, Conversation } from "@/domains/chat/lib/api.js";
 import type { ConversationStarter } from "@/domains/chat/lib/conversation-starters.js";
 import { recordChatDiagnostic, summarizeDisplayMessages } from "@/domains/chat/lib/diagnostics.js";
@@ -81,17 +79,17 @@ import { submitQuestionResponse } from "@/domains/chat/lib/api.js";
 import { useActiveProfileModel } from "@/domains/chat/lib/use-active-profile-model.js";
 import { modelSupportsVision } from "@/app/assistant/settings/ai/profileParamVisibility.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
-import { routes } from "@/lib/routes.js";
+import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
 import { isChannelConversation as _isChannelConversation } from "@/domains/chat/lib/conversation-channel.js";
-import { getDiskPressureChatBlockReason } from "@/lib/assistants/disk-pressure.js";
-import type { DiskPressureStatusEventPayload } from "@/lib/assistants/useDiskPressureMonitor.js";
+import { getDiskPressureChatBlockReason } from "@/domains/assistant/disk-pressure.js";
+import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
 import type { InteractionEvent } from "@/domains/chat/lib/interaction-state-machine.js";
 import type { DomainEvent } from "@/domains/chat/lib/turn-state-machine.js";
 import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/lib/event-types.js";
-import type { CharacterComponents, CharacterTraits } from "@/lib/avatar/types.js";
-import { DiskPressureBanner, type DiskPressureBannerMode } from "@/components/disk-pressure-banner.js";
-import type { VoiceInputButtonHandle } from "@/components/voice-input-button.js";
+import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
+import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
+import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -594,9 +592,9 @@ export function ChatRouteContent({
         message: error.message,
         actions: doctorEnabled ? (
           <Button asChild variant="outlined" size="compact">
-            <AppLink href={`${routes.settings.debug}?tab=doctor`}>
+            <Link to={`${routes.settings.debug}?tab=doctor`}>
               Go to Doctor
-            </AppLink>
+            </Link>
           </Button>
         ) : undefined,
       }

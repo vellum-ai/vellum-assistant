@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { Typography } from "@vellum/design-library/components/typography";
+import { Typography } from "@vellum/design-library";
 import { HomeFeedFilterBar } from "./home-feed-filter-bar.js";
 import { HomeRecapRow } from "./home-recap-row.js";
 import {

@@ -1,5 +1,5 @@
 
-import { routes } from "@/lib/routes.js";
+import { routes } from "@/utils/routes.js";
 import { useRouting } from "@/domains/chat/hooks/use-routing.js";
 
 export function SelfHostedScreen() {

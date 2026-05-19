@@ -25,7 +25,7 @@ import {
   submitSecretResponse,
   submitSurfaceAction,
 } from "@/domains/chat/lib/api.js";
-import { addTrustRule } from "@/lib/trust-rules/api.js";
+import { addTrustRule } from "@/domains/trust-rules/api.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import type { InteractionState, InteractionEvent } from "@/domains/chat/lib/interaction-state-machine.js";
 import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";

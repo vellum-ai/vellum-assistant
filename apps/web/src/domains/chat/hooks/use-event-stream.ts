@@ -44,7 +44,7 @@ import {
   recordChatDiagnostic,
   resolvePlatformTag,
 } from "@/domains/chat/lib/diagnostics.js";
-import { isNativePlatform } from "@/lib/native-auth.js";
+import { isNativePlatform } from "@/runtime/native-auth.js";
 import type {
   ActiveConversationMessagesRefreshResult,
   WebSyncRouter,

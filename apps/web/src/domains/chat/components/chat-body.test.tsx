@@ -35,7 +35,7 @@ mock.module(
   }),
 );
 
-mock.module("@/components/chat-skeleton.js", () => ({
+mock.module("@/domains/chat/components/chat-skeleton.js", () => ({
   ChatSkeleton: () => <div>SKELETON</div>,
 }));
 
@@ -51,7 +51,7 @@ mock.module(
 );
 
 mock.module(
-  "@/components/chat-composer/chat-composer.js",
+  "@/domains/chat/components/chat-composer/chat-composer.js",
   () => ({
     ChatComposer: () => <div data-testid="composer">COMPOSER</div>,
   }),

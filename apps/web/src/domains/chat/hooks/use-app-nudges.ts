@@ -1,24 +1,24 @@
 import { type MutableRefObject, useEffect, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import { useIsIOSWeb } from "@/lib/ios-app-nudge/platform.js";
+import { useIsIOSWeb } from "@/domains/nudges/ios-app-platform.js";
 import {
   readIOSAssistantTurnsSeen,
   incrementIOSAssistantTurnsSeen,
   useIOSNudgeState,
-} from "@/lib/ios-app-nudge/prefs.js";
-import { IOS_APP_BANNER_MIN_TURNS } from "@/lib/ios-app-nudge/constants.js";
-import { useIsMacOSWeb } from "@/lib/mac-app-nudge/platform.js";
+} from "@/domains/nudges/ios-app-prefs.js";
+import { IOS_APP_BANNER_MIN_TURNS } from "@/domains/nudges/ios-app-constants.js";
+import { useIsMacOSWeb } from "@/domains/nudges/mac-app-platform.js";
 import {
   readMacOsAssistantTurnsSeen,
   incrementMacOsAssistantTurnsSeen,
   useMacOsNudgeState,
-} from "@/lib/mac-app-nudge/prefs.js";
-import { MAC_APP_BANNER_MIN_TURNS } from "@/lib/mac-app-nudge/constants.js";
-import { useGitHubNudgeState } from "@/lib/github-nudge/prefs.js";
-import type { GitHubNudgeState } from "@/lib/github-nudge/prefs.js";
-import { useDiscordNudgeState, ensureFirstSeenAt } from "@/lib/discord-nudge/prefs.js";
-import type { DiscordNudgeState } from "@/lib/discord-nudge/prefs.js";
+} from "@/domains/nudges/mac-app-prefs.js";
+import { MAC_APP_BANNER_MIN_TURNS } from "@/domains/nudges/mac-app-constants.js";
+import { useGitHubNudgeState } from "@/domains/nudges/github-prefs.js";
+import type { GitHubNudgeState } from "@/domains/nudges/github-prefs.js";
+import { useDiscordNudgeState, ensureFirstSeenAt } from "@/domains/nudges/discord-prefs.js";
+import type { DiscordNudgeState } from "@/domains/nudges/discord-prefs.js";
 
 // ---------------------------------------------------------------------------
 // Types

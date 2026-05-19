@@ -4,8 +4,8 @@ import {
   getSameOriginRoutePath,
   openOAuthUrlInPopup,
 } from "@/domains/chat/lib/oauth-popup-links.js";
-import { getSettingsRouteForClientTab } from "@/lib/settings/navigation.js";
-import { openUrl } from "@/lib/browser.js";
+import { getSettingsRouteForClientTab } from "@/domains/settings/navigation.js";
+import { openUrl } from "@/runtime/browser.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
 
 export function handleOpenUrl(

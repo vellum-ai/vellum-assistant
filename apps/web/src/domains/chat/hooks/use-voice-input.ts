@@ -3,13 +3,13 @@ import { type Dispatch, type SetStateAction, useCallback, useRef, useState } fro
 
 import {
   type VoiceInputButtonHandle,
-} from "@/components/voice-input-button.js";
+} from "@/domains/chat/components/voice-input-button.js";
 import {
   shouldShowMicPrimer,
-} from "@/components/mic-permission-primer.js";
-import { useIsNativePlatform } from "@/lib/native-auth.js";
-import { postDictation } from "@/lib/voice/dictation-api.js";
-import { usePushToTalk } from "@/lib/voice/use-push-to-talk.js";
+} from "@/domains/chat/components/mic-permission-primer.js";
+import { useIsNativePlatform } from "@/runtime/native-auth.js";
+import { postDictation } from "@/domains/voice/dictation-api.js";
+import { usePushToTalk } from "@/domains/voice/use-push-to-talk.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 
 // ---------------------------------------------------------------------------

@@ -8,8 +8,7 @@ import {
 } from "lucide-react";
 import { type ComponentType, type SVGProps } from "react";
 
-import { Typography } from "@vellum/design-library/components/typography";
-import { cn } from "@vellum/design-library/utils/cn";
+import { Typography, cn } from "@vellum/design-library";
 import type { FeedItemCategory } from "./types.js";
 
 type LucideIcon = ComponentType<SVGProps<SVGSVGElement>>;

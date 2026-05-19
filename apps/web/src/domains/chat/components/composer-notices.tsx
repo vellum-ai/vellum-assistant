@@ -1,10 +1,9 @@
 import { type ReactNode } from "react";
 
-import { CompactionCircuitOpenBanner } from "@/components/compaction-circuit-open-banner.js";
-import { MaintenanceModeBanner } from "@/components/maintenance-mode-banner.js";
-import { MissingApiKeyBanner } from "@/components/missing-api-key-banner.js";
-import { Button } from "@vellum/design-library/components/button";
-import { Notice } from "@vellum/design-library/components/notice";
+import { CompactionCircuitOpenBanner } from "@/domains/chat/components/compaction-circuit-open-banner.js";
+import { MaintenanceModeBanner } from "@/domains/chat/components/maintenance-mode-banner.js";
+import { MissingApiKeyBanner } from "@/domains/chat/components/missing-api-key-banner.js";
+import { Button, Notice } from "@vellum/design-library";
 import {
   formatVoiceError,
   isMicPermissionError,

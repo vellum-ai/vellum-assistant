@@ -1,7 +1,6 @@
 import { SquarePen } from "lucide-react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Button, Typography } from "@vellum/design-library";
 import { ChatAvatar } from "@/components/avatar/chat-avatar.js";
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 

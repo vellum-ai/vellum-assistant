@@ -1,7 +1,7 @@
 
 import { Fragment, memo, type ReactNode } from "react";
 
-import { SubagentProgressCard } from "@/components/subagent-progress-card/subagent-progress-card.js";
+import { SubagentProgressCard } from "@/domains/chat/components/subagent-progress-card.js";
 import type { ConfirmationDecision } from "@/domains/chat/lib/api.js";
 import type { SubagentEntry } from "@/domains/chat/lib/subagent-state.js";
 import type { MessageItem, TranscriptItem } from "@/domains/chat/lib/transcript/types.js";

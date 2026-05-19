@@ -2,8 +2,8 @@
 import { Loader2 } from "lucide-react";
 import { memo, type ReactNode } from "react";
 
-import { Notice } from "@vellum/design-library/components/notice";
-import { SurfaceRouter } from "@/components/surfaces/index.js";
+import { Notice } from "@vellum/design-library";
+import { SurfaceRouter } from "@/domains/chat/components/surfaces/index.js";
 import type { ConfirmationDecision } from "@/domains/chat/lib/api.js";
 import type { TranscriptItem } from "@/domains/chat/lib/transcript/types.js";
 

@@ -8,11 +8,11 @@ import {
   useState,
 } from "react";
 
-import { MessageAttachments } from "@/components/chat-attachments/index.js";
+import { MessageAttachments } from "@/domains/chat/components/chat-attachments/index.js";
 import { MarkdownMessage } from "@/components/markdown-message.js";
-import { MessageHoverActions } from "@/components/message-hover-actions/message-hover-actions.js";
-import { SurfaceRouter } from "@/components/surfaces/index.js";
-import { ToolCallProgressCard } from "@/components/tool-call-progress-card/tool-call-progress-card.js";
+import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions.js";
+import { SurfaceRouter } from "@/domains/chat/components/surfaces/index.js";
+import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js";
 import type {
   AllowlistOption,
   ChatMessageToolCall,

@@ -27,7 +27,7 @@ import {
   summarizeDisplayMessages,
 } from "@/domains/chat/lib/diagnostics.js";
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
-import type { ContextWindowUsage } from "@/components/context-window-indicator.js";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DomainEvent } from "@/domains/chat/lib/turn-state-machine.js";
 import type { InteractionEvent, InteractionState } from "@/domains/chat/lib/interaction-state-machine.js";
 import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";

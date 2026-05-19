@@ -8,10 +8,10 @@ import type { InteractionEvent } from "@/domains/chat/lib/interaction-state-mach
 import type { SubagentAction } from "@/domains/chat/lib/subagent-state.js";
 import type { ChatEventStream } from "@/domains/chat/lib/api.js";
 import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
-import type { ContextWindowUsage } from "@/components/context-window-indicator.js";
+import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import type { DomainEvent, TurnState } from "@/domains/chat/lib/turn-state-machine.js";
-import type { DiskPressureStatusEventPayload } from "@/lib/assistants/useDiskPressureMonitor.js";
+import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
 import type { ChatError, PendingQuestionState } from "@/domains/chat/types.js";
 
 export type { PendingQuestionState };
