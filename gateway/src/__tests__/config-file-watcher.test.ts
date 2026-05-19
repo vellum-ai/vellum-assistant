@@ -42,6 +42,31 @@ function makeEvent(
   };
 }
 
+function makeManualIntervalTimer() {
+  let intervalFn: (() => void) | undefined;
+  let cleared = false;
+  type IntervalHandle = ReturnType<typeof setInterval>;
+  const timer = 1 as unknown as IntervalHandle;
+  return {
+    timerApi: {
+      setInterval: (fn: () => void, _delayMs: number) => {
+        intervalFn = fn;
+        return timer;
+      },
+      clearInterval: (_timer: IntervalHandle) => {
+        cleared = true;
+      },
+    },
+    runInterval: () => {
+      if (!intervalFn) {
+        throw new Error("interval was not scheduled");
+      }
+      intervalFn();
+    },
+    isCleared: () => cleared,
+  };
+}
+
 afterEach(() => {
   try {
     if (existsSync(configPath)) unlinkSync(configPath);
@@ -51,6 +76,38 @@ afterEach(() => {
 });
 
 describe("ConfigFileWatcher", () => {
+  test("polls config changes when file watcher events are missed", () => {
+    const events: ConfigChangeEvent[] = [];
+    const timer = makeManualIntervalTimer();
+    const watcher = new ConfigFileWatcher(
+      (event) => {
+        events.push(event);
+      },
+      { pollIntervalMs: 10, timerApi: timer.timerApi },
+    );
+
+    try {
+      watcher.start();
+      writeConfig({
+        twilio: {
+          setupStarted: true,
+        },
+      });
+
+      timer.runInterval();
+
+      expect(events).toHaveLength(1);
+      expect(events[0].changedKeys).toEqual(new Set(["twilio"]));
+      expect(events[0].changedFields.get("twilio")).toEqual(
+        new Set(["setupStarted"]),
+      );
+    } finally {
+      watcher.stop();
+    }
+
+    expect(timer.isCleared()).toBe(true);
+  });
+
   test("reports shallow ingress fields changed by Velay-managed URL writes", () => {
     writeConfig({
       ingress: {
