@@ -261,7 +261,7 @@ function CollapsedPermissionChips({
   const [maxVisible, setMaxVisible] = useState<number | null>(null);
 
   const decidedCalls = useMemo(
-    () => toolCalls.filter((tc) => tc.riskLevel != null),
+    () => toolCalls.filter((tc) => tc.riskLevel != null && toolCategory(tc.toolName) !== "Run Command"),
     [toolCalls],
   );
 

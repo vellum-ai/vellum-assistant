@@ -38,6 +38,7 @@ import {
   friendlyRunningLabel,
   friendlyToolIcon,
   friendlyToolLabel,
+  toolCategory,
 } from "@/domains/chat/components/tool-call-chip/utils.js";
 
 export interface ToolCallChipProps {
@@ -341,8 +342,10 @@ export function ToolCallChip({
       })()}
       {embedded && (
         <span className="ml-auto flex items-center gap-1.5 text-[var(--content-tertiary)]">
-          {/* Chip pill — same style as CollapsedPermissionChips, shown per-row when expanded */}
-          {toolCall.riskLevel && !isRunning && !(hasPendingConfirmation && isActiveConfirmation) && (() => {
+          {/* Chip pill — same style as CollapsedPermissionChips, shown per-row when expanded.
+             Bash tools ("Run Command") are excluded — they dominate the header during
+             bash-heavy operations (e.g. rebasing) and add no value over the row label. */}
+          {toolCall.riskLevel && !isRunning && !(hasPendingConfirmation && isActiveConfirmation) && toolCategory(toolCall.toolName) !== "Run Command" && (() => {
             const isTimeout = toolCall.confirmationDecision === "timed_out";
             const isDenied = toolCall.confirmationDecision === "denied";
             const chipColor = isDenied

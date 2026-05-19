@@ -168,14 +168,19 @@ extension ChatBubble {
             }
         } else if !effectiveConfirmations.isEmpty, !inlineToolProgressRenderedInContent {
             // No tool display needed — only show permission chips.
+            // Bash tools ("Run Command") are excluded — they dominate during bash-heavy
+            // operations and add no value over the row label.
             // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
-            HStack(alignment: .center, spacing: VSpacing.sm) {
-                ForEach(Array(effectiveConfirmations.enumerated()), id: \.offset) { _, confirmation in
-                    compactPermissionChip(confirmation)
+            let filtered = effectiveConfirmations.filter { $0.toolCategory != "Run Command" }
+            if !filtered.isEmpty {
+                HStack(alignment: .center, spacing: VSpacing.sm) {
+                    ForEach(Array(filtered.enumerated()), id: \.offset) { _, confirmation in
+                        compactPermissionChip(confirmation)
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+                .padding(.top, VSpacing.xxs)
             }
-            .padding(.top, VSpacing.xxs)
         } else if isStreamingContinuation {
             // Assistant is still generating after producing initial text.
             // Show a subtle typing indicator so the user knows more content is coming.

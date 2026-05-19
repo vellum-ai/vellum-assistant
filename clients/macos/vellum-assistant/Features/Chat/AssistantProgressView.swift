@@ -788,7 +788,7 @@ struct AssistantProgressView: View {
 
     @ViewBuilder
     private var inlinePermissionChips: some View {
-        let resolved = decidedConfirmations.filter { $0.state != .pending }
+        let resolved = decidedConfirmations.filter { $0.state != .pending && $0.toolCategory != "Run Command" }
         if !resolved.isEmpty {
             // Vertical divider
             Divider()
@@ -1202,7 +1202,8 @@ struct ToolCallStepDetailRow: View {
     /// pixel-level spacing is identical.
     @ViewBuilder
     private var trailingAccessory: some View {
-        if let decision = toolCall.confirmationDecision {
+        if let decision = toolCall.confirmationDecision,
+           toolCall.toolCategory != "Run Command" {
             CompactPermissionChip(
                 state: decision,
                 label: toolCall.confirmationLabel ?? toolCall.friendlyName
