@@ -18,9 +18,7 @@ Bun + TypeScript monorepo with multiple packages:
 
 ## Intellectual Honesty
 
-Defend your technical positions. If you change your mind, explain what new information changed it — not just that the user questioned it. Do not flip-flop to agree with the user; sycophantic responses erode trust and lead to worse outcomes.
-
-When making recommendations, consider multiple angles — trade-offs, failure modes, alternative approaches — and arrive at a strong, evidence-backed conclusion before presenting it. Vague or hedged suggestions waste time; a clear recommendation with explicit reasoning is always more useful, even if the user ultimately disagrees.
+Defend technical positions with evidence. Don't flip-flop to placate the user — explain what new information changed your mind, or hold the position. When recommending, consider trade-offs and failure modes before presenting; vague suggestions waste time.
 
 ## Development
 
@@ -47,39 +45,25 @@ When adding a new dependency:
 3. If unsure about compatibility, flag it in the PR for review.
 4. Verify the version in `package.json` is pinned to an exact version (no `^` or `~`).
 
-### GitHub Actions
+### Pinning rules
 
-All `uses:` steps in `.github/workflows/**` and `.github/actions/**` must pin to a 40-character commit SHA with a trailing `# vX.Y.Z` comment (e.g. `actions/checkout@a1b2c3... # v6.0.2`). Never use a bare major tag (`@v6`) or a floating version tag (`@v6.0.2`) on its own — SHAs are immutable while tags can be force-moved, so SHA pinning is the GitHub security-hardening recommendation. To upgrade: look up the new tag's commit SHA with `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`, then replace both the SHA and the trailing comment. For actions that don't publish `vX.Y.Z` tags (e.g. `dawidd6/action-download-artifact`, which tags only bare majors), pin to the SHA with a `# vN` trailing comment instead.
+Pin everything that has a version, with the immutable form when one exists:
+
+- **GitHub Actions `uses:`** — pin to a 40-char commit SHA with a trailing `# vX.Y.Z` comment. Look up SHAs via `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`. For actions that only tag bare majors, use `# vN`.
+- **Swift SPM** (`Package.swift`) — `.package(url: ..., exact: "X.Y.Z")`. Never `from:` (silently bumps minor/patch).
+- **Dockerfile `FROM`** — exact tag plus `@sha256:` digest.
+- **Bun toolchain** — `.tool-versions`, `setup.sh`, all workflow `bun-version:` inputs, and every production Dockerfile bun install must share the same exact version.
+- **Node toolchain** — `.nvmrc` and every workflow `node-version:` input must share the same exact version. Intentionally separate from Bun.
+
+We do **not** pin: `apt-get` packages (Debian rotates), `brew install` formulae (local-only), Xcode point releases, or GitHub-hosted runner system libs.
 
 ### Workflow duplication
 
-`dev-release.yaml` and `release.yml` share duplicated logic (e.g. the "Compute migration ceilings" inline Node script). When fixing or changing logic that appears in both workflows, apply the change to both files in the same PR. Search for the same code block in the other workflow before marking the fix complete.
+`dev-release.yaml` and `release.yml` share inline logic (e.g. "Compute migration ceilings"). When changing logic that lives in both, update both in the same PR.
 
 ### iOS release dispatch
 
-The release workflows (`dev-release.yaml`, `release.yml`) include `dispatch-ios-release` jobs that fire a [`repository_dispatch`](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#repository_dispatch) event to [`vellum-assistant-platform`](https://github.com/vellum-ai/vellum-assistant-platform) to trigger iOS Capacitor builds. The dispatch carries `environment` (dev/staging/production) and `version` in the payload. The receiving workflow [`release-ios.yaml`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/.github/workflows/release-ios.yaml) handles those events. Full environment mapping is documented in [`web/ios/README.md`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/web/ios/README.md#ci--release-pipeline) in the platform repo.
-
-### Swift SPM
-
-In `clients/Package.swift` and any future `Package.swift`, use `.package(url: ..., exact: "X.Y.Z")`. Do not use `.package(url: ..., from: "X.Y.Z")` or other range syntax — the `from:` form silently pulls in new minor/patch releases on each `swift package resolve`.
-
-### Docker base images
-
-In every `Dockerfile`, `FROM` lines must pin the base image to both an exact version tag and an `@sha256:` digest (e.g. `FROM debian:trixie-slim@sha256:...`). Rebuild the digest reference when intentionally upgrading. Do NOT pin `apt-get install` package versions inside Dockerfiles — Debian rotates them out of APT quickly; rely on the base-image digest for reproducibility instead.
-
-### Tool versions
-
-Bun and Node are tracked as separate toolchains; each has its own set of files that must stay in sync. When bumping any file in a set, bump all of them in the same PR so the repo never has drifted copies.
-
-- **Bun**: `.tool-versions`, `setup.sh`, all `bun-version:` workflow inputs, and all production `Dockerfile` bun installs must reference the same exact version string.
-- **Node**: `.nvmrc` and every workflow `node-version:` input must reference the same exact version string. (`.nvmrc` is Node-only and is intentionally not tied to the Bun version.)
-
-### What we explicitly do not pin
-
-- `apt-get install` package versions inside Dockerfiles (Debian rotates them out).
-- `brew install` formulae in `setup.sh` (Homebrew lacks clean exact-version pinning and it's developer-local).
-- Xcode point releases beyond the major tag already set via `sudo xcode-select -s`.
-- GitHub-hosted runner system libraries.
+`dev-release.yaml` / `release.yml` fire a `repository_dispatch` to [`vellum-assistant-platform`](https://github.com/vellum-ai/vellum-assistant-platform)'s [`release-ios.yaml`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/.github/workflows/release-ios.yaml) with `{ environment, version }`. Full mapping: [`web/ios/README.md`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/web/ios/README.md#ci--release-pipeline).
 
 ## Testing
 
@@ -111,11 +95,7 @@ When a Vellum [Linear](https://linear.app/) ticket exists for the work, link it 
 
 ## Worktrees & Source Control
 
-Never commit worktree directories or worktree artifacts to the repository. Git worktrees (created by `git worktree add`, Codex, or similar tools) are local working copies and must remain local. The `.gitignore` already excludes common worktree directory patterns (`worktrees/`, `.worktrees/`, `.codex-worktrees/`, `*-worktrees/`), but be vigilant about new naming conventions. If a tool creates worktree directories under a new prefix, add the pattern to `.gitignore` before committing.
-
-**References:**
-- [Git Worktree documentation](https://git-scm.com/docs/git-worktree) — worktrees are meant to be local, ephemeral working directories
-- [gitignore documentation](https://git-scm.com/docs/gitignore) — patterns for excluding generated/local files
+Never commit worktree directories or worktree artifacts. Git worktrees are local working copies and must remain local. The `.gitignore` already excludes common patterns (`worktrees/`, `.worktrees/`, `.codex-worktrees/`, `*-worktrees/`); if a tool creates worktree directories under a new prefix, add the pattern to `.gitignore` before committing.
 
 ## Dead Code Removal
 
@@ -183,17 +163,15 @@ The daemon uses `DAEMON_INTERNAL_ASSISTANT_ID` (`'self'`) from `assistant/src/ru
 
 ## Assistant Feature Flags
 
-Feature flags use simple kebab-case keys (e.g., `browser`, `ces-tools`). Declare new flags in `meta/feature-flags/feature-flag-registry.json` with `scope: "assistant"`. The resolver in `assistant/src/config/assistant-feature-flags.ts` checks config overrides, then registry defaults, then defaults to enabled. Guard tests enforce format, registry declaration, and canonical keys.
+See `meta/feature-flags/AGENTS.md` for naming, registry, resolver, and the required companion PR in `vellum-assistant-platform` (LaunchDarkly Terraform).
 
-**Cross-repo requirement**: When adding a new flag, you must also open a PR in [`vellum-assistant-platform`](../vellum-assistant-platform) to add the flag to the LaunchDarkly Terraform configuration (`terraform/`) so it exists on the platform for remote sync. See `meta/feature-flags/AGENTS.md` for full steps.
-
-**Permission controls v2 rule**: Under `permission-controls-v2`, do not introduce new deterministic approval modes for assistant-owned actions beyond the conversation-scoped host computer access gate. That means no global toggles, no per-tool or per-command approvals, no 10-minute or conversation-wide approval verbs, no wildcard scopes, and no persistent trust-rule UI for v2 flows. If a new v2 path needs consent, prefer model-mediated conversation flow unless it is a true host-computer or identity-boundary enforcement case.
+**Permission controls v2 rule**: Under `permission-controls-v2`, do not introduce new deterministic approval modes for assistant-owned actions beyond the conversation-scoped host computer access gate. No global toggles, no per-tool or per-command approvals, no 10-minute or conversation-wide approval verbs, no wildcard scopes, and no persistent trust-rule UI for v2 flows. If a v2 path needs consent, prefer model-mediated conversation flow unless it is a true host-computer or identity-boundary enforcement case.
 
 ## LLM Provider Abstraction
 
-All LLM calls must go through the provider abstraction — use `getConfiguredProvider(callSite)` from `providers/provider-send-message.ts`. The `callSite: LLMCallSite` argument is required so the resolver can pick the right per-call-site config. Never import `@anthropic-ai/sdk` directly (only `providers/anthropic/client.ts` may). Guard test: `no-direct-anthropic-sdk-imports.test.ts`.
+All LLM calls must go through `getConfiguredProvider(callSite)` from `providers/provider-send-message.ts`. The `callSite: LLMCallSite` arg is required so the resolver picks the right per-call-site config. Shipped defaults live in `assistant/src/config/call-site-defaults.ts`; merge precedence (default → active profile → site profile → override profile → call-site override, with `mainAgent` reversing the last two) is documented at the `resolveCallSiteConfig` docstring in `assistant/src/config/llm-resolver.ts`.
 
-Each LLM call site has a stable identifier (`LLMCallSite` from `assistant/src/config/schemas/llm.ts`). Pick the appropriate call-site ID for the request — the provider layer resolves provider/model/maxTokens/effort/thinking/contextWindow/etc. via `resolveCallSiteConfig` (in `assistant/src/config/llm-resolver.ts`). Non-main-agent call sites deep-merge five layers from highest to lowest precedence: (1) `llm.callSites.<id>` (call-site override), (2) `llm.profiles.<site.profile>` (the call-site's named profile, if any), (3) `llm.profiles.<overrideProfile>` (per-call ad-hoc override passed to the resolver), (4) `llm.profiles.<activeProfile>` (workspace-wide active profile), (5) `llm.default` (required base). `mainAgent` is the exception: the active profile and per-conversation override profile are the user's chat-model selection and therefore override static `llm.callSites.mainAgent` defaults. When `llm.callSites.<id>` is absent, the resolver falls back to shipped defaults from `assistant/src/config/call-site-defaults.ts`, which assign each call site to a profile (`balanced` or `cost-optimized`) with optional per-site tuning overrides. The shipped default's `profile` reference is silently stripped when the target profile isn't defined in `llm.profiles` (backward compat for BYOK setups), when the target profile has `status: "disabled"` (BYOK installs where managed profiles are disabled), or when `overrideProfile` is provided (per-call overrides must win). A missing `site.profile` reference in user config throws because it is statically referenced and validated by schema; missing `overrideProfile`/`activeProfile` references silently fall through because `overrideProfile` is a runtime parameter that cannot be schema-validated and `activeProfile` must degrade gracefully if pointed at a deleted profile mid-edit. Use provider-agnostic language in comments and logs ('LLM' not 'Haiku'/'Sonnet'). Route text generation through the daemon process — direct provider calls discard user context and preferences.
+Never import `@anthropic-ai/sdk` directly (only `providers/anthropic/client.ts` may). Guard test: `no-direct-anthropic-sdk-imports.test.ts`. Use provider-agnostic language in comments and logs ('LLM', not 'Haiku'/'Sonnet'). Route text generation through the daemon — direct provider calls discard user context and preferences.
 
 ## Skill Isolation
 
@@ -203,7 +181,7 @@ First-party skills run as separate processes. The daemon ships their source tree
 
 ## Tooling Direction
 
-New non-skill tool registrations are strongly discouraged — prefer skills instead. See `assistant/src/tools/AGENTS.md` for rationale, approved CES exceptions, and alternatives.
+New non-skill tool registrations are strongly discouraged — see `assistant/src/tools/AGENTS.md`.
 
 ## System Prompt Minimalism
 
@@ -229,33 +207,13 @@ Use `QDRANT_HTTP_PORT` (not `QDRANT_URL`) when allocating per-instance Qdrant po
 
 ## Docker Volume Architecture
 
-Docker instances use six dedicated volumes with strict per-service access boundaries. Each volume is mounted only by the services that need it, enforcing least-privilege at the container level.
+Docker instances use six per-service volumes enforcing least-privilege at the container level. See `cli/AGENTS.md` for the full volume table, container security posture, meet-bot mount rules, and backup paths.
 
-| Volume | Mount path | Access | Contents |
-|---|---|---|---|
-| **Workspace** (`<name>-workspace`) | `/workspace` | Assistant: read-write, Gateway: read-write, CES: read-only | `config.json`, conversations, apps, skills, db, logs, `.backups/`, `.backup.key` |
-| **Gateway security** (`<name>-gateway-sec`) | `/gateway-security` | Gateway only | Files private to the gateway container |
-| **CES security** (`<name>-ces-sec`) | `/ces-security` | CES only | `keys.enc`, `store.key` |
-| **Socket** (`<name>-socket`) | `/run/ces-bootstrap` | Assistant + CES | CES bootstrap socket for initial handshake |
-| **Gateway IPC** (`<name>-gateway-ipc`) | `/run/gateway-ipc` | Assistant + Gateway | `gateway.sock` — IPC socket for assistant→gateway calls |
-| **Assistant IPC** (`<name>-assistant-ipc`) | `/run/assistant-ipc` | Assistant + Gateway | `assistant.sock` — IPC socket for gateway→assistant calls |
+**Top-level invariants:**
 
-The assistant's container root (`/`) stores per-container ephemeral and persistent state: package installs (`~/.bun`), `device.json`, and embed-worker PID files. This replaces the former shared data volume which previously held all state.
-
-**Key invariants:**
-
-- **Trust rules** are owned by the gateway. In Docker mode (`IS_CONTAINERIZED=true`), the assistant reads and writes trust rules via the gateway's HTTP trust API — it has no direct filesystem access to `trust.json`. The gateway reads `trust.json` from `/gateway-security/trust.json`.
-- **Credentials** are owned by the CES. In Docker mode, the assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`). Neither service has direct filesystem access to `keys.enc` or `store.key`.
-- **Meet bots in Docker mode** are not yet supported. The assistant container does NOT run an inner `dockerd` and has no elevated capabilities (`--privileged`, `CAP_SYS_ADMIN`, etc. are all absent). In **bare-metal mode** (assistant running directly on the host), Meet bots are **sibling containers** on the host's Docker engine — the daemon connects to the host's Docker API directly.
-- The legacy shared data volume (`<name>-data`) is no longer created for new instances. Existing instances are migrated: gateway security files and CES security files are copied from the data volume to their respective security volumes on startup (see `migrateGatewaySecurityFiles()` and `migrateCesSecurityFiles()` in `cli/src/lib/docker.ts`).
-
-**Meet bot spawning (bare-metal only):** Meet bots are **sibling containers** launched against the host's Docker Engine. The host's `docker ps` lists every active bot alongside any other containers the user runs. If the assistant process crashes or is killed, orphan bot containers can linger on the host — the meet-bot image's built-in max-meeting-minutes timeout is the safety net that eventually terminates them, and the assistant also cleans up on graceful shutdown. Meet bot support in Docker mode is not yet implemented.
-
-**Container security posture:** The assistant container runs as a non-root user (`assistant`, UID 1001) with no elevated capabilities. `--privileged`, `--cap-add`, and `--security-opt` overrides are NOT used. The default Docker seccomp and AppArmor profiles remain active. Do NOT add elevated capabilities without a concrete runtime requirement — the Docker Engine packages and inner `dockerd` supervisor were reverted (PR #26028) and the capabilities they required are no longer needed.
-
-**Meet bot workspace mounts**: Bot containers receive a host-path bind of `<daemon-workspace>/meets/<id>/out` for recording output. Audio is streamed over TCP rather than a bind-mounted socket — the daemon binds an OS-assigned port on all interfaces (see `AUDIO_INGEST_BIND_HOST` in `skills/meet-join/daemon/audio-ingest.ts`) and the bot dials `host.docker.internal:<DAEMON_AUDIO_PORT>`. In bare-metal mode the `/out` path lives on the user's machine and is bound into sibling bot containers by the host's Docker engine.
-
-**Backup paths in Docker mode**: The backup system stores local snapshots at `VELLUM_BACKUP_DIR` (default: `/workspace/.backups/`) and the encryption key at `VELLUM_BACKUP_KEY_PATH` (default: `/workspace/.backup.key`) on the workspace volume. This means workspace volume destruction loses both data and backups. For stronger isolation, a dedicated backup volume could be added in a future iteration.
+- **Trust rules** are owned by the gateway. In Docker mode (`IS_CONTAINERIZED=true`), the assistant reads/writes trust rules via the gateway's HTTP trust API — no direct filesystem access to `trust.json`.
+- **Credentials** are owned by the CES. The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`). Neither has filesystem access to `keys.enc` / `store.key`.
+- **Meet bots in Docker mode** are not yet supported. The assistant container has no elevated capabilities (`--privileged`, `CAP_SYS_ADMIN` are absent). In bare-metal mode, meet bots are sibling containers on the host's Docker engine.
 
 ## Workspace & Secrets
 
@@ -268,26 +226,11 @@ The assistant's container root (`/`) stores per-container ephemeral and persiste
 
 ## Release Update Hygiene
 
-Release notes for user/assistant-facing changes ship via **workspace migrations**. There is no bundled template to edit and no checkpoint state to clear — the notes are just a migration that writes to `<workspace>/UPDATES.md`.
+Release notes ship via an append-only workspace migration that writes to `<workspace>/UPDATES.md`. See `assistant/src/workspace/migrations/AGENTS.md` for the idempotency contract (in-file marker required — runner alone doesn't close mid-migration crash windows).
 
-**Do not ship release notes for feature-flagged or rollout-only features.** `UPDATES.md` is processed by the assistant without checking the feature flag that may guard the underlying feature, so release-note copy for disabled features can still leak into user-facing prompts. If a feature is still controlled by a default-disabled assistant flag or rollout flag, skip the release-note migration. When the feature actually GAs, add a new append-only release-note migration with a new marker; never change an already-shipped migration id from no-op back to writing release notes.
-
-The guard test `assistant/src/__tests__/workspace-release-notes-feature-flag-guard.test.ts` blocks new release-note migrations that mention flag/rollout launch language or default-disabled assistant feature flag keys. Prefer removing that copy and waiting for GA. Only extend the legacy allowlist for a bulletin that already shipped before the guard existed.
-
-**To ship release notes:**
-
-1. Add a new migration file at `assistant/src/workspace/migrations/0XX-release-notes-<slug>.ts`. Use the next available sequence number (migrations are append-only). Put the release-note text inline as a string literal inside the migration and append it to `UPDATES.md` in the migration's `run()`.
-2. Append the new migration's export to `WORKSPACE_MIGRATIONS` in `assistant/src/workspace/migrations/registry.ts`. Never reorder or remove existing entries.
-3. Skip the migration entirely for no-op releases — do not add an empty migration.
-
-**Idempotency requires both the runner AND an in-file marker.** The workspace-migration runner is the primary mechanism: `runWorkspaceMigrations()` in `assistant/src/workspace/migrations/runner.ts` records each successfully applied migration's `WorkspaceMigration.id` in `~/.vellum/workspace/data/.workspace-migrations.json` and skips any ID already in the `applied` set. However, the runner alone does not close two narrow duplicate-append windows, so release-notes migrations **must also** embed an in-file marker and short-circuit when it is present:
-
-1. **Crash mid-migration.** The runner marks a migration as `started` before `run()` executes and promotes it to `applied` only after `run()` returns. If the daemon crashes after `UPDATES.md` is appended but before the checkpoint is finalized, the next boot clears the `started` entry and re-runs the migration — producing a duplicate append.
-2. **Failed entries stay applied-adjacent.** Failed migrations persist in the checkpoint state and are not retried, but a migration that partially succeeded (appended, then threw) leaves `UPDATES.md` mutated without a guaranteed `applied` record, so subsequent hand-edits or reruns can double-write.
-
-**Required pattern for release-notes migrations:** embed an HTML marker like `<!-- release-note-id:<migration-id> -->` in the appended block, and before appending, read `UPDATES.md` and skip the append if the marker is already present. Do not drop this check on the assumption that the runner makes it redundant — it does not.
-
-**Processing:** After workspace migrations run at daemon startup, `runUpdateBulletinJobIfNeeded()` fires a background-only conversation (`conversationType: "background"`) via `wakeAgentForOpportunity()` to process `UPDATES.md`. The agent reads the file, acts on whatever is relevant, and deletes `UPDATES.md` when done. `rm UPDATES.md` remains auto-allowed so deletion needs no approval. The job short-circuits when the content hash matches the previously processed value (`updates:last_processed_hash`), so running on every startup is safe.
+- **Skip flag-gated features.** `UPDATES.md` is processed without checking the underlying flag, so notes for disabled features leak into user prompts. Guard test `workspace-release-notes-feature-flag-guard.test.ts` blocks new migrations that mention flag/rollout launch language or default-disabled flag keys.
+- **To ship**: add `assistant/src/workspace/migrations/0XX-release-notes-<slug>.ts`, append the export to `WORKSPACE_MIGRATIONS` in `registry.ts`, and embed an HTML marker (`<!-- release-note-id:<id> -->`) in the appended block; short-circuit the append if the marker is already present. Skip the migration entirely for no-op releases.
+- **Processing**: `runUpdateBulletinJobIfNeeded()` wakes a background conversation to process `UPDATES.md` and delete it. Hash-keyed short-circuit on `updates:last_processed_hash` makes startup runs safe.
 
 ## Companion Repos
 
@@ -301,42 +244,20 @@ When making changes that could affect the cloud platform, review the sibling `..
 
 ## Build Environment (`VELLUM_ENVIRONMENT`)
 
-The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment for all clients (macOS, CLI, Chrome extension). It is embedded into the app bundle's `LSEnvironment` (Info.plist) at build time by each platform's `build.sh`, or injected via `--define` for the Chrome extension bundler.
+`VELLUM_ENVIRONMENT` identifies the runtime environment for all clients (macOS, CLI, Chrome extension). It's embedded into the app bundle at build time by each platform's `build.sh`, or injected via `--define` for the Chrome-ext bundler. CI/devs can override by exporting it before invoking `build.sh`; per-client default-resolution logic lives in each client's `build.sh`.
 
 | Value | Use cases |
 |---|---|
-| `local` | Always built from local source code. Enable developer-only features (e.g. build container images from local source, verbose logging). |
-| `dev` | Artifacts generated from `main`. Connected to the dev platform; skip production guards. |
+| `local` | Always built from local source. Enable developer-only features. |
+| `dev` | Artifacts from `main`. Connected to dev platform; skip production guards. |
 | `test` | Stub external services, use test fixtures. |
-| `staging` | QA against staging platform before production rollout. Default for release branch builds. |
-| `production` | Full production behavior, no developer shortcuts. Set explicitly for final production releases. |
-
-**Defaults**: Each `build.sh` sets the value automatically when `VELLUM_ENVIRONMENT` is unset. The staging-detection logic differs by client:
-
-**macOS** (`clients/macos/build.sh`):
-- `test` => `test`
-- `release` / `release-application` => `staging` when `DISPLAY_VERSION` contains `-staging` (e.g. `0.6.0-staging.3`), otherwise `production`
-- `run` with localhost platform/web URL overrides => `local` (this is the `vel up` path)
-- `run` (without URL overrides) => `dev`
-- all other commands => `dev`
-
-**Chrome extension** (`clients/chrome-extension/build.sh`):
-- `release` => `production` (no in-script staging detection; CI workflows set `VELLUM_ENVIRONMENT` explicitly)
-- `run` => `local`
-- all other commands => `dev`
-
-CI and developers can always override by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence. All CI release workflows set the variable explicitly, so the in-script defaults only affect local development.
-
-**Reading the value at runtime** (Swift):
-```swift
-let env = ProcessInfo.processInfo.environment["VELLUM_ENVIRONMENT"] ?? "production"
-```
+| `staging` | QA against staging before production rollout. Default for release-branch builds. |
+| `production` | Full production behavior, no developer shortcuts. |
 
 **Guidelines**:
-- Use `VELLUM_ENVIRONMENT` for behavior that varies by deployment target (e.g. local image builds, telemetry sampling, API base URLs).
-- Do **not** use it as a substitute for feature flags — flags gate features per-user/org, environments gate per-deployment.
-- Do **not** check for `DEBUG` / `RELEASE` compiler flags (`#if DEBUG`) when the distinction is really about deployment environment. A debug build pointed at staging is still `staging`, not `local`.
-- Client `build.sh` scripts must be **self-contained** — install their own dependencies (e.g. `bun install --frozen-lockfile`) before building. Do not rely on `setup.sh`, `vel up`, or CI workflows to pre-install client dependencies. This ensures the build works regardless of invocation path.
+- Use it for behavior that varies by deployment target (image builds, telemetry sampling, API base URLs). Don't substitute it for feature flags (those gate per-user/org; this gates per-deployment).
+- Don't gate on `#if DEBUG` / `RELEASE` compiler flags when the distinction is really deployment environment. A debug build pointed at staging is still `staging`.
+- Client `build.sh` scripts must be self-contained — install their own deps before building, not via `setup.sh` / `vel up` / CI workflows.
 
 ## Sentry & Linear Integration
 
@@ -346,27 +267,11 @@ Error reporting uses Sentry. Two projects exist: one for the daemon/runtime (Nod
 
 ## CLI ↔ Daemon Communication
 
-**The Unix domain socket IPC (`assistant.sock`) is the preferred method
-of inter-process communication between CLI commands and the running daemon.**
-Both file-based signals (`signals/` directory + `ConfigWatcher`) and the
-daemon HTTP port are deprecated for new CLI-to-daemon interactions.
+CLI commands that need to invoke daemon-side state (conversations, wake, in-memory lookups) call into the daemon over the Unix domain socket via `cliIpcCall()` from `assistant/src/ipc/cli-client.ts`. Add a route file in `assistant/src/ipc/routes/` and register it in `routes/index.ts` — `AssistantIpcServer` auto-registers from the index. File-based signals and the daemon HTTP port are deprecated for new CLI→daemon interactions.
 
-New commands that need to invoke daemon-side state (conversations, wake,
-in-memory lookups) should use the `cliIpcCall()` helper from
-`assistant/src/ipc/cli-client.ts` and add a new route file in
-`assistant/src/ipc/routes/`, then register it in
-`assistant/src/ipc/routes/index.ts`. The `AssistantIpcServer` constructor
-auto-registers all routes from the index.
+For routes shared between HTTP and IPC, and for the current wire-protocol details (length-prefixed binary framing with JSON envelopes, plus binary/chunked response shapes), see `assistant/CLAUDE.md` § Route architecture and § CLI ↔ daemon communication protocol.
 
-The IPC protocol is newline-delimited JSON over the Unix domain socket:
-- Request:  `{ "id": string, "method": string, "params"?: object }`
-- Response: `{ "id": string, "result"?: unknown, "error"?: string }`
-
-When you need to publish domain/live events to connected clients (e.g.
-`open_url`) from code running inside the daemon process, import and call the
-`assistantEventHub` singleton directly rather than adding a new HTTP endpoint.
-For persisted multi-client state invalidation, use `sync_changed` via
-`publishSyncInvalidation()` instead.
+When publishing domain/live events from inside the daemon process, call the `assistantEventHub` singleton directly rather than adding an HTTP endpoint. For persisted multi-client state invalidation, use `publishSyncInvalidation()` (see Multi-Client Assistant State Sync).
 
 ## See Also
 

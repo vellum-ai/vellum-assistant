@@ -55,14 +55,26 @@ For example, the signing key used for JWT auth between the daemon and gateway is
 
 ## Docker Volume Management
 
-The CLI creates and manages Docker volumes for containerized instances. See the root `AGENTS.md` § Docker Volume Architecture for the full volume layout.
+The CLI creates and manages six per-instance Docker volumes with strict per-service access boundaries (least-privilege at the container level).
 
-**Volume creation** (`hatch`): Creates six volumes per instance — workspace, gateway-security, ces-security, socket, assistant-ipc, and gateway-ipc. The legacy data volume is no longer created.
+| Volume                                      | Mount path           | Access                              | Contents                                                                         |
+| ------------------------------------------- | -------------------- | ----------------------------------- | -------------------------------------------------------------------------------- |
+| **Workspace** (`<name>-workspace`)          | `/workspace`         | Assistant: rw, Gateway: rw, CES: ro | `config.json`, conversations, apps, skills, db, logs, `.backups/`, `.backup.key` |
+| **Gateway security** (`<name>-gateway-sec`) | `/gateway-security`  | Gateway only                        | `trust.json`, `actor-token-signing-key`, capability-token secrets                |
+| **CES security** (`<name>-ces-sec`)         | `/ces-security`      | CES only                            | `keys.enc`, `store.key`                                                          |
+| **Socket** (`<name>-socket`)                | `/run/ces-bootstrap` | Assistant + CES                     | CES bootstrap socket for initial handshake                                       |
+| **Gateway IPC** (`<name>-gateway-ipc`)      | `/run/gateway-ipc`   | Assistant + Gateway                 | `gateway.sock` (assistant → gateway)                                             |
+| **Assistant IPC** (`<name>-assistant-ipc`)  | `/run/assistant-ipc` | Assistant + Gateway                 | `assistant.sock` (gateway → assistant)                                           |
 
-**Volume migration** (`wake`/`hatch`): On startup, existing instances that still have a legacy data volume are migrated. `migrateGatewaySecurityFiles()` and `migrateCesSecurityFiles()` in `lib/docker.ts` copy security files from the data volume to their respective security volumes. Migrations are idempotent and non-fatal.
+The assistant container's root (`/`) holds per-container ephemeral and persistent state: package installs (`~/.bun`), `device.json`, embed-worker PID files.
 
-**Volume cleanup** (`retire`): All volumes (including the legacy data volume if it exists) are removed when an instance is retired.
+**Lifecycle**:
 
-**Volume mount rules**: Each service container receives only the volumes it needs. The assistant never mounts `gateway-security` or `ces-security`. The gateway never mounts `ces-security`. The CES mounts the workspace volume as read-only.
+- `hatch` creates the six volumes.
+- `retire` removes all of them.
 
-**Container security posture**: The assistant container runs as a non-root user (UID 1001) with no elevated capabilities. `--privileged`, `--cap-add`, and `--security-opt` overrides are NOT used. The host Docker socket is NOT bind-mounted. Do NOT re-add elevated capabilities without a concrete runtime requirement — the Docker Engine packages and inner `dockerd` supervisor were reverted (PR #26028) and the capabilities they required are no longer needed.
+**Mount rules**: each container receives only the volumes it needs. The assistant never mounts `gateway-security` or `ces-security`. The gateway never mounts `ces-security`. The CES mounts the workspace volume as read-only.
+
+**Container security posture**: the assistant container runs as a non-root user (UID 1001) with no elevated capabilities — `--privileged`, `--cap-add`, and `--security-opt` overrides are not used; the host Docker socket is not bind-mounted; default Docker seccomp and AppArmor profiles remain active. Do not add elevated capabilities without a concrete runtime requirement.
+
+**Backup paths in Docker mode**: backups land on the workspace volume (`VELLUM_BACKUP_DIR` defaults to `/workspace/.backups/`, key at `VELLUM_BACKUP_KEY_PATH` defaults to `/workspace/.backup.key`), so workspace-volume destruction loses both data and backups.
