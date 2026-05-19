@@ -14,8 +14,10 @@ import { LoginPage } from "@/domains/account/pages/login-page.js";
 import { SignupPage } from "@/domains/account/pages/signup-page.js";
 import { ProviderCallbackPage } from "@/domains/account/pages/provider-callback-page.js";
 import { ProviderSignupPage } from "@/domains/account/pages/provider-signup-page.js";
+import { DesktopOAuthCompletePage } from "@/domains/account/pages/desktop-oauth-complete-page.js";
 import { LogoutPage } from "@/domains/account/pages/logout-page.js";
 import { OAuthPopupCompletePage } from "@/domains/account/pages/oauth-popup-complete-page.js";
+import { PasswordResetPage } from "@/domains/account/pages/password-reset-page.js";
 import { routes } from "@/utils/routes.js";
 
 function HomePageRoute() {
@@ -43,7 +45,10 @@ function HomePageRoute() {
  *   │  ├── SignupPage (/account/signup)
  *   │  ├── ProviderCallbackPage (/account/provider/callback)
  *   │  ├── ProviderSignupPage (/account/provider/signup)
- *   │  └── OAuthPopupCompletePage (/account/oauth/popup-complete)
+ *   │  ├── OAuthPopupCompletePage (/account/oauth/popup-complete)
+ *   │  ├── DesktopOAuthCompletePage (/account/oauth/desktop-complete)
+ *   │  ├── PasswordResetPage (/account/password/reset → redirects to login)
+ *   │  └── PasswordResetPage (/account/password/reset/key/:key → redirects to login)
  *   │
  *   /logout        — standalone logout (calls API, redirects to login)
  *   │
@@ -71,6 +76,9 @@ export const router = createBrowserRouter([
       { path: "provider/callback", element: <ProviderCallbackPage /> },
       { path: "provider/signup", element: <ProviderSignupPage /> },
       { path: "oauth/popup-complete", element: <OAuthPopupCompletePage /> },
+      { path: "oauth/desktop-complete", element: <DesktopOAuthCompletePage /> },
+      { path: "password/reset", element: <PasswordResetPage /> },
+      { path: "password/reset/key/:key", element: <PasswordResetPage /> },
     ],
   },
 
