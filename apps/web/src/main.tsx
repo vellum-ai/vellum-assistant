@@ -11,7 +11,10 @@ import "@/lib/api-interceptors.js";
 import "./index.css";
 
 useAuthStore.subscribe((state, prevState) => {
-  if (state.isLoggedIn && !prevState.isLoggedIn) {
+  if (
+    state.isLoggedIn &&
+    (!prevState.isLoggedIn || state.user?.id !== prevState.user?.id)
+  ) {
     useOrganizationStore.getState().fetchOrganizations();
   }
 });
