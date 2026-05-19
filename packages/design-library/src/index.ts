@@ -89,6 +89,28 @@ export {
   type SliderProps,
   type SliderValue,
 } from "./components/slider.js";
+export {
+  Modal,
+  type ModalSize,
+  type ModalContentProps,
+  type ModalTitleProps,
+} from "./components/modal.js";
+export {
+  BottomSheet,
+  type BottomSheetContentProps,
+  type BottomSheetTitleProps,
+} from "./components/bottom-sheet.js";
+export {
+  toast,
+  Toaster,
+  ToastContent,
+  type ToastVariant,
+  type ToastOptions,
+} from "./components/toast.js";
+export {
+  ConfirmDialog,
+  type ConfirmDialogProps,
+} from "./components/confirm-dialog.js";
 export { cn } from "./utils/cn.js";
 export {
   PortalContainerProvider,
