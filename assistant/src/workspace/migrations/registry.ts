@@ -69,6 +69,8 @@ import { releaseNotesLocalTimezoneMigration } from "./068-release-notes-local-ti
 import { seedOnboardingThreadsMigration } from "./069-seed-onboarding-threads.js";
 import { memoryV2SummarySchemaRebuildMigration } from "./070-memory-v2-summary-schema-rebuild.js";
 import { removeSafeStorageReleaseNoteMigration } from "./071-remove-safe-storage-release-note.js";
+import { seedPerceptionCallsiteMigration } from "./072-seed-perception-callsite.js";
+import { seedPreferenceFeedbackCallsiteMigration } from "./073-seed-preference-feedback-callsite.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -149,4 +151,6 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   seedOnboardingThreadsMigration,
   memoryV2SummarySchemaRebuildMigration,
   removeSafeStorageReleaseNoteMigration,
+  seedPerceptionCallsiteMigration,
+  seedPreferenceFeedbackCallsiteMigration,
 ];

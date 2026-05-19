@@ -5,6 +5,7 @@ import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { McpServerManager } from "../mcp/manager.js";
 import { getSqlite, resetDb } from "../memory/db-connection.js";
 import type { QdrantManager } from "../memory/qdrant-manager.js";
+import { stopPerception } from "../perception/startup.js";
 import type { RuntimeHttpServer } from "../runtime/http-server.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
 import { cleanupShellOutputTempFiles } from "../tools/shared/shell-output.js";
@@ -120,6 +121,11 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     cleanupShellOutputTempFiles();
     deps.scheduler.stop();
     deps.feedScheduler?.stop();
+    try {
+      stopPerception();
+    } catch (err) {
+      log.warn({ err }, "Perception shutdown failed (non-fatal)");
+    }
     deps.getMemoryWorker()?.stop();
 
     if (deps.mcpManager) {

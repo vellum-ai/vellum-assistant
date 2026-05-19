@@ -280,6 +280,54 @@
       "label": "Pro Plan Adjust",
       "description": "Show the rich Plan card (current plan, features, Manage/Upgrade CTA) at the top of the macOS Settings → Billing tab.",
       "defaultEnabled": false
+    },
+    {
+      "id": "perception",
+      "scope": "assistant",
+      "key": "perception",
+      "label": "Perception",
+      "description": "Enable the ambient perception spine: assistant-side context buffer that records structured perception events (e.g. active app/window changes) and exposes them to the assistant for time-aware recall. Phase 1 vertical slice; client capture is bare-metal only.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "perception-screen-snapshot",
+      "scope": "assistant",
+      "key": "perception-screen-snapshot",
+      "label": "Perception: Screen Snapshot",
+      "description": "Sub-flag of perception. Allow on-device screen OCR results to flow through the perception spine as `screen_snapshot` events. Raw images never cross IPC; only redacted OCR text. Requires per-conversation consent via the existing confirmation flow.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "perception-audio-excerpt",
+      "scope": "assistant",
+      "key": "perception-audio-excerpt",
+      "label": "Perception: Audio Excerpt",
+      "description": "Sub-flag of perception. Publish redacted excerpts of the live-voice STT transcript stream as `audio_excerpt` events so the assistant can reason over spoken context. Requires per-conversation consent.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "webcam-snapshot",
+      "scope": "assistant",
+      "key": "webcam-snapshot",
+      "label": "Webcam Snapshot",
+      "description": "Enable the on-demand webcam snapshot skill. Each use requests one desktop camera frame, summarizes it through the configured LLM path, and discards the raw image.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "autonomous-execution",
+      "scope": "assistant",
+      "key": "autonomous-execution",
+      "label": "Autonomous Execution",
+      "description": "Enable the autonomous execution engine: durable multi-step plans persisted in plans/plan_steps/plan_step_runs, with crash recovery and lifecycle broadcasts. Plans skill exposes inspection + cancellation.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "memory-maturation",
+      "scope": "assistant",
+      "key": "memory-maturation",
+      "label": "Memory Maturation",
+      "description": "Enable counter-weighted PKB confidence, idempotent episode writes, the hourly PKB decay job, and the post-turn preference-feedback observer. Store-API changes ship unconditionally.",
+      "defaultEnabled": false
     }
   ]
 }

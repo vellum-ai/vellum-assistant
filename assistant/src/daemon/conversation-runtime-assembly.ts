@@ -1660,6 +1660,8 @@ const RUNTIME_INJECTION_PREFIXES = [
   // variant that may linger in in-flight histories during a rolling deploy.
   "<NOW.md Always keep this up to date",
   "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
+  "<perception_memory>",
+  "<active_plan>",
   "<knowledge_base>",
   "<pkb>", // backward-compat: strip legacy tag from pre-rename history
   "<system_reminder>",
@@ -1946,6 +1948,14 @@ export interface RuntimeInjectionOptions {
    * original user message.
    */
   memoryV2Static?: string | null;
+  /**
+   * Compact snapshot derived from perception-backed personal knowledge
+   * (episodes/entities/preferences). The `perception-memory-context`
+   * injector wraps this in `<perception_memory>` and places it after the
+   * memory prefix on full-mode turns.
+   */
+  perceptionMemoryContext?: string | null;
+  activePlanContext?: string | null;
   nowScratchpad?: string | null;
   subagentStatusBlock?: string | null;
   isNonInteractive?: boolean;
@@ -2028,6 +2038,8 @@ function buildTurnInjectionInputs(
     pkbRoot: options.pkbRoot,
     pkbWorkingDir: options.pkbWorkingDir,
     memoryV2Static: options.memoryV2Static,
+    perceptionMemoryContext: options.perceptionMemoryContext,
+    activePlanContext: options.activePlanContext,
     nowScratchpad: options.nowScratchpad,
     subagentStatusBlock: options.subagentStatusBlock,
     channelCapabilities: options.channelCapabilities,

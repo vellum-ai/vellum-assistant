@@ -42,7 +42,8 @@ export type MemoryJobType =
   | "memory_v2_consolidate"
   | "memory_v2_migrate"
   | "memory_v2_reembed"
-  | "memory_v2_activation_recompute";
+  | "memory_v2_activation_recompute"
+  | "pkb_decay";
 
 export const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_segment",

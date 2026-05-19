@@ -1,3 +1,4 @@
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import {
@@ -67,6 +68,7 @@ import {
   resetRunningJobsToPending,
   SLOW_LLM_JOB_TYPES,
 } from "./jobs-store.js";
+import { runPkbDecayPass } from "./pkb-decay.js";
 import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
 import {
   memoryV2ActivationRecomputeJob,
@@ -355,6 +357,11 @@ function graphDecayJob(job: MemoryJob): void {
   log.info({ jobId: job.id, ...result }, "Graph decay tick complete");
 }
 
+function pkbDecayJob(job: MemoryJob): void {
+  const result = runPkbDecayPass();
+  log.info({ jobId: job.id, ...result }, "PKB decay tick complete");
+}
+
 async function graphConsolidateJob(
   job: MemoryJob,
   config: AssistantConfig,
@@ -555,6 +562,9 @@ async function processJob(
     case "memory_v2_activation_recompute":
       await memoryV2ActivationRecomputeJob(job, config);
       return;
+    case "pkb_decay":
+      pkbDecayJob(job);
+      return;
 
     default: {
       const rawType = (job as { type: string }).type;
@@ -614,6 +624,7 @@ const GRAPH_DECAY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const GRAPH_CONSOLIDATE_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
 const GRAPH_PATTERN_SCAN_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
 const GRAPH_NARRATIVE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
+const PKB_DECAY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   decay: "graph_maintenance:decay:last_run",
@@ -621,6 +632,7 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   patternScan: "graph_maintenance:pattern_scan:last_run",
   narrative: "graph_maintenance:narrative:last_run",
   memoryV2Consolidate: "memory_v2_consolidate_last_run",
+  pkbDecay: "pkb_maintenance:decay:last_run",
 } as const;
 
 /**
@@ -689,6 +701,15 @@ export function maybeEnqueueGraphMaintenanceJobs(
     const lastRun = parseInt(getMemoryCheckpoint(key) ?? "0", 10);
     if (nowMs - lastRun >= intervalMs) {
       enqueueMemoryJob(jobType, {});
+      setMemoryCheckpoint(key, String(nowMs));
+    }
+  }
+
+  if (isAssistantFeatureFlagEnabled("memory-maturation", config)) {
+    const key = GRAPH_MAINTENANCE_CHECKPOINTS.pkbDecay;
+    const lastRun = parseInt(getMemoryCheckpoint(key) ?? "0", 10);
+    if (nowMs - lastRun >= PKB_DECAY_INTERVAL_MS) {
+      enqueueMemoryJob("pkb_decay", {});
       setMemoryCheckpoint(key, String(nowMs));
     }
   }
