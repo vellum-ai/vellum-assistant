@@ -194,7 +194,7 @@ function buildMarkdownComponents(
       if (isBlock) {
         return (
           <code
-            className={`block overflow-x-auto font-mono text-body-small-default ${className ?? ""}`}
+            className={cn("block overflow-x-auto font-mono text-body-small-default", className)}
             {...props}
           >
             {children}
