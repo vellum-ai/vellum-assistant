@@ -68,6 +68,15 @@ EXT_VERSION_FULL="$EXT_VERSION"
 EXT_VERSION="${EXT_VERSION%%-*}"
 
 # ---------------------------------------------------------------------------
+# Ensure dependencies are installed before building.
+# --frozen-lockfile is preferred (fast, won't modify the lockfile); fall back
+# to a regular install for first-time setups or lockfile drift.
+# ---------------------------------------------------------------------------
+echo "Installing dependencies..."
+(cd "$SCRIPT_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install) \
+  || { echo "❌ Dependency install failed."; exit 1; }
+
+# ---------------------------------------------------------------------------
 # Build function — shared by initial build and watch-triggered rebuilds.
 # ---------------------------------------------------------------------------
 do_build() {
