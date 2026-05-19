@@ -144,6 +144,10 @@ compiles on the fly. This means:
   imports through the consumer's `node_modules`. These deps are deduplicated
   at runtime by Vite — they only need to be listed for type resolution.
 
+For multi-consumer setups or when build times become a concern, consider
+the [compiled package strategy](https://turborepo.dev/docs/core-concepts/internal-packages#compiled-packages)
+instead.
+
 References:
 - [Turborepo — Internal Packages: Just-in-Time strategy](https://turborepo.dev/docs/core-concepts/internal-packages#just-in-time-packages)
 - [Hiroki Osame — Think twice before importing package source files](https://hirok.io/posts/importing-source-files-in-dev) (tradeoffs of source imports)
