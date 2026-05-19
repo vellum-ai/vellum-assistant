@@ -43,7 +43,8 @@ export const PLATFORM_PROVIDER_META: Record<string, ManagedProviderMeta> = {
   },
   fireworks: {
     name: "fireworks",
-    managed: false,
+    managed: true,
+    proxyPath: "/v1/runtime-proxy/fireworks",
   },
   openrouter: {
     name: "openrouter",

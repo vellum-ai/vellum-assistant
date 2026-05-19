@@ -360,6 +360,12 @@ const CANONICAL_CONNECTIONS: Array<{
     auth: { type: "platform" },
     label: "Google Gemini",
   },
+  {
+    name: "fireworks-managed",
+    provider: "fireworks",
+    auth: { type: "platform" },
+    label: "Fireworks",
+  },
 ];
 
 /**
