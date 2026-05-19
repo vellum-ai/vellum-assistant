@@ -156,6 +156,11 @@ export {
   MarqueeText,
   type MarqueeTextProps,
 } from "./components/panel-item/marquee-text.js";
+export {
+  MarkdownMessage,
+  type MarkdownMessageProps,
+  type MarkdownLinkComponent,
+} from "./components/markdown-message.js";
 export { cn } from "./utils/cn.js";
 export {
   PortalContainerProvider,
