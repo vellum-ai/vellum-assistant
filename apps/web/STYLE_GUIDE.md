@@ -20,7 +20,8 @@ keeps imports predictable.
 ```
 use-send-message.ts        # hook
 message-handlers.ts         # module
-conversation-reducer.ts     # reducer
+conversation-store.ts       # Zustand store
+conversation-reducer.ts     # reducer (pure function used by store)
 chat-body.tsx               # component
 stream-event-types.ts       # types
 ```
@@ -65,6 +66,7 @@ src/
   App.tsx                    # root layout component
   main.tsx                   # entry point (createRoot, RouterProvider)
   routes.tsx                 # route tree (createBrowserRouter)
+  stores/                    # app-level Zustand stores (cross-domain)
   domains/                   # business domain modules
     messages/                # message lifecycle
     conversations/           # conversation CRUD, grouping, selection

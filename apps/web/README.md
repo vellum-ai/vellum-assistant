@@ -11,7 +11,8 @@ Vellum assistant web app (chat, settings, library, docs).
   **library / data-router mode** (`createBrowserRouter` +
   `<RouterProvider>`).
 - [Zustand](https://zustand.docs.pmnd.rs/) for shared client state
-  (messages, streaming, interactions, conversations).
+  (messages, streaming, interactions, conversations). See
+  [`CONVENTIONS.md`](./CONVENTIONS.md#state-management) for store patterns.
 - [TanStack React Query](https://tanstack.com/query/latest) for server
   state (API calls, caching, mutations).
 - [HeyAPI](https://heyapi.dev/) for OpenAPI client generation with
@@ -88,6 +89,7 @@ src/
   App.tsx                    # root layout component
   main.tsx                   # entry point (createRoot, RouterProvider)
   routes.tsx                 # route tree (createBrowserRouter)
+  stores/                    # app-level Zustand stores (cross-domain)
   domains/                   # business domain modules
     messages/                # message lifecycle
     conversations/           # conversation CRUD, grouping, selection

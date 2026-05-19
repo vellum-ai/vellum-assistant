@@ -13,7 +13,7 @@ Read these before making changes:
 
 - **Build**: [Vite](https://vite.dev/) + [React 19](https://react.dev/blog/2024/12/05/react-19)
 - **Routing**: [React Router v7](https://reactrouter.com/) — [data mode](https://reactrouter.com/start/modes) (`createBrowserRouter`), NOT framework mode
-- **Client state**: [Zustand](https://zustand.docs.pmnd.rs/) (migration in progress from `useReducer` + Context)
+- **Client state**: [Zustand](https://zustand.docs.pmnd.rs/) — all shared state uses Zustand stores (see [CONVENTIONS.md — State management](./CONVENTIONS.md#state-management))
 - **Server state**: [TanStack Query](https://tanstack.com/query/latest) with [HeyAPI plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query)
 - **Styling**: [Tailwind CSS v4](https://tailwindcss.com/) via `@tailwindcss/vite`
 - **Design system**: `@vellum/design-library` at [`packages/design-library/`](../../packages/design-library/)
