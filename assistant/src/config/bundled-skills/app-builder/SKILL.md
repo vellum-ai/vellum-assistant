@@ -54,6 +54,69 @@ Each record is a JSON file at `<slug>/records/<uuid>.json` with shape:
 
 All new apps use `formatVersion: 2`: source files live under `src/` and compiled output lives under `dist/`. The build system compiles TSX to JS automatically when `app_refresh` is called.
 
+## Responsive Baseline & Mobile-First Mode
+
+Every app must be responsive across the full width range — phone (~360px) to desktop (~1400px+). The conversation context's `<turn_context>` block carries an `interface:` field. Visual interfaces are `macos`, `ios`, and `web`; the field doesn't toggle responsiveness on or off — it shifts the **design priority**. Non-visual values like `phone` represent voice channels that can't render apps at all and don't need to be considered here.
+
+- **`interface: ios`** (or any future mobile-web / android identifier) — mobile-first build. Design the narrow viewport first and progressively enhance upward at wider widths.
+- **`interface: macos` / `web`** — desktop-first build. Design the larger composition first; the narrow-width fallback must still meet the universal baseline below but doesn't need to feel like a native mobile app.
+- **Field absent or ambiguous** — default to desktop-first unless the user's request itself implies phone use ("for my iPhone home screen", "a tap-tracker I'll use on the go").
+
+### Universal baseline (every build, regardless of interface)
+
+These rules aren't mobile-specific — they're touch / responsive a11y baselines that any user-resizable WebView needs.
+
+**Viewport & safe areas**
+
+- Viewport meta: `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`. Never set `user-scalable=no` — it blocks accessibility zoom.
+- Pad the root container with `env(safe-area-inset-*)` so content clears the notch / home indicator when the app is opened on a notched device: `padding-top: max(var(--v-spacing-lg), env(safe-area-inset-top))`, mirrored for `-bottom`/`-left`/`-right`. On desktop the env vars resolve to `0` and the `max()` falls through to the design-system value — no-op.
+- Use `100dvh` (dynamic viewport height), not `100vh`, for full-height containers. `100vh` creates a scroll-jump on every mobile browser regardless of build mode.
+
+**Form controls**
+
+- `<input>`, `<textarea>`, `<select>` must be `font-size: 16px` or larger, or iOS Safari will zoom on focus and break the layout. This applies to every build — anyone may open a desktop-built app on their phone.
+- Add `inputmode` to text fields with structured input: `numeric` for integers, `decimal` for amounts, `email`, `tel`, `url`. Add matching `autocomplete` and `autocapitalize` hints where appropriate.
+
+**Touch & hover**
+
+- Interactive elements (buttons, list rows, nav items, toggles, icon buttons) must be ≥44×44pt. `.v-button` already meets this; for custom controls, set `min-height: 44px` explicitly.
+- Gate hover affordances behind `@media (hover: hover)` so they don't stick on touch devices visiting a desktop-built app.
+- Disable text selection on app chrome (headers, nav, buttons) with `user-select: none; -webkit-user-select: none` so long-press doesn't pop the iOS selection menu over interactive elements.
+
+**Layout fluidity**
+
+- Fluid widths only — no fixed-pixel layouts. Use `%`, `fr`, `minmax`, `clamp()` instead of `px` on container widths.
+- Horizontal-scroll tables don't work on narrow screens. At narrow widths, collapse rows into stacked cards with labels and values arranged vertically. (Mobile-first builds can use cards everywhere; desktop-first builds can keep the table at wide widths and switch to cards below a breakpoint.)
+- `vellum.widgets.*` chart containers should be sized in `vw`/`%`, not fixed `px`. Prefer simpler chart types (sparkline, bar) at narrow widths — dense multi-series charts lose detail.
+
+### Mobile-first priorities (`interface: ios` or future mobile identifier)
+
+These are the **design priority differences** that mobile-first builds adopt on top of the universal baseline. They reflect "narrow viewport is the primary experience, wider widths progressively enhance."
+
+**Typography**
+
+- Default body text to `--v-font-size-lg` (17px), not `--v-font-size-base` (14px) — the desktop base is too small to read comfortably on a phone. At wider widths the same 17px reads fine.
+
+**Spacing**
+
+- Bump default vertical rhythm one step (e.g. `--v-spacing-md` → `--v-spacing-lg` between cards and sections) so users can comfortably scroll-stop on each item.
+
+**Layout**
+
+- One column as the **default**, not as a narrow-width fallback. `flex-direction: column` first; opt into a multi-column grid only above a width breakpoint (`@media (min-width: 720px)`). No side rails, no two-pane master/detail, no fixed-width sidebars in the default view.
+- Bottom-anchor the primary action (e.g. "Add", "Save") so the thumb can reach it: `position: sticky; bottom: env(safe-area-inset-bottom)` over the scrolling list. On wider widths you may re-flow it back inline.
+- Replace side modals and popovers with bottom sheets that animate up from the bottom edge.
+
+**Interaction**
+
+- Skip the Tab/Enter/Esc keyboard pattern from "Interaction Standards" as the primary affordance — on mobile, focus comes from taps, submit from the soft keyboard's `return`, dismissal from a swipe down on bottom sheets. Keyboard support is still allowed (external-keyboard users exist on iPad) but isn't the design driver.
+
+### Desktop-first priorities (`interface: macos` / `web`)
+
+The default behaviour the rest of this skill describes — multi-column composition, hover-rich affordances, denser information, side modals, inline primary actions. The universal baseline above is the floor: the narrow-width view must still work and follow the touch / responsive a11y rules, but it doesn't need to feel native to mobile.
+
+Everything else in this skill applies unchanged.
+
 ## Workflow
 
 ### 0. Preflight — Pin to a high-quality model
@@ -412,7 +475,7 @@ Every app must meet these baselines:
 - **Confirmation for destructive actions:** Use `window.vellum.confirm(title, message)` before deleting or resetting. Returns `Promise<boolean>`.
 - **Form validation:** Validate before submit, show errors inline, disable submit during async operations.
 - **Loading states:** Never show a blank screen while data loads. Use skeleton shimmer or spinners.
-- **Keyboard navigation:** `Tab` between elements, `Enter` to submit, `Escape` to close/cancel.
+- **Keyboard navigation:** `Tab` between elements, `Enter` to submit, `Escape` to close/cancel. *(De-prioritised on mobile-first builds — see [Responsive Baseline & Mobile-First Mode](#responsive-baseline--mobile-first-mode).)*
 
 ## Presentation Slide Design
 
