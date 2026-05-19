@@ -4,10 +4,11 @@
  *
  * Covers:
  *
- * 1. The ten default injectors registered by `defaultInjectorsPlugin` come
+ * 1. The default injectors registered by `defaultInjectorsPlugin` come
  *    back from `getInjectors()` in the documented order
  *    (disk-pressure-warning → workspace-context → unified-turn-context →
- *    pkb-context → pkb-reminder → memory-v2-static → now-md →
+ *    pkb-context → pkb-reminder → memory-v2-static →
+ *    perception-memory-context → now-md →
  *    subagent-status → slack-messages → thread-focus).
  * 2. A third-party-registered injector at `order: 25` slots between
  *    `unified-turn-context` (order 20) and `pkb` (order 30), proving the
@@ -42,12 +43,10 @@ mock.module("../config/loader.js", () => ({
   },
 }));
 
-const { applyRuntimeInjections, composeInjectorChain } = await import(
-  "../daemon/conversation-runtime-assembly.js"
-);
-const { DEFAULT_INJECTOR_ORDER, defaultInjectorsPlugin } = await import(
-  "../plugins/defaults/injectors.js"
-);
+const { applyRuntimeInjections, composeInjectorChain } =
+  await import("../daemon/conversation-runtime-assembly.js");
+const { DEFAULT_INJECTOR_ORDER, defaultInjectorsPlugin } =
+  await import("../plugins/defaults/injectors.js");
 import {
   getInjectors,
   registerPlugin,
@@ -91,7 +90,7 @@ describe("injector chain", () => {
     resetPluginRegistryForTests();
   });
 
-  test("defaultInjectorsPlugin registers the ten defaults in the documented order", () => {
+  test("defaultInjectorsPlugin registers defaults in the documented order", () => {
     registerPlugin(defaultInjectorsPlugin);
 
     const names = getInjectors().map((i) => i.name);
@@ -102,7 +101,9 @@ describe("injector chain", () => {
       "pkb-context",
       "pkb-reminder",
       "memory-v2-static",
+      "perception-memory-context",
       "now-md",
+      "active-plan",
       "subagent-status",
       "slack-messages",
       "thread-focus",
@@ -127,7 +128,11 @@ describe("injector chain", () => {
     expect(byName.get("memory-v2-static")).toBe(
       DEFAULT_INJECTOR_ORDER.memoryV2Static,
     );
+    expect(byName.get("perception-memory-context")).toBe(
+      DEFAULT_INJECTOR_ORDER.perceptionMemory,
+    );
     expect(byName.get("now-md")).toBe(DEFAULT_INJECTOR_ORDER.nowMd);
+    expect(byName.get("active-plan")).toBe(DEFAULT_INJECTOR_ORDER.activePlan);
     expect(byName.get("subagent-status")).toBe(
       DEFAULT_INJECTOR_ORDER.subagentStatus,
     );
@@ -158,7 +163,9 @@ describe("injector chain", () => {
       "pkb-context", // 30
       "pkb-reminder", // 35
       "memory-v2-static", // 38
+      "perception-memory-context", // 39
       "now-md", // 40
+      "active-plan", // 45
       "subagent-status", // 50
       "slack-messages", // 60
       "thread-focus", // 70
@@ -166,7 +173,7 @@ describe("injector chain", () => {
   });
 
   test("composeInjectorChain returns empty string when every injector opts out", async () => {
-    // The default chain is the golden-path: all ten defaults return `null`
+    // The default chain is the golden-path: all defaults return `null`
     // on an empty turn context, so the composed block is an empty string.
     registerPlugin(defaultInjectorsPlugin);
 
@@ -345,6 +352,8 @@ describe("injector chain", () => {
       "<turn_context>\ncurrent_time: 2026-04-22\ninterface: macos\n</turn_context>";
     const pkbContent = "essentials of the project";
     const nowContent = "Current focus: shipping G2.1";
+    const activePlanContext =
+      "Goal: Ship focused slice\nCurrent step: Run tests";
     const subagentBlock =
       '<active_subagents>\n- [running] "worker" (sub-1) | elapsed: 5s\n</active_subagents>';
 
@@ -355,6 +364,7 @@ describe("injector chain", () => {
       pkbContext: pkbContent,
       pkbActive: false, // disable reminder-branch to keep the snapshot small
       nowScratchpad: nowContent,
+      activePlanContext,
       subagentStatusBlock: subagentBlock,
     });
 
@@ -375,8 +385,11 @@ describe("injector chain", () => {
     );
     expect(texts[3]).toBe(`<knowledge_base>\n${pkbContent}\n</knowledge_base>`);
     expect(texts[4]).toBe("What next?"); // user's typed text
-    expect(texts[5]).toBe(subagentBlock); // append order 50
-    expect(texts).toHaveLength(6);
+    expect(texts[5]).toBe(
+      `<active_plan>\n${activePlanContext}\n</active_plan>`,
+    );
+    expect(texts[6]).toBe(subagentBlock); // append order 50
+    expect(texts).toHaveLength(7);
 
     // Block metadata captures for DB persistence — one field per default
     // injector whose output the loader rehydrates from message metadata.

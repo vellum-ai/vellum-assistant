@@ -77,6 +77,7 @@ import {
   readMemoryV2StaticContent,
   shouldLoadMemoryV2Static,
 } from "../memory/v2/static-context.js";
+import { buildPerceptionKnowledgeContext } from "../perception/personal-knowledge-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
 import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
@@ -1439,6 +1440,13 @@ export async function runAgentLoopImpl(
       ? readMemoryV2StaticContent()
       : null;
     const memoryV2Static = currentMemoryV2Static;
+    const perceptionMemoryContext = shouldLoadMemoryV2Static({
+      shouldInjectNowAndPkb,
+      sourceChannel: ctx.trustContext?.sourceChannel,
+      isTrustedActor,
+    })
+      ? buildPerceptionKnowledgeContext()
+      : null;
 
     // PKB relevance-hint inputs. Resolved once per turn and reused across
     // re-injections so post-compaction rebuilds pick up fresh hints against
@@ -1537,6 +1545,7 @@ export async function runAgentLoopImpl(
       pkbRoot,
       pkbWorkingDir: pkbActive ? ctx.workingDir : undefined,
       memoryV2Static,
+      perceptionMemoryContext,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
@@ -1823,6 +1832,7 @@ export async function runAgentLoopImpl(
             ...injectionOpts,
             ...(stepCompacted && { pkbContext: currentPkbContent }),
             ...(stepCompacted && { memoryV2Static: currentMemoryV2Static }),
+            ...(stepCompacted && { perceptionMemoryContext }),
             ...(stepCompacted && { nowScratchpad: currentNowContent }),
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
@@ -2136,6 +2146,7 @@ export async function runAgentLoopImpl(
         ...injectionOpts,
         pkbContext: currentPkbContent,
         memoryV2Static: currentMemoryV2Static,
+        perceptionMemoryContext,
         nowScratchpad: currentNowContent,
         workspaceTopLevelContext: shouldInjectWorkspace
           ? ctx.workspaceTopLevelContext
@@ -2390,6 +2401,9 @@ export async function runAgentLoopImpl(
           ...injectionOpts,
           pkbContext: currentPkbContent,
           memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
+          perceptionMemoryContext: convergenceStripped
+            ? perceptionMemoryContext
+            : null,
           nowScratchpad: convergenceStripped ? currentNowContent : null,
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
@@ -2552,6 +2566,9 @@ export async function runAgentLoopImpl(
             ...injectionOpts,
             pkbContext: currentPkbContent,
             memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
+            perceptionMemoryContext: convergenceStripped
+              ? perceptionMemoryContext
+              : null,
             nowScratchpad: convergenceStripped ? currentNowContent : null,
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext

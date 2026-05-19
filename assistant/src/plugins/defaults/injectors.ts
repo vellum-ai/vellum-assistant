@@ -18,7 +18,9 @@
  * | `pkb-context`            | 30    | after-memory-prefix     |
  * | `pkb-reminder`           | 35    | after-memory-prefix     |
  * | `memory-v2-static`       | 38    | after-memory-prefix     |
+ * | `perception-memory`      | 39    | after-memory-prefix     |
  * | `now-md`                 | 40    | after-memory-prefix     |
+ * | `active-plan`            | 45    | append-user-tail        |
  * | `subagent-status`        | 50    | append-user-tail        |
  * | `slack-messages`         | 60    | replace-run-messages    |
  * | `thread-focus`           | 70    | append-user-tail        |
@@ -90,7 +92,9 @@ export const DEFAULT_INJECTOR_ORDER = {
   pkbContext: 30,
   pkbReminder: 35,
   memoryV2Static: 38,
+  perceptionMemory: 39,
   nowMd: 40,
+  activePlan: 45,
   subagentStatus: 50,
   slackMessages: 60,
   threadFocus: 70,
@@ -384,6 +388,37 @@ const memoryV2StaticInjector: Injector = {
 };
 
 /**
+ * `perception-memory-context` injector — order 39, after-memory-prefix.
+ *
+ * Injects a compact perception-derived PKB snapshot (episodes/entities/
+ * preferences) as `<perception_memory>...</perception_memory>`.
+ *
+ * Gating:
+ *  - `mode === "full"`.
+ *  - `perceptionMemoryContext` is a non-null, non-empty string.
+ */
+const perceptionMemoryContextInjector: Injector = {
+  name: "perception-memory-context",
+  order: DEFAULT_INJECTOR_ORDER.perceptionMemory,
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+    const inputs = readInjectionInputs(ctx);
+    const mode = inputs.mode ?? "full";
+    if (mode !== "full") return null;
+    const content = inputs.perceptionMemoryContext;
+    if (!content) return null;
+    const escaped = content.replace(
+      /<\/perception_memory\s*>/gi,
+      "&lt;/perception_memory&gt;",
+    );
+    return {
+      id: "perception-memory-context",
+      text: `<perception_memory>\n${escaped}\n</perception_memory>`,
+      placement: "after-memory-prefix",
+    };
+  },
+};
+
+/**
  * Wrap the static memory content in `<memory>...</memory>`. Escapes any
  * closing `</memory>` inside the content so authored memory files cannot
  * accidentally break out of the wrapper.
@@ -418,6 +453,27 @@ const nowMdInjector: Injector = {
       id: "now-md",
       text,
       placement: "after-memory-prefix",
+    };
+  },
+};
+
+const activePlanInjector: Injector = {
+  name: "active-plan",
+  order: DEFAULT_INJECTOR_ORDER.activePlan,
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+    const inputs = readInjectionInputs(ctx);
+    const mode = inputs.mode ?? "full";
+    if (mode !== "full") return null;
+    const content = inputs.activePlanContext;
+    if (!content) return null;
+    const escaped = content.replace(
+      /<\/active_plan\s*>/gi,
+      "&lt;/active_plan&gt;",
+    );
+    return {
+      id: "active-plan",
+      text: `<active_plan>\n${escaped}\n</active_plan>`,
+      placement: "append-user-tail",
     };
   },
 };
@@ -557,7 +613,9 @@ export const defaultInjectorsPlugin: Plugin = {
     pkbContextInjector,
     pkbReminderInjector,
     memoryV2StaticInjector,
+    perceptionMemoryContextInjector,
     nowMdInjector,
+    activePlanInjector,
     subagentStatusInjector,
     slackMessagesInjector,
     threadFocusInjector,

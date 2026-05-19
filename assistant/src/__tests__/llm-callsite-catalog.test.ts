@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import { getLLMCallSiteLabel } from "../config/llm-callsite-catalog.js";
-import { CALL_SITE_CATALOG } from "../config/schemas/call-site-catalog.js";
+import {
+  CALL_SITE_CATALOG,
+  CALL_SITE_TIERS,
+} from "../config/schemas/call-site-catalog.js";
 import { LLMCallSiteEnum } from "../config/schemas/llm.js";
 
 describe("LLM call-site catalog", () => {
@@ -30,5 +33,12 @@ describe("LLM call-site catalog", () => {
 
   test("returns the raw ID for unknown call sites", () => {
     expect(getLLMCallSiteLabel("unknownCallSite")).toBe("unknownCallSite");
+  });
+
+  test("assigns every call site to a declared tier", () => {
+    const tierIds = new Set(CALL_SITE_TIERS.map((tier) => tier.id));
+    for (const site of CALL_SITE_CATALOG) {
+      expect(tierIds.has(site.tier)).toBe(true);
+    }
   });
 });

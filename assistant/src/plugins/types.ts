@@ -825,6 +825,13 @@ export interface TurnInjectionInputs {
    * the user message.
    */
   readonly memoryV2Static?: string | null;
+  /**
+   * Perception-derived personal-knowledge snapshot (episodes/entities/
+   * preferences) to inject as compact planning context. Null/undefined skips.
+   */
+  readonly perceptionMemoryContext?: string | null;
+  /** Active confirmed task-plan context for this conversation. */
+  readonly activePlanContext?: string | null;
   /** NOW.md scratchpad content or null to skip. */
   readonly nowScratchpad?: string | null;
   /** Pre-built `<active_subagents>` block or null to skip. */
