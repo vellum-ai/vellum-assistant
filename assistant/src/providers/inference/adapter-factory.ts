@@ -84,8 +84,11 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       apiKey: apiKey || undefined,
       streamTimeoutMs,
     }),
-  fireworks: ({ apiKey, model, streamTimeoutMs }) =>
-    new FireworksProvider(apiKey, model, { streamTimeoutMs }),
+  fireworks: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new FireworksProvider(apiKey, model, {
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
   openrouter: ({ apiKey, model, streamTimeoutMs, useNativeWebSearch }) =>
     new OpenRouterProvider(apiKey, model, {
       useNativeWebSearch,
