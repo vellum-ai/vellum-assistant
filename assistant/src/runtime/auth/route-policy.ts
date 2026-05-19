@@ -451,9 +451,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "bookmarks:POST", scopes: ["chat.write"] },
   { endpoint: "bookmarks/by-message:DELETE", scopes: ["chat.write"] },
 
-  // Interfaces
-  { endpoint: "interfaces", scopes: ["settings.read"] },
-
   // Skills
   { endpoint: "skills:GET", scopes: ["settings.read"] },
   { endpoint: "skills:POST", scopes: ["settings.write"] },

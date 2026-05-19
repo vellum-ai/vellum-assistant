@@ -121,7 +121,6 @@ import {
   registerMessagingProviders,
   registerWatcherProviders,
 } from "./providers-setup.js";
-import { seedInterfaceFiles } from "./seed-files.js";
 import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
@@ -352,8 +351,6 @@ export async function runDaemon(): Promise<void> {
     void initFeatureFlagOverrides().catch((err) =>
       log.warn({ err }, "Background feature flag init failed"),
     );
-
-    seedInterfaceFiles();
 
     log.info("Daemon startup: initializing DB");
     ensurePromptFiles();

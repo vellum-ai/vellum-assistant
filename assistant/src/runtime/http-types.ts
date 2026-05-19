@@ -167,7 +167,6 @@ export interface RuntimeMessagePayload {
     approvalReason?: string;
     riskThreshold?: string;
   }>;
-  interfaces?: string[];
   surfaces?: Array<{
     surfaceId: string;
     surfaceType: string;

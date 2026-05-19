@@ -35,7 +35,6 @@ mock.module("../../util/platform.js", () => ({
   getEmbeddingModelsDir: () => join(workspaceDir ?? fallbackDir, "models"),
   getSandboxRootDir: () => join(workspaceDir ?? fallbackDir, "sandbox"),
   getSandboxWorkingDir: () => join(workspaceDir ?? fallbackDir, "sandbox/work"),
-  getInterfacesDir: () => join(workspaceDir ?? fallbackDir, "interfaces"),
   getSoundsDir: () => join(workspaceDir ?? fallbackDir, "sounds"),
   getAvatarDir: () => join(workspaceDir ?? fallbackDir, "avatar"),
   AVATAR_IMAGE_FILENAME: "avatar-image.png",

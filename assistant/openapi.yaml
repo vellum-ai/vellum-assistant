@@ -9994,21 +9994,6 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/interfaces/{path}:
-    get:
-      operationId: interfaces_by_path_get
-      summary: Serve an interface definition file
-      tags:
-        - interfaces
-      responses:
-        "200":
-          description: Successful response
-      parameters:
-        - name: path
-          in: path
-          required: true
-          schema:
-            type: string
   /v1/internal/mcp/add:
     post:
       operationId: internal_mcp_add_post
