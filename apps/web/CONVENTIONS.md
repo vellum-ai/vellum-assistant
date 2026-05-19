@@ -474,10 +474,10 @@ contexts that don't need the domain behavior (e.g. auth-free local
 usage).
 
 ```ts
-// Domain wrapper — lives in domains/chat/components/
+// Domain wrapper — lives in domains/chat/components/chat-markdown-message.tsx
 import { MarkdownMessage } from "@vellum/design-library";
-import { OAuthAwareLink } from "@/domains/chat/lib/oauth-aware-link.js";
 
+// OAuthAwareLink defined in the same file (or extracted to a lib file)
 export function ChatMarkdownMessage(props: ChatMarkdownMessageProps) {
   return <MarkdownMessage {...props} linkComponent={OAuthAwareLink} />;
 }

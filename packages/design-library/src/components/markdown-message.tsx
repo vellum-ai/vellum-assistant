@@ -277,6 +277,9 @@ export interface MarkdownMessageProps {
    * Custom link component for rendering `<a>` elements inside markdown.
    * Receives `href` and `children` props. Defaults to a plain
    * `<a target="_blank" rel="noopener noreferrer">`.
+   *
+   * Pass a stable reference (module-level function or `useCallback`) to
+   * avoid rebuilding internal component overrides on every render.
    */
   linkComponent?: MarkdownLinkComponent;
 }
