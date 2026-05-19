@@ -78,6 +78,9 @@ top-level folder for domain modules is called **`domains/`**.
 
 ```
 src/
+  stores/                          # app-level Zustand stores (cross-domain)
+    viewer-store.ts
+    sse-connected-store.ts
   domains/                         # business domain modules
     messages/                      # message lifecycle
       message-store.ts
@@ -89,9 +92,8 @@ src/
         chat-body.tsx
     conversations/                 # conversation CRUD, grouping, selection
       conversation-store.ts
+      conversation-store.test.ts
       use-conversation-loader.ts
-      conversation-reducer.ts
-      conversation-reducer.test.ts
       types.ts
     streaming/                     # SSE transport, event parsing
       stream-store.ts
@@ -104,8 +106,7 @@ src/
         types.ts
     interactions/                   # user-facing prompts
       interaction-store.ts
-      interaction-state-machine.ts
-      interaction-state-machine.test.ts
+      interaction-store.test.ts
       types.ts
   hooks/                           # cross-domain shared hooks
     use-is-mobile.ts
@@ -138,6 +139,21 @@ represents a bounded context.
 References:
 - [Bulletproof React — Project Structure](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md)
 - [React Router — Feature Folders](https://reactrouter.com/how-to/file-route-conventions)
+
+#### Domains do not map 1:1 to routes
+
+Domains are **business capabilities**, not URL segments. A route
+composes one or more domains; a domain may be used by zero or more
+routes. `conversations/`, `interactions/`, and `subagents/` have no
+routes of their own — they are composed by page-level domains
+(`chat/`, `home/`) that do map to routes.
+
+The dependency direction is one-way:
+`shared → domains → page domains → routes`.
+
+References:
+- [Bulletproof React — Project Structure](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md) — `features/` and `app/routes/` are separate top-level folders
+- [Feature-Sliced Design — Overview](https://feature-sliced.design/docs/get-started/overview) — "pages" (routes) and "features" (capabilities) are separate layers
 
 ### How to decide where the domain split is
 
@@ -172,6 +188,7 @@ directories. If something is domain-specific, it belongs inside
 
 | Folder | Purpose | Example contents |
 |---|---|---|
+| `stores/` | App-level Zustand stores (cross-domain state) | `viewer-store.ts`, `sse-connected-store.ts` |
 | `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-keyboard-shortcuts.ts` |
 | `utils/` | Pure utility functions | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |
 | `types/` | Shared type definitions | `window.d.ts`, `api-types.ts` |
@@ -215,9 +232,9 @@ useReducer because:
   unacceptable during streaming (messages update every ~50ms).
 - **Framework-agnostic store definitions.** Store logic is plain
   TypeScript with no React dependency — portable across environments.
-- **Existing reducers drop in unchanged.** Reducer functions
-  (`turnReducer`, `interactionReducer`, `conversationListReducer`)
-  work as Zustand actions with no modification.
+- **Direct named actions.** Store actions are plain functions that
+  call `set()` — no dispatchers, no action types, no switch statements.
+  See [Zustand store conventions](#zustand-store-conventions).
 
 ```ts
 // Good — component only re-renders when its slice changes
@@ -251,8 +268,7 @@ so consumers can subscribe to only the slice they need:
 ```ts
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
-import { messageReducer } from "./message-reducer.js";
-import type { MessageAction } from "./types.js";
+import type { Message } from "./types.js";
 
 // State — the data
 export interface MessageState {
@@ -260,9 +276,11 @@ export interface MessageState {
   activeThreadId: string | null;
 }
 
-// Actions — stable function refs
+// Actions — direct named functions (no dispatch/reducer)
 export interface MessageActions {
-  dispatch: (action: MessageAction) => void;
+  addMessage: (message: Message) => void;
+  setActiveThread: (threadId: string | null) => void;
+  clearMessages: () => void;
 }
 
 // Combined store type
@@ -271,7 +289,12 @@ export type MessageStore = MessageState & MessageActions;
 export const useMessageStore = create<MessageStore>()((set) => ({
   messages: [],
   activeThreadId: null,
-  dispatch: (action) => set((state) => messageReducer(state, action)),
+  addMessage: (message) =>
+    set((s) => ({ messages: [...s.messages, message] })),
+  setActiveThread: (threadId) =>
+    set({ activeThreadId: threadId }),
+  clearMessages: () =>
+    set({ messages: [], activeThreadId: null }),
 }));
 
 // Convenience hooks for common access patterns
@@ -286,7 +309,11 @@ export function useMessageState(): MessageState {
 
 export function useMessageActions(): MessageActions {
   return useMessageStore(
-    useShallow((s) => ({ dispatch: s.dispatch })),
+    useShallow((s) => ({
+      addMessage: s.addMessage,
+      setActiveThread: s.setActiveThread,
+      clearMessages: s.clearMessages,
+    })),
   );
 }
 ```
@@ -326,13 +353,17 @@ References:
 - [Zustand — Prevent rerenders with useShallow](https://zustand.docs.pmnd.rs/guides/prevent-rerenders-with-use-shallow)
 - [Zustand v5 selector best practices (community discussion)](https://github.com/pmndrs/zustand/discussions/2867)
 
-### useReducer for related state within a component
+### useReducer for component-local state only
 
-When two or more pieces of state change together or have
-interdependent transitions *within a single component or hook*,
-consolidate them into a `useReducer` with typed action events.
-Reserve `useState` for independent, single-value state (a boolean
-toggle, a text input value).
+When two or more pieces of **component-local** state change together
+or have interdependent transitions, consolidate them into a
+`useReducer` with typed action events. Reserve `useState` for
+independent, single-value state (a boolean toggle, a text input
+value).
+
+**Do not use `useReducer` for state shared across components.** Shared
+state belongs in a Zustand store with direct named actions (see
+[Direct named actions, not reducers](#direct-named-actions-not-reducers)).
 
 ```ts
 // Good — related state transitions are atomic and self-documenting
@@ -349,20 +380,46 @@ function.
 
 Reference: [React — Scaling Up with Reducer and Context](https://react.dev/learn/scaling-up-with-reducer-and-context)
 
-### State machine reducers
+### Direct named actions, not reducers
 
-State machines (turn state, interaction state) use typed domain events,
-not raw setters.
+Zustand's recommended pattern is **direct named actions** — plain
+functions on the store that call `set()`. Do not use dispatchers,
+action-type strings, or switch-case reducers. The `redux` middleware
+exists for Redux migration paths but is not the idiomatic Zustand
+approach.
 
-- **Dispatch named events** (`SHOW_SECRET`, `DISMISS_CONFIRMATION`,
-  `RESET_ALL`) instead of calling multiple `setState` functions.
-- **Guard against stale events.** Check `requestId` matches before
-  applying updates.
-- **Test the reducer in isolation.** Reducers are pure functions —
-  verify transitions with unit tests before relying on integration
-  tests.
+```ts
+// Good — Zustand-idiomatic direct actions
+export const useTurnStore = create<TurnStore>()((set, get) => ({
+  phase: "idle" as TurnPhase,
+  activeTurnId: null as string | null,
+  activeToolCallCount: 0,
 
-Reference: [React — useReducer](https://react.dev/reference/react/useReducer)
+  startTurn: (turnId: string) =>
+    set({ phase: "thinking", activeTurnId: turnId }),
+
+  startStreaming: () =>
+    set({ phase: "streaming" }),
+
+  completeTurn: () =>
+    set({ phase: "idle", activeTurnId: null, activeToolCallCount: 0 }),
+
+  incrementToolCalls: () =>
+    set((s) => ({ activeToolCallCount: s.activeToolCallCount + 1 })),
+}));
+
+// Avoid — reducer/dispatch pattern (Redux holdover)
+dispatch: (action) => set((state) => turnReducer(state, action))
+```
+
+Each action is independently callable, testable, and discoverable via
+the store's TypeScript interface. Consumers call
+`useTurnStore.getState().startTurn(id)` or select individual actions
+via hooks — no action-type constants or switch statements needed.
+
+References:
+- [Zustand — Flux-inspired practice](https://zustand.docs.pmnd.rs/learn/guides/flux-inspired-practice) — "state can be updated without dispatched actions and reducers"
+- [Zustand — Updating state](https://zustand.docs.pmnd.rs/learn/guides/updating-state)
 
 ---
 
@@ -476,12 +533,12 @@ References:
 - [React Router v7 — Data Loading](https://reactrouter.com/how-to/data-loading)
 - [React — Separating Events from Effects](https://react.dev/learn/separating-events-from-effects)
 
-### URL-driven routing is the target architecture
+### URL-driven routing
 
-The target architecture uses URL routing directly via React Router v7
-nested routes, eliminating custom navigation state and URL-to-state sync
-effects. Each view state maps to a route; the URL is the source of
-truth.
+The app uses React Router v7 nested routes. Each view maps to a route;
+the URL is the source of truth. Custom in-memory navigation state
+(e.g. `MainView` enums synced to URLs via effects) should be replaced
+by routes as views are ported.
 
 References:
 - [React Router — Nested Routes](https://reactrouter.com/start/framework/routing#nested-routes)
