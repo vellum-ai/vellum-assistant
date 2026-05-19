@@ -116,6 +116,7 @@ export function handleDocumentCommentCreated(
 ): void {
   const comment = toDocumentComment(event);
   const existing = state.get(event.surfaceId) ?? [];
+  if (existing.some((c) => c.id === comment.id)) return;
   existing.push(comment);
   state.set(event.surfaceId, existing);
   callbacks.onCommentsChanged(event.surfaceId);
