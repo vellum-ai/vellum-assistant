@@ -311,13 +311,21 @@ The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment
 | `staging` | QA against staging platform before production rollout. Default for release branch builds. |
 | `production` | Full production behavior, no developer shortcuts. Set explicitly for final production releases. |
 
-**Defaults**: `build.sh` sets the value automatically when `VELLUM_ENVIRONMENT` is unset:
-- `test` command => `test`
-- `release` / `release-application` => `staging` for `*-staging*` display versions, otherwise `production`
-- `run` command => `local` (for local full-stack development, e.g. `vel up`)
-- all other local build commands (plain `build`, etc.) => `dev`
+**Defaults**: Each `build.sh` sets the value automatically when `VELLUM_ENVIRONMENT` is unset. The staging-detection logic differs by client:
 
-CI and developers can always override by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence.
+**macOS** (`clients/macos/build.sh`):
+- `test` => `test`
+- `release` / `release-application` => `staging` when `DISPLAY_VERSION` contains `-staging` (e.g. `0.6.0-staging.3`), otherwise `production`
+- `run` with localhost platform/web URL overrides => `local`
+- `run` => `local`
+- all other commands => `dev`
+
+**Chrome extension** (`clients/chrome-extension/build.sh`):
+- `release` => `production` (no in-script staging detection; CI workflows set `VELLUM_ENVIRONMENT` explicitly)
+- `run` => `local`
+- all other commands => `dev`
+
+CI and developers can always override by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence. All CI release workflows set the variable explicitly, so the in-script defaults only affect local development.
 
 **Reading the value at runtime** (Swift):
 ```swift
