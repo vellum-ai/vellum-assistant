@@ -49,6 +49,8 @@ function manualTokenAccessCredentialKey(provider: string): string | null {
       return credentialKey("slack_channel", "bot_token");
     case "telegram":
       return credentialKey("telegram", "bot_token");
+    case "sanity":
+      return credentialKey("sanity", "api_token");
     default:
       return null;
   }
