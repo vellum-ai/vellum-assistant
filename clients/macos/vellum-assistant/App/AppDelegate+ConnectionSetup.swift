@@ -86,9 +86,12 @@ extension AppDelegate {
         }
 
         guard let assistant, assistant.isRemote else {
-            // Local assistant or no assistant.
-            let conversationKey = assistant?.assistantId ?? UUID().uuidString
-            services.reconfigureConnection(conversationKey: conversationKey)
+            // Local assistant (and pre-assistant bootstrap) both bind SSE/local
+            // ownership to the shared handoff key so host actions can resume
+            // cleanly when the user moves between local first-party interfaces.
+            services.reconfigureConnection(
+                conversationKey: ConversationHandoff.defaultLocalConversationKey
+            )
             log.info("Configured local assistant")
             return
         }
@@ -431,6 +434,45 @@ extension AppDelegate {
                     }
                     self.inFlightCuTasks[msg.requestId] = task
 
+                case .hostCameraRequest(let msg):
+                    let localClientId = DeviceIdStore.getOrCreate()
+                    let isLocalConversation = self.mainWindow?.conversationManager
+                        .conversations.contains(where: { $0.conversationId == msg.conversationId }) ?? false
+                    let isTargeted = msg.targetClientId == localClientId
+                    let isUntargetedLocal = msg.targetClientId == nil && isLocalConversation
+                    guard isTargeted || isUntargetedLocal else {
+                        break
+                    }
+                    let task = Task { @MainActor in
+                        defer { self.inFlightCameraTasks.removeValue(forKey: msg.requestId) }
+                        guard !Task.isCancelled else { return }
+
+                        let result: HostCameraResultPayload
+                        do {
+                            let snapshot = try await CameraSnapshotProvider().captureOnce()
+                            result = HostCameraResultPayload(
+                                requestId: msg.requestId,
+                                imageBase64: snapshot.jpegBase64,
+                                mediaType: "image/jpeg",
+                                width: snapshot.width,
+                                height: snapshot.height
+                            )
+                        } catch {
+                            result = HostCameraResultPayload(
+                                requestId: msg.requestId,
+                                error: error.localizedDescription
+                            )
+                        }
+
+                        guard !Task.isCancelled else { return }
+                        if HostToolExecutor.isCancelledAndConsume(msg.requestId) {
+                            log.debug("Host camera result suppressed (cancelled) — requestId=\(msg.requestId, privacy: .public)")
+                            return
+                        }
+                        _ = await HostProxyClient().postCameraResult(result)
+                    }
+                    self.inFlightCameraTasks[msg.requestId] = task
+
                 case .hostAppControlRequest(let msg):
                     let task = Task { @MainActor in
                         defer { self.inFlightAppControlTasks.removeValue(forKey: msg.requestId) }
@@ -452,6 +494,8 @@ extension AppDelegate {
                     self.hostBrowserExecutor.execute(msg)
                 case .hostBrowserCancel(let msg):
                     self.hostBrowserExecutor.cancel(msg.requestId)
+                case .hostCameraCancel(let msg):
+                    self.cancelHostCameraRequest(msg.requestId)
 
                 case .hostTransferRequest(let msg):
                     let localClientId = DeviceIdStore.getOrCreate()
@@ -564,6 +608,14 @@ extension AppDelegate {
             task.cancel()
         }
         log.info("Cancelling host app-control — requestId=\(requestId, privacy: .public)")
+    }
+
+    func cancelHostCameraRequest(_ requestId: String) {
+        HostToolExecutor.markCancelled(requestId)
+        if let task = inFlightCameraTasks.removeValue(forKey: requestId) {
+            task.cancel()
+        }
+        log.info("Cancelling host camera — requestId=\(requestId, privacy: .public)")
     }
 
     // MARK: - Signing Identity

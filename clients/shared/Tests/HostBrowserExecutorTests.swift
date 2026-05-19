@@ -13,6 +13,7 @@ private final class MockHostProxyClient: HostProxyClientProtocol {
     func postBashResult(_ result: HostBashResultPayload) async -> Bool { true }
     func postFileResult(_ result: HostFileResultPayload) async -> Bool { true }
     func postCuResult(_ result: HostCuResultPayload) async -> Bool { true }
+    func postCameraResult(_ result: HostCameraResultPayload) async -> Bool { true }
     func postAppControlResult(_ result: HostAppControlResultPayload) async -> Bool { true }
     func postTransferResult(_ result: HostTransferResultPayload) async -> Bool { true }
     func pullTransferContent(transferId: String) async throws -> Data { Data() }

@@ -55,6 +55,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var inFlightCuTasks: [String: Task<Void, Never>] = [:]
     /// In-flight host app-control tasks keyed by request ID, for cancel support.
     var inFlightAppControlTasks: [String: Task<Void, Never>] = [:]
+    /// In-flight host camera tasks keyed by request ID, for cancel support.
+    var inFlightCameraTasks: [String: Task<Void, Never>] = [:]
     /// Executor for host browser (CDP) requests.
     let hostBrowserExecutor = HostBrowserExecutor()
     var isStartingSession = false

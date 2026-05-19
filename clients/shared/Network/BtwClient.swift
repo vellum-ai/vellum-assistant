@@ -33,8 +33,9 @@ public struct BtwClient: BtwClientProtocol {
         conversationKey: String,
         continuation: AsyncThrowingStream<String, Error>.Continuation
     ) async throws {
+        let resolvedConversationKey = ConversationHandoff.normalizeConversationKey(conversationKey)
         let body: [String: String] = [
-            "conversationKey": conversationKey,
+            "conversationKey": resolvedConversationKey,
             "content": content,
         ]
         let bodyData = try JSONSerialization.data(withJSONObject: body)

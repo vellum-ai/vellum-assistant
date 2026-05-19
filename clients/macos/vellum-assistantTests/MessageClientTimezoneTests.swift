@@ -48,4 +48,16 @@ final class MessageClientTimezoneTests: XCTestCase {
         XCTAssertEqual(body["hostHomeDir"] as? String, NSHomeDirectory())
         XCTAssertEqual(body["hostUsername"] as? String, NSUserName())
     }
+
+    func testMessageBodyFallsBackToSharedHandoffConversationKeyWhenBlank() {
+        let body = MessageClient.messageBody(
+            content: "Hello",
+            conversationKey: "   "
+        )
+
+        XCTAssertEqual(
+            body["conversationKey"] as? String,
+            ConversationHandoff.defaultLocalConversationKey
+        )
+    }
 }

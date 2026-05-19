@@ -35,6 +35,19 @@ enum PermissionManager {
         }
     }
 
+    static func cameraStatus() -> PermissionStatus {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            return .granted
+        case .denied, .restricted:
+            return .denied
+        case .notDetermined:
+            return .unknown
+        @unknown default:
+            return .unknown
+        }
+    }
+
     static func speechRecognitionStatus() -> PermissionStatus {
         switch SFSpeechRecognizer.authorizationStatus() {
         case .authorized:
@@ -134,6 +147,19 @@ enum PermissionManager {
         }
     }
 
+    static func requestCameraAccess() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            openCameraSettings()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { _ in }
+        case .denied, .restricted:
+            openCameraSettings()
+        @unknown default:
+            openCameraSettings()
+        }
+    }
+
     static func requestSpeechRecognitionAccess() {
         switch SFSpeechRecognizer.authorizationStatus() {
         case .authorized:
@@ -189,6 +215,10 @@ enum PermissionManager {
 
     static func openMicrophoneSettings() {
         _ = openPrivacySettingsPane("Privacy_Microphone")
+    }
+
+    static func openCameraSettings() {
+        _ = openPrivacySettingsPane("Privacy_Camera")
     }
 
     static func openSpeechRecognitionSettings() {

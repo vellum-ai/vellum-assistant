@@ -81,8 +81,9 @@ public struct MessageClient: MessageClientProtocol {
         riskThreshold: String? = nil,
         clientTimezone: String? = MessageClient.clientTimezone
     ) -> [String: Any] {
+        let resolvedConversationKey = ConversationHandoff.normalizeConversationKey(conversationKey)
         var body: [String: Any] = [
-            "conversationKey": conversationKey,
+            "conversationKey": resolvedConversationKey,
             "sourceChannel": "vellum",
             "interface": Self.interfaceValue
         ]

@@ -667,25 +667,41 @@ public struct CallSiteCatalogDomain: Codable {
     }
 }
 
+public struct CallSiteCatalogTier: Codable {
+    public let id: String
+    public let displayName: String
+    public let description: String
+
+    public init(id: String, displayName: String, description: String) {
+        self.id = id
+        self.displayName = displayName
+        self.description = description
+    }
+}
+
 public struct CallSiteCatalogEntry: Codable {
     public let id: String
     public let displayName: String
     public let description: String
     public let domain: String
+    public let tier: String
 
-    public init(id: String, displayName: String, description: String, domain: String) {
+    public init(id: String, displayName: String, description: String, domain: String, tier: String) {
         self.id = id
         self.displayName = displayName
         self.description = description
         self.domain = domain
+        self.tier = tier
     }
 }
 
 public struct CallSiteCatalogResponse: Codable {
+    public let tiers: [CallSiteCatalogTier]
     public let domains: [CallSiteCatalogDomain]
     public let callSites: [CallSiteCatalogEntry]
 
-    public init(domains: [CallSiteCatalogDomain], callSites: [CallSiteCatalogEntry]) {
+    public init(tiers: [CallSiteCatalogTier], domains: [CallSiteCatalogDomain], callSites: [CallSiteCatalogEntry]) {
+        self.tiers = tiers
         self.domains = domains
         self.callSites = callSites
     }
