@@ -144,9 +144,9 @@ export function useChatActions(): ChatActions {
 }
 
 /**
- * Full store contents. Prefer `useChatState()` or `useChatActions()`
+ * Full store snapshot. Prefer `useChatState()` or `useChatActions()`
  * to minimize re-renders — this hook re-renders on any store change.
  */
-export function useChatContext(): ChatStore {
+export function useChatSnapshot(): ChatStore {
   return useChatStore(useShallow((s) => s));
 }
