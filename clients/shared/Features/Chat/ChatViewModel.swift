@@ -287,7 +287,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         idleFallbackTask = nil
         if let existingId = currentAssistantMessageId {
             messageManager.batchUpdateMessages { msgs in
-                msgs.finalizeStreamingMessage(id: existingId)
+                msgs.finalizeStreamingMessage(id: existingId, completeToolCalls: .none)
             }
         }
         currentAssistantMessageId = nil
