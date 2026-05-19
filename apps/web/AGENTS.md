@@ -32,7 +32,7 @@ Read these before making changes:
 
 ```bash
 cd apps/web && bun install            # Install dependencies
-cd apps/web && bun run dev            # Vite dev server (port 3001)
+cd apps/web && bun run dev            # Vite dev server (port 3000)
 cd apps/web && bun run openapi-ts     # Generate API client from OpenAPI specs
 cd apps/web && bunx tsc --noEmit      # Type-check
 cd apps/web && bun run lint           # Lint

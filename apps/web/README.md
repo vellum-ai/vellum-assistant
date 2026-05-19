@@ -24,45 +24,51 @@ Vellum assistant web app (chat, settings, library, docs).
 
 ## Local development
 
-### With `vel up` (recommended)
-
-The `vel up web` command in the
-[vellum-assistant-platform](https://github.com/vellum-ai/vellum-assistant-platform)
-repo starts all required services:
-
-```bash
-vel up web
-```
-
-This starts:
-1. Docker Compose services (Postgres, Valkey, SeaweedFS, Caddy edge proxy)
-2. Django backend on `localhost:8000`
-3. **This Vite dev server on `localhost:3001`**
-4. Caddy edge proxy on `localhost:3000` (canonical browser entry point)
-
-The Caddy proxy routes:
-- `/v1/*`, `/_allauth/*`, `/accounts/*` -> Django `:8000`
-- Everything else -> Vite `:3001`
-
-Browse to **http://localhost:3000** (not :3001 directly) so auth
-cookies and API calls route correctly.
-
-### Without `vel up` (standalone)
-
-If you need to run the web app without the full `vel up` orchestration
-(e.g., working on pure UI without backend):
-
 ```bash
 cd apps/web
 bun install
-bun run openapi-ts  # generate API client from OpenAPI schemas (required before typecheck/dev)
-bun run dev        # Vite dev server on localhost:3001
+bun run openapi-ts  # generate API client (required before typecheck/dev)
+bun run dev         # Vite dev server on localhost:3000
 ```
 
-To connect to a running Django backend, ensure the Caddy edge proxy is
-running (via `docker compose up edge-proxy` in the platform repo) or
-configure your browser to send API requests to `localhost:8000`
-directly.
+### Connecting to a backend
+
+The Vite dev server includes a built-in
+[reverse proxy](https://vite.dev/config/server-options#server-proxy)
+that forwards API paths (`/v1/*`, `/_allauth/*`, `/accounts/*`) to the
+Django backend. This keeps all requests same-origin so session cookies
+work automatically — no CORS configuration or HTTPS setup needed.
+
+By default the proxy targets `http://localhost:8000`. To change it,
+set `API_PROXY_TARGET` in a `.env` file (see
+[`.env.example`](./.env.example)):
+
+```bash
+# .env (not committed)
+API_PROXY_TARGET=http://localhost:8000
+```
+
+Browse to **http://localhost:3000** and log in normally.
+
+> **Note:** Some API endpoints (avatar, feed, assistant state) return
+> 404 unless the assistant daemon is running. This is expected in
+> frontend-only mode — the core UI and auth flow work without the
+> daemon.
+
+### How the proxy works
+
+The client makes relative API requests (e.g. `fetch("/v1/feed")`).
+In development, Vite's proxy intercepts these and forwards them to
+the backend. In production, an infrastructure reverse proxy (nginx,
+cloud LB, etc.) does the same routing. The client code is identical
+in both environments — no environment-specific base URLs.
+
+```
+Development:   Browser ─► Vite :3000 ─(proxy)─► Django :8000
+Production:    Browser ─► Reverse proxy ─► Django
+```
+
+Reference: [Vite server.proxy docs](https://vite.dev/config/server-options#server-proxy)
 
 ### Other commands
 
