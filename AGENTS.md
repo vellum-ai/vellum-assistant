@@ -336,6 +336,7 @@ let env = ProcessInfo.processInfo.environment["VELLUM_ENVIRONMENT"] ?? "producti
 - Use `VELLUM_ENVIRONMENT` for behavior that varies by deployment target (e.g. local image builds, telemetry sampling, API base URLs).
 - Do **not** use it as a substitute for feature flags — flags gate features per-user/org, environments gate per-deployment.
 - Do **not** check for `DEBUG` / `RELEASE` compiler flags (`#if DEBUG`) when the distinction is really about deployment environment. A debug build pointed at staging is still `staging`, not `local`.
+- Client `build.sh` scripts must be **self-contained** — install their own dependencies (e.g. `bun install --frozen-lockfile`) before building. Do not rely on `setup.sh`, `vel up`, or CI workflows to pre-install client dependencies. This ensures the build works regardless of invocation path.
 
 ## Sentry & Linear Integration
 
