@@ -4,8 +4,11 @@ export interface SendMessageOptions {
   readonly content: string;
   readonly conversationKey?: string;
   readonly slashCommand?: string;
+  readonly clientMessageId?: string;
   readonly clientTimezone?: string;
 }
+
+const DEFAULT_LOCAL_HANDOFF_CONVERSATION_KEY = "default:vellum:handoff";
 
 /**
  * Minimal HTTP client for the gateway-fronted assistant API. Mirrors the
@@ -28,10 +31,14 @@ export class GatewayClient {
 
     const body = {
       content: options.content,
-      ...(options.conversationKey
-        ? { conversationKey: options.conversationKey }
-        : {}),
+      sourceChannel: "vellum",
+      interface: "tauri",
+      conversationKey:
+        options.conversationKey ?? DEFAULT_LOCAL_HANDOFF_CONVERSATION_KEY,
       ...(options.slashCommand ? { slashCommand: options.slashCommand } : {}),
+      ...(options.clientMessageId
+        ? { clientMessageId: options.clientMessageId }
+        : {}),
       clientTimezone:
         options.clientTimezone ??
         Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -49,5 +56,64 @@ export class GatewayClient {
         `POST /v1/messages failed: ${response.status} ${text || response.statusText}`,
       );
     }
+  }
+
+  async postJson(
+    endpoint: string,
+    body: unknown,
+    options: { readonly clientId?: string } = {},
+  ): Promise<void> {
+    const response = await this.postJsonRequest(endpoint, body, options);
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `POST /v1/${endpoint} failed: ${response.status} ${text || response.statusText}`,
+      );
+    }
+  }
+
+  async postJsonResult<T>(
+    endpoint: string,
+    body: unknown,
+    options: { readonly clientId?: string } = {},
+  ): Promise<T> {
+    const response = await this.postJsonRequest(endpoint, body, options);
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `POST /v1/${endpoint} failed: ${response.status} ${text || response.statusText}`,
+      );
+    }
+    if (response.status === 204) {
+      return undefined as T;
+    }
+    return (await response.json()) as T;
+  }
+
+  private async postJsonRequest(
+    endpoint: string,
+    body: unknown,
+    options: { readonly clientId?: string },
+  ): Promise<Response> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-Vellum-Interface-Id": "tauri",
+    };
+    if (options.clientId) {
+      headers["X-Vellum-Client-Id"] = options.clientId;
+    }
+    if (this.connection.bearerToken) {
+      headers["Authorization"] = `Bearer ${this.connection.bearerToken}`;
+    }
+
+    const response = await fetch(
+      `${this.connection.httpBaseUrl}/v1/${endpoint}`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      },
+    );
+    return response;
   }
 }

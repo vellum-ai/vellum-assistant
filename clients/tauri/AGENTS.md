@@ -22,31 +22,60 @@ all business logic lives in the daemon.
 
 ## Voice pipeline
 
-The HUD owns the live mic stream and (optionally) runs Picovoice
-Porcupine wake-word detection inside the WebView via
-`@picovoice/porcupine-web`. On wake, it opens a `/v1/live-voice`
-WebSocket to the gateway and streams 16 kHz int16 mono PCM frames as
-base64 JSON `audio` frames per `assistant/src/live-voice/protocol.ts`.
+The HUD owns the live mic stream and runs a permission-free
+voice-activity wake inside `hooks/use-voice-engine.ts`: while
+`voice.alwaysOn` is true, sustained mic energy above
+`SPEECH_WAKE_TRIGGER_RMS` for `SPEECH_WAKE_TRIGGER_FRAMES` opens a
+`/v1/live-voice` WebSocket. The HUD then streams 16 kHz int16 mono
+PCM frames as base64 JSON `audio` frames per
+`assistant/src/live-voice/protocol.ts` and lets the daemon's
+server-side STT do the heavy lifting (including detecting "Eli, …" in
+the first transcribed turn).
 
-When the user is silent for `voice.vad.silenceMs` (default 700ms),
+When the user is silent for `voice.vad.silenceMs` (default 1100ms),
 the HUD sends `ptt_release` so the daemon endpoints the turn. While
 the daemon is speaking (`tts_audio` frames arriving), any user audio
 above ~0.04 RMS triggers a barge-in via the `interrupt` frame.
 
 Push-to-talk is exposed through `useVoiceEngine().toggleListening()`
-so the command bar's "talk" button and (future) global hotkey can
-force an active turn even when the wake word is disabled.
+so the command bar's "talk" button and the global hotkey can force an
+active turn even when always-on is disabled.
+
+**No client-side keyword spotting.** Two earlier approaches failed
+hard and must not be re-introduced without solving their root causes:
+
+1. **Picovoice Porcupine** only recognises a fixed list of built-in
+   keywords (`Alexa`, `Jarvis`, `Computer`, etc.) — "Eli" is not on
+   that list. Using it for this product would have required every user
+   to train a custom `.ppn` at console.picovoice.ai and ship a
+   third-party access key.
+2. **`webkitSpeechRecognition` in WKWebView** (Apple's on-device
+   `SFSpeechRecognizer`) crashes the host process under macOS TCC when
+   the binary is not properly code-signed. Specifically, an unsigned
+   `tauri dev` binary has no stable code identity, so TCC kills it
+   with `EXC_CRASH / SIGABRT` the moment WebKit engages
+   `SFSpeechRecognizer`, even when `NSSpeechRecognitionUsageDescription`
+   is present in the embedded `Info.plist`. This is why the HUD's
+   `Info.plist` deliberately does **not** declare
+   `NSSpeechRecognitionUsageDescription` — we never want WebKit to
+   attempt that code path here.
+
+A keyword-aware wake can return once we ship a properly bundled +
+code-signed `.app`, but the implementation MUST gate behind a runtime
+check that the host process is code-signed; otherwise dev/preview
+builds will crash on first launch.
 
 ## Configuration
 
-- `PICOVOICE_ACCESS_KEY` env var is read at runtime by the Rust
-  command `picovoice_access_key`. Without it, wake-word silently
-  disables and the HUD falls back to PTT.
 - The daemon's `voice.*` config drives runtime knobs (sensitivity,
   VAD thresholds, keyword list). Currently the HUD takes a hardcoded
   default snapshot — when the user wires `vellum hatch --config
   voice.alwaysOn=true`, the HUD will sync via the existing
   config-broadcast SSE event in a future revision.
+- The HUD only requires the macOS Microphone permission. The app's
+  `Info.plist` declares `NSMicrophoneUsageDescription`; macOS prompts
+  the user once on first run. Denying it disables voice entirely —
+  text via the command bar still works.
 
 ## Build
 

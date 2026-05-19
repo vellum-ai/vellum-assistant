@@ -11,6 +11,8 @@ import {
 } from "@tauri-apps/plugin-global-shortcut";
 import { useEffect } from "react";
 
+import { isTauriRuntime } from "../services/tauri-runtime.js";
+
 const DEFAULT_ACCELERATOR = "CmdOrControl+Alt+Space";
 
 export function useGlobalHotkey(
@@ -18,6 +20,8 @@ export function useGlobalHotkey(
   onTrigger: () => void,
 ): void {
   useEffect(() => {
+    if (!isTauriRuntime()) return;
+
     let cancelled = false;
     void (async () => {
       try {

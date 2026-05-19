@@ -24,14 +24,30 @@ export interface TranscriptEntry {
 }
 
 export interface AssistantConnection {
-  /** Daemon HTTP base URL, e.g. `http://localhost:7821`. */
+  /** Gateway-fronted assistant HTTP base URL. */
   readonly httpBaseUrl: string;
-  /** WebSocket base URL, e.g. `ws://localhost:7821`. */
+  /** Gateway-fronted assistant WebSocket base URL. */
   readonly wsBaseUrl: string;
   /** Bearer token if the daemon requires auth, otherwise `null`. */
   readonly bearerToken: string | null;
   /** Unique identifier for the active assistant ("self" for local). */
   readonly assistantId: string;
+}
+
+export interface HostProxyStatus {
+  readonly clientId: string | null;
+  readonly lastAction: string | null;
+  readonly lastError: string | null;
+}
+
+export interface ActivePlanStatus {
+  readonly planId: string;
+  readonly goal: string;
+  readonly stage: string;
+  readonly stepName: string | null;
+  readonly stepStage: string | null;
+  readonly updatedAt: number;
+  readonly message: string | null;
 }
 
 export interface VoiceConfigSnapshot {

@@ -1,3 +1,0 @@
-Icon assets live here. Run `bun run tauri icon path/to/source.png` to
-generate the full Tauri icon set (32x32, 128x128, 128x128@2x, icon.icns,
-icon.ico, icon.png) before the first `tauri build`.

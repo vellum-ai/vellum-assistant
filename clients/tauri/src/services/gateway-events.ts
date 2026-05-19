@@ -14,18 +14,33 @@ export interface GatewayServerMessage {
   readonly content?: string;
   readonly role?: "user" | "assistant" | "system";
   readonly messageId?: string;
+  readonly userMessage?: string;
+  readonly debugDetails?: string;
+  readonly error?: string;
+  readonly code?: string;
   readonly [key: string]: unknown;
 }
 
-export interface GatewayEventEnvelope {
-  readonly conversationId?: string;
+/**
+ * The gateway streams bare {@link GatewayServerMessage} objects over the
+ * SSE channel — there's no wrapping envelope. The legacy upstream
+ * runtime emits `{ id, assistantId, message: { ... } }` envelopes, so we
+ * still accept that shape and unwrap it when present, but consumers
+ * should treat the envelope as effectively flat (`event.type`,
+ * `event.text`, etc.).
+ */
+export type GatewayEventEnvelope = GatewayServerMessage & {
   readonly message?: GatewayServerMessage;
-}
+};
 
 export interface GatewayEventStreamHandlers {
   onEvent(event: GatewayEventEnvelope): void;
   onOpen?(): void;
   onError?(error: unknown): void;
+}
+
+export interface GatewayEventStreamOptions {
+  readonly clientId?: string;
 }
 
 const RECONNECT_BACKOFF_MS = [500, 1_000, 2_000, 4_000, 8_000] as const;
@@ -34,6 +49,7 @@ const SSE_INTERFACE_ID = "tauri";
 export class GatewayEventStream {
   private readonly connection: AssistantConnection;
   private readonly handlers: GatewayEventStreamHandlers;
+  private readonly options: GatewayEventStreamOptions;
   private abort: AbortController | null = null;
   private retryAttempt = 0;
   private stopped = false;
@@ -41,9 +57,11 @@ export class GatewayEventStream {
   constructor(
     connection: AssistantConnection,
     handlers: GatewayEventStreamHandlers,
+    options: GatewayEventStreamOptions = {},
   ) {
     this.connection = connection;
     this.handlers = handlers;
+    this.options = options;
   }
 
   start(): void {
@@ -81,6 +99,9 @@ export class GatewayEventStream {
       Accept: "text/event-stream",
       "X-Vellum-Interface-Id": SSE_INTERFACE_ID,
     };
+    if (this.options.clientId) {
+      headers["X-Vellum-Client-Id"] = this.options.clientId;
+    }
     if (this.connection.bearerToken) {
       headers["Authorization"] = `Bearer ${this.connection.bearerToken}`;
     }

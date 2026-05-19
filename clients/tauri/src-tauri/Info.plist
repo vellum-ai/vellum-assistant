@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSCameraUsageDescription</key>
+    <string>Eli needs camera access only when you approve a one-time webcam snapshot request.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Eli listens to your voice when you speak to him and when you ask the HUD to capture a voice turn.</string>
+</dict>
+</plist>

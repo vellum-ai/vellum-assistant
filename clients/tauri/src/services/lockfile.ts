@@ -1,7 +1,9 @@
+import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "@tauri-apps/api/path";
 import { exists, readTextFile } from "@tauri-apps/plugin-fs";
 
 import type { AssistantConnection } from "../types.js";
+import { isTauriRuntime } from "./tauri-runtime.js";
 
 interface LockfileAssistantEntry {
   readonly assistantId?: string;
@@ -27,6 +29,10 @@ const DEFAULT_GATEWAY_PORT = 7830;
  * instead of throwing.
  */
 export async function resolveLocalAssistantConnection(): Promise<AssistantConnection | null> {
+  if (!isTauriRuntime()) {
+    return browserDevConnection();
+  }
+
   const home = await homeDir();
 
   for (const name of LOCKFILE_NAMES) {
@@ -45,15 +51,49 @@ export async function resolveLocalAssistantConnection(): Promise<AssistantConnec
     const runtime = pickRuntimeUrl(entry);
     if (!runtime) continue;
 
+    const assistantId = entry.assistantId ?? "self";
+    const bearerToken = await safeGuardianAccessToken(assistantId);
     return {
       httpBaseUrl: runtime.httpBaseUrl,
       wsBaseUrl: runtime.wsBaseUrl,
-      bearerToken: null,
-      assistantId: entry.assistantId ?? "self",
+      bearerToken,
+      assistantId,
     };
   }
 
   return null;
+}
+
+async function safeGuardianAccessToken(
+  assistantId: string,
+): Promise<string | null> {
+  try {
+    const token = await invoke<string | null>("guardian_access_token", {
+      assistantId,
+    });
+    return typeof token === "string" && token.length > 0 ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+function browserDevConnection(): AssistantConnection {
+  const configuredBaseUrl = import.meta.env.VITE_GATEWAY_URL;
+  const hasConfiguredBaseUrl =
+    typeof configuredBaseUrl === "string" && configuredBaseUrl.length > 0;
+  const httpBaseUrl = hasConfiguredBaseUrl
+    ? configuredBaseUrl.replace(/\/+$/, "")
+    : "/__gateway";
+  const wsBaseUrl = hasConfiguredBaseUrl
+    ? httpBaseUrl.replace(/^http:/, "ws:").replace(/^https:/, "wss:")
+    : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/__gateway`;
+
+  return {
+    httpBaseUrl,
+    wsBaseUrl,
+    bearerToken: null,
+    assistantId: "self",
+  };
 }
 
 function joinPath(base: string, file: string): string {

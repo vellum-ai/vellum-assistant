@@ -11,6 +11,8 @@ export type LiveVoiceClientFrame =
   | {
       readonly type: "start";
       readonly conversationId?: string;
+      readonly sourceChannel?: "vellum";
+      readonly sourceInterface?: "tauri";
       readonly audio: {
         readonly mimeType: "audio/pcm";
         readonly sampleRate: number;
@@ -75,13 +77,40 @@ export class LiveVoiceClient {
         reject(new Error("Socket missing after construction"));
         return;
       }
+      let settled = false;
+      const resolveOnce = (): void => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      const rejectOnce = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
       this.socket.addEventListener("open", () => {
         this.options.onOpen?.();
-        resolve();
+        resolveOnce();
       }, { once: true });
       this.socket.addEventListener("error", (event) => {
         this.options.onError?.(event);
-        reject(new Error("WebSocket error during open"));
+        rejectOnce(
+          new Error(
+            "Unable to connect to live voice service. Verify Eli is running and reachable.",
+          ),
+        );
+      }, { once: true });
+      this.socket.addEventListener("close", (event) => {
+        if (settled) return;
+        const reason =
+          event.reason && event.reason.trim().length > 0
+            ? ` (${event.reason})`
+            : "";
+        rejectOnce(
+          new Error(
+            `Live voice socket closed before startup (code ${event.code})${reason}.`,
+          ),
+        );
       }, { once: true });
     });
 
@@ -108,9 +137,9 @@ export class LiveVoiceClient {
     if (this.started) return;
     const frame: LiveVoiceClientFrame = {
       type: "start",
-      ...(this.options.conversationKey
-        ? { conversationId: this.options.conversationKey }
-        : {}),
+      conversationId: this.options.conversationKey ?? "default:vellum:handoff",
+      sourceChannel: "vellum",
+      sourceInterface: "tauri",
       audio: {
         mimeType: "audio/pcm",
         sampleRate: this.options.sampleRate,
@@ -133,6 +162,10 @@ export class LiveVoiceClient {
   pttRelease(): void {
     if (!this.started) return;
     this.sendJson({ type: "ptt_release" });
+    // After release the server is no longer accepting audio for this turn.
+    // Close the client-side audio gate immediately so any late mic callbacks
+    // from the browser audio pipeline are dropped locally.
+    this.started = false;
   }
 
   /** Cancel current TTS playback / interrupt the assistant. */

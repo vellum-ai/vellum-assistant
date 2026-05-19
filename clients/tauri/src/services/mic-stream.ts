@@ -67,6 +67,21 @@ export class MicStream {
       });
 
       this.audioContext = new AudioContext();
+      // WebKit (and Tauri's WKWebView) construct AudioContexts in the
+      // "suspended" state when there hasn't been a recent user gesture.
+      // Without an explicit resume() the ScriptProcessorNode's
+      // `onaudioprocess` callback never fires — which surfaces as
+      // "the mic looks active but the server receives zero audio
+      // chunks". Resume here unconditionally; if the context refuses to
+      // resume we fall back to retrying on the next user click via
+      // `ensureMicResumed()`.
+      if (this.audioContext.state === "suspended") {
+        try {
+          await this.audioContext.resume();
+        } catch (resumeErr) {
+          this.handlers.onError?.(resumeErr);
+        }
+      }
       this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
 
       // ScriptProcessorNode is deprecated but still works in every modern
@@ -77,12 +92,36 @@ export class MicStream {
         this.handleFloatFrame(channel, this.audioContext!.sampleRate);
       };
       this.source.connect(processor);
-      processor.connect(this.audioContext.destination);
+      // Route the processor through a muted gain node before the
+      // destination. Without the destination connection some WebKit
+      // builds never schedule `onaudioprocess`; with the destination
+      // connection (and no muting) the mic input would be echoed
+      // straight back through the speakers, causing feedback.
+      const sink = this.audioContext.createGain();
+      sink.gain.value = 0;
+      processor.connect(sink);
+      sink.connect(this.audioContext.destination);
       this.workletNode = processor;
     } catch (err) {
       this.running = false;
       this.handlers.onError?.(err);
       throw err;
+    }
+  }
+
+  /**
+   * Resume the AudioContext if WebKit suspended it (typically after the
+   * window lost focus). Safe to call from a user-gesture handler.
+   */
+  async ensureResumed(): Promise<void> {
+    const ctx = this.audioContext;
+    if (!ctx) return;
+    if (ctx.state === "suspended") {
+      try {
+        await ctx.resume();
+      } catch (err) {
+        this.handlers.onError?.(err);
+      }
     }
   }
 
@@ -160,21 +199,25 @@ function downsampleFloat32(
   }
 
   const ratio = sourceRate / targetRate;
-  const outputLength = Math.floor((input.length - state.remainder) / ratio);
-  const output = new Float32Array(Math.max(0, outputLength));
+  if (!Number.isFinite(ratio) || ratio <= 0 || input.length < 2) {
+    state.remainder = 0;
+    return new Float32Array(0);
+  }
 
-  let outputIndex = 0;
+  const samples: number[] = [];
   let inputIndex = state.remainder;
-  while (outputIndex < outputLength) {
+  const maxIndex = input.length - 1;
+  while (inputIndex < maxIndex) {
     const lower = Math.floor(inputIndex);
-    const upper = Math.min(lower + 1, input.length - 1);
+    const upper = Math.min(lower + 1, maxIndex);
     const fraction = inputIndex - lower;
-    output[outputIndex] =
-      input[lower]! * (1 - fraction) + input[upper]! * fraction;
-    outputIndex += 1;
+    samples.push(input[lower]! * (1 - fraction) + input[upper]! * fraction);
     inputIndex += ratio;
   }
 
-  state.remainder = inputIndex - input.length;
-  return output;
+  // Carry the sampling cursor forward to the next callback frame.
+  // This value stays in [0, ratio), so subsequent calls never index
+  // into negative sample offsets.
+  state.remainder = Math.max(0, inputIndex - input.length);
+  return Float32Array.from(samples);
 }

@@ -15,10 +15,10 @@
       {
         "label": "main",
         "title": "Eli",
-        "width": 480,
-        "height": 720,
-        "minWidth": 360,
-        "minHeight": 480,
+        "width": 1180,
+        "height": 820,
+        "minWidth": 980,
+        "minHeight": 720,
         "resizable": true,
         "transparent": true,
         "decorations": false,
@@ -39,11 +39,6 @@
       "iconAsTemplate": true,
       "menuOnLeftClick": false,
       "tooltip": "Eli"
-    }
-  },
-  "plugins": {
-    "fs": {
-      "scope": ["$HOME/.vellum*", "$HOME/.vellum.lock.json", "$HOME/.vellum.lockfile.json"]
     }
   },
   "bundle": {
