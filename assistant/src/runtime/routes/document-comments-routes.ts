@@ -180,9 +180,8 @@ export const ROUTES: RouteDefinition[] = [
       const { status, content, resolvedBy } = parsed.data;
       const commentId = pathParams!.commentId;
 
-      // Verify the comment exists
       const existing = getComment(commentId);
-      if (!existing) {
+      if (!existing || existing.surfaceId !== pathParams!.id) {
         throw new NotFoundError("Comment not found");
       }
 
@@ -229,10 +228,11 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: ({ pathParams }) => {
       const commentId = pathParams!.commentId;
-      const deleted = deleteComment(commentId);
-      if (!deleted) {
+      const existing = getComment(commentId);
+      if (!existing || existing.surfaceId !== pathParams!.id) {
         throw new NotFoundError("Comment not found");
       }
+      deleteComment(commentId);
       log.info(
         { id: commentId, surfaceId: pathParams!.id },
         "Deleted document comment via HTTP",
