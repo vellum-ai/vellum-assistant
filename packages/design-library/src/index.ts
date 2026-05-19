@@ -44,4 +44,4 @@ export {
   PortalContainerProvider,
   usePortalContainer,
   type PortalContainerProviderProps,
-} from "./utils/portal-container.jsx";
+} from "./utils/portal-container.js";
