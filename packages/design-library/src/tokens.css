@@ -113,6 +113,9 @@
   /* Aux */
   --aux-white: #FFFFFF;
 
+  /* Shadow */
+  --shadow-popover: 0 1px 3px 0 rgba(0, 0, 0, 0.10), 0 4px 12px 0 rgba(0, 0, 0, 0.10);
+
   /* Derived */
   --ring: color-mix(in srgb, var(--system-positive-strong) 30%, transparent);
   --border-overlay: var(--border-disabled);
@@ -181,6 +184,9 @@
   /* Aux */
   --aux-white: #FFFFFF;
 
+  /* Shadow */
+  --shadow-popover: 0 1px 3px 0 rgba(0, 0, 0, 0.25), 0 4px 12px 0 rgba(0, 0, 0, 0.25);
+
   /* Derived */
   --border-overlay: var(--border-hover);
   --ghost-hover: var(--border-base);
@@ -236,6 +242,9 @@
 
   /* Aux */
   --aux-white: #FFFFFF;
+
+  /* Shadow */
+  --shadow-popover: 0 1px 3px 0 rgba(0, 0, 0, 0.25), 0 4px 12px 0 rgba(0, 0, 0, 0.25);
 
   /* Derived */
   --border-overlay: var(--border-hover);
@@ -379,6 +388,15 @@
   font-size: var(--text-chat-size);
   font-weight: var(--text-chat-weight);
   line-height: var(--text-chat-line-height);
+}
+
+/* ---------------------------------------------------------------------------
+ * Overlay animation keyframes.
+ * --------------------------------------------------------------------------- */
+
+@keyframes popoverIn {
+  0% { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 

@@ -9,7 +9,8 @@
     ".": "./src/index.ts",
     "./tokens.css": "./src/tokens.css",
     "./components/*": "./src/components/*.tsx",
-    "./utils/*": "./src/utils/*.ts"
+    "./utils/*": "./src/utils/*.ts",
+    "./utils/portal-container": "./src/utils/portal-container.tsx"
   },
   "scripts": {
     "storybook": "storybook dev -p 6006",
@@ -35,6 +36,7 @@
     "vite": "8.0.11"
   },
   "dependencies": {
+    "@radix-ui/react-popover": "1.1.15",
     "@radix-ui/react-slot": "1.2.4",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",

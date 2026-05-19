@@ -35,4 +35,13 @@ export {
   type TypographyVariant,
   type TypographyAs,
 } from "./components/typography.js";
+export {
+  Popover,
+  type PopoverContentProps,
+} from "./components/popover.js";
 export { cn } from "./utils/cn.js";
+export {
+  PortalContainerProvider,
+  usePortalContainer,
+  type PortalContainerProviderProps,
+} from "./utils/portal-container.jsx";
