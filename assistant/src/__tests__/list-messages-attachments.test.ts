@@ -78,7 +78,7 @@ describe("handleListMessages attachments", () => {
     const stored = uploadAttachment("photo.png", "image/png", IMAGE_BASE64);
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
-    const response = handleListMessages(createTestArgs(conv.id), null);
+    const response = handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(1);
@@ -103,7 +103,7 @@ describe("handleListMessages attachments", () => {
     );
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
-    const response = handleListMessages(createTestArgs(conv.id), null);
+    const response = handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(1);
@@ -125,7 +125,7 @@ describe("handleListMessages attachments", () => {
     const stored = uploadAttachment("result.png", "image/png", IMAGE_BASE64);
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
-    const response = handleListMessages(createTestArgs(conv.id), null);
+    const response = handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(1);
@@ -153,7 +153,7 @@ describe("handleListMessages attachments", () => {
     linkAttachmentToMessage(msg.id, imgStored.id, 0);
     linkAttachmentToMessage(msg.id, docStored.id, 1);
 
-    const response = handleListMessages(createTestArgs(conv.id), null);
+    const response = handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
     const attachments = body.messages[0].attachments!;
@@ -177,7 +177,7 @@ describe("handleListMessages no_response filtering", () => {
       JSON.stringify([{ type: "text", text: "<no_response/>" }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id), null);
+    const response = handleListMessages(createTestArgs(conv.id));
     const body = response as {
       messages: { content: string; textSegments: string[] }[];
     };
@@ -199,7 +199,7 @@ describe("handleListMessages no_response filtering", () => {
       ]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id), null);
+    const response = handleListMessages(createTestArgs(conv.id));
     const body = response as {
       messages: { content: string; textSegments: string[] }[];
     };
@@ -228,7 +228,7 @@ describe("handleListMessages no_response filtering", () => {
       ]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id), null);
+    const response = handleListMessages(createTestArgs(conv.id));
     const body = response as {
       messages: {
         content: string;
@@ -252,7 +252,7 @@ describe("handleListMessages no_response filtering", () => {
       JSON.stringify([{ type: "text", text: "What does <no_response/> do?" }]),
     );
 
-    const response = handleListMessages(createTestArgs(conv.id), null);
+    const response = handleListMessages(createTestArgs(conv.id));
     const body = response as {
       messages: { content: string }[];
     };
@@ -308,7 +308,7 @@ describe("handleListMessages pagination", () => {
     const conv = createConversation();
     await insertMessages(conv.id, 5);
 
-    const response = handleListMessages(createTestArgs(conv.id), null);
+    const response = handleListMessages(createTestArgs(conv.id));
     const body = response as unknown as PaginatedResponse;
 
     expect(body.messages).toHaveLength(5);
@@ -322,7 +322,7 @@ describe("handleListMessages pagination", () => {
     await insertMessages(conv.id, 5);
 
     const args = createPaginatedArgs(conv.id, { limit: "3" });
-    const response = handleListMessages(args, null);
+    const response = handleListMessages(args);
     const body = response as unknown as PaginatedResponse;
 
     // Option A: without beforeTimestamp, all messages are returned regardless of limit
@@ -339,7 +339,7 @@ describe("handleListMessages pagination", () => {
       beforeTimestamp: String(msgs[7].createdAt),
       limit: "3",
     });
-    const response = handleListMessages(args, null);
+    const response = handleListMessages(args);
     const body = response as unknown as PaginatedResponse;
 
     expect(body.messages).toHaveLength(3);
@@ -360,7 +360,7 @@ describe("handleListMessages pagination", () => {
       beforeTimestamp: String(msgs[1].createdAt),
       limit: "10",
     });
-    const response = handleListMessages(args, null);
+    const response = handleListMessages(args);
     const body = response as unknown as PaginatedResponse;
 
     const ids = body.messages.map((m) => m.id);
@@ -378,7 +378,7 @@ describe("handleListMessages pagination", () => {
       beforeTimestamp: String(msgs[4].createdAt + 1),
       limit: "10",
     });
-    const response = handleListMessages(args, null);
+    const response = handleListMessages(args);
     const body = response as unknown as PaginatedResponse;
 
     expect(body.messages).toHaveLength(5);
@@ -394,7 +394,7 @@ describe("handleListMessages pagination", () => {
       beforeTimestamp: String(msgs[4].createdAt + 1),
       limit: "3",
     });
-    const response = handleListMessages(args, null);
+    const response = handleListMessages(args);
     const body = response as unknown as PaginatedResponse;
 
     expect(body.messages).toHaveLength(3);
@@ -405,7 +405,7 @@ describe("handleListMessages pagination", () => {
 
   test("empty / nonexistent conversation → empty messages, no pagination metadata", async () => {
     const args = createPaginatedArgs("nonexistent-conv-id");
-    const response = handleListMessages(args, null);
+    const response = handleListMessages(args);
     const body = response as unknown as PaginatedResponse;
 
     expect(body.messages).toEqual([]);
@@ -418,13 +418,17 @@ describe("handleListMessages pagination", () => {
     const conv = createConversation();
     const args = createPaginatedArgs(conv.id, { limit: "abc" });
 
-    expect(() => handleListMessages(args, null)).toThrow("limit must be a valid number");
+    expect(() => handleListMessages(args)).toThrow(
+      "limit must be a valid number",
+    );
   });
 
   test("invalid beforeTimestamp (NaN) → 400", async () => {
     const conv = createConversation();
     const args = createPaginatedArgs(conv.id, { beforeTimestamp: "abc" });
 
-    expect(() => handleListMessages(args, null)).toThrow("beforeTimestamp must be a valid number");
+    expect(() => handleListMessages(args)).toThrow(
+      "beforeTimestamp must be a valid number",
+    );
   });
 });

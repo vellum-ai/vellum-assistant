@@ -1274,27 +1274,6 @@ export function getMessagesPaginated(
   return { messages: rows, hasMore };
 }
 
-export function getLastAssistantTimestampBefore(
-  conversationId: string,
-  beforeTimestamp: number,
-): number {
-  const db = getDb();
-  const row = db
-    .select({ createdAt: messages.createdAt })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        eq(messages.role, "assistant"),
-        lt(messages.createdAt, beforeTimestamp),
-      ),
-    )
-    .orderBy(desc(messages.createdAt))
-    .limit(1)
-    .get();
-  return row?.createdAt ?? 0;
-}
-
 export function getLastUserTimestampBefore(
   conversationId: string,
   beforeTimestamp: number,

@@ -104,10 +104,9 @@ interface ListResponse {
 }
 
 function callList(query: Record<string, string>): ListResponse {
-  return handleListMessages(
-    { queryParams: query },
-    null,
-  ) as unknown as ListResponse;
+  return handleListMessages({
+    queryParams: query,
+  }) as unknown as ListResponse;
 }
 
 describe("handleListMessages page=latest", () => {
@@ -274,16 +273,14 @@ describe("handleListMessages page=latest", () => {
     const conv = createConversation();
 
     expect(() =>
-      handleListMessages(
-        { queryParams: { conversationId: conv.id, page: "invalid" } },
-        null,
-      ),
+      handleListMessages({
+        queryParams: { conversationId: conv.id, page: "invalid" },
+      }),
     ).toThrow(BadRequestError);
     expect(() =>
-      handleListMessages(
-        { queryParams: { conversationId: conv.id, page: "invalid" } },
-        null,
-      ),
+      handleListMessages({
+        queryParams: { conversationId: conv.id, page: "invalid" },
+      }),
     ).toThrow("page must be 'latest' when provided");
   });
 

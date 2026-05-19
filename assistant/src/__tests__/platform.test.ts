@@ -8,7 +8,6 @@ import {
   getDataDir,
   getDbPath,
   getHistoryPath,
-  getInterfacesDir,
   getLogPath,
   getPidPath,
   getSandboxRootDir,
@@ -67,7 +66,6 @@ describe("path characterization", () => {
     expect(getDbPath()).toBe(join(data, "db", "assistant.db"));
     expect(getLogPath()).toBe(join(data, "logs", "vellum.log"));
     expect(getHistoryPath()).toBe(join(data, "history"));
-    expect(getInterfacesDir()).toBe(join(data, "interfaces"));
     expect(getSandboxRootDir()).toBe(join(data, "sandbox"));
     expect(getSandboxWorkingDir()).toBe(ws);
 
@@ -117,7 +115,6 @@ describe("path characterization", () => {
     expect(existsSync(join(data, "memory"))).toBe(true);
     expect(existsSync(join(data, "memory", "knowledge"))).toBe(true);
     expect(existsSync(join(data, "apps"))).toBe(true);
-    expect(existsSync(join(data, "interfaces"))).toBe(true);
 
     rmSync(wsDir, { recursive: true, force: true });
   });
