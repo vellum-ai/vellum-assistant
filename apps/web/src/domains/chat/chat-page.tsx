@@ -38,8 +38,8 @@ const EMPTY_MAP_MESSAGES = new Map<
 const EMPTY_SET_STRINGS = new Set<string>();
 
 export function ChatPage() {
-  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
-  const authLoading = useAuthStore((s) => s.isLoading);
+  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const authLoading = useAuthStore.use.isLoading();
   const isMobile = useIsMobile();
 
   const navigate = useCallback((_path: string) => {}, []);

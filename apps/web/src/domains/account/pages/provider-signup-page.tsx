@@ -24,7 +24,7 @@ import { routes } from "@/utils/routes.js";
 export function ProviderSignupPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const refreshSession = useAuthStore((s) => s.refreshSession);
+  const refreshSession = useAuthStore.use.refreshSession();
   const returnTo = searchParams.get("returnTo");
 
   const [email, setEmail] = useState("");

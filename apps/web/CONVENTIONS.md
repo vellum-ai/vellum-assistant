@@ -353,6 +353,47 @@ References:
 - [Zustand — Prevent rerenders with useShallow](https://zustand.docs.pmnd.rs/guides/prevent-rerenders-with-use-shallow)
 - [Zustand v5 selector best practices (community discussion)](https://github.com/pmndrs/zustand/discussions/2867)
 
+### Auto-generated selectors via `createSelectors`
+
+Wrap every store with `createSelectors()` from `src/utils/create-selectors.ts`
+to auto-generate per-field selector hooks. This is the
+[official Zustand pattern](https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors)
+for reducing boilerplate while keeping per-field re-render optimization.
+
+```ts
+import { create } from "zustand";
+import { createSelectors } from "@/utils/create-selectors.js";
+
+interface BearState {
+  bears: number;
+  increase: (by: number) => void;
+}
+
+const useBearStoreBase = create<BearState>()((set) => ({
+  bears: 0,
+  increase: (by) => set((state) => ({ bears: state.bears + by })),
+}));
+
+export const useBearStore = createSelectors(useBearStoreBase);
+```
+
+Consumers use the `.use` property — fully typed, with autocomplete:
+
+```ts
+// Auto-generated selector — one field, minimal re-renders
+const bears = useBearStore.use.bears();
+const increase = useBearStore.use.increase();
+
+// .getState() still works for non-React contexts (middleware, interceptors)
+const { bears } = useBearStore.getState();
+```
+
+Prefer `.use.field()` over manual `(s) => s.field` selectors. For
+derived/computed values (e.g. `user?.id`), use `.use.user()` and
+access the property from the result.
+
+Reference: [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors)
+
 ### useReducer for component-local state only
 
 When two or more pieces of **component-local** state change together

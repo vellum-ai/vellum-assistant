@@ -64,7 +64,7 @@ function redirectToNativeApp(
 export function ProviderCallbackPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const refreshSession = useAuthStore((s) => s.refreshSession);
+  const refreshSession = useAuthStore.use.refreshSession();
   const error = searchParams.get("error");
   const [fallbackError, setFallbackError] = useState<string | null>(null);
   const didRun = useRef(false);

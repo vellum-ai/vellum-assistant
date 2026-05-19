@@ -93,8 +93,8 @@ function getErrorMessage(error: unknown): string {
 }
 
 export function OrganizationProvider({ children }: OrganizationProviderProps) {
-  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
-  const isAuthLoading = useAuthStore((s) => s.isLoading);
+  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const isAuthLoading = useAuthStore.use.isLoading();
   const isOrganizationQueryEnabled = isLoggedIn && !isAuthLoading;
   const [selectedOrganizationId, setSelectedOrganizationId] = useState<
     string | null

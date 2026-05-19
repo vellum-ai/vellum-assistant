@@ -15,6 +15,8 @@
  */
 import { create } from "zustand";
 
+import { createSelectors } from "@/utils/create-selectors.js";
+
 import {
   getSession,
   logout as allauthLogout,
@@ -83,7 +85,7 @@ function broadcastAuthChange(): void {
   broadcastChannel?.postMessage("auth-changed");
 }
 
-export const useAuthStore = create<AuthStore>()((set) => ({
+const useAuthStoreBase = create<AuthStore>()((set) => ({
   isLoggedIn: false,
   isLoading: true,
   user: null,
@@ -131,6 +133,8 @@ export const useAuthStore = create<AuthStore>()((set) => ({
     }
   },
 }));
+
+export const useAuthStore = createSelectors(useAuthStoreBase);
 
 /**
  * Subscribe to window focus / visibility changes and cross-tab

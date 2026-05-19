@@ -6,6 +6,9 @@
  * 2. The React Query cache is keyed by (user, org) — switching users or
  *    orgs yields a fresh cache instead of leaking stale data.
  *
+ * Only third-party library providers (React Query) belong here.
+ * App state uses Zustand stores — see `src/stores/`.
+ *
  * Reference: https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -54,11 +57,11 @@ function ScopeKeyedQueryClientProvider({
 }: {
   children: ReactNode;
 }) {
-  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
-  const userId = useAuthStore((s) => s.user?.id);
+  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const user = useAuthStore.use.user();
   const { currentOrganizationId } = useOrganization();
   const scopeKey = `${
-    isLoggedIn ? `user:${userId ?? "unknown"}` : "anonymous"
+    isLoggedIn ? `user:${user?.id ?? "unknown"}` : "anonymous"
   }:org:${currentOrganizationId ?? "none"}`;
 
   return (
@@ -69,10 +72,10 @@ function ScopeKeyedQueryClientProvider({
 }
 
 export function AppProviders({ children }: { children: ReactNode }) {
-  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
-  const userId = useAuthStore((s) => s.user?.id);
+  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const user = useAuthStore.use.user();
   const authScopeKey = isLoggedIn
-    ? `user:${userId ?? "unknown"}`
+    ? `user:${user?.id ?? "unknown"}`
     : "anonymous";
 
   return (
