@@ -153,6 +153,18 @@
       "updatedAt": "2026-04-18T07:33:07-04:00"
     },
     {
+      "id": "feedback-eval-capture",
+      "name": "feedback-eval-capture",
+      "description": "Turn a user-feedback export tarball into a replayable eval case. Extracts the conversation, walks the developer through identifying the failing assistant turn and the expected behavior, and writes a deterministic snapshot to ~/.vellum/workspace/evals/<slug>/ so the same prefix can be re-run against different models. Use when triaging a report from #user-feedback or any time a developer hands you a `vellum-export-*.tar.gz` and wants to capture it as a regression test.",
+      "metadata": {
+        "emoji": "🧪",
+        "vellum": {
+          "display-name": "Feedback → Eval Capture"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "fish-audio",
       "name": "fish-audio",
       "description": "Generate expressive audio clips using Fish Audio S2 TTS with bracket emotion tags. Record voice memos, narration, audio messages, or any spoken content.",
@@ -329,7 +341,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-05-18T17:16:06-04:00"
+      "updatedAt": "2026-05-19T01:34:20-04:00"
     },
     {
       "id": "macos-automation",
