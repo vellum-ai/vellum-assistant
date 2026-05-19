@@ -10,14 +10,19 @@
  * Persists the active organization to sessionStorage so page refreshes
  * and new tabs preserve the selection.
  *
+ * Lifecycle (auth subscription + focus/visibility refetch) is registered
+ * via `setupOrganizationStore()`, called once at app startup.
+ *
  * References:
  * - https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components
+ * - https://tkdodo.eu/blog/working-with-zustand
  */
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors.js";
 import { organizationsList } from "@/generated/api/sdk.gen.js";
 import type { OrganizationRead } from "@/generated/api/types.gen.js";
+import { useAuthStore } from "@/stores/auth-store.js";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "vellum_active_organization_id";
 
@@ -166,22 +171,50 @@ export function clearOrganization(): void {
 }
 
 /**
- * Subscribe to window focus / visibility changes to keep the organization
- * list fresh — mirrors React Query's `refetchOnWindowFocus` behavior.
- * Only refetches when the store has previously loaded (status !== "idle").
- * Call once at app startup.
+ * Register all organization store lifecycle listeners. Call once at startup.
+ *
+ * 1. Auth subscription — fetches orgs when the user logs in or switches
+ *    accounts (including cross-tab via BroadcastChannel).
+ * 2. Window focus / visibility — refetches the org list when the tab
+ *    regains focus, but only if data is stale (older than STALE_TIME_MS).
+ *    Matches the old React Query `refetchOnWindowFocus` + `staleTime`
+ *    behavior from `createQueryClient({ staleTime: 10_000 })`.
  */
-export function setupOrganizationListeners(): () => void {
-  const refetchIfReady = () => {
+export function setupOrganizationStore(): () => void {
+  const STALE_TIME_MS = 10_000;
+  let lastFetchedAt = 0;
+
+  // Track when fetches complete so we can enforce staleTime on focus refetch.
+  useOrganizationStore.subscribe((state) => {
+    if (state.status === "ready" || state.status === "error") {
+      lastFetchedAt = Date.now();
+    }
+  });
+
+  // 1. Auth transitions — login or user switch triggers org fetch.
+  useAuthStore.subscribe((state, prevState) => {
+    if (
+      state.isLoggedIn &&
+      (!prevState.isLoggedIn || state.user?.id !== prevState.user?.id)
+    ) {
+      useOrganizationStore.getState().fetchOrganizations();
+    }
+  });
+
+  // 2. Window focus / visibility — refetch if stale.
+  const refetchIfStale = () => {
     const { status } = useOrganizationStore.getState();
-    if (status === "ready" || status === "error") {
+    if (
+      (status === "ready" || status === "error") &&
+      Date.now() - lastFetchedAt > STALE_TIME_MS
+    ) {
       useOrganizationStore.getState().fetchOrganizations();
     }
   };
 
-  const onFocus = () => refetchIfReady();
+  const onFocus = () => refetchIfStale();
   const onVisibilityChange = () => {
-    if (document.visibilityState === "visible") refetchIfReady();
+    if (document.visibilityState === "visible") refetchIfStale();
   };
 
   window.addEventListener("focus", onFocus);
