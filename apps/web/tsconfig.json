@@ -14,7 +14,7 @@
     "noEmit": true,
     "allowJs": false,
     "isolatedModules": true,
-    "types": ["bun", "vite/client"],
+    "types": ["bun"],
     "paths": {
       "@/*": ["./src/*"]
     }

@@ -1,10 +1,8 @@
 /**
  * React Router v7 auth middleware.
  *
- * Runs before any protected route component renders. When auth is
- * required (`VITE_AUTH_REQUIRED="true"`), unauthenticated users are
- * redirected to login. When auth is optional (local dev, self-hosting),
- * the middleware passes through with an anonymous user context.
+ * Runs before any protected route component renders. Unauthenticated
+ * users are redirected to `/account/login` with a `returnTo` parameter.
  *
  * References:
  * - https://reactrouter.com/how-to/middleware
@@ -17,31 +15,15 @@ import {
 } from "react-router";
 
 import { useAuthStore, type AuthUser } from "@/stores/auth-store.js";
-import { requiresAuth } from "@/lib/auth/require-auth.js";
 
-const ANONYMOUS_USER: AuthUser = {
-  id: null,
-  username: null,
-  email: null,
-  isStaff: false,
-  firstName: "",
-  lastName: "",
-};
-
-export const authUserContext = createRouterContext<AuthUser>(ANONYMOUS_USER);
+export const authUserContext = createRouterContext<AuthUser | null>(null);
 
 export const authMiddleware: MiddlewareFunction = async ({ request, context }, next) => {
   const { isLoggedIn, isLoading, user } = useAuthStore.getState();
 
   if (isLoading) {
-    // Session probe still in flight — wait for it.
     await waitForAuthReady();
     return authMiddleware({ request, context } as Parameters<MiddlewareFunction>[0], next);
-  }
-
-  if (!requiresAuth()) {
-    context.set(authUserContext, user ?? ANONYMOUS_USER);
-    return next();
   }
 
   if (!isLoggedIn || !user) {
@@ -62,8 +44,6 @@ function waitForAuthReady(): Promise<void> {
         resolve();
       }
     });
-    // Resolve immediately if loading already finished between the
-    // getState() call and this subscription.
     if (!useAuthStore.getState().isLoading) {
       unsubscribe();
       resolve();
