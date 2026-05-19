@@ -156,7 +156,17 @@ export function composeConversationSeed(
 
   if (verbosity === "rich") {
     const parts: string[] = [];
-    if (copy.title && copy.title !== "Notification") parts.push(copy.title);
+    const usableTitle =
+      copy.title && copy.title !== "Notification" ? copy.title : "";
+    // copy.title is used as the conversation header in chat surfaces
+    // whenever copy.conversationTitle is absent (see
+    // conversation-pairing.ts), so prepending it here would render it
+    // twice — once in the header bar and once at the start of the
+    // bubble. Skip it in that case, unless there's no body and we'd
+    // otherwise produce an empty seed.
+    if (usableTitle && (copy.conversationTitle || !copy.body)) {
+      parts.push(usableTitle);
+    }
     if (copy.body) parts.push(copy.body);
     const alreadyMentionsAction = parts.some((part) =>
       /\baction required\b/i.test(part),
