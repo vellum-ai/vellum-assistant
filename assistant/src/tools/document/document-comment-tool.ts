@@ -1,5 +1,6 @@
 import {
   createComment,
+  getComment,
   listComments,
   resolveComment,
 } from "../../documents/document-comments-store.js";
@@ -52,8 +53,8 @@ export function executeCommentResolve(
     return documentNotFound(surfaceId);
   }
 
-  const resolved = resolveComment(commentId, "assistant");
-  if (!resolved) {
+  const existing = getComment(commentId);
+  if (!existing || existing.surfaceId !== surfaceId) {
     return {
       content: JSON.stringify({
         success: false,
@@ -63,6 +64,8 @@ export function executeCommentResolve(
       isError: true,
     };
   }
+
+  resolveComment(commentId, "assistant");
 
   if (context.sendToClient) {
     context.sendToClient({
@@ -94,6 +97,18 @@ export function executeCommentReply(
 
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
+  }
+
+  const parent = getComment(commentId);
+  if (!parent || parent.surfaceId !== surfaceId) {
+    return {
+      content: JSON.stringify({
+        success: false,
+        comment_id: commentId,
+        error: "Parent comment not found on this document",
+      }),
+      isError: true,
+    };
   }
 
   const reply = createComment({
