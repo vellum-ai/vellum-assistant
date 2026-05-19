@@ -1,11 +1,11 @@
 ---
-name: document
-description: Write, draft, or compose long-form text (blog posts, articles, essays, reports, guides)
+name: document-editor
+description: Rich text document editor with collaborative editing tools — create, read, update, and annotate documents
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "📄"
   vellum:
-    display-name: "Document"
+    display-name: "Document Editor"
     activation-hints:
       - "User asks to write, draft, or collaborate on long-form content — use the document editor for a better editing experience"
       - "When content will be iterated on, reviewed, or exported, prefer the document editor over inline markdown"
