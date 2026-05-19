@@ -20,6 +20,7 @@
  * | `memory-v2-static`       | 38    | after-memory-prefix     |
  * | `now-md`                 | 40    | after-memory-prefix     |
  * | `active-documents`       | 45    | prepend-user-tail       |
+ * | `document-comments`      | 46    | prepend-user-tail       |
  * | `subagent-status`        | 50    | append-user-tail        |
  * | `slack-messages`         | 60    | replace-run-messages    |
  * | `thread-focus`           | 70    | append-user-tail        |
@@ -51,6 +52,7 @@ import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-fl
 import { getConfig } from "../../config/loader.js";
 import { getInContextPkbPaths } from "../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../daemon/pkb-reminder-builder.js";
+import { listComments } from "../../documents/document-comments-store.js";
 import { searchPkbFiles } from "../../memory/pkb/pkb-search.js";
 import { getLogger } from "../../util/logger.js";
 import { registerPlugin } from "../registry.js";
@@ -93,6 +95,7 @@ export const DEFAULT_INJECTOR_ORDER = {
   memoryV2Static: 38,
   nowMd: 40,
   activeDocuments: 45,
+  documentComments: 46,
   subagentStatus: 50,
   slackMessages: 60,
   threadFocus: 70,
@@ -457,6 +460,68 @@ const activeDocumentsInjector: Injector = {
   },
 };
 
+/** Maximum open comments surfaced per document to limit context bloat. */
+const DOCUMENT_COMMENTS_CAP = 10;
+
+/**
+ * `document-comments` injector — order 46, prepend-user-tail.
+ *
+ * Surfaces open top-level comments on active documents so the assistant
+ * knows what feedback to address. For each active document, queries the
+ * comment store for open top-level comments (capped at
+ * {@link DOCUMENT_COMMENTS_CAP} most recent per document). Inline comments
+ * include the quoted anchor text; doc-level comments are labelled as such.
+ *
+ * Gating:
+ *  - `mode === "full"`.
+ *  - `activeDocuments` has at least one entry.
+ *  - At least one document has open comments (returns null otherwise).
+ */
+const documentCommentsInjector: Injector = {
+  name: "document-comments",
+  order: DEFAULT_INJECTOR_ORDER.documentComments,
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+    const inputs = readInjectionInputs(ctx);
+    const mode = inputs.mode ?? "full";
+    if (mode !== "full") return null;
+    const docs = inputs.activeDocuments;
+    if (!docs || docs.length === 0) return null;
+
+    const sections: string[] = [];
+    for (const doc of docs) {
+      const comments = listComments(doc.surfaceId, {
+        status: "open",
+        topLevelOnly: true,
+      }).slice(-DOCUMENT_COMMENTS_CAP);
+      if (comments.length === 0) continue;
+
+      const lines = comments.map((c) => {
+        const label =
+          c.anchorText != null
+            ? `inline, anchored to "${c.anchorText}"`
+            : "doc-level";
+        return `- Comment #${c.id} (${label}): "${c.content}"`;
+      });
+      sections.push(
+        `Document: "${doc.title}" (surface_id: "${doc.surfaceId}")\n${lines.join("\n")}`,
+      );
+    }
+
+    if (sections.length === 0) return null;
+
+    const text = `<document_comments>
+Open comments on your documents. Address these by editing the document, then use comment_resolve to mark each resolved.
+
+${sections.join("\n\n")}
+</document_comments>`;
+    return {
+      id: "document-comments",
+      text,
+      placement: "prepend-user-tail",
+    };
+  },
+};
+
 /**
  * `subagent-status` injector — order 50, append-user-tail.
  *
@@ -591,6 +656,7 @@ export const defaultInjectorsPlugin: Plugin = {
     memoryV2StaticInjector,
     nowMdInjector,
     activeDocumentsInjector,
+    documentCommentsInjector,
     subagentStatusInjector,
     slackMessagesInjector,
     threadFocusInjector,
