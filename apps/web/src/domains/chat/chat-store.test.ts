@@ -9,7 +9,6 @@ beforeEach(() => {
     assistantId: null,
     sendMessage: async () => {},
     dispatchTurn: () => {},
-    dispatchInteraction: () => {},
   }, true);
 });
 
@@ -25,7 +24,6 @@ describe("useChatStore", () => {
     const state = useChatStore.getState();
     expect(typeof state.sendMessage).toBe("function");
     expect(typeof state.dispatchTurn).toBe("function");
-    expect(typeof state.dispatchInteraction).toBe("function");
   });
 
   it("setState updates only the targeted state fields", () => {
@@ -60,7 +58,6 @@ describe("useChatStore", () => {
       assistantId: "ast-new",
       sendMessage: async () => {},
       dispatchTurn: () => {},
-      dispatchInteraction: () => {},
     };
     useChatStore.setState(fullState, true);
 

@@ -122,14 +122,14 @@ export function useInteractionActions({
   activeConversationKeyRef,
   confirmationToolCallMapRef,
 }: UseInteractionActionsParams): UseInteractionActionsReturn {
-  const pendingSecret = useInteractionStore((s) => s.pendingSecret);
-  const isSubmittingSecret = useInteractionStore((s) => s.isSubmittingSecret);
-  const pendingConfirmation = useInteractionStore((s) => s.pendingConfirmation);
-  const isSubmittingConfirmation = useInteractionStore((s) => s.isSubmittingConfirmation);
-  const pendingContactRequest = useInteractionStore((s) => s.pendingContactRequest);
-  const isSubmittingContactRequest = useInteractionStore((s) => s.isSubmittingContactRequest);
-  const pendingQuestion = useInteractionStore((s) => s.pendingQuestion);
-  const isSubmittingQuestion = useInteractionStore((s) => s.isSubmittingQuestion);
+  const pendingSecret = useInteractionStore.use.pendingSecret();
+  const isSubmittingSecret = useInteractionStore.use.isSubmittingSecret();
+  const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
+  const isSubmittingConfirmation = useInteractionStore.use.isSubmittingConfirmation();
+  const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
+  const isSubmittingContactRequest = useInteractionStore.use.isSubmittingContactRequest();
+  const pendingQuestion = useInteractionStore.use.pendingQuestion();
+  const isSubmittingQuestion = useInteractionStore.use.isSubmittingQuestion();
 
   const [showRuleEditor, setShowRuleEditor] = useState(false);
   const [ruleEditorContext, setRuleEditorContext] = useState<RuleEditorContext | null>(null);

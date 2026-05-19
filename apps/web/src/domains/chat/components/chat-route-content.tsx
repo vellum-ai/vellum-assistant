@@ -513,17 +513,17 @@ export function ChatRouteContent({
   // Interaction state (from Zustand store)
   // -------------------------------------------------------------------------
 
-  const pendingSecret = useInteractionStore((s) => s.pendingSecret);
-  const pendingConfirmation = useInteractionStore((s) => s.pendingConfirmation);
-  const pendingContactRequest = useInteractionStore((s) => s.pendingContactRequest);
-  const pendingQuestion = useInteractionStore((s) => s.pendingQuestion);
-  const isSubmittingSecret = useInteractionStore((s) => s.isSubmittingSecret);
-  const isSubmittingConfirmation = useInteractionStore((s) => s.isSubmittingConfirmation);
-  const isSubmittingContactRequest = useInteractionStore((s) => s.isSubmittingContactRequest);
-  const isSubmittingQuestion = useInteractionStore((s) => s.isSubmittingQuestion);
-  const contactRequestAccepted = useInteractionStore((s) => s.contactRequestAccepted);
-  const secretSaved = useInteractionStore((s) => s.secretSaved);
-  const inlineConfirmationToolCallId = useInteractionStore((s) => s.inlineConfirmationToolCallId);
+  const pendingSecret = useInteractionStore.use.pendingSecret();
+  const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
+  const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
+  const pendingQuestion = useInteractionStore.use.pendingQuestion();
+  const isSubmittingSecret = useInteractionStore.use.isSubmittingSecret();
+  const isSubmittingConfirmation = useInteractionStore.use.isSubmittingConfirmation();
+  const isSubmittingContactRequest = useInteractionStore.use.isSubmittingContactRequest();
+  const isSubmittingQuestion = useInteractionStore.use.isSubmittingQuestion();
+  const contactRequestAccepted = useInteractionStore.use.contactRequestAccepted();
+  const secretSaved = useInteractionStore.use.secretSaved();
+  const inlineConfirmationToolCallId = useInteractionStore.use.inlineConfirmationToolCallId();
   const inlineConfirmationAttached = inlineConfirmationToolCallId !== null;
 
   // -------------------------------------------------------------------------

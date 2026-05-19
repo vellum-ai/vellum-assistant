@@ -11,7 +11,8 @@
  */
 
 import { create } from "zustand";
-import { useShallow } from "zustand/shallow";
+
+import { createSelectors } from "@/utils/create-selectors.js";
 
 import type {
   PendingSecretState,
@@ -128,7 +129,7 @@ export function hasActiveInteraction(state: InteractionState): boolean {
 // Store
 // ---------------------------------------------------------------------------
 
-export const useInteractionStore = create<InteractionStore>()((set, get) => ({
+const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
   ...INITIAL_STATE,
 
   // ----- Secret -----
@@ -232,56 +233,4 @@ export const useInteractionStore = create<InteractionStore>()((set, get) => ({
   resetAll: () => set(INITIAL_STATE),
 }));
 
-// ---------------------------------------------------------------------------
-// Convenience hooks
-// ---------------------------------------------------------------------------
-
-export function useInteractionState(): InteractionState {
-  return useInteractionStore(
-    useShallow((s) => ({
-      pendingSecret: s.pendingSecret,
-      isSubmittingSecret: s.isSubmittingSecret,
-      secretSaved: s.secretSaved,
-      pendingConfirmation: s.pendingConfirmation,
-      isSubmittingConfirmation: s.isSubmittingConfirmation,
-      pendingContactRequest: s.pendingContactRequest,
-      isSubmittingContactRequest: s.isSubmittingContactRequest,
-      contactRequestAccepted: s.contactRequestAccepted,
-      pendingQuestion: s.pendingQuestion,
-      isSubmittingQuestion: s.isSubmittingQuestion,
-      isQuestionCardDismissed: s.isQuestionCardDismissed,
-      inlineConfirmationToolCallId: s.inlineConfirmationToolCallId,
-    })),
-  );
-}
-
-export function useInteractionActions(): InteractionActions {
-  return useInteractionStore(
-    useShallow((s) => ({
-      showSecret: s.showSecret,
-      submitSecretStart: s.submitSecretStart,
-      submitSecretEnd: s.submitSecretEnd,
-      dismissSecret: s.dismissSecret,
-      updateSecret: s.updateSecret,
-      showConfirmation: s.showConfirmation,
-      submitConfirmationStart: s.submitConfirmationStart,
-      submitConfirmationEnd: s.submitConfirmationEnd,
-      dismissConfirmation: s.dismissConfirmation,
-      dismissConfirmationIfMatches: s.dismissConfirmationIfMatches,
-      updateConfirmation: s.updateConfirmation,
-      setInlineConfirmationToolCallId: s.setInlineConfirmationToolCallId,
-      showContactRequest: s.showContactRequest,
-      submitContactRequestStart: s.submitContactRequestStart,
-      submitContactRequestEnd: s.submitContactRequestEnd,
-      dismissContactRequest: s.dismissContactRequest,
-      acceptContactRequest: s.acceptContactRequest,
-      showQuestion: s.showQuestion,
-      submitQuestionStart: s.submitQuestionStart,
-      submitQuestionEnd: s.submitQuestionEnd,
-      dismissQuestion: s.dismissQuestion,
-      dismissQuestionCard: s.dismissQuestionCard,
-      resetSecretAndConfirmation: s.resetSecretAndConfirmation,
-      resetAll: s.resetAll,
-    })),
-  );
-}
+export const useInteractionStore = createSelectors(useInteractionStoreBase);
