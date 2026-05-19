@@ -25,30 +25,43 @@ import {
   handleStatusCallback,
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
+import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { processMessage } from "../daemon/process-message.js";
-import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
-import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
+import {
+  createLiveVoiceSession,
+  defaultOpenLiveVoiceTtsStreamingSession,
+  type LiveVoiceTtsSessionOpener,
+} from "../live-voice/live-voice-session.js";
+import {
+  type LiveVoiceSessionFactoryContext,
+  LiveVoiceSessionManager,
+} from "../live-voice/live-voice-session-manager.js";
 import {
   type LiveVoiceClientFrame,
+  type LiveVoiceClientStartFrame,
   type LiveVoiceProtocolError,
   LiveVoiceProtocolErrorCode,
   type LiveVoiceServerFrame,
   parseLiveVoiceBinaryAudioFrame,
   parseLiveVoiceClientTextFrame,
 } from "../live-voice/protocol.js";
+import { getOrCreateConversation as getOrCreateConversationMapping } from "../memory/conversation-key-store.js";
 import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
 import {
   activeSttStreamSessions,
   SttStreamSession,
 } from "../stt/stt-stream-session.js";
+import { getTtsProvider } from "../tts/provider-registry.js";
+import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { authenticateRequest } from "./auth/middleware.js";
 import { parseSub } from "./auth/subject.js";
 import { verifyToken } from "./auth/token-service.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
+import { resolveDefaultConversationKey } from "./conversation-handoff.js";
 import { httpError, type HttpErrorCode } from "./http-errors.js";
 import { HttpRouter } from "./http-router.js";
 import {
@@ -152,6 +165,58 @@ interface LiveVoiceWebSocketData {
   lastSeq: number;
 }
 
+/**
+ * Synchronously check whether the configured TTS provider supports the
+ * persistent multi-utterance streaming-session API. Used to opt the live
+ * voice path into low-latency session-mode (currently xAI) without
+ * paying per-segment WebSocket handshake overhead. Any failure (provider
+ * not registered, config malformed) falls back to the legacy per-segment
+ * path by returning `null`.
+ */
+function resolveTtsStreamingSessionOpener(): LiveVoiceTtsSessionOpener | null {
+  try {
+    const { provider: providerId } = resolveTtsConfig(getConfig());
+    const provider = getTtsProvider(providerId);
+    if (
+      provider.capabilities.supportsStreamingSessions &&
+      typeof provider.openStreamingSession === "function"
+    ) {
+      return defaultOpenLiveVoiceTtsStreamingSession;
+    }
+  } catch {
+    // fall through to null — caller defaults to per-segment mode
+  }
+  return null;
+}
+
+function resolveLiveVoiceConversationContext(
+  context: LiveVoiceSessionFactoryContext,
+): LiveVoiceSessionFactoryContext {
+  const parsedSourceChannel = parseChannelId(context.startFrame.sourceChannel);
+  const parsedSourceInterface = parseInterfaceId(
+    context.startFrame.sourceInterface,
+  );
+  const conversationKey =
+    context.startFrame.conversationId ??
+    resolveDefaultConversationKey(
+      parsedSourceChannel ?? "vellum",
+      parsedSourceInterface ?? "tauri",
+    );
+  const mapping = getOrCreateConversationMapping(conversationKey, {
+    conversationType: "standard",
+  });
+
+  const startFrame: LiveVoiceClientStartFrame = {
+    ...context.startFrame,
+    conversationId: mapping.conversationId,
+  };
+
+  return {
+    ...context,
+    startFrame,
+  };
+}
+
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
@@ -177,7 +242,10 @@ export class RuntimeHttpServer {
     this.guardianFollowUpConversationGenerator =
       options.guardianFollowUpConversationGenerator;
     this.liveVoiceSessionManager = new LiveVoiceSessionManager({
-      createSession: (context) => createLiveVoiceSession(context),
+      createSession: (context) =>
+        createLiveVoiceSession(resolveLiveVoiceConversationContext(context), {
+          openTtsStreamingSession: resolveTtsStreamingSessionOpener(),
+        }),
     });
     this.router = new HttpRouter();
   }
@@ -556,7 +624,6 @@ export class RuntimeHttpServer {
     if (path === "/readyz" && req.method === "GET") {
       return handleReadyz();
     }
-
 
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.
