@@ -13,7 +13,7 @@ import {
   submitProviderSignup,
 } from "@/lib/auth/allauth-client.js";
 import { resolvePostLoginDestination } from "@/lib/account/login-flow.js";
-import { useAuth } from "@/lib/auth/auth-provider.js";
+import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
 
 /**
@@ -24,7 +24,7 @@ import { routes } from "@/utils/routes.js";
 export function ProviderSignupPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { refreshSession } = useAuth();
+  const refreshSession = useAuthStore((s) => s.refreshSession);
   const returnTo = searchParams.get("returnTo");
 
   const [email, setEmail] = useState("");

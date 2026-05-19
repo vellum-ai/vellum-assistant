@@ -4,7 +4,7 @@ import { AccountHeading } from "@/components/account/account-form.js";
 import { AccountShell } from "@/components/account/account-shell.js";
 import { PROVIDER_CALLBACK_URL, PROVIDER_ID } from "@/lib/account/login-flow.js";
 import { startAuthFlow } from "@/runtime/native-auth.js";
-import { useAuth } from "@/lib/auth/auth-provider.js";
+import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
 
 /**
@@ -13,7 +13,10 @@ import { routes } from "@/utils/routes.js";
  */
 export function AccountPage() {
   const navigate = useNavigate();
-  const { isLoggedIn, isLoading, username, logout } = useAuth();
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const username = useAuthStore((s) => s.user?.username);
+  const logout = useAuthStore((s) => s.logout);
 
   if (isLoading) {
     return (

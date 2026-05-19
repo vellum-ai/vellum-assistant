@@ -8,7 +8,7 @@ import {
 } from "react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { useAuth } from "@/lib/auth/auth-provider.js";
+import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 import {
   interactionReducer,
@@ -38,7 +38,8 @@ const EMPTY_MAP_MESSAGES = new Map<
 const EMPTY_SET_STRINGS = new Set<string>();
 
 export function ChatPage() {
-  const { isLoggedIn, isLoading: authLoading } = useAuth();
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const authLoading = useAuthStore((s) => s.isLoading);
   const isMobile = useIsMobile();
 
   const navigate = useCallback((_path: string) => {}, []);
