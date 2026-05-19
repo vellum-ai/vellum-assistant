@@ -3,7 +3,7 @@ import { NavLink } from "react-router";
 import { House, Library, MessageSquare, Settings, X } from "lucide-react";
 import { Button } from "@vellum/design-library";
 
-import type { AssistantShellSideMenuArgs } from "./assistant-shell.js";
+import type { SideMenuRenderArgs } from "./chat-layout.js";
 
 function NavItem({
   to,
@@ -41,12 +41,13 @@ function NavItem({
   );
 }
 
-export function SideMenu({ collapsed, variant, onClose }: AssistantShellSideMenuArgs) {
+export function SideMenu({ collapsed, variant, onClose }: SideMenuRenderArgs) {
   const isOverlay = variant === "overlay";
   const handleNavClick = isOverlay ? onClose : undefined;
 
   return (
     <nav
+      data-slot="side-menu"
       className="flex flex-col gap-1 p-2"
       style={{
         width: isOverlay ? "100%" : collapsed ? 52 : 240,

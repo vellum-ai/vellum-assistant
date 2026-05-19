@@ -1,8 +1,16 @@
 import type { ReactNode } from "react";
-import { ChevronLeft, ChevronRight, House, Menu as MenuIcon, MessageSquarePlus, PanelLeft, Search } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  House,
+  Menu as MenuIcon,
+  MessageSquarePlus,
+  PanelLeft,
+  Search,
+} from "lucide-react";
 import { Button } from "@vellum/design-library";
 
-export interface AssistantShellHeaderProps {
+export interface ChatLayoutHeaderProps {
   isMobile: boolean;
   drawerOpen: boolean;
   collapsed: boolean;
@@ -19,7 +27,7 @@ export interface AssistantShellHeaderProps {
   isHomeActive?: boolean;
 }
 
-export function AssistantShellHeader({
+export function ChatLayoutHeader({
   isMobile,
   drawerOpen,
   collapsed,
@@ -34,9 +42,10 @@ export function AssistantShellHeader({
   onSearchClick,
   onOpenHome,
   isHomeActive,
-}: AssistantShellHeaderProps) {
+}: ChatLayoutHeaderProps) {
   return (
     <header
+      data-slot="chat-layout-header"
       className={`flex w-full shrink-0 items-center gap-4 px-4 pt-4${isMobile ? " pb-4" : ""}`}
       style={{
         background: "var(--surface-base)",
@@ -56,7 +65,7 @@ export function AssistantShellHeader({
             iconOnly={<MenuIcon />}
             aria-label="Open navigation"
             aria-expanded={drawerOpen}
-            aria-controls="assistant-side-menu"
+            aria-controls="chat-side-menu"
             onClick={toggleSidebar}
           />
         ) : (
@@ -65,7 +74,7 @@ export function AssistantShellHeader({
             iconOnly={<PanelLeft />}
             aria-label="Toggle sidebar"
             aria-expanded={!collapsed}
-            aria-controls="assistant-side-menu"
+            aria-controls="chat-side-menu"
             onClick={toggleSidebar}
           />
         )}
