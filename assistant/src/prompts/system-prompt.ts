@@ -44,7 +44,7 @@ const BOOTSTRAP_VOICE_BLOCKS: Record<string, string> = {
  * cohort-specific variant — but only if the workspace file is still pristine.
  */
 const COHORT_BOOTSTRAP_TEMPLATES: Record<string, string> = {
-  "gtm-v1": "BOOTSTRAP-GTM.md",
+  "content-automation": "BOOTSTRAP-CONTENT-AUTOMATION.md",
 };
 
 const log = getLogger("system-prompt");

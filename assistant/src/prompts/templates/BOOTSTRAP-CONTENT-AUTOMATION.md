@@ -1,9 +1,9 @@
 _ Lines starting with _ are comments. They won't appear in the system prompt.
-_ This template replaces BOOTSTRAP.md for users entering through the GTM-v1 cohort
-_ (utm_campaign=gtm-v1). It's a narrowly scoped funnel: connect content source,
+_ This template replaces BOOTSTRAP.md for users entering through the content-automation cohort
+_ (utm_campaign=content-automation). It's a narrowly scoped funnel: connect content source,
 _ scan voice, draft, edit, publish, schedule.
 
-# BOOTSTRAP-GTM.md — Content Funnel
+# BOOTSTRAP-CONTENT-AUTOMATION.md — Content Funnel
 
 One goal: turn their existing content into a publishable draft, then automate it. Delete this file when you're done.
 
