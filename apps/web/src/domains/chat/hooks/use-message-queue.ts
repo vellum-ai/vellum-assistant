@@ -19,7 +19,7 @@ import {
 
 import { deleteQueuedMessage } from "@/domains/chat/lib/api.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import type { DomainEvent } from "@/domains/chat/lib/turn-state-machine.js";
+import type { DomainEvent } from "@/domains/messaging/turn-store.js";
 
 // ---------------------------------------------------------------------------
 // Params

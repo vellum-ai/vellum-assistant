@@ -13,11 +13,11 @@ import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecy
 import {
   interactionReducer,
   INITIAL_INTERACTION_STATE,
-} from "@/domains/chat/lib/interaction-state-machine.js";
+} from "@/domains/interactions/interaction-store.js";
 import {
   turnReducer,
   INITIAL_TURN_STATE,
-} from "@/domains/chat/lib/turn-state-machine.js";
+} from "@/domains/messaging/turn-store.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import { useSyncChatStore } from "@/domains/chat/chat-store.js";
 import {

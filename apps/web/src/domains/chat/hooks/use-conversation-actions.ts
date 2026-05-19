@@ -2,8 +2,8 @@
 import * as Sentry from "@sentry/react";
 import { type Dispatch, type MutableRefObject, useCallback } from "react";
 
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
-import { patchConversation as _patchConversation } from "@/domains/chat/lib/conversation-list-state.js";
+import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
+import { patchConversation as _patchConversation } from "@/domains/conversations/conversation-list-store.js";
 import { isSlackConversation } from "@/domains/chat/lib/groupConversations.js";
 
 import {

@@ -28,10 +28,10 @@ import {
 } from "@/domains/chat/lib/diagnostics.js";
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import type { DomainEvent } from "@/domains/chat/lib/turn-state-machine.js";
-import type { InteractionEvent, InteractionState } from "@/domains/chat/lib/interaction-state-machine.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
-import type { SubagentAction } from "@/domains/chat/lib/subagent-state.js";
+import type { DomainEvent } from "@/domains/messaging/turn-store.js";
+import type { InteractionEvent, InteractionState } from "@/domains/interactions/interaction-store.js";
+import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
+import type { SubagentAction } from "@/domains/subagents/subagent-store.js";
 import type { SubagentStatus } from "@/domains/chat/lib/event-types.js";
 
 import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";

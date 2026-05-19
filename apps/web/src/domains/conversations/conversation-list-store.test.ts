@@ -5,7 +5,7 @@ import {
   type ConversationListState,
   INITIAL_CONVERSATION_LIST_STATE,
   conversationListReducer,
-} from "@/domains/chat/lib/conversation-list-state.js";
+} from "@/domains/conversations/conversation-list-store.js";
 
 function makeConversation(key: string, overrides?: Partial<Conversation>): Conversation {
   return { conversationKey: key, ...overrides } as Conversation;

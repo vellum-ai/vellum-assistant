@@ -2,8 +2,7 @@
  * Interaction-level state machine for user-facing prompts.
  *
  * Consolidates pending secret, confirmation, and contact-request state into a
- * single reducer with typed domain events and pure transitions.  Follows the
- * same pattern as the turn state machine (`turn-state-machine.ts`).
+ * single reducer with typed domain events and pure transitions.
  *
  * @see https://react.dev/learn/extracting-state-logic-into-a-reducer
  * @see https://react.dev/learn/scaling-up-with-reducer-and-context

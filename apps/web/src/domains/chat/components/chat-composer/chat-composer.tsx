@@ -23,7 +23,7 @@ import {
   VoiceInputButton,
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button.js";
-import { isSending, type TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import { isSending, type TurnState } from "@/domains/messaging/turn-store.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude.js";

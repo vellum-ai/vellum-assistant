@@ -19,7 +19,7 @@ import { createElement, type Dispatch, type RefObject, type SetStateAction } fro
 
 import type { RuntimeMessage } from "@/domains/chat/lib/api.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import { INITIAL_TURN_STATE, type DomainEvent, type TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import { INITIAL_TURN_STATE, type DomainEvent, type TurnState } from "@/domains/messaging/turn-store.js";
 import { newStableId } from "@/domains/chat/lib/stable-id.js";
 
 // ---------------------------------------------------------------------------

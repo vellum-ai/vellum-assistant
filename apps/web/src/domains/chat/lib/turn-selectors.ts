@@ -5,7 +5,7 @@
  * previously scattered across the component tree.
  */
 
-import { type TurnState, isSending, isThinking } from "@/domains/chat/lib/turn-state-machine.js";
+import { type TurnState, isSending, isThinking } from "@/domains/messaging/turn-store.js";
 
 // ---------------------------------------------------------------------------
 // UI context — values provided by the component that are NOT part of the

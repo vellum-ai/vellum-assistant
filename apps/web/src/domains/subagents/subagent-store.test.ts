@@ -4,7 +4,7 @@ import {
   subagentReducer,
   type SubagentAction,
   type SubagentMapState,
-} from "@/domains/chat/lib/subagent-state.js";
+} from "@/domains/subagents/subagent-store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

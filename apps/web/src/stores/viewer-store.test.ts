@@ -4,7 +4,7 @@ import {
   type ViewerState,
   INITIAL_VIEWER_STATE,
   viewerReducer,
-} from "@/domains/chat/lib/viewer-state.js";
+} from "@/stores/viewer-store.js";
 
 function stateWith(overrides: Partial<ViewerState>): ViewerState {
   return { ...INITIAL_VIEWER_STATE, ...overrides };

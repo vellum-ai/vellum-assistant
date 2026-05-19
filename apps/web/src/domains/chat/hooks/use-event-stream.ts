@@ -50,10 +50,10 @@ import type {
   WebSyncRouter,
 } from "@/lib/sync/web-sync-router.js";
 
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import type { DomainEvent as TurnAction, TurnState } from "@/domains/chat/lib/turn-state-machine.js";
-import { isSending } from "@/domains/chat/lib/turn-state-machine.js";
+import type { DomainEvent as TurnAction, TurnState } from "@/domains/messaging/turn-store.js";
+import { isSending } from "@/domains/messaging/turn-store.js";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -20,9 +20,6 @@
  * - `pendingDeployAppId` — app awaiting token before deploy resumes
  * - `complexDeployApp` — app that needs confirmation before complex deploy
  *
- * Follows the same pattern as `conversation-list-state.ts`,
- * `interaction-state-machine.ts`, and `turn-state-machine.ts`.
- *
  * @see https://react.dev/learn/extracting-state-logic-into-a-reducer
  */
 

@@ -7,7 +7,7 @@
  * is delegated to adapter callbacks (`pushConversationKeyParam`) so the hook
  * stays portable for the Vite + React Router v7 migration.
  *
- * @see viewer-state.ts — the reducer that owns viewer UI state
+ * @see stores/viewer-store.ts — the reducer that owns viewer UI state
  */
 
 import * as Sentry from "@sentry/react";
@@ -24,9 +24,9 @@ import type {
   OpenedAppState,
   ViewerAction,
   ViewerState,
-} from "@/domains/chat/lib/viewer-state.js";
+} from "@/stores/viewer-store.js";
 import type { Conversation } from "@/domains/chat/lib/api.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
 import { haptic } from "@/utils/haptics.js";
 
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";

@@ -22,8 +22,8 @@ import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import type { DomainEvent } from "@/domains/chat/lib/turn-state-machine.js";
-import type { InteractionEvent } from "@/domains/chat/lib/interaction-state-machine.js";
+import type { DomainEvent } from "@/domains/messaging/turn-store.js";
+import type { InteractionEvent } from "@/domains/interactions/interaction-store.js";
 
 // ---------------------------------------------------------------------------
 // Store shape

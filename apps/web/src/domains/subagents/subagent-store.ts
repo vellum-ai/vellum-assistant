@@ -6,10 +6,6 @@
  * and applies pure transitions so UI components can derive display state
  * deterministically.
  *
- * Follows the same pattern as the turn state machine
- * (`turn-state-machine.ts`) and interaction state machine
- * (`interaction-state-machine.ts`).
- *
  * @see https://react.dev/learn/extracting-state-logic-into-a-reducer
  */
 

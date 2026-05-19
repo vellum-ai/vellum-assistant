@@ -12,7 +12,7 @@ import {
 
 import { SubagentProgressCard } from "@/domains/chat/components/subagent-progress-card.js";
 import type { ConfirmationDecision } from "@/domains/chat/lib/api.js";
-import type { SubagentEntry } from "@/domains/chat/lib/subagent-state.js";
+import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
 import { partitionLatestTurn } from "@/domains/chat/lib/transcript/partition-latest-turn.js";
 import type { TranscriptItem } from "@/domains/chat/lib/transcript/types.js";
 

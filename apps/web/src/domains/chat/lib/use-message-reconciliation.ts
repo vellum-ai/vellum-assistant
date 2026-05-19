@@ -11,7 +11,7 @@ import {
   summarizeRuntimeMessages,
 } from "@/domains/chat/lib/diagnostics.js";
 import { type DisplayMessage, reconcileMessages } from "@/domains/chat/lib/reconcile.js";
-import { isSending, type DomainEvent, type TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import { isSending, type DomainEvent, type TurnState } from "@/domains/messaging/turn-store.js";
 
 const RECONCILE_DELAY_MS = 5000;
 const RECONCILE_MAX_MS = 60_000;

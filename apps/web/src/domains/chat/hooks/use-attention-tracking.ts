@@ -12,7 +12,7 @@ import {
   listConversationKeysWithPendingInteractions,
   markConversationSeen,
 } from "@/domains/chat/lib/api.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
 import type { AssistantStateKind } from "@/domains/chat/types.js";
 
 interface UseAttentionTrackingParams {

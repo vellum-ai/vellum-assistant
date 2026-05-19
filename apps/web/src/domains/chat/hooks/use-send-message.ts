@@ -39,10 +39,10 @@ import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } fro
 import { recordChatDiagnostic } from "@/domains/chat/lib/diagnostics.js";
 import { newStableId } from "@/domains/chat/lib/stable-id.js";
 import { saveDismissedSurfaceIds } from "@/domains/chat/lib/dismissedSurfacesStorage.js";
-import { isSending, type TurnState, type DomainEvent } from "@/domains/chat/lib/turn-state-machine.js";
-import type { InteractionEvent } from "@/domains/chat/lib/interaction-state-machine.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
-import type { SubagentAction } from "@/domains/chat/lib/subagent-state.js";
+import { isSending, type TurnState, type DomainEvent } from "@/domains/messaging/turn-store.js";
+import type { InteractionEvent } from "@/domains/interactions/interaction-store.js";
+import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
+import type { SubagentAction } from "@/domains/subagents/subagent-store.js";
 import type { PreChatOnboardingContext } from "@/lib/onboarding/prechat.js";
 
 import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters.js";

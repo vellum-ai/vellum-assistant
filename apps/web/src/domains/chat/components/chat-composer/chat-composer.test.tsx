@@ -17,7 +17,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   type ChatAttachment,
 } from "@/domains/chat/components/chat-attachments/index.js";
-import { INITIAL_TURN_STATE, type TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import { INITIAL_TURN_STATE, type TurnState } from "@/domains/messaging/turn-store.js";
 
 import { ChatComposer, computeGhostSuffix, shouldSubmitOnEnter } from "@/domains/chat/components/chat-composer/chat-composer.js";
 

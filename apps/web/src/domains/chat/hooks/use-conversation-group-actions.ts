@@ -2,7 +2,7 @@
 import * as Sentry from "@sentry/react";
 import { type Dispatch, useCallback } from "react";
 
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
 
 import {
   type ConversationGroup,

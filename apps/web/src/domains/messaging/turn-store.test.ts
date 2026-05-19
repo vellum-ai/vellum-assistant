@@ -14,7 +14,7 @@ import {
   turnReducer,
   isSending,
   isThinking,
-} from "@/domains/chat/lib/turn-state-machine.js";
+} from "@/domains/messaging/turn-store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

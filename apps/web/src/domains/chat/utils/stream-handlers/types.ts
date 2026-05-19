@@ -4,13 +4,13 @@ import type {
   SetStateAction,
 } from "react";
 
-import type { InteractionEvent } from "@/domains/chat/lib/interaction-state-machine.js";
-import type { SubagentAction } from "@/domains/chat/lib/subagent-state.js";
+import type { InteractionEvent } from "@/domains/interactions/interaction-store.js";
+import type { SubagentAction } from "@/domains/subagents/subagent-store.js";
 import type { ChatEventStream } from "@/domains/chat/lib/api.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import type { DomainEvent, TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import type { DomainEvent, TurnState } from "@/domains/messaging/turn-store.js";
 import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
 import type { ChatError, PendingQuestionState } from "@/domains/chat/types.js";
 
