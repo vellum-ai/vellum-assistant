@@ -3338,6 +3338,37 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/organizations/billing/subscription/onboarding/storage/:
+    post:
+      operationId: organizations_billing_subscription_onboarding_storage_create
+      description: Apply the active Pro storage tier to every assistant's PVC on demand.
+        Idempotent at the vembda layer — re-clicks are safe. Marks pvc_ready on first
+        successful application if the account's last_invoice_paid_at is still null.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingStorageResponse'
+          description: ''
+        '409':
+          description: Missing or invalid storage tier on the account.
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/billing/subscription/retire/:
     post:
       operationId: organizations_billing_subscription_retire_create
@@ -5491,6 +5522,16 @@ components:
       - max_machine_tier
       - pvc_ready
       - selected_storage_tier
+    OnboardingStorageResponse:
+      type: object
+      properties:
+        target_gib:
+          type: integer
+        failures:
+          type: integer
+      required:
+      - failures
+      - target_gib
     OrganizationRead:
       type: object
       properties:
