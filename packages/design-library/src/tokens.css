@@ -404,4 +404,27 @@
   100% { opacity: 1; transform: translateY(0); }
 }
 
+/* ---------------------------------------------------------------------------
+ * PanelItem marquee — scrolls overflowing single-line labels horizontally
+ * when the parent row (`.group`) is hovered. Driven by `MarqueeText`
+ * (colocated with PanelItem). The component sets:
+ *   --panelitem-marquee-distance: <overflow>px
+ *   --panelitem-marquee-duration: <total>ms
+ * The keyframe spends 80% of its time scrolling (40% out, 40% back) and
+ * 20% paused (10% at the end, 10% at the start). Both starts and ends
+ * at translateX(0) so dropping the animation on hover-out is jump-free.
+ * --------------------------------------------------------------------------- */
+
+@utility animate-panelitem-marquee {
+  animation: panelitem-marquee var(--panelitem-marquee-duration, 4s) linear infinite;
+}
+
+@keyframes panelitem-marquee {
+  0%   { transform: translateX(0); }
+  10%  { transform: translateX(0); }
+  50%  { transform: translateX(calc(-1 * var(--panelitem-marquee-distance, 0px))); }
+  60%  { transform: translateX(calc(-1 * var(--panelitem-marquee-distance, 0px))); }
+  100% { transform: translateX(0); }
+}
+
 

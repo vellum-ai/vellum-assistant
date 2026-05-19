@@ -9,6 +9,8 @@
     ".": "./src/index.ts",
     "./tokens.css": "./src/tokens.css",
     "./components/*": "./src/components/*.tsx",
+    "./components/panel-item": "./src/components/panel-item/panel-item.tsx",
+    "./components/panel-item/marquee-text": "./src/components/panel-item/marquee-text.tsx",
     "./utils/*": "./src/utils/*.ts",
     "./utils/portal-container": "./src/utils/portal-container.tsx"
   },

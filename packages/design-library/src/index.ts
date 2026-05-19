@@ -145,6 +145,17 @@ export {
   type DropdownMenuPosition,
   type DropdownMenuAlign,
 } from "./components/dropdown.js";
+export {
+  PanelItem,
+  ROW_BASE_CLASSES as panelItemRowBaseClasses,
+  ACTIVE_DEFAULT_CLASSES as panelItemActiveDefaultClasses,
+  ACTIVE_BRANDED_CLASSES as panelItemActiveBrandedClasses,
+  type PanelItemProps,
+} from "./components/panel-item/panel-item.js";
+export {
+  MarqueeText,
+  type MarqueeTextProps,
+} from "./components/panel-item/marquee-text.js";
 export { cn } from "./utils/cn.js";
 export {
   PortalContainerProvider,
