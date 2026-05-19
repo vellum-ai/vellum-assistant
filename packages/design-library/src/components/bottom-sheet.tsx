@@ -45,6 +45,7 @@ function Content({
   return (
     <Dialog.Portal container={container ?? undefined}>
       <Dialog.Overlay
+        data-slot="bottom-sheet-overlay"
         className={cn("fixed inset-0 z-50 bg-black/50", overlayClassName)}
       />
       <Dialog.Content

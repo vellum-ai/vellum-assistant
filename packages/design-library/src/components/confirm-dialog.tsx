@@ -72,9 +72,7 @@ function ConfirmDialog({
           </Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          <p className="whitespace-pre-line text-body-medium-lighter text-[var(--content-secondary)]">
-            {message}
-          </p>
+          <Modal.Description>{message}</Modal.Description>
         </Modal.Body>
         <Modal.Footer>
           <Button variant="outlined" onClick={onCancel}>

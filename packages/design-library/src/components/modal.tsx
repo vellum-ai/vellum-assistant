@@ -54,6 +54,7 @@ function Content({
   return (
     <Dialog.Portal container={container ?? undefined}>
       <Dialog.Overlay
+        data-slot="modal-overlay"
         className={cn(
           "fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4",
           overlayClassName,
