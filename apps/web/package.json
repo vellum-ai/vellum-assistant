@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint",
     "typecheck": "bunx tsc --noEmit",
-    "postinstall": "rm -rf ../../packages/design-library/node_modules/react ../../packages/design-library/node_modules/@types/react ../../packages/design-library/node_modules/react-dom ../../packages/design-library/node_modules/@types/react-dom 2>/dev/null; true",
+    "postinstall": "rm -rf ../../packages/design-library/node_modules/react ../../packages/design-library/node_modules/@types/react ../../packages/design-library/node_modules/react-dom ../../packages/design-library/node_modules/@types/react-dom 2>/dev/null; true && test -d src/generated || bun run openapi-ts",
     "openapi-ts": "openapi-ts"
   },
   "dependencies": {
