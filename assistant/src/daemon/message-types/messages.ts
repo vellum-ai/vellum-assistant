@@ -2,6 +2,7 @@
 
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
+import type { ToolActivityMetadata } from "./web-activity.js";
 
 // === Client → Server ===
 
@@ -175,6 +176,9 @@ export interface ToolResult {
   approvalReason?: string;
   /** Snapshot of the auto-approve threshold at execution time. */
   riskThreshold?: string;
+  /** Structured activity metadata for rich client rendering. Optional; old
+   *  clients that key off `result` continue to work unchanged. */
+  activityMetadata?: ToolActivityMetadata;
 }
 
 export interface ConfirmationRequest {
