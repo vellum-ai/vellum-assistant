@@ -1,7 +1,6 @@
 
 import * as Sentry from "@sentry/react";
 import {
-  type Dispatch,
   type MutableRefObject,
   useEffect,
   useRef,
@@ -12,7 +11,7 @@ import {
   listConversationKeysWithPendingInteractions,
   markConversationSeen,
 } from "@/domains/chat/lib/api.js";
-import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import type { AssistantStateKind } from "@/domains/chat/types.js";
 
 interface UseAttentionTrackingParams {
@@ -30,8 +29,6 @@ interface UseAttentionTrackingParams {
   conversationsRef: MutableRefObject<Conversation[]>;
   processingSnapshotsRef: MutableRefObject<Map<string, string | undefined>>;
 
-  // State setters
-  dispatchConversationList: Dispatch<ConversationListAction>;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,7 +92,6 @@ export function useAttentionTracking({
   attentionKeys,
   conversationsRef,
   processingSnapshotsRef,
-  dispatchConversationList,
 }: UseAttentionTrackingParams) {
   const lastSeenOnOpenConversationKeyRef = useRef<string | null>(null);
   const initialAttentionSweepDoneRef = useRef(false);
@@ -116,7 +112,7 @@ export function useAttentionTracking({
     markConversationSeen(assistantId, activeConversationKey)
       .then(() => {
         if (cancelled) return;
-        dispatchConversationList({ type: "MARK_CONVERSATION_SEEN", key: activeConversationKey });
+        useConversationListStore.getState().markConversationSeen(activeConversationKey);
       })
       .catch((err) => {
         Sentry.captureException(err, {
@@ -132,7 +128,6 @@ export function useAttentionTracking({
     activeConversationKey,
     assistantId,
     assistantStateKind,
-    dispatchConversationList,
   ]);
 
   // -------------------------------------------------------------------------
@@ -168,15 +163,17 @@ export function useAttentionTracking({
       if (cancelled) return;
       const actions = decideGraduationDispatches(graduatingKeys, pendingKeys);
       for (const action of actions) {
-        dispatchConversationList(action);
-        if (action.type === "REMOVE_PROCESSING_KEY") {
+        if (action.type === "ADD_ATTENTION_KEY") {
+          useConversationListStore.getState().addAttentionKey(action.key);
+        } else {
+          useConversationListStore.getState().removeProcessingKey(action.key);
           processingSnapshotsRef.current.delete(action.key);
         }
       }
     })();
 
     return () => { cancelled = true; };
-  }, [conversations, processingKeys, activeConversationKey, assistantId, processingSnapshotsRef, dispatchConversationList]);
+  }, [conversations, processingKeys, activeConversationKey, assistantId, processingSnapshotsRef]);
 
   // -------------------------------------------------------------------------
   // Poll processing + attention conversations every 10s.
@@ -210,14 +207,14 @@ export function useAttentionTracking({
         if (key === activeConversationKey) continue;
         if (attentionKeys.has(key)) continue;
         if (pendingKeys.has(key)) {
-          dispatchConversationList({ type: "ADD_ATTENTION_KEY", key });
-          dispatchConversationList({ type: "REMOVE_PROCESSING_KEY", key });
+          useConversationListStore.getState().addAttentionKey(key);
+          useConversationListStore.getState().removeProcessingKey(key);
           continue;
         }
         const conv = conversationsRef.current.find((c) => c.conversationKey === key);
         const snapshot = processingSnapshotsRef.current.get(key);
         if (conv?.latestAssistantMessageAt && conv.latestAssistantMessageAt !== snapshot) {
-          dispatchConversationList({ type: "REMOVE_PROCESSING_KEY", key });
+          useConversationListStore.getState().removeProcessingKey(key);
           processingSnapshotsRef.current.delete(key);
         }
       }
@@ -226,7 +223,7 @@ export function useAttentionTracking({
       for (const key of attentionKeys) {
         if (key === activeConversationKey) continue;
         if (!pendingKeys.has(key)) {
-          dispatchConversationList({ type: "REMOVE_ATTENTION_KEY", key });
+          useConversationListStore.getState().removeAttentionKey(key);
         }
       }
     }, 10_000);
@@ -242,7 +239,6 @@ export function useAttentionTracking({
     activeConversationKey,
     conversationsRef,
     processingSnapshotsRef,
-    dispatchConversationList,
   ]);
 
   // -------------------------------------------------------------------------
@@ -267,11 +263,11 @@ export function useAttentionTracking({
       for (const conv of conversations) {
         if (conv.conversationKey === activeConversationKey) continue;
         if (pendingKeys.has(conv.conversationKey)) {
-          dispatchConversationList({ type: "ADD_ATTENTION_KEY", key: conv.conversationKey });
+          useConversationListStore.getState().addAttentionKey(conv.conversationKey);
         }
       }
     })();
 
     return () => { cancelled = true; };
-  }, [assistantId, conversations, activeConversationKey, dispatchConversationList]);
+  }, [assistantId, conversations, activeConversationKey]);
 }

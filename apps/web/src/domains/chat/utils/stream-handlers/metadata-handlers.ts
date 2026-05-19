@@ -16,6 +16,7 @@ import {
   postLocalNotification,
   sendNotificationIntentAck,
 } from "@/runtime/notifications.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
 
 export function handleUsageUpdate(
@@ -65,9 +66,9 @@ export function handleConversationListInvalidated(
 
 export function handleConversationTitleUpdated(
   event: ConversationTitleUpdatedEvent,
-  ctx: StreamHandlerContext,
+  _ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchConversationList({ type: "PATCH_CONVERSATION", key: event.conversationId, patch: { title: event.title } });
+  useConversationListStore.getState().patchConversation(event.conversationId, { title: event.title });
 }
 
 export function handleNotificationIntent(

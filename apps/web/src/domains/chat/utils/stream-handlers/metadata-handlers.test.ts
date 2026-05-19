@@ -1,6 +1,8 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import type { Conversation } from "@/domains/chat/lib/api.js";
 import {
   handleUsageUpdate,
   handleConversationListInvalidated,
@@ -86,7 +88,15 @@ describe("handleConversationListInvalidated", () => {
 });
 
 describe("handleConversationTitleUpdated", () => {
-  it("dispatches PATCH_CONVERSATION with updated title", () => {
+  afterEach(() => {
+    useConversationListStore.getState().reset();
+  });
+
+  it("patches conversation title in the store", () => {
+    useConversationListStore.getState().setConversations([
+      { conversationKey: "conv-1", title: "Old Title" } as Conversation,
+    ]);
+
     const ctx = makeCtx();
     handleConversationTitleUpdated(
       {
@@ -96,11 +106,10 @@ describe("handleConversationTitleUpdated", () => {
       },
       ctx,
     );
-    expect(ctx.dispatchConversationList).toHaveBeenCalledWith({
-      type: "PATCH_CONVERSATION",
-      key: "conv-1",
-      patch: { title: "New Title" },
-    });
+    const conv = useConversationListStore.getState().conversations.find(
+      (c) => c.conversationKey === "conv-1",
+    );
+    expect(conv?.title).toBe("New Title");
   });
 });
 

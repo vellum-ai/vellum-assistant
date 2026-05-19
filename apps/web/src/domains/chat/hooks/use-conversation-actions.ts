@@ -1,9 +1,8 @@
 
 import * as Sentry from "@sentry/react";
-import { type Dispatch, type MutableRefObject, useCallback } from "react";
+import { type MutableRefObject, useCallback } from "react";
 
-import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
-import { patchConversation as _patchConversation } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { isSlackConversation } from "@/domains/chat/lib/groupConversations.js";
 
 import {
@@ -49,18 +48,15 @@ export function resolveUnpinGroupId(
  * Conversation CRUD actions: archive, unarchive, rename, mark read/unread,
  * pin/unpin, and move between groups.
  *
- * All mutations apply an optimistic update via `dispatchConversationList`
+ * All mutations apply optimistic updates via `useConversationListStore`
  * before calling the API, and roll back on failure.
  *
- * @param dispatchConversationList - Dispatch function from the
- *   `conversationListReducer`. Used for all optimistic state updates.
  * @returns Stable callbacks for each conversation action.
  */
 interface UseConversationActionsParams {
   assistantId: string | null;
   activeConversationKey: string | null;
   conversations: Conversation[];
-  dispatchConversationList: Dispatch<ConversationListAction>;
   refreshConversations: () => Promise<void>;
   switchConversation: (key: string) => void;
   startNewConversation: (opts?: { silent?: boolean }) => void;
@@ -71,7 +67,6 @@ export function useConversationActions({
   assistantId,
   activeConversationKey,
   conversations,
-  dispatchConversationList,
   refreshConversations,
   switchConversation,
   startNewConversation,
@@ -128,14 +123,14 @@ export function useConversationActions({
           assistantId,
           conversation.conversationKey,
         );
-        dispatchConversationList({ type: "PATCH_CONVERSATION", key: conversation.conversationKey, patch: { archivedAt: undefined } });
+        useConversationListStore.getState().patchConversation(conversation.conversationKey, { archivedAt: undefined });
       } catch (err) {
         Sentry.captureException(err, {
           tags: { context: "unarchiveConversation" },
         });
       }
     },
-    [assistantId, dispatchConversationList],
+    [assistantId],
   );
 
   const handleMarkConversationUnread = useCallback(
@@ -149,14 +144,14 @@ export function useConversationActions({
       }
       try {
         await markConversationUnread(assistantId, conversation.conversationKey);
-        dispatchConversationList({ type: "PATCH_CONVERSATION", key: conversation.conversationKey, patch: { hasUnseenLatestAssistantMessage: true } });
+        useConversationListStore.getState().patchConversation(conversation.conversationKey, { hasUnseenLatestAssistantMessage: true });
       } catch (err) {
         Sentry.captureException(err, {
           tags: { context: "markConversationUnread" },
         });
       }
     },
-    [assistantId, dispatchConversationList],
+    [assistantId],
   );
 
   const handleMarkConversationRead = useCallback(
@@ -165,14 +160,14 @@ export function useConversationActions({
       if (!conversation.hasUnseenLatestAssistantMessage) return;
       try {
         await markConversationSeen(assistantId, conversation.conversationKey);
-        dispatchConversationList({ type: "PATCH_CONVERSATION", key: conversation.conversationKey, patch: { hasUnseenLatestAssistantMessage: false } });
+        useConversationListStore.getState().patchConversation(conversation.conversationKey, { hasUnseenLatestAssistantMessage: false });
       } catch (err) {
         Sentry.captureException(err, {
           tags: { context: "markConversationRead" },
         });
       }
     },
-    [assistantId, dispatchConversationList],
+    [assistantId],
   );
 
   const handleTogglePinConversation = useCallback(
@@ -201,7 +196,7 @@ export function useConversationActions({
       const prevIsPinned = conversation.isPinned;
       const prevGroupId = conversation.groupId;
 
-      dispatchConversationList({ type: "PATCH_CONVERSATION", key: conversation.conversationKey, patch: { isPinned: newIsPinned, groupId: newGroupId } });
+      useConversationListStore.getState().patchConversation(conversation.conversationKey, { isPinned: newIsPinned, groupId: newGroupId });
 
       try {
         await reorderConversations(assistantId, [
@@ -218,13 +213,13 @@ export function useConversationActions({
         if (newIsPinned) {
           prePinGroupIdsRef.current.delete(conversation.conversationKey);
         }
-        dispatchConversationList({ type: "PATCH_CONVERSATION", key: conversation.conversationKey, patch: { isPinned: prevIsPinned, groupId: prevGroupId } });
+        useConversationListStore.getState().patchConversation(conversation.conversationKey, { isPinned: prevIsPinned, groupId: prevGroupId });
         Sentry.captureException(err, {
           tags: { context: "togglePinConversation" },
         });
       }
     },
-    [assistantId, prePinGroupIdsRef, dispatchConversationList],
+    [assistantId, prePinGroupIdsRef],
   );
 
   const handleMoveToGroup = useCallback(
@@ -243,7 +238,7 @@ export function useConversationActions({
         );
       }
 
-      dispatchConversationList({ type: "PATCH_CONVERSATION", key: conversation.conversationKey, patch: { isPinned: newIsPinned, groupId } });
+      useConversationListStore.getState().patchConversation(conversation.conversationKey, { isPinned: newIsPinned, groupId });
 
       try {
         await reorderConversations(assistantId, [
@@ -260,13 +255,13 @@ export function useConversationActions({
         if (newIsPinned) {
           prePinGroupIdsRef.current.delete(conversation.conversationKey);
         }
-        dispatchConversationList({ type: "PATCH_CONVERSATION", key: conversation.conversationKey, patch: { isPinned: prevIsPinned, groupId: prevGroupId } });
+        useConversationListStore.getState().patchConversation(conversation.conversationKey, { isPinned: prevIsPinned, groupId: prevGroupId });
         Sentry.captureException(err, {
           tags: { context: "moveToGroup" },
         });
       }
     },
-    [assistantId, prePinGroupIdsRef, dispatchConversationList],
+    [assistantId, prePinGroupIdsRef],
   );
 
   const handleRemoveFromGroup = useCallback(
@@ -288,7 +283,7 @@ export function useConversationActions({
       const trimmed = next.trim();
       if (!trimmed || trimmed === current) return;
 
-      dispatchConversationList({ type: "PATCH_CONVERSATION", key: conversation.conversationKey, patch: { title: trimmed } });
+      useConversationListStore.getState().patchConversation(conversation.conversationKey, { title: trimmed });
 
       try {
         await renameConversation(
@@ -297,13 +292,13 @@ export function useConversationActions({
           trimmed,
         );
       } catch (err) {
-        dispatchConversationList({ type: "PATCH_CONVERSATION", key: conversation.conversationKey, patch: { title: current } });
+        useConversationListStore.getState().patchConversation(conversation.conversationKey, { title: current });
         Sentry.captureException(err, {
           tags: { context: "renameConversation" },
         });
       }
     },
-    [assistantId, dispatchConversationList],
+    [assistantId],
   );
 
   return {

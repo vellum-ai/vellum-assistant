@@ -30,7 +30,7 @@ import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/ty
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import type { SubagentStatus } from "@/domains/chat/lib/event-types.js";
 
@@ -119,7 +119,6 @@ interface UseConversationHistoryParams {
   loadEpochRef: MutableRefObject<number>;
 
   // State setters
-  dispatchConversationList: Dispatch<ConversationListAction>;
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
   setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
@@ -192,7 +191,6 @@ export function useConversationHistory({
   isLoadingOlderRef,
   historyLoadedRef,
   loadEpochRef,
-  dispatchConversationList,
   setMessages,
   setTranscriptPagination,
   setIsLoadingHistory,
@@ -249,7 +247,7 @@ export function useConversationHistory({
       // needing attention so the sidebar shows an alert icon.
       const interactionSnapshot = useInteractionStore.getState();
       if (interactionSnapshot.pendingSecret || interactionSnapshot.pendingConfirmation) {
-        dispatchConversationList({ type: "ADD_ATTENTION_KEY", key: outgoingKey });
+        useConversationListStore.getState().addAttentionKey(outgoingKey);
       }
       // Cache outgoing conversation's messages (LRU eviction)
       const outgoingMessages = messagesRef.current;
@@ -400,7 +398,7 @@ export function useConversationHistory({
           }
         }
         if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
-          dispatchConversationList({ type: "REMOVE_ATTENTION_KEY", key: activeConversationKey });
+          useConversationListStore.getState().removeAttentionKey(activeConversationKey);
         }
       } catch {
         // Keep attention key on failure -- the prompt wasn't restored.
@@ -657,7 +655,6 @@ export function useConversationHistory({
     setMessages,
     setTranscriptPagination,
     setIsLoadingHistory,
-    dispatchConversationList,
     setError,
     setAutoGreetPending,
     setContextWindowUsage,

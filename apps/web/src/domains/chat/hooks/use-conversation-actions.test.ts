@@ -2,31 +2,31 @@ import { describe, expect, test } from "bun:test";
 
 import type { Conversation } from "@/domains/chat/lib/api.js";
 
-import { patchConversation } from "@/domains/conversations/conversation-list-store.js";
+import { applyConversationPatch } from "@/domains/conversations/conversation-list-store.js";
 import { resolveUnpinGroupId } from "@/domains/chat/hooks/use-conversation-actions.js";
 
 // ---------------------------------------------------------------------------
-// patchConversation
+// applyConversationPatch
 // ---------------------------------------------------------------------------
 
 function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
   return { conversationKey: "conv-1", ...overrides };
 }
 
-describe("patchConversation", () => {
+describe("applyConversationPatch", () => {
   test("patches the matching conversation by key", () => {
     const convs = [
       makeConversation({ conversationKey: "a", title: "old" }),
       makeConversation({ conversationKey: "b", title: "keep" }),
     ];
-    const result = patchConversation(convs, "a", { title: "new" });
+    const result = applyConversationPatch(convs, "a", { title: "new" });
     expect(result[0]!.title).toBe("new");
     expect(result[1]!.title).toBe("keep");
   });
 
   test("returns a new array (immutable)", () => {
     const convs = [makeConversation()];
-    const result = patchConversation(convs, "conv-1", { title: "x" });
+    const result = applyConversationPatch(convs, "conv-1", { title: "x" });
     expect(result).not.toBe(convs);
     expect(result[0]).not.toBe(convs[0]);
   });
@@ -35,13 +35,13 @@ describe("patchConversation", () => {
     const convs = [
       makeConversation({ conversationKey: "a", title: "keep" }),
     ];
-    const result = patchConversation(convs, "no-match", { title: "nope" });
+    const result = applyConversationPatch(convs, "no-match", { title: "nope" });
     expect(result[0]!.title).toBe("keep");
   });
 
   test("applies multiple fields at once", () => {
     const convs = [makeConversation({ conversationKey: "a" })];
-    const result = patchConversation(convs, "a", {
+    const result = applyConversationPatch(convs, "a", {
       isPinned: true,
       groupId: "system:pinned",
     });
@@ -50,7 +50,7 @@ describe("patchConversation", () => {
   });
 
   test("handles empty array", () => {
-    const result = patchConversation([], "a", { title: "x" });
+    const result = applyConversationPatch([], "a", { title: "x" });
     expect(result).toEqual([]);
   });
 });

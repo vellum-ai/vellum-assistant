@@ -50,7 +50,7 @@ import type {
   WebSyncRouter,
 } from "@/lib/sync/web-sync-router.js";
 
-import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 
@@ -90,7 +90,6 @@ export interface UseEventStreamParams {
   reachabilityReset: () => void;
 
   // Conversation list
-  dispatchConversationList: Dispatch<ConversationListAction>;
   processingSnapshotsRef: MutableRefObject<Map<string, string | undefined>>;
 
   // Messages
@@ -142,7 +141,6 @@ export function useEventStream({
   reachabilityProbe,
   reachabilityPhase,
   reachabilityReset,
-  dispatchConversationList,
   processingSnapshotsRef,
   setMessages,
   setError,
@@ -171,9 +169,6 @@ export function useEventStream({
 
   const reachabilityProbeRef = useRef(reachabilityProbe);
   reachabilityProbeRef.current = reachabilityProbe;
-
-  const dispatchConversationListRef = useRef(dispatchConversationList);
-  dispatchConversationListRef.current = dispatchConversationList;
 
   const setMessagesRef = useRef(setMessages);
   setMessagesRef.current = setMessages;
@@ -255,10 +250,7 @@ export function useEventStream({
           {
             const convKey = streamContextRef.current?.conversationKey;
             if (convKey) {
-              dispatchConversationListRef.current({
-                type: "REMOVE_PROCESSING_KEY",
-                key: convKey,
-              });
+              useConversationListStore.getState().removeProcessingKey(convKey);
               processingSnapshotsRef.current.delete(convKey);
             }
           }

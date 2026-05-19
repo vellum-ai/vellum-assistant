@@ -4,7 +4,6 @@ import type {
   SetStateAction,
 } from "react";
 import type { ChatEventStream } from "@/domains/chat/lib/api.js";
-import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import type { TurnActions, TurnState } from "@/domains/messaging/turn-store.js";
@@ -78,7 +77,6 @@ export interface StreamHandlerContext {
 
   // --- Conversations ---
   scheduleConversationListRefetch: () => void;
-  dispatchConversationList: Dispatch<ConversationListAction>;
 
   // --- Compaction ---
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
