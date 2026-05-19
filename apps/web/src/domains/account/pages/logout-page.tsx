@@ -24,10 +24,9 @@ export function LogoutPage() {
 
     // If returnTo is an absolute URL (cross-origin), redirect there directly.
     // Otherwise, redirect to login with returnTo as a param.
-    const target = returnTo.startsWith("http")
-      ? returnTo
-      : returnTo === routes.account.login
-        ? routes.account.login
+    const target =
+      returnTo.startsWith("http") || returnTo === routes.account.login
+        ? returnTo
         : `${routes.account.login}?returnTo=${encodeURIComponent(returnTo)}`;
 
     const redirect = (url: string) => {
@@ -38,10 +37,12 @@ export function LogoutPage() {
       }
     };
 
+    let cancelled = false;
     logout().then(
-      () => redirect(target),
-      () => redirect(target),
+      () => { if (!cancelled) redirect(target); },
+      () => { if (!cancelled) redirect(target); },
     );
+    return () => { cancelled = true; };
   }, [logout, navigate, searchParams]);
 
   return (
