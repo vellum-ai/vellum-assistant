@@ -46,6 +46,21 @@ When the user requests changes to a document:
 2. Use `document_update` with the existing `surface_id` — do NOT call `document_create` again.
 3. Use `mode: "replace"` for full rewrites or `mode: "append"` for additions.
 
+## Comments
+
+Users can leave inline comments on documents. Open comments are surfaced in a `<document_comments>` context block so you can see pending feedback.
+
+- **comment_list** — Lists open comments on a document by `surface_id`. Use this to check for feedback before or after editing, especially when the user asks you to address comments.
+- **comment_resolve** — Marks a comment as resolved by `comment_id`. Use this after you have addressed the feedback in the document content. Always edit the document first, then resolve the comment.
+- **comment_reply** — Posts a reply to an existing comment by `comment_id`. Use this to ask clarifying questions or explain why you made (or declined) a change before resolving.
+
+### Addressing comments workflow
+
+1. Read the `<document_comments>` block or call `comment_list` to see open comments.
+2. For each comment, edit the document to address the feedback.
+3. Call `comment_resolve` on comments you have addressed.
+4. If a comment is ambiguous, call `comment_reply` to ask for clarification instead of guessing.
+
 ## Usage Notes
 
 - The `mode` parameter on `document_update` defaults to `append`.
