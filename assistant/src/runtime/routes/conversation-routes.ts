@@ -46,6 +46,7 @@ import {
 } from "../../daemon/first-greeting.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostAppControlProxy } from "../../daemon/host-app-control-proxy.js";
+import { HostCameraProxy } from "../../daemon/host-camera-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { preactivateHostProxySkills } from "../../daemon/host-proxy-preactivation.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
@@ -1418,6 +1419,13 @@ export async function handleSendMessage(
     }
   } else if (!conversation.isProcessing()) {
     conversation.setHostAppControlProxy(undefined);
+  }
+  if (supportsHostProxy(sourceInterface, "host_camera")) {
+    if (!conversation.isProcessing() || !conversation.hostCameraProxy) {
+      conversation.setHostCameraProxy(new HostCameraProxy());
+    }
+  } else if (!conversation.isProcessing()) {
+    conversation.setHostCameraProxy(undefined);
   }
   // Only preactivate when the conversation is idle — if it's processing,
   // this message will be queued and preactivation is deferred to dequeue

@@ -29,6 +29,7 @@ import { isPlainObject } from "../util/object.js";
 import { buildConversationErrorMessage } from "./conversation-error.js";
 import { launchConversation } from "./conversation-launch.js";
 import type { HostAppControlProxy } from "./host-app-control-proxy.js";
+import type { HostCameraProxy } from "./host-camera-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   CardSurfaceData,
@@ -47,6 +48,7 @@ import type {
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { HostAppControlInput } from "./message-types/host-app-control.js";
+import type { HostCameraInput } from "./message-types/host-camera.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
 import type { TrustContext } from "./trust-context.js";
 
@@ -474,6 +476,8 @@ export interface SurfaceConversationContext {
   hostCuProxy?: HostCuProxy;
   /** Optional proxy for delegating per-app app-control actions to a connected desktop client. */
   hostAppControlProxy?: HostAppControlProxy;
+  /** Optional proxy for delegating one-shot camera snapshot actions to a desktop client. */
+  hostCameraProxy?: HostCameraProxy;
   /**
    * Setter that lets the resolver detach the conversation's app-control proxy
    * after `app_control_stop`. Disposes the existing proxy when transitioning
@@ -2066,6 +2070,24 @@ export async function surfaceProxyResolver(
       inputWithTool,
       ctx.conversationId,
       signal ?? new AbortController().signal,
+    );
+  }
+
+  if (toolName === "describe_camera_once") {
+    if (!ctx.hostCameraProxy || !ctx.hostCameraProxy.isAvailable()) {
+      return {
+        content:
+          "Camera snapshot is not available — no desktop client with host_camera connected.",
+        isError: true,
+      };
+    }
+    const sourceActorPrincipalId = ctx.trustContext?.guardianPrincipalId;
+    return ctx.hostCameraProxy.request(
+      toolName,
+      input as HostCameraInput,
+      ctx.conversationId,
+      signal,
+      sourceActorPrincipalId,
     );
   }
 
