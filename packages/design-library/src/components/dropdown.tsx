@@ -281,9 +281,8 @@ export function Dropdown<T extends string>({
       aria-labelledby={ariaLabelledBy ?? triggerId}
       tabIndex={-1}
       data-slot="dropdown-menu"
-      className="pointer-events-auto fixed z-50 mt-1 overflow-auto rounded-md border bg-[var(--field-bg)] py-1 shadow-xl focus:outline-none"
+      className="pointer-events-auto fixed z-50 mt-1 overflow-auto rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] py-1 shadow-xl focus:outline-none"
       style={{
-        borderColor: "var(--field-border)",
         maxHeight: menuMaxHeight,
         left: menuPosition.left,
         top: menuPosition.top,
@@ -362,13 +361,11 @@ export function Dropdown<T extends string>({
         disabled={disabled}
         data-testid={dataTestId}
         data-slot="dropdown-trigger"
+        data-state={isOpen ? "open" : "closed"}
         onClick={() => (isOpen ? close() : open())}
         onKeyDown={handleTriggerKeyDown}
-        className="flex h-9 w-full items-center gap-2 rounded-md border bg-[var(--field-bg)] px-3 text-left text-body-medium-lighter transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex h-9 w-full items-center gap-2 rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] px-3 text-left text-body-medium-lighter transition-colors focus:outline-none data-[state=open]:border-[var(--border-active)] disabled:cursor-not-allowed disabled:opacity-60"
         style={{
-          borderColor: isOpen
-            ? "var(--border-active)"
-            : "var(--field-border)",
           color: selectedOption
             ? "var(--content-default)"
             : "var(--content-tertiary)",
