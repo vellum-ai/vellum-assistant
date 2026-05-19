@@ -16,6 +16,7 @@ import {
   updateCommentContent,
 } from "../../documents/document-comments-store.js";
 import { getLogger } from "../../util/logger.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -147,6 +148,27 @@ export const ROUTES: RouteDefinition[] = [
         anchorText,
         parentCommentId,
       });
+      broadcastMessage(
+        {
+          type: "document_comment_created",
+          conversationId,
+          surfaceId: pathParams!.id,
+          comment: {
+            id: comment.id,
+            surfaceId: comment.surfaceId,
+            author: comment.author,
+            content: comment.content,
+            anchorStart: comment.anchorStart ?? undefined,
+            anchorEnd: comment.anchorEnd ?? undefined,
+            anchorText: comment.anchorText ?? undefined,
+            parentCommentId: comment.parentCommentId ?? undefined,
+            status: comment.status,
+            createdAt: comment.createdAt,
+            updatedAt: comment.updatedAt,
+          },
+        },
+        conversationId,
+      );
       log.info(
         { id: comment.id, surfaceId: pathParams!.id },
         "Created document comment via HTTP",
@@ -187,8 +209,27 @@ export const ROUTES: RouteDefinition[] = [
 
       if (status === "resolved") {
         resolveComment(commentId, resolvedBy ?? "user");
+        broadcastMessage(
+          {
+            type: "document_comment_resolved",
+            conversationId: existing.conversationId,
+            surfaceId: pathParams!.id,
+            commentId,
+            resolvedBy: resolvedBy ?? "user",
+          },
+          existing.conversationId,
+        );
       } else if (status === "open") {
         reopenComment(commentId);
+        broadcastMessage(
+          {
+            type: "document_comment_reopened",
+            conversationId: existing.conversationId,
+            surfaceId: pathParams!.id,
+            commentId,
+          },
+          existing.conversationId,
+        );
       }
 
       if (content !== undefined) {
@@ -227,6 +268,15 @@ export const ROUTES: RouteDefinition[] = [
         throw new NotFoundError("Comment not found");
       }
       deleteComment(commentId);
+      broadcastMessage(
+        {
+          type: "document_comment_deleted",
+          conversationId: existing.conversationId,
+          surfaceId: pathParams!.id,
+          commentId,
+        },
+        existing.conversationId,
+      );
       log.info(
         { id: commentId, surfaceId: pathParams!.id },
         "Deleted document comment via HTTP",
