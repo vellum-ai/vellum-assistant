@@ -235,20 +235,15 @@ References:
 
 Each domain owns its store, colocated within the domain folder:
 `domains/messages/message-store.ts`. Store files use
-`{domain}-store.ts` — **not** `use-{domain}-store.ts`. The `use-`
-prefix is reserved for custom hook files (see
-[STYLE_GUIDE.md](./STYLE_GUIDE.md#hook-files-start-with-use-)).
-Zustand stores are module-level singletons with both React hook and
-non-React APIs (`.getState()`, `.setState()`, `.subscribe()`), so the
-file describes what the module *is* (a store), while the exported
-variable uses the `use` prefix because that's how React's
-[Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks)
-identify hooks at the call site.
+`{domain}-store.ts`. Zustand stores are module-level singletons with
+both React hook and non-React APIs (`.getState()`, `.setState()`,
+`.subscribe()`), so the file describes what the module *is* (a store),
+while the exported hook uses the `use` prefix per React's
+[Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks).
 
 References:
-- [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript) (`store.ts` file naming)
-- [Cal.com — feature store](https://github.com/calcom/cal.com/blob/f7b2f276/packages/features/bookings/Booker/store.ts) (`store.ts` naming)
-- [Bulletproof React — stores directory](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md) (no `use-` prefix)
+- [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
+- [Bulletproof React — project structure](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md)
 
 Store creation pattern — separate `State` and `Actions` interfaces
 so consumers can subscribe to only the slice they need:
