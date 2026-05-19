@@ -270,9 +270,12 @@ async function startCesProcess(
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
   const startupStartedAt = Date.now();
-  log.info({ version: APP_VERSION }, "Daemon starting");
+  // dotenv loads before the first log call so the lazy root logger
+  // initializes against the final VELLUM_WORKSPACE_DIR / log path, not
+  // whatever was in the live environment at process spawn.
   loadDotEnv();
   validateEnv();
+  log.info({ version: APP_VERSION }, "Daemon starting");
 
   try {
     // Initialize crash reporting eagerly so early startup failures are
@@ -1349,7 +1352,6 @@ export async function runDaemon(): Promise<void> {
 
     log.info(
       {
-        version: APP_VERSION,
         durationMs: Date.now() - startupStartedAt,
         pid: process.pid,
       },
