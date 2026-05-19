@@ -517,7 +517,17 @@ private struct PinnedLatestTurnSection: View {
 
     @ViewBuilder
     private var responseCluster: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
+        // LazyVStack so only visible response items are measured per
+        // layout pass. The previous VStack eagerly measured ALL items,
+        // causing O(N) layout work during agent conversations with many
+        // tool calls (20-50+ response messages per turn).
+        //
+        // The outer `.transaction { $0.animation = nil }` on
+        // MessageTranscriptStack propagates through the hierarchy,
+        // suppressing insertion animations that would otherwise trigger
+        // motionVectors — an O(n) sizeThatFits sweep that defeats lazy
+        // loading.
+        LazyVStack(alignment: .leading, spacing: VSpacing.md) {
             ForEach(partition.responseItems) { item in
                 contentView.transcriptItemView(
                     item,

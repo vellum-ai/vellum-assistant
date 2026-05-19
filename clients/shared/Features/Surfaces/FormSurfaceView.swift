@@ -423,8 +423,8 @@ public struct FormSurfaceView: View {
             Text("Submitting\u{2026}")
                 .font(VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentSecondary)
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity)
         .frame(height: 32)
     }
 }
