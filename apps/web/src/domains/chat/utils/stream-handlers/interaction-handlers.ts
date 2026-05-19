@@ -13,7 +13,7 @@ export function handleSecretRequest(
   event: SecretRequestEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "SECRET_REQUEST" });
+  ctx.turnActions.onSecretRequest();
   ctx.dispatchInteraction({
     type: "SHOW_SECRET",
     payload: {
@@ -33,7 +33,7 @@ export function handleConfirmationRequest(
   event: ConfirmationRequestEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "CONFIRMATION_REQUEST" });
+  ctx.turnActions.onConfirmationRequest();
   const confData: PendingConfirmationState = {
     requestId: event.requestId,
     title: event.title,
@@ -76,7 +76,7 @@ export function handleContactRequest(
   event: ContactRequestEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "CONTACT_REQUEST" });
+  ctx.turnActions.onContactRequest();
   ctx.dispatchInteraction({
     type: "SHOW_CONTACT_REQUEST",
     payload: {
@@ -96,7 +96,7 @@ export function handleQuestionRequest(
 ): void {
   const entries = normalizeQuestionRequest(event);
   if (entries.length === 0) return;
-  ctx.dispatchTurn({ type: "QUESTION_REQUEST" });
+  ctx.turnActions.onQuestionRequest();
   ctx.dispatchInteraction({
     type: "SHOW_QUESTION",
     payload: {

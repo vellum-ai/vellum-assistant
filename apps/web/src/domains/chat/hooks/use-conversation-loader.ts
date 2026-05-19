@@ -32,7 +32,7 @@ import {
 } from "@/domains/chat/lib/lastViewedConversationStorage.js";
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import type { DomainEvent } from "@/domains/messaging/turn-store.js";
+
 import type { InteractionEvent, InteractionState } from "@/domains/interactions/interaction-store.js";
 import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
 import type { SubagentAction } from "@/domains/subagents/subagent-store.js";
@@ -138,7 +138,7 @@ interface UseConversationLoaderParams {
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
   setInput: Dispatch<SetStateAction<string>>;
   setMainView: Dispatch<SetStateAction<MainView>>;
-  dispatchTurn: Dispatch<DomainEvent>;
+
   dispatchSubagent: Dispatch<SubagentAction>;
 
   // Callbacks
@@ -232,7 +232,6 @@ export function useConversationLoader({
   setCompactionCircuitOpenUntil,
   setInput,
   setMainView,
-  dispatchTurn,
   dispatchSubagent,
   resetChatAttachments,
   syncNeedsNewBubbleFromMessages,
@@ -474,7 +473,6 @@ export function useConversationLoader({
     setSuggestion,
     setCompactionCircuitOpenUntil,
     setInput,
-    dispatchTurn,
     dispatchSubagent,
     onDraftRestored,
     resetChatAttachments,

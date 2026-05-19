@@ -341,6 +341,20 @@ References:
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
 - [React Router — Middleware](https://reactrouter.com/how-to/middleware)
 
+### Turn state lives in `domains/messaging/turn-store.ts`
+
+Turn lifecycle (sending, thinking, streaming, idle, errored), queue
+depth, active tool-call count, and current turn identity are managed
+by the turn store. Use `useTurnStore(selector)` in React components
+and `useTurnStore.getState()` in non-React code (stream handlers,
+reconciliation). Do not prop-drill turn state or dispatch functions.
+
+Action naming follows the
+[Flux-inspired practice](https://zustand.docs.pmnd.rs/learn/guides/flux-inspired-practice):
+`on*` for SSE-event reactions (`onTextDelta`, `onStreamError`,
+`onPollReconciled`), imperative for user/system-initiated actions
+(`requestSend`, `cancelGeneration`, `resetTurn`).
+
 ### Selector patterns and `useShallow`
 
 Selectors control re-render granularity. Choose the right pattern based

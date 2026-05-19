@@ -73,7 +73,7 @@ import { buildTranscriptItems } from "@/domains/chat/lib/transcript/build-items.
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
 import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/chat/lib/turn-selectors.js";
 import { isSurfaceInteractive } from "@/domains/chat/lib/types.js";
-import type { TurnState } from "@/domains/messaging/turn-store.js";
+
 import type { MainView, OpenedAppState, OpenedDocumentState, ViewerState } from "@/stores/viewer-store.js";
 import { submitQuestionResponse } from "@/domains/chat/lib/api.js";
 import { useActiveProfileModel } from "@/domains/chat/lib/use-active-profile-model.js";
@@ -85,7 +85,7 @@ import { isChannelConversation as _isChannelConversation } from "@/domains/chat/
 import { getDiskPressureChatBlockReason } from "@/domains/assistant/disk-pressure.js";
 import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
 import type { InteractionEvent } from "@/domains/interactions/interaction-store.js";
-import type { DomainEvent } from "@/domains/messaging/turn-store.js";
+import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/lib/event-types.js";
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
@@ -223,7 +223,7 @@ export interface ChatRouteRefs {
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  turnStateRef: MutableRefObject<TurnState>;
+
   interactionStateRef: MutableRefObject<InteractionState>;
   reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
 }
@@ -250,10 +250,6 @@ export interface ChatRouteContentProps {
   // Messages
   messages: DisplayMessage[];
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-
-  // Turn state
-  turnState: TurnState;
-  dispatchTurn: Dispatch<DomainEvent>;
 
   // Input
   input: string;
@@ -383,8 +379,6 @@ export function ChatRouteContent({
   isKeyboardOpen,
   messages,
   setMessages,
-  turnState,
-  dispatchTurn: _dispatchTurn,
   input,
   setInput,
   error,
@@ -509,10 +503,14 @@ export function ChatRouteContent({
     requestIdToStableIdRef: _requestIdToStableIdRef,
     pendingLocalDeletionsRef: _pendingLocalDeletionsRef,
     confirmationToolCallMapRef: _confirmationToolCallMapRef,
-    turnStateRef: _turnStateRef,
     interactionStateRef,
     reconcileAfterNextStreamOpenRef: _reconcileAfterNextStreamOpenRef,
   } = refs;
+
+  // -------------------------------------------------------------------------
+  // Turn state (read from Zustand store)
+  // -------------------------------------------------------------------------
+  const turnState = useTurnStore();
 
   // -------------------------------------------------------------------------
   // Derived interaction state
@@ -1212,7 +1210,6 @@ export function ChatRouteContent({
     onVoiceRecordingChange: handleVoiceRecordingChange,
     onVoiceError: _setVoiceError,
     onVoiceBeforeStart: handleVoiceBeforeStart,
-    turnState,
     onStopGenerating: handleStopGenerating,
     assistantId,
     modelSupportsVision: activeModelSupportsVision,

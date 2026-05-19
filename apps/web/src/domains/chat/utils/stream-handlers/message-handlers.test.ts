@@ -17,9 +17,7 @@ describe("handleAssistantTextDelta", () => {
       ctx,
     );
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "ASSISTANT_TEXT_DELTA",
-    });
+    expect(ctx.turnActions.onTextDelta).toHaveBeenCalled();
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 
@@ -50,7 +48,8 @@ describe("handleAssistantActivityState", () => {
       1,
       ctx,
     );
-    expect(ctx.dispatchTurn).not.toHaveBeenCalled();
+    expect(ctx.turnActions.onActivityThinking).not.toHaveBeenCalled();
+    expect(ctx.turnActions.completeTurn).not.toHaveBeenCalled();
   });
 
   it("updates version and handles idle phase", () => {
@@ -70,14 +69,12 @@ describe("handleAssistantActivityState", () => {
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(1);
     expect(ctx.setMessages).toHaveBeenCalled();
     expect(ctx.needsNewBubbleRef.current).toBe(true);
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "MESSAGE_COMPLETE",
-    });
+    expect(ctx.turnActions.completeTurn).toHaveBeenCalled();
     expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
     expect(ctx.startReconciliationLoop).toHaveBeenCalledWith(1);
   });
 
-  it("dispatches ACTIVITY_STATE_THINKING for thinking phase", () => {
+  it("calls onActivityThinking for thinking phase", () => {
     const ctx = makeCtx();
     handleAssistantActivityState(
       {
@@ -92,15 +89,12 @@ describe("handleAssistantActivityState", () => {
       ctx,
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(2);
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "ACTIVITY_STATE_THINKING",
-      statusText: undefined,
-    });
+    expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith(undefined);
     expect(ctx.setMessages).not.toHaveBeenCalled();
     expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
-  it("forwards statusText in ACTIVITY_STATE_THINKING dispatch", () => {
+  it("forwards statusText in onActivityThinking call", () => {
     const ctx = makeCtx();
     handleAssistantActivityState(
       {
@@ -115,10 +109,7 @@ describe("handleAssistantActivityState", () => {
       1,
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "ACTIVITY_STATE_THINKING",
-      statusText: "Processing bash results",
-    });
+    expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith("Processing bash results");
   });
 
   it("returns early for non-idle, non-thinking phase", () => {
@@ -137,7 +128,8 @@ describe("handleAssistantActivityState", () => {
     expect(ctx.lastActivityVersionRef.current.get(
       ctx.streamContextRef.current!.conversationKey,
     )).toBe(1);
-    expect(ctx.dispatchTurn).not.toHaveBeenCalled();
+    expect(ctx.turnActions.onActivityThinking).not.toHaveBeenCalled();
+    expect(ctx.turnActions.completeTurn).not.toHaveBeenCalled();
   });
 });
 
@@ -151,9 +143,7 @@ describe("handleMessageComplete", () => {
     );
     expect(ctx.setMessages).toHaveBeenCalled();
     expect(ctx.needsNewBubbleRef.current).toBe(true);
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "MESSAGE_COMPLETE",
-    });
+    expect(ctx.turnActions.completeTurn).toHaveBeenCalled();
     expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
     expect(ctx.startReconciliationLoop).toHaveBeenCalledWith(1);
   });
@@ -167,9 +157,7 @@ describe("handleGenerationHandoff", () => {
       ctx,
     );
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "GENERATION_HANDOFF",
-    });
+    expect(ctx.turnActions.handoffGeneration).toHaveBeenCalled();
     expect(ctx.needsNewBubbleRef.current).toBe(true);
   });
 });
@@ -178,9 +166,7 @@ describe("handleGenerationCancelled", () => {
   it("dispatches GENERATION_CANCELLED and clears processing", () => {
     const ctx = makeCtx();
     handleGenerationCancelled({ type: "generation_cancelled" }, ctx);
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "GENERATION_CANCELLED",
-    });
+    expect(ctx.turnActions.cancelGeneration).toHaveBeenCalled();
     expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
     expect(ctx.setMessages).toHaveBeenCalled();
     expect(ctx.needsNewBubbleRef.current).toBe(true);
