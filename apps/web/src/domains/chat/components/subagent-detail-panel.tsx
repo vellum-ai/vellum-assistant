@@ -15,7 +15,7 @@ import { StatusBadge } from "@/domains/chat/components/subagent-status-badge.js"
 import { BUNDLED_COMPONENTS } from "@/domains/avatar/bundled-components.js";
 import { subagentTraits } from "@/domains/avatar/subagent-avatar.js";
 import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
-import { isActiveStatus } from "@/domains/chat/lib/subagent-status-helpers.js";
+import { isActiveStatus } from "@/domains/subagents/status-helpers.js";
 
 import { SubagentTimeline } from "@/domains/chat/components/subagent-timeline.js";
 

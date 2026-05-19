@@ -67,7 +67,7 @@ import { useEmptyStateGreeting } from "@/domains/chat/lib/use-empty-state-greeti
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/lib/error-classification.js";
 import { fetchOlderHistoryPage } from "@/domains/chat/lib/history.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import type { SubagentEntry, SubagentMapState } from "@/domains/subagents/subagent-store.js";
+import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import { buildTranscriptItems } from "@/domains/chat/lib/transcript/build-items.js";
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
@@ -336,7 +336,7 @@ export interface ChatRouteContentProps {
 
   // Subagent
   subagentEntries: SubagentEntry[];
-  subagentState: SubagentMapState;
+  subagentState: SubagentState;
   activeSubagentId: string | null;
   onSubagentClick: (subagentId: string) => void;
   onCloseSubagentDetail: () => void;

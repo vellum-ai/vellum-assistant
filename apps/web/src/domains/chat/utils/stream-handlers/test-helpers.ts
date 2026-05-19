@@ -66,7 +66,6 @@ export function makeCtx(
     pendingQueuedStableIdsRef: { current: [] },
     requestIdToStableIdRef: { current: new Map() },
     pendingLocalDeletionsRef: { current: new Set() },
-    dispatchSubagent: mock(() => {}),
     lastActivityVersionRef: { current: new Map() },
     toolCallIdCounterRef: { current: 0 },
     currentAssistantStableIdRef: { current: undefined },

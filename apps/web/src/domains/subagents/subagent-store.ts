@@ -1,16 +1,19 @@
 /**
- * Subagent-level state machine for tracking spawned subagent lifecycles.
+ * Zustand store for subagent lifecycle state.
  *
  * Maintains a map of SubagentEntry records keyed by subagentId, with an
- * ordered list of IDs for stable rendering. Accepts typed domain events
- * and applies pure transitions so UI components can derive display state
- * deterministically.
+ * ordered list of IDs for stable rendering. Direct named actions call
+ * `set()` to apply pure transitions so UI components can derive display
+ * state deterministically.
  *
- * @see https://react.dev/learn/extracting-state-logic-into-a-reducer
+ * @see https://zustand.docs.pmnd.rs/guides/flux-inspired-practice
+ * @see https://zustand.docs.pmnd.rs/guides/updating-state
  */
 
+import { create } from "zustand";
+
+import { createSelectors } from "@/utils/create-selectors.js";
 import type { SubagentStatus, SubagentInnerEvent } from "@/domains/chat/lib/event-types.js";
-export type { SubagentStatus } from "@/domains/chat/lib/event-types.js";
 
 // ---------------------------------------------------------------------------
 // State
@@ -45,79 +48,69 @@ export interface SubagentEntry {
   parentMessageId?: string;
 }
 
-export interface SubagentMapState {
+export interface SubagentState {
   byId: Record<string, SubagentEntry>;
   orderedIds: string[];
 }
 
-export const INITIAL_SUBAGENT_STATE: SubagentMapState = {
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
+export interface SubagentActions {
+  spawnSubagent: (params: {
+    subagentId: string;
+    label: string;
+    objective: string;
+    isFork?: boolean;
+    timestamp: number;
+    conversationId?: string;
+    status?: SubagentStatus;
+    error?: string;
+    parentMessageStableId?: string;
+    parentMessageId?: string;
+  }) => void;
+
+  changeStatus: (params: {
+    subagentId: string;
+    status: SubagentStatus;
+    error?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    totalCost?: number;
+  }) => void;
+
+  receiveEvent: (params: {
+    subagentId: string;
+    event: SubagentInnerEvent;
+    timestamp: number;
+  }) => void;
+
+  loadDetail: (params: {
+    subagentId: string;
+    status?: SubagentStatus;
+    objective?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    totalCost?: number;
+    events: SubagentTimelineEvent[];
+  }) => void;
+
+  setConversationId: (subagentId: string, conversationId: string) => void;
+
+  reset: () => void;
+}
+
+export type SubagentStore = SubagentState & SubagentActions;
+
+// ---------------------------------------------------------------------------
+// Initial state
+// ---------------------------------------------------------------------------
+
+const INITIAL_STATE: SubagentState = {
   byId: {},
   orderedIds: [],
 };
-
-// ---------------------------------------------------------------------------
-// Domain events
-// ---------------------------------------------------------------------------
-
-export interface SubagentSpawned {
-  type: "SUBAGENT_SPAWNED";
-  subagentId: string;
-  label: string;
-  objective: string;
-  isFork?: boolean;
-  timestamp: number;
-  conversationId?: string;
-  status?: SubagentStatus;
-  error?: string;
-  parentMessageStableId?: string;
-  parentMessageId?: string;
-}
-
-export interface SubagentStatusChanged {
-  type: "SUBAGENT_STATUS_CHANGED";
-  subagentId: string;
-  status: SubagentStatus;
-  error?: string;
-  inputTokens?: number;
-  outputTokens?: number;
-  totalCost?: number;
-}
-
-export interface SubagentEventReceived {
-  type: "SUBAGENT_EVENT_RECEIVED";
-  subagentId: string;
-  event: SubagentInnerEvent;
-  timestamp: number;
-}
-
-export interface SubagentDetailLoaded {
-  type: "SUBAGENT_DETAIL_LOADED";
-  subagentId: string;
-  status?: SubagentStatus;
-  objective?: string;
-  inputTokens?: number;
-  outputTokens?: number;
-  totalCost?: number;
-  events: SubagentTimelineEvent[];
-}
-
-export interface SubagentConversationIdSet {
-  type: "SUBAGENT_CONVERSATION_ID_SET";
-  subagentId: string;
-  conversationId: string;
-}
-
-export interface SubagentReset {
-  type: "SUBAGENT_RESET";
-}
-
-export type SubagentAction =
-  | SubagentSpawned
-  | SubagentStatusChanged
-  | SubagentEventReceived
-  | SubagentDetailLoaded
-  | SubagentConversationIdSet
-  | SubagentReset;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -173,173 +166,157 @@ function generateTimelineEventId(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Reducer
+// Store
 // ---------------------------------------------------------------------------
 
-export function subagentReducer(
-  state: SubagentMapState,
-  action: SubagentAction,
-): SubagentMapState {
-  switch (action.type) {
-    case "SUBAGENT_SPAWNED": {
-      if (state.byId[action.subagentId]) {
-        return state;
-      }
-      const entry: SubagentEntry = {
-        subagentId: action.subagentId,
-        label: action.label,
-        objective: action.objective,
-        status: action.status ?? "pending",
-        isFork: action.isFork ?? false,
-        error: action.error,
-        inputTokens: 0,
-        outputTokens: 0,
-        totalCost: 0,
-        spawnedAt: action.timestamp,
-        events: [],
-        conversationId: action.conversationId,
-        parentMessageStableId: action.parentMessageStableId,
-        parentMessageId: action.parentMessageId,
-      };
-      return {
-        byId: { ...state.byId, [action.subagentId]: entry },
-        orderedIds: [...state.orderedIds, action.subagentId],
-      };
-    }
+const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
+  ...INITIAL_STATE,
 
-    case "SUBAGENT_STATUS_CHANGED": {
-      const existing = state.byId[action.subagentId];
-      if (!existing) return state;
+  spawnSubagent: (params) => {
+    const { byId, orderedIds } = get();
+    if (byId[params.subagentId]) return;
 
-      return {
-        ...state,
-        byId: {
-          ...state.byId,
-          [action.subagentId]: {
-            ...existing,
-            status: action.status,
-            error: action.error ?? existing.error,
-            inputTokens: action.inputTokens ?? existing.inputTokens,
-            outputTokens: action.outputTokens ?? existing.outputTokens,
-            totalCost: action.totalCost ?? existing.totalCost,
-          },
+    const entry: SubagentEntry = {
+      subagentId: params.subagentId,
+      label: params.label,
+      objective: params.objective,
+      status: params.status ?? "pending",
+      isFork: params.isFork ?? false,
+      error: params.error,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalCost: 0,
+      spawnedAt: params.timestamp,
+      events: [],
+      conversationId: params.conversationId,
+      parentMessageStableId: params.parentMessageStableId,
+      parentMessageId: params.parentMessageId,
+    };
+
+    set({
+      byId: { ...byId, [params.subagentId]: entry },
+      orderedIds: [...orderedIds, params.subagentId],
+    });
+  },
+
+  changeStatus: (params) => {
+    const { byId } = get();
+    const existing = byId[params.subagentId];
+    if (!existing) return;
+
+    set({
+      byId: {
+        ...byId,
+        [params.subagentId]: {
+          ...existing,
+          status: params.status,
+          error: params.error ?? existing.error,
+          inputTokens: params.inputTokens ?? existing.inputTokens,
+          outputTokens: params.outputTokens ?? existing.outputTokens,
+          totalCost: params.totalCost ?? existing.totalCost,
         },
-      };
+      },
+    });
+  },
+
+  receiveEvent: (params) => {
+    const { byId } = get();
+    const existing = byId[params.subagentId];
+    if (!existing) return;
+
+    const eventType = mapInnerEventType(params.event);
+
+    let innerContent: string;
+    if (params.event.type === "tool_use_start" && params.event.input) {
+      innerContent = summarizeToolInput(params.event.input);
+    } else {
+      innerContent =
+        params.event.content ?? params.event.text ?? params.event.result ?? "";
     }
 
-    case "SUBAGENT_EVENT_RECEIVED": {
-      const existing = state.byId[action.subagentId];
-      if (!existing) return state;
-
-      const eventType = mapInnerEventType(action.event);
-
-      let innerContent: string;
-      if (action.event.type === "tool_use_start" && action.event.input) {
-        innerContent = summarizeToolInput(action.event.input);
-      } else {
-        innerContent =
-          action.event.content ?? action.event.text ?? action.event.result ?? "";
-      }
-
-      // Coalesce consecutive text deltas into a single timeline event
-      // (matches macOS behaviour where assistant_text_delta events are
-      // accumulated into one "Response" row instead of creating many).
-      if (eventType === "text" && action.event.type === "assistant_text_delta") {
-        const lastEvent = existing.events[existing.events.length - 1];
-        if (lastEvent && lastEvent.type === "text") {
-          const updatedEvents = [...existing.events];
-          updatedEvents[updatedEvents.length - 1] = {
-            ...lastEvent,
-            content: lastEvent.content + innerContent,
-          };
-          return {
-            ...state,
-            byId: {
-              ...state.byId,
-              [action.subagentId]: {
-                ...existing,
-                events: updatedEvents,
-              },
-            },
-          };
-        }
-        // Don't create a new text event for an empty delta — wait for a
-        // non-empty one to start a fresh coalesced run.
-        if (!innerContent) {
-          return state;
-        }
-      }
-
-      // Skip message_complete — it carries no content and is only used
-      // by macOS to attach a daemon message ID to the preceding text event.
-      if (action.event.type === "message_complete") {
-        return state;
-      }
-
-      const timelineEvent: SubagentTimelineEvent = {
-        id: generateTimelineEventId(),
-        type: eventType,
-        content: innerContent,
-        toolName: action.event.toolName,
-        isError: action.event.isError,
-        timestamp: action.timestamp,
-      };
-
-      return {
-        ...state,
-        byId: {
-          ...state.byId,
-          [action.subagentId]: {
-            ...existing,
-            events: [...existing.events, timelineEvent],
+    // Coalesce consecutive text deltas into a single timeline event
+    // (matches macOS behaviour where assistant_text_delta events are
+    // accumulated into one "Response" row instead of creating many).
+    if (eventType === "text" && params.event.type === "assistant_text_delta") {
+      const lastEvent = existing.events[existing.events.length - 1];
+      if (lastEvent && lastEvent.type === "text") {
+        const updatedEvents = [...existing.events];
+        updatedEvents[updatedEvents.length - 1] = {
+          ...lastEvent,
+          content: lastEvent.content + innerContent,
+        };
+        set({
+          byId: {
+            ...byId,
+            [params.subagentId]: { ...existing, events: updatedEvents },
           },
-        },
-      };
-    }
-
-    case "SUBAGENT_DETAIL_LOADED": {
-      const existing = state.byId[action.subagentId];
-      if (!existing) {
-        return state;
+        });
+        return;
       }
-      return {
-        ...state,
-        byId: {
-          ...state.byId,
-          [action.subagentId]: {
-            ...existing,
-            status: action.status ?? existing.status,
-            objective: action.objective ?? existing.objective,
-            inputTokens: action.inputTokens ?? existing.inputTokens,
-            outputTokens: action.outputTokens ?? existing.outputTokens,
-            totalCost: action.totalCost ?? existing.totalCost,
-            events: action.events.length > 0 ? action.events : existing.events,
-          },
-        },
-      };
+      // Don't create a new text event for an empty delta — wait for a
+      // non-empty one to start a fresh coalesced run.
+      if (!innerContent) return;
     }
 
-    case "SUBAGENT_CONVERSATION_ID_SET": {
-      const existing = state.byId[action.subagentId];
-      if (!existing) {
-        return state;
-      }
-      return {
-        ...state,
-        byId: {
-          ...state.byId,
-          [action.subagentId]: {
-            ...existing,
-            conversationId: action.conversationId,
-          },
+    // Skip message_complete — it carries no content and is only used
+    // by macOS to attach a daemon message ID to the preceding text event.
+    if (params.event.type === "message_complete") return;
+
+    const timelineEvent: SubagentTimelineEvent = {
+      id: generateTimelineEventId(),
+      type: eventType,
+      content: innerContent,
+      toolName: params.event.toolName,
+      isError: params.event.isError,
+      timestamp: params.timestamp,
+    };
+
+    set({
+      byId: {
+        ...byId,
+        [params.subagentId]: {
+          ...existing,
+          events: [...existing.events, timelineEvent],
         },
-      };
-    }
+      },
+    });
+  },
 
-    case "SUBAGENT_RESET":
-      return { ...INITIAL_SUBAGENT_STATE };
+  loadDetail: (params) => {
+    const { byId } = get();
+    const existing = byId[params.subagentId];
+    if (!existing) return;
 
-    default:
-      return state;
-  }
-}
+    set({
+      byId: {
+        ...byId,
+        [params.subagentId]: {
+          ...existing,
+          status: params.status ?? existing.status,
+          objective: params.objective ?? existing.objective,
+          inputTokens: params.inputTokens ?? existing.inputTokens,
+          outputTokens: params.outputTokens ?? existing.outputTokens,
+          totalCost: params.totalCost ?? existing.totalCost,
+          events: params.events.length > 0 ? params.events : existing.events,
+        },
+      },
+    });
+  },
+
+  setConversationId: (subagentId, conversationId) => {
+    const { byId } = get();
+    const existing = byId[subagentId];
+    if (!existing) return;
+
+    set({
+      byId: {
+        ...byId,
+        [subagentId]: { ...existing, conversationId },
+      },
+    });
+  },
+
+  reset: () => set({ ...INITIAL_STATE }),
+}));
+
+export const useSubagentStore = createSelectors(useSubagentStoreBase);

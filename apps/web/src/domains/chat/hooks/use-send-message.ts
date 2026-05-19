@@ -42,7 +42,7 @@ import { saveDismissedSurfaceIds } from "@/domains/chat/lib/dismissedSurfacesSto
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
-import type { SubagentAction } from "@/domains/subagents/subagent-store.js";
+import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import type { PreChatOnboardingContext } from "@/lib/onboarding/prechat.js";
 
 import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters.js";
@@ -112,8 +112,6 @@ interface UseSendMessageParams {
   setStreamRetryNonce: Dispatch<SetStateAction<number>>;
   setInput: Dispatch<SetStateAction<string>>;
 
-  dispatchSubagent: Dispatch<SubagentAction>;
-
   // Callbacks
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
@@ -156,7 +154,6 @@ export function useSendMessage({
   dispatchConversationList,
   setStreamRetryNonce,
   setInput,
-  dispatchSubagent,
   startReconciliationLoop,
   cancelReconciliation,
   refreshConversations,
@@ -606,7 +603,7 @@ export function useSendMessage({
     setMessages(stopStreamingAndClearConfirmations);
     needsNewBubbleRef.current = true;
     useInteractionStore.getState().resetAll();
-    dispatchSubagent({ type: "SUBAGENT_RESET" });
+    useSubagentStore.getState().reset();
     confirmationToolCallMapRef.current.clear();
     dispatchConversationList({ type: "REMOVE_PROCESSING_KEY", key: activeConversationKey });
     processingSnapshotsRef.current.delete(activeConversationKey);

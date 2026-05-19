@@ -3,8 +3,6 @@ import type {
   MutableRefObject,
   SetStateAction,
 } from "react";
-
-import type { SubagentAction } from "@/domains/subagents/subagent-store.js";
 import type { ChatEventStream } from "@/domains/chat/lib/api.js";
 import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
@@ -67,10 +65,6 @@ export interface StreamHandlerContext {
 
   // --- Interaction state ---
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-
-  // --- Subagent state ---
-  dispatchSubagent: Dispatch<SubagentAction>;
-
 
   // --- UI surfaces ---
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;

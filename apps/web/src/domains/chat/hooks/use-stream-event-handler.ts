@@ -8,7 +8,6 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import type { SubagentAction } from "@/domains/subagents/subagent-store.js";
 import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
 import type {
   AssistantEvent,
@@ -115,9 +114,6 @@ export interface UseStreamEventHandlerParams {
   // --- Interaction state (secret, confirmation, contact request) ---
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
 
-  // --- Subagent state ---
-  dispatchSubagent: Dispatch<SubagentAction>;
-
   // --- UI surfaces ---
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
@@ -192,8 +188,6 @@ export function useStreamEventHandler(
     cancelReconciliation,
     startReconciliationLoop,
     confirmationToolCallMapRef,
-    dispatchSubagent,
-
     setAssetsRefreshKey,
     dismissedSurfaceIdsRef,
     contextWindowUsageByConversationRef,
@@ -300,8 +294,6 @@ export function useStreamEventHandler(
         cancelReconciliation,
         startReconciliationLoop,
         confirmationToolCallMapRef,
-        dispatchSubagent,
-
         setAssetsRefreshKey,
         dismissedSurfaceIdsRef,
         contextWindowUsageByConversationRef,
@@ -471,7 +463,6 @@ export function useStreamEventHandler(
       setError,
       streamRef,
       confirmationToolCallMapRef,
-      dispatchSubagent,
       setAssetsRefreshKey,
       dismissedSurfaceIdsRef,
       contextWindowUsageByConversationRef,

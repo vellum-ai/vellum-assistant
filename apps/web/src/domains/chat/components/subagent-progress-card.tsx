@@ -20,7 +20,7 @@ import {
   isActiveStatus,
   statusColor,
   statusLabel,
-} from "@/domains/chat/lib/subagent-status-helpers.js";
+} from "@/domains/subagents/status-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Props

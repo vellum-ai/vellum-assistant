@@ -35,7 +35,6 @@ import type { ContextWindowUsage } from "@/domains/chat/components/context-windo
 
 
 import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
-import type { SubagentAction } from "@/domains/subagents/subagent-store.js";
 import { haptic } from "@/utils/haptics.js";
 
 import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
@@ -137,8 +136,6 @@ interface UseConversationLoaderParams {
   setInput: Dispatch<SetStateAction<string>>;
   setMainView: Dispatch<SetStateAction<MainView>>;
 
-  dispatchSubagent: Dispatch<SubagentAction>;
-
   // Callbacks
   resetChatAttachments: () => void;
   syncNeedsNewBubbleFromMessages: (nextMessages: DisplayMessage[]) => void;
@@ -228,7 +225,6 @@ export function useConversationLoader({
   setCompactionCircuitOpenUntil,
   setInput,
   setMainView,
-  dispatchSubagent,
   resetChatAttachments,
   syncNeedsNewBubbleFromMessages,
   navPush,
@@ -467,7 +463,6 @@ export function useConversationLoader({
     setSuggestion,
     setCompactionCircuitOpenUntil,
     setInput,
-    dispatchSubagent,
     onDraftRestored,
     resetChatAttachments,
     syncNeedsNewBubbleFromMessages,

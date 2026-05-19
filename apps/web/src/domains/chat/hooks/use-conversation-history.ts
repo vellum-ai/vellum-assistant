@@ -31,7 +31,7 @@ import type { ContextWindowUsage } from "@/domains/chat/components/context-windo
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
-import type { SubagentAction } from "@/domains/subagents/subagent-store.js";
+import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import type { SubagentStatus } from "@/domains/chat/lib/event-types.js";
 
 import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
@@ -130,8 +130,6 @@ interface UseConversationHistoryParams {
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
   setInput: Dispatch<SetStateAction<string>>;
 
-  dispatchSubagent: Dispatch<SubagentAction>;
-
   // Callbacks
   resetChatAttachments: () => void;
   syncNeedsNewBubbleFromMessages: (nextMessages: DisplayMessage[]) => void;
@@ -204,7 +202,6 @@ export function useConversationHistory({
   setSuggestion,
   setCompactionCircuitOpenUntil,
   setInput,
-  dispatchSubagent,
   resetChatAttachments,
   syncNeedsNewBubbleFromMessages,
   onDraftRestored,
@@ -508,10 +505,10 @@ export function useConversationHistory({
           }
         }
 
-        dispatchSubagent({ type: "SUBAGENT_RESET" });
+        const subagentStore = useSubagentStore.getState();
+        subagentStore.reset();
         for (const n of deduped.values()) {
-          dispatchSubagent({
-            type: "SUBAGENT_SPAWNED",
+          subagentStore.spawnSubagent({
             subagentId: n.subagentId,
             label: n.label,
             objective: "",
@@ -667,7 +664,6 @@ export function useConversationHistory({
     setSuggestion,
     setCompactionCircuitOpenUntil,
     setInput,
-    dispatchSubagent,
     onDraftRestored,
     shouldSuppressGenericChatErrorNotice,
   ]);
