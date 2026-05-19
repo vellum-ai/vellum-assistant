@@ -49,6 +49,7 @@ import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient, resolveQdrantUrl } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
+import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import {
   emitNotificationSignal,
   registerBroadcastFn,
@@ -882,34 +883,16 @@ export async function runDaemon(): Promise<void> {
           })();
         }
 
-        // Build the BM25 corpus stats (per-token document frequencies and
-        // average document length) used by the v2 sparse channel, then
-        // re-seed v2 skill entries so any skill vectors written during the
-        // cold-start window with the legacy TF encoder get rewritten with
-        // stemmed BM25 vectors. Fire-and-forget for the same reason as PKB
-        // reconcile — the stats and skill reseed are optional optimizations,
-        // never boot-blocking dependencies.
         void rebuildBm25CorpusStatsAndReseedSkills(config);
 
-        // Validate every concept page's frontmatter against the strict
-        // schema and emit a `warn` per offender. Surfaces schema drift
-        // (unknown keys, type mismatches) at boot time instead of waiting
-        // for the failure to manifest as a silent V2 retrieval no-op when
-        // a bad page first lands in a conversation's top-K. Fire-and-forget
-        // and the sweep itself never throws — defense in depth via the
-        // outer try/catch.
-        void (async () => {
-          try {
-            const { sweepConceptPageFrontmatter } =
-              await import("../memory/v2/frontmatter-sweep.js");
-            await sweepConceptPageFrontmatter(getWorkspaceDir());
-          } catch (err) {
-            log.warn(
-              { err },
-              "Concept page frontmatter sweep threw — continuing startup",
-            );
-          }
-        })();
+        try {
+          await sweepConceptPageFrontmatter(config, getWorkspaceDir());
+        } catch (err) {
+          log.warn(
+            { err },
+            "Concept page frontmatter sweep threw — continuing startup",
+          );
+        }
       }
 
       log.info("Daemon startup: starting memory worker");

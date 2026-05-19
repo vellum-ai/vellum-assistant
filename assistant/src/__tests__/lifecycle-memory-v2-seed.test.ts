@@ -319,10 +319,10 @@ describe("rebuildBm25CorpusStatsAndReseedSkills", () => {
     expect(state.warnCalls).toHaveLength(0);
   });
 
-  test("builds corpus stats but skips skill reseed when v2 is disabled", async () => {
+  test("skips both corpus stats and skill reseed when v2 is disabled", async () => {
     await rebuildBm25CorpusStatsAndReseedSkills(makeConfig(false));
 
-    expect(state.corpusStatsBuildCount).toBe(1);
+    expect(state.corpusStatsBuildCount).toBe(0);
     expect(state.seedCallCount).toBe(0);
     expect(state.warnCalls).toHaveLength(0);
   });

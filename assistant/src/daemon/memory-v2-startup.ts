@@ -69,6 +69,8 @@ export function maybeSeedMemoryV2CliCommands(config: AssistantConfig): void {
 export async function rebuildBm25CorpusStatsAndReseedSkills(
   config: AssistantConfig,
 ): Promise<void> {
+  if (!config.memory.v2.enabled) return;
+
   try {
     const { rebuildConceptPageCorpusStats } =
       await import("../memory/v2/sparse-bm25.js");
@@ -81,8 +83,6 @@ export async function rebuildBm25CorpusStatsAndReseedSkills(
     );
     return;
   }
-
-  if (!config.memory.v2.enabled) return;
 
   // Skills and CLI commands share the unified collection but are independent
   // catalogs — reseed in parallel so the second one isn't gated on the first.
