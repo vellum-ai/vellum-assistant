@@ -20,6 +20,10 @@ export {
 } from "./components/notice.js";
 export { ProgressBar, type ProgressBarProps } from "./components/progress-bar.js";
 export {
+  ResizablePanel,
+  type ResizablePanelProps,
+} from "./components/resizable-panel.js";
+export {
   Tag,
   tagVariants,
   type TagProps,
