@@ -11,7 +11,7 @@
  */
 
 import * as Sentry from "@sentry/react";
-import { type Dispatch, type MutableRefObject, type RefObject, useCallback, useEffect, useRef } from "react";
+import { type MutableRefObject, type RefObject, useCallback, useEffect, useRef } from "react";
 
 import { toast } from "@vellum/design-library";
 import { openApp, shareApp } from "@/domains/chat/lib/apps.js";
@@ -25,7 +25,7 @@ import type {
 } from "@/stores/viewer-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import type { Conversation } from "@/domains/chat/lib/api.js";
-import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { haptic } from "@/utils/haptics.js";
 
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
@@ -42,7 +42,6 @@ export interface UseAppViewerActionsParams {
   isSharing: boolean;
   isDeploying: boolean;
   pendingDeployAppId: string | null;
-  dispatchConversationList: Dispatch<ConversationListAction>;
   lastConversationKeyRef: MutableRefObject<string | null>;
   deepLinkAppId: RefObject<string | undefined>;
   switchConversation: (key: string) => void;
@@ -84,7 +83,6 @@ export function useAppViewerActions({
   isSharing,
   isDeploying,
   pendingDeployAppId,
-  dispatchConversationList,
   lastConversationKeyRef,
   deepLinkAppId,
   switchConversation,
@@ -229,13 +227,13 @@ export function useAppViewerActions({
 
   const handleCloseApp = useCallback(() => {
     useViewerStore.getState().closeApp();
-    dispatchConversationList({ type: "SET_EDITING_KEY", key: null });
+    useConversationListStore.getState().setEditingKey(null);
     if (lastConversationKeyRef.current) {
       switchConversationRef.current(lastConversationKeyRef.current);
     } else {
       useViewerStore.getState().setMainView("chat");
     }
-  }, [dispatchConversationList, lastConversationKeyRef]);
+  }, [lastConversationKeyRef]);
 
   const handleToggleAppMinimized = useCallback(() => {
     useViewerStore.getState().toggleAppMinimized();
@@ -269,7 +267,7 @@ export function useAppViewerActions({
         setEditChatKey(assistantId, appId, conversationKey);
       }
 
-      dispatchConversationList({ type: "SET_EDITING_KEY", key: conversationKey });
+      useConversationListStore.getState().setEditingKey(conversationKey);
       useViewerStore.getState().enterAppEditing();
       if (activeConversationKey !== conversationKey) {
         pushConversationKeyParamRef.current(conversationKey);
@@ -279,7 +277,6 @@ export function useAppViewerActions({
       assistantId,
       conversations,
       activeConversationKey,
-      dispatchConversationList,
     ],
   );
 
@@ -303,9 +300,9 @@ export function useAppViewerActions({
   );
 
   const handleCloseEditPanel = useCallback(() => {
-    dispatchConversationList({ type: "SET_EDITING_KEY", key: null });
+    useConversationListStore.getState().setEditingKey(null);
     useViewerStore.getState().exitAppEditing();
-  }, [dispatchConversationList]);
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Share / Deploy
@@ -409,10 +406,10 @@ export function useAppViewerActions({
         activeAppId === appId &&
         (mainView === "app" || mainView === "app-editing")
       ) {
-        dispatchConversationList({ type: "SET_EDITING_KEY", key: null });
+        useConversationListStore.getState().setEditingKey(null);
       }
     },
-    [dispatchConversationList],
+    [],
   );
 
   useActiveAppPinSync(handleActiveAppUnpinned);

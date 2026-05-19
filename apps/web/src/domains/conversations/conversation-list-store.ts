@@ -1,9 +1,9 @@
 /**
- * Conversation-list state machine.
+ * Zustand store for conversation-list state.
  *
- * Manages the sidebar / conversation-selection state as a single
- * `useReducer` with typed domain events. All state transitions go through
- * `conversationListReducer`, keeping updates atomic and testable.
+ * Manages the sidebar / conversation-selection state with direct named
+ * actions. Each action calls `set()` to apply pure transitions so UI
+ * components can derive display state deterministically.
  *
  * **State managed:**
  * - `conversations` — the full list of conversations for the sidebar
@@ -13,38 +13,18 @@
  * - `processingKeys` — conversations with in-flight assistant responses
  * - `attentionKeys` — conversations needing user attention (pending interactions)
  *
- * @see https://react.dev/learn/extracting-state-logic-into-a-reducer
+ * @see https://zustand.docs.pmnd.rs/guides/flux-inspired-practice
+ * @see https://zustand.docs.pmnd.rs/guides/updating-state
  */
 
+import { create } from "zustand";
+
+import { createSelectors } from "@/utils/create-selectors.js";
 import type { Conversation, ConversationGroup } from "@/domains/chat/lib/api.js";
 
 // ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-
-/** All conversation-list UI state managed by `conversationListReducer`. */
-export interface ConversationListState {
-  conversations: Conversation[];
-  conversationGroups: ConversationGroup[];
-  activeConversationKey: string | null;
-  editingConversationKey: string | null;
-  processingKeys: Set<string>;
-  attentionKeys: Set<string>;
-}
-
-/** Empty initial state — used as the `useReducer` initializer. */
-export const INITIAL_CONVERSATION_LIST_STATE: ConversationListState = {
-  conversations: [],
-  conversationGroups: [],
-  activeConversationKey: null,
-  editingConversationKey: null,
-  processingKeys: new Set(),
-  attentionKeys: new Set(),
-};
-
-// ---------------------------------------------------------------------------
 // Set helpers — return the same reference when the mutation is a no-op so
-// React can bail out of unnecessary re-renders.
+// Zustand's shallow equality check can bail out of unnecessary re-renders.
 // ---------------------------------------------------------------------------
 
 function addToSet<T>(prev: Set<T>, key: T): Set<T> {
@@ -76,9 +56,9 @@ function removeMultipleFromSet<T>(prev: Set<T>, keys: T[]): Set<T> {
 /**
  * Immutably patch the conversation matching `key`, leaving all others
  * untouched. Returns the same array reference when no conversation matches
- * so React can bail out of re-renders.
+ * so Zustand can bail out of re-renders.
  */
-export function patchConversation(
+export function applyConversationPatch(
   conversations: Conversation[],
   key: string,
   patch: Partial<Conversation>,
@@ -92,7 +72,7 @@ export function patchConversation(
   return changed ? result : conversations;
 }
 
-function patchGroup(
+function applyGroupPatch(
   groups: ConversationGroup[],
   id: string,
   patch: Partial<ConversationGroup>,
@@ -107,351 +87,239 @@ function patchGroup(
 }
 
 // ---------------------------------------------------------------------------
-// Domain events (actions)
+// State & Actions
 // ---------------------------------------------------------------------------
 
-// --- Conversations ---
-
-export interface SetConversations {
-  type: "SET_CONVERSATIONS";
+export interface ConversationListState {
   conversations: Conversation[];
+  conversationGroups: ConversationGroup[];
+  activeConversationKey: string | null;
+  editingConversationKey: string | null;
+  processingKeys: Set<string>;
+  attentionKeys: Set<string>;
 }
 
-export interface PatchConversation {
-  type: "PATCH_CONVERSATION";
-  key: string;
-  patch: Partial<Conversation>;
+export interface ConversationListActions {
+  // --- Conversations ---
+  setConversations: (conversations: Conversation[]) => void;
+  patchConversation: (key: string, patch: Partial<Conversation>) => void;
+  markConversationSeen: (key: string, lastSeenAssistantMessageAt?: string) => void;
+  prependConversation: (conversation: Conversation) => void;
+  removeConversation: (key: string) => void;
+  resolveDraftKey: (oldKey: string, newKey: string) => void;
+
+  // --- Conversation groups ---
+  setGroups: (groups: ConversationGroup[]) => void;
+  appendGroup: (group: ConversationGroup) => void;
+  patchGroup: (groupId: string, patch: Partial<ConversationGroup>) => void;
+  replaceOptimisticGroup: (optimisticId: string, group: ConversationGroup) => void;
+  removeGroup: (groupId: string) => void;
+  deleteGroupAndResetConversations: (groupId: string) => void;
+
+  // --- Active / editing key ---
+  setActiveKey: (key: string | null) => void;
+  setEditingKey: (key: string | null) => void;
+
+  // --- Processing keys ---
+  addProcessingKey: (key: string) => void;
+  removeProcessingKey: (key: string) => void;
+  removeMultipleProcessingKeys: (keys: string[]) => void;
+  transferProcessingKey: (oldKey: string, newKey: string) => void;
+
+  // --- Attention keys ---
+  addAttentionKey: (key: string) => void;
+  removeAttentionKey: (key: string) => void;
+
+  // --- Compound ---
+  graduateProcessingKey: (key: string, hasPendingInteraction: boolean) => void;
+
+  // --- Reset ---
+  reset: () => void;
 }
 
-export interface MarkConversationSeen {
-  type: "MARK_CONVERSATION_SEEN";
-  key: string;
-  lastSeenAssistantMessageAt?: string;
-}
+type ConversationListStore = ConversationListState & ConversationListActions;
 
-export interface PrependConversation {
-  type: "PREPEND_CONVERSATION";
-  conversation: Conversation;
-}
-
-export interface RemoveConversation {
-  type: "REMOVE_CONVERSATION";
-  key: string;
-}
-
-export interface ResolveDraftKey {
-  type: "RESOLVE_DRAFT_KEY";
-  oldKey: string;
-  newKey: string;
-}
-
-// --- Conversation groups ---
-
-export interface SetGroups {
-  type: "SET_GROUPS";
-  groups: ConversationGroup[];
-}
-
-export interface AppendGroup {
-  type: "APPEND_GROUP";
-  group: ConversationGroup;
-}
-
-export interface PatchGroup {
-  type: "PATCH_GROUP";
-  groupId: string;
-  patch: Partial<ConversationGroup>;
-}
-
-export interface ReplaceOptimisticGroup {
-  type: "REPLACE_OPTIMISTIC_GROUP";
-  optimisticId: string;
-  group: ConversationGroup;
-}
-
-export interface RemoveGroup {
-  type: "REMOVE_GROUP";
-  groupId: string;
-}
-
-export interface DeleteGroupAndResetConversations {
-  type: "DELETE_GROUP_AND_RESET_CONVERSATIONS";
-  groupId: string;
-}
-
-// --- Active / editing key ---
-
-export interface SetActiveKey {
-  type: "SET_ACTIVE_KEY";
-  key: string | null;
-}
-
-export interface SetEditingKey {
-  type: "SET_EDITING_KEY";
-  key: string | null;
-}
-
-// --- Processing keys ---
-
-export interface AddProcessingKey {
-  type: "ADD_PROCESSING_KEY";
-  key: string;
-}
-
-export interface RemoveProcessingKey {
-  type: "REMOVE_PROCESSING_KEY";
-  key: string;
-}
-
-export interface RemoveMultipleProcessingKeys {
-  type: "REMOVE_MULTIPLE_PROCESSING_KEYS";
-  keys: string[];
-}
-
-export interface TransferProcessingKey {
-  type: "TRANSFER_PROCESSING_KEY";
-  oldKey: string;
-  newKey: string;
-}
-
-// --- Attention keys ---
-
-export interface AddAttentionKey {
-  type: "ADD_ATTENTION_KEY";
-  key: string;
-}
-
-export interface RemoveAttentionKey {
-  type: "REMOVE_ATTENTION_KEY";
-  key: string;
-}
-
-// --- Compound actions ---
-
-export interface GraduateProcessingKey {
-  type: "GRADUATE_PROCESSING_KEY";
-  key: string;
-  hasPendingInteraction: boolean;
-}
-
-export type ConversationListAction =
-  | SetConversations
-  | PatchConversation
-  | MarkConversationSeen
-  | PrependConversation
-  | RemoveConversation
-  | ResolveDraftKey
-  | SetGroups
-  | AppendGroup
-  | PatchGroup
-  | ReplaceOptimisticGroup
-  | RemoveGroup
-  | DeleteGroupAndResetConversations
-  | SetActiveKey
-  | SetEditingKey
-  | AddProcessingKey
-  | RemoveProcessingKey
-  | RemoveMultipleProcessingKeys
-  | TransferProcessingKey
-  | AddAttentionKey
-  | RemoveAttentionKey
-  | GraduateProcessingKey;
+const INITIAL_STATE: ConversationListState = {
+  conversations: [],
+  conversationGroups: [],
+  activeConversationKey: null,
+  editingConversationKey: null,
+  processingKeys: new Set(),
+  attentionKeys: new Set(),
+};
 
 // ---------------------------------------------------------------------------
-// Reducer
+// Store
 // ---------------------------------------------------------------------------
 
-/**
- * Pure reducer for conversation-list state.
- *
- * Accepts a `ConversationListAction` discriminated union and returns the
- * next state. Set helpers return the same reference on no-ops so React
- * can bail out of re-renders.
- *
- * Compound actions like `DELETE_GROUP_AND_RESET_CONVERSATIONS` and
- * `GRADUATE_PROCESSING_KEY` update multiple fields atomically.
- */
-export function conversationListReducer(
-  state: ConversationListState,
-  action: ConversationListAction,
-): ConversationListState {
-  switch (action.type) {
-    // ----- Conversations -----
+export const useConversationListStore = createSelectors(
+  create<ConversationListStore>((set, get) => ({
+    ...INITIAL_STATE,
 
-    case "SET_CONVERSATIONS":
-      return { ...state, conversations: action.conversations };
+    // --- Conversations ---
 
-    case "PATCH_CONVERSATION":
-      return {
-        ...state,
-        conversations: patchConversation(
-          state.conversations,
-          action.key,
-          action.patch,
-        ),
-      };
+    setConversations: (conversations) => {
+      set({ conversations });
+    },
 
-    case "MARK_CONVERSATION_SEEN": {
-      return {
-        ...state,
-        conversations: state.conversations.map((c) =>
-          c.conversationKey !== action.key
+    patchConversation: (key, patch) => {
+      set({ conversations: applyConversationPatch(get().conversations, key, patch) });
+    },
+
+    markConversationSeen: (key, lastSeenAssistantMessageAt) => {
+      set({
+        conversations: get().conversations.map((c) =>
+          c.conversationKey !== key
             ? c
             : {
                 ...c,
                 hasUnseenLatestAssistantMessage: false,
                 lastSeenAssistantMessageAt:
-                  action.lastSeenAssistantMessageAt ??
+                  lastSeenAssistantMessageAt ??
                   c.latestAssistantMessageAt ??
                   c.lastSeenAssistantMessageAt,
               },
         ),
-      };
-    }
+      });
+    },
 
-    case "PREPEND_CONVERSATION":
-      return {
-        ...state,
-        conversations: [action.conversation, ...state.conversations],
-      };
+    prependConversation: (conversation) => {
+      set({ conversations: [conversation, ...get().conversations] });
+    },
 
-    case "REMOVE_CONVERSATION":
-      return {
-        ...state,
-        conversations: state.conversations.filter(
-          (c) => c.conversationKey !== action.key,
+    removeConversation: (key) => {
+      set({
+        conversations: get().conversations.filter(
+          (c) => c.conversationKey !== key,
         ),
-      };
+      });
+    },
 
-    case "RESOLVE_DRAFT_KEY":
-      return {
-        ...state,
-        conversations: state.conversations.map((c) =>
-          c.conversationKey === action.oldKey
-            ? { ...c, conversationKey: action.newKey, draft: false }
+    resolveDraftKey: (oldKey, newKey) => {
+      set({
+        conversations: get().conversations.map((c) =>
+          c.conversationKey === oldKey
+            ? { ...c, conversationKey: newKey, draft: false }
             : c,
         ),
-      };
+      });
+    },
 
-    // ----- Conversation groups -----
+    // --- Conversation groups ---
 
-    case "SET_GROUPS":
-      return { ...state, conversationGroups: action.groups };
+    setGroups: (groups) => {
+      set({ conversationGroups: groups });
+    },
 
-    case "APPEND_GROUP":
-      return {
-        ...state,
+    appendGroup: (group) => {
+      set({
         conversationGroups: [
-          ...state.conversationGroups,
+          ...get().conversationGroups,
           {
-            ...action.group,
-            sortPosition: action.group.sortPosition || state.conversationGroups.length,
+            ...group,
+            sortPosition: group.sortPosition || get().conversationGroups.length,
           },
         ],
-      };
+      });
+    },
 
-    case "PATCH_GROUP":
-      return {
-        ...state,
-        conversationGroups: patchGroup(
-          state.conversationGroups,
-          action.groupId,
-          action.patch,
+    patchGroup: (groupId, patch) => {
+      set({
+        conversationGroups: applyGroupPatch(
+          get().conversationGroups,
+          groupId,
+          patch,
         ),
-      };
+      });
+    },
 
-    case "REPLACE_OPTIMISTIC_GROUP":
-      return {
-        ...state,
-        conversationGroups: state.conversationGroups.map((g) =>
-          g.id === action.optimisticId ? action.group : g,
+    replaceOptimisticGroup: (optimisticId, group) => {
+      set({
+        conversationGroups: get().conversationGroups.map((g) =>
+          g.id === optimisticId ? group : g,
         ),
-      };
+      });
+    },
 
-    case "REMOVE_GROUP":
-      return {
-        ...state,
-        conversationGroups: state.conversationGroups.filter(
-          (g) => g.id !== action.groupId,
+    removeGroup: (groupId) => {
+      set({
+        conversationGroups: get().conversationGroups.filter(
+          (g) => g.id !== groupId,
         ),
-      };
+      });
+    },
 
-    case "DELETE_GROUP_AND_RESET_CONVERSATIONS":
-      return {
-        ...state,
-        conversationGroups: state.conversationGroups.filter(
-          (g) => g.id !== action.groupId,
+    deleteGroupAndResetConversations: (groupId) => {
+      set({
+        conversationGroups: get().conversationGroups.filter(
+          (g) => g.id !== groupId,
         ),
-        conversations: state.conversations.map((c) =>
-          c.groupId === action.groupId ? { ...c, groupId: undefined } : c,
+        conversations: get().conversations.map((c) =>
+          c.groupId === groupId ? { ...c, groupId: undefined } : c,
         ),
-      };
+      });
+    },
 
-    // ----- Active / editing key -----
+    // --- Active / editing key ---
 
-    case "SET_ACTIVE_KEY":
-      return { ...state, activeConversationKey: action.key };
+    setActiveKey: (key) => {
+      set({ activeConversationKey: key });
+    },
 
-    case "SET_EDITING_KEY":
-      return { ...state, editingConversationKey: action.key };
+    setEditingKey: (key) => {
+      set({ editingConversationKey: key });
+    },
 
-    // ----- Processing keys -----
+    // --- Processing keys ---
 
-    case "ADD_PROCESSING_KEY":
-      return {
-        ...state,
-        processingKeys: addToSet(state.processingKeys, action.key),
-      };
+    addProcessingKey: (key) => {
+      set({ processingKeys: addToSet(get().processingKeys, key) });
+    },
 
-    case "REMOVE_PROCESSING_KEY":
-      return {
-        ...state,
-        processingKeys: removeFromSet(state.processingKeys, action.key),
-      };
+    removeProcessingKey: (key) => {
+      set({ processingKeys: removeFromSet(get().processingKeys, key) });
+    },
 
-    case "REMOVE_MULTIPLE_PROCESSING_KEYS":
-      return {
-        ...state,
-        processingKeys: removeMultipleFromSet(
-          state.processingKeys,
-          action.keys,
-        ),
-      };
+    removeMultipleProcessingKeys: (keys) => {
+      set({
+        processingKeys: removeMultipleFromSet(get().processingKeys, keys),
+      });
+    },
 
-    case "TRANSFER_PROCESSING_KEY": {
-      if (!state.processingKeys.has(action.oldKey)) return state;
-      const next = new Set(state.processingKeys);
-      next.delete(action.oldKey);
-      next.add(action.newKey);
-      return { ...state, processingKeys: next };
-    }
+    transferProcessingKey: (oldKey, newKey) => {
+      const { processingKeys } = get();
+      if (!processingKeys.has(oldKey)) return;
+      const next = new Set(processingKeys);
+      next.delete(oldKey);
+      next.add(newKey);
+      set({ processingKeys: next });
+    },
 
-    // ----- Attention keys -----
+    // --- Attention keys ---
 
-    case "ADD_ATTENTION_KEY":
-      return {
-        ...state,
-        attentionKeys: addToSet(state.attentionKeys, action.key),
-      };
+    addAttentionKey: (key) => {
+      set({ attentionKeys: addToSet(get().attentionKeys, key) });
+    },
 
-    case "REMOVE_ATTENTION_KEY":
-      return {
-        ...state,
-        attentionKeys: removeFromSet(state.attentionKeys, action.key),
-      };
+    removeAttentionKey: (key) => {
+      set({ attentionKeys: removeFromSet(get().attentionKeys, key) });
+    },
 
-    // ----- Compound -----
+    // --- Compound ---
 
-    case "GRADUATE_PROCESSING_KEY":
-      return {
-        ...state,
-        processingKeys: removeFromSet(state.processingKeys, action.key),
-        attentionKeys: action.hasPendingInteraction
-          ? addToSet(state.attentionKeys, action.key)
-          : state.attentionKeys,
-      };
+    graduateProcessingKey: (key, hasPendingInteraction) => {
+      set({
+        processingKeys: removeFromSet(get().processingKeys, key),
+        attentionKeys: hasPendingInteraction
+          ? addToSet(get().attentionKeys, key)
+          : get().attentionKeys,
+      });
+    },
 
-    default:
-      return state;
-  }
-}
+    // --- Reset ---
+
+    reset: () => {
+      set({ ...INITIAL_STATE, processingKeys: new Set(), attentionKeys: new Set() });
+    },
+  })),
+);

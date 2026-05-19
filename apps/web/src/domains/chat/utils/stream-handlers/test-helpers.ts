@@ -58,7 +58,6 @@ export function makeCtx(
     contextWindowUsageByConversationRef: { current: new Map() },
     setContextWindowUsage: mock(() => {}),
     scheduleConversationListRefetch: mock(() => {}),
-    dispatchConversationList: mock(() => {}),
     setCompactionCircuitOpenUntil: mock(() => {}),
     applyDiskPressureStatusEvent: mock(() => {}),
     refreshAssistantIdentity: mock(() => Promise.resolve()),

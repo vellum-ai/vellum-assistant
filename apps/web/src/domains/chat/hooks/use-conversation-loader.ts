@@ -34,7 +34,7 @@ import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/ty
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 
 
-import type { ConversationListAction } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { haptic } from "@/utils/haptics.js";
 
 import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
@@ -124,7 +124,6 @@ interface UseConversationLoaderParams {
 
   // State setters
   setAssistantId: Dispatch<SetStateAction<string | null>>;
-  dispatchConversationList: Dispatch<ConversationListAction>;
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
   setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
@@ -214,7 +213,6 @@ export function useConversationLoader({
   loadEpochRef,
   pendingInitialMessageRef,
   setAssistantId,
-  dispatchConversationList,
   setMessages,
   setTranscriptPagination,
   setIsLoadingHistory,
@@ -244,7 +242,7 @@ export function useConversationLoader({
     if (!assistantId) return;
     try {
       const updated = await listConversations(assistantId);
-      dispatchConversationList({ type: "SET_CONVERSATIONS", conversations: updated });
+      useConversationListStore.getState().setConversations(updated);
     } catch (err) {
       Sentry.captureException(err, {
         tags: { context: "refresh_conversations" },
@@ -252,7 +250,7 @@ export function useConversationLoader({
     }
     if (conversationGroupsUI) {
       fetchGroups(assistantId)
-        .then((groups) => dispatchConversationList({ type: "SET_GROUPS", groups }))
+        .then((groups) => useConversationListStore.getState().setGroups(groups))
         .catch((err) => {
           Sentry.captureException(err, {
             level: "warning",
@@ -260,7 +258,7 @@ export function useConversationLoader({
           });
         });
     }
-  }, [assistantId, conversationGroupsUI, dispatchConversationList]);
+  }, [assistantId, conversationGroupsUI]);
 
   // Keep the ref in sync so the debounced scheduler always calls the latest.
   useEffect(() => {
@@ -340,12 +338,12 @@ export function useConversationLoader({
         setError((prev) =>
           prev?.code === CHAT_CONTEXT_LOAD_FAILED_CODE ? null : prev,
         );
-        dispatchConversationList({ type: "SET_CONVERSATIONS", conversations: ctx.conversations });
+        useConversationListStore.getState().setConversations(ctx.conversations);
 
         if (conversationGroupsUI) {
           fetchGroups(ctx.assistantId)
             .then((groups) => {
-              if (!cancelled) dispatchConversationList({ type: "SET_GROUPS", groups });
+              if (!cancelled) useConversationListStore.getState().setGroups(groups);
             })
             .catch((err) => {
               Sentry.captureException(err, {
@@ -355,7 +353,7 @@ export function useConversationLoader({
             });
         }
 
-        dispatchConversationList({ type: "SET_ACTIVE_KEY", key });
+        useConversationListStore.getState().setActiveKey(key);
       } catch (err) {
         if (cancelled) return;
         if (err instanceof ApiError && err.status === 401) {
@@ -399,7 +397,6 @@ export function useConversationLoader({
     conversationGroupsUI,
     setAssistantId,
     setError,
-    dispatchConversationList,
     shouldSuppressGenericChatErrorNotice,
   ]);
 
@@ -453,7 +450,6 @@ export function useConversationLoader({
     isLoadingOlderRef,
     historyLoadedRef,
     loadEpochRef,
-    dispatchConversationList,
     setMessages,
     setTranscriptPagination,
     setIsLoadingHistory,
@@ -482,7 +478,6 @@ export function useConversationLoader({
     attentionKeys,
     conversationsRef,
     processingSnapshotsRef,
-    dispatchConversationList,
   });
 
   // -------------------------------------------------------------------------
@@ -510,13 +505,13 @@ export function useConversationLoader({
       if (initialMessage) {
         pendingInitialMessageRef.current = { conversationKey: draftKey, content: initialMessage };
       }
-      dispatchConversationList({ type: "SET_ACTIVE_KEY", key: draftKey });
+      useConversationListStore.getState().setActiveKey(draftKey);
       navPush({ type: "conversation", key: draftKey });
       const params = new URLSearchParams(searchParams.toString());
       params.set("conversationKey", draftKey);
       pushRoute(`?${params.toString()}`);
     },
-    [pushRoute, searchParams, navPush, setMainView, pendingInitialMessageRef, dispatchConversationList],
+    [pushRoute, searchParams, navPush, setMainView, pendingInitialMessageRef],
   );
 
   return {
