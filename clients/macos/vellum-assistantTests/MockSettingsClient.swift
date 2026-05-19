@@ -58,6 +58,13 @@ final class MockSettingsClient: SettingsClientProtocol {
     var callSiteCatalogResponse: CallSiteCatalogResponse? = MockSettingsClient.defaultCallSiteCatalogResponse
 
     static let defaultCallSiteCatalogResponse = CallSiteCatalogResponse(
+        tiers: [
+            CallSiteCatalogTier(
+                id: "default",
+                displayName: "Default",
+                description: "Default test tier"
+            ),
+        ],
         domains: [
             CallSiteCatalogDomain(id: "agentLoop", displayName: "Agent Loop"),
             CallSiteCatalogDomain(id: "memory", displayName: "Memory"),
@@ -70,31 +77,36 @@ final class MockSettingsClient: SettingsClientProtocol {
                 id: "mainAgent",
                 displayName: "Main Agent",
                 description: "The primary conversation agent that handles user messages.",
-                domain: "agentLoop"
+                domain: "agentLoop",
+                tier: "default"
             ),
             CallSiteCatalogEntry(
                 id: "memoryRetrieval",
                 displayName: "Memory Retrieval",
                 description: "Retrieves relevant memories to augment the agent context.",
-                domain: "memory"
+                domain: "memory",
+                tier: "default"
             ),
             CallSiteCatalogEntry(
                 id: "commitMessage",
                 displayName: "Commit Message",
                 description: "Generates a git commit message for staged changes.",
-                domain: "workspace"
+                domain: "workspace",
+                tier: "default"
             ),
             CallSiteCatalogEntry(
                 id: "trustRuleSuggestion",
                 displayName: "Trust Rule Suggestion",
                 description: "Suggests a trust rule pattern when the user creates a new rule.",
-                domain: "ui"
+                domain: "ui",
+                tier: "default"
             ),
             CallSiteCatalogEntry(
                 id: "inference",
                 displayName: "Inference",
                 description: "General-purpose LLM inference call site for skill use.",
-                domain: "skills"
+                domain: "skills",
+                tier: "default"
             ),
         ]
     )
