@@ -216,4 +216,82 @@ describe("report html", () => {
     expect(html).toContain("No session session-x");
     expect(html).toContain('href="/"');
   });
+
+  test("metric scores render as percentages by default (round-3 evals feedback)", () => {
+    // accuracy: 0.5 → 50.00%, 1.0 → 100.00%. The previous raw rendering
+    // ("0.5000", "1.0000") is what Vargas asked us to fix.
+    const html = renderReportPage({ kind: "test", test: testInSession });
+    expect(html).toContain("100.00%");
+    expect(html).toContain("50.00%");
+  });
+
+  test("metrics with unit: 'raw' opt out of percent rendering", () => {
+    // assistant-cost-usd returns negative dollars and would be nonsense as a
+    // percent. The unit field lets it fall back to plain number rendering.
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        metrics: [
+          { name: "accuracy", score: 0.75 },
+          {
+            name: "assistant-cost-usd",
+            score: -0.012_345,
+            unit: "raw",
+          },
+        ],
+      },
+    });
+    expect(html).toContain("75.00%");
+    // Raw renders via formatNumber(score, 4)
+    expect(html).toContain("-0.0123");
+    expect(html).not.toContain("-1.23%");
+  });
+
+  test("execution page surfaces cost diagnostics when costStatus is partial", () => {
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: {
+          ...executionDetail.usage,
+          costStatus: "partial",
+          costDiagnostics: [
+            {
+              requestIndex: 1,
+              reason: "missing_provider",
+              model: "claude-sonnet-4-5",
+            },
+            {
+              requestIndex: 2,
+              reason: "unpriced_model",
+              provider: "cohere",
+              model: "command-r-plus",
+            },
+          ],
+        },
+      },
+    });
+    expect(html).toContain("Cost pricing");
+    expect(html).toContain("Partial pricing");
+    // The COST_REASON_LABELS copy is human-readable, not the bare key.
+    expect(html).toContain("No provider on usage record");
+    expect(html).toContain("cohere");
+    expect(html).toContain("command-r-plus");
+    // The reason copy mentions where to bump the table.
+    expect(html).toContain("evals/src/lib/pricing.ts");
+  });
+
+  test("execution page hides cost diagnostics when costStatus is ok or unset", () => {
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: { ...executionDetail.usage, costStatus: "ok" },
+      },
+    });
+    expect(html).not.toContain("Cost pricing");
+    expect(html).not.toContain("Partial pricing");
+    expect(html).not.toContain("Cost unavailable");
+  });
 });

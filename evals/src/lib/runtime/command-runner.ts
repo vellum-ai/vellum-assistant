@@ -14,11 +14,23 @@ export interface SpawnedProcess {
   kill(signal?: NodeJS.Signals): void;
 }
 
+export interface RunOptions {
+  env?: Record<string, string>;
+  cwd?: string;
+  /**
+   * UTF-8 string written to the child's stdin before it's closed. Used by
+   * the Hermes seed helper to pipe a JSON payload into an inline
+   * `docker exec -i ... python3 -` script without command-line escaping.
+   * When omitted, the child gets no stdin (legacy behavior).
+   */
+  stdin?: string;
+}
+
 export interface CommandRunner {
   run(
     command: string,
     args: string[],
-    opts?: { env?: Record<string, string>; cwd?: string },
+    opts?: RunOptions,
   ): Promise<CommandResult>;
   spawn(
     command: string,
@@ -48,12 +60,16 @@ export class NodeCommandRunner implements CommandRunner {
   async run(
     command: string,
     args: string[],
-    opts?: { env?: Record<string, string>; cwd?: string },
+    opts?: RunOptions,
   ): Promise<CommandResult> {
+    const wantsStdin = opts?.stdin !== undefined;
     const child = spawn(command, args, {
       cwd: opts?.cwd,
       env: { ...process.env, ...opts?.env },
-      stdio: ["ignore", "pipe", "pipe"],
+      // When stdin is supplied, open it as a pipe so we can write +
+      // close. Default ("ignore") preserves the legacy contract for the
+      // 30+ existing call sites that don't need stdin.
+      stdio: [wantsStdin ? "pipe" : "ignore", "pipe", "pipe"],
     });
 
     const stdoutChunks: string[] = [];
@@ -61,6 +77,12 @@ export class NodeCommandRunner implements CommandRunner {
 
     child.stdout?.on("data", (chunk) => stdoutChunks.push(chunk.toString()));
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk.toString()));
+
+    if (wantsStdin && child.stdin) {
+      // end() flushes the buffered payload and closes stdin so the child
+      // sees EOF — required for `python3 -` to stop reading and execute.
+      child.stdin.end(opts!.stdin);
+    }
 
     const exitCode = await new Promise<number>((resolve, reject) => {
       child.on("error", reject);
