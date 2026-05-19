@@ -365,42 +365,13 @@ Action naming follows the
 `onPollReconciled`), imperative for user/system-initiated actions
 (`requestSend`, `cancelGeneration`, `resetTurn`).
 
-### Selector patterns and `useShallow`
+### Selector patterns
 
-Selectors control re-render granularity. Choose the right pattern based
-on what the selector returns:
-
-```ts
-// 1. Primitive selector — no useShallow needed
-const assistantId = useChatStore((s) => s.assistantId);
-
-// 2. Object/array slice — useShallow required (new reference each call)
-const { messages, assistantId } = useChatStore(
-  useShallow((s) => ({ messages: s.messages, assistantId: s.assistantId })),
-);
-
-// 3. Derived/transformed state — useShallow doesn't help, use useMemo
-const unread = useChatStore((s) => s.messages.filter((m) => !m.read));
-// ⚠️ returns new array each time — wrap consumer in useMemo or use
-// a custom equality function via createWithEqualityFn.
-```
-
-Rule of thumb: if the selector returns a **primitive** (`string`,
-`number`, `boolean`, `null`), use it directly. If it returns a **new
-object or array**, wrap with `useShallow`. If it **derives/transforms**
-data, consider `useMemo` in the consumer or a stable selector defined
-outside the component.
-
-References:
-- [Zustand — Prevent rerenders with useShallow](https://zustand.docs.pmnd.rs/guides/prevent-rerenders-with-use-shallow)
-- [Zustand v5 selector best practices (community discussion)](https://github.com/pmndrs/zustand/discussions/2867)
-
-### Auto-generated selectors via `createSelectors`
-
-Wrap every store with `createSelectors()` from `src/utils/create-selectors.ts`
-to auto-generate per-field selector hooks. This is the
+Every store in this repo is wrapped with `createSelectors()` from
+`src/utils/create-selectors.ts`. This is the
 [official Zustand pattern](https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors)
-for reducing boilerplate while keeping per-field re-render optimization.
+for per-field re-render optimization and is the **default** for all
+store reads:
 
 ```ts
 import { create } from "zustand";
@@ -419,22 +390,41 @@ const useBearStoreBase = create<BearState>()((set) => ({
 export const useBearStore = createSelectors(useBearStoreBase);
 ```
 
-Consumers use the `.use` property — fully typed, with autocomplete:
+**In React components** — use `.use.field()` atomic selectors. Each call
+subscribes to exactly one field; the component re-renders only when that
+field changes:
 
 ```ts
-// Auto-generated selector — one field, minimal re-renders
 const bears = useBearStore.use.bears();
 const increase = useBearStore.use.increase();
+```
 
-// .getState() still works for non-React contexts (middleware, interceptors)
+**Outside React** (stream handlers, middleware, interceptors, tests) —
+use `.getState()` for synchronous reads:
+
+```ts
 const { bears } = useBearStore.getState();
 ```
 
-Prefer `.use.field()` over manual `(s) => s.field` selectors. For
-derived/computed values (e.g. `user?.id`), use `.use.user()` and
-access the property from the result.
+**Derived/computed values** — use `.use.field()` and derive in the
+component, or extract a pure helper function that accepts the narrow
+fields it needs:
 
-Reference: [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors)
+```ts
+const user = useAuthStore.use.user();
+const displayName = user?.name ?? "Anonymous";
+```
+
+**Do not use `useShallow`** for stores owned in this repo. `useShallow`
+constructs a new object on every store update and shallow-compares it —
+atomic `.use.field()` selectors are strictly better because each one
+subscribes to a single field with reference equality. If a component
+needs multiple fields, call `.use.field()` once per field rather than
+grouping them into a `useShallow` object.
+
+References:
+- [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors)
+- [Zustand — Prevent rerenders with useShallow](https://zustand.docs.pmnd.rs/guides/prevent-rerenders-with-use-shallow) (background — prefer `createSelectors` instead)
 
 ### useReducer for component-local state only
 
