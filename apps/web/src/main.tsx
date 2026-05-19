@@ -10,11 +10,13 @@ import { router } from "./routes.js";
 import "@/lib/api-interceptors.js";
 import "./index.css";
 
-useAuthStore.getState().initSession().then(() => {
-  if (useAuthStore.getState().isLoggedIn) {
+useAuthStore.subscribe((state, prevState) => {
+  if (state.isLoggedIn && !prevState.isLoggedIn) {
     useOrganizationStore.getState().fetchOrganizations();
   }
 });
+
+useAuthStore.getState().initSession();
 setupAuthListeners();
 
 const rootEl = document.getElementById("root");

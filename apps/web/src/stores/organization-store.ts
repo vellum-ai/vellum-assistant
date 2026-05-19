@@ -152,7 +152,10 @@ export const useOrganizationStore = createSelectors(useOrganizationStoreBase);
  * Prefer `useOrganizationStore.use.currentOrganizationId()` in components.
  */
 export function getActiveOrganizationIdForRequests(): string | null {
-  return useOrganizationStore.getState().currentOrganizationId;
+  return (
+    useOrganizationStore.getState().currentOrganizationId ??
+    getStoredOrganizationId()
+  );
 }
 
 /**
