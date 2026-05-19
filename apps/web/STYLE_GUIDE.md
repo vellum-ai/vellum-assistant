@@ -21,7 +21,6 @@ keeps imports predictable.
 use-send-message.ts        # hook
 message-handlers.ts         # module
 conversation-store.ts       # Zustand store
-conversation-reducer.ts     # reducer (pure function used by store)
 chat-body.tsx               # component
 stream-event-types.ts       # types
 ```

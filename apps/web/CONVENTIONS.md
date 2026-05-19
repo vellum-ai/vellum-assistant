@@ -92,9 +92,8 @@ src/
         chat-body.tsx
     conversations/                 # conversation CRUD, grouping, selection
       conversation-store.ts
+      conversation-store.test.ts
       use-conversation-loader.ts
-      conversation-reducer.ts
-      conversation-reducer.test.ts
       types.ts
     streaming/                     # SSE transport, event parsing
       stream-store.ts
@@ -107,8 +106,7 @@ src/
         types.ts
     interactions/                   # user-facing prompts
       interaction-store.ts
-      interaction-reducer.ts
-      interaction-reducer.test.ts
+      interaction-store.test.ts
       types.ts
   hooks/                           # cross-domain shared hooks
     use-is-mobile.ts
@@ -234,9 +232,9 @@ useReducer because:
   unacceptable during streaming (messages update every ~50ms).
 - **Framework-agnostic store definitions.** Store logic is plain
   TypeScript with no React dependency — portable across environments.
-- **Pure reducer functions as store actions.** Complex state
-  transitions use reducer functions (`(state, event) => state`) inside
-  Zustand stores — testable, deterministic, no React dependency.
+- **Direct named actions.** Store actions are plain functions that
+  call `set()` — no dispatchers, no action types, no switch statements.
+  See [Zustand store conventions](#zustand-store-conventions).
 
 ```ts
 // Good — component only re-renders when its slice changes
@@ -354,9 +352,8 @@ independent, single-value state (a boolean toggle, a text input
 value).
 
 **Do not use `useReducer` for state shared across components.** Shared
-state belongs in a Zustand store. If the state has complex transitions,
-use a reducer function inside the Zustand store (see
-[Reducer functions inside Zustand stores](#reducer-functions-inside-zustand-stores)).
+state belongs in a Zustand store with direct named actions (see
+[Direct named actions, not reducers](#direct-named-actions-not-reducers)).
 
 ```ts
 // Good — related state transitions are atomic and self-documenting
@@ -373,38 +370,46 @@ function.
 
 Reference: [React — Scaling Up with Reducer and Context](https://react.dev/learn/scaling-up-with-reducer-and-context)
 
-### Reducer functions inside Zustand stores
+### Direct named actions, not reducers
 
-Complex state with interdependent transitions (turn lifecycle,
-interaction prompts) uses a **pure reducer function** wrapped by a
-Zustand store — not `useReducer`. The reducer is the same
-`(state, event) => state` pure function; the difference is how it's
-wired:
+Zustand's recommended pattern is **direct named actions** — plain
+functions on the store that call `set()`. Do not use dispatchers,
+action-type strings, or switch-case reducers. The `redux` middleware
+exists for Redux migration paths but is not the idiomatic Zustand
+approach.
 
 ```ts
-// Good — reducer inside a Zustand store (shared state)
-export const useTurnStore = create<TurnStore>()((set) => ({
-  ...INITIAL_TURN_STATE,
-  dispatch: (event) => set((state) => turnReducer(state, event)),
+// Good — Zustand-idiomatic direct actions
+export const useTurnStore = create<TurnStore>()((set, get) => ({
+  phase: "idle" as TurnPhase,
+  activeTurnId: null as string | null,
+  activeToolCallCount: 0,
+
+  startTurn: (turnId: string) =>
+    set({ phase: "thinking", activeTurnId: turnId }),
+
+  startStreaming: () =>
+    set({ phase: "streaming" }),
+
+  completeTurn: () =>
+    set({ phase: "idle", activeTurnId: null, activeToolCallCount: 0 }),
+
+  incrementToolCalls: () =>
+    set((s) => ({ activeToolCallCount: s.activeToolCallCount + 1 })),
 }));
 
-// Avoid — useReducer for shared state (forces prop-drilling dispatch)
-const [turnState, dispatch] = useReducer(turnReducer, INITIAL_TURN_STATE);
+// Avoid — reducer/dispatch pattern (Redux holdover)
+dispatch: (action) => set((state) => turnReducer(state, action))
 ```
 
-The reducer pattern is correct and recommended:
-
-- **Dispatch named events** (`SHOW_SECRET`, `DISMISS_CONFIRMATION`,
-  `RESET_ALL`) instead of calling multiple `setState` functions.
-- **Guard against stale events.** Check `requestId` matches before
-  applying updates.
-- **Test the reducer in isolation.** Reducers are pure functions —
-  verify transitions with unit tests before relying on integration
-  tests.
+Each action is independently callable, testable, and discoverable via
+the store's TypeScript interface. Consumers call
+`useTurnStore.getState().startTurn(id)` or select individual actions
+via hooks — no action-type constants or switch statements needed.
 
 References:
-- [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
-- [React — Extracting State Logic into a Reducer](https://react.dev/learn/extracting-state-logic-into-a-reducer)
+- [Zustand — Flux-inspired practice](https://zustand.docs.pmnd.rs/learn/guides/flux-inspired-practice) — "state can be updated without dispatched actions and reducers"
+- [Zustand — Updating state](https://zustand.docs.pmnd.rs/learn/guides/updating-state)
 
 ---
 
