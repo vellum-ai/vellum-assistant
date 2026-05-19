@@ -149,16 +149,30 @@ struct HomeGallerySection: View {
                     description: "Reusable white right-side panel container with a standardized header (icon + title + \"Go to Thread\" action + dismiss)."
                 )
 
-                HomeDetailPanel(
-                    icon: .file,
-                    title: "Panel title",
-                    onGoToThread: {},
-                    onDismiss: {}
-                ) {
-                    Text("Detail content goes here.")
-                        .padding(VSpacing.lg)
+                VStack(spacing: VSpacing.lg) {
+                    HomeDetailPanel(
+                        icon: .file,
+                        title: "Panel title",
+                        onGoToThread: {},
+                        onDismiss: {}
+                    ) {
+                        Text("Detail content goes here.")
+                            .padding(VSpacing.lg)
+                    }
+                    .frame(height: 260)
+
+                    HomeDetailPanel(
+                        icon: .bell,
+                        title: "Assistant-initiated",
+                        onGoToThread: {},
+                        onDismiss: {},
+                        showsPersonaAvatar: true
+                    ) {
+                        Text("Persona avatar replaces the category chip when the row originated from the assistant.")
+                            .padding(VSpacing.lg)
+                    }
+                    .frame(height: 260)
                 }
-                .frame(height: 520)
             }
 
             // MARK: - HomeSuggestionPillBar

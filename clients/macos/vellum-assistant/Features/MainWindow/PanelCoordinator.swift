@@ -280,7 +280,8 @@ extension MainWindowView {
                 iconForeground: iconForegroundForFeedItem(item),
                 iconBackground: iconBackgroundForFeedItem(item),
                 onGoToThread: goToThreadHandler(for: item),
-                onDismiss: { activeHomeDetailPanel = nil }
+                onDismiss: { activeHomeDetailPanel = nil },
+                showsPersonaAvatar: item.fromAssistant == true
             ) {
                 Text(item.summary).font(VFont.bodyMediumDefault).foregroundStyle(VColor.contentSecondary).padding(VSpacing.lg)
             }
