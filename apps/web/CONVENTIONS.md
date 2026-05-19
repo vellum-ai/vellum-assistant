@@ -215,9 +215,8 @@ The top-level `lib/` is for configured third-party wrappers only.
 Domain directories must **not** contain a `lib/` subdirectory. Use
 the standard subdirectories instead: `hooks/`, `utils/`, `types/`,
 `components/`. The existing `domains/chat/lib/` is legacy from the
-platform port and is being redistributed
-([LUM-1627](https://linear.app/vellum/issue/LUM-1627)). Do not add
-new files there.
+platform port and is being redistributed into proper subdirectories.
+Do not add new files there.
 
 ### No barrel files
 

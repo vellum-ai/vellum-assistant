@@ -40,7 +40,7 @@ export interface ChatState {
 export interface ChatActions {
   /** Send a user message (with optional attachments) to the active conversation. */
   sendMessage: (content: string, attachments?: DisplayAttachment[]) => Promise<void>;
-  /** Dispatch an interaction state-machine event. */
+  /** Dispatch an interaction store event. */
   dispatchInteraction: Dispatch<InteractionEvent>;
 }
 

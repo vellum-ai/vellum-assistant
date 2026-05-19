@@ -1,5 +1,5 @@
 /**
- * Zustand store for the turn-level state machine.
+ * Zustand turn store.
  *
  * Owns sending/thinking/streaming lifecycle, queue depth, active tool-call
  * count, and current turn identity. Direct named actions call `set()` to
