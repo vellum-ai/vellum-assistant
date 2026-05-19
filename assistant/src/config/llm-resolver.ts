@@ -96,7 +96,7 @@ export function resolveDefaultProfileKey(
   const customTarget = llm.profiles?.[customKey];
   if (customTarget != null && customTarget.status !== "disabled")
     return customKey;
-  return dflt.profile;
+  return undefined;
 }
 
 function effectiveDefault(

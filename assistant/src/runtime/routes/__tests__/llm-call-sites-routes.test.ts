@@ -45,13 +45,15 @@ describe("llm-call-sites-routes", () => {
     }
   });
 
-  test("every call site includes a defaultProfile string", async () => {
+  test("defaultProfile is a non-empty string or undefined per call site", async () => {
     const result = (await route.handler({})) as {
       callSites: Array<{ id: string; defaultProfile?: string }>;
     };
     for (const site of result.callSites) {
-      expect(typeof site.defaultProfile).toBe("string");
-      expect(site.defaultProfile!.length).toBeGreaterThan(0);
+      if (site.defaultProfile != null) {
+        expect(typeof site.defaultProfile).toBe("string");
+        expect(site.defaultProfile.length).toBeGreaterThan(0);
+      }
     }
   });
 
