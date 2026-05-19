@@ -195,7 +195,13 @@ export function DocumentViewerContainer({
    */
   const refreshComments = useCallback(async () => {
     await commentPanelRef.current?.refreshComments();
-  }, []);
+    try {
+      const comments = await fetchComments(assistantId, surfaceId);
+      syncAnchorsToIframe(comments);
+    } catch {
+      // Best-effort — anchor highlights are cosmetic
+    }
+  }, [assistantId, surfaceId, syncAnchorsToIframe]);
 
   // Expose refreshComments for external callers (e.g. SSE handler in page).
   useImperativeHandle(handleRef, () => ({ refreshComments }), [refreshComments]);
