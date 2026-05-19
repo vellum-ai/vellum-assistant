@@ -249,6 +249,21 @@ Stories are colocated next to their components (`*.stories.tsx`). Autodocs gener
 
 Use the **Theme** toolbar in Storybook to switch between Light, Dark, and Velvet modes. All components re-render with the selected theme's tokens.
 
+### Testing
+
+Every story doubles as a render test via the [Vitest addon](https://storybook.js.org/docs/writing-tests/integrations/vitest-addon):
+
+```bash
+cd packages/design-library
+bun run test               # run all render tests (Playwright Chromium)
+```
+
+Tests run in a real browser (headless Chromium) and verify that each story renders without errors. No extra test files needed — stories _are_ the tests.
+
+### MCP (AI agent integration)
+
+The [`@storybook/addon-mcp`](https://github.com/storybookjs/mcp) addon exposes component metadata (props, stories, variants) via the [Model Context Protocol](https://modelcontextprotocol.io/). AI coding agents (Claude, Cursor, Copilot, etc.) can discover and correctly use design library components when this Storybook is running.
+
 ### npm publishing
 
 The `"files"` field in `package.json` allowlists `src/` for the npm tarball, which excludes `.storybook/` config and `storybook-static/` build output ([npm docs](https://docs.npmjs.com/cli/v10/configuring-npm/package-json#files)). Colocated `*.stories.tsx` files under `src/` are included in the tarball but are harmless to consumers — this matches the convention used by most design system packages. To exclude stories from the tarball for size optimization, add an `.npmignore` with `**/*.stories.tsx` — tracked in [LUM-1603](https://linear.app/vellum/issue/LUM-1603).

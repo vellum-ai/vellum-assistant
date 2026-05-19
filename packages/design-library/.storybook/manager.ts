@@ -2,28 +2,28 @@ import { addons } from "storybook/manager-api";
 import { create } from "storybook/theming";
 
 const theme = create({
-  base: "dark",
+  base: "light",
   brandTitle: "Vellum Design Library",
   brandUrl: "https://github.com/vellum-ai/vellum-assistant",
 
-  appBg: "#17191C",
-  appContentBg: "#1C1E22",
-  appBorderColor: "#2D3038",
+  appBg: "#F6F5F4",
+  appContentBg: "#FFFFFF",
+  appBorderColor: "#F2F0EE",
   appBorderRadius: 8,
 
-  textColor: "#F6F5F4",
-  textMutedColor: "#9CA3AF",
+  textColor: "#24292E",
+  textMutedColor: "#5A6672",
 
-  colorPrimary: "#E83F5B",
-  colorSecondary: "#E83F5B",
+  colorPrimary: "#17191C",
+  colorSecondary: "#17191C",
 
-  barBg: "#17191C",
-  barTextColor: "#9CA3AF",
-  barSelectedColor: "#F6F5F4",
+  barBg: "#FFFFFF",
+  barTextColor: "#5A6672",
+  barSelectedColor: "#24292E",
 
-  inputBg: "#24292E",
-  inputBorder: "#2D3038",
-  inputTextColor: "#F6F5F4",
+  inputBg: "#FFFFFF",
+  inputBorder: "#CFCCC9",
+  inputTextColor: "#24292E",
 });
 
 addons.setConfig({
