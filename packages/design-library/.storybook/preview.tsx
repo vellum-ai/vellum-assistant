@@ -1,4 +1,6 @@
 import { definePreview } from "@storybook/react-vite";
+import docsAddon from "@storybook/addon-docs";
+import a11yAddon from "@storybook/addon-a11y";
 import { withThemeByDataAttribute } from "@storybook/addon-themes";
 import {
   DocsContainer,
@@ -68,7 +70,7 @@ function ThemedDocsContainer({
 }
 
 export default definePreview({
-  addons: [],
+  addons: [docsAddon(), a11yAddon()],
   tags: ["autodocs"],
   decorators: [
     withThemeByDataAttribute<ReactRenderer>({
