@@ -49,6 +49,7 @@ declare module 'bun:test' {
     toBeUndefined(): R;
     toBeGreaterThan(expected: number): R;
     toBeGreaterThanOrEqual(expected: number): R;
+    toBeLessThan(expected: number): R;
     toBeLessThanOrEqual(expected: number): R;
     toBeString(): R;
     toContain(expected: unknown): R;

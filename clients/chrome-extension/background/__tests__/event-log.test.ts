@@ -7,6 +7,7 @@ import {
   hydrateFromStorage,
   recordRequest,
   recordResponse,
+  recordCallbackFailure,
   getOperations,
   getOperationById,
 } from "../event-log.js";
@@ -333,5 +334,64 @@ describe("session storage persistence", () => {
     // Should NOT have two entries — in-memory wins.
     expect(dups.length).toBe(1);
     expect(dups[0]!.operationName).toBe("Runtime.evaluate");
+  });
+});
+
+describe("recordCallbackFailure", () => {
+  beforeEach(() => {
+    clearEventLog();
+  });
+
+  test("records HTTP status and body on an existing operation", () => {
+    recordRequest("req-1", "Page.navigate");
+    recordResponse("req-1", { isError: false, responseContent: "{}" });
+    recordCallbackFailure("req-1", 404, "No pending browser request for this requestId");
+
+    const op = getOperations().find((o) => o.requestId === "req-1");
+    expect(op?.callbackStatus).toBe(404);
+    expect(op?.callbackError).toBe(
+      "No pending browser request for this requestId",
+    );
+    expect(op?.responseContent).toBe("{}");
+    expect(op?.isError).toBe(false);
+  });
+
+  test("status 0 represents a drop (POST never reached the wire)", () => {
+    recordRequest("req-2", "Runtime.evaluate");
+    recordCallbackFailure(
+      "req-2",
+      0,
+      "dropped: no active SSE connection and no self-hosted fallback available",
+    );
+
+    const op = getOperations().find((o) => o.requestId === "req-2");
+    expect(op?.callbackStatus).toBe(0);
+    expect(op?.callbackError).toContain("dropped");
+  });
+
+  test("no-op when the requestId is unknown", () => {
+    recordCallbackFailure("unknown-req", 401, "Unauthorized");
+    expect(getOperations()).toEqual([]);
+  });
+
+  test("truncates oversized error bodies", () => {
+    recordRequest("req-3", "Page.navigate");
+    const oversized = "x".repeat(3000);
+    recordCallbackFailure("req-3", 500, oversized);
+
+    const op = getOperations().find((o) => o.requestId === "req-3");
+    expect(op?.callbackError).toBeDefined();
+    expect(op!.callbackError!.length).toBeLessThan(3000);
+    expect(op?.callbackError).toContain("…[truncated]");
+  });
+
+  test("last write wins when called twice for the same request", () => {
+    recordRequest("req-4", "Page.navigate");
+    recordCallbackFailure("req-4", 0, "fetch threw: NetworkError");
+    recordCallbackFailure("req-4", 401, "Unauthorized");
+
+    const op = getOperations().find((o) => o.requestId === "req-4");
+    expect(op?.callbackStatus).toBe(401);
+    expect(op?.callbackError).toBe("Unauthorized");
   });
 });
