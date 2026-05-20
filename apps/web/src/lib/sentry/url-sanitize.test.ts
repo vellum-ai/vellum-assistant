@@ -46,6 +46,12 @@ describe("sanitizeUrl", () => {
     expect(sanitizeUrl("/list?page=2")).toBe("/list?page=2");
   });
 
+  it("preserves the host for protocol-relative URLs", () => {
+    expect(sanitizeUrl("//api.example.com/callback?token=xyz")).toBe(
+      "//api.example.com/callback?token=%5BREDACTED%5D",
+    );
+  });
+
   it("returns the input unchanged for non-URL strings", () => {
     expect(sanitizeUrl("")).toBe("");
     expect(sanitizeUrl("not a url at all")).toBe("not a url at all");

@@ -69,14 +69,19 @@ export function sanitizeUrl(url: string): string {
   // turning plain strings into percent-encoded paths.
   if (!url.includes("?") && !url.includes("#")) return url;
   try {
-    // Relative URLs are valid inputs (breadcrumbs may carry `/path?x=y`),
-    // so resolve against a dummy base when no scheme is present.
+    // Relative and protocol-relative URLs are valid breadcrumb inputs
+    // (`/path?x=y`, `//host/path?x=y`), so resolve against a dummy base
+    // when no scheme is present, then strip the placeholder back off.
     const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(url);
+    const isProtocolRelative = !hasScheme && url.startsWith("//");
     const base = hasScheme ? undefined : "https://placeholder.invalid";
     const parsed = new URL(url, base);
     parsed.search = scrubSearchParams(parsed.search);
     parsed.hash = scrubHash(parsed.hash);
     if (hasScheme) return parsed.toString();
+    if (isProtocolRelative) {
+      return `//${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
     return parsed.pathname + parsed.search + parsed.hash;
   } catch {
     return url;
