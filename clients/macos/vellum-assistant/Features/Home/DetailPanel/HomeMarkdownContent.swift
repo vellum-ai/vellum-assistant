@@ -10,11 +10,13 @@ struct HomeMarkdownContent: View {
     let text: String
 
     var body: some View {
-        Text(rendered)
-            .font(VFont.bodyMediumDefault)
-            .foregroundStyle(VColor.contentSecondary)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+        HStack {
+            Text(rendered)
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentSecondary)
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+        }
     }
 
     /// Parses the source text as markdown into an `AttributedString`,
