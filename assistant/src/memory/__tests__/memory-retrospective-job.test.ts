@@ -27,19 +27,6 @@ let lastRunAtBumps: Array<{ conversationId: string; lastRunAt: number }> = [];
 
 let newMessages: Array<{ id: string; createdAt: number }> = [];
 
-// Fork-path bookkeeping. Flag is off by default so legacy-path tests stay
-// untouched; fork-path tests flip it in their own bodies.
-// `forkCount` is the number of `forkConversation` calls observed so far (also
-// used to mint unique fork IDs). `mockSourceConversation`, when set, is what
-// `getConversation` returns for the source conversation ID — fork-path tests
-// must set this so the handler can read the source title.
-let forkFlagEnabled = false;
-let forkCount = 0;
-let mockSourceConversation: {
-  id: string;
-  title: string | null;
-} | null = null;
-
 // Prior retrospective conversation + messages.
 let priorRetroId: string | null = null;
 let priorRetroMessages: Array<{ role: string; content: string }> = [];
@@ -56,9 +43,15 @@ let bootstrapCalls: Array<{ forkParentConversationId?: string }> = [];
 let deletedConversationIds: string[] = [];
 
 // Fork-path mocks. Flag off by default so legacy-path tests stay untouched.
-// Fork-path tests flip `forkFlagEnabled` to true in their own bodies before
-// invoking the job. `addMessageCalls` captures the instruction message the
-// fork-path persists so tests can assert on its metadata.
+let forkFlagEnabled = false;
+let forkedConversationId = "fork-conv-1";
+let forkCalls: Array<{
+  conversationId: string;
+  source: string;
+  title: string;
+  conversationType?: string;
+  groupId?: string;
+}> = [];
 let addMessageCalls: Array<{
   conversationId: string;
   role: string;
@@ -87,19 +80,33 @@ mock.module("../conversation-crud.js", () => ({
   },
   findMostRecentRetrospectiveFor: (_id: string) =>
     priorRetroId ? { id: priorRetroId } : null,
-  // between legacy and fork-kind sources. `runForkBasedRetrospective` also
-  // reads the *source* conversation to compute the fork title. Discriminate
-  // by id: the source returns the configured row; everything else returns a
-  // legacy-shaped prior so the unchanged extract-everything code path runs.
+  // The fork path calls `getConversation(sourceConversationId)` to read the
+  // source's title for the fork title. `collectPriorRetrospectiveRemembers`
+  // also calls it with the prior retro id to discriminate legacy vs fork
+  // sources — for that id return a legacy-shaped row so the existing tests
+  // exercise the unchanged extract-everything code path.
   getConversation: (id: string) => {
-    if (mockSourceConversation && id === mockSourceConversation.id) {
-      return mockSourceConversation;
+    if (id === priorRetroId) {
+      return {
+        source: "memory-retrospective",
+        forkParentMessageId: null,
+      };
     }
-    return { source: "memory-retrospective", forkParentMessageId: null };
+    return {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+    };
   },
-  forkConversation: (_params: { conversationId: string }) => {
-    forkCount += 1;
-    return { id: `fork-conv-${forkCount}` };
+  forkConversation: (params: {
+    conversationId: string;
+    source: string;
+    title: string;
+    conversationType?: string;
+    groupId?: string;
+  }) => {
+    forkCalls.push(params);
+    return { id: forkedConversationId };
   },
   addMessage: async (
     conversationId: string,
@@ -258,8 +265,8 @@ describe("memoryRetrospectiveJob", () => {
     mockAssistantName = "Bob";
     mockUserName = "Alice";
     forkFlagEnabled = false;
-    forkCount = 0;
-    mockSourceConversation = null;
+    forkedConversationId = "fork-conv-1";
+    forkCalls = [];
     addMessageCalls = [];
   });
 
@@ -472,7 +479,6 @@ describe("memoryRetrospectiveJob", () => {
 
   test("fork path: persisted instruction is stamped with hidden: true so the UI list serializer drops it", async () => {
     forkFlagEnabled = true;
-    mockSourceConversation = { id: "src-conv-1", title: "Trip planning" };
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(addMessageCalls).toHaveLength(1);
@@ -484,12 +490,21 @@ describe("memoryRetrospectiveJob", () => {
     });
   });
 
+  test("fork path: forked retrospective is bucketed as background under the retrospective group", async () => {
+    forkFlagEnabled = true;
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(forkCalls).toHaveLength(1);
+    expect(forkCalls[0]!.conversationType).toBe("background");
+    expect(forkCalls[0]!.groupId).toBe("system:background");
+  });
+
   test("fork path: wake opts include suppressWakeSurface so clients don't render an empty wake card on top of the '(Retrospective)' fork", async () => {
     forkFlagEnabled = true;
-    mockSourceConversation = { id: "src-conv-1", title: "Trip planning" };
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
-    expect(forkCount).toBe(1);
+    expect(forkCalls).toHaveLength(1);
     expect(wakeCalls).toHaveLength(1);
     expect(wakeCalls[0]!.conversationId).toBe("fork-conv-1");
     const opts = wakeCalls[0]!.opts;
