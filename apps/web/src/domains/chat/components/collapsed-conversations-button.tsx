@@ -268,7 +268,7 @@ function BackgroundSection({
   renderActions,
   attentionConversationKeys,
 }: BackgroundSectionProps) {
-  const subGroups = groupBackgroundConversationsBySource(conversations);
+  const subGroups = useMemo(() => groupBackgroundConversationsBySource(conversations), [conversations]);
   const [manualExpandedKeys, setManualExpandedKeys] = useState<Set<string>>(new Set());
 
   const attentionExpandedKeys = useMemo(() => {
