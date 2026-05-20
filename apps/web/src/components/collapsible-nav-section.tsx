@@ -1,27 +1,24 @@
-import * as Accordion from "@radix-ui/react-accordion";
 import { ChevronRight, type LucideIcon } from "lucide-react";
-import {
-  type ComponentPropsWithoutRef,
-  type ElementRef,
-  type ReactNode,
-  type Ref,
-} from "react";
+import { type ReactNode, type Ref } from "react";
 
-import { cn } from "@vellum/design-library";
+import {
+  Collapsible,
+  type CollapsibleItemProps,
+  type CollapsibleRootProps,
+} from "@vellum/design-library/components/collapsible";
+import { cn } from "@vellum/design-library/utils/cn";
 
 /**
- * Collapsible navigation section — a Radix-backed accordion item with a
- * header row that:
+ * Navigation-specific collapsible section — composes the design library
+ * `Collapsible` primitive with sidebar-tuned trigger styling:
  *
- *   - Carries a leading icon which swaps to a disclosure chevron on
- *     hover only. The chevron rotates 90° when expanded (matching
- *     macOS SidebarSectionHeader). The original icon is always
- *     visible when not hovered, regardless of expanded state.
- *   - Takes an optional `trailing` slot for an ellipsis menu, a count
- *     badge, or any other per-row affordance. The trailing slot isolates
- *     pointer events so clicking it doesn't also toggle the section.
- *   - Renders no hover background — keeps the rail quiet. The chevron
- *     swap is the affordance.
+ *   - Leading icon that swaps to a disclosure chevron on hover
+ *     (matching macOS SidebarSectionHeader). The original icon is
+ *     always visible when not hovered, regardless of expanded state.
+ *   - Optional `trailing` slot for an ellipsis menu, count badge, or
+ *     other per-row affordance. Pointer events are isolated so clicking
+ *     trailing content doesn't toggle the section.
+ *   - No hover background — the chevron swap is the affordance.
  *
  * Usage:
  *
@@ -35,26 +32,21 @@ import { cn } from "@vellum/design-library";
  *       {childRows}
  *     </CollapsibleNavSection.Section>
  *   </CollapsibleNavSection.Root>
- *
- * Animations use Radix's `--radix-accordion-content-height` variable —
- * the keyframes are defined in `index.css` so they stay out of Tailwind's
- * JIT output.
  */
 
 // ---------------------------------------------------------------------------
 // Root
 // ---------------------------------------------------------------------------
 
-type RootProps = ComponentPropsWithoutRef<typeof Accordion.Root> & {
-  ref?: Ref<ElementRef<typeof Accordion.Root>>;
-};
-
-function CollapsibleNavSectionRoot({ className, ref, ...props }: RootProps) {
+function CollapsibleNavSectionRoot({
+  className,
+  ref,
+  ...props
+}: CollapsibleRootProps) {
   return (
-    <Accordion.Root
+    <Collapsible.Root
       ref={ref}
-      data-slot="collapsible-nav-section"
-      className={cn("flex w-full flex-col gap-2", className)}
+      className={cn("gap-2", className)}
       {...props}
     />
   );
@@ -65,14 +57,14 @@ function CollapsibleNavSectionRoot({ className, ref, ...props }: RootProps) {
 // ---------------------------------------------------------------------------
 
 export interface CollapsibleNavSectionSectionProps
-  extends Omit<ComponentPropsWithoutRef<typeof Accordion.Item>, "children"> {
+  extends Omit<CollapsibleItemProps, "children"> {
   value: string;
   icon?: LucideIcon;
   label: string;
   trailing?: ReactNode;
   children?: ReactNode;
   contentClassName?: string;
-  ref?: Ref<ElementRef<typeof Accordion.Item>>;
+  ref?: Ref<HTMLDivElement>;
 }
 
 function CollapsibleNavSectionSection({
@@ -87,22 +79,20 @@ function CollapsibleNavSectionSection({
   ...itemProps
 }: CollapsibleNavSectionSectionProps) {
   return (
-    <Accordion.Item
+    <Collapsible.Item
       ref={ref}
       data-slot="collapsible-nav-section-section"
       value={value}
-      className={cn("flex flex-col", className)}
+      className={className}
       {...itemProps}
     >
-      <Accordion.Header className="flex items-center">
-        <Accordion.Trigger
+      <div data-slot="collapsible-nav-section-header" className="flex items-center">
+        <Collapsible.Trigger
           className={cn(
-            "group flex h-[28px] max-md:h-auto min-w-0 flex-1 items-center gap-[4px] max-md:gap-[8px]",
+            "group h-[28px] max-md:h-auto gap-[4px] max-md:gap-[8px]",
             "rounded-[6px] p-[6px] max-md:px-2 max-md:py-3",
             "text-left text-body-small-default leading-[16px] max-md:text-body-large-default",
             "text-[var(--content-tertiary)]",
-            "cursor-pointer select-none",
-            "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
           )}
         >
           <span className="relative inline-flex size-[14px] shrink-0 items-center justify-center">
@@ -131,25 +121,20 @@ function CollapsibleNavSectionSection({
             />
           </span>
           <span className="min-w-0 flex-1 truncate">{label}</span>
-        </Accordion.Trigger>
+        </Collapsible.Trigger>
         {trailing ? (
           <span
-            className="cns-trailing flex items-center shrink-0 pr-[6px] max-md:pr-2"
+            className="flex items-center shrink-0 pr-[6px] max-md:pr-2"
             onClick={(event) => event.stopPropagation()}
           >
             {trailing}
           </span>
         ) : null}
-      </Accordion.Header>
-      <Accordion.Content
-        className={cn(
-          "cns-content overflow-hidden",
-          contentClassName,
-        )}
-      >
+      </div>
+      <Collapsible.Content className={contentClassName}>
         {children}
-      </Accordion.Content>
-    </Accordion.Item>
+      </Collapsible.Content>
+    </Collapsible.Item>
   );
 }
 
@@ -162,4 +147,4 @@ export const CollapsibleNavSection = {
   Section: CollapsibleNavSectionSection,
 };
 
-export type CollapsibleNavSectionRootProps = RootProps;
+export type CollapsibleNavSectionRootProps = CollapsibleRootProps;

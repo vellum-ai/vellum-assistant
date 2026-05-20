@@ -175,6 +175,13 @@ export {
   type SideMenuSectionProps,
   type SideMenuItemProps,
 } from "./components/side-menu/side-menu.js";
+export {
+  Collapsible,
+  type CollapsibleRootProps,
+  type CollapsibleItemProps,
+  type CollapsibleTriggerProps,
+  type CollapsibleContentProps,
+} from "./components/collapsible.js";
 
 export { cn } from "./utils/cn.js";
 export {

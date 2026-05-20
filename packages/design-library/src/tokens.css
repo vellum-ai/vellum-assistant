@@ -427,5 +427,24 @@
   100% { transform: translateX(0); }
 }
 
+/* ---------------------------------------------------------------------------
+ * Collapsible — Radix Accordion content animation.
+ * Uses Radix's `--radix-accordion-content-height` variable so the animation
+ * always targets the actual content height (no JS measuring needed).
+ * --------------------------------------------------------------------------- */
+@keyframes collapsible-slide-down {
+  from { height: 0; }
+  to { height: var(--radix-accordion-content-height); }
+}
+@keyframes collapsible-slide-up {
+  from { height: var(--radix-accordion-content-height); }
+  to { height: 0; }
+}
+.collapsible-content[data-state="open"] {
+  animation: collapsible-slide-down 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.collapsible-content[data-state="closed"] {
+  animation: collapsible-slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
 
 

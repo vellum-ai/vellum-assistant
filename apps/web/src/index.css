@@ -1,23 +1,3 @@
 @import "tailwindcss";
 @import "@vellum/design-library/tokens.css";
 @source "../node_modules/@vellum/design-library/src/**/*.tsx";
-
-/* ---------------------------------------------------------------------------
- * CollapsibleNavSection — Radix Accordion content animation.
- * Uses Radix's `--radix-accordion-content-height` variable so the animation
- * always targets the actual content height (no JS measuring needed).
- * --------------------------------------------------------------------------- */
-@keyframes cns-slide-down {
-  from { height: 0; }
-  to { height: var(--radix-accordion-content-height); }
-}
-@keyframes cns-slide-up {
-  from { height: var(--radix-accordion-content-height); }
-  to { height: 0; }
-}
-.cns-content[data-state="open"] {
-  animation: cns-slide-down 200ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.cns-content[data-state="closed"] {
-  animation: cns-slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1);
-}

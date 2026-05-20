@@ -66,12 +66,14 @@ describe("CollapsibleNavSection", () => {
     expect(html).toContain("4");
   });
 
-  test("omits the trailing slot entirely when not provided", () => {
+  test("omits the trailing slot when not provided", () => {
     const html = renderSingleSection({ value: "pinned", label: "Pinned" });
-    expect(html).not.toContain("cns-trailing");
+    // When no trailing is passed, the trailing wrapper span is not rendered
+    const buttonCount = (html.match(/<button/g) ?? []).length;
+    expect(buttonCount).toBe(1); // Only the trigger button
   });
 
-  test("trailing slot is rendered OUTSIDE the Accordion.Trigger button", () => {
+  test("trailing slot is rendered OUTSIDE the trigger button", () => {
     const html = renderToStaticMarkup(
       createElement(
         CollapsibleNavSection.Root,
@@ -93,9 +95,9 @@ describe("CollapsibleNavSection", () => {
       ),
     );
     const triggerClose = html.indexOf("</button>");
-    const trailingMarker = html.indexOf("cns-trailing");
+    const actionButton = html.indexOf("action");
     expect(triggerClose).toBeGreaterThanOrEqual(0);
-    expect(trailingMarker).toBeGreaterThan(triggerClose);
+    expect(actionButton).toBeGreaterThan(triggerClose);
   });
 
   test("trigger carries the text-body-small-default typography utility", () => {
@@ -110,8 +112,9 @@ describe("CollapsibleNavSection", () => {
     expect(svgCount).toBeGreaterThanOrEqual(2);
   });
 
-  test("root renders data-slot attribute", () => {
+  test("composes on top of design library Collapsible", () => {
     const html = renderSingleSection({ value: "recents", label: "Recents" });
-    expect(html).toContain('data-slot="collapsible-nav-section"');
+    expect(html).toContain('data-slot="collapsible"');
+    expect(html).toContain('data-slot="collapsible-nav-section-section"');
   });
 });
