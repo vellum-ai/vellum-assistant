@@ -153,9 +153,7 @@ routes of their own — they are composed by page-level domains
 The dependency direction is one-way:
 `shared → domains → page domains → routes`.
 
-References:
-- [Bulletproof React — Project Structure](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md) — `features/` and `app/routes/` are separate top-level folders
-- [Feature-Sliced Design — Overview](https://feature-sliced.design/docs/get-started/overview) — "pages" (routes) and "features" (capabilities) are separate layers
+Reference: [Bulletproof React — Project Structure](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md) describes the same separation between `features/` and `app/routes/`.
 
 ### How to decide where the domain split is
 
@@ -167,41 +165,56 @@ Think of domains like database tables, not nested documents. Split by
   different developer without merge conflicts.
 - **Same domain if:** two things always change together, share the same
   store, and splitting them would create circular cross-imports.
-- **No cross-domain imports.** If a piece of code is consumed by
-  two or more domains, that's a signal it doesn't belong inside any
-  single domain — lift it to the appropriate top-level shared
-  directory (`hooks/`, `stores/`, `utils/`, `types/`, `components/`)
-  per [Top-level shared directories](#top-level-shared-directories),
-  or compose at the page/route level so features don't reach into
-  each other directly. Aligns with bulletproof-react and
-  [Feature-Sliced Design](https://feature-sliced.design/docs/guides/issues/cross-imports):
-  *"if one feature uses it, it lives in that feature; once two or
-  more features need it, it moves up to the shared layer."*
+- **No cross-domain imports.** Each folder under `src/domains/`
+  is meant to be a self-contained feature area — its own data,
+  components, hooks, and tests. When one feature reaches directly
+  into another's internals, you create a hidden coupling:
+  changing the source feature can break the consumer even though
+  they're supposed to be independent. Over time those reaches
+  accumulate into a tangle that's hard to reason about and harder
+  to refactor.
+
+  So the rule is:
+
+  - Code used by **one** feature lives inside that feature.
+  - Code used by **two or more** features moves up to a top-level
+    shared directory (`hooks/`, `stores/`, `utils/`, `types/`,
+    `components/`) — see
+    [Top-level shared directories](#top-level-shared-directories).
+  - Two features that need to interact compose at the
+    page/route level rather than importing each other directly.
+  - Code that's central to the whole app (the assistant itself)
+    sits at the top level, where every feature can depend on it
+    but it depends on no feature.
+
+  This keeps each feature folder a coherent unit you can read,
+  work on, or delete without surprises elsewhere, and makes
+  ownership obvious: if it's inside `chat/`, it belongs to chat;
+  if it's at the top level, it's shared infrastructure.
 
   **Enforced by ESLint.** The custom rule
   [`local/no-cross-domain-imports`](../eslint-rules/no-cross-domain-imports.mjs)
-  fails CI on any new `from "@/domains/<y>/..."` inside a file under
-  `apps/web/src/domains/<x>/...` when `x !== y`. Existing legacy
-  violations are quarantined in
+  fails CI on any new `from "@/domains/<y>/..."` inside a file
+  under `apps/web/src/domains/<x>/...` when `x !== y`. Existing
+  legacy imports are listed in
   [`.cross-domain-allowlist.json`](../.cross-domain-allowlist.json)
-  during the LUM-1753 cleanup — **don't add new entries by hand**;
-  fix the violation instead. After removing a violation, regenerate
-  the snapshot with:
+  while we lift shared code up to the top level. That file
+  shrinks toward zero over time — don't add new entries by hand;
+  fix the violation instead. After removing one, regenerate the
+  snapshot:
 
   ```sh
-  node apps/web/scripts/audit-cross-domain-imports.mjs
+  bun run audit:cross-domain
   ```
 
-  The allow-list shrinks monotonically toward zero as cleanup PRs
-  land.
-
 - **No circular dependencies.** If A imports from B AND B imports
-  from A, either merge them or hoist the shared code to a top-level
-  directory.
+  from A, either merge them or hoist the shared code to a
+  top-level directory.
 
-References:
-- [bulletproof-react — Cross-Feature Access](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md#cross-feature-access)
-- [Feature-Sliced Design — Cross-imports](https://feature-sliced.design/docs/guides/issues/cross-imports)
+For further reading, [bulletproof-react's project structure
+docs](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md#cross-feature-access)
+describe a similar one-feature/multi-feature rule that this
+codebase's convention is in the same spirit as.
 
 Examples of correct splits:
 - `messages/` vs `conversations/`: messages are created, streamed,

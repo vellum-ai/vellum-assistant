@@ -1,28 +1,29 @@
 /**
  * Custom ESLint rule: no-cross-domain-imports.
  *
- * Disallows imports of the form `@/domains/<y>/...` inside files
- * under `apps/web/src/domains/<x>/...` when `x !== y`. Also catches
- * the equivalent barrel form (`@/domains/<y>`) and relative paths
- * that resolve into a different domain (`../../<y>/foo`). The
- * premise is documented in `apps/web/docs/CONVENTIONS.md` →
- * "Top-level shared directories": code consumed by two or more
- * domains should live at a top-level shared dir (`hooks/`,
- * `stores/`, `utils/`, `types/`, `components/`), not be imported
- * peer-to-peer between domain folders.
+ * Each folder under `apps/web/src/domains/` is meant to be a
+ * self-contained feature area. When one feature imports directly
+ * from another's internals, you create a hidden coupling that
+ * makes the codebase harder to reason about and refactor — change
+ * the source feature, break the consumer. The fix is to lift
+ * shared code up to a top-level dir (`hooks/`, `stores/`,
+ * `utils/`, `types/`, `components/`) so the dependency is
+ * explicit and one-directional, or compose at the page/route
+ * level.
  *
- * Existing violations are quarantined in
- * `.cross-domain-allowlist.json` during the LUM-1753 migration.
- * To regenerate after fixing a violation:
+ * This rule fails CI on any cross-domain import: `@/domains/<y>/`
+ * or `@/domains/<y>` (barrel) or a relative `../../<y>/...` path
+ * inside a file under `src/domains/<x>/...` when `x !== y`.
+ *
+ * Existing legacy imports are listed in
+ * `.cross-domain-allowlist.json` while we lift them up. That
+ * file shrinks toward zero over time. Don't add new entries by
+ * hand — fix the import instead. After removing one:
  *
  *   bun run audit:cross-domain
  *
- * Cleanup PRs should shrink the allow-list monotonically toward
- * zero. Don't add new entries by hand — fix the import instead.
- *
- * References:
- *   - bulletproof-react: https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md
- *   - Feature-Sliced Design: https://feature-sliced.design/docs/guides/issues/cross-imports
+ * See `apps/web/docs/CONVENTIONS.md` → "How to decide where the
+ * domain split is" for the full reasoning.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";

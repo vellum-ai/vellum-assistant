@@ -112,16 +112,20 @@ patterns (Zustand + TanStack Query).
 See [`docs/STYLE_GUIDE.md`](./docs/STYLE_GUIDE.md) for naming, imports,
 TypeScript rules, and formatting.
 
-**Domain boundaries are enforced by lint.** The custom rule
-[`local/no-cross-domain-imports`](./eslint-rules/no-cross-domain-imports.mjs)
-fails CI on any new import of the form `@/domains/<y>/...` from a file
-under `src/domains/<x>/...` when `x !== y`. Existing legacy violations
-are quarantined in [`.cross-domain-allowlist.json`](./.cross-domain-allowlist.json)
-during the [LUM-1753](https://linear.app/vellum/issue/LUM-1753) cleanup
-(this list shrinks as cleanup PRs land — don't add new entries by hand,
-fix the import instead). See the
-[Cross-domain rule](./docs/CONVENTIONS.md#how-to-decide-where-the-domain-split-is)
-in CONVENTIONS.md for the full policy and rationale.
+**Feature boundaries are enforced by lint.** Each folder under
+`src/domains/` is meant to be a self-contained feature — its own data,
+components, hooks, and tests. When one feature reaches into another's
+internals, that creates a hidden coupling: changing the source can
+break the consumer, even though they're supposed to be independent.
+The custom ESLint rule [`local/no-cross-domain-imports`](./eslint-rules/no-cross-domain-imports.mjs)
+fails CI on any new `@/domains/<y>/...` import from inside
+`src/domains/<x>/...` when `x !== y`. Existing legacy imports are
+listed in [`.cross-domain-allowlist.json`](./.cross-domain-allowlist.json)
+while we lift the shared pieces up to the top-level shared directories
+(`hooks/`, `stores/`, `utils/`, `types/`, `components/`). That file
+shrinks toward zero over time — fix violations rather than adding
+entries to it. See [docs/CONVENTIONS.md](./docs/CONVENTIONS.md#how-to-decide-where-the-domain-split-is)
+for the full reasoning and the lift-vs-compose decision tree.
 
 ## Directory structure
 

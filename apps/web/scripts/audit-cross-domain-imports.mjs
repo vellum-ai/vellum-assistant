@@ -3,17 +3,18 @@
  * Audit cross-domain imports under `apps/web/src/domains/` and
  * regenerate `.cross-domain-allowlist.json`.
  *
- * A "cross-domain import" is an import that resolves to a domain
- * other than the importer's own — whether written as
+ * A "cross-domain import" is an import that resolves to a feature
+ * folder other than the importer's own — written as
  * `@/domains/<y>/...`, the barrel form `@/domains/<y>`, or a
- * relative path like `../../<y>/foo`. These are smells per
- * `apps/web/docs/CONVENTIONS.md` (and bulletproof-react /
- * Feature-Sliced Design): code consumed by two or more domains
- * should be lifted to a top-level shared dir, not imported
- * peer-to-peer.
+ * relative path like `../../<y>/foo`. These create hidden
+ * couplings between features that are supposed to be independent.
+ * The fix is to lift the shared code up to a top-level shared
+ * directory, or compose at the page level. See
+ * `apps/web/docs/CONVENTIONS.md` → "How to decide where the
+ * domain split is" for the reasoning.
  *
  * This script is the source-of-truth generator for the lint
- * allow-list. The custom ESLint rule
+ * allow-list. The ESLint rule
  * `eslint-rules/no-cross-domain-imports.mjs` reads the JSON file
  * this script writes. Don't hand-edit the JSON; regenerate it
  * here after you remove a violation.
@@ -26,10 +27,6 @@
  *   bun run audit:cross-domain          # write
  *   bun run audit:cross-domain:check    # CI gate (exit 1 if stale)
  *   node apps/web/scripts/audit-cross-domain-imports.mjs --stats
- *
- * See:
- *   apps/web/docs/CONVENTIONS.md → "Top-level shared directories"
- *   LUM-1753 (parent initiative)
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
