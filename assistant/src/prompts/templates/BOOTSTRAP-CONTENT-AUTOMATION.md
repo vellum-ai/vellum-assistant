@@ -104,7 +104,7 @@ Check if the token has write permissions by attempting a dry-run mutation via `a
 
 Convert the draft to Sanity Portable Text blocks based on the field structure observed from existing documents (see "After connection — Sanity path"), not assumed field names. Use the Sanity Mutations API via `assistant oauth request --provider sanity`:
 
-`assistant oauth request --provider sanity --method POST "https://{projectId}.api.sanity.io/v2024-01-01/data/mutate/{dataset}"`
+`assistant oauth request --provider sanity -X POST "https://{projectId}.api.sanity.io/v2024-01-01/data/mutate/{dataset}"`
 
 with a `createOrReplace` mutation.
 
