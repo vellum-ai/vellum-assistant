@@ -57,4 +57,21 @@ describe("faviconUrlForDomain", () => {
     // favicons for them avoids leaking internal IPs.
     expect(faviconUrlForDomain("172.16.0.1")).toBeUndefined();
   });
+
+  test("strips :port before the private-host check (host:port → undefined for private)", () => {
+    expect(faviconUrlForDomain("localhost:3000")).toBeUndefined();
+    expect(faviconUrlForDomain("127.0.0.1:8080")).toBeUndefined();
+    expect(faviconUrlForDomain("192.168.1.1:443")).toBeUndefined();
+  });
+
+  test("strips :port and encodes only the host (public host with port)", () => {
+    const result = faviconUrlForDomain("example.com:8080");
+    expect(result).toBe(
+      "https://www.google.com/s2/favicons?domain=example.com&sz=64",
+    );
+  });
+
+  test("handles bracketed IPv6 hosts with ports", () => {
+    expect(faviconUrlForDomain("[::1]:8080")).toBeUndefined();
+  });
 });
