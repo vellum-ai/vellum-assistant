@@ -32,6 +32,7 @@ import {
 } from "../credential-execution/startup-timeout.js";
 import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { startHomeContentRefresh } from "../home/home-content-refresh.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
@@ -471,6 +472,10 @@ export async function runDaemon(): Promise<void> {
           ),
         );
       });
+
+      // Pre-warm LLM-generated home page content (greeting + suggestion
+      // prompts) so the GET handler never triggers LLM calls.
+      startHomeContentRefresh();
 
       // Backfill injection templates on Slack bot token credentials so the
       // credential proxy can inject Authorization headers. Safe on every startup.

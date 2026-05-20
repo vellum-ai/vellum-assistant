@@ -125,10 +125,8 @@ export async function handleGetHomeFeed({
 
   const now = new Date();
 
-  const [personalizedGreeting, suggestedPrompts] = await Promise.all([
-    getPersonalizedGreeting().catch(() => null),
-    getSuggestedPrompts(),
-  ]);
+  const personalizedGreeting = getPersonalizedGreeting();
+  const suggestedPrompts = await getSuggestedPrompts();
 
   const contextBanner = {
     greeting: personalizedGreeting ?? computeGreeting(now),

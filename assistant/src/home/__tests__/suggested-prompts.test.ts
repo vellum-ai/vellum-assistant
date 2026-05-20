@@ -31,8 +31,8 @@ mock.module("../../config/llm-resolver.js", () => ({
   resolveCallSiteConfig: () => ({ provider: "mock" }),
 }));
 
-mock.module("../../providers/registry.js", () => ({
-  getProvider: () => ({}),
+mock.module("../../providers/provider-send-message.js", () => ({
+  getConfiguredProvider: async () => ({}),
 }));
 
 mock.module("../../prompts/persona-resolver.js", () => ({

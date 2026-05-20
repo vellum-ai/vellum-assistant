@@ -6,8 +6,11 @@
  *
  * Two sources of prompts:
  *   - **Deterministic** — derived from missing OAuth connections.
+ *     Computed inline (read-only, safe for GET).
  *   - **Assistant-generated** — contextual suggestions from the LLM
- *     based on what's relevant to the user.
+ *     based on what's relevant to the user. Read from an in-memory
+ *     cache in the GET path; generation runs in the background via
+ *     `refreshAssistantSuggestedPrompts`.
  */
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
@@ -15,7 +18,7 @@ import { getConfig } from "../config/loader.js";
 import { isProviderConnected, listProviders } from "../oauth/oauth-store.js";
 import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import { getProvider } from "../providers/registry.js";
+import { getConfiguredProvider } from "../providers/provider-send-message.js";
 import { runBtwSidechain } from "../runtime/btw-sidechain.js";
 import { getLogger } from "../util/logger.js";
 import type { SuggestedPrompt } from "./feed-types.js";
@@ -79,11 +82,19 @@ const CONNECT_PROMPT_META: Record<
 };
 
 const LLM_SUGGESTIONS_TIMEOUT_MS = 5_000;
+const LLM_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+// ---------------------------------------------------------------------------
+// In-memory cache for LLM-generated suggestions
+// ---------------------------------------------------------------------------
+
+let cachedLLMPrompts: SuggestedPrompt[] = [];
+let cachedLLMPromptsAt = 0;
 
 /**
- * Produce suggested prompts from both deterministic and LLM sources.
- * Deterministic prompts always come first; LLM-generated prompts are
- * appended when available.
+ * Produce suggested prompts from both deterministic and cached LLM sources.
+ * Deterministic prompts always come first; cached LLM-generated prompts are
+ * appended when available. No LLM calls happen in this path — safe for GET.
  */
 export async function getSuggestedPrompts(): Promise<SuggestedPrompt[]> {
   const prompts: SuggestedPrompt[] = [];
@@ -96,14 +107,31 @@ export async function getSuggestedPrompts(): Promise<SuggestedPrompt[]> {
     log.warn({ err }, "Failed to compute deterministic suggested prompts");
   }
 
-  try {
-    const llmPrompts = await getAssistantGeneratedPrompts(deterministicPrompts);
-    prompts.push(...llmPrompts);
-  } catch (err) {
-    log.warn({ err }, "Failed to generate assistant suggested prompts");
+  if (Date.now() - cachedLLMPromptsAt < LLM_CACHE_TTL_MS) {
+    prompts.push(...cachedLLMPrompts);
   }
 
   return prompts;
+}
+
+/**
+ * Generate LLM-based suggestion prompts and write them to the in-memory
+ * cache. No-ops when the cache is still fresh. Intended for background
+ * invocation (daemon startup / periodic refresh), not the GET path.
+ */
+export async function refreshAssistantSuggestedPrompts(): Promise<void> {
+  if (Date.now() - cachedLLMPromptsAt < LLM_CACHE_TTL_MS) {
+    return;
+  }
+
+  try {
+    const deterministicPrompts = await getDeterministicPrompts();
+    const llmPrompts = await generateAssistantPrompts(deterministicPrompts);
+    cachedLLMPrompts = llmPrompts;
+    cachedLLMPromptsAt = Date.now();
+  } catch (err) {
+    log.warn({ err }, "Failed to refresh assistant suggested prompts");
+  }
 }
 
 /**
@@ -163,12 +191,17 @@ interface LLMSuggestion {
  * based on the assistant's persona and the user's connected services.
  * Returns an empty array on failure so deterministic prompts still show.
  */
-async function getAssistantGeneratedPrompts(
+async function generateAssistantPrompts(
   deterministicPrompts: SuggestedPrompt[],
 ): Promise<SuggestedPrompt[]> {
   const config = getConfig();
   const resolved = resolveCallSiteConfig("homeSuggestedPrompts", config.llm);
-  const provider = getProvider(resolved.provider);
+
+  const provider = await getConfiguredProvider("homeSuggestedPrompts");
+  if (!provider) {
+    return [];
+  }
+
   const { userPersona, userSlug, channelPersona } = resolvePersonaContext(
     undefined,
     undefined,
@@ -199,6 +232,7 @@ async function getAssistantGeneratedPrompts(
     messages: [],
     tools: [],
     callSite: "homeSuggestedPrompts",
+    maxTokens: resolved.maxTokens,
     timeoutMs: LLM_SUGGESTIONS_TIMEOUT_MS,
   });
 
