@@ -355,18 +355,15 @@ jobs:
           path: /tmp/chrome-extension
 
       - name: Install chrome-webstore-upload-cli
-        run: npm install -g chrome-webstore-upload-cli
+        run: npm install -g chrome-webstore-upload-cli@4.0.0
 
       - name: Upload to Chrome Web Store
         env:
           EXTENSION_ID: ${{ steps.read-extension-id.outputs.id }}
-          # chrome-webstore-upload-cli reads credentials from CLIENT_ID,
-          # CLIENT_SECRET, and REFRESH_TOKEN env vars. The equivalent CLI
-          # flags were removed and now cause the CLI to exit with an error.
-          # See https://github.com/fregante/chrome-webstore-upload-cli/issues/80.
           CLIENT_ID: ${{ vars.CWS_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
           E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
         run: |
           # CWS API requires a zip — it handles signing server-side
@@ -395,6 +392,7 @@ jobs:
           CLIENT_ID: ${{ vars.CWS_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
         run: |
           chrome-webstore-upload publish \
             --extension-id "$EXTENSION_ID"
@@ -2448,6 +2446,13 @@ jobs:
           name: chrome-extension-zip
           path: chrome-extension-artifacts
 
+      - name: Download Chrome extension CRX
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
+        with:
+          name: chrome-extension-crx
+          path: chrome-extension-artifacts
+
       - name: Create GitHub Releases
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -2475,10 +2480,12 @@ jobs:
           INSTALL_SH="cli/src/adapters/install.sh"
           [ -f "$INSTALL_SH" ] && ASSETS+=("$INSTALL_SH#install.sh")
 
-          # Add Chrome extension zip if available
+          # Add Chrome extension artifacts if available
           if [ -d "chrome-extension-artifacts" ]; then
             CRX_ZIP=$(find chrome-extension-artifacts -name "vellum-browser-relay.zip" -type f | head -1)
             [ -n "$CRX_ZIP" ] && ASSETS+=("$CRX_ZIP#vellum-browser-relay-${VERSION}.zip")
+            CRX_FILE=$(find chrome-extension-artifacts -name "vellum-browser-relay.crx" -type f | head -1)
+            [ -n "$CRX_FILE" ] && ASSETS+=("$CRX_FILE#vellum-browser-relay-${VERSION}.crx")
           fi
 
           echo "Release assets: ${ASSETS[*]}"
