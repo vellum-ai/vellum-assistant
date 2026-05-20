@@ -26,8 +26,8 @@ import {
 } from "@/components/command-palette/use-command-palette.js";
 import type { Conversation } from "@/domains/chat/lib/api.js";
 import type { GlobalSearchResponse } from "@/domains/chat/lib/global-search.js";
-import type { ViewSelection } from "@/domains/chat/lib/navigation-history.js";
 import { haptic } from "@/utils/haptics.js";
+import { routes } from "@/utils/routes.js";
 
 import { formatRelativeTime } from "@/domains/chat/utils/chat-utils.js";
 
@@ -122,10 +122,7 @@ export function buildServerResultSections(
 interface CommandPaletteActionContext {
   startNewConversation: () => void;
   switchConversation: (key: string) => void;
-  navPush: (entry: ViewSelection) => void;
-  handleGoBack: () => void;
-  handleGoForward: () => void;
-  setMainView: (view: "chat" | "intelligence" | "library") => void;
+  navigate: (to: string | number) => void;
   activeConversationKey: string | undefined;
   navigateToSettings: () => void;
 }
@@ -140,10 +137,7 @@ function dispatchCommandPaletteAction(
       break;
     case "action-current-conversation":
       haptic.light();
-      if (ctx.activeConversationKey) {
-        ctx.navPush({ type: "conversation", key: ctx.activeConversationKey });
-      }
-      ctx.setMainView("chat");
+      ctx.navigate(routes.assistant);
       break;
     case "action-settings":
       haptic.light();
@@ -151,19 +145,17 @@ function dispatchCommandPaletteAction(
       break;
     case "action-intelligence":
       haptic.light();
-      ctx.navPush({ type: "intelligence" });
-      ctx.setMainView("intelligence");
+      ctx.navigate(routes.identity);
       break;
     case "action-library":
       haptic.light();
-      ctx.navPush({ type: "library" });
-      ctx.setMainView("library");
+      ctx.navigate(routes.library.root);
       break;
     case "action-back":
-      ctx.handleGoBack();
+      ctx.navigate(-1);
       break;
     case "action-forward":
-      ctx.handleGoForward();
+      ctx.navigate(1);
       break;
     case "action-zoom-in":
       document.body.style.zoom = String(parseFloat(document.body.style.zoom || "1") + 0.1);
@@ -177,19 +169,16 @@ function dispatchCommandPaletteAction(
     default:
       if (item.id.startsWith("conv-")) {
         const convKey = item.id.slice("conv-".length);
-        ctx.navPush({ type: "conversation", key: convKey });
         ctx.switchConversation(convKey);
       } else if (item.id.startsWith("search-conv-")) {
         const convId = item.id.slice("search-conv-".length);
-        ctx.navPush({ type: "conversation", key: convId });
         ctx.switchConversation(convId);
       } else if (
         item.id.startsWith("search-schedule-") ||
         item.id.startsWith("search-contact-")
       ) {
         haptic.light();
-        ctx.navPush({ type: "intelligence" });
-        ctx.setMainView("intelligence");
+        ctx.navigate(routes.identity);
       }
       break;
   }
@@ -206,10 +195,7 @@ interface UseCommandPaletteSectionsParams {
   activeConversationKey: string | undefined;
   startNewConversation: () => void;
   switchConversation: (key: string) => void;
-  navPush: (entry: ViewSelection) => void;
-  handleGoBack: () => void;
-  handleGoForward: () => void;
-  setMainView: (view: "chat" | "intelligence" | "library") => void;
+  navigate: (to: string | number) => void;
   navigateToSettings: () => void;
 }
 
@@ -226,10 +212,7 @@ export function useCommandPaletteSections({
   activeConversationKey,
   startNewConversation,
   switchConversation,
-  navPush,
-  handleGoBack,
-  handleGoForward,
-  setMainView,
+  navigate,
   navigateToSettings,
 }: UseCommandPaletteSectionsParams): UseCommandPaletteSectionsReturn {
   // Static sections: actions + recent conversations.
@@ -251,15 +234,12 @@ export function useCommandPaletteSections({
       dispatchCommandPaletteAction(item, {
         startNewConversation,
         switchConversation,
-        navPush,
-        handleGoBack,
-        handleGoForward,
-        setMainView,
+        navigate,
         activeConversationKey,
         navigateToSettings,
       });
     },
-    [startNewConversation, switchConversation, navPush, handleGoBack, handleGoForward, activeConversationKey, navigateToSettings, setMainView],
+    [startNewConversation, switchConversation, navigate, activeConversationKey, navigateToSettings],
   );
 
   // Ref-based indirection so the index-based onSelect callback doesn't

@@ -17,10 +17,8 @@ import { toast } from "@vellum/design-library";
 import { openApp, shareApp } from "@/domains/chat/lib/apps.js";
 import { fetchDocumentContent } from "@/domains/chat/lib/documents.js";
 import { getEditChatKey, setEditChatKey } from "@/domains/chat/lib/edit-chat-session.js";
-import type { ViewSelection } from "@/domains/chat/lib/navigation-history.js";
 import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/lib/publish.js";
 import type {
-  MainView,
   OpenedAppState,
 } from "@/stores/viewer-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
@@ -45,10 +43,6 @@ export interface UseAppViewerActionsParams {
   lastConversationKeyRef: MutableRefObject<string | null>;
   deepLinkAppId: RefObject<string | undefined>;
   switchConversation: (key: string) => void;
-  setMainView: (view: MainView) => void;
-  navPush: (selection: ViewSelection) => void;
-  navGoBack: () => ViewSelection | null;
-  navGoForward: () => ViewSelection | null;
   /**
    * Framework adapter: set the `conversationKey` URL search parameter.
    *
@@ -67,7 +61,6 @@ export interface UseAppViewerActionsParams {
  *
  * Owns:
  * - Core loaders (`loadApp`, `loadDocument`) with concurrent-request guards
- * - Navigation back/forward via `applyViewSelection`
  * - Open/close/minimize/edit handlers for the app and document viewers
  * - Share-to-file and deploy-to-Vercel flows (including the token dialog)
  * - Deep-link auto-open on mount
@@ -86,10 +79,6 @@ export function useAppViewerActions({
   lastConversationKeyRef,
   deepLinkAppId,
   switchConversation,
-  setMainView,
-  navPush,
-  navGoBack,
-  navGoForward,
   pushConversationKeyParam,
 }: UseAppViewerActionsParams) {
   // Ref-stabilize unstable callbacks so consuming useCallbacks keep stable identity.
@@ -154,57 +143,15 @@ export function useAppViewerActions({
   );
 
   // ---------------------------------------------------------------------------
-  // Navigation (back/forward history)
-  // ---------------------------------------------------------------------------
-
-  /** Apply a navigation history ViewSelection without recording a new push. */
-  const applyViewSelection = useCallback(
-    (selection: ViewSelection) => {
-      switch (selection.type) {
-        case "conversation":
-          switchConversationRef.current(selection.key);
-          break;
-        case "home":
-          setMainView("home");
-          break;
-        case "intelligence":
-          setMainView("intelligence");
-          break;
-        case "library":
-          setMainView("library");
-          break;
-        case "app":
-          void loadApp(selection.appId);
-          break;
-        case "document":
-          void loadDocument(selection.surfaceId);
-          break;
-      }
-    },
-    [setMainView, loadApp, loadDocument],
-  );
-
-  const handleGoBack = useCallback(() => {
-    const dest = navGoBack();
-    if (dest) applyViewSelection(dest);
-  }, [navGoBack, applyViewSelection]);
-
-  const handleGoForward = useCallback(() => {
-    const dest = navGoForward();
-    if (dest) applyViewSelection(dest);
-  }, [navGoForward, applyViewSelection]);
-
-  // ---------------------------------------------------------------------------
   // Open / close handlers
   // ---------------------------------------------------------------------------
 
   const handleOpenApp = useCallback(
     async (appId: string) => {
       haptic.light();
-      navPush({ type: "app", appId });
       await loadApp(appId);
     },
-    [navPush, loadApp],
+    [loadApp],
   );
 
   const handleOpenDocument = useCallback(
@@ -216,22 +163,18 @@ export function useAppViewerActions({
   );
 
   const handleCloseDocument = useCallback(() => {
-    const prev = useViewerStore.getState().viewBeforeDocument;
     useViewerStore.getState().closeDocument();
-    if (prev !== "library" && prev !== "intelligence") {
-      if (lastConversationKeyRef.current) {
-        switchConversationRef.current(lastConversationKeyRef.current);
-      }
+    if (lastConversationKeyRef.current) {
+      switchConversationRef.current(lastConversationKeyRef.current);
     }
   }, [lastConversationKeyRef]);
 
   const handleCloseApp = useCallback(() => {
     useViewerStore.getState().closeApp();
     useConversationListStore.getState().setEditingKey(null);
+    useViewerStore.getState().setMainView("chat");
     if (lastConversationKeyRef.current) {
       switchConversationRef.current(lastConversationKeyRef.current);
-    } else {
-      useViewerStore.getState().setMainView("chat");
     }
   }, [lastConversationKeyRef]);
 
@@ -432,8 +375,6 @@ export function useAppViewerActions({
   return {
     loadApp,
     loadDocument,
-    handleGoBack,
-    handleGoForward,
     handleOpenApp,
     handleOpenDocument,
     handleCloseDocument,

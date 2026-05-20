@@ -39,7 +39,6 @@ import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/ty
 import type { PreChatOnboardingContext } from "@/lib/onboarding/prechat.js";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
-import type { MainView } from "@/stores/viewer-store.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
 
 import { useSyncChatStore } from "@/domains/chat/chat-store.js";
@@ -57,7 +56,7 @@ import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-han
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message.js";
 import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions.js";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
-import { useNavigationHistory } from "@/domains/chat/lib/navigation-history.js";
+
 import { createWebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import { fetchAssistantIdentity } from "@/domains/chat/lib/assistant.js";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/lib/error-classification.js";
@@ -91,11 +90,6 @@ export function ChatPage() {
     doctor,
     conversationGroupsUI,
   } = useAppFeatureFlags();
-
-  // -------------------------------------------------------------------------
-  // Navigation history
-  // -------------------------------------------------------------------------
-  const { push: navPush, remapConversationKey: navRemapKey } = useNavigationHistory();
 
   // -------------------------------------------------------------------------
   // Local state
@@ -295,14 +289,6 @@ export function ChatPage() {
     needsNewBubbleRef.current = !lastMsg || lastMsg.role !== "assistant" || !lastMsg.isStreaming;
   }, []);
 
-  const setMainView = useCallback((view: MainView | ((prev: MainView) => MainView)) => {
-    if (typeof view === "function") {
-      useViewerStore.setState((s) => ({ mainView: view(s.mainView) }));
-    } else {
-      useViewerStore.setState({ mainView: view });
-    }
-  }, []);
-
   // -------------------------------------------------------------------------
   // Conversation loader
   // -------------------------------------------------------------------------
@@ -364,10 +350,8 @@ export function ChatPage() {
     setSuggestion,
     setCompactionCircuitOpenUntil,
     setInput,
-    setMainView: setMainView as Dispatch<SetStateAction<MainView>>,
     resetChatAttachments,
     syncNeedsNewBubbleFromMessages,
-    navPush,
     onDraftRestored: setRestoredDraftConversationKey,
     shouldSuppressGenericChatErrorNotice,
   });
@@ -534,7 +518,7 @@ export function ChatPage() {
     startReconciliationLoop,
     cancelReconciliation,
     refreshConversations,
-    navRemapKey,
+
     replaceUrl,
   });
 
@@ -664,9 +648,8 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const handleReviewDiskUsage = () => {
     haptic.light();
-    navPush({ type: "intelligence" });
-    useViewerStore.getState().setMainView("intelligence");
     useViewerStore.getState().setIntelligenceTab("workspace");
+    void navigate(routes.identity);
   };
 
   const pushToAiSettings = () => { void navigate(routes.settings.ai); };
@@ -789,7 +772,6 @@ export function ChatPage() {
     },
     handleOpenApp: (appId: string) => {
       haptic.light();
-      navPush({ type: "app", appId });
       useViewerStore.getState().openApp(appId);
     },
     handleOpenDocument: (_surfaceId: string) => {

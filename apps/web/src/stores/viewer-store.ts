@@ -26,7 +26,7 @@ import { createSelectors } from "@/utils/create-selectors.js";
 // Types
 // ---------------------------------------------------------------------------
 
-export type MainView = "chat" | "intelligence" | "library" | "app" | "app-editing" | "document" | "home" | "subagent-detail";
+export type MainView = "chat" | "app" | "app-editing" | "document" | "subagent-detail";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
 
@@ -61,9 +61,9 @@ export interface ViewerState {
   isAppMinimized: boolean;
   intelligenceTab: IntelligenceTab;
   assetsRefreshKey: number;
-  viewBeforeDocument: Exclude<MainView, "document">;
+  viewBeforeDocument: Exclude<MainView, "document" | "subagent-detail">;
   activeSubagentId: string | null;
-  viewBeforeSubagentDetail: Exclude<MainView, "subagent-detail">;
+  viewBeforeSubagentDetail: Exclude<MainView, "document" | "subagent-detail">;
   isSharing: boolean;
   isDeploying: boolean;
   isTokenDialogOpen: boolean;
@@ -218,9 +218,9 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   openSubagentDetail: (subagentId) => {
     const state = get();
     const viewBeforeSubagentDetail =
-      state.mainView === "subagent-detail"
+      state.mainView === "subagent-detail" || state.mainView === "document"
         ? state.viewBeforeSubagentDetail
-        : (state.mainView as Exclude<MainView, "subagent-detail">);
+        : (state.mainView as Exclude<MainView, "document" | "subagent-detail">);
     set({
       mainView: "subagent-detail",
       activeSubagentId: subagentId,
@@ -240,9 +240,9 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   openDocument: () => {
     const state = get();
     const viewBeforeDocument =
-      state.mainView === "document"
+      state.mainView === "document" || state.mainView === "subagent-detail"
         ? state.viewBeforeDocument
-        : (state.mainView as Exclude<MainView, "document">);
+        : (state.mainView as Exclude<MainView, "document" | "subagent-detail">);
     set({
       mainView: "document",
       openedDocumentState: null,

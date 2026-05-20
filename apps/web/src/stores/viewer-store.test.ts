@@ -23,8 +23,8 @@ const SAMPLE_DOC = { surfaceId: "surf-1", conversationId: "conv-1", documentName
 
 describe("setMainView", () => {
   it("switches the main view", () => {
-    getState().setMainView("intelligence");
-    expect(getState().mainView).toBe("intelligence");
+    getState().setMainView("app");
+    expect(getState().mainView).toBe("app");
   });
 
   it("is a no-op when view is unchanged", () => {
@@ -172,12 +172,12 @@ describe("openSubagentDetail", () => {
   it("preserves existing viewBeforeSubagentDetail when already in subagent-detail", () => {
     useViewerStore.setState({
       mainView: "subagent-detail",
-      viewBeforeSubagentDetail: "intelligence",
+      viewBeforeSubagentDetail: "app",
       activeSubagentId: "sa-1",
     });
     getState().openSubagentDetail("sa-2");
     const state = getState();
-    expect(state.viewBeforeSubagentDetail).toBe("intelligence");
+    expect(state.viewBeforeSubagentDetail).toBe("app");
     expect(state.activeSubagentId).toBe("sa-2");
   });
 
@@ -204,12 +204,12 @@ describe("closeSubagentDetail", () => {
   it("restores a non-chat view", () => {
     useViewerStore.setState({
       mainView: "subagent-detail",
-      viewBeforeSubagentDetail: "library",
+      viewBeforeSubagentDetail: "app",
       activeSubagentId: "sa-1",
     });
     getState().closeSubagentDetail();
     const state = getState();
-    expect(state.mainView).toBe("library");
+    expect(state.mainView).toBe("app");
     expect(state.activeSubagentId).toBeNull();
   });
 });
@@ -220,21 +220,21 @@ describe("closeSubagentDetail", () => {
 
 describe("openDocument", () => {
   it("saves current view as viewBeforeDocument and switches to document", () => {
-    useViewerStore.setState({ mainView: "intelligence" });
+    useViewerStore.setState({ mainView: "app" });
     getState().openDocument();
     const state = getState();
     expect(state.mainView).toBe("document");
-    expect(state.viewBeforeDocument).toBe("intelligence");
+    expect(state.viewBeforeDocument).toBe("app");
     expect(state.openedDocumentState).toBeNull();
   });
 
   it("preserves existing viewBeforeDocument when already in document view", () => {
     useViewerStore.setState({
       mainView: "document",
-      viewBeforeDocument: "library",
+      viewBeforeDocument: "app",
     });
     getState().openDocument();
-    expect(getState().viewBeforeDocument).toBe("library");
+    expect(getState().viewBeforeDocument).toBe("app");
   });
 });
 
@@ -249,12 +249,12 @@ describe("handleDocumentLoadFailed", () => {
   it("restores viewBeforeDocument and clears document state", () => {
     useViewerStore.setState({
       mainView: "document",
-      viewBeforeDocument: "library",
+      viewBeforeDocument: "app",
       openedDocumentState: SAMPLE_DOC,
     });
     getState().handleDocumentLoadFailed();
     const state = getState();
-    expect(state.mainView).toBe("library");
+    expect(state.mainView).toBe("app");
     expect(state.openedDocumentState).toBeNull();
   });
 });

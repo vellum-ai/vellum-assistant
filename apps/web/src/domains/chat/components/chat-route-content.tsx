@@ -19,7 +19,6 @@
  */
 
 import * as Sentry from "@sentry/react";
-import { Loader2 } from "lucide-react";
 import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, startTransition, useCallback, useEffect, useMemo, useRef } from "react";
 
 import { ChatBody } from "@/domains/chat/components/chat-body.js";
@@ -1374,46 +1373,25 @@ export function ChatRouteContent({
     />
   );
 
-  if (mainView === "document" && !isMobile) {
-    const isFullWidth = viewerState.viewBeforeDocument === "library" || viewerState.viewBeforeDocument === "intelligence";
-    if (!openedDocumentState) {
-      if (isFullWidth) {
-        return (
-          <div className="flex flex-1 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
-          </div>
-        );
-      }
-    } else if (isFullWidth) {
-      return (
-        <DocumentViewerContainer
-          documentName={openedDocumentState.documentName}
-          content={openedDocumentState.content}
-          onClose={handleCloseDocument}
-          assistantId={assistantId ?? undefined}
-          surfaceId={openedDocumentState.surfaceId}
-        />
-      );
-    } else {
-      return (
-        <ResizablePanel
-          storageKey="documentPanelWidth"
-          defaultLeftWidth={400}
-          minLeftWidth={300}
-          minRightWidth={400}
-          left={chatContent}
-          right={
-            <DocumentViewerContainer
-              documentName={openedDocumentState.documentName}
-              content={openedDocumentState.content}
-              onClose={handleCloseDocument}
-              assistantId={assistantId ?? undefined}
-              surfaceId={openedDocumentState.surfaceId}
-            />
-          }
-        />
-      );
-    }
+  if (mainView === "document" && !isMobile && openedDocumentState) {
+    return (
+      <ResizablePanel
+        storageKey="documentPanelWidth"
+        defaultLeftWidth={400}
+        minLeftWidth={300}
+        minRightWidth={400}
+        left={chatContent}
+        right={
+          <DocumentViewerContainer
+            documentName={openedDocumentState.documentName}
+            content={openedDocumentState.content}
+            onClose={handleCloseDocument}
+            assistantId={assistantId ?? undefined}
+            surfaceId={openedDocumentState.surfaceId}
+          />
+        }
+      />
+    );
   }
 
   if (mainView === "subagent-detail" && activeSubagentId && !isMobile) {

@@ -115,7 +115,6 @@ interface UseSendMessageParams {
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
   refreshConversations: () => Promise<void>;
-  navRemapKey: (oldKey: string, newKey: string) => void;
 
   // Routing adapter
   replaceUrl: (url: string) => void;
@@ -155,7 +154,6 @@ export function useSendMessage({
   startReconciliationLoop,
   cancelReconciliation,
   refreshConversations,
-  navRemapKey,
   replaceUrl,
 }: UseSendMessageParams) {
   // -------------------------------------------------------------------------
@@ -545,7 +543,6 @@ export function useSendMessage({
           if (snapshot !== undefined) {
             processingSnapshotsRef.current.set(newKey, snapshot);
           }
-          navRemapKey(activeConversationKey, newKey);
           useConversationListStore.getState().resolveDraftKey(activeConversationKey, newKey);
           resolveEditChatDraftKey(activeConversationKey, newKey);
 
