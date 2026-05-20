@@ -107,7 +107,7 @@ export function AvatarCustomizationPanel({
 
   if (!components) {
     return (
-      <div className="py-8 text-center text-body-medium-lighter text-stone-500 dark:text-stone-400">
+      <div className="py-8 text-center text-body-medium-lighter text-[var(--content-quiet)]">
         Unable to load avatar components. Make sure your assistant is running.
       </div>
     );
@@ -196,7 +196,7 @@ interface CycleRowProps {
 function CycleRow({ label, value, colorHex, onPrev, onNext }: CycleRowProps) {
   return (
     <div className="flex items-center justify-between rounded-lg border border-stone-200 bg-[var(--surface-lift)] px-3 py-2 dark:border-moss-600">
-      <span className="text-body-small-default uppercase tracking-wider text-stone-500 dark:text-stone-400">
+      <span className="text-body-small-default uppercase tracking-wider text-[var(--content-quiet)]">
         {label}
       </span>
       <div className="flex items-center gap-2">

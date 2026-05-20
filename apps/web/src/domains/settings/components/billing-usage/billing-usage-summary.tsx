@@ -38,7 +38,7 @@ export function BillingUsageSummary({
   return (
     <div className="flex items-center gap-6 rounded-lg border border-stone-200 bg-stone-50 p-5 dark:border-moss-600 dark:bg-moss-700/50">
       <div>
-        <p className="text-body-small-default text-stone-500 dark:text-stone-400">
+        <p className="text-body-small-default text-[var(--content-quiet)]">
           Total Spend
         </p>
         <p className="text-title-medium text-stone-900 dark:text-stone-100">
@@ -52,7 +52,7 @@ export function BillingUsageSummary({
         </p>
       </div>
       <div>
-        <p className="text-body-small-default text-stone-500 dark:text-stone-400">Events</p>
+        <p className="text-body-small-default text-[var(--content-quiet)]">Events</p>
         <p className="text-title-medium text-stone-900 dark:text-stone-100">
           {isLoading ? (
             <Loader2 className="inline h-4 w-4 animate-spin" />

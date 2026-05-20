@@ -22,7 +22,7 @@ export function BrowserViewSurface({ surface, onAction }: BrowserViewSurfaceProp
     <SurfaceContainer surface={surface} onAction={onAction}>
       <div>
         {data.title && (
-          <h3 className="text-title-small text-stone-800 dark:text-stone-200">
+          <h3 className="text-title-small text-[var(--content-strong)]">
             {data.title}
           </h3>
         )}
@@ -40,7 +40,7 @@ export function BrowserViewSurface({ surface, onAction }: BrowserViewSurfaceProp
               <span className="break-all">{data.url}</span>
             </a>
           ) : (
-            <span className="mt-1 text-body-medium-lighter text-stone-500 dark:text-stone-400 break-all">
+            <span className="mt-1 text-body-medium-lighter text-[var(--content-quiet)] break-all">
               {data.url}
             </span>
           );

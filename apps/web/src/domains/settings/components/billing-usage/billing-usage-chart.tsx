@@ -90,7 +90,7 @@ function ChartLegend({
             className="inline-block h-2.5 w-2.5 rounded-sm"
             style={{ backgroundColor: getBarColor(key, i) }}
           />
-          <span className="text-stone-500 dark:text-stone-400">
+          <span className="text-[var(--content-quiet)]">
             {labelMap[key] ?? key}
           </span>
         </div>
@@ -143,7 +143,7 @@ export function BillingUsageChart({
 
   if (stackKeys.length === 0) {
     return (
-      <div className="flex h-[350px] items-center justify-center text-body-medium-lighter text-stone-400 dark:text-stone-500">
+      <div className="flex h-[350px] items-center justify-center text-body-medium-lighter text-[var(--content-faint)]">
         No usage data for this period
       </div>
     );

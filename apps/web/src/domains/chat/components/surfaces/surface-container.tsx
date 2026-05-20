@@ -27,7 +27,7 @@ export function SurfaceContainer({ surface, onAction, children }: SurfaceContain
     <div className="rounded-lg border border-stone-200 bg-[var(--surface-lift)] p-4 dark:border-moss-600">
       {surface.title && (
         <div className="mb-3 flex items-center gap-2">
-          <span className="text-title-small text-stone-800 dark:text-stone-200">
+          <span className="text-title-small text-[var(--content-strong)]">
             {surface.title}
           </span>
         </div>

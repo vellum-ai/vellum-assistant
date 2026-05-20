@@ -122,7 +122,7 @@ export function ListSurface({ surface, onAction }: ListSurfaceProps) {
                   const lucideName = sfSymbolToLucideName(item.icon);
                   const LucideIcon = lucideName ? icons[lucideName as keyof typeof icons] : undefined;
                   return LucideIcon ? (
-                    <LucideIcon className="h-5 w-5 shrink-0 text-stone-500 dark:text-stone-400" aria-hidden />
+                    <LucideIcon className="h-5 w-5 shrink-0 text-[var(--content-quiet)]" aria-hidden />
                   ) : (
                     <span className="text-body-large-lighter leading-none">{item.icon}</span>
                   );
@@ -130,11 +130,11 @@ export function ListSurface({ surface, onAction }: ListSurfaceProps) {
 
                 {/* Content */}
                 <div className="min-w-0 flex-1">
-                  <span className="text-title-small text-stone-800 dark:text-stone-200">
+                  <span className="text-title-small text-[var(--content-strong)]">
                     {item.title}
                   </span>
                   {item.subtitle && (
-                    <p className="mt-0.5 text-body-small-default text-stone-500 dark:text-stone-400">
+                    <p className="mt-0.5 text-body-small-default text-[var(--content-quiet)]">
                       {item.subtitle}
                     </p>
                   )}

@@ -89,7 +89,7 @@ function renderField(
             placeholder={field.placeholder}
             className={inputClasses + errorClasses}
           />
-          <p className="mt-1 flex items-center gap-1 text-body-small-default text-stone-400 dark:text-stone-500">
+          <p className="mt-1 flex items-center gap-1 text-body-small-default text-[var(--content-faint)]">
             <Lock className="h-3 w-3" />
             This value will be sent securely and will not be stored in your browser.
           </p>
@@ -287,7 +287,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
     <div className="rounded-lg border border-stone-200 bg-[var(--surface-lift)] p-4 dark:border-moss-600">
       {surface.title && (
         <div className="mb-3 flex items-center gap-2">
-          <span className="text-title-small text-stone-800 dark:text-stone-200">
+          <span className="text-title-small text-[var(--content-strong)]">
             {surface.title}
           </span>
         </div>
@@ -306,7 +306,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
       {(currentPageData.description || (!isMultiPage && formData.description)) && (
         <ChatMarkdownMessage
           content={(isMultiPage ? currentPageData.description : formData.description) ?? ""}
-          className="mb-3 text-body-medium-lighter text-stone-500 dark:text-stone-400"
+          className="mb-3 text-body-medium-lighter text-[var(--content-quiet)]"
         />
       )}
 

@@ -54,7 +54,7 @@ export function CallSummarySurface({
         className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-stone-50 dark:hover:bg-moss-600 rounded-lg"
         onClick={() => setExpanded((v) => !v)}
       >
-        <StatusIcon className="h-4 w-4 shrink-0 text-stone-400 dark:text-stone-500" />
+        <StatusIcon className="h-4 w-4 shrink-0 text-[var(--content-faint)]" />
         <span className="flex-1 text-body-medium-lighter text-stone-700 dark:text-stone-300">
           <strong>{statusLabel}</strong>
           {durationStr}
@@ -79,7 +79,7 @@ export function CallSummarySurface({
               <span className="text-body-small-default font-mono text-stone-600 dark:text-stone-400">
                 {prettifyEventType(e.eventType)}
               </span>
-              <span className="text-body-small-default text-stone-400 dark:text-stone-500 shrink-0">
+              <span className="text-body-small-default text-[var(--content-faint)] shrink-0">
                 {new Date(e.createdAt).toLocaleTimeString([], {
                   hour: "2-digit",
                   minute: "2-digit",

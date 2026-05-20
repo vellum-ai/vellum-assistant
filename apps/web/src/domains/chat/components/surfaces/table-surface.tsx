@@ -172,14 +172,14 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
         </div>
         <table className="w-full text-left text-body-medium-lighter">
           <thead>
-            <tr className="border-b border-stone-200 dark:border-moss-600">
+            <tr className="border-b border-[var(--border-subtle)]">
               {isSelectable && (
                 <th className="w-10 px-3 py-2" />
               )}
               {data.columns.map((col) => (
                 <th
                   key={col.id}
-                  className="px-3 py-2 text-body-small-default text-stone-500 dark:text-stone-400"
+                  className="px-3 py-2 text-body-small-default text-[var(--content-quiet)]"
                   style={col.width ? { width: `${col.width}px` } : undefined}
                 >
                   {col.label}
@@ -255,7 +255,7 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
         </table>
 
         {data.caption && (
-          <p className="mt-2 text-body-small-default text-stone-500 dark:text-stone-400">{data.caption}</p>
+          <p className="mt-2 text-body-small-default text-[var(--content-quiet)]">{data.caption}</p>
         )}
       </div>
     </SurfaceContainer>

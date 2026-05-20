@@ -279,7 +279,7 @@ function PushToTalkCard() {
               )}
             </div>
 
-            <div className="flex items-start gap-1 pt-1 text-body-small-default text-stone-500 dark:text-stone-400">
+            <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">
               <Info className="mt-0.5 h-3 w-3 shrink-0" />
               <span>
                 Push-to-Talk only works while this tab is focused, and browsers
@@ -307,10 +307,10 @@ function ActivationKeyOption({
 }) {
   const classes = [
     "inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-body-medium-lighter transition-colors",
-    "border-stone-200 dark:border-moss-600",
+    "border-[var(--border-subtle)]",
     selected
       ? "bg-stone-100 dark:bg-moss-700"
-      : "bg-white hover:bg-stone-50 dark:bg-moss-800 dark:hover:bg-moss-700",
+      : "bg-white hover:bg-[var(--surface-sunken)] dark:hover:bg-moss-700",
     recording ? "animate-pulse" : "",
   ]
     .filter(Boolean)

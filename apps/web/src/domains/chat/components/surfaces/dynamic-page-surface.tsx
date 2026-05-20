@@ -398,7 +398,7 @@ export function DynamicPageSurface({
     <div className="rounded-lg border border-stone-200 bg-[var(--surface-lift)] dark:border-moss-600">
       {(surface.title || expanded) && (
         <div className="flex items-center justify-between border-b border-stone-200 px-4 py-2 dark:border-moss-600">
-          <span className="text-title-small text-stone-800 dark:text-stone-200">
+          <span className="text-title-small text-[var(--content-strong)]">
             {surface.title}
           </span>
           {expanded && (

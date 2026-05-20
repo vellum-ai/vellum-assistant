@@ -650,7 +650,7 @@ function TextToSpeechCard() {
     >
       <div className="space-y-4">
         <div className="space-y-1">
-          <label className="block text-body-small-default text-stone-500 dark:text-stone-400">
+          <label className="block text-body-small-default text-[var(--content-quiet)]">
             Provider
           </label>
           <Dropdown
@@ -665,7 +665,7 @@ function TextToSpeechCard() {
         </div>
 
         <div className="space-y-1">
-          <label className="block text-body-small-default text-stone-500 dark:text-stone-400">
+          <label className="block text-body-small-default text-[var(--content-quiet)]">
             API Key
           </label>
           <Input
@@ -679,7 +679,7 @@ function TextToSpeechCard() {
 
         {selectedProvider.supportsVoiceSelection && (
           <div className="space-y-1">
-            <label className="block text-body-small-default text-stone-500 dark:text-stone-400">
+            <label className="block text-body-small-default text-[var(--content-quiet)]">
               Voice ID
             </label>
             <Input
@@ -783,7 +783,7 @@ function SpeechToTextCard() {
     >
       <div className="space-y-4">
         <div className="space-y-1">
-          <label className="block text-body-small-default text-stone-500 dark:text-stone-400">
+          <label className="block text-body-small-default text-[var(--content-quiet)]">
             Provider
           </label>
           <Dropdown
@@ -798,7 +798,7 @@ function SpeechToTextCard() {
         </div>
 
         <div className="space-y-1">
-          <label className="block text-body-small-default text-stone-500 dark:text-stone-400">
+          <label className="block text-body-small-default text-[var(--content-quiet)]">
             API Key
           </label>
           <Input

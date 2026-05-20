@@ -128,7 +128,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       <h2 className="mt-4 text-title-small text-stone-900 dark:text-white">
         No schedules
       </h2>
-      <p className="mt-1 text-body-medium-lighter text-stone-500 dark:text-stone-400">
+      <p className="mt-1 text-body-medium-lighter text-[var(--content-quiet)]">
         Scheduled automations will appear here once created. You can create one
         yourself or ask your assistant to set it up.
       </p>

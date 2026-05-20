@@ -306,7 +306,7 @@ function UnitToggle({
         className={`px-2 py-0.5 text-body-small-default transition-colors ${
           useFahrenheit
             ? "bg-forest-600 text-white"
-            : "bg-transparent text-stone-500 dark:text-stone-400"
+            : "bg-transparent text-[var(--content-quiet)]"
         }`}
       >
         &deg;F
@@ -317,7 +317,7 @@ function UnitToggle({
         className={`px-2 py-0.5 text-body-small-default transition-colors ${
           !useFahrenheit
             ? "bg-forest-600 text-white"
-            : "bg-transparent text-stone-500 dark:text-stone-400"
+            : "bg-transparent text-[var(--content-quiet)]"
         }`}
       >
         &deg;C
@@ -373,7 +373,7 @@ function HeroSection({
             </div>
           )}
           {data.condition && (
-            <div className="mt-0.5 text-body-small-default text-stone-500 dark:text-stone-400">
+            <div className="mt-0.5 text-body-small-default text-[var(--content-quiet)]">
               {data.condition}
             </div>
           )}
@@ -383,12 +383,12 @@ function HeroSection({
 
       <div className="mt-2 flex flex-wrap items-center gap-3">
         {feelsLikeStr !== null && (
-          <span className="text-body-small-default text-stone-500 dark:text-stone-400">
+          <span className="text-body-small-default text-[var(--content-quiet)]">
             Feels like {feelsLikeStr}&deg;
           </span>
         )}
         {todayHighStr !== null && todayLowStr !== null && (
-          <span className="text-body-small-default text-stone-500 dark:text-stone-400">
+          <span className="text-body-small-default text-[var(--content-quiet)]">
             H:{todayHighStr}&deg; L:{todayLowStr}&deg;
           </span>
         )}
@@ -433,7 +433,7 @@ function HourlySection({
                 className={
                   isNow
                     ? "text-body-small-emphasised text-stone-800 dark:text-stone-100"
-                    : "text-label-medium-default text-stone-500 dark:text-stone-400"
+                    : "text-label-medium-default text-[var(--content-quiet)]"
                 }
               >
                 {isNow ? "Now" : item.time}
@@ -515,7 +515,7 @@ function DailySection({
                 className={`w-12 shrink-0 truncate text-body-small-default ${
                   isToday
                     ? "text-stone-800 dark:text-stone-100"
-                    : "text-stone-500 dark:text-stone-400"
+                    : "text-[var(--content-quiet)]"
                 }`}
               >
                 {dayName}
@@ -530,7 +530,7 @@ function DailySection({
                 )}
               </div>
 
-              <span className="w-7 shrink-0 text-right text-body-small-default text-stone-400 dark:text-stone-500">
+              <span className="w-7 shrink-0 text-right text-body-small-default text-[var(--content-faint)]">
                 {lowStr !== null ? `${lowStr}°` : "--"}
               </span>
 

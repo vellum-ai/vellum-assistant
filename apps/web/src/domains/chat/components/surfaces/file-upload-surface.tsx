@@ -259,7 +259,7 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
     <div className="rounded-lg border border-stone-200 bg-[var(--surface-lift)] p-4 dark:border-moss-600">
       {surface.title && (
         <div className="mb-3 flex items-center gap-2">
-          <span className="text-title-small text-stone-800 dark:text-stone-200">
+          <span className="text-title-small text-[var(--content-strong)]">
             {surface.title}
           </span>
         </div>
@@ -286,19 +286,19 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
           className={`h-8 w-8 ${
             isDragOver
               ? "text-forest-500 dark:text-forest-400"
-              : "text-stone-400 dark:text-stone-500"
+              : "text-[var(--content-faint)]"
           }`}
         />
-        <p className="text-body-medium-lighter text-stone-500 dark:text-stone-400">
+        <p className="text-body-medium-lighter text-[var(--content-quiet)]">
           Drag and drop files here, or click to browse
         </p>
         {data.acceptedTypes && data.acceptedTypes.length > 0 && (
-          <p className="text-body-small-default text-stone-400 dark:text-stone-500">
+          <p className="text-body-small-default text-[var(--content-faint)]">
             Accepted: {data.acceptedTypes.join(", ")}
           </p>
         )}
         {data.maxSizeBytes && (
-          <p className="text-body-small-default text-stone-400 dark:text-stone-500">
+          <p className="text-body-small-default text-[var(--content-faint)]">
             Max size: {formatFileSize(data.maxSizeBytes)}
           </p>
         )}
@@ -321,11 +321,11 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
               key={sf.id}
               className="flex items-center gap-2 rounded-md bg-stone-50 px-3 py-2 text-body-medium-lighter dark:bg-moss-800"
             >
-              <File className="h-4 w-4 shrink-0 text-stone-400 dark:text-stone-500" />
+              <File className="h-4 w-4 shrink-0 text-[var(--content-faint)]" />
               <span className="min-w-0 flex-1 truncate text-stone-700 dark:text-stone-300">
                 {sanitizeFilename(sf.file.name)}
               </span>
-              <span className="shrink-0 text-body-small-default text-stone-400 dark:text-stone-500">
+              <span className="shrink-0 text-body-small-default text-[var(--content-faint)]">
                 {formatFileSize(sf.file.size)}
               </span>
               <button
