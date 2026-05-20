@@ -58,8 +58,10 @@ export function applyThemePreference(theme: ThemePreference): void {
     isVelvet || theme === "dark" || (theme === "system" && prefersDark);
 
   const root = document.documentElement;
-  root.classList.toggle("dark", shouldBeDark);
-  root.classList.toggle("velvet", isVelvet);
+  root.setAttribute(
+    "data-theme",
+    isVelvet ? "velvet" : shouldBeDark ? "dark" : "light",
+  );
 }
 
 export function getEffectiveThemePreference(
