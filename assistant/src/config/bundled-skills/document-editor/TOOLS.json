@@ -4,7 +4,7 @@
     {
       "name": "document_create",
       "description": "Create a new long-form document with a rich text editor. Use this when the user asks to write a blog post, article, or any long-form content. The editor opens in workspace mode with chat docked to the side.",
-      "category": "document",
+      "category": "document-editor",
       "risk": "low",
       "input_schema": {
         "type": "object",
@@ -25,7 +25,7 @@
     {
       "name": "document_update",
       "description": "Update content in an open document editor. Use this to stream generated content or apply edits.",
-      "category": "document",
+      "category": "document-editor",
       "risk": "low",
       "input_schema": {
         "type": "object",
@@ -52,7 +52,7 @@
     {
       "name": "document_read",
       "description": "Read the current content of a document by its surface_id when it belongs to the current conversation, or when the current actor is the guardian/local user. Use this to verify document state before making edits.",
-      "category": "document",
+      "category": "document-editor",
       "risk": "low",
       "input_schema": {
         "type": "object",
@@ -70,7 +70,7 @@
     {
       "name": "document_list",
       "description": "List documents. Without a query, lists documents in the current conversation. With a query, searches documents by title; guardian/local users can search across conversations, while other actors are scoped to the current conversation.",
-      "category": "document",
+      "category": "document-editor",
       "risk": "low",
       "input_schema": {
         "type": "object",
@@ -87,7 +87,7 @@
     {
       "name": "document_delete",
       "description": "Delete a document by its surface_id.",
-      "category": "document",
+      "category": "document-editor",
       "risk": "low",
       "input_schema": {
         "type": "object",
@@ -100,6 +100,72 @@
         "required": ["surface_id"]
       },
       "executor": "tools/document-delete.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "comment_list",
+      "description": "List open comments on a document. Returns all unresolved comments with their content, anchor text, and thread context so you can address user feedback.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The document surface ID"
+          }
+        },
+        "required": ["surface_id"]
+      },
+      "executor": "tools/comment-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "comment_resolve",
+      "description": "Mark a comment as resolved after you have addressed the feedback. Use this after editing the document to satisfy the comment.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The document surface ID"
+          },
+          "comment_id": {
+            "type": "string",
+            "description": "The comment ID to resolve"
+          }
+        },
+        "required": ["surface_id", "comment_id"]
+      },
+      "executor": "tools/comment-resolve.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "comment_reply",
+      "description": "Reply to a comment thread. Use this to ask clarifying questions or explain your approach before or after making changes.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The document surface ID"
+          },
+          "comment_id": {
+            "type": "string",
+            "description": "The parent comment ID to reply to"
+          },
+          "content": {
+            "type": "string",
+            "description": "Reply text"
+          }
+        },
+        "required": ["surface_id", "comment_id", "content"]
+      },
+      "executor": "tools/comment-reply.ts",
       "execution_target": "host"
     }
   ]

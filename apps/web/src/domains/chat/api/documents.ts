@@ -116,3 +116,26 @@ export async function listDocuments(
   const payload = data as ListDocumentsResponse | undefined;
   return payload?.documents ?? [];
 }
+
+export async function linkDocumentConversation(
+  assistantId: string,
+  documentSurfaceId: string,
+  conversationId: string,
+): Promise<void> {
+  const { error, response } = await client.post<unknown, unknown>({
+    ...SDK_BASE_OPTIONS,
+    url: "/v1/assistants/{assistant_id}/documents/{document_id}/conversations",
+    path: { assistant_id: assistantId, document_id: documentSurfaceId },
+    body: { conversationId },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to link document to conversation.");
+  if (!response.ok) {
+    const msg = extractErrorMessage(
+      error,
+      response,
+      "Failed to link document to conversation.",
+    );
+    throw new ApiError(response.status, msg);
+  }
+}

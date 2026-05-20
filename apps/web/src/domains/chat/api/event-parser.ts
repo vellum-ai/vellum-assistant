@@ -55,6 +55,24 @@ function withParsedConversationKey<T extends AssistantEvent>(
 }
 
 /**
+ * Extract the common {conversationId, surfaceId, commentId} triple from a
+ * document comment SSE payload, returning `null` when any required field is
+ * missing so the caller can fall through to `UnknownEvent`.
+ */
+function parseDocumentCommentBase(
+  data: Record<string, unknown>,
+): { conversationId: string; surfaceId: string; commentId: string } | null {
+  const conversationId =
+    typeof data.conversationId === "string" ? data.conversationId : "";
+  const surfaceId =
+    typeof data.surfaceId === "string" ? data.surfaceId : "";
+  const commentId =
+    typeof data.commentId === "string" ? data.commentId : "";
+  if (!conversationId || !surfaceId || !commentId) return null;
+  return { conversationId, surfaceId, commentId };
+}
+
+/**
  * Parse a raw wire payload into a typed AssistantEvent.
  * Tolerant of unknown event types — returns an `UnknownEvent` for anything
  * unrecognised so callers can safely ignore it without crashing.
@@ -582,6 +600,68 @@ export function parseAssistantEvent(
           typeof data.conversationId === "string" ? data.conversationId : undefined,
         event: event as SubagentInnerEvent,
       };
+    }
+
+    // ---- Document comment events ----
+
+    case "document_comment_created": {
+      const conversationId =
+        typeof data.conversationId === "string" ? data.conversationId : "";
+      const surfaceId =
+        typeof data.surfaceId === "string" ? data.surfaceId : "";
+      const comment = data.comment;
+      if (
+        !conversationId ||
+        !surfaceId ||
+        !comment ||
+        typeof comment !== "object" ||
+        Array.isArray(comment)
+      ) {
+        return { type: "unknown", rawType, data };
+      }
+      const c = comment as Record<string, unknown>;
+      return {
+        type: "document_comment_created",
+        conversationId,
+        surfaceId,
+        comment: {
+          id: typeof c.id === "string" ? c.id : "",
+          surfaceId: typeof c.surfaceId === "string" ? c.surfaceId : surfaceId,
+          author: typeof c.author === "string" ? c.author : "user",
+          content: typeof c.content === "string" ? c.content : "",
+          anchorStart:
+            typeof c.anchorStart === "number" ? c.anchorStart : undefined,
+          anchorEnd:
+            typeof c.anchorEnd === "number" ? c.anchorEnd : undefined,
+          anchorText:
+            typeof c.anchorText === "string" ? c.anchorText : undefined,
+          parentCommentId:
+            typeof c.parentCommentId === "string"
+              ? c.parentCommentId
+              : undefined,
+          status: typeof c.status === "string" ? c.status : "open",
+          createdAt: typeof c.createdAt === "number" ? c.createdAt : 0,
+          updatedAt: typeof c.updatedAt === "number" ? c.updatedAt : 0,
+        },
+      };
+    }
+
+    case "document_comment_resolved":
+    case "document_comment_reopened":
+    case "document_comment_deleted": {
+      const base = parseDocumentCommentBase(data);
+      if (!base) {
+        return { type: "unknown", rawType, data };
+      }
+      if (rawType === "document_comment_resolved") {
+        return {
+          type: "document_comment_resolved",
+          ...base,
+          resolvedBy:
+            typeof data.resolvedBy === "string" ? data.resolvedBy : "",
+        };
+      }
+      return { type: rawType as "document_comment_reopened" | "document_comment_deleted", ...base };
     }
 
     default:

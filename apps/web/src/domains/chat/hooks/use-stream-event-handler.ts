@@ -413,6 +413,10 @@ export function useStreamEventHandler(
         case "sync_changed":
           dispatchSyncChanged(event);
           break;
+        case "document_comment_created":
+        case "document_comment_resolved":
+        case "document_comment_reopened":
+        case "document_comment_deleted":
         case "unknown":
           break;
         default: {

@@ -4,6 +4,7 @@ import { authMiddleware } from "@/lib/auth/auth-middleware.js";
 import { RootLayout } from "@/components/layout/root-layout.js";
 import { ChatLayout } from "@/domains/chat/chat-layout.js";
 import { ChatPage } from "@/domains/chat/chat-page.js";
+import { DocumentViewerPage } from "@/domains/chat/document-viewer-page.js";
 import { HomePage } from "@/domains/home/home-page.js";
 import { LibraryPage } from "@/domains/library/library-page.js";
 import { LibraryDetailPage } from "@/domains/library/library-detail-page.js";
@@ -176,6 +177,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <ConversationKeyRedirect /> },
           { path: "conversations/:conversationKey", element: <ChatPage /> },
+          { path: "documents/:surfaceId", element: <DocumentViewerPage /> },
           { path: "home", element: <HomePageRoute /> },
           { path: "library", element: <LibraryPage /> },
           { path: "library/:appId", element: <LibraryDetailPage /> },

@@ -22,6 +22,13 @@ export function LibraryPage() {
     [navigate],
   );
 
+  const handleOpenDocument = useCallback(
+    (documentSurfaceId: string) => {
+      void navigate(routes.document(documentSurfaceId));
+    },
+    [navigate],
+  );
+
   if (!assistantId) return null;
 
   return (
@@ -29,6 +36,7 @@ export function LibraryPage() {
       <LibraryView
         assistantId={assistantId}
         onNewConversation={handleNewConversation}
+        onOpenDocument={handleOpenDocument}
       />
     </div>
   );

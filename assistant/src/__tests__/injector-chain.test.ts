@@ -102,6 +102,7 @@ describe("injector chain", () => {
       "memory-v2-static",
       "now-md",
       "active-documents",
+      "document-comments",
       "subagent-status",
       "slack-messages",
       "thread-focus",
@@ -166,6 +167,7 @@ describe("injector chain", () => {
       "memory-v2-static", // 38
       "now-md", // 40
       "active-documents", // 45
+      "document-comments", // 46
       "subagent-status", // 50
       "slack-messages", // 60
       "thread-focus", // 70

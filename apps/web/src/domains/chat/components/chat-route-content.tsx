@@ -1386,7 +1386,7 @@ export function ChatRouteContent({
     />
   );
 
-  if (mainView === "document" && !isMobile && openedDocumentState) {
+  if (mainView === "document" && !isMobile && openedDocumentState && assistantId) {
     return (
       <ResizablePanel
         storageKey="documentPanelWidth"
@@ -1399,8 +1399,9 @@ export function ChatRouteContent({
             documentName={openedDocumentState.documentName}
             content={openedDocumentState.content}
             onClose={handleCloseDocument}
-            assistantId={assistantId ?? undefined}
+            assistantId={assistantId}
             surfaceId={openedDocumentState.surfaceId}
+            conversationId={openedDocumentState.conversationId}
           />
         }
       />

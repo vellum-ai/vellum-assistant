@@ -72,6 +72,7 @@ import {
   migrateConversationsLastMessageAt,
   migrateConversationsThreadTypeIndex,
   migrateCreateConversationGraphMemoryState,
+  migrateCreateDocumentComments,
   migrateCreateDocumentConversations,
   migrateCreateMemoryGraphNodeEdits,
   migrateCreateMemoryGraphTables,
@@ -436,6 +437,7 @@ export function initializeDb(): void {
     migrateProviderConnectionBaseUrlAndModels,
     migrateA2ATasks,
     migrateLlmRequestLogAgentLoopExitReason,
+    migrateCreateDocumentComments,
   ];
 
   // Run each migration step, catching and logging individual failures so one

@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import {
+  addDocumentConversation,
   getDocumentById,
   getDocumentsForConversation,
   saveDocument,
@@ -178,6 +179,38 @@ export const ROUTES: RouteDefinition[] = [
         throw new InternalError(result.error);
       }
       return result;
+    },
+  },
+
+  {
+    operationId: "linkDocumentConversation",
+    endpoint: "documents/:id/conversations",
+    method: "POST",
+    policyKey: "documents",
+    requirePolicyEnforcement: true,
+    summary: "Link a document to a conversation",
+    description:
+      "Associate a document with a conversation so the assistant sees it as context.",
+    tags: ["documents"],
+    requestBody: z.object({
+      conversationId: z.string().describe("Conversation to link"),
+    }),
+    responseBody: z.object({ success: z.literal(true) }),
+    handler: ({ pathParams, body }) => {
+      const { conversationId } = (body ?? {}) as { conversationId?: string };
+      if (!conversationId) {
+        throw new BadRequestError("conversationId is required");
+      }
+      const doc = getDocumentById(pathParams!.id);
+      if (!doc) {
+        throw new NotFoundError("Document not found");
+      }
+      addDocumentConversation(pathParams!.id, conversationId);
+      log.info(
+        { surfaceId: pathParams!.id, conversationId },
+        "Linked document to conversation",
+      );
+      return { success: true as const };
     },
   },
 

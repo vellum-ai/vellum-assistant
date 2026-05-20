@@ -27,7 +27,7 @@ export function MobileDocumentOverlay({
   assistantId,
   onClose,
 }: MobileDocumentOverlayProps) {
-  if (!openedDocumentState) return null;
+  if (!openedDocumentState || !assistantId) return null;
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 h-[100dvh]">
@@ -35,8 +35,9 @@ export function MobileDocumentOverlay({
         documentName={openedDocumentState.documentName}
         content={openedDocumentState.content}
         onClose={onClose}
-        assistantId={assistantId ?? undefined}
+        assistantId={assistantId}
         surfaceId={openedDocumentState.surfaceId}
+        conversationId={openedDocumentState.conversationId}
       />
     </div>
   );
