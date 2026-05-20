@@ -6,15 +6,21 @@ Applies to all code under `apps/web/`. Subordinate to [`apps/AGENTS.md`](../AGEN
 
 Read these before making changes:
 
-- **[`CONVENTIONS.md`](./CONVENTIONS.md)** — Architecture, code organization, state management, component patterns, framework strategy, data fetching, testing.
-- **[`STYLE_GUIDE.md`](./STYLE_GUIDE.md)** — Naming, imports, TypeScript, component authoring, formatting.
-- **[`CAPACITOR.md`](./CAPACITOR.md)** — Capacitor / iOS patterns: lazy plugin imports, native auth, deep links, autogrowing textareas, streaming watchdogs, OS permission UI, capability detection, keyboard-only affordances. Mandatory reading if any code path you're touching might run inside the iOS WKWebView shell.
+- **[`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md)** — Architecture, code organization, component patterns, framework strategy, data fetching, testing.
+- **[`docs/STATE_MANAGEMENT.md`](./docs/STATE_MANAGEMENT.md)** — Zustand stores, atomic selectors, TanStack Query, the no-`useReducer` rule.
+- **[`docs/STYLE_GUIDE.md`](./docs/STYLE_GUIDE.md)** — Naming, imports, TypeScript, component authoring, formatting.
+- **[`docs/CAPACITOR.md`](./docs/CAPACITOR.md)** — Capacitor / iOS patterns: lazy plugin imports, native auth, deep links, autogrowing textareas, streaming watchdogs, OS permission UI, capability detection, keyboard-only affordances. Mandatory reading if any code path you're touching might run inside the iOS WKWebView shell.
+
+When a topic in `docs/CONVENTIONS.md` grows past ~100 lines and has a
+coherent boundary, extract it into a `docs/TOPIC.md` sibling with a
+short pointer back from `CONVENTIONS.md`. Matches the repo's existing
+pattern (`assistant/docs/`, `docs/` at the repo root).
 
 ## Stack
 
 - **Build**: [Vite](https://vite.dev/) + [React 19](https://react.dev/blog/2024/12/05/react-19)
 - **Routing**: [React Router v7](https://reactrouter.com/) — [data mode](https://reactrouter.com/start/modes) (`createBrowserRouter`), NOT framework mode
-- **Client state**: [Zustand](https://zustand.docs.pmnd.rs/) — all shared state uses Zustand stores (see [CONVENTIONS.md — State management](./CONVENTIONS.md#state-management))
+- **Client state**: [Zustand](https://zustand.docs.pmnd.rs/) — all shared state uses Zustand stores (see [`docs/STATE_MANAGEMENT.md`](./docs/STATE_MANAGEMENT.md))
 - **Server state**: [TanStack Query](https://tanstack.com/query/latest) with [HeyAPI plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query)
 - **Styling**: [Tailwind CSS v4](https://tailwindcss.com/) via `@tailwindcss/vite`
 - **Design system**: `@vellum/design-library` at [`packages/design-library/`](../../packages/design-library/)
@@ -26,7 +32,7 @@ Read these before making changes:
 - Route constants: `src/utils/routes.ts` — all paths are absolute browser paths
 - No `basename` on the router — `/account/*` and `/assistant/*` are explicit top-level branches
 - Routes must match the platform repo exactly during migration (no URL changes)
-- **Route protection**: uses React Router v7 [middleware](https://reactrouter.com/how-to/middleware) (`v8_middleware` future flag), not layout gate components or `useEffect` redirects. Auth is always required — the middleware redirects unauthenticated users to `/account/login`. See [CONVENTIONS.md — Route protection via middleware](./CONVENTIONS.md#route-protection-via-middleware).
+- **Route protection**: uses React Router v7 [middleware](https://reactrouter.com/how-to/middleware) (`v8_middleware` future flag), not layout gate components or `useEffect` redirects. Auth is always required — the middleware redirects unauthenticated users to `/account/login`. See [`docs/CONVENTIONS.md` — Route protection via middleware](./docs/CONVENTIONS.md#route-protection-via-middleware).
 - **Assistant lifecycle**: owned by `ChatLayout`, passed to child routes via [outlet context](https://reactrouter.com/start/framework/outlet). Child routes consume the resolved `assistantId` via `useAssistantContext()` — never hardcode or independently resolve it.
 
 ## Commands

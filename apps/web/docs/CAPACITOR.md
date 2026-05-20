@@ -117,6 +117,7 @@ References:
 
 ## See also
 
-- [`CONVENTIONS.md`](./CONVENTIONS.md) — architecture, code organization, state management, component patterns.
+- [`CONVENTIONS.md`](./CONVENTIONS.md) — architecture, code organization, component patterns.
+- [`STATE_MANAGEMENT.md`](./STATE_MANAGEMENT.md) — Zustand stores, atomic selectors, TanStack Query.
 - [`STYLE_GUIDE.md`](./STYLE_GUIDE.md) — naming, imports, TypeScript, component authoring.
-- [`apps/ios/README.md`](../../apps/ios/README.md) — Capacitor iOS shell setup, Xcode targets, release pipeline.
+- [`apps/ios/README.md`](../../../apps/ios/README.md) — Capacitor iOS shell setup, Xcode targets, release pipeline.

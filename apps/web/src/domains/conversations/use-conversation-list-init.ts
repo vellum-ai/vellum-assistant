@@ -11,7 +11,7 @@
  * the conversation list at the layout level so every sibling route
  * inherits a populated sidebar.
  *
- * Server state lives in TanStack Query per `apps/web/CONVENTIONS.md`;
+ * Server state lives in TanStack Query per `apps/web/docs/STATE_MANAGEMENT.md`;
  * the Zustand store is kept in sync via a small effect so existing
  * consumers (sidebar, send pipeline, attention tracking) keep their
  * subscription model. As more of the conversation-list slice migrates
