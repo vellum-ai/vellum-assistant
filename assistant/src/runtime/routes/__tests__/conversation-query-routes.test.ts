@@ -141,7 +141,11 @@ function seedConversationAndMessage(args: {
     .run();
 }
 
-function seedRequestLog(messageId: string, id: string): void {
+function seedRequestLog(
+  messageId: string,
+  id: string,
+  options: { agentLoopExitReason?: string | null } = {},
+): void {
   getDb()
     .insert(llmRequestLogs)
     .values({
@@ -154,6 +158,9 @@ function seedRequestLog(messageId: string, id: string): void {
         choices: [{ message: { content: "hi" } }],
       }),
       createdAt: 1_700_000_000_000,
+      ...(options.agentLoopExitReason != null
+        ? { agentLoopExitReason: options.agentLoopExitReason }
+        : {}),
     })
     .run();
 }
@@ -314,6 +321,53 @@ describe("GET /v1/messages/:id/llm-context — conversationTotalEstimatedCostUsd
     };
 
     expect(body.conversationTotalEstimatedCostUsd).toBeNull();
+  });
+});
+
+describe("GET /v1/messages/:id/llm-context — agentLoopExitReason", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("surfaces the stamped agent_loop_exit_reason on the terminal log", async () => {
+    const messageId = "msg-with-exit";
+    seedConversationAndMessage({
+      conversationId: "conv-1",
+      messageId,
+      source: "user",
+      conversationType: "standard",
+    });
+    // Two logs in the same turn — only the terminal one is stamped.
+    seedRequestLog(messageId, "log-non-terminal");
+    seedRequestLog(messageId, "log-terminal", {
+      agentLoopExitReason: "no_tool_calls",
+    });
+
+    const body = (await dispatchLlmContext(messageId)) as {
+      logs: Array<{ id: string; agentLoopExitReason: string | null }>;
+    };
+
+    const byId = new Map(body.logs.map((l) => [l.id, l.agentLoopExitReason]));
+    expect(byId.get("log-non-terminal")).toBeNull();
+    expect(byId.get("log-terminal")).toBe("no_tool_calls");
+  });
+
+  test("returns null when no log in the turn has been stamped", async () => {
+    const messageId = "msg-no-exit";
+    seedConversationAndMessage({
+      conversationId: "conv-1",
+      messageId,
+      source: "user",
+      conversationType: "standard",
+    });
+    seedRequestLog(messageId, "log-unstamped");
+
+    const body = (await dispatchLlmContext(messageId)) as {
+      logs: Array<{ id: string; agentLoopExitReason: string | null }>;
+    };
+
+    expect(body.logs).toHaveLength(1);
+    expect(body.logs[0]!.agentLoopExitReason).toBeNull();
   });
 });
 
