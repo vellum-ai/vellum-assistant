@@ -213,7 +213,11 @@ describe("web_search activity metadata", () => {
     );
     expect(meta.results[0].snippet).toBe("Tavily snippet text");
     expect(meta.results[0].score).toBe(0.87);
-    expect(meta.results[1].faviconUrl).toBeUndefined();
+    // PR 5 backfills a synthesized favicon URL via Google s2 when the
+    // provider doesn't supply one, so this result now has a faviconUrl too.
+    expect(meta.results[1].faviconUrl).toContain(
+      "google.com/s2/favicons",
+    );
     expect(meta.results[1].score).toBe(0.42);
   });
 
