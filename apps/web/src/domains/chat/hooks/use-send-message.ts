@@ -28,7 +28,7 @@ import {
 } from "@/domains/chat/utils/reconcile.js";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope.js";
 import { resolveEditChatDraftKey } from "@/domains/chat/utils/edit-chat-session.js";
-import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/domains/assistant/disk-pressure.js";
+import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure.js";
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissedSurfacesStorage.js";

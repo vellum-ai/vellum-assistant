@@ -7,8 +7,8 @@ import { Button, Modal, Typography } from "@vellum/design-library";
 import type {
   ConnectionServerState,
   ReachabilityState,
-} from "@/domains/assistant/use-assistant-reachability.js";
-import { MAX_ATTEMPTS } from "@/domains/assistant/use-assistant-reachability.js";
+} from "@/assistant/use-assistant-reachability.js";
+import { MAX_ATTEMPTS } from "@/assistant/use-assistant-reachability.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 

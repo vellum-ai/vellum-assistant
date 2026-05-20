@@ -6,7 +6,7 @@ import {
   type AssistantsConnectionStatusResponse,
   type ConnectionStatus,
 } from "@/generated/api/index.js";
-import { subscribeAssistantUnreachable } from "@/domains/assistant/unreachable-bus.js";
+import { subscribeAssistantUnreachable } from "@/assistant/unreachable-bus.js";
 
 /**
  * Tracks whether the frontend can reach the assistant's runtime pod.

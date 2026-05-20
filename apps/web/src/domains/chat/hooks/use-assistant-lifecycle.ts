@@ -7,7 +7,7 @@ import {
   getAssistant,
   hatchAssistant,
   retireAssistantById,
-} from "@/domains/assistant/api.js";
+} from "@/assistant/api.js";
 import {
   buildInitializingTimeoutError,
   INITIALIZING_TIMEOUT_MS,
@@ -15,7 +15,7 @@ import {
   PLATFORM_HOSTED_DISABLED_MESSAGE,
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
-} from "@/domains/assistant/lifecycle.js";
+} from "@/assistant/lifecycle.js";
 import { resolveOnboardingRedirect } from "@/domains/onboarding/gate.js";
 import { routes } from "@/utils/routes.js";
 

@@ -24,7 +24,7 @@ import {
   writeSecret,
 } from "@/domains/settings/ai/provider-connections-client.js";
 import { toKebabCase } from "@/domains/settings/ai/slugify.js";
-import { providerSupportsPlatformAuth } from "@/domains/assistant/llm-model-catalog.js";
+import { providerSupportsPlatformAuth } from "@/assistant/llm-model-catalog.js";
 
 // ---------------------------------------------------------------------------
 // Constants

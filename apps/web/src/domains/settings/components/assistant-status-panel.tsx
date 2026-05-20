@@ -10,7 +10,7 @@ import {
   type AssistantHealthz,
   getAssistant,
   getAssistantHealthz,
-} from "@/domains/assistant/api.js";
+} from "@/assistant/api.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { reportError } from "@/lib/errors/report.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";

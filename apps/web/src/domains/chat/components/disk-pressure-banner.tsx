@@ -3,8 +3,8 @@ import { HardDrive } from "lucide-react";
 
 import { Button } from "@vellum/design-library";
 import { Notice } from "@vellum/design-library";
-import type { DiskPressureStatus } from "@/domains/assistant/api.js";
-import { formatDiskPressureUsage } from "@/domains/assistant/disk-pressure.js";
+import type { DiskPressureStatus } from "@/assistant/api.js";
+import { formatDiskPressureUsage } from "@/assistant/disk-pressure.js";
 
 export type DiskPressureBannerMode = "acknowledgement-required" | "cleanup";
 

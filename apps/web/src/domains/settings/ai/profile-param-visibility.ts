@@ -3,7 +3,7 @@
  * based on the selected provider and model.
  */
 
-import { getModelsForProvider } from "@/domains/assistant/llm-model-catalog.js";
+import { getModelsForProvider } from "@/assistant/llm-model-catalog.js";
 
 export interface ProfileParamVisibility {
   maxTokens: boolean;

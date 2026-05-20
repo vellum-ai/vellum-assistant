@@ -13,7 +13,7 @@ import { toast } from "@vellum/design-library/components/toast";
 import { client } from "@/generated/api/client.gen.js";
 import { reportError } from "@/lib/errors/report.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
-import { getDefaultModelForProvider, getModelsForProvider } from "@/domains/assistant/llm-model-catalog.js";
+import { getDefaultModelForProvider, getModelsForProvider } from "@/assistant/llm-model-catalog.js";
 
 import { INFERENCE_PROVIDER_DISPLAY_NAMES, INFERENCE_PROVIDERS } from "@/domains/settings/ai/ai-page.js";
 import {

@@ -13,7 +13,7 @@ import {
   profilePickerLabel,
   visibleProfilesForPicker,
   type ProfilePickerEntry,
-} from "@/domains/assistant/profile-pickers.js";
+} from "@/assistant/profile-pickers.js";
 import {
   deleteConversationOverride,
   getConversationOverride,

@@ -4,7 +4,7 @@ import { useNavigate } from "react-router";
 import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { toast } from "@vellum/design-library/components/toast";
-import { retireAssistantById } from "@/domains/assistant/api.js";
+import { retireAssistantById } from "@/assistant/api.js";
 import { clearOnboardingFlags } from "@/domains/onboarding/prefs.js";
 
 interface RetireAssistantProps {
