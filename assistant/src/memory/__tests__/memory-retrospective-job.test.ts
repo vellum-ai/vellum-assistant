@@ -38,8 +38,9 @@ let bootstrappedConversationId = "bg-conv-new";
 let bootstrapCalls: Array<{ forkParentConversationId?: string }> = [];
 let deletedConversationIds: string[] = [];
 
-// Fork-path mock state.
+// Fork-path mocks. Flag off by default so legacy-path tests stay untouched.
 let forkFlagEnabled = false;
+let forkedConversationId = "fork-conv-1";
 let forkCalls: Array<{
   conversationId: string;
   source: string;
@@ -47,11 +48,11 @@ let forkCalls: Array<{
   conversationType?: string;
   groupId?: string;
 }> = [];
-
-mock.module("../../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (_key: string, _config: unknown) =>
-    forkFlagEnabled,
-}));
+let addMessageCalls: Array<{
+  conversationId: string;
+  role: string;
+  metadata: unknown;
+}> = [];
 
 mock.module("../memory-retrospective-state.js", () => ({
   getRetrospectiveState: (_id: string) => mockState,
@@ -101,12 +102,24 @@ mock.module("../conversation-crud.js", () => ({
     groupId?: string;
   }) => {
     forkCalls.push(params);
-    return { id: "fork-conv-new" };
+    return { id: forkedConversationId };
   },
-  addMessage: async () => {},
+  addMessage: async (
+    conversationId: string,
+    role: string,
+    _content: string,
+    metadata: unknown,
+  ) => {
+    addMessageCalls.push({ conversationId, role, metadata });
+  },
   deleteConversation: (id: string) => {
     deletedConversationIds.push(id);
   },
+}));
+
+mock.module("../../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (flag: string) =>
+    flag === "memory-retrospective-fork" && forkFlagEnabled,
 }));
 
 let transcriptFormatterCalls: Array<{
@@ -245,7 +258,9 @@ describe("memoryRetrospectiveJob", () => {
     mockAssistantName = "Bob";
     mockUserName = "Alice";
     forkFlagEnabled = false;
+    forkedConversationId = "fork-conv-1";
     forkCalls = [];
+    addMessageCalls = [];
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -453,6 +468,19 @@ describe("memoryRetrospectiveJob", () => {
 
     const hint = wakeCalls[0]!.hint;
     expect(hint).toContain("<\u200B/already_remembered>");
+  });
+
+  test("fork path: persisted instruction is stamped with hidden: true so the UI list serializer drops it", async () => {
+    forkFlagEnabled = true;
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(addMessageCalls).toHaveLength(1);
+    expect(addMessageCalls[0]!.conversationId).toBe("fork-conv-1");
+    expect(addMessageCalls[0]!.role).toBe("user");
+    expect(addMessageCalls[0]!.metadata).toEqual({
+      kind: "memory_retrospective_instruction",
+      hidden: true,
+    });
   });
 
   test("fork path: forked retrospective is bucketed as background under the retrospective group", async () => {

@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { chatContextQueryKey } from "@/domains/conversations/conversation-list-queries.js";
 import type { Conversation } from "@/domains/chat/api/conversations.js";
+import type { ChatContext } from "@/domains/chat/api/assistant.js";
 import {
   handleUsageUpdate,
   handleConversationListInvalidated,
@@ -88,16 +89,19 @@ describe("handleConversationListInvalidated", () => {
 });
 
 describe("handleConversationTitleUpdated", () => {
-  afterEach(() => {
-    useConversationListStore.getState().reset();
-  });
-
-  it("patches conversation title in the store", () => {
-    useConversationListStore.getState().setConversations([
-      { conversationKey: "conv-1", title: "Old Title" } as Conversation,
-    ]);
-
+  it("patches conversation title in the chat-context query cache", () => {
     const ctx = makeCtx();
+    ctx.queryClient.setQueryData<ChatContext | null>(
+      chatContextQueryKey(ctx.assistantIdRef.current),
+      {
+        assistantId: ctx.assistantIdRef.current ?? "",
+        conversationKey: "conv-1",
+        conversations: [
+          { conversationKey: "conv-1", title: "Old Title" } as Conversation,
+        ],
+      },
+    );
+
     handleConversationTitleUpdated(
       {
         type: "conversation_title_updated",
@@ -106,7 +110,11 @@ describe("handleConversationTitleUpdated", () => {
       },
       ctx,
     );
-    const conv = useConversationListStore.getState().conversations.find(
+
+    const cached = ctx.queryClient.getQueryData<ChatContext | null>(
+      chatContextQueryKey(ctx.assistantIdRef.current),
+    );
+    const conv = cached?.conversations.find(
       (c) => c.conversationKey === "conv-1",
     );
     expect(conv?.title).toBe("New Title");
