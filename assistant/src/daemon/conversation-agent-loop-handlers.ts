@@ -46,6 +46,7 @@ import type {
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
 import { redactSecrets } from "../security/secret-scanner.js";
+import { extractDomain } from "../tools/network/domain-normalize.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
@@ -61,6 +62,10 @@ import {
 } from "./conversation-error.js";
 import { isProviderOrderingError } from "./conversation-slash.js";
 import type { ServerMessage } from "./message-protocol.js";
+import type {
+  WebSearchMetadata,
+  WebSearchResultItem,
+} from "./message-types/web-activity.js";
 
 const log = getLogger("agent-loop-handlers");
 
@@ -199,6 +204,10 @@ export interface EventHandlerState {
   currentTurnToolUseIds: string[];
   /** Wall-clock time (ms since epoch) when the agent loop turn started, used as the display timestamp for assistant messages. */
   turnStartedAt: number;
+  /** Wall-clock start time of native server tool calls, keyed by tool_use_id. */
+  readonly serverToolStartedAt: Map<string, number>;
+  /** Original input from server_tool_start, keyed by tool_use_id, so the complete handler can read the query. */
+  readonly serverToolInputs: Map<string, Record<string, unknown>>;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -257,6 +266,8 @@ export function createEventHandlerState(): EventHandlerState {
     toolRiskOutcomes: new Map(),
     currentTurnToolUseIds: [],
     turnStartedAt: Date.now(),
+    serverToolStartedAt: new Map(),
+    serverToolInputs: new Map(),
   };
 }
 
@@ -1258,6 +1269,8 @@ export async function dispatchAgentEvent(
           deps.reqId,
           statusText,
         );
+        state.serverToolStartedAt.set(event.toolUseId, Date.now());
+        state.serverToolInputs.set(event.toolUseId, event.input);
         deps.onEvent({
           type: "tool_use_start",
           toolName: event.name,
@@ -1276,19 +1289,43 @@ export async function dispatchAgentEvent(
           "Thinking",
         );
 
-        // Format web search results into a human-readable string for the client.
-        let resultText = "";
-        if (Array.isArray(event.content) && event.content.length > 0) {
-          resultText = (event.content as unknown[])
-            .filter(
-              (r): r is { type: string; title: string; url: string } =>
-                typeof r === "object" &&
-                r != null &&
-                (r as { type?: string }).type === "web_search_result",
-            )
-            .map((r) => `${r.title}\n${r.url}`)
-            .join("\n\n");
-        }
+        const inputForCall = state.serverToolInputs.get(event.toolUseId);
+        const query =
+          typeof inputForCall?.query === "string" ? inputForCall.query : "";
+        const startedAt =
+          state.serverToolStartedAt.get(event.toolUseId) ?? Date.now();
+        const durationMs = Date.now() - startedAt;
+        state.serverToolStartedAt.delete(event.toolUseId);
+        state.serverToolInputs.delete(event.toolUseId);
+
+        const rawBlocks = Array.isArray(event.content) ? event.content : [];
+        const results: WebSearchResultItem[] = rawBlocks
+          .filter(
+            (r): r is { type: string; title: string; url: string } =>
+              typeof r === "object" &&
+              r != null &&
+              (r as { type?: string }).type === "web_search_result",
+          )
+          .map((r, i) => ({
+            rank: i + 1,
+            title: r.title,
+            url: r.url,
+            domain: extractDomain(r.url),
+            // snippet intentionally absent — Anthropic native content is encrypted/opaque
+          }));
+
+        const metadata: WebSearchMetadata = {
+          query,
+          provider: "anthropic-native",
+          resultCount: results.length,
+          durationMs,
+          results,
+          ...(event.isError ? { errorMessage: "Search failed" } : {}),
+        };
+
+        const resultText = results
+          .map((r) => `${r.title}\n${r.url}`)
+          .join("\n\n");
 
         deps.onEvent({
           type: "tool_result",
@@ -1297,7 +1334,7 @@ export async function dispatchAgentEvent(
           isError: event.isError,
           conversationId: deps.ctx.conversationId,
           toolUseId: event.toolUseId,
-          activityMetadata: undefined,
+          activityMetadata: { webSearch: metadata },
         });
         break;
       }
