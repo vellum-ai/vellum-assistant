@@ -66,7 +66,7 @@ jobs:
 
   test:
     name: Test
-    # Non-blocking until pre-existing failures are fixed (LUM-1682).
+    # Non-blocking until pre-existing failures are fixed (LUM-1687).
     # The aggregator excludes this job from the gate check.
     runs-on: ubuntu-latest
     defaults:
@@ -132,10 +132,10 @@ jobs:
         run: |
           echo "Lint:       $LINT"
           echo "Type Check: $TYPECHECK"
-          echo "Test:       $TEST (non-blocking until LUM-1682)"
+          echo "Test:       $TEST (non-blocking until LUM-1687)"
           echo "Build:      $BUILD"
           # Test is excluded from the gate until pre-existing failures
-          # are fixed (LUM-1682). Once green, add TEST to this loop.
+          # are fixed (LUM-1687). Once green, add TEST to this loop.
           for r in "$LINT" "$TYPECHECK" "$BUILD"; do
             if [ "$r" != "success" ]; then
               echo "::error::At least one web CI job failed."
