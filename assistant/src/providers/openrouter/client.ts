@@ -1,6 +1,7 @@
 import { ProviderError } from "../../util/errors.js";
 import { AnthropicProvider } from "../anthropic/client.js";
 import {
+  clampReasoningEffort,
   EFFORT_TO_REASONING_EFFORT,
   OpenAIChatCompletionsProvider,
 } from "../openai/chat-completions-provider.js";
@@ -200,7 +201,10 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
     const summaryOverride = extractReasoningSummaryOverride(config);
     const reasoning: Record<string, unknown> = { enabled: thinkingEnabled };
     if (mappedEffort) {
-      reasoning.effort = mappedEffort;
+      reasoning.effort = clampReasoningEffort(
+        mappedEffort,
+        this.resolveMaxReasoningEffort(this.resolveEffectiveModel(options)),
+      );
     }
     if (thinkingEnabled) {
       reasoning.summary = summaryOverride ?? "detailed";
