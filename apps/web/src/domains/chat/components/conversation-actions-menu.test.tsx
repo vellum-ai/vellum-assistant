@@ -252,6 +252,68 @@ describe("ConversationActionsMenu — mobile branch", () => {
   });
 });
 
+describe("renderConversationMenuItems — mark read/unread exclusivity", () => {
+  test("onMarkRead takes precedence when both onMarkRead and onMarkUnread are provided", () => {
+    const html = renderToStaticMarkup(
+      <>{renderConversationMenuItems({
+        Primitive: Menu as unknown as ConversationMenuPrimitive,
+        onMarkRead: () => {},
+        onMarkUnread: () => {},
+      })}</>,
+    );
+    expect(html).toContain("Mark as read");
+    expect(html).not.toContain("Mark as unread");
+  });
+});
+
+describe("ConversationActionsMenu — mobile panel details", () => {
+  test("isMarkUnreadDisabled renders disabled panel item on mobile", () => {
+    mockIsMobile = true;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu
+        onMarkUnread={() => {}}
+        isMarkUnreadDisabled
+      />,
+    );
+    expect(html).toContain("Mark as unread");
+    expect(html).toContain("pointer-events-none");
+    expect(html).toContain("opacity-50");
+  });
+
+  test("onRemoveFromGroup renders in mobile Move to block", () => {
+    mockIsMobile = true;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu
+        moveToGroups={[{ id: "g1", name: "Work" }]}
+        onMoveToGroup={() => {}}
+        onRemoveFromGroup={() => {}}
+      />,
+    );
+    expect(html).toContain("Move to");
+    expect(html).toContain("Work");
+    expect(html).toContain("Remove from group");
+  });
+
+  test("variant header renders header-order items on mobile", () => {
+    mockIsMobile = true;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu
+        variant="header"
+        onCopyConversation={() => {}}
+        onForkConversation={() => {}}
+        onAnalyze={() => {}}
+        onPinToggle={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    expect(html).toContain("Copy full conversation");
+    expect(html).toContain("Fork conversation");
+    expect(html).toContain("Analyze conversation");
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+  });
+});
+
 describe("ConversationActionsMenu — read-only conversations", () => {
   test("Archive renders when read-only (organizational action)", () => {
     mockIsMobile = false;
