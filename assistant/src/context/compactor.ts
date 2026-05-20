@@ -332,7 +332,7 @@ export function renderImageManifest(entries: ManifestEntry[]): string {
  * runtime emitted — typically
  * `2026-04-02 (Thursday) 01:52:33 -05:00 (America/Chicago)`).
  */
-function extractTurnContextTimestamp(message: Message): string | null {
+export function extractTurnContextTimestamp(message: Message): string | null {
   if (message.role !== "user") return null;
   for (const block of message.content) {
     if (block.type !== "text") continue;
