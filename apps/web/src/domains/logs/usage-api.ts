@@ -10,7 +10,7 @@ import { client } from "@/generated/api/client.gen.js";
 import {
   isLlmUsageDimension,
   toDaemonGroupBy,
-} from "./llm-dimension.js";
+} from "@/utils/llm-dimension.js";
 import type {
   UsageBreakdownResponse,
   UsageDailyResponse,

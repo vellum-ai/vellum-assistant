@@ -1,4 +1,4 @@
-import { LLM_USAGE_DIMENSION_LABELS } from "./llm-dimension.js";
+import { LLM_USAGE_DIMENSION_LABELS } from "@/utils/llm-dimension.js";
 import { UsageRequestError } from "./usage-api.js";
 import type {
   UsageGranularity,
