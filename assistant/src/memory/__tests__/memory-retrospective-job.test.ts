@@ -38,6 +38,21 @@ let bootstrappedConversationId = "bg-conv-new";
 let bootstrapCalls: Array<{ forkParentConversationId?: string }> = [];
 let deletedConversationIds: string[] = [];
 
+// Fork-path mock state.
+let forkFlagEnabled = false;
+let forkCalls: Array<{
+  conversationId: string;
+  source: string;
+  title: string;
+  conversationType?: string;
+  groupId?: string;
+}> = [];
+
+mock.module("../../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (_key: string, _config: unknown) =>
+    forkFlagEnabled,
+}));
+
 mock.module("../memory-retrospective-state.js", () => ({
   getRetrospectiveState: (_id: string) => mockState,
   upsertRetrospectiveState: (args: {
@@ -60,22 +75,35 @@ mock.module("../conversation-crud.js", () => ({
   },
   findMostRecentRetrospectiveFor: (_id: string) =>
     priorRetroId ? { id: priorRetroId } : null,
-  // `collectPriorRetrospectiveRemembers` reads the prior row to discriminate
-  // between legacy and fork-kind sources. Return a legacy-shaped row so the
-  // existing tests exercise the unchanged extract-everything code path.
-  getConversation: (_id: string) => ({
-    source: "memory-retrospective",
-    forkParentMessageId: null,
-  }),
-  // Imported by `runForkBasedRetrospective`; legacy-path tests never hit it.
-  forkConversation: (_params: unknown) => {
-    throw new Error(
-      "forkConversation should not be called in legacy-path tests",
-    );
+  // The fork path calls `getConversation(sourceConversationId)` to read the
+  // source's title for the fork title. `collectPriorRetrospectiveRemembers`
+  // also calls it with the prior retro id to discriminate legacy vs fork
+  // sources — for that id return a legacy-shaped row so the existing tests
+  // exercise the unchanged extract-everything code path.
+  getConversation: (id: string) => {
+    if (id === priorRetroId) {
+      return {
+        source: "memory-retrospective",
+        forkParentMessageId: null,
+      };
+    }
+    return {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+    };
   },
-  addMessage: async () => {
-    throw new Error("addMessage should not be called in legacy-path tests");
+  forkConversation: (params: {
+    conversationId: string;
+    source: string;
+    title: string;
+    conversationType?: string;
+    groupId?: string;
+  }) => {
+    forkCalls.push(params);
+    return { id: "fork-conv-new" };
   },
+  addMessage: async () => {},
   deleteConversation: (id: string) => {
     deletedConversationIds.push(id);
   },
@@ -216,6 +244,8 @@ describe("memoryRetrospectiveJob", () => {
     transcriptFormatterCalls = [];
     mockAssistantName = "Bob";
     mockUserName = "Alice";
+    forkFlagEnabled = false;
+    forkCalls = [];
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -423,5 +453,15 @@ describe("memoryRetrospectiveJob", () => {
 
     const hint = wakeCalls[0]!.hint;
     expect(hint).toContain("<\u200B/already_remembered>");
+  });
+
+  test("fork path: forked retrospective is bucketed as background under the retrospective group", async () => {
+    forkFlagEnabled = true;
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(forkCalls).toHaveLength(1);
+    expect(forkCalls[0]!.conversationType).toBe("background");
+    expect(forkCalls[0]!.groupId).toBe("system:background");
   });
 });

@@ -342,6 +342,8 @@ async function runForkBasedRetrospective(
       conversationId: sourceConversationId,
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
       title: `${sourceConversation.title ?? "Untitled"} (Retrospective)`,
+      conversationType: "background",
+      groupId: MEMORY_RETROSPECTIVE_GROUP_ID,
     });
   } catch (err) {
     bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
