@@ -4,7 +4,10 @@ import { useMemo, useState } from "react";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { SettingsCard } from "@/domains/settings/components/settings-card.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import {
+  useFeatureFlagStore,
+  type AppFeatureFlags,
+} from "@/lib/feature-flags/feature-flag-store.js";
 
 interface FlagDefinition {
   ldKey: string;
@@ -15,6 +18,7 @@ interface FlagDefinition {
 
 interface AppFlagEntry {
   key: string;
+  storeKey: keyof AppFeatureFlags;
   label: string;
   description: string;
   value: boolean | string;
@@ -141,18 +145,17 @@ const FLAG_DEFINITIONS: Record<string, FlagDefinition> = {
   },
 };
 
-const noop = () => {};
-
 export function FeatureFlagsPanel() {
   const [searchText, setSearchText] = useState("");
-  const appFlags = useAppFeatureFlags();
+  const storeState = useFeatureFlagStore();
 
   const flags: AppFlagEntry[] = useMemo(() => {
     const entries: AppFlagEntry[] = [];
     for (const [prop, def] of Object.entries(FLAG_DEFINITIONS)) {
-      const value = appFlags[prop as keyof typeof appFlags];
+      const value = storeState[prop as keyof AppFeatureFlags];
       entries.push({
         key: def.ldKey,
+        storeKey: prop as keyof AppFeatureFlags,
         label: def.label,
         description: def.description,
         value,
@@ -162,7 +165,7 @@ export function FeatureFlagsPanel() {
     return entries.sort((a, b) =>
       a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
     );
-  }, [appFlags]);
+  }, [storeState]);
 
   const filteredFlags = useMemo(() => {
     if (!searchText.trim()) {
@@ -218,6 +221,7 @@ interface FeatureFlagRowProps {
 
 function FeatureFlagRow({ flag }: FeatureFlagRowProps) {
   const checked = typeof flag.value === "boolean" ? flag.value : null;
+  const setFlag = useFeatureFlagStore.use.setFlag();
 
   return (
     <div className="flex items-start gap-3 py-3">
@@ -225,7 +229,7 @@ function FeatureFlagRow({ flag }: FeatureFlagRowProps) {
         {checked !== null ? (
           <Toggle
             checked={checked}
-            onChange={noop}
+            onChange={(next) => setFlag(flag.storeKey, next)}
             aria-label={`${flag.label} is ${checked ? "on" : "off"}`}
           />
         ) : (

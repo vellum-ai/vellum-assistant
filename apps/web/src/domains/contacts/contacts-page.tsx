@@ -41,7 +41,7 @@ import type {
 } from "@/domains/contacts/types.js";
 import { useAssistantContext } from "@/domains/chat/assistant-context.js";
 import { fetchAssistantIdentity } from "@/domains/chat/api/assistant.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 
 const ASSISTANT_SETUP_PROMPTS: Record<AssistantChannelState["key"], string> = {
@@ -80,7 +80,7 @@ function ContactsPageInner({
   assistantId,
   onStartSetupConversation,
 }: ContactsPageInnerProps) {
-  const { a2aChannel } = useAppFeatureFlags();
+  const a2aChannel = useFeatureFlagStore.use.a2aChannel();
   const queryClient = useQueryClient();
   const [loadedName, setLoadedName] = useState<{
     assistantId: string;

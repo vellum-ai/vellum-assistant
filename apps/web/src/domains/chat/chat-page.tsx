@@ -28,7 +28,7 @@ import { useConversationListStore } from "@/domains/conversations/conversation-l
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
@@ -85,12 +85,10 @@ export function ChatPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { assistantId, assistantState, checkAssistant, setAssistantId } = useAssistantContext();
-  const {
-    chatPullToRefresh,
-    deployToVercel,
-    doctor,
-    conversationGroupsUI,
-  } = useAppFeatureFlags();
+  const chatPullToRefresh = useFeatureFlagStore.use.chatPullToRefresh();
+  const deployToVercel = useFeatureFlagStore.use.deployToVercel();
+  const doctor = useFeatureFlagStore.use.doctor();
+  const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
 
   // -------------------------------------------------------------------------
   // Local state

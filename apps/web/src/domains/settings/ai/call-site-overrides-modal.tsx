@@ -12,7 +12,7 @@ import { Modal } from "@vellum/design-library/components/modal";
 import { toast } from "@vellum/design-library/components/toast";
 import { client } from "@/generated/api/client.gen.js";
 import { reportError } from "@/lib/errors/report.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { getDefaultModelForProvider, getModelsForProvider } from "@/domains/assistant/llm-model-catalog.js";
 
 import { INFERENCE_PROVIDER_DISPLAY_NAMES, INFERENCE_PROVIDERS } from "@/domains/settings/ai/ai-page.js";
@@ -163,7 +163,7 @@ function CallSiteOverridesModalInner({
   const [isSeeded, setIsSeeded] = useState(false);
   const [showResetConfirmation, setShowResetConfirmation] = useState(false);
   const seeded = useRef(false);
-  const { analyzeConversation: analyzeConversationEnabled } = useAppFeatureFlags();
+  const analyzeConversationEnabled = useFeatureFlagStore.use.analyzeConversation();
 
   const { data: catalog, isLoading, isError, refetch } = useQuery({
     queryKey: ["call-site-catalog", assistantId],
