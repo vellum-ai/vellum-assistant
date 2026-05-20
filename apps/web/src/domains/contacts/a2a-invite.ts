@@ -20,22 +20,3 @@ export function buildA2AInviteLink(params: {
   });
   return `${origin}${routes.connect}?${search.toString()}`;
 }
-
-/**
- * Extract and validate A2A invite parameters from a URL's search params.
- *
- * Returns `null` if any required parameter is missing or empty.
- */
-export function parseA2AInviteParams(
-  searchParams: URLSearchParams,
-): { senderAssistantId: string; token: string; senderGatewayUrl: string } | null {
-  const senderAssistantId = searchParams.get("senderAssistantId")?.trim();
-  const token = searchParams.get("token")?.trim();
-  const senderGatewayUrl = searchParams.get("senderGatewayUrl")?.trim();
-
-  if (!senderAssistantId || !token || !senderGatewayUrl) {
-    return null;
-  }
-
-  return { senderAssistantId, token, senderGatewayUrl };
-}
