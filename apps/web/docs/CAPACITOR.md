@@ -2,9 +2,9 @@
 
 The web app ships as both a browser SPA and the JS layer of a [Capacitor](https://capacitorjs.com/) iOS shell that loads it in a `WKWebView`. The patterns below are mandatory for any code path that might run inside Capacitor iOS — most of them address real iOS-specific failure modes that desktop browsers silently tolerate.
 
-If you're touching anything in `apps/web/src/runtime/`, anything that calls a `@capacitor/*` plugin, anything that streams from the daemon, anything that auto-resizes based on content, or anything that gates a browser API that triggers an OS permission alert — start here.
+> **Read this only if your change touches iOS code paths.** For browser-only contributions you can skip this document. Building the iOS app itself additionally requires macOS and Xcode; the native shell lives in [`apps/ios/`](../../../apps/ios/).
 
-The native iOS shell that consumes these patterns lives at [`apps/ios/`](../../apps/ios/).
+If you're touching anything in `apps/web/src/runtime/`, anything that calls a `@capacitor/*` plugin, anything that streams from the daemon, anything that auto-resizes based on content, or anything that gates a browser API that triggers an OS permission alert — start here.
 
 ---
 
@@ -39,13 +39,13 @@ References:
 
 ## Native auth on iOS
 
-Native auth uses [`ASWebAuthenticationSession`](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession) (Safari sheet) via a `NativeAuth` Capacitor plugin — see [`src/runtime/native-auth.ts`](./src/runtime/native-auth.ts) and the Swift side at [`apps/ios/App/App/NativeAuthPlugin.swift`](../../apps/ios/App/App/NativeAuthPlugin.swift).
+Native auth uses [`ASWebAuthenticationSession`](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession) (Safari sheet) via a `NativeAuth` Capacitor plugin — see [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts) and the Swift side at [`apps/ios/App/App/NativeAuthPlugin.swift`](../../../apps/ios/App/App/NativeAuthPlugin.swift).
 
-- **Protected (app) routes**: route protection middleware (see [`CONVENTIONS.md` § Route protection via middleware](./CONVENTIONS.md#route-protection-via-middleware)) redirects unauthenticated users to `/account/login?returnTo=…`. Individual pages should **not** render inline sign-in gates. Return `null` when `!isLoggedIn` and let the middleware handle the redirect. The branded login page (`/account/login`) renders a native login form (inside [`NativeSplash`](./src/components/native-splash.tsx)) on Capacitor iOS and a web login form on web.
+- **Protected (app) routes**: route protection middleware (see [`CONVENTIONS.md` § Route protection via middleware](./CONVENTIONS.md#route-protection-via-middleware)) redirects unauthenticated users to `/account/login?returnTo=…`. Individual pages should **not** render inline sign-in gates. Return `null` when `!isLoggedIn` and let the middleware handle the redirect. The branded login page (`/account/login`) renders a native login form (inside [`NativeSplash`](../src/components/native-splash.tsx)) on Capacitor iOS and a web login form on web.
 - **iOS login — no `providerHint`**: the iOS login form must use a single "Sign in" button with **no `providerHint`**. Do NOT add individual provider buttons or pass `providerHint` from the iOS login screen — see [Apple App Store Review Guideline 4](https://developer.apple.com/app-store/review/guidelines/#design) and [Guideline 4.8 — Sign in with Apple](https://developer.apple.com/app-store/review/guidelines/#login-services). The `providerHint` / `loginHint` parameters remain in the helper API for web and other use cases but must not be used from the iOS login entry point.
 - **Pre-fill identity-derived inputs from the auth claim**: when the platform / IdP returns identity claims on signup (Apple SIWA `given_name`/`family_name`, Google `given_name`/`family_name`, etc.), pre-fill any user-facing input that asks for that identity (e.g. "Your name") from the claim instead of forcing the user to retype it — [Apple Guideline 4](https://developer.apple.com/app-store/review/guidelines/#design) and [Apple HIG: Sign in with Apple](https://developer.apple.com/design/human-interface-guidelines/sign-in-with-apple) treat asking again as a violation. The field stays editable so users can pick a preferred nickname.
 - **Sign-in actions outside the app shell**: wrap sign-in links in a shared component that renders a native `startAuthFlow()` button on Capacitor iOS and a router `<Link>` on web — never a plain `<a href="/account/login">`, which on iOS would navigate the WKWebView away from the running SPA.
-- **Platform detection in JSX**: use a `useIsNativePlatform()` hook (which returns `false` during the first paint and settles to the real value on mount) — not the bare `isNativePlatform()` function — to avoid render flicker and hydration mismatches in any SSR/prerender path. If the hook doesn't exist yet at the call site, add it next to [`src/runtime/native-auth.ts`](./src/runtime/native-auth.ts).
+- **Platform detection in JSX**: use a `useIsNativePlatform()` hook (which returns `false` during the first paint and settles to the real value on mount) — not the bare `isNativePlatform()` function — to avoid render flicker and hydration mismatches in any SSR/prerender path. If the hook doesn't exist yet at the call site, add it next to [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts).
 
 ### Platform short-circuits in capability detection
 
@@ -64,7 +64,7 @@ Apple's [HIG — Requesting permission](https://developer.apple.com/design/human
 
 ### Keyboard-only affordances on touch devices
 
-When the *only* way to act on a UI element is a hardware-keyboard gesture (e.g. `Tab` to accept an inline suggestion, `Cmd+Enter` to submit), gate its rendering on `!isPointerCoarse()` from [`@/utils/pointer`](./src/utils/pointer.ts). Touch soft keyboards on iOS and Android do not expose `Tab` or most modifier-key combinations, so the affordance is non-actionable on coarse-pointer devices and may also overflow narrow viewports if its layout depends on a paired keypress. To support touch as well, add a tap-equivalent (button, gesture) instead of suppressing.
+When the *only* way to act on a UI element is a hardware-keyboard gesture (e.g. `Tab` to accept an inline suggestion, `Cmd+Enter` to submit), gate its rendering on `!isPointerCoarse()` from [`@/utils/pointer`](../src/utils/pointer.ts). Touch soft keyboards on iOS and Android do not expose `Tab` or most modifier-key combinations, so the affordance is non-actionable on coarse-pointer devices and may also overflow narrow viewports if its layout depends on a paired keypress. To support touch as well, add a tap-equivalent (button, gesture) instead of suppressing.
 
 Reference: [MDN: `(pointer)` media feature](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/pointer).
 
@@ -72,7 +72,7 @@ Reference: [MDN: `(pointer)` media feature](https://developer.mozilla.org/en-US/
 
 ## Deep links (Capacitor `appUrlOpen`)
 
-Native OAuth completion auto-dismisses `SFSafariViewController` by redirecting to a registered custom URL scheme (`vellum-assistant://`, `-dev`, `-staging`) and routing the URL via the `@capacitor/app` plugin's `appUrlOpen` listener. The router is mounted globally for the app routes; pure utilities and the typed `WindowEventMap` augmentation live in [`src/runtime/native-deep-link.ts`](./src/runtime/native-deep-link.ts).
+Native OAuth completion auto-dismisses `SFSafariViewController` by redirecting to a registered custom URL scheme (`vellum-assistant://`, `-dev`, `-staging`) and routing the URL via the `@capacitor/app` plugin's `appUrlOpen` listener. The router is mounted globally for the app routes; pure utilities and the typed `WindowEventMap` augmentation live in [`src/runtime/native-deep-link.ts`](../src/runtime/native-deep-link.ts).
 
 - **Build deep links via `buildOAuthCompleteDeepLink()`.** Don't hand-construct URLs — the helper picks the right scheme per host (`getNativeUrlSchemeForHost`) and encodes the payload consistently.
 - **Parse via `parseOAuthCompleteDeepLink()`.** It exact-matches the scheme against the apex allow-list, rejects look-alikes (e.g. `vellum-assistant-evil://`), requires the `oauth-complete` host, and enforces a non-empty `requestId`. Adding a new scheme means adding it to the allow-list — do not loosen the matcher to a `startsWith` check.
@@ -117,6 +117,7 @@ References:
 
 ## See also
 
-- [`CONVENTIONS.md`](./CONVENTIONS.md) — architecture, code organization, state management, component patterns.
+- [`CONVENTIONS.md`](./CONVENTIONS.md) — architecture, code organization, component patterns.
+- [`STATE_MANAGEMENT.md`](./STATE_MANAGEMENT.md) — Zustand stores, atomic selectors, TanStack Query.
 - [`STYLE_GUIDE.md`](./STYLE_GUIDE.md) — naming, imports, TypeScript, component authoring.
-- [`apps/ios/README.md`](../../apps/ios/README.md) — Capacitor iOS shell setup, Xcode targets, release pipeline.
+- [`apps/ios/README.md`](../../../apps/ios/README.md) — Capacitor iOS shell setup, Xcode targets, release pipeline.

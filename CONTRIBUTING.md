@@ -92,7 +92,7 @@ directories until the move is complete.
 
 | Directory | Status |
 |---|---|
-| `apps/web/` | Active migration target — Vite + React Router v7 SPA for the assistant web app. Code is being incrementally migrated from a separate repo. See [`apps/web/README.md`](apps/web/README.md) for local dev setup, [`apps/web/CONVENTIONS.md`](apps/web/CONVENTIONS.md) for architecture and state management patterns, and [`apps/web/STYLE_GUIDE.md`](apps/web/STYLE_GUIDE.md) for coding style. |
+| `apps/web/` | Active migration target — Vite + React Router v7 SPA for the assistant web app. Code is being incrementally migrated from a separate repo. See [`apps/web/README.md`](apps/web/README.md) for local dev setup, [`apps/web/docs/CONVENTIONS.md`](apps/web/docs/CONVENTIONS.md) and [`apps/web/docs/STATE_MANAGEMENT.md`](apps/web/docs/STATE_MANAGEMENT.md) for architecture and state, and [`apps/web/docs/STYLE_GUIDE.md`](apps/web/docs/STYLE_GUIDE.md) for coding style. |
 | `apps/chrome-extension/` | Move in progress from [`clients/chrome-extension/`](https://github.com/vellum-ai/vellum-assistant/tree/main/clients/chrome-extension). |
 
 ## Submitting a pull request

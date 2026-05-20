@@ -1,8 +1,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { assistantsConnectionStatus } from "@/generated/api/index.js";
-import type { AssistantsConnectionStatusResponse, ConnectionStatus } from "@/generated/api/index.js";
+import {
+  assistantsConnectionStatus,
+  type AssistantsConnectionStatusResponse,
+  type ConnectionStatus,
+} from "@/generated/api/index.js";
 import { subscribeAssistantUnreachable } from "@/domains/assistant/unreachable-bus.js";
 
 /**
@@ -85,6 +88,16 @@ export function shouldFailReachabilityImmediately(
   return false;
 }
 
+export function shouldDeferReachabilityOverlay({
+  probeResponseCount,
+  silentGracePeriod,
+}: {
+  probeResponseCount: number;
+  silentGracePeriod: boolean;
+}): boolean {
+  return silentGracePeriod && probeResponseCount === 1;
+}
+
 export function useAssistantReachability(
   assistantId: string | null,
 ): UseAssistantReachabilityResult {
@@ -93,6 +106,7 @@ export function useAssistantReachability(
   const startedAtRef = useRef<number>(0);
   const attemptsRef = useRef<number>(0);
   const generationRef = useRef<number>(0);
+  const probeResponsesRef = useRef<number>(0);
   const readyAtRef = useRef<number>(0);
   const dismissedAtRef = useRef<number>(0);
   const activeAssistantIdRef = useRef<string | null>(null);
@@ -118,6 +132,7 @@ export function useAssistantReachability(
     clearTimer();
     generationRef.current += 1;
     attemptsRef.current = 0;
+    probeResponsesRef.current = 0;
     startedAtRef.current = 0;
     readyAtRef.current = 0;
     dismissedAtRef.current = Date.now();
@@ -150,6 +165,8 @@ export function useAssistantReachability(
         return;
       }
 
+      const probeResponseCount = probeResponsesRef.current + 1;
+      probeResponsesRef.current = probeResponseCount;
       const serverState = response?.state ?? "unreachable";
       const isPodWaking = serverState === "waking";
       const elapsed = Date.now() - startedAtRef.current;
@@ -198,12 +215,15 @@ export function useAssistantReachability(
         return;
       }
 
-      // When the probe was triggered by the unreachable bus (silent
-      // grace period), suppress the connecting overlay for the first
-      // probe. This absorbs brief transient blips — e.g. a container
-      // restart that resolves within seconds — so the user is never
-      // shown a "Connecting" modal for a momentary hiccup.
-      if (options.silentGracePeriod && attemptsRef.current <= 1 && !isPodWaking) {
+      // Silent probes are used for proactive/background checks. Suppress the
+      // first non-ready result, including a one-off "waking" response, so a
+      // transient PENDING pod observation does not flash the modal.
+      if (
+        shouldDeferReachabilityOverlay({
+          probeResponseCount,
+          silentGracePeriod: options.silentGracePeriod,
+        })
+      ) {
         timerRef.current = setTimeout(() => {
           void runProbeRef.current(generation, options);
         }, RECHECK_INTERVAL_MS);
@@ -239,6 +259,7 @@ export function useAssistantReachability(
     clearTimer();
     generationRef.current += 1;
     attemptsRef.current = 0;
+    probeResponsesRef.current = 0;
     startedAtRef.current = Date.now();
     activeAssistantIdRef.current = assistantId;
     probingRef.current = true;
@@ -251,9 +272,11 @@ export function useAssistantReachability(
         lastServerState: null,
       });
     }
+    const silentGracePeriod =
+      options?.silentGracePeriod ?? !showConnectingImmediately;
     void runProbe(generationRef.current, {
       keepIdleOnReady: !showConnectingImmediately,
-      silentGracePeriod: options?.silentGracePeriod ?? false,
+      silentGracePeriod,
     });
   }, [assistantId, clearTimer, runProbe]);
 
@@ -265,6 +288,7 @@ export function useAssistantReachability(
       clearTimer();
       generationRef.current += 1;
       attemptsRef.current = 0;
+      probeResponsesRef.current = 0;
       startedAtRef.current = 0;
       activeAssistantIdRef.current = null;
       probingRef.current = false;

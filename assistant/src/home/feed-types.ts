@@ -106,7 +106,12 @@ export interface FeedItem {
   actions?: FeedAction[];
   /** Visual urgency treatment — controls badge color independently of sort priority. */
   urgency?: FeedItemUrgency;
-  /** Optional conversation this feed item is associated with. */
+  /**
+   * Source conversation that emitted this notification, when known. Used by
+   * the "Go to Thread" affordance in the detail panel. Omitted when the
+   * source context is not a navigable conversation (scheduler job ids,
+   * watcher event ids, CLI tool-call ids).
+   */
   conversationId?: string;
   /** Server-driven detail panel descriptor; when present, the client opens this panel kind. */
   detailPanel?: FeedItemDetailPanel;

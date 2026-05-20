@@ -342,6 +342,8 @@ async function runForkBasedRetrospective(
       conversationId: sourceConversationId,
       source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
       title: `${sourceConversation.title ?? "Untitled"} (Retrospective)`,
+      conversationType: "background",
+      groupId: MEMORY_RETROSPECTIVE_GROUP_ID,
     });
   } catch (err) {
     bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
@@ -368,7 +370,7 @@ async function runForkBasedRetrospective(
       forkId,
       "user",
       JSON.stringify([{ type: "text", text: instruction }]),
-      { kind: MEMORY_RETROSPECTIVE_INSTRUCTION_KIND },
+      { kind: MEMORY_RETROSPECTIVE_INSTRUCTION_KIND, hidden: true },
       { skipIndexing: true },
     );
   } catch (err) {
@@ -396,6 +398,10 @@ async function runForkBasedRetrospective(
       hintRole: "user",
       skipHintInjection: true,
       suppressAutoCompaction: true,
+      // The fork's title already reads "(Retrospective)", so an empty-body
+      // "Conversation Woke" surface card on top of it would be noise. Suppress
+      // it — clients should display the fork as a normal background conv.
+      suppressWakeSurface: true,
     });
     wakeSucceeded = result.invoked;
     failureReason = result.reason;

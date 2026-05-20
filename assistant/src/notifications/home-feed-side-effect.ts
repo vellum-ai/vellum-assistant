@@ -22,11 +22,7 @@ import { getConversation } from "../memory/conversation-crud.js";
 import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import { getLogger } from "../util/logger.js";
 import type { NotificationSignal } from "./signal.js";
-import type {
-  NotificationDecision,
-  NotificationDeliveryResult,
-  RenderedChannelCopy,
-} from "./types.js";
+import type { NotificationDecision, RenderedChannelCopy } from "./types.js";
 
 const log = getLogger("home-feed-side-effect");
 
@@ -48,9 +44,9 @@ const FEED_ITEM_URGENCIES: ReadonlySet<string> = new Set<FeedItemUrgency>([
 export async function writeHomeFeedItemForSignal(
   signal: NotificationSignal,
   decision: NotificationDecision,
-  deliveryResults: NotificationDeliveryResult[],
 ): Promise<FeedItem | null> {
-  if (!shouldMirrorToHomeFeed(signal)) return null;
+  const { mirror, sourceConversationId } = resolveHomeFeedMirror(signal);
+  if (!mirror) return null;
 
   const renderedCopy =
     decision.renderedCopy.vellum ??
@@ -77,9 +73,6 @@ export async function writeHomeFeedItemForSignal(
     return null;
   }
 
-  const conversationId = deliveryResults.find(
-    (r) => r.channel === "vellum",
-  )?.conversationId;
   const urgency = FEED_ITEM_URGENCIES.has(signal.attentionHints.urgency)
     ? (signal.attentionHints.urgency as FeedItemUrgency)
     : undefined;
@@ -107,7 +100,7 @@ export async function writeHomeFeedItemForSignal(
     noteworthy: deriveNoteworthy(signal),
     fromAssistant: signal.sourceChannel === "assistant_tool",
     ...(urgency ? { urgency } : {}),
-    ...(conversationId ? { conversationId } : {}),
+    ...(sourceConversationId ? { conversationId: sourceConversationId } : {}),
     ...(panelKind ? { detailPanel: { kind: panelKind } } : {}),
     ...(metadata ? { metadata } : {}),
   };
@@ -166,28 +159,41 @@ function deriveDetailPanelKind(
 }
 
 /**
- * `sourceContextId` is best-effort — it may not be a conversation id
- * (e.g. scheduler job id, watcher event id), so a lookup failure
- * falls through to "not a background conversation" rather than throwing.
+ * The lookup is best-effort and unified: a single `getConversation` call
+ * both gates the "background conversation" mirror branch and populates
+ * `sourceConversationId` for the "Go to Thread" navigation target. Misses
+ * (scheduler job ids, watcher event ids, CLI tool-call ids) leave
+ * `sourceConversationId` undefined so the client hides the affordance.
  *
- * `assistant_tool` is the source channel used by the `notifications send`
- * skill (and by background-job failure emits). These signals represent
- * the assistant actively choosing to share, so we mirror them into the
- * home feed without requiring a background-typed conversation or the
- * `isAsyncBackground` hint — the documented (SKILL.md) CLI surface
- * intentionally does not expose either; internal call sites that still set
- * the hint keep working unchanged.
+ * `assistant_tool` mirrors unconditionally because the documented
+ * `notifications send` skill (and background-job failure emits) deliberately
+ * does not require a background-typed conversation or the
+ * `isAsyncBackground` hint.
  */
-function shouldMirrorToHomeFeed(signal: NotificationSignal): boolean {
-  if (signal.sourceChannel === "assistant_tool") return true;
-  if (signal.attentionHints.isAsyncBackground) return true;
-  if (!signal.sourceContextId) return false;
-  try {
-    const row = getConversation(signal.sourceContextId);
-    return isBackgroundConversationType(row?.conversationType);
-  } catch {
-    return false;
+function resolveHomeFeedMirror(signal: NotificationSignal): {
+  mirror: boolean;
+  sourceConversationId?: string;
+} {
+  let sourceRow: { conversationType?: string } | null = null;
+  if (signal.sourceContextId) {
+    try {
+      sourceRow = getConversation(signal.sourceContextId) ?? null;
+    } catch {
+      sourceRow = null;
+    }
   }
+  const sourceConversationId = sourceRow ? signal.sourceContextId : undefined;
+
+  if (signal.sourceChannel === "assistant_tool") {
+    return { mirror: true, sourceConversationId };
+  }
+  if (signal.attentionHints.isAsyncBackground) {
+    return { mirror: true, sourceConversationId };
+  }
+  if (isBackgroundConversationType(sourceRow?.conversationType)) {
+    return { mirror: true, sourceConversationId };
+  }
+  return { mirror: false };
 }
 
 function readPayloadString(payload: unknown, key: string): string | undefined {

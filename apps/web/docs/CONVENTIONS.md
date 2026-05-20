@@ -5,8 +5,7 @@ Covers code organization, state management, component design, and
 framework strategy. For coding style, naming, and import rules see
 [`STYLE_GUIDE.md`](./STYLE_GUIDE.md).
 
-Subordinate to [`apps/AGENTS.md`](../AGENTS.md) and root
-[`AGENTS.md`](../../AGENTS.md).
+See also [`apps/web/AGENTS.md`](../AGENTS.md) for the quick-rules entry point, and broader patterns in [`apps/AGENTS.md`](../../AGENTS.md) / root [`AGENTS.md`](../../../AGENTS.md).
 
 ---
 
@@ -15,7 +14,7 @@ Subordinate to [`apps/AGENTS.md`](../AGENTS.md) and root
 The web app is a **Vite + React Router v7 SPA** using
 [library / data-router mode](https://reactrouter.com/start/modes)
 (`createBrowserRouter` + `<RouterProvider>`). See
-[`apps/web/README.md`](./README.md) for the full stack description and
+[`apps/web/README.md`](../README.md) for the full stack description and
 local development commands.
 
 ### Why Data mode, not Framework mode
@@ -131,7 +130,7 @@ src/
 
 #### Why `domains/` not `features/`
 
-The team chose `domains/` over the more common `features/` because
+This app uses `domains/` over the more common `features/` because
 "features" implies product-level concepts (like "chat" or
 "settings") that contain multiple domains. `messages`,
 `conversations`, and `streaming` are business domains with distinct
@@ -258,399 +257,23 @@ If the code imports a third-party SDK and configures it → `lib/`. If it bridge
 ### No barrel files
 
 Do not use barrel files (`index.ts` that re-export siblings). Import
-from the source file directly. If a genuine need arises in the future,
-discuss with the team before adding one.
+from the source file directly. If you believe this rule should change,
+open a GitHub issue to discuss.
 
 ---
 
 ## State management
 
-### Zustand for shared mutable state
+State management has its own document: see
+[`STATE_MANAGEMENT.md`](./STATE_MANAGEMENT.md).
 
-Use [Zustand](https://github.com/pmndrs/zustand) for state shared
-across multiple components — messages, turn state, interactions,
-conversation list, viewer state. Zustand was chosen over Context +
-useReducer because:
+Quick summary:
 
-- **Selector support.** `useStore(selector)` lets each component
-  subscribe to only the slice it needs. Context has no selector
-  support — every consumer re-renders on any change, which is
-  unacceptable during streaming (messages update every ~50ms).
-- **Framework-agnostic store definitions.** Store logic is plain
-  TypeScript with no React dependency — portable across environments.
-- **Direct named actions.** Store actions are plain functions that
-  call `set()` — no dispatchers, no action types, no switch statements.
-  See [Zustand store conventions](#zustand-store-conventions).
+- **Client state** lives in Zustand stores with direct named actions and atomic selectors via `createSelectors`.
+- **Server state** lives in TanStack Query.
+- **`useReducer` is not used** for client state, even within a single hook. See [STATE_MANAGEMENT.md — useReducer is not used](./STATE_MANAGEMENT.md#usereducer-is-not-used-for-client-state).
+- **`useShallow`** is not introduced in new code — atomic selectors avoid the need.
 
-```ts
-// Good — component only re-renders when its slice changes
-const messages = useChatStore((s) => s.messages);
-
-// Avoid — every consumer re-renders on any context change
-const { messages } = useContext(ChatContext);
-```
-
-References:
-- [Zustand docs](https://zustand.docs.pmnd.rs/)
-- [Zustand — Auto-generating selectors](https://zustand.docs.pmnd.rs/guides/auto-generating-selectors)
-
-### Zustand store conventions
-
-Each domain owns its store, colocated within the domain folder:
-`domains/messages/message-store.ts`. Store files use
-`{domain}-store.ts`. Zustand stores are module-level singletons with
-both React hook and non-React APIs (`.getState()`, `.setState()`,
-`.subscribe()`), so the file describes what the module *is* (a store),
-while the exported hook uses the `use` prefix per React's
-[Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks).
-
-References:
-- [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
-- [Bulletproof React — project structure](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md)
-
-Store creation pattern — separate `State` and `Actions` interfaces,
-wrap with `createSelectors` for auto-generated per-field hooks:
-
-```ts
-import { create } from "zustand";
-
-import { createSelectors } from "@/utils/create-selectors.js";
-import type { Message } from "./types.js";
-
-// State — the data
-export interface MessageState {
-  messages: Message[];
-  activeThreadId: string | null;
-}
-
-// Actions — direct named functions (no dispatch/reducer)
-export interface MessageActions {
-  addMessage: (message: Message) => void;
-  setActiveThread: (threadId: string | null) => void;
-  clearMessages: () => void;
-}
-
-// Combined store type
-export type MessageStore = MessageState & MessageActions;
-
-const useMessageStoreBase = create<MessageStore>()((set) => ({
-  messages: [],
-  activeThreadId: null,
-  addMessage: (message) =>
-    set((s) => ({ messages: [...s.messages, message] })),
-  setActiveThread: (threadId) =>
-    set({ activeThreadId: threadId }),
-  clearMessages: () =>
-    set({ messages: [], activeThreadId: null }),
-}));
-
-export const useMessageStore = createSelectors(useMessageStoreBase);
-```
-
-Consumers use `.use.field()` in render bodies and `.getState()` in
-callbacks — see
-[Reading state: `.use.*` vs `.getState()`](#reading-state-use-vs-getstate).
-
-Keep domain-specific store definitions in their domain folder —
-adding or removing a domain means adding or removing a folder.
-Cross-domain stores (consumed by two or more domains, or with no
-single domain owner — auth, viewer, feature flags, assistant
-identity) live in top-level `stores/`. See the
-[Decision rule for hooks/stores/utils](#top-level-shared-directories).
-
-References:
-- [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
-- [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors)
-
-### Auth state lives in a Zustand store
-
-Auth is cross-domain shared state — used by middleware, route
-components, API interceptors, and platform bridges. It lives in a
-Zustand store (`stores/auth-store.ts`), not a React Context. This
-is critical because:
-
-- **Middleware and loaders** need auth state outside the React tree —
-  `useAuthStore.getState()` works anywhere; Context requires a
-  component.
-- **API interceptors** need to read/write auth state synchronously.
-- **Selector support** — components subscribe to only the auth slice
-  they need (e.g., `useAuthStore(s => s.isAuthenticated)`).
-
-References:
-- [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
-- [React Router — Middleware](https://reactrouter.com/how-to/middleware)
-
-### Turn state lives in `domains/messaging/turn-store.ts`
-
-Turn lifecycle (sending, thinking, streaming, idle, errored), queue
-depth, active tool-call count, and current turn identity are managed
-by the turn store. Use `useTurnStore(selector)` in React components
-and `useTurnStore.getState()` in non-React code (stream handlers,
-reconciliation). Do not prop-drill turn state or dispatch functions.
-
-Action naming follows the
-[Flux-inspired practice](https://zustand.docs.pmnd.rs/learn/guides/flux-inspired-practice):
-`on*` for SSE-event reactions (`onTextDelta`, `onStreamError`,
-`onPollReconciled`), imperative for user/system-initiated actions
-(`requestSend`, `cancelGeneration`, `resetTurn`).
-
-### Selector patterns and `useShallow`
-
-Selectors control re-render granularity. Choose the right pattern based
-on what the selector returns:
-
-```ts
-// 1. Primitive selector — no useShallow needed
-const assistantId = useChatStore((s) => s.assistantId);
-
-// 2. Object/array slice — useShallow required (new reference each call)
-const { messages, assistantId } = useChatStore(
-  useShallow((s) => ({ messages: s.messages, assistantId: s.assistantId })),
-);
-
-// 3. Derived/transformed state — useShallow doesn't help, use useMemo
-const unread = useChatStore((s) => s.messages.filter((m) => !m.read));
-// ⚠️ returns new array each time — wrap consumer in useMemo or use
-// a custom equality function via createWithEqualityFn.
-```
-
-Rule of thumb: if the selector returns a **primitive** (`string`,
-`number`, `boolean`, `null`), use it directly. If it returns a **new
-object or array**, wrap with `useShallow`. If it **derives/transforms**
-data, consider `useMemo` in the consumer or a stable selector defined
-outside the component.
-
-References:
-- [Zustand — Prevent rerenders with useShallow](https://zustand.docs.pmnd.rs/guides/prevent-rerenders-with-use-shallow)
-- [Zustand v5 selector best practices (community discussion)](https://github.com/pmndrs/zustand/discussions/2867)
-
-### Auto-generated selectors via `createSelectors`
-
-Wrap every store with `createSelectors()` from `src/utils/create-selectors.ts`
-to auto-generate per-field selector hooks. This is the
-[official Zustand pattern](https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors)
-for reducing boilerplate while keeping per-field re-render optimization.
-
-```ts
-import { create } from "zustand";
-import { createSelectors } from "@/utils/create-selectors.js";
-
-interface BearState {
-  bears: number;
-  increase: (by: number) => void;
-}
-
-const useBearStoreBase = create<BearState>()((set) => ({
-  bears: 0,
-  increase: (by) => set((state) => ({ bears: state.bears + by })),
-}));
-
-export const useBearStore = createSelectors(useBearStoreBase);
-```
-
-Consumers use the `.use` property — fully typed, with autocomplete:
-
-```ts
-// Auto-generated selector — one field, minimal re-renders
-const bears = useBearStore.use.bears();
-const increase = useBearStore.use.increase();
-
-// .getState() still works for non-React contexts (middleware, interceptors)
-const { bears } = useBearStore.getState();
-```
-
-Prefer `.use.field()` over manual `(s) => s.field` selectors. For
-derived/computed values (e.g. `user?.id`), use `.use.user()` and
-access the property from the result. See
-[Reading state: `.use.*` vs `.getState()`](#reading-state-use-vs-getstate)
-for when to use each API.
-
-Reference: [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors)
-
-### Reading state: `.use.*` vs `.getState()`
-
-Zustand exposes two ways to read store state. Using the wrong one
-causes either missed re-renders or unnecessary subscriptions.
-
-| Context | API | Why |
-|---------|-----|-----|
-| **React render body** (component/hook top level) | `useStore.use.field()` | Creates a subscription — component re-renders when `field` changes. Required for reactive UI. |
-| **Event handlers, callbacks, effects, `useCallback` bodies** | `useStore.getState().field` | Reads the latest value at call time without creating a subscription. No stale-closure risk. |
-| **Outside React** (middleware, interceptors, stream handlers, `main.tsx`) | `useStore.getState().field` | No React context available — `.use.*` would throw. |
-| **Calling actions** (anywhere) | `useStore.getState().actionName()` | Actions are stable references — calling via `.getState()` is always correct and avoids adding the action to dependency arrays. |
-
-```ts
-// Render body — reactive subscription
-const count = useMessageStore.use.count();
-
-// Event handler — imperative read + action
-const handleClick = useCallback(() => {
-  useMessageStore.getState().increment();
-}, []);
-
-// Middleware — outside React
-const { isLoggedIn } = useAuthStore.getState();
-```
-
-Zustand's `set()` is synchronous — `.getState()` after an action
-returns already-mutated values. Read state *before* calling an action
-when the caller needs pre-mutation values.
-
-References:
-- [Zustand — Updating state](https://zustand.docs.pmnd.rs/guides/updating-state)
-- [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/extracting-state-outside-components)
-- [React — Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks)
-
-### Data fetching: React Query vs direct SDK calls
-
-Use **React Query** for data consumed primarily by React components —
-it provides stale-while-revalidate, automatic background refetching,
-cache sharing between components, and error/loading states. This covers
-most API data: chat messages, assistant state, billing, settings, etc.
-
-Use **direct SDK calls** inside Zustand stores for infrastructure-level
-shared state that must be readable outside the React tree (middleware,
-API interceptors, loaders) via `.getState()`. This applies when:
-
-1. **Non-React consumers exist** — middleware or interceptors need the
-   data synchronously before any component renders.
-2. **The fetch is simple** — a single call on login or on demand,
-   with no benefit from background refetching or cache sharing.
-3. **The store is the single source of truth** — no need to sync
-   between React Query cache and a separate module-level variable.
-
-Auth and organization state both fit this category. The generated SDK
-client (`sdk.gen.ts`) exposes the same typed API functions that React
-Query wraps, so switching from `useQuery(optionsFn())` to a direct
-`apiFunction()` call uses the same endpoint, types, and interceptors.
-
-```ts
-// Infrastructure store — direct SDK call
-import { organizationsList } from "@/generated/api/sdk.gen.js";
-
-const useOrgStoreBase = create<OrgStore>()((set) => ({
-  organizations: [],
-  fetchOrganizations: async () => {
-    const result = await organizationsList();
-    set({ organizations: result.data?.results ?? [] });
-  },
-}));
-
-// Domain data — React Query (used only in components)
-const { data } = useQuery(assistantsListOptions());
-```
-
-References:
-- [TkDodo — Working with Zustand](https://tkdodo.eu/blog/working-with-zustand) — React Query maintainer's guidance on the boundary between server state (RQ) and client/infrastructure state (Zustand)
-- [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
-
-### useReducer is not used for client state
-
-**Do not use `useReducer` in `apps/web/`.** All client state — including
-single-hook-scoped state with non-trivial transitions — lives in a
-Zustand store with direct named actions (see
-[Direct named actions, not reducers](#direct-named-actions-not-reducers)
-just below). The dispatch/action-type/reducer pattern is not the
-shape we want even inside a Zustand store — Zustand's
-[Flux-inspired practice guide](https://zustand.docs.pmnd.rs/guides/flux-inspired-practice)
-exists for Redux migration paths, not as the recommended idiom.
-
-```ts
-// Good — Zustand store with direct named actions
-const useSecretStore = createSelectors(
-  create<SecretState>((set) => ({
-    requestId: null,
-    prompt: null,
-    showSecret: (requestId: string, prompt: string) =>
-      set({ requestId, prompt }),
-    dismissSecret: () => set({ requestId: null, prompt: null }),
-  })),
-);
-
-// Avoid — useReducer in any form. Locks state to one component subtree,
-// prevents atomic selectors, no devtools, doesn't survive remount,
-// duplicates the React state primitive we already use Zustand for.
-const [state, dispatch] = useReducer(secretReducer, initialState);
-
-// Avoid — dispatcher pattern inside a Zustand store. Zustand supports
-// this for Redux migrants but it's not idiomatic; named actions are
-// independently testable, discoverable in IDE autocomplete, and don't
-// pay the action-type/switch tax.
-create((set) => ({
-  dispatch: (action: SecretAction) =>
-    set((state) => secretReducer(state, action)),
-}));
-```
-
-Why no `useReducer` and no in-store reducer pattern:
-
-- **Consistency** — the codebase standardizes on Zustand stores with direct named actions as the single client-state primitive.
-- **Cross-component subscribers** — Zustand atomic selectors handle this for free; `useReducer` requires Context wrapping + cross-tree re-renders.
-- **Devtools** — Zustand integrates with Redux DevTools; `useReducer` doesn't.
-- **Persistence across remounts** — module-level Zustand stores survive route remounts; `useReducer` state doesn't.
-- **No prop drilling** — `useReducer` state must be passed down or wrapped in Context. Zustand selectors are accessible everywhere.
-- **No dispatcher boilerplate** — direct named actions skip the action-type union, the switch statement, and the runtime cost of an indirection layer. Each action is a plain function that's testable in isolation.
-
-For state with complex transition rules (state machines), express the
-rules as guards inside the named action itself — e.g. `acceptSend`
-no-ops if `phase !== "thinking"`. The action stays a plain function;
-the rules stay testable in isolation; we don't need a dispatcher
-ceremony to enforce them.
-
-**Known exceptions** (being migrated):
-
-- `apps/web/src/domains/terminal/use-terminal-state.ts` and
-  `apps/web/src/domains/terminal/use-terminal-session.ts` still use
-  `useReducer` + dispatch. Tracked in
-  [LUM-1748](https://linear.app/vellum/issue/LUM-1748). Do not
-  pattern-match new code on these files.
-
-References:
-- [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/guides/auto-generating-selectors)
-- [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
-
-### Direct named actions, not reducers
-
-Zustand's recommended pattern is **direct named actions** — plain
-functions on the store that call `set()`. Do not use dispatchers,
-action-type strings, or switch-case reducers. The `redux` middleware
-exists for Redux migration paths but is not the idiomatic Zustand
-approach.
-
-```ts
-// Good — Zustand-idiomatic direct actions
-export const useTurnStore = create<TurnStore>()((set, get) => ({
-  phase: "idle" as TurnPhase,
-  activeTurnId: null as string | null,
-  activeToolCallCount: 0,
-
-  startTurn: (turnId: string) =>
-    set({ phase: "thinking", activeTurnId: turnId }),
-
-  startStreaming: () =>
-    set({ phase: "streaming" }),
-
-  completeTurn: () =>
-    set({ phase: "idle", activeTurnId: null, activeToolCallCount: 0 }),
-
-  incrementToolCalls: () =>
-    set((s) => ({ activeToolCallCount: s.activeToolCallCount + 1 })),
-}));
-
-// Avoid — reducer/dispatch pattern (Redux holdover)
-dispatch: (action) => set((state) => turnReducer(state, action))
-```
-
-Each action is independently callable, testable, and discoverable via
-the store's TypeScript interface. Consumers call
-`useTurnStore.getState().startTurn(id)` or select individual actions
-via hooks — no action-type constants or switch statements needed.
-
-References:
-- [Zustand — Flux-inspired practice](https://zustand.docs.pmnd.rs/learn/guides/flux-inspired-practice) — "state can be updated without dispatched actions and reducers"
-- [Zustand — Updating state](https://zustand.docs.pmnd.rs/learn/guides/updating-state)
-
----
 
 ## Component patterns
 
@@ -873,7 +496,7 @@ export function ChatMarkdownMessage(props: ChatMarkdownMessageProps) {
 
 For component authoring conventions (React 19 ref-as-prop, `data-slot`,
 variant patterns, file organization), see
-[`packages/design-library/README.md`](../../packages/design-library/README.md).
+[`packages/design-library/README.md`](../../../packages/design-library/README.md).
 
 References:
 - [Node.js — Package exports](https://nodejs.org/api/packages.html#exports)
@@ -883,31 +506,12 @@ References:
 
 ---
 
-## Data fetching
+## API client codegen
 
-### React Query for server state
-
-Use [TanStack React Query](https://tanstack.com/query/latest) for
-server-derived data (API calls, caching, background refetching,
-mutations). When multiple components need the same data, use a shared
-hook with a stable query key — not independent `useState` +
-`useEffect` fetch cycles in each consumer.
-
-React Query handles **server state**. Zustand handles **client state**
-(UI interactions, streaming state, conversation selections). They do not
-overlap.
-
-Why React Query over alternatives:
-- [HeyAPI `@tanstack/react-query` plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query)
-  auto-generates type-safe query/mutation hooks from the OpenAPI spec.
-  No equivalent plugin exists for SWR (still in proposal stage) or other
-  libraries.
-- First-class mutation support, optimistic updates, and DevTools.
-- 12M+ weekly downloads (2026), most feature-complete option.
-
-References:
-- [React Query — Overview](https://tanstack.com/query/latest/docs/framework/react/overview)
-- [React Query — Comparison](https://tanstack.com/query/latest/docs/framework/react/comparison)
+Server state, React Query usage, and the Zustand-vs-Query boundary are
+covered in [`STATE_MANAGEMENT.md`](./STATE_MANAGEMENT.md). This section
+is about the **tooling** that produces the API client itself: OpenAPI
+codegen, generated hooks, and when to bypass them.
 
 ### HeyAPI for OpenAPI client generation
 
@@ -928,10 +532,11 @@ automatically via [npm lifecycle hooks](https://docs.npmjs.com/cli/v10/using-npm
 - **`predev`** — runs before every `bun run dev`; always regenerates so
   the client stays in sync with the committed specs.
 
-No manual codegen step is needed — both `bun install` + `bun run dev` and
-`vel up --vite` trigger these hooks automatically.
+No manual codegen step is needed — `bun install` + `bun run dev` triggers
+these hooks automatically. Vellum maintainers using the internal `vel`
+CLI also get codegen via `vel up --vite`.
 
-**Vellum developers** updating the specs after platform API changes:
+**Vellum maintainers** updating the specs after backend API changes:
 
 ```bash
 ./scripts/sync-openapi-specs.sh   # copies from sibling platform checkout
