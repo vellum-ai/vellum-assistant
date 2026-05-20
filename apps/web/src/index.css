@@ -1,3 +1,42 @@
 @import "tailwindcss";
 @import "@vellum/design-library/tokens.css";
 @source "../node_modules/@vellum/design-library/src/**/*.tsx";
+
+/* Functional keyframes — ported from platform appTheme.css */
+
+@keyframes indeterminate {
+  0% { width: 0%; margin-left: 0%; }
+  50% { width: 60%; margin-left: 20%; }
+  100% { width: 0%; margin-left: 100%; }
+}
+
+@keyframes fadeInUp {
+  0% { transform: translateY(16px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes typing-dot-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.6); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+/* Avatar breathing — gentle scale pulse matching macOS
+   AnimatedAvatarView.swift startBreathing() (2s in, 2s out). */
+@keyframes avatar-breathe-kf {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+
+@keyframes avatar-morph-scale {
+  0%, 100% { transform: scale(1, 1); }
+  25% { transform: scale(1.02, 0.99); }
+  50% { transform: scale(0.99, 1.02); }
+  75% { transform: scale(1.01, 0.99); }
+}
+
+@keyframes avatar-morph-rotate {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(0.86deg); }
+  50% { transform: rotate(0deg); }
+  75% { transform: rotate(-0.86deg); }
+}
