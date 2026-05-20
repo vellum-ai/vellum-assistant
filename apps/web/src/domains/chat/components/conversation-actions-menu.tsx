@@ -361,8 +361,7 @@ function MobileMenuDivider() {
   return (
     <div
       aria-hidden="true"
-      className="my-1 h-px"
-      style={{ background: "var(--border-overlay)" }}
+      className="my-1 h-px bg-[var(--border-overlay)]"
     />
   );
 }
@@ -670,27 +669,18 @@ export function ConversationActionsMenu({
   const [open, setOpen] = useState(false);
 
   const defaultTrigger = (
-    <span
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
       aria-label="Conversation actions"
-      aria-haspopup="menu"
       onClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => {
         event.stopPropagation();
         event.preventDefault();
       }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          event.stopPropagation();
-          (event.currentTarget as HTMLElement).click();
-        }
-      }}
       className="flex h-6 w-6 items-center justify-center rounded-[4px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-emphasised)]"
     >
       <MoreHorizontal size={14} aria-hidden />
-    </span>
+    </button>
   );
 
   const resolvedTrigger = trigger ?? defaultTrigger;

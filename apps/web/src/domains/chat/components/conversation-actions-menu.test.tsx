@@ -213,7 +213,7 @@ describe("ConversationActionsMenu — desktop branch", () => {
       />,
     );
     expect(html).toContain('aria-label="Conversation actions"');
-    expect(html).toContain('aria-haspopup="menu"');
+    expect(html).toContain("<button");
   });
 
   test("renders Pin and Rename items in the menu content", () => {
