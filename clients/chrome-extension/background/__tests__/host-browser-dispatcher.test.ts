@@ -1643,6 +1643,48 @@ describe('createHostBrowserDispatcher', () => {
       expect(payload.message).toContain('privileged URL');
     });
 
+    test('suppresses error envelope when createTab throws AFTER request was cancelled (regression)', async () => {
+      // Regression for the Codex P1 finding: the inner catch on
+      // Vellum.createTab returned early and bypassed the outer
+      // postResult cancel-guard. If a request is cancelled while
+      // deps.createTab() is in flight and then throws, we must NOT
+      // emit a late error envelope — the daemon has already resolved
+      // the caller as cancelled, and a ghost completion trips its
+      // "No pending host browser request" warning.
+      harness = createHarness();
+
+      let releaseCreateTab: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        releaseCreateTab = resolve;
+      });
+      harness.createTabImpl = async () => {
+        await gate;
+        throw new Error('tab creation failed mid-cancel');
+      };
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'createTab-cancel-race',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.createTab',
+      };
+
+      const handlePromise = harness.dispatcher.handle(request);
+
+      // Cancel mid-flight, BEFORE createTab settles.
+      harness.dispatcher.cancel({
+        type: 'host_browser_cancel',
+        requestId: 'createTab-cancel-race',
+      });
+
+      // Release the createTab promise so it throws.
+      releaseCreateTab();
+      await handlePromise;
+
+      // Critical assertion: no result envelope was posted.
+      expect(harness.results.length).toBe(0);
+    });
+
     test('does NOT invoke resolveTarget (pre-resolution)', async () => {
       harness = createHarness();
       harness.createTabImpl = async () => ({ tabId: 7 });

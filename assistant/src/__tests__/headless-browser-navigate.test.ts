@@ -760,6 +760,42 @@ describe("executeBrowserNavigate", () => {
     expect(cdpSendCalls.some((c) => c.method === "Page.navigate")).toBe(true);
   });
 
+  test("new_tab: true with no tabId in response clears a pre-existing stale pin (regression)", async () => {
+    // Regression for the Codex P2 finding: when Vellum.createTab
+    // returns a malformed response with no tabId, the executor falls
+    // back to active-tab routing — but the extension client was built
+    // with whatever pin was in scope for the conversation. If we
+    // don't clear that pin, the fallback isn't actually a fallback:
+    // navigation keeps targeting the old (possibly dead) tab, which
+    // is the exact failure mode the warn message claims we're
+    // avoiding ("falling back to active-tab routing").
+    const { setPinnedTab, getPinnedTab } = await import(
+      "../tools/browser/pinned-tabs.js"
+    );
+    setPinnedTab(ctx.conversationId, "stale-pinned-tab-id");
+    expect(getPinnedTab(ctx.conversationId)).toBe("stale-pinned-tab-id");
+
+    parseUrlResult = new URL("https://example.com/page");
+    mockExtensionAvailable = true;
+
+    cdpSendHandler = (method, params) => {
+      if (method === "Vellum.createTab") return {}; // no tabId
+      return defaultCdpHandler(method, params);
+    };
+
+    const result = await executeBrowserNavigate(
+      { url: "https://example.com/page", new_tab: true },
+      { ...ctx },
+    );
+
+    expect(result.isError).toBe(false);
+    // The stale pin must be cleared so the next op rebuilds the
+    // extension client with no pin (i.e. real active-tab routing).
+    expect(getPinnedTab(ctx.conversationId)).toBeUndefined();
+    // And no new pin was set either (since createTab returned no tabId).
+    expect(cdpSetSessionIdCalls).toEqual([]);
+  });
+
   test("new_tab: true on LOCAL path is a no-op (Playwright manages its own isolated browser)", async () => {
     parseUrlResult = new URL("https://example.com/page");
     mockExtensionAvailable = false; // local path

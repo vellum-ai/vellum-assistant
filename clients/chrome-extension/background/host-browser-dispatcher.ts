@@ -355,8 +355,6 @@ export function createHostBrowserDispatcher(
           const newTarget = await deps.createTab();
           if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
           if (newTarget.tabId === undefined) {
-            // Honour the cancel contract: don't post an error for a cancelled request.
-            if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
             await deps.postResult({
               requestId,
               content: JSON.stringify({
@@ -373,6 +371,12 @@ export function createHostBrowserDispatcher(
             isError: false,
           });
         } catch (createErr) {
+          // Honour the cancel contract: if the request was cancelled while
+          // deps.createTab() was in flight and then threw, don't emit a
+          // late error envelope (ghost completion). Mirrors the happy-path
+          // guard above and matches the cancel suppression used elsewhere
+          // in this dispatcher.
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
           const message = createErr instanceof Error ? createErr.message : String(createErr);
           await deps.postResult({
             requestId,
