@@ -144,7 +144,6 @@ export function ChatPage() {
   const activeConversationKey = useConversationListStore.use.activeConversationKey();
   const editingConversationKey = useConversationListStore.use.editingConversationKey();
   const processingKeys = useConversationListStore.use.processingKeys();
-  const attentionKeys = useConversationListStore.use.attentionKeys();
   const viewerState = useViewerStore(useShallow((s) => ({
     mainView: s.mainView,
     activeAppId: s.activeAppId,
@@ -176,15 +175,12 @@ export function ChatPage() {
   const assistantIdRef = useRef<string | null>(assistantId);
   useEffect(() => { assistantIdRef.current = assistantId; }, [assistantId]);
 
-  const conversationsRef = useRef<typeof conversations>(conversations);
-  conversationsRef.current = conversations;
 
   const streamRef = useRef<ChatEventStream | null>(null);
   const streamEpochRef = useRef(0);
   const streamContextRef = useRef<{ assistantId: string; conversationKey: string } | null>(null);
   const reconcileAfterNextStreamOpenRef = useRef(false);
   const needsNewBubbleRef = useRef(true);
-  const processingSnapshotsRef = useRef<Map<string, string | undefined>>(new Map());
   const dismissedSurfaceIdsRef = useRef<Set<string>>(new Set());
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
   const onboardingDraftConversationKeyRef = useRef<string | null>(null);
@@ -320,9 +316,6 @@ export function ChatPage() {
     searchParams,
     navigate,
     conversations,
-    activeConversation,
-    processingKeys,
-    attentionKeys,
     transcriptPagination,
     conversationGroupsUI,
     refreshEpoch,
@@ -336,7 +329,6 @@ export function ChatPage() {
     inputRef,
     draftsRef,
     messagesRef,
-    conversationsRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     needsNewBubbleRef,
@@ -345,7 +337,6 @@ export function ChatPage() {
     requestIdToStableIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    processingSnapshotsRef,
     refreshSettleRef,
     lastSuggestionMsgIdRef,
     autoGreetRef,
@@ -470,7 +461,6 @@ export function ChatPage() {
     setMessages,
     messagesRef,
     needsNewBubbleRef,
-    processingSnapshotsRef,
     setError,
     streamRef,
     cancelReconciliation,
@@ -509,12 +499,10 @@ export function ChatPage() {
     assistantIdRef,
     activeConversationKeyRef,
     messagesRef,
-    conversationsRef,
     streamRef,
     streamContextRef,
     streamEpochRef,
     needsNewBubbleRef,
-    processingSnapshotsRef,
     dismissedSurfaceIdsRef,
     pendingOnboardingContextRef,
     onboardingDraftConversationKeyRef,
@@ -581,7 +569,6 @@ export function ChatPage() {
     reachabilityProbe: reachability.probe,
     reachabilityPhase: reachability.state.phase,
     reachabilityReset: reachability.reset,
-    processingSnapshotsRef,
     setMessages,
     setError,
     streamRetryNonce,
@@ -1089,7 +1076,6 @@ export function ChatPage() {
       refreshSettleRef,
       streamRef,
       streamEpochRef,
-      processingSnapshotsRef,
       historyLoadedRef,
       pendingQueuedStableIdsRef,
       requestIdToStableIdRef,

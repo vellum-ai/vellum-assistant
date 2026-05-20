@@ -17,6 +17,7 @@ import type { AssistantContextValue } from "@/domains/chat/assistant-context.js"
 
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { useConversationListInit } from "@/domains/conversations/use-conversation-list-init.js";
+import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
@@ -128,6 +129,12 @@ export function ChatLayout() {
     assistantStateKind: lifecycle.assistantState.kind,
     conversationGroupsUI,
   });
+
+  // Track processing/attention indicators for every conversation in the
+  // sidebar, on every chat-layout child route. Mounted here (not ChatPage)
+  // so the 10s polling loop and graduation logic stay live when the user is
+  // on home/library/contacts/identity.
+  useAttentionTracking();
 
   // --- Layout slot state for child route content ---
   const [topBarCenter, setTopBarCenter] = useState<ReactNode>(null);

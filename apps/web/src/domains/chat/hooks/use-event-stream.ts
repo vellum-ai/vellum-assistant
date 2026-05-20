@@ -88,9 +88,6 @@ export interface UseEventStreamParams {
   reachabilityPhase: string;
   reachabilityReset: () => void;
 
-  // Conversation list
-  processingSnapshotsRef: MutableRefObject<Map<string, string | undefined>>;
-
   // Messages
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
 
@@ -140,7 +137,6 @@ export function useEventStream({
   reachabilityProbe,
   reachabilityPhase,
   reachabilityReset,
-  processingSnapshotsRef,
   setMessages,
   setError,
   streamRetryNonce,
@@ -249,8 +245,8 @@ export function useEventStream({
           {
             const convKey = streamContextRef.current?.conversationKey;
             if (convKey) {
+              // `removeProcessingKey` clears the matching snapshot atomically.
               useConversationListStore.getState().removeProcessingKey(convKey);
-              processingSnapshotsRef.current.delete(convKey);
             }
           }
           reachabilityProbeRef.current();
