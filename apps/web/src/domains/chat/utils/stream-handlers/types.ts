@@ -17,13 +17,7 @@ export interface StreamContext {
   conversationKey: string;
 }
 
-/**
- * Minimal push-based navigation adapter.
- *
- * Matches both Next.js App Router (`router.push`) and React Router v7
- * (`navigate`). Stream handlers only need forward navigation, so a
- * single `push` function is sufficient.
- */
+/** Minimal push-based navigation adapter for stream event handlers. */
 export interface Router {
   push(href: string): void;
 }

@@ -211,10 +211,14 @@ export function ChatPage() {
   const syncRouterRef = useRef<WebSyncRouter | null>(null);
 
   // -------------------------------------------------------------------------
-  // Routing adapters
+  // Routing
   // -------------------------------------------------------------------------
-  const pushRoute = useCallback(
+  const push = useCallback(
     (url: string) => { void navigate(url); },
+    [navigate],
+  );
+  const navigateToConversation = useCallback(
+    (key: string) => { void navigate(routes.conversation(key)); },
     [navigate],
   );
   // -------------------------------------------------------------------------
@@ -375,7 +379,6 @@ export function ChatPage() {
     },
     [rawSwitchConversation],
   );
-  void switchConversation;
   const startNewConversation = useCallback(
     (opts: { silent?: boolean; initialMessage?: string } = {}) => {
       useSubagentStore.getState().reset();
@@ -383,7 +386,6 @@ export function ChatPage() {
     },
     [rawStartNewConversation],
   );
-  void startNewConversation;
 
   // -------------------------------------------------------------------------
   // Message reconciliation
@@ -459,7 +461,7 @@ export function ChatPage() {
   // Stream event handler
   // -------------------------------------------------------------------------
   const { handleStreamEvent } = useStreamEventHandler({
-    push: pushRoute,
+    push,
     isNative,
     streamEpochRef,
     activeConversationKeyRef,
@@ -625,10 +627,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const conversationGroups = useConversationListStore.use.conversationGroups();
 
-  const pushConversationKeyParam = useCallback(
-    (key: string) => { void navigate(`${routes.assistant}?conversationKey=${encodeURIComponent(key)}`); },
-    [navigate],
-  );
+
 
   const {
     handleArchiveConversation,
@@ -665,8 +664,8 @@ export function ChatPage() {
     refreshConversations,
     switchConversation,
     setError,
-    pushConversationKeyParam,
-    pushRoute,
+    navigateToConversation,
+    navigate,
   });
 
   // -------------------------------------------------------------------------

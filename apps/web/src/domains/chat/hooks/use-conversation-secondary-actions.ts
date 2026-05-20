@@ -16,6 +16,8 @@ import {
   useState,
 } from "react";
 
+import type { NavigateFunction } from "react-router";
+
 import type { Conversation } from "@/domains/chat/api/conversations.js";
 import { analyzeConversation, forkConversation } from "@/domains/chat/api/conversations.js";
 import { routes } from "@/utils/routes.js";
@@ -38,8 +40,8 @@ export interface UseConversationSecondaryActionsParams {
   setError: (error: ChatError | null) => void;
   /** Navigate to a conversation by key (path-based routing). */
   navigateToConversation: (key: string) => void;
-  /** Generic route push for non-conversation navigation. */
-  pushRoute: (url: string) => void;
+  /** React Router navigate function for non-conversation navigation. */
+  navigate: NavigateFunction;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,7 +74,7 @@ export function useConversationSecondaryActions({
   switchConversation,
   setError,
   navigateToConversation,
-  pushRoute,
+  navigate,
 }: UseConversationSecondaryActionsParams): UseConversationSecondaryActionsReturn {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
@@ -162,9 +164,9 @@ export function useConversationSecondaryActions({
           params.set("messageId", messageId);
         }
       }
-      pushRoute(`${routes.inspect}?${params.toString()}`);
+      void navigate(`${routes.inspect}?${params.toString()}`);
     },
-    [pushRoute, activeConversation?.conversationKey],
+    [navigate, activeConversation?.conversationKey],
   );
 
   const handleShareFeedback = useCallback(() => {

@@ -57,11 +57,7 @@ export {
 const CONVERSATION_LIST_INVALIDATED_DEBOUNCE_MS = 250;
 const CHAT_CONTEXT_LOAD_FAILED_CODE = "CHAT_CONTEXT_LOAD_FAILED";
 
-/**
- * Minimal URL search-params reader — accepts any object that supports
- * `get` and `toString`. Both Next.js `ReadonlyURLSearchParams` and the
- * standard `URLSearchParams` satisfy this.
- */
+/** Minimal URL search-params reader (subset of `URLSearchParams`). */
 interface SearchParamsLike {
   get: (key: string) => string | null;
   toString: () => string;
