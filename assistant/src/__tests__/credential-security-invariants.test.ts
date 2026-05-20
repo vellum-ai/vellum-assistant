@@ -223,6 +223,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/daemon-skill-host.ts", // SkillHost secureKeys facet adapter (delegates to getProviderKeyAsync)
       "runtime/routes/credential-prompt-routes.ts", // Route for secure credential prompt (stores secret via setSecureKeyAsync)
       "runtime/routes/credential-routes.ts", // CLI credential management routes (CLI-migrated to IPC)
+      "runtime/routes/sanity-routes.ts", // Sanity connect/discover routes (reads stored api_token from credential store)
       "runtime/routes/platform-routes.ts", // CLI platform connect/disconnect/status routes (CLI-migrated to IPC)
       "ipc/skill-routes/providers.ts", // host.providers.secureKeys.getProviderKey IPC route (out-of-process SkillHost companion)
       "daemon/external-plugins-bootstrap.ts", // reads credentials at plugin init (manifest.requiresCredential) via the CES-mediated getSecureKeyAsync path
