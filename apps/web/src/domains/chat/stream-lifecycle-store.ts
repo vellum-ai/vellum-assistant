@@ -1,12 +1,7 @@
 /**
- * Zustand store for the chat stream's network/state lifecycle.
- *
- * Codifies what was previously an implicit state machine spread across
- * `use-event-stream.ts`, `use-message-reconciliation.ts`, and
- * `use-stream-event-handler.ts` — together with the four shared refs
- * (`streamRef`, `streamEpochRef`, `streamContextRef`,
- * `reconcileAfterNextStreamOpenRef`) those hooks mutated in undocumented
- * order. One store; one phase; explicit transitions.
+ * Zustand store for the chat stream's network/state lifecycle. Owns the
+ * phase, the open-attempt epoch, the consecutive-failure counter, the
+ * active stream's conversation context, and the last error message.
  *
  * Phases:
  *
@@ -20,11 +15,11 @@
  * - `retrying`   — last open or reconcile failed; awaiting a reachability
  *                  signal or a manual retry before re-attempting
  *
- * Domain events match the [Flux-inspired
+ * Domain events follow the [Flux-inspired
  * practice](https://zustand.docs.pmnd.rs/learn/guides/flux-inspired-practice)
- * naming convention from `turn-store.ts`: `on*` for system/SSE reactions,
- * imperative for user/system-initiated transitions. The store exposes
- * direct named actions per CONVENTIONS.md — no dispatcher. A pure
+ * naming convention: `on*` for system/SSE reactions, imperative for
+ * user/system-initiated transitions. The store exposes direct named
+ * actions per CONVENTIONS.md — no dispatcher. A pure
  * `streamLifecycleReducer` is exported alongside for unit-testable state
  * transitions; tests exercise the reducer, not the store.
  *
@@ -63,16 +58,16 @@ export interface StreamLifecycleState {
   /**
    * Monotonic counter bumped on every transition that starts a new open
    * attempt (`closed | waiting | retrying | reconciling | open(diff-ctx) →
-   * opening`). Replaces the old `streamEpochRef` — stream callbacks tag
-   * themselves with the epoch at open time and the reducer ignores
-   * `OPEN_SUCCESS` / `OPEN_FAILURE` events whose epoch is stale.
+   * opening`). Stream callbacks tag themselves with the epoch at open
+   * time so the reducer can ignore `OPEN_SUCCESS` / `OPEN_FAILURE` events
+   * whose epoch is stale (e.g. a slow fetch that resolves after the
+   * caller has already moved on).
    */
   epoch: number;
   /**
    * Number of consecutive open or reconcile failures. Resets to zero on
-   * `OPEN_SUCCESS`. Replaces the burst-limiter in `use-event-stream.ts`
-   * — the hook layer reads this to compute backoff; the reducer only
-   * tracks the counter.
+   * `OPEN_SUCCESS`. The hook layer reads this to compute backoff; the
+   * reducer only tracks the counter.
    */
   consecutiveFailures: number;
   /**
@@ -327,8 +322,7 @@ const useStreamLifecycleStoreBase = create<StreamLifecycleStore>()((set) => ({
         return s;
       }
       // Coming online / foregrounded: resume from paused phases by
-      // running a reconcile first (the state machine enforces order —
-      // see CLAUDE.md / `use-event-stream.ts` original behavior). From
+      // reconciling pending local edits before the next open. From
       // `closed` we wait for an explicit `requestOpen` from the hook.
       if (s.phase === "waiting" || s.phase === "retrying") {
         return { phase: "reconciling" as const };

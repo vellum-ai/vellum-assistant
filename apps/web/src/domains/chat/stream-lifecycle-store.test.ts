@@ -542,9 +542,8 @@ describe("APP_LIFECYCLE_CHANGE (online=false)", () => {
   });
 
   test("dedup across sources: a second offline signal within the same paused phase is a no-op", () => {
-    // Visibility hidden then Capacitor app_state inactive — the
-    // pre-existing bug was a 1s clock-based dedup race; here the state
-    // alone gates the transition.
+    // `visibilitychange` and Capacitor `appStateChange` can both fire on
+    // background; phase-gating ensures only the first transition lands.
     const afterFirst = streamLifecycleReducer(openedState(), {
       type: "APP_LIFECYCLE_CHANGE",
       source: "visibility",
@@ -668,9 +667,9 @@ describe("canonical sequences", () => {
   });
 
   test("conversationExistsOnServer flips: reconcile fires before reopen", () => {
-    // The pre-existing bug was that flipping the flag mid-stream re-opened
-    // without reconciling pending local edits. The state machine enforces
-    // RECONCILE first, then reopen.
+    // When the conversation transitions to server-persisted mid-stream
+    // we have to flush pending local edits before reopening. The state
+    // machine enforces RECONCILE → opening ordering at the phase level.
     const final = applyEvents(INITIAL_STREAM_LIFECYCLE_STATE, [
       { type: "OPEN_REQUEST", context: ctxA },
       { type: "OPEN_SUCCESS", epoch: 1 },
