@@ -257,13 +257,18 @@ export interface WakeResult {
  */
 export interface WakeDeps {
   /**
-   * Resolve the wake target for a conversationId.
+   * Resolve the wake target for a wake invocation.
    * Returns `null` if the conversation doesn't exist, `"archived"` if it
    * exists but is archived, or a `WakeTarget` to proceed with the wake.
+   *
+   * Receives the full {@link WakeOptions} so the default resolver can
+   * thread `trustContext` into `getOrCreateConversation`. Without that
+   * threading, the conversation hydrates with `trustContext === undefined`
+   * and `loadFromDb` fail-closes to `trustClass: "unknown"`, which filters
+   * out every guardian-provenance message — fatal for fork-based memory
+   * retrospectives.
    */
-  resolveTarget: (
-    conversationId: string,
-  ) => Promise<WakeTarget | null | "archived">;
+  resolveTarget: (opts: WakeOptions) => Promise<WakeTarget | null | "archived">;
   /** Timestamp source (for deterministic tests). */
   now?: () => number;
 }
@@ -275,8 +280,9 @@ export interface WakeDeps {
 // `getOrCreateConversation`, and `conversationToWakeTarget`.
 
 async function defaultResolveTarget(
-  conversationId: string,
+  opts: WakeOptions,
 ): Promise<WakeTarget | null | "archived"> {
+  const { conversationId } = opts;
   // Lazy-import daemon modules to avoid pulling heavyweight transitive
   // deps (conversation store → config/loader → provider catalogs) at
   // module-evaluation time.  Callers that only import agent-wake for
@@ -297,7 +303,15 @@ async function defaultResolveTarget(
       );
       return "archived";
     }
-    const conversation = await getOrCreateConversation(conversationId);
+    // Thread trustContext through to getOrCreateConversation so the
+    // hydration path applies setTrustContext + ensureActorScopedHistory
+    // (conversation-store.ts:281-289) BEFORE the agent loop's per-turn
+    // snapshot reads. Without this, fork-based memory retrospectives see
+    // an empty history because loadFromDb ran with trustClass="unknown"
+    // and filtered out every guardian-provenance message.
+    const conversation = await getOrCreateConversation(conversationId, {
+      trustContext: opts.trustContext,
+    });
     return conversationToWakeTarget(conversation);
   } catch (err) {
     log.warn(
@@ -470,7 +484,7 @@ export async function wakeAgentForOpportunity(
   const startedAt = nowFn();
 
   return runSingleFlight(conversationId, async () => {
-    const resolved = await resolveTarget(conversationId);
+    const resolved = await resolveTarget(opts);
     if (resolved === "archived") {
       log.info(
         { conversationId, source },
