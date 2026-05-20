@@ -53,7 +53,7 @@ interface AddCreditsModalProps {
 export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
   const queryClient = useQueryClient();
   const { pathname } = useLocation();
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
   const returnPath = searchParams.toString()
     ? `${pathname}?${searchParams.toString()}`
     : pathname;
