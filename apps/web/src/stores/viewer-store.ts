@@ -253,6 +253,11 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   // --- Reset ---
 
+  /**
+   * Restore viewer state to its initial value. Does NOT reset share/deploy
+   * state — that lives in `useDeployStore` and has its own `reset()`.
+   * Callers that want a full UI reset should call both.
+   */
   reset: () => set({ ...INITIAL_STATE }),
 }));
 

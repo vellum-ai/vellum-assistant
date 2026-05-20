@@ -107,6 +107,11 @@ const useDeployStoreBase = create<DeployStore>()((set) => ({
     set({ complexDeployApp: app });
   },
 
+  /**
+   * Restore deploy/share state to its initial value. Does NOT reset viewer
+   * state — that lives in `useViewerStore` and has its own `reset()`.
+   * Callers that want a full UI reset should call both.
+   */
   reset: () => set({ ...INITIAL_STATE }),
 }));
 
