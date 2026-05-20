@@ -39,6 +39,8 @@ function validateUrl(
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return { ok: false, error: "invalid_url" };
   }
+  parsed.username = "";
+  parsed.password = "";
   return { ok: true, normalized: parsed.href };
 }
 
