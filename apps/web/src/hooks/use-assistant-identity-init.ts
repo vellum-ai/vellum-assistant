@@ -13,10 +13,14 @@
  * fetching identity at the layout level so every sibling route
  * inherits a populated sidebar.
  *
- * Mirrors the pattern from `useConversationListInit` (LUM-1732):
- * server state lives in TanStack Query; the Zustand store is kept in
- * sync via a small effect so existing consumers keep their
- * subscription model.
+ * Lives in top-level `hooks/` (not under `domains/`) because the
+ * assistant identity is consumed by multiple domains — chat sidebar,
+ * intelligence/identity tab, library, contacts — with no single
+ * domain owner. See CONVENTIONS.md → Top-level shared directories.
+ *
+ * Pattern (server state in TanStack Query, synced into Zustand for
+ * cross-component subscriptions) is the same one `useConversationListInit`
+ * uses for the conversation list (LUM-1732).
  *
  * References:
  * - https://tanstack.com/query/latest/docs/framework/react/guides/queries

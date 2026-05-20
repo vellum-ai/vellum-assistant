@@ -13,7 +13,7 @@ import { routes } from "@/utils/routes.js";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
-import { useAssistantIdentityInit } from "@/domains/chat/hooks/use-assistant-identity-init.js";
+import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
 import type { AssistantContextValue } from "@/domains/chat/assistant-context.js";
 
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
