@@ -1006,8 +1006,9 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    # Registry credentials are currently scoped by GitHub environment; use the
-    # production environment so staging releases can publish production preview tags.
+    # Registry credentials are currently scoped by GitHub environment. The
+    # production identity must also be able to read staging manifests so
+    # imagetools can retag them into production preview repositories.
     environment: production
     steps:
       - name: Authenticate to production GCP
@@ -1084,6 +1085,36 @@ jobs:
             gcloud auth configure-docker "$host"
             CONFIGURED_HOSTS="$CONFIGURED_HOSTS $host"
           done
+
+      - name: Validate staging source manifest access
+        run: |
+          validate_source_manifest() {
+            local service="$1"
+            local source_repo="$2"
+            local source_digest="$3"
+
+            if docker buildx imagetools inspect "${source_repo}@${source_digest}" >/dev/null; then
+              return 0
+            fi
+
+            echo "::error::Production preview publishing requires the production GCP service account to read the staging Artifact Registry manifest for ${service}. Grant staging Artifact Registry reader access or provide a narrower preview credential set with staging read and production write permissions."
+            return 1
+          }
+
+          validate_source_manifest \
+            "assistant" \
+            "${{ steps.refs.outputs.assistant_source_repo }}" \
+            "${{ steps.refs.outputs.assistant_source_digest }}"
+
+          validate_source_manifest \
+            "gateway" \
+            "${{ steps.refs.outputs.gateway_source_repo }}" \
+            "${{ steps.refs.outputs.gateway_source_digest }}"
+
+          validate_source_manifest \
+            "credential-executor" \
+            "${{ steps.refs.outputs.credential_executor_source_repo }}" \
+            "${{ steps.refs.outputs.credential_executor_source_digest }}"
 
       - name: Publish production preview tags
         id: preview
