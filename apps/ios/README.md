@@ -93,6 +93,12 @@ Apple's reference for the toolbar controls:
 
 ## How it's set up
 
+> **Web-side conventions for iOS code paths**: any change to the web app
+> that might run inside this WKWebView shell needs to follow the patterns
+> in [`apps/web/CAPACITOR.md`](../web/CAPACITOR.md) — Capacitor plugin
+> lazy imports, native auth, deep links, autogrowing textareas,
+> streaming watchdogs, OS permission UI, etc.
+
 ### `server.url` mode, not static export
 
 `capacitor.config.ts` sets `server.url` to
