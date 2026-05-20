@@ -13,7 +13,7 @@ interface FlagDefinition {
   ldKey: string;
   label: string;
   description: string;
-  defaultValue: boolean;
+  defaultValue: boolean | string;
 }
 
 interface AppFlagEntry {
@@ -22,7 +22,7 @@ interface AppFlagEntry {
   label: string;
   description: string;
   value: boolean | string;
-  defaultValue: boolean;
+  defaultValue: boolean | string;
 }
 
 const FLAG_DEFINITIONS: Record<string, FlagDefinition> = {
@@ -143,6 +143,39 @@ const FLAG_DEFINITIONS: Record<string, FlagDefinition> = {
       "Enable the Sounds tab in Settings and all app sound playback.",
     defaultValue: false,
   },
+  homePage: {
+    ldKey: "home-page",
+    label: "Home Page",
+    description: "Enable the Home page as the default landing view.",
+    defaultValue: false,
+  },
+  isNonProduction: {
+    ldKey: "is-non-production",
+    label: "Non-Production",
+    description:
+      "Indicates a non-production environment. Enables dev-only UI surfaces and diagnostics.",
+    defaultValue: false,
+  },
+  openAICompatibleEndpoints: {
+    ldKey: "openai-compatible-endpoints",
+    label: "OpenAI-Compatible Endpoints",
+    description:
+      "Enable OpenAI-compatible provider connections in AI settings.",
+    defaultValue: false,
+  },
+  velvet: {
+    ldKey: "velvet",
+    label: "Velvet",
+    description: "Enable the Velvet design theme.",
+    defaultValue: false,
+  },
+  emailRootDomain: {
+    ldKey: "email-root-domain",
+    label: "Email Root Domain",
+    description:
+      "Root domain used for assistant email addresses (e.g. vellum.me).",
+    defaultValue: "vellum.me",
+  },
 };
 
 export function FeatureFlagsPanel() {
@@ -251,7 +284,11 @@ function FeatureFlagRow({ flag }: FeatureFlagRowProps) {
           <span className="text-body-small-default text-[var(--content-tertiary)]">
             Default:
           </span>
-          <Tag tone="neutral">{flag.defaultValue ? "On" : "Off"}</Tag>
+          <Tag tone="neutral">
+            {typeof flag.defaultValue === "boolean"
+              ? flag.defaultValue ? "On" : "Off"
+              : String(flag.defaultValue)}
+          </Tag>
         </div>
       </div>
     </div>
