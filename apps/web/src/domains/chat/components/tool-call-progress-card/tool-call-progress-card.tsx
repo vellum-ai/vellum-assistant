@@ -24,7 +24,7 @@ import type {
   DirectoryScopeOption,
   ScopeOption,
 } from "@/domains/chat/lib/api.js";
-import { useElapsedTime } from "@/domains/chat/lib/use-elapsed-time.js";
+import { formatStartTime, useElapsedTime } from "@/domains/chat/lib/use-elapsed-time.js";
 
 // ---------------------------------------------------------------------------
 // Phase system — mirrors macOS ProgressCardPhase
@@ -432,7 +432,10 @@ export function ToolCallProgressCard({
         </span>
         <span className="ml-auto flex items-center gap-1.5 shrink-0">
           {elapsed && (
-            <span className="text-label-small-default text-[var(--content-tertiary)]">
+            <span
+              className="text-label-small-default text-[var(--content-tertiary)]"
+              title={formatStartTime(earliestStart) ?? undefined}
+            >
               {elapsed}
             </span>
           )}

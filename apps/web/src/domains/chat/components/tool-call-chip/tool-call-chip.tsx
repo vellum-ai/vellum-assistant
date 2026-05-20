@@ -28,7 +28,7 @@ import type {
   ScopeOption,
 } from "@/domains/chat/lib/api.js";
 import { getRiskBadgeStyle, getProvenanceText, wasExpected } from "@/domains/chat/lib/risk-utils.js";
-import { useElapsedTime } from "@/domains/chat/lib/use-elapsed-time.js";
+import { formatStartTime, useElapsedTime } from "@/domains/chat/lib/use-elapsed-time.js";
 
 import {
   extractInputSummary,
@@ -339,7 +339,12 @@ export function ToolCallChip({
       {embedded && (
         <span className="ml-auto flex items-center gap-1.5 text-[var(--content-tertiary)]">
           {duration && (
-            <span className="text-label-small-default">{duration}</span>
+            <span
+              className="text-label-small-default"
+              title={formatStartTime(toolCall.startedAt) ?? undefined}
+            >
+              {duration}
+            </span>
           )}
           {canExpand && (expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />)}
         </span>
@@ -501,7 +506,10 @@ export function ToolCallChip({
         </span>
         <span className="ml-auto flex items-center gap-1.5 text-[var(--content-tertiary)]">
           {duration && (
-            <span className="text-label-small-default text-[var(--content-tertiary)]">
+            <span
+              className="text-label-small-default text-[var(--content-tertiary)]"
+              title={formatStartTime(toolCall.startedAt) ?? undefined}
+            >
               {duration}
             </span>
           )}
