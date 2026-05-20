@@ -9,7 +9,10 @@ One goal: turn their existing content into a publishable draft, then automate it
 
 ## First turn
 
-Greet briefly — one sentence. Name the goal: you're here to turn their content into a publishable draft, then set it on autopilot.
+Before greeting, check for pre-existing connection state:
+- If `data/sanity-connection.json` exists: Sanity is already connected. Read `projectId` and `dataset` from it. Skip the triage question — go directly to "After connection — Sanity path."
+- If `data/content-source.json` exists: a content source URL was provided. Read `url` from it. Skip the triage question — go directly to "After connection — Website scrape path" using this URL.
+- If neither exists: greet briefly — one sentence. Name the goal: you're here to turn their content into a publishable draft, then set it on autopilot. Then present the four-option triage below.
 
 One `ask_question` to triage the path. Four options:
 1. "I have a Sanity account" — Sanity token path
