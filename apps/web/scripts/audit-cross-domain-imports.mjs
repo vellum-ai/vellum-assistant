@@ -3,10 +3,11 @@
  * Audit cross-domain imports under `apps/web/src/domains/` and
  * regenerate `.cross-domain-allowlist.json`.
  *
- * A "cross-domain import" is an import of the form
- * `@/domains/<y>/...` inside a file under `src/domains/<x>/...`
- * where `x !== y`. These are smells per
- * `apps/web/CONVENTIONS.md` (and bulletproof-react /
+ * A "cross-domain import" is an import that resolves to a domain
+ * other than the importer's own — whether written as
+ * `@/domains/<y>/...`, the barrel form `@/domains/<y>`, or a
+ * relative path like `../../<y>/foo`. These are smells per
+ * `apps/web/docs/CONVENTIONS.md` (and bulletproof-react /
  * Feature-Sliced Design): code consumed by two or more domains
  * should be lifted to a top-level shared dir, not imported
  * peer-to-peer.
@@ -17,30 +18,31 @@
  * this script writes. Don't hand-edit the JSON; regenerate it
  * here after you remove a violation.
  *
- * Usage:
- *   node apps/web/scripts/audit-cross-domain-imports.mjs        # write
- *   node apps/web/scripts/audit-cross-domain-imports.mjs --check # CI gate
- *   node apps/web/scripts/audit-cross-domain-imports.mjs --stats # print counts
+ * The matching logic lives in
+ * `eslint-rules/cross-domain-matchers.mjs` and is shared with the
+ * lint rule so the two never drift apart.
  *
- * Exit codes (with --check): 0 if the on-disk allow-list matches
- * what the audit would generate, 1 otherwise. Use this in CI to
- * detect when a PR removed a violation but forgot to regenerate
- * the file.
+ * Usage:
+ *   bun run audit:cross-domain          # write
+ *   bun run audit:cross-domain:check    # CI gate (exit 1 if stale)
+ *   node apps/web/scripts/audit-cross-domain-imports.mjs --stats
  *
  * See:
- *   apps/web/CONVENTIONS.md → "Top-level shared directories"
+ *   apps/web/docs/CONVENTIONS.md → "Top-level shared directories"
  *   LUM-1753 (parent initiative)
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WEB_ROOT = path.resolve(__dirname, "..");
-const DOMAINS_DIR = path.join(WEB_ROOT, "src/domains");
+import {
+  DOMAINS_DIR,
+  IMPORT_SOURCE_RE,
+  WEB_ROOT,
+  ownDomainFor,
+  targetDomainFor,
+} from "../eslint-rules/cross-domain-matchers.mjs";
+
 const ALLOWLIST_PATH = path.join(WEB_ROOT, ".cross-domain-allowlist.json");
-
-const IMPORT_RE = /from\s+["']@\/domains\/([^/"']+)\/[^"']*["']/g;
 
 /** Recursively yield .ts/.tsx files under a dir. */
 async function* walk(dir) {
@@ -55,32 +57,25 @@ async function* walk(dir) {
   }
 }
 
-/** Extract the domain segment from a file path under src/domains/. */
-function ownDomain(filePath) {
-  const rel = path.relative(DOMAINS_DIR, filePath);
-  const [first] = rel.split(path.sep);
-  return first;
-}
-
 /** Find cross-domain imports for one file. */
 async function violationsForFile(filePath) {
   const src = await fs.readFile(filePath, "utf8");
-  const owner = ownDomain(filePath);
+  const owner = ownDomainFor(filePath);
+  if (!owner) return [];
   const found = new Set();
-  for (const match of src.matchAll(IMPORT_RE)) {
-    const target = match[1];
-    if (target !== owner) found.add(target);
+  for (const match of src.matchAll(IMPORT_SOURCE_RE)) {
+    const target = targetDomainFor(match[1], filePath);
+    if (target && target !== owner) found.add(target);
   }
   return [...found].sort();
 }
 
 async function audit() {
-  /** @type {Record<string, string[]>} */
   const violations = {};
   for await (const filePath of walk(DOMAINS_DIR)) {
     const targets = await violationsForFile(filePath);
     if (targets.length > 0) {
-      const rel = path.relative(WEB_ROOT, filePath).replaceAll(path.sep, "/");
+      const rel = path.relative(WEB_ROOT, filePath).split(path.sep).join("/");
       violations[rel] = targets;
     }
   }
@@ -111,7 +106,7 @@ async function main() {
     if (onDisk !== json) {
       console.error(
         "cross-domain allow-list is out of date.\n" +
-          "Run: node apps/web/scripts/audit-cross-domain-imports.mjs",
+          "Run: bun run audit:cross-domain",
       );
       process.exit(1);
     }

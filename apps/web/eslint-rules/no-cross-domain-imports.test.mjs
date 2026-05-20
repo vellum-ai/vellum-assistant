@@ -33,40 +33,75 @@ const fixtureUnder = (domain, name = "__rule-fixture.tsx") =>
 
 // RuleTester.run() calls describe()/it() itself, so we don't wrap.
 ruleTester.run("no-cross-domain-imports", noCrossDomainImports, {
-      valid: [
-        // Same-domain imports are fine.
-        {
-          filename: fixtureUnder("account"),
-          code: `import { x } from "@/domains/account/foo.js";`,
-        },
-        // Imports from top-level shared dirs are fine.
-        {
-          filename: fixtureUnder("account"),
-          code: `import { useIsMobile } from "@/hooks/use-is-mobile.js";`,
-        },
-        // Files outside src/domains/ are not subject to the rule.
-        {
-          filename: path.join(WEB_ROOT, "src", "hooks", "x.ts"),
-          code: `import { y } from "@/domains/account/y.js";`,
-        },
-      ],
-      invalid: [
-        {
-          filename: fixtureUnder("account"),
-          code: `import { y } from "@/domains/onboarding/y.js";`,
-          errors: [{ messageId: "crossDomain" }],
-        },
-        // Catches export-from syntax too.
-        {
-          filename: fixtureUnder("account"),
-          code: `export { y } from "@/domains/onboarding/y.js";`,
-          errors: [{ messageId: "crossDomain" }],
-        },
-        // Catches dynamic imports.
-        {
-          filename: fixtureUnder("account"),
-          code: `const m = import("@/domains/onboarding/y.js");`,
-          errors: [{ messageId: "crossDomain" }],
-        },
+  valid: [
+    // Same-domain alias imports are fine.
+    {
+      filename: fixtureUnder("account"),
+      code: `import { x } from "@/domains/account/foo.js";`,
+    },
+    // Imports from top-level shared dirs are fine.
+    {
+      filename: fixtureUnder("account"),
+      code: `import { useIsMobile } from "@/hooks/use-is-mobile.js";`,
+    },
+    // Files outside src/domains/ are not subject to the rule.
+    {
+      filename: path.join(WEB_ROOT, "src", "hooks", "x.ts"),
+      code: `import { y } from "@/domains/account/y.js";`,
+    },
+    // Same-domain relative imports are fine.
+    {
+      filename: fixtureUnder("account", "sub/x.ts"),
+      code: `import { y } from "../other.js";`,
+    },
+    // Relative imports that escape src/domains/ entirely are fine.
+    {
+      filename: fixtureUnder("account"),
+      code: `import { y } from "../../hooks/use-thing.js";`,
+    },
+  ],
+  invalid: [
+    // Cross-domain alias subpath.
+    {
+      filename: fixtureUnder("account"),
+      code: `import { y } from "@/domains/onboarding/y.js";`,
+      errors: [{ messageId: "crossDomain" }],
+    },
+    // Cross-domain alias *barrel* (no trailing slash).
+    {
+      filename: fixtureUnder("account"),
+      code: `import { y } from "@/domains/onboarding";`,
+      errors: [{ messageId: "crossDomain" }],
+    },
+    // Cross-domain side-effect import.
+    {
+      filename: fixtureUnder("account"),
+      code: `import "@/domains/onboarding/setup.js";`,
+      errors: [{ messageId: "crossDomain" }],
+    },
+    // Cross-domain export-from.
+    {
+      filename: fixtureUnder("account"),
+      code: `export { y } from "@/domains/onboarding/y.js";`,
+      errors: [{ messageId: "crossDomain" }],
+    },
+    // Cross-domain `export * from`.
+    {
+      filename: fixtureUnder("account"),
+      code: `export * from "@/domains/onboarding/y.js";`,
+      errors: [{ messageId: "crossDomain" }],
+    },
+    // Cross-domain dynamic import.
+    {
+      filename: fixtureUnder("account"),
+      code: `const m = import("@/domains/onboarding/y.js");`,
+      errors: [{ messageId: "crossDomain" }],
+    },
+    // Cross-domain via *relative* path (resolved against importer).
+    {
+      filename: fixtureUnder("account"),
+      code: `import { y } from "../onboarding/y.js";`,
+      errors: [{ messageId: "crossDomain" }],
+    },
   ],
 });

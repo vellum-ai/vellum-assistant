@@ -35,6 +35,9 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      - name: Audit cross-domain import allow-list freshness
+        run: bun run audit:cross-domain:check
+
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest
