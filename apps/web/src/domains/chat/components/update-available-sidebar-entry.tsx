@@ -264,8 +264,9 @@ export function UpdateAvailableSidebarEntry({
 
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <p
-            className="text-body-small-default leading-tight pr-4"
+            className="truncate text-body-small-default leading-tight pr-4"
             style={{ color: "var(--content-default)" }}
+            title={`New version — ${latestVersion}`}
           >
             New version — {latestVersion}
           </p>
