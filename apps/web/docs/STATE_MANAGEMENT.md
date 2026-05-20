@@ -136,35 +136,38 @@ Action naming follows the
 `onPollReconciled`), imperative for user/system-initiated actions
 (`requestSend`, `cancelGeneration`, `resetTurn`).
 
-## Selector patterns and `useShallow`
+## Selector patterns
 
-Selectors control re-render granularity. Choose the right pattern based
-on what the selector returns:
+**New code uses atomic selectors via `createSelectors`** — see the next
+section ([Auto-generated selectors via `createSelectors`](#auto-generated-selectors-via-createselectors)).
+Atomic selectors per field handle the re-render-granularity problem
+without any of the `useShallow` ceremony described below.
+
+### Legacy: `useShallow` patterns (do not use in new code)
+
+These patterns exist in a small number of pre-`createSelectors` call
+sites. They're documented here so reviewers can recognize and migrate
+them, **not** as a recommendation.
 
 ```ts
-// 1. Primitive selector — no useShallow needed
+// 1. Primitive selector — works without useShallow
 const assistantId = useChatStore((s) => s.assistantId);
 
-// 2. Object/array slice — useShallow required (new reference each call)
+// 2. Object/array slice — required useShallow to suppress the
+//    new-reference-per-render re-render storm.
+//    Replace in new code with two atomic selectors side-by-side.
 const { messages, assistantId } = useChatStore(
   useShallow((s) => ({ messages: s.messages, assistantId: s.assistantId })),
 );
 
-// 3. Derived/transformed state — useShallow doesn't help, use useMemo
+// 3. Derived/transformed state — useShallow doesn't help.
+//    Replace in new code with an atomic selector + useMemo in the consumer.
 const unread = useChatStore((s) => s.messages.filter((m) => !m.read));
-// ⚠️ returns new array each time — wrap consumer in useMemo or use
-// a custom equality function via createWithEqualityFn.
 ```
 
-Rule of thumb: if the selector returns a **primitive** (`string`,
-`number`, `boolean`, `null`), use it directly. If it returns a **new
-object or array**, wrap with `useShallow`. If it **derives/transforms**
-data, consider `useMemo` in the consumer or a stable selector defined
-outside the component.
-
 References:
-- [Zustand — Prevent rerenders with useShallow](https://zustand.docs.pmnd.rs/guides/prevent-rerenders-with-use-shallow)
-- [Zustand v5 selector best practices (community discussion)](https://github.com/pmndrs/zustand/discussions/2867)
+- [Zustand — Prevent rerenders with useShallow](https://zustand.docs.pmnd.rs/guides/prevent-rerenders-with-use-shallow) (reference for legacy call sites)
+- [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/guides/auto-generating-selectors) (the recommended pattern)
 
 ## Auto-generated selectors via `createSelectors`
 
