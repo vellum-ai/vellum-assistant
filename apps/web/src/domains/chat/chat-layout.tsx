@@ -19,6 +19,8 @@ import { useConversationListStore } from "@/domains/conversations/conversation-l
 
 import { OfflineBanner } from "@/components/offline-banner.js";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
+import { PreferencesMenu } from "@/domains/chat/components/preferences-menu.js";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 import { ChatLayoutHeader } from "./chat-layout-header.js";
 
 /**
@@ -113,6 +115,18 @@ export function ChatLayout() {
     onRedirect: navigate,
   });
 
+  // --- Layout slot state for child route content ---
+  const [topBarCenter, setTopBarCenter] = useState<ReactNode>(null);
+  const [topBarRightSlot, setTopBarRightSlot] = useState<ReactNode>(null);
+  const onSearchClickRef = useRef<(() => void) | null>(null);
+  const setOnSearchClick = useCallback((cb: (() => void) | null) => {
+    onSearchClickRef.current = cb;
+  }, []);
+
+  // --- Assistant identity from store (written by ChatPage) ---
+  const assistantName = useAssistantIdentityStore.use.name();
+  const assistantVersion = useAssistantIdentityStore.use.version();
+
   const assistantContext = useMemo<AssistantContextValue>(
     () => ({
       assistantId: lifecycle.assistantId,
@@ -122,6 +136,9 @@ export function ChatLayout() {
       hatchVersion: lifecycle.hatchVersion,
       setAssistantId: lifecycle.setAssistantId,
       autoGreetRef: lifecycle.autoGreetRef,
+      setTopBarCenter,
+      setTopBarRightSlot,
+      setOnSearchClick,
     }),
     [
       lifecycle.assistantId,
@@ -131,6 +148,7 @@ export function ChatLayout() {
       lifecycle.hatchVersion,
       lifecycle.setAssistantId,
       lifecycle.autoGreetRef,
+      setOnSearchClick,
     ],
   );
 
@@ -217,9 +235,6 @@ export function ChatLayout() {
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [toggleSidebar]);
-
-  // Ctrl/Cmd+K shortcut for command palette — listener is only installed
-  // when a handler exists to avoid swallowing the browser's default behavior.
 
   // Ctrl/Cmd+[ and Ctrl/Cmd+] shortcuts for back/forward navigation
   useEffect(() => {
@@ -323,6 +338,7 @@ export function ChatLayout() {
     (args: SideMenuRenderArgs): ReactNode => (
       <AssistantSideMenu
         assistantId={lifecycle.assistantId ?? ""}
+        assistantName={assistantName}
         collapsed={args.collapsed}
         variant={args.variant}
         conversations={conversations}
@@ -336,12 +352,20 @@ export function ChatLayout() {
         onOpenIntelligence={handleOpenHome}
         isLibraryActive={isLibraryActive}
         onOpenLibrary={handleOpenLibrary}
+        footerAction={
+          <PreferencesMenu
+            assistantId={lifecycle.assistantId}
+            assistantVersion={assistantVersion}
+          />
+        }
         onClose={args.onClose}
         onSearchClick={args.onSearch}
       />
     ),
     [
       lifecycle.assistantId,
+      assistantName,
+      assistantVersion,
       conversations,
       conversationGroups,
       activeConversationKey,
@@ -363,6 +387,8 @@ export function ChatLayout() {
         drawerOpen={drawerOpen}
         collapsed={collapsed}
         toggleSidebar={toggleSidebar}
+        topBarCenter={topBarCenter}
+        topBarRightSlot={topBarRightSlot}
         onStartNewConversation={handleStartNewConversation}
         canGoBack={canGoBack}
         canGoForward={canGoForward}
@@ -370,6 +396,7 @@ export function ChatLayout() {
         onGoForward={handleGoForward}
         onOpenHome={handleOpenHome}
         isHomeActive={isHomeActive}
+        onSearchClick={() => onSearchClickRef.current?.()}
       />
 
       <OfflineBanner />
@@ -405,6 +432,7 @@ export function ChatLayout() {
                   collapsed: false,
                   variant: "overlay",
                   onClose: () => setDrawerOpen(false),
+                  onSearch: () => onSearchClickRef.current?.(),
                 })}
               </aside>
             </div>
@@ -417,7 +445,7 @@ export function ChatLayout() {
             className="shrink-0"
             aria-label="Navigation"
           >
-            {renderSideMenu({ collapsed, variant: "rail" })}
+            {renderSideMenu({ collapsed, variant: "rail", onSearch: () => onSearchClickRef.current?.() })}
           </aside>
           <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
             <Outlet context={assistantContext} />
