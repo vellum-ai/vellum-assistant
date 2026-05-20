@@ -217,6 +217,45 @@ describe("CollapsedConversationsButton", () => {
     expect(html).toContain(">3<");
   });
 
+  test("auto-expands background sub-groups containing attention conversations", () => {
+    const html = renderToStaticMarkup(
+      <CollapsedConversationsButton
+        pinned={[]}
+        scheduled={[]}
+        background={[
+          makeConversation({ conversationKey: "b1", title: "Needs Review", source: "heartbeat" }),
+          makeConversation({ conversationKey: "b2", title: "Other BG", source: "heartbeat" }),
+        ]}
+        slack={[]}
+        recents={[]}
+        onSelectConversation={noop}
+        attentionConversationKeys={new Set(["b1"])}
+      />,
+    );
+    // Sub-group should be auto-expanded because b1 needs attention
+    expect(html).toContain("Needs Review");
+    expect(html).toContain("Other BG");
+  });
+
+  test("renders single-source background conversations as flat leaf rows", () => {
+    const html = renderToStaticMarkup(
+      <CollapsedConversationsButton
+        pinned={[]}
+        scheduled={[]}
+        background={[
+          makeConversation({ conversationKey: "b1", title: "Solo BG" }),
+        ]}
+        slack={[]}
+        recents={[]}
+        onSelectConversation={noop}
+      />,
+    );
+    // Single conversations without a source get __single__: prefix and
+    // render as a flat leaf row, not a collapsible group header
+    expect(html).toContain("Solo BG");
+    expect(html).toContain("Background");
+  });
+
   test("renders background conversations with sub-group labels", () => {
     const html = renderToStaticMarkup(
       <CollapsedConversationsButton
