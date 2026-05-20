@@ -54,6 +54,55 @@ export async function saveCharacterTraits(
   }
 }
 
+export async function deleteAvatar(
+  assistantId: string,
+): Promise<boolean> {
+  try {
+    const { error, response } = await client.post({
+      url: "/v1/assistants/{assistant_id}/workspace/delete/",
+      path: { assistant_id: assistantId },
+      body: { path: "data/avatar" },
+      headers: { "Content-Type": "application/json" },
+    });
+    assertHasResponse(response, error, "Failed to delete avatar");
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function uploadAvatarImage(
+  assistantId: string,
+  file: File,
+): Promise<boolean> {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const base64 = btoa(
+      new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ""),
+    );
+
+    const { error: writeError, response: writeResponse } = await client.post({
+      url: "/v1/assistants/{assistant_id}/workspace/write/",
+      path: { assistant_id: assistantId },
+      body: { path: "data/avatar/avatar-image.png", content: base64, encoding: "base64" },
+      headers: { "Content-Type": "application/json" },
+    });
+    assertHasResponse(writeResponse, writeError, "Failed to upload avatar image");
+    if (!writeResponse.ok) return false;
+
+    await client.post({
+      url: "/v1/assistants/{assistant_id}/workspace/delete/",
+      path: { assistant_id: assistantId },
+      body: { path: "data/avatar/character-traits.json" },
+      headers: { "Content-Type": "application/json" },
+    });
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchAvatarImageUrl(
   assistantId: string,
 ): Promise<string | null> {

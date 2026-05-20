@@ -7,6 +7,7 @@ import { ChatPage } from "@/domains/chat/chat-page.js";
 import { HomePage } from "@/domains/home/home-page.js";
 import { LibraryPage } from "@/domains/library/library-page.js";
 import { LibraryDetailPage } from "@/domains/library/library-detail-page.js";
+import { IdentityPage } from "@/domains/intelligence/identity-page.js";
 import { NotFound } from "@/components/not-found.js";
 import { SettingsLayout } from "@/domains/settings/settings-layout.js";
 import { GeneralPage } from "@/domains/settings/pages/general-page.js";
@@ -169,6 +170,7 @@ export const router = createBrowserRouter([
           { path: "home", element: <HomePageRoute /> },
           { path: "library", element: <LibraryPage /> },
           { path: "library/:appId", element: <LibraryDetailPage /> },
+          { path: "identity", element: <IdentityPage /> },
         ],
       },
 
