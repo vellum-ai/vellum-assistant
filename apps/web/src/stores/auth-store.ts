@@ -1,13 +1,11 @@
 /**
  * Zustand auth store.
  *
- * Replaces the React Context-based AuthProvider with a store that can be
- * read from anywhere — middleware, loaders, API interceptors — via
- * `useAuthStore.getState()`.
- *
  * Session lifecycle: probes the allauth session on `initSession()`,
  * re-validates on window focus / visibility change, and synchronizes
- * logout across tabs via BroadcastChannel.
+ * logout across tabs via BroadcastChannel. Middleware, loaders, and
+ * API interceptors read state synchronously via
+ * `useAuthStore.getState()`.
  *
  * References:
  * - https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components
