@@ -30,7 +30,7 @@ import { Button, Card, ConfirmDialog, Input, Popover } from "@vellum/design-libr
 import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
-} from "@/domains/intelligence/components/mobile-sidebar-drawer.js";
+} from "@/components/mobile-sidebar-drawer.js";
 import { CategorySidebar } from "@/domains/intelligence/components/skills/category-sidebar.js";
 import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail.js";
 import { SkillRow } from "@/domains/intelligence/components/skills/skill-row.js";
