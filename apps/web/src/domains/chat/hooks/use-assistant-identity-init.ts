@@ -21,7 +21,7 @@
  * References:
  * - https://tanstack.com/query/latest/docs/framework/react/guides/queries
  */
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { fetchAssistantIdentity } from "@/domains/chat/api/assistant.js";
@@ -52,16 +52,36 @@ export function useAssistantIdentityInit({
     staleTime: 30_000,
   });
 
+  // Clear the store whenever the assistant context changes (tenant
+  // switch, logout, lifecycle leaves "active") so the previous
+  // assistant's name doesn't linger if the new assistant's identity
+  // fetch returns null (runtime initializing/unreachable).
+  const lastWrittenForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isActive) {
+      if (lastWrittenForRef.current !== null) {
+        useAssistantIdentityStore.getState().clearIdentity();
+        lastWrittenForRef.current = null;
+      }
+      return;
+    }
+    if (lastWrittenForRef.current !== assistantId) {
+      useAssistantIdentityStore.getState().clearIdentity();
+      lastWrittenForRef.current = null;
+    }
+  }, [isActive, assistantId]);
+
   useEffect(() => {
     const data = identityQuery.data;
     // `fetchAssistantIdentity` returns null on transient failures
     // (initializing assistant, unreachable runtime). Don't clobber a
-    // good cached name with null — the store is also written by
-    // ChatPage's local state and by auth logout, which own clearing.
+    // good cached name with a transient null on the same assistant —
+    // cross-assistant clears are handled by the effect above.
     if (!data) return;
     useAssistantIdentityStore.getState().setIdentity(
       data.name ?? null,
       data.version ?? null,
     );
-  }, [identityQuery.data]);
+    lastWrittenForRef.current = assistantId;
+  }, [identityQuery.data, assistantId]);
 }

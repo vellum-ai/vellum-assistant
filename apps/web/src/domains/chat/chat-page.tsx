@@ -605,7 +605,8 @@ export function ChatPage() {
     // routes (Library, Identity, Contacts). ChatPage still writes
     // when it has fresher local state (e.g. after an SSE
     // `identity_changed` refresh), and only when non-null — clearing
-    // is owned by auth logout, not by route transitions.
+    // on assistant context change (tenant switch, logout) is owned
+    // by `useAssistantIdentityInit`, not by route transitions.
     if (assistantIdentity) {
       useAssistantIdentityStore.getState().setIdentity(
         assistantIdentity.name ?? null,
