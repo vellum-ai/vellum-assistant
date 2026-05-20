@@ -93,7 +93,7 @@ function CollapsibleTrigger({
         ref={ref}
         data-slot="collapsible-trigger"
         className={cn(
-          "flex flex-1 items-center",
+          "flex min-w-0 flex-1 items-center",
           "cursor-pointer select-none",
           "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
           className,
