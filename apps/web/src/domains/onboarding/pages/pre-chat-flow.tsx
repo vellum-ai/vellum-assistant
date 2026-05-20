@@ -21,24 +21,24 @@ import {
   setPendingAssistantName,
   setPendingPreChatContext,
   type PreChatOnboardingContext,
-} from "@/domains/onboarding/lib/prechat.js";
+} from "@/domains/onboarding/prechat.js";
 import {
   DEFAULT_GROUP_ID,
   sampleSuggestionNames,
-} from "@/domains/onboarding/lib/prechat-names.js";
+} from "@/domains/onboarding/prechat-names.js";
 import {
   GOOGLE_TOOL_IDS,
   stripOtherPrefix,
-} from "@/domains/onboarding/lib/prechat-tools.js";
+} from "@/domains/onboarding/prechat-tools.js";
 import {
   readOnboardingCompleted,
   readTosAccepted,
   useOnboardingCompleted,
-} from "@/domains/onboarding/lib/prefs.js";
+} from "@/domains/onboarding/prefs.js";
 import {
   clearPrivacyConsent,
   hasRecentPrivacyConsent,
-} from "@/domains/onboarding/lib/signals.js";
+} from "@/domains/onboarding/signals.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";

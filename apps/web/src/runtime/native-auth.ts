@@ -4,8 +4,8 @@ import { useSyncExternalStore } from "react";
 import {
   type ProviderRedirectOptions,
   startProviderRedirect,
-} from "@/domains/account/lib/social-auth.js";
-import { sanitizeReturnTo } from "@/domains/account/lib/return-to.js";
+} from "@/domains/account/social-auth.js";
+import { sanitizeReturnTo } from "@/domains/account/return-to.js";
 import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric.js";
 import { routes } from "@/utils/routes.js";
 

@@ -4,7 +4,7 @@ import {
   type PreChatOnboardingContext,
   type PreChatOnboardingProfileFields,
   preChatOnboardingProfileFields,
-} from "@/domains/onboarding/lib/prechat.js";
+} from "@/domains/onboarding/prechat.js";
 
 const SDK_BASE_OPTIONS =
   typeof window === "undefined"

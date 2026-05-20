@@ -16,7 +16,7 @@ import {
   oauthCompletionStorageKey,
   type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup.js";
-import { PRECHAT_TOOLS } from "@/domains/onboarding/lib/prechat-tools.js";
+import { PRECHAT_TOOLS } from "@/domains/onboarding/prechat-tools.js";
 import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser.js";
