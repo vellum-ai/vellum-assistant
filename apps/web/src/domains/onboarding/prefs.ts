@@ -1,54 +1,33 @@
 /**
- * Onboarding preference hooks.
+ * Onboarding preference public API.
  *
- * Two groups of keys:
+ * Boolean preferences (`shareAnalytics`, `shareDiagnostics`, `tosAccepted`,
+ * `aiDataConsent`, `completed`) are owned by `useOnboardingStore` — a
+ * Zustand store with a custom per-key `persist` adapter that maps each
+ * field to its existing localStorage key. This file exposes the hook +
+ * non-React shim around the store, plus the non-store helpers for the
+ * onboarding-only keys that don't fit the boolean store shape
+ * (`onboarding.selectedVersion`, `onboarding.lastUserId`).
  *
- * 1. **Share preferences** — reused 1:1 with `/settings/privacy`:
- *    - `vellum_share_analytics` (default: "true")
- *    - `vellum_share_diagnostics` (default: "true")
- *    Writing from onboarding mutates the same localStorage entries the
- *    privacy settings page reads, so the two surfaces are a single source of
- *    truth.
- *
- * 2. **Onboarding-local flags** — under the `onboarding.*` namespace:
- *    - `onboarding.tosAccepted` (default: "false")
- *    - `onboarding.completed` (default: "false")
- *
- * Values are always persisted as the literal string `"true"` or `"false"`.
- *
- * Each hook is SSR-safe: it uses the default value for the server snapshot
- * and reads `localStorage` through `useSyncExternalStore` after hydration.
- * Tab-to-tab synchronization is supported via the `window.storage` event;
- * same-tab writes are synchronized through the shared local-settings event.
+ * Storage keys are documented in `onboarding-store.ts`. The privacy
+ * settings page and the Sentry consent gate read `vellum_share_*`
+ * directly — that contract is preserved by the per-key adapter.
  */
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
 
 import {
   getLocalSetting,
   removeLocalSetting,
   setLocalSetting,
 } from "@/domains/settings/local-settings.js";
+import { useOnboardingStore } from "@/domains/onboarding/onboarding-store.js";
 
 // ---------------------------------------------------------------------------
-// Storage keys
+// Storage keys (non-boolean — boolean keys live in onboarding-store.ts)
 // ---------------------------------------------------------------------------
 
-/** Shared with `/settings/privacy`. Do NOT rename without migrating the other surface. */
-const KEY_SHARE_ANALYTICS = "vellum_share_analytics";
-/** Shared with `/settings/privacy`. Do NOT rename without migrating the other surface. */
-const KEY_SHARE_DIAGNOSTICS = "vellum_share_diagnostics";
-
-/** Onboarding-only: whether the user has accepted Terms of Service. */
 const KEY_TOS_ACCEPTED = "onboarding.tosAccepted";
-/**
- * Onboarding-only: explicit acknowledgment that conversation data is shared
- * with third-party AI providers (Anthropic, OpenAI, Google). Stored as a
- * separate flag from `KEY_TOS_ACCEPTED` because Apple Guideline 5.1.2(i)
- * requires AI data sharing consent to be SPECIFIC, not bundled with a
- * generic Terms of Service acceptance.
- */
 const KEY_AI_DATA_CONSENT = "onboarding.aiDataConsent";
-/** Onboarding-only: whether the user has completed the onboarding flow. */
 const KEY_COMPLETED = "onboarding.completed";
 /**
  * Onboarding-only, nonprod-only: pinned release version for the hatch.
@@ -64,131 +43,9 @@ const KEY_SELECTED_VERSION = "onboarding.selectedVersion";
  * expiry, cookie clear, browser profile share).
  */
 const KEY_LAST_USER_ID = "onboarding.lastUserId";
-const LOCAL_SETTING_CHANGED_EVENT = "vellum:pref-changed";
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Read a boolean pref from localStorage. Returns `defaultValue` when:
- *   - running on the server (no `window`)
- *   - the key is absent
- *   - `localStorage.getItem` throws (e.g. private browsing quota)
- *
- * Values are recognized only as the literal strings `"true"` and `"false"`;
- * any other value falls through to `defaultValue`.
- */
-function readBooleanPref(key: string, defaultValue: boolean): boolean {
-  if (typeof window === "undefined") return defaultValue;
-  try {
-    const raw = getLocalSetting(key, String(defaultValue));
-    if (raw === "true") return true;
-    if (raw === "false") return false;
-    return defaultValue;
-  } catch {
-    return defaultValue;
-  }
-}
-
-/** Serialize and persist a boolean pref. No-op during SSR. */
-function writeBooleanPref(key: string, value: boolean): void {
-  setLocalSetting(key, value ? "true" : "false");
-}
-
-/**
- * Pure handler for a storage event targeting `key`. Returns the next value
- * the listener should apply, or `undefined` if the event is not for this
- * key (i.e. the listener should ignore it).
- *
- * Extracted from the hook so unit tests can exercise the tab-sync logic
- * without mounting React.
- */
-function handleStorageEvent(
-  event: StorageEvent,
-  key: string,
-  defaultValue: boolean,
-): boolean | undefined {
-  if (event.key !== key) return undefined;
-  const next = event.newValue;
-  if (next === "true") return true;
-  if (next === "false") return false;
-  return defaultValue;
-}
-
-function isLocalSettingChangedEventForKey(event: Event, key: string): boolean {
-  const detail = (event as CustomEvent<{ key?: string | null }>).detail;
-  return detail?.key === key;
-}
-
-/**
- * React hook that mirrors a boolean localStorage key into component state,
- * with cross-tab sync via the `storage` event.
- *
- * The hook seeds SSR/hydration with `defaultValue`, then uses React's
- * external-store contract to read the real stored value without setting
- * state synchronously from an effect.
- */
-function useBooleanPref(
-  key: string,
-  defaultValue: boolean,
-): [boolean, (next: boolean) => void] {
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => {
-      if (typeof window === "undefined") return () => {};
-
-      const handleStorage = (event: StorageEvent) => {
-        if (handleStorageEvent(event, key, defaultValue) !== undefined) {
-          onStoreChange();
-        }
-      };
-
-      const handleLocalSettingChange = (event: Event) => {
-        if (isLocalSettingChangedEventForKey(event, key)) {
-          onStoreChange();
-        }
-      };
-
-      window.addEventListener("storage", handleStorage);
-      window.addEventListener(
-        LOCAL_SETTING_CHANGED_EVENT,
-        handleLocalSettingChange,
-      );
-      return () => {
-        window.removeEventListener("storage", handleStorage);
-        window.removeEventListener(
-          LOCAL_SETTING_CHANGED_EVENT,
-          handleLocalSettingChange,
-        );
-      };
-    },
-    [key, defaultValue],
-  );
-
-  const getSnapshot = useCallback(
-    () => readBooleanPref(key, defaultValue),
-    [key, defaultValue],
-  );
-
-  const getServerSnapshot = useCallback(() => defaultValue, [defaultValue]);
-
-  const value = useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    getServerSnapshot,
-  );
-
-  const setter = useCallback(
-    (next: boolean) => {
-      writeBooleanPref(key, next);
-    },
-    [key],
-  );
-
-  return [value, setter];
-}
-// ---------------------------------------------------------------------------
-// Public hooks
+// Public hooks — thin wrappers around the Zustand store
 // ---------------------------------------------------------------------------
 
 /**
@@ -197,7 +54,11 @@ function useBooleanPref(
  * and settings are a single source of truth.
  */
 export function useShareAnalytics(): [boolean, (next: boolean) => void] {
-  return useBooleanPref(KEY_SHARE_ANALYTICS, true);
+  const value = useOnboardingStore.use.shareAnalytics();
+  const setter = useCallback((next: boolean) => {
+    useOnboardingStore.getState().setShareAnalytics(next);
+  }, []);
+  return [value, setter];
 }
 
 /**
@@ -205,12 +66,20 @@ export function useShareAnalytics(): [boolean, (next: boolean) => void] {
  * Backed by the SAME localStorage key as `/settings/privacy`.
  */
 export function useShareDiagnostics(): [boolean, (next: boolean) => void] {
-  return useBooleanPref(KEY_SHARE_DIAGNOSTICS, true);
+  const value = useOnboardingStore.use.shareDiagnostics();
+  const setter = useCallback((next: boolean) => {
+    useOnboardingStore.getState().setShareDiagnostics(next);
+  }, []);
+  return [value, setter];
 }
 
 /** Whether the user accepted Terms of Service during onboarding. Defaults to `false`. */
 export function useTosAccepted(): [boolean, (next: boolean) => void] {
-  return useBooleanPref(KEY_TOS_ACCEPTED, false);
+  const value = useOnboardingStore.use.tosAccepted();
+  const setter = useCallback((next: boolean) => {
+    useOnboardingStore.getState().setTosAccepted(next);
+  }, []);
+  return [value, setter];
 }
 
 /**
@@ -220,24 +89,29 @@ export function useTosAccepted(): [boolean, (next: boolean) => void] {
  * Guideline 5.1.2(i)).
  */
 export function useAiDataConsent(): [boolean, (next: boolean) => void] {
-  return useBooleanPref(KEY_AI_DATA_CONSENT, false);
+  const value = useOnboardingStore.use.aiDataConsent();
+  const setter = useCallback((next: boolean) => {
+    useOnboardingStore.getState().setAiDataConsent(next);
+  }, []);
+  return [value, setter];
 }
 
 /** Whether the user completed the onboarding flow. Defaults to `false`. */
 export function useOnboardingCompleted(): [boolean, (next: boolean) => void] {
-  return useBooleanPref(KEY_COMPLETED, false);
+  const value = useOnboardingStore.use.completed();
+  const setter = useCallback((next: boolean) => {
+    useOnboardingStore.getState().setOnboardingCompleted(next);
+  }, []);
+  return [value, setter];
 }
 
 // ---------------------------------------------------------------------------
-// Non-hook helpers (for gates/guards outside React render)
+// Non-hook readers (for gates/guards outside React render)
 // ---------------------------------------------------------------------------
 
-/**
- * SSR-safe, non-hook read of the onboarding completion flag.
- * Returns `true` only when the stored value is the literal string `"true"`.
- */
+/** SSR-safe, non-hook read of the onboarding completion flag. */
 export function readOnboardingCompleted(): boolean {
-  return readBooleanPref(KEY_COMPLETED, false);
+  return useOnboardingStore.getState().completed;
 }
 
 /**
@@ -246,7 +120,7 @@ export function readOnboardingCompleted(): boolean {
  * navigated directly to that URL without ever seeing the privacy screen.
  */
 export function readTosAccepted(): boolean {
-  return readBooleanPref(KEY_TOS_ACCEPTED, false);
+  return useOnboardingStore.getState().tosAccepted;
 }
 
 /**
@@ -258,7 +132,7 @@ export function readTosAccepted(): boolean {
  * without explicit AI consent.
  */
 export function readAiDataConsent(): boolean {
-  return readBooleanPref(KEY_AI_DATA_CONSENT, false);
+  return useOnboardingStore.getState().aiDataConsent;
 }
 
 /**
@@ -321,13 +195,7 @@ export function writeSelectedVersion(version: string): void {
  * Safe to call during SSR (no-op) and safe to call when keys are absent.
  */
 export function clearOnboardingFlags(): void {
-  removeLocalSetting(KEY_TOS_ACCEPTED);
-  // Apple Guideline 5.1.2(i): AI data sharing consent must be re-collected
-  // on every fresh onboarding cycle (retire / logout). Leaving this set
-  // would re-check the AI consent box automatically on the next visit to
-  // `/onboarding/privacy`, defeating the explicit-consent guarantee.
-  removeLocalSetting(KEY_AI_DATA_CONSENT);
-  removeLocalSetting(KEY_COMPLETED);
+  useOnboardingStore.getState().resetOnboardingFlags();
   removeLocalSetting(KEY_SELECTED_VERSION);
   // `KEY_LAST_USER_ID` is deliberately preserved so a same-user re-login
   // doesn't look like a brand-new user to `syncOnboardingUser`. The stored
@@ -369,9 +237,7 @@ export function syncOnboardingUser(userId: string | null): void {
     // New user id (either different from stored, or storage was empty).
     // Any flags still in localStorage belong to a prior user — drop them
     // and remember the current user id for next time.
-    removeLocalSetting(KEY_TOS_ACCEPTED);
-    removeLocalSetting(KEY_AI_DATA_CONSENT);
-    removeLocalSetting(KEY_COMPLETED);
+    useOnboardingStore.getState().resetOnboardingFlags();
     removeLocalSetting(KEY_SELECTED_VERSION);
     setLocalSetting(KEY_LAST_USER_ID, userId);
   } catch {
@@ -384,12 +250,7 @@ export function syncOnboardingUser(userId: string | null): void {
 // ---------------------------------------------------------------------------
 
 export const __testing = {
-  KEY_SHARE_ANALYTICS,
-  KEY_SHARE_DIAGNOSTICS,
   KEY_TOS_ACCEPTED,
   KEY_AI_DATA_CONSENT,
   KEY_COMPLETED,
-  readBooleanPref,
-  writeBooleanPref,
-  handleStorageEvent,
 };
