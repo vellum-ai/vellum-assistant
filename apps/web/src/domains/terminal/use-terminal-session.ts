@@ -128,11 +128,9 @@ export function useTerminalSession({
 
   const openSession = useCallback(
     async (isReconnect: boolean) => {
-      const store = useTerminalStore.getState();
-
       if (!assistantId) {
-        if (isReconnect) store.reconnectFailed("No assistant ID");
-        else store.connectFailed("No assistant ID");
+        if (isReconnect) useTerminalStore.getState().reconnectFailed("No assistant ID");
+        else useTerminalStore.getState().connectFailed("No assistant ID");
         return;
       }
 
@@ -142,8 +140,14 @@ export function useTerminalSession({
         sessionId = session.sessionId;
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to create terminal session";
-        if (isReconnect) store.reconnectFailed(message);
-        else store.connectFailed(message);
+        if (isReconnect) useTerminalStore.getState().reconnectFailed(message);
+        else useTerminalStore.getState().connectFailed(message);
+        return;
+      }
+
+      const expected = isReconnect ? "reconnecting" : "connecting";
+      if (useTerminalStore.getState().status !== expected) {
+        destroyTerminalSession(assistantId, sessionId).catch(() => {});
         return;
       }
 
