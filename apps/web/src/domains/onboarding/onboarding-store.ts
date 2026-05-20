@@ -1,15 +1,15 @@
 /**
  * Zustand store for onboarding boolean preferences.
  *
- * Replaces the hand-rolled `useSyncExternalStore` + per-key listener
- * boilerplate that previously lived in `prefs.ts`. Public hooks
- * (`useShareAnalytics`, `useShareDiagnostics`, `useTosAccepted`,
- * `useAiDataConsent`, `useOnboardingCompleted`) remain in `prefs.ts`
- * as thin wrappers around `.use.field()` selectors + setter actions.
+ * Owns the five onboarding/privacy flags consumed by the privacy page,
+ * the onboarding pages, the chat-gate, and Sentry. `prefs.ts` exposes
+ * thin hooks (`useShareAnalytics`, `useShareDiagnostics`,
+ * `useTosAccepted`, `useAiDataConsent`, `useOnboardingCompleted`) that
+ * wrap `.use.field()` selectors and setter actions on this store.
  *
  * **Storage model — strict per-key, with absence semantics preserved:**
  *
- * Each field maps 1:1 to its existing localStorage key:
+ * Each field maps 1:1 to its own localStorage key:
  *
  * | Field             | localStorage key              | Read by                |
  * |-------------------|-------------------------------|------------------------|
@@ -29,8 +29,9 @@
  * privacy-safe default and ANY explicit `"true"` as opt-in.
  *
  * Instead, each setter writes only its own key via `setLocalSetting`,
- * preserving the original per-key write semantics. Initial state is
- * read once on module load via `computeInitialFromLS()`.
+ * so a field that was never explicitly set stays absent in localStorage
+ * — keeping the privacy-safe default intact. Initial state is read once
+ * on module load via `computeInitialFromLS()`.
  *
  * **Cross-tab + cross-surface sync:**
  *
