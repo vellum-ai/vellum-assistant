@@ -1,8 +1,14 @@
-
 import * as Sentry from "@sentry/react";
 import { useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import {
+  findConversationInCache,
+  getConversationsFromCache,
+  markConversationSeenInCache,
+  useConversationListQuery,
+} from "@/domains/conversations/conversation-list-queries.js";
 import { markConversationSeen } from "@/domains/chat/api/conversations.js";
 import { listConversationKeysWithPendingInteractions } from "@/domains/chat/api/interactions.js";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
@@ -22,10 +28,12 @@ interface UseAttentionTrackingParams {
  * Tracks which conversations need user attention (pending interactions)
  * and manages processing-key lifecycle for background conversations.
  *
- * Reads conversations, processingKeys, attentionKeys, and processingSnapshots
- * directly from `useConversationListStore`. Mounted in `ChatLayout` so the
- * sidebar's processing/attention indicators stay live on every chat-layout
- * route (home, library, contacts, identity, chat) — not only `/assistant`.
+ * Reads `conversations` from the TanStack Query chat-context cache via
+ * `useConversationListQuery`; reads `processingKeys`, `attentionKeys`, and
+ * `processingSnapshots` directly from `useConversationListStore`. Mounted
+ * in `ChatLayout` so the sidebar's processing/attention indicators stay
+ * live on every chat-layout route (home, library, contacts, identity,
+ * chat) — not only `/assistant`.
  *
  * Handles:
  * - Marking conversations as seen when opened
@@ -74,7 +82,11 @@ export function useAttentionTracking({
   assistantId,
   assistantStateKind,
 }: UseAttentionTrackingParams) {
-  const conversations = useConversationListStore.use.conversations();
+  const queryClient = useQueryClient();
+  const { conversations } = useConversationListQuery(
+    assistantId,
+    assistantStateKind === "active",
+  );
   const activeConversationKey = useConversationListStore.use.activeConversationKey();
   const processingKeys = useConversationListStore.use.processingKeys();
   const attentionKeys = useConversationListStore.use.attentionKeys();
@@ -102,7 +114,7 @@ export function useAttentionTracking({
     markConversationSeen(assistantId, activeConversationKey)
       .then(() => {
         if (cancelled) return;
-        useConversationListStore.getState().markConversationSeen(activeConversationKey);
+        markConversationSeenInCache(queryClient, assistantId, activeConversationKey);
       })
       .catch((err) => {
         Sentry.captureException(err, {
@@ -118,6 +130,7 @@ export function useAttentionTracking({
     activeConversationKey,
     assistantId,
     assistantStateKind,
+    queryClient,
   ]);
 
   // -------------------------------------------------------------------------
@@ -191,12 +204,11 @@ export function useAttentionTracking({
       }
       if (cancelled) return;
 
-      // Read latest store values inside the tick — the effect captured the
-      // sets at scheduling time, which would be stale ten seconds later.
+      // Read latest store + cache values inside the tick — the effect captured
+      // the sets at scheduling time, which would be stale ten seconds later.
       const state = useConversationListStore.getState();
       const currentProcessingKeys = state.processingKeys;
       const currentAttentionKeys = state.attentionKeys;
-      const currentConversations = state.conversations;
       const currentSnapshots = state.processingSnapshots;
       const currentActiveKey = state.activeConversationKey;
 
@@ -210,7 +222,7 @@ export function useAttentionTracking({
           useConversationListStore.getState().removeProcessingKey(key);
           continue;
         }
-        const conv = currentConversations.find((c) => c.conversationKey === key);
+        const conv = findConversationInCache(queryClient, assistantId, key);
         const snapshot = currentSnapshots.get(key);
         if (conv?.latestAssistantMessageAt && conv.latestAssistantMessageAt !== snapshot) {
           useConversationListStore.getState().removeProcessingKey(key);
@@ -230,7 +242,7 @@ export function useAttentionTracking({
       cancelled = true;
       clearInterval(pollInterval);
     };
-  }, [assistantId, processingKeys, attentionKeys]);
+  }, [assistantId, processingKeys, attentionKeys, queryClient]);
 
   // -------------------------------------------------------------------------
   // One-time sweep on mount: seed attention keys for every non-active
@@ -251,7 +263,10 @@ export function useAttentionTracking({
         return; // Best-effort — sidebar can still graduate via the poller.
       }
       if (cancelled || pendingKeys.size === 0) return;
-      for (const conv of conversations) {
+      // Pull the current snapshot from the cache to avoid the closed-over
+      // `conversations` capture from the effect's first render.
+      const currentConversations = getConversationsFromCache(queryClient, assistantId);
+      for (const conv of currentConversations) {
         if (conv.conversationKey === activeConversationKey) continue;
         if (pendingKeys.has(conv.conversationKey)) {
           useConversationListStore.getState().addAttentionKey(conv.conversationKey);
@@ -260,5 +275,5 @@ export function useAttentionTracking({
     })();
 
     return () => { cancelled = true; };
-  }, [assistantId, conversations, activeConversationKey]);
+  }, [assistantId, conversations, activeConversationKey, queryClient]);
 }

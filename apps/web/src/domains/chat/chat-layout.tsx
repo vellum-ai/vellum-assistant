@@ -17,8 +17,12 @@ import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js
 import type { AssistantContextValue } from "@/domains/chat/assistant-context.js";
 
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
-import { useConversationListInit } from "@/domains/conversations/use-conversation-list-init.js";
+import {
+  useConversationGroupsQuery,
+  useConversationListQuery,
+} from "@/domains/conversations/conversation-list-queries.js";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking.js";
+import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
@@ -121,15 +125,20 @@ export function ChatLayout() {
     onRedirect: navigate,
   });
 
-  // Hydrate the sidebar conversation list at the layout level so every
+  // Subscribe to the sidebar conversation list at the layout level so every
   // chat-layout child route (home, library, contacts, identity, chat)
   // inherits a populated sidebar on direct navigation — not just /assistant.
+  // TanStack Query handles dedup with any other consumer using the same key.
   const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
-  useConversationListInit({
-    assistantId: lifecycle.assistantId,
-    assistantStateKind: lifecycle.assistantState.kind,
-    conversationGroupsUI,
-  });
+  const isAssistantActive = lifecycle.assistantState.kind === "active";
+  const { conversations } = useConversationListQuery(
+    lifecycle.assistantId,
+    isAssistantActive,
+  );
+  const { conversationGroups } = useConversationGroupsQuery(
+    lifecycle.assistantId,
+    isAssistantActive && conversationGroupsUI,
+  );
 
   // Track processing/attention indicators for every conversation in the
   // sidebar, on every chat-layout child route. Mounted here (not ChatPage)
@@ -141,6 +150,16 @@ export function ChatLayout() {
     assistantId: lifecycle.assistantId,
     assistantStateKind: lifecycle.assistantState.kind,
   });
+
+  // Group CRUD handlers live at the layout level since the sidebar's
+  // create/rename/delete affordances are rendered here, not in ChatPage.
+  // The hook is self-sufficient (cache invalidation handles rollback), so
+  // it can live wherever the sidebar lives.
+  const { handleCreateGroup, handleRenameGroup, handleDeleteGroup } =
+    useConversationGroupActions({
+      assistantId: lifecycle.assistantId,
+      conversationGroups,
+    });
 
   // Hydrate the sidebar assistant name at the layout level so the
   // sidebar header shows the correct name on every chat-layout child
@@ -347,8 +366,6 @@ export function ChatLayout() {
     };
   }, [drawerVisible]);
 
-  const conversations = useConversationListStore.use.conversations();
-  const conversationGroups = useConversationListStore.use.conversationGroups();
   const activeConversationKey = useConversationListStore.use.activeConversationKey();
   const processingKeys = useConversationListStore.use.processingKeys();
   const attentionKeys = useConversationListStore.use.attentionKeys();
@@ -390,6 +407,9 @@ export function ChatLayout() {
         onOpenIntelligence={handleOpenHome}
         isLibraryActive={isLibraryActive}
         onOpenLibrary={handleOpenLibrary}
+        onCreateGroup={handleCreateGroup}
+        onRenameGroup={handleRenameGroup}
+        onDeleteGroup={handleDeleteGroup}
         footerAction={
           <PreferencesMenu
             assistantId={lifecycle.assistantId}
@@ -411,6 +431,9 @@ export function ChatLayout() {
       attentionKeys,
       handleSelectConversation,
       handleStartNewConversation,
+      handleCreateGroup,
+      handleRenameGroup,
+      handleDeleteGroup,
       isHomeActive,
       handleOpenHome,
       isLibraryActive,
