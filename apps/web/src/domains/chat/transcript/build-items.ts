@@ -11,7 +11,7 @@ import type {
   PendingContactRequestItem,
   QueuedMarkerItem,
   TranscriptItem,
-} from "@/domains/chat/lib/transcript/types.js";
+} from "@/domains/chat/transcript/types.js";
 
 export interface BuildTranscriptItemsInput {
   messages: DisplayMessage[];

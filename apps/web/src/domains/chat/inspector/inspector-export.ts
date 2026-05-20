@@ -1,11 +1,11 @@
 import JSZip from "jszip";
 
-import type { LlmLogPayload } from "@/domains/chat/lib/inspector-payload-api.js";
+import type { LlmLogPayload } from "@/domains/chat/inspector/inspector-payload-api.js";
 import type {
   LlmContextResponse,
   LLMContextSection,
   LLMRequestLogEntry,
-} from "@/domains/chat/lib/inspector-types.js";
+} from "@/domains/chat/types/inspector-types.js";
 
 export interface InspectorExportFile {
   path: string;

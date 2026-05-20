@@ -4,7 +4,7 @@
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages.js";
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 
 export type TranscriptItemKind =
   | "message"

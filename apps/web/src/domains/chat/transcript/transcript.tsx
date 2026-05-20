@@ -12,8 +12,8 @@ import {
 
 import { SubagentProgressCard } from "@/domains/chat/components/subagent-progress-card.js";
 import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
-import { partitionLatestTurn } from "@/domains/chat/lib/transcript/partition-latest-turn.js";
-import type { TranscriptItem } from "@/domains/chat/lib/transcript/types.js";
+import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn.js";
+import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row.js";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner.js";

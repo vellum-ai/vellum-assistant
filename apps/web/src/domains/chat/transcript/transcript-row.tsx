@@ -4,7 +4,7 @@ import { memo, type ReactNode } from "react";
 
 import { Notice } from "@vellum/design-library";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/index.js";
-import type { TranscriptItem } from "@/domains/chat/lib/transcript/types.js";
+import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body.js";
 import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 import { getDynamicPageAppId } from "@/domains/chat/components/surfaces/dynamic-page-app-id.js";
 
 function surface(data: Record<string, unknown>): Surface {

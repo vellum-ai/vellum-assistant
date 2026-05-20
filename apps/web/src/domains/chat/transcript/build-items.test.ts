@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
-import type { Surface } from "@/domains/chat/lib/types.js";
-import { buildTranscriptItems } from "@/domains/chat/lib/transcript/build-items.js";
+import type { Surface } from "@/domains/chat/types/types.js";
+import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
 import type {
   MessageItem,
   TranscriptItem,
-} from "@/domains/chat/lib/transcript/types.js";
+} from "@/domains/chat/transcript/types.js";
 
 function makeMessage(
   overrides: Omit<DisplayMessage, "stableId"> & { stableId?: string },

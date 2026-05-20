@@ -5,7 +5,7 @@
  * stay visually identical.
  */
 
-import type { LLMCallSummary } from "@/domains/chat/lib/inspector-types.js";
+import type { LLMCallSummary } from "@/domains/chat/types/inspector-types.js";
 
 /**
  * Shared sentinel string used wherever a normalized field is absent.

@@ -18,7 +18,7 @@ import {
 
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message.js";
 import { dedupeDisplayMessages } from "@/domains/chat/utils/reconcile.js";
-import type { PaginatedHistoryResult } from "@/domains/chat/lib/transcript/types.js";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types.js";
 import type { RuntimeMessage, RuntimeSubagentNotification } from "@/domains/chat/api/messages.js";
 
 const SDK_BASE_OPTIONS =

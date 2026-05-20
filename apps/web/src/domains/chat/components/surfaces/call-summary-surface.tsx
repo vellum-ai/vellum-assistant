@@ -2,7 +2,7 @@
 import { ChevronDown, ChevronRight, Phone, PhoneMissed, PhoneOff } from "lucide-react";
 import { useState } from "react";
 
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 
 interface CallEvent {
   eventType: string;
