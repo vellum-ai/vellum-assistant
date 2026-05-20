@@ -112,6 +112,17 @@ patterns (Zustand + TanStack Query).
 See [`docs/STYLE_GUIDE.md`](./docs/STYLE_GUIDE.md) for naming, imports,
 TypeScript rules, and formatting.
 
+**Domain boundaries are enforced by lint.** The custom rule
+[`local/no-cross-domain-imports`](./eslint-rules/no-cross-domain-imports.mjs)
+fails CI on any new import of the form `@/domains/<y>/...` from a file
+under `src/domains/<x>/...` when `x !== y`. Existing legacy violations
+are quarantined in [`.cross-domain-allowlist.json`](./.cross-domain-allowlist.json)
+during the [LUM-1753](https://linear.app/vellum/issue/LUM-1753) cleanup
+(this list shrinks as cleanup PRs land — don't add new entries by hand,
+fix the import instead). See the
+[Cross-domain rule](./docs/CONVENTIONS.md#how-to-decide-where-the-domain-split-is)
+in CONVENTIONS.md for the full policy and rationale.
+
 ## Directory structure
 
 ```

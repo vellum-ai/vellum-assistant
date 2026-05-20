@@ -167,22 +167,41 @@ Think of domains like database tables, not nested documents. Split by
   different developer without merge conflicts.
 - **Same domain if:** two things always change together, share the same
   store, and splitting them would create circular cross-imports.
-- **Avoid cross-domain imports.** If a piece of code is consumed by
+- **No cross-domain imports.** If a piece of code is consumed by
   two or more domains, that's a signal it doesn't belong inside any
   single domain — lift it to the appropriate top-level shared
   directory (`hooks/`, `stores/`, `utils/`, `types/`, `components/`)
-  per [Top-level shared directories](#top-level-shared-directories).
-  Aligns with the bulletproof-react rule: *"if one feature uses it, it
-  lives in that feature; once two or more features need it, it moves
-  up to the shared layer."* This is stricter than the previous
-  permissive policy and is the direction we're moving toward — see
-  [LUM-1753](https://linear.app/vellum/issue/LUM-1753) for the
-  tracking initiative to bring existing violations into compliance.
+  per [Top-level shared directories](#top-level-shared-directories),
+  or compose at the page/route level so features don't reach into
+  each other directly. Aligns with bulletproof-react and
+  [Feature-Sliced Design](https://feature-sliced.design/docs/guides/issues/cross-imports):
+  *"if one feature uses it, it lives in that feature; once two or
+  more features need it, it moves up to the shared layer."*
+
+  **Enforced by ESLint.** The custom rule
+  [`local/no-cross-domain-imports`](../eslint-rules/no-cross-domain-imports.mjs)
+  fails CI on any new `from "@/domains/<y>/..."` inside a file under
+  `apps/web/src/domains/<x>/...` when `x !== y`. Existing legacy
+  violations are quarantined in
+  [`.cross-domain-allowlist.json`](../.cross-domain-allowlist.json)
+  during the LUM-1753 cleanup — **don't add new entries by hand**;
+  fix the violation instead. After removing a violation, regenerate
+  the snapshot with:
+
+  ```sh
+  node apps/web/scripts/audit-cross-domain-imports.mjs
+  ```
+
+  The allow-list shrinks monotonically toward zero as cleanup PRs
+  land.
+
 - **No circular dependencies.** If A imports from B AND B imports
   from A, either merge them or hoist the shared code to a top-level
   directory.
 
-Reference: [bulletproof-react — Project Structure (Cross-Feature Access)](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md#cross-feature-access)
+References:
+- [bulletproof-react — Cross-Feature Access](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md#cross-feature-access)
+- [Feature-Sliced Design — Cross-imports](https://feature-sliced.design/docs/guides/issues/cross-imports)
 
 Examples of correct splits:
 - `messages/` vs `conversations/`: messages are created, streamed,
