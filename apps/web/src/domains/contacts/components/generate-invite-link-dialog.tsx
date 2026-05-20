@@ -40,6 +40,8 @@ export function GenerateInviteLinkDialog({
 
   const mutateRef = useRef(mutation.mutate);
   mutateRef.current = mutation.mutate;
+  const resetRef = useRef(mutation.reset);
+  resetRef.current = mutation.reset;
 
   useEffect(() => {
     if (open && !prevOpenRef.current) {
@@ -55,14 +57,14 @@ export function GenerateInviteLinkDialog({
   }, []);
 
   const handleClose = useCallback(() => {
-    mutation.reset();
+    resetRef.current();
     setCopied(false);
     if (copiedTimerRef.current) {
       clearTimeout(copiedTimerRef.current);
       copiedTimerRef.current = null;
     }
     onClose();
-  }, [mutation, onClose]);
+  }, [onClose]);
 
   const handleCopy = useCallback((url: string) => {
     void navigator.clipboard.writeText(url).then(() => {
