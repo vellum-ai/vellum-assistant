@@ -76,7 +76,6 @@ export function PreferencesMenu({
       label="Preferences"
       trailingIcon={isOpen ? ChevronDown : ChevronUp}
       active={isOpen}
-      onSelect={() => undefined}
     />
   );
 
