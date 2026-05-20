@@ -64,6 +64,7 @@ import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constant
 import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting.js";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
 import { fetchOlderHistoryPage } from "@/domains/chat/api/history.js";
+import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
@@ -72,7 +73,7 @@ import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.
 import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/chat/utils/turn-selectors.js";
 import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
 
-import type { MainView, OpenedAppState, OpenedDocumentState, ViewerState } from "@/stores/viewer-store.js";
+import type { MainView, OpenedAppState, OpenedDocumentState } from "@/stores/viewer-store.js";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model.js";
 import { modelSupportsVision } from "@/domains/assistant/model-capabilities.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
@@ -271,7 +272,6 @@ export interface ChatRouteContentProps {
 
   // Viewer
   mainView: MainView;
-  viewerState: ViewerState;
   openedAppState: OpenedAppState | null;
   openedDocumentState: OpenedDocumentState | null;
   editingConversationKey: string | null;
@@ -386,7 +386,6 @@ export function ChatRouteContent({
   activeConversation,
   processingKeys,
   mainView,
-  viewerState,
   openedAppState,
   openedDocumentState,
   editingConversationKey,
@@ -506,6 +505,13 @@ export function ChatRouteContent({
   // Turn state (read from Zustand store)
   // -------------------------------------------------------------------------
   const turnState = useTurnStore();
+
+  // -------------------------------------------------------------------------
+  // Deploy / share state (from Zustand store)
+  // -------------------------------------------------------------------------
+
+  const isSharing = useDeployStore.use.isSharing();
+  const isDeploying = useDeployStore.use.isDeploying();
 
   // -------------------------------------------------------------------------
   // Interaction state (from Zustand store)
@@ -1337,9 +1343,9 @@ export function ChatRouteContent({
             onClose={handleCloseApp}
             onEdit={handleCloseEditPanel}
             onShare={handleShareApp}
-            isSharing={viewerState.isSharing}
+            isSharing={isSharing}
             onDeploy={deployToVercel ? handleDeployApp : undefined}
-            isDeploying={viewerState.isDeploying}
+            isDeploying={isDeploying}
             isEditing
           />
         }

@@ -15,6 +15,7 @@ import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type {
   AgentEvent,
   AgentLoop,
+  AgentLoopExitReason,
   CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
@@ -670,6 +671,10 @@ export async function runAgentLoopImpl(
     requestId: reqId,
   });
   let yieldedForHandoff = false;
+  let yieldedForBudget = false;
+  let pendingCheckpointYield: "budget" | "handoff" | null = null;
+  let emitTerminalExit: ((reason: AgentLoopExitReason) => Promise<void>) | null =
+    null;
 
   // Default user-initiated turns to the `mainAgent` call site. Other
   // invocation contexts (heartbeat, filing, analyze, etc.) pass their own
@@ -2131,8 +2136,9 @@ export async function runAgentLoopImpl(
     };
     const eventHandler = (event: AgentEvent) =>
       dispatchAgentEvent(state, deps, event);
-
-    let yieldedForBudget = false;
+    emitTerminalExit = async (reason: AgentLoopExitReason): Promise<void> => {
+      await eventHandler({ type: "agent_loop_exit", reason });
+    };
 
     const onCheckpoint = async (
       checkpoint: CheckpointInfo,
@@ -2141,6 +2147,7 @@ export async function runAgentLoopImpl(
 
       if (ctx.canHandoffAtCheckpoint()) {
         yieldedForHandoff = true;
+        pendingCheckpointYield = "handoff";
         return "yield";
       }
 
@@ -2157,6 +2164,7 @@ export async function runAgentLoopImpl(
             "Token estimate approaching budget — yielding for compaction",
           );
           yieldedForBudget = true;
+          pendingCheckpointYield = "budget";
           return "yield";
         }
       }
@@ -2195,6 +2203,11 @@ export async function runAgentLoopImpl(
       "Agent loop run completed",
     );
 
+    if (yieldedForHandoff) {
+      await emitTerminalExit?.("checkpoint_handoff");
+      pendingCheckpointYield = null;
+    }
+
     // ── Proactive mid-loop compaction ───────────────────────────────
     // When the agent loop yielded because the token budget check in
     // onCheckpoint detected approaching limits, run compaction on the
@@ -2211,6 +2224,7 @@ export async function runAgentLoopImpl(
     ) {
       midLoopCompactAttempts++;
       yieldedForBudget = false;
+      pendingCheckpointYield = null;
 
       rlog.info(
         { phase: "mid-loop-compact" },
@@ -2917,6 +2931,8 @@ export async function runAgentLoopImpl(
           new Error("context_length_exceeded"),
           { phase: "agent_loop" },
         );
+        await emitTerminalExit?.("context_too_large");
+        pendingCheckpointYield = null;
         onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
       }
     }
@@ -3179,6 +3195,10 @@ export async function runAgentLoopImpl(
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {
+        if (pendingCheckpointYield === "budget") {
+          await emitTerminalExit?.("aborted_after_checkpoint");
+          pendingCheckpointYield = null;
+        }
         ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
         ctx.traceEmitter.emit(
           "generation_cancelled",
@@ -3320,6 +3340,10 @@ export async function runAgentLoopImpl(
       aborted: abortController.signal.aborted,
     };
     if (isUserCancellation(err, errorCtx)) {
+      if (pendingCheckpointYield === "budget") {
+        await emitTerminalExit?.("aborted_after_checkpoint");
+        pendingCheckpointYield = null;
+      }
       ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
       rlog.info("Generation cancelled by user");
       ctx.traceEmitter.emit(

@@ -31,6 +31,7 @@ struct HomePageView: View {
     @AppStorage("homeSuggestionsDismissed") private var suggestionsDismissed: Bool = false
     @State private var activeFilter: FeedItemCategory? = nil
     @State private var isActivityExpanded: Bool = false
+    @State private var isDismissedExpanded: Bool = false
 
     private let maxContentWidth: CGFloat = 960
 
@@ -137,6 +138,26 @@ struct HomePageView: View {
                         .foregroundStyle(VColor.contentTertiary)
                 }
 
+                if !dismissedItems.isEmpty {
+                    DisclosureGroup(isExpanded: $isDismissedExpanded) {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            ForEach(dismissedItems, id: \.id) { item in
+                                recapRow(
+                                    for: item,
+                                    showsUrgency: false,
+                                    trailingAction: .restore,
+                                    onTrailing: { restoreItem(item) }
+                                )
+                            }
+                        }
+                        .padding(.top, VSpacing.sm)
+                    } label: {
+                        Text("Dismissed (\(dismissedItems.count))")
+                            .font(VFont.bodySmallDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                }
+
                 Spacer(minLength: VSpacing.xxl)
             }
             .frame(maxWidth: maxContentWidth, alignment: .top)
@@ -206,6 +227,15 @@ struct HomePageView: View {
             .sorted { $0.createdAt > $1.createdAt }
     }
 
+    /// Dismissed items across both inbox and background tiers, most-recent
+    /// first. Spans both tiers because once dismissed, the inbox/background
+    /// distinction no longer matters to the user.
+    private var dismissedItems: [FeedItem] {
+        feedStore.items
+            .filter { $0.status == .dismissed }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
     /// Categories present in the inbox (non-dismissed, noteworthy). Drives
     /// the filter bar — only categories with at least one inbox item get a
     /// pill. The Background activity disclosure is unfiltered.
@@ -250,12 +280,17 @@ struct HomePageView: View {
 
     // MARK: - Recap row styling
 
-    /// Shared `HomeRecapRow` builder used by both the inbox feed and the
-    /// Background activity disclosure. `showsUrgency` is `false` for
-    /// activity rows so they never paint the leading red dot — urgent
-    /// items live in the inbox, not the activity section.
+    /// Shared `HomeRecapRow` builder for the inbox, Background activity,
+    /// and Dismissed sections. Urgent items only live in the inbox, so
+    /// activity and dismissed rows pass `showsUrgency: false` to suppress
+    /// the leading red dot.
     @ViewBuilder
-    private func recapRow(for item: FeedItem, showsUrgency: Bool) -> some View {
+    private func recapRow(
+        for item: FeedItem,
+        showsUrgency: Bool,
+        trailingAction: HomeRecapRow.TrailingAction = .dismiss,
+        onTrailing: (() -> Void)? = nil
+    ) -> some View {
         // Fall back to `summary` when `title` is nil — the daemon omits
         // the title when no source title was supplied.
         HomeRecapRow(
@@ -267,7 +302,8 @@ struct HomePageView: View {
             status: item.status,
             isUrgent: showsUrgency && isUrgent(item),
             showsPersonaAvatar: item.fromAssistant == true,
-            onDismiss: { dismissItem(item) },
+            trailingAction: trailingAction,
+            onDismiss: onTrailing ?? { dismissItem(item) },
             onTap: { openItem(item) }
         )
     }
@@ -326,6 +362,14 @@ struct HomePageView: View {
     private func dismissItem(_ item: FeedItem) {
         Task {
             await feedStore.dismiss(itemId: item.id)
+        }
+    }
+
+    /// Restores to `.seen` rather than `.new` — re-promoting an item the
+    /// user has already seen back to unread would be misleading.
+    private func restoreItem(_ item: FeedItem) {
+        Task {
+            await feedStore.updateStatus(itemId: item.id, status: .seen)
         }
     }
 

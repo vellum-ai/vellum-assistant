@@ -11,7 +11,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { useAppRootContainer } from "@/components/app-root-context.js";
 import { AvatarCustomizationPanel } from "@/components/avatar/avatar-customization-panel.js";
 import { ChatAvatar } from "@/components/avatar/chat-avatar.js";
 import { uploadAvatarImage } from "@/domains/avatar/api.js";
@@ -40,7 +39,6 @@ export function AvatarManagementModal({
   onSaveCharacter,
   onUploadImage,
 }: AvatarManagementModalProps) {
-  const portalTarget = useAppRootContainer();
   const titleId = useId();
   const overlayRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -134,7 +132,7 @@ export function AvatarManagementModal({
     [onSaveCharacter, handleClose],
   );
 
-  if (!open || !portalTarget) {
+  if (!open) {
     return null;
   }
 
@@ -287,6 +285,6 @@ export function AvatarManagementModal({
         onChange={handleFileSelect}
       />
     </div>,
-    portalTarget,
+    document.body,
   );
 }
