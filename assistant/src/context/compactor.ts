@@ -155,6 +155,11 @@ export interface CompactionRunResult {
   thresholdTokens: number;
   compactedMessages: number;
   compactedPersistedMessages: number;
+  /**
+   * Number of recent ("tail") messages preserved verbatim alongside the
+   * summary. Omitted on no-op / skipped results — defaults to 0 at render.
+   */
+  preservedTailMessages?: number;
   summaryCalls: number;
   summaryInputTokens: number;
   summaryOutputTokens: number;
@@ -841,6 +846,7 @@ export async function runAssistantDrivenCompaction(
     thresholdTokens,
     compactedMessages: compactableMessages.length,
     compactedPersistedMessages,
+    preservedTailMessages: tailMessages.length,
     summaryCalls: 1,
     summaryInputTokens: response.usage.inputTokens,
     summaryOutputTokens: response.usage.outputTokens,
@@ -1090,6 +1096,7 @@ export async function runEmergencyCompaction(
     thresholdTokens,
     compactedMessages: compactedCount,
     compactedPersistedMessages: Math.max(0, compactedCount - nonPersistedAway),
+    preservedTailMessages: keptTail.length,
     summaryCalls: 1,
     summaryInputTokens: response.usage.inputTokens,
     summaryOutputTokens: response.usage.outputTokens,
