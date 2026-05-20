@@ -27,6 +27,10 @@ import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantContext } from "@/domains/chat/assistant-context.js";
 import { useShallow } from "zustand/shallow";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import {
+  useConversationGroupsQuery,
+  useConversationListQuery,
+} from "@/domains/conversations/conversation-list-queries.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
@@ -142,9 +146,21 @@ export function ChatPage() {
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
   // -------------------------------------------------------------------------
+  // Conversation list / groups (server state via TanStack Query)
+  // -------------------------------------------------------------------------
+  const isAssistantActive = assistantState.kind === "active";
+  const { conversations } = useConversationListQuery(
+    assistantId,
+    isAssistantActive,
+  );
+  const { conversationGroups } = useConversationGroupsQuery(
+    assistantId,
+    isAssistantActive && conversationGroupsUI,
+  );
+
+  // -------------------------------------------------------------------------
   // Zustand store selectors
   // -------------------------------------------------------------------------
-  const conversations = useConversationListStore.use.conversations();
   const activeConversationKey = useConversationListStore.use.activeConversationKey();
   const editingConversationKey = useConversationListStore.use.editingConversationKey();
   const processingKeys = useConversationListStore.use.processingKeys();
@@ -618,10 +634,6 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Conversation actions (archive, pin, rename, etc.)
   // -------------------------------------------------------------------------
-  const conversationGroups = useConversationListStore.use.conversationGroups();
-
-
-
   const {
     handleArchiveConversation,
     handleUnarchiveConversation,
