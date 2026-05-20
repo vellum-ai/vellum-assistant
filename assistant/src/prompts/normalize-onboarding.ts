@@ -65,6 +65,7 @@ export interface NormalizedOnboarding {
   googleConnected?: boolean;
   googleServices?: string[];
   cohort?: string;
+  websiteUrl?: string;
 }
 
 const SCOPE_SERVICE_MAP: Record<string, string> = {
@@ -105,5 +106,6 @@ export function normalizeOnboardingContext(
       ? deriveGoogleServices(ctx.googleScopes)
       : undefined,
     cohort: ctx.cohort,
+    websiteUrl: ctx.websiteUrl?.trim() || undefined,
   };
 }

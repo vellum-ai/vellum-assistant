@@ -7,4 +7,5 @@ export interface OnboardingContext {
   googleConnected?: boolean;
   googleScopes?: string[];
   cohort?: string;
+  websiteUrl?: string;
 }
