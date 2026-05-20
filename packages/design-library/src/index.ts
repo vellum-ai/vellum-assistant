@@ -161,6 +161,25 @@ export {
   type MarkdownMessageProps,
   type MarkdownLinkComponent,
 } from "./components/markdown-message.js";
+export {
+  SideMenu,
+  SideMenuBody,
+  SideMenuFooter,
+  SideMenuHeader,
+  SideMenuItem,
+  SideMenuSection,
+  SideMenuSeparator,
+  SideMenuSubList,
+  type SideMenuProps,
+  type SideMenuVariant,
+  type SideMenuSectionProps,
+  type SideMenuItemProps,
+} from "./components/side-menu/side-menu.js";
+export {
+  CollapsibleNavSection,
+  type CollapsibleNavSectionRootProps,
+  type CollapsibleNavSectionSectionProps,
+} from "./components/side-menu/collapsible-nav-section.js";
 export { cn } from "./utils/cn.js";
 export {
   PortalContainerProvider,
