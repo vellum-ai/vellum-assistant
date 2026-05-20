@@ -95,6 +95,7 @@ describe("injector chain", () => {
     expect(names).toEqual([
       "disk-pressure-warning",
       "workspace-context",
+      "background-turn",
       "unified-turn-context",
       "pkb-context",
       "pkb-reminder",
@@ -116,6 +117,9 @@ describe("injector chain", () => {
     );
     expect(byName.get("workspace-context")).toBe(
       DEFAULT_INJECTOR_ORDER.workspaceContext,
+    );
+    expect(byName.get("background-turn")).toBe(
+      DEFAULT_INJECTOR_ORDER.backgroundTurn,
     );
     expect(byName.get("unified-turn-context")).toBe(
       DEFAULT_INJECTOR_ORDER.unifiedTurnContext,
@@ -154,6 +158,7 @@ describe("injector chain", () => {
     expect(names).toEqual([
       "disk-pressure-warning", // 5
       "workspace-context", // 10
+      "background-turn", // 15
       "unified-turn-context", // 20
       "plugin-25", // 25 — slots in
       "pkb-context", // 30

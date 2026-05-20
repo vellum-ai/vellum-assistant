@@ -32,51 +32,6 @@ export function nonEmpty(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-export function looksLikeIntermediaryInstruction(text: string): boolean {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  const intermediaryAction =
-    "(?:tell|telling|ask|asking|remind|reminding|nudge|nudging|prompt|prompting|notify|notifying|encourage|encouraging|prime|priming|brief|briefing|coach|coaching)";
-  const target = "(?:the\\s+)?(?:guardian|recipient|user)";
-  return (
-    /\b(?:assistant|agent|system|model|watcher)\s+(?:should|needs?\s+to|must|can|could)\b/i.test(
-      normalized,
-    ) ||
-    new RegExp(
-      `\\b(?:consider|try|please)\\s+${intermediaryAction}\\s+${target}\\b`,
-      "i",
-    ).test(normalized) ||
-    new RegExp(
-      `\\b${intermediaryAction}\\s+${target}\\s+(?:to|that|about|with)\\b`,
-      "i",
-    ).test(normalized) ||
-    new RegExp(
-      `\\b${target}\\s+(?:should|needs?\\s+to|must|might\\s+want\\s+to)\\b`,
-      "i",
-    ).test(normalized) ||
-    new RegExp(`\\b(?:for|to)\\s+${target}\\s+to\\b`, "i").test(normalized)
-  );
-}
-
-function buildHeartbeatAlertCopy(
-  payload: Record<string, unknown>,
-): RenderedChannelCopy {
-  const summary = str(
-    payload.summary,
-    str(payload.body, "Your assistant found something worth your attention."),
-  ).trim();
-  const safePopupBody = looksLikeIntermediaryInstruction(summary)
-    ? "I found something worth your attention in a heartbeat check. Open the conversation for details."
-    : summary;
-
-  return {
-    title: str(payload.title, "Heartbeat Alert"),
-    body: safePopupBody,
-    deliveryText: safePopupBody,
-    conversationTitle: str(payload.conversationTitle, "Heartbeat"),
-    conversationSeedMessage: summary,
-  };
-}
-
 // ── Access-request copy contract ─────────────────────────────────────────────
 //
 // Deterministic helpers for building guardian-facing access-request copy.
@@ -549,8 +504,6 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     title: str(payload.title, "Watcher Escalation"),
     body: str(payload.body, "A watcher event requires your attention"),
   }),
-
-  "heartbeat.alert": buildHeartbeatAlertCopy,
 
   "tool_confirmation.required_action": (payload) => ({
     title: "Tool Confirmation",

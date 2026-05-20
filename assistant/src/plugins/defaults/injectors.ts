@@ -87,6 +87,7 @@ const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
 export const DEFAULT_INJECTOR_ORDER = {
   diskPressureWarning: 5,
   workspaceContext: 10,
+  backgroundTurn: 15,
   unifiedTurnContext: 20,
   pkbContext: 30,
   pkbReminder: 35,
@@ -166,6 +167,39 @@ const workspaceContextInjector: Injector = {
     return {
       id: "workspace-context",
       text,
+      placement: "prepend-user-tail",
+    };
+  },
+};
+
+/**
+ * `background-turn` injector — order 15, prepend-user-tail.
+ *
+ * Wraps the tail user message with a `<background_turn>` block that tells
+ * the assistant the guardian isn't watching and that anything noteworthy
+ * should be surfaced via the `notifications` skill. Fires only when (a) the
+ * conversation's type is "background" or "scheduled" (see
+ * `isBackgroundConversationType`) AND (b) no client is currently connected
+ * (`isNonInteractive`). The second gate is what prevents the reminder from
+ * firing on a manual follow-up the guardian sends into a background thread
+ * — at that point the guardian IS watching, so the framing doesn't apply.
+ *
+ * The inner text is read from `config.conversations.backgroundInjection`, so
+ * operators can edit the reminder without a code change. Setting it to the
+ * empty string disables the injection entirely.
+ */
+const backgroundTurnInjector: Injector = {
+  name: "background-turn",
+  order: DEFAULT_INJECTOR_ORDER.backgroundTurn,
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+    const inputs = readInjectionInputs(ctx);
+    if (!inputs.isBackgroundConversation) return null;
+    if (!inputs.isNonInteractive) return null;
+    const inner = getConfig().conversations.backgroundInjection;
+    if (!inner) return null;
+    return {
+      id: "background-turn",
+      text: `<background_turn>\n${inner}\n</background_turn>`,
       placement: "prepend-user-tail",
     };
   },
@@ -585,6 +619,7 @@ export const defaultInjectorsPlugin: Plugin = {
   injectors: [
     diskPressureWarningInjector,
     workspaceContextInjector,
+    backgroundTurnInjector,
     unifiedTurnContextInjector,
     pkbContextInjector,
     pkbReminderInjector,

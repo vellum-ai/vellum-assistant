@@ -840,6 +840,13 @@ export interface TurnInjectionInputs {
    */
   readonly isNonInteractive?: boolean;
   /**
+   * True when the active conversation's type is "background" or "scheduled"
+   * (see `isBackgroundConversationType`). Read by the `background-turn`
+   * injector to wrap the tail user message with a contextual reminder when
+   * the turn is also non-interactive.
+   */
+  readonly isBackgroundConversation?: boolean;
+  /**
    * Active documents open in this conversation — surfaced by the
    * `active-documents` injector so the assistant can target existing docs
    * with `document_update` instead of creating duplicates.

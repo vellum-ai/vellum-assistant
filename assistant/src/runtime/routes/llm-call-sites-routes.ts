@@ -1,14 +1,19 @@
-import { CALL_SITE_DEFAULTS } from "../../config/call-site-defaults.js";
+import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
+import { loadConfig } from "../../config/loader.js";
 import { CALL_SITE_CATALOG, CALL_SITE_DOMAINS } from "../../config/schemas/call-site-catalog.js";
 import type { LLMCallSite } from "../../config/schemas/llm.js";
 import type { RouteDefinition } from "./types.js";
 
 async function handleGetCallSites() {
+  const { llm } = loadConfig();
   return {
     domains: CALL_SITE_DOMAINS,
     callSites: CALL_SITE_CATALOG.map((entry) => ({
       ...entry,
-      defaultProfile: CALL_SITE_DEFAULTS[entry.id as LLMCallSite]?.profile,
+      defaultProfile: resolveDefaultProfileKey(
+        entry.id as LLMCallSite,
+        llm,
+      ),
     })),
   };
 }
