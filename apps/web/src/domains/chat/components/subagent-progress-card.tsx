@@ -14,7 +14,7 @@ import { AvatarRenderer } from "@/components/avatar-renderer.js";
 import { Typography } from "@vellum/design-library";
 import { BUNDLED_COMPONENTS } from "@/domains/avatar/bundled-components.js";
 import { subagentTraits } from "@/domains/avatar/subagent-avatar.js";
-import type { SubagentStatus } from "@/domains/chat/lib/event-types.js";
+import type { SubagentStatus } from "@/domains/chat/api/event-types.js";
 import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
 import {
   isActiveStatus,

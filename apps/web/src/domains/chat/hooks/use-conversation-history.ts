@@ -10,29 +10,25 @@ import {
 } from "react";
 
 import {
-  fetchSurfaceContent,
-  getPendingInteractions,
-} from "@/domains/chat/lib/api.js";
-import {
   type DisplayMessage,
   reconcileDisplayMessagesWithLatestHistory,
-} from "@/domains/chat/lib/reconcile.js";
+} from "@/domains/chat/utils/reconcile.js";
 import {
   filterDismissedSurfaces,
   loadDismissedSurfaceIds,
-} from "@/domains/chat/lib/dismissedSurfacesStorage.js";
-import { fetchLatestHistoryPage } from "@/domains/chat/lib/history.js";
+} from "@/domains/chat/utils/dismissedSurfacesStorage.js";
+import { fetchLatestHistoryPage } from "@/domains/chat/api/history.js";
 import {
   recordChatDiagnostic,
   summarizeDisplayMessages,
-} from "@/domains/chat/lib/diagnostics.js";
+} from "@/domains/chat/utils/diagnostics.js";
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
-import type { SubagentStatus } from "@/domains/chat/lib/event-types.js";
+import type { SubagentStatus } from "@/domains/chat/api/event-types.js";
 
 import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
 import {
@@ -40,6 +36,8 @@ import {
   parsePendingConfirmationData,
 } from "@/domains/chat/hooks/use-send-message.js";
 import type { AssistantStateKind, ChatError } from "@/domains/chat/types.js";
+import { getPendingInteractions } from "@/domains/chat/api/interactions.js";
+import { fetchSurfaceContent } from "@/domains/chat/api/surfaces.js";
 
 // ---------------------------------------------------------------------------
 // Constants

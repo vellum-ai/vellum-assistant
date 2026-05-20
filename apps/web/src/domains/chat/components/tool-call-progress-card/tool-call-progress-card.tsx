@@ -17,14 +17,8 @@ import {
   friendlyRunningLabel,
   progressiveLabels,
 } from "@/domains/chat/components/tool-call-chip/utils.js";
-import type {
-  AllowlistOption,
-  ChatMessageToolCall,
-  ConfirmationDecision,
-  DirectoryScopeOption,
-  ScopeOption,
-} from "@/domains/chat/lib/api.js";
 import { useElapsedTime } from "@/domains/chat/lib/use-elapsed-time.js";
+import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
 
 // ---------------------------------------------------------------------------
 // Phase system — mirrors macOS ProgressCardPhase

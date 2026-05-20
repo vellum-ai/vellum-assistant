@@ -17,10 +17,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement, type Dispatch, type RefObject, type SetStateAction } from "react";
 
-import type { RuntimeMessage } from "@/domains/chat/lib/api.js";
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
-import { newStableId } from "@/domains/chat/lib/stable-id.js";
+import { newStableId } from "@/domains/chat/utils/stable-id.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — module mocks MUST come before importing the subject under test.
@@ -31,10 +30,10 @@ let mockFetchError: Error | null = null;
 let mockFetchSideEffect: (() => void) | null = null;
 let fetchCallCount = 0;
 
-// The api module has side-effect-heavy imports (HeyAPI client, CSRF, etc.)
+// The messages module has side-effect-heavy imports (HeyAPI client, CSRF, etc.)
 // that can't load in a test environment. We mock the entire module, providing
 // the pure functions that reconcile.ts needs plus our controllable fetch stub.
-mock.module("./api", () => ({
+mock.module("@/domains/chat/api/messages", () => ({
   fetchConversationMessages: async (_assistantId: string, _conversationKey: string) => {
     fetchCallCount++;
     if (mockFetchSideEffect) mockFetchSideEffect();
@@ -94,6 +93,7 @@ mock.module("./api", () => ({
 // ---------------------------------------------------------------------------
 
 import type { useMessageReconciliation } from "@/domains/chat/lib/use-message-reconciliation.js";
+import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 
 type HookReturn = ReturnType<typeof useMessageReconciliation>;
 

@@ -12,8 +12,8 @@ import {
 } from "lucide-react";
 import { type ChangeEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { AppSummary } from "@/domains/chat/lib/apps.js";
-import type { DocumentSummary } from "@/domains/chat/lib/documents.js";
+import type { AppSummary } from "@/domains/chat/api/apps.js";
+import type { DocumentSummary } from "@/domains/chat/api/documents.js";
 import {
   deleteApp,
   getCachedAppHtml,
@@ -22,9 +22,9 @@ import {
   openApp,
   primeAppHtmlCache,
   shareApp,
-} from "@/domains/chat/lib/apps.js";
-import { listDocuments } from "@/domains/chat/lib/documents.js";
-import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/lib/publish.js";
+} from "@/domains/chat/api/apps.js";
+import { listDocuments } from "@/domains/chat/api/documents.js";
+import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/api/publish.js";
 import { usePinnedApps } from "@/domains/chat/lib/pinnedAppsContext.js";
 import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
 import { AppPreviewThumbnail } from "@/domains/chat/components/app-card.js";

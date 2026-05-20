@@ -3,20 +3,12 @@ import * as Sentry from "@sentry/react";
 import { type MutableRefObject, useCallback } from "react";
 
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
-import { isSlackConversation } from "@/domains/chat/lib/groupConversations.js";
+import { isSlackConversation } from "@/domains/chat/utils/groupConversations.js";
 
-import {
-  type Conversation,
-  archiveConversation,
-  markConversationSeen,
-  markConversationUnread,
-  renameConversation,
-  reorderConversations,
-  unarchiveConversation,
-} from "@/domains/chat/lib/api.js";
 import { haptic } from "@/utils/haptics.js";
 
 import { shouldReturnToBackground } from "@/domains/chat/utils/chat-utils.js";
+import { type Conversation, archiveConversation, markConversationSeen, markConversationUnread, renameConversation, reorderConversations, unarchiveConversation } from "@/domains/chat/api/conversations.js";
 
 // ---------------------------------------------------------------------------
 // Helpers — pure functions, no React state

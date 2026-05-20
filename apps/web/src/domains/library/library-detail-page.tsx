@@ -5,7 +5,7 @@ import { useNavigate, useParams } from "react-router";
 import { toast } from "@vellum/design-library";
 
 import { useAssistantContext } from "@/domains/chat/assistant-context.js";
-import { openApp, shareApp } from "@/domains/chat/lib/apps.js";
+import { openApp, shareApp } from "@/domains/chat/api/apps.js";
 import { AppViewerContainer } from "@/domains/intelligence/components/apps/app-viewer-container.js";
 import { routes } from "@/utils/routes.js";
 

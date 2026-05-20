@@ -9,19 +9,14 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
-import type {
-  AssistantEvent,
-  AssistantSyncChangedEvent,
-  ChatEventStream,
-} from "@/domains/chat/lib/api.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
 import {
   recordChatDiagnostic,
   summarizeAssistantEvent,
-} from "@/domains/chat/lib/diagnostics.js";
+} from "@/domains/chat/utils/diagnostics.js";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils.js";
 import {
   handleHomeFeedUpdated,
@@ -75,6 +70,8 @@ export type {
 } from "@/domains/chat/types.js";
 
 import type { ChatError } from "@/domains/chat/types.js";
+import type { AssistantEvent, AssistantSyncChangedEvent } from "@/domains/chat/api/event-types.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 
 // ---------------------------------------------------------------------------
 // Params & return types

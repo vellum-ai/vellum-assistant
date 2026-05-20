@@ -2,7 +2,7 @@
 import { useCallback, useState } from "react";
 import type { FC } from "react";
 
-import type { DisplayAttachment } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayAttachment } from "@/domains/chat/utils/reconcile.js";
 
 import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/AttachmentPreviewModal.js";
 import { MessageAttachmentSquare } from "@/domains/chat/components/chat-attachments/MessageAttachmentSquare.js";

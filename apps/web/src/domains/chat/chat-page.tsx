@@ -31,8 +31,7 @@ import { useInteractionStore } from "@/domains/interactions/interaction-store.js
 import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import type { ChatEventStream, AssistantIdentity } from "@/domains/chat/lib/api.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { ChatError } from "@/domains/chat/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
@@ -58,15 +57,17 @@ import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-acti
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
 
 import { createWebSyncRouter } from "@/lib/sync/web-sync-router.js";
-import { fetchAssistantIdentity } from "@/domains/chat/lib/assistant.js";
-import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/lib/error-classification.js";
+import { fetchAssistantIdentity } from "@/domains/chat/api/assistant.js";
+import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
 import { isSurfaceInteractive } from "@/domains/chat/lib/types.js";
-import type { UIContext } from "@/domains/chat/lib/turn-selectors.js";
-import { isChannelConversation } from "@/domains/chat/lib/conversation-channel.js";
-import { abortSubagent } from "@/domains/chat/lib/conversations.js";
+import type { UIContext } from "@/domains/chat/utils/turn-selectors.js";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
+import { abortSubagent } from "@/domains/chat/api/conversations.js";
 import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
+import type { AssistantIdentity } from "@/domains/chat/api/assistant.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 import {
   ChatRouteContent,
   type ChatRouteContentProps,

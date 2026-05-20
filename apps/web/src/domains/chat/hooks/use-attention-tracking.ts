@@ -6,13 +6,10 @@ import {
   useRef,
 } from "react";
 
-import {
-  type Conversation,
-  listConversationKeysWithPendingInteractions,
-  markConversationSeen,
-} from "@/domains/chat/lib/api.js";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import type { AssistantStateKind } from "@/domains/chat/types.js";
+import { type Conversation, markConversationSeen } from "@/domains/chat/api/conversations.js";
+import { listConversationKeysWithPendingInteractions } from "@/domains/chat/api/interactions.js";
 
 interface UseAttentionTrackingParams {
   assistantId: string | null;

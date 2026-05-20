@@ -3,8 +3,6 @@ import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
-import { subscribeChatEvents } from "@/domains/chat/lib/api.js";
-import type { ChatEventStream } from "@/domains/chat/lib/api.js";
 import { isNativePlatform } from "@/runtime/native-auth.js";
 import { createSyncTagRegistry } from "@/lib/sync/tag-registry.js";
 import {
@@ -13,6 +11,7 @@ import {
   invalidateAssistantSoundsQueries,
 } from "@/lib/sync/query-tags.js";
 import { SYNC_TAGS } from "@/lib/sync/types.js";
+import { subscribeChatEvents, type ChatEventStream } from "@/domains/chat/api/stream.js";
 
 const SETTINGS_STREAM_RETRY_DELAY_MS = 30_000;
 

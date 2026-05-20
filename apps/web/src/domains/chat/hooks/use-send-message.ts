@@ -19,26 +19,16 @@ import {
 } from "react";
 
 import {
-  type ChatEventStream,
-  type Conversation,
-  type RuntimeMessage,
-  cancelGeneration,
-  fetchConversationMessages,
-  getPendingInteractions,
-  postChatMessage,
-  pollForResponse,
-} from "@/domains/chat/lib/api.js";
-import {
   type DisplayAttachment,
   type DisplayMessage,
   reconcileMessages,
-} from "@/domains/chat/lib/reconcile.js";
-import { isAsyncChatScopeCurrent } from "@/domains/chat/lib/conversation-scope.js";
-import { resolveEditChatDraftKey } from "@/domains/chat/lib/edit-chat-session.js";
+} from "@/domains/chat/utils/reconcile.js";
+import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope.js";
+import { resolveEditChatDraftKey } from "@/domains/chat/utils/edit-chat-session.js";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/domains/assistant/disk-pressure.js";
-import { recordChatDiagnostic } from "@/domains/chat/lib/diagnostics.js";
-import { newStableId } from "@/domains/chat/lib/stable-id.js";
-import { saveDismissedSurfaceIds } from "@/domains/chat/lib/dismissedSurfacesStorage.js";
+import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
+import { newStableId } from "@/domains/chat/utils/stable-id.js";
+import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissedSurfacesStorage.js";
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
@@ -59,6 +49,10 @@ import {
   stopStreamingAndClearConfirmations,
 } from "@/domains/chat/hooks/send-message-utils.js";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue.js";
+import { type Conversation, cancelGeneration } from "@/domains/chat/api/conversations.js";
+import { getPendingInteractions } from "@/domains/chat/api/interactions.js";
+import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 
 // Re-export pure utilities so existing consumers don't break.
 export {

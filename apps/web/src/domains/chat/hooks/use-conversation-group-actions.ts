@@ -4,13 +4,8 @@ import { useCallback } from "react";
 
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 
-import {
-  type ConversationGroup,
-  createGroup,
-  deleteGroup,
-  updateGroup,
-} from "@/domains/chat/lib/api.js";
 import { haptic } from "@/utils/haptics.js";
+import { type ConversationGroup, createGroup, deleteGroup, updateGroup } from "@/domains/chat/api/conversations.js";
 
 // ---------------------------------------------------------------------------
 // Helpers — pure functions, no React state

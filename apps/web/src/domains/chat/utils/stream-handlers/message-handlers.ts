@@ -1,13 +1,5 @@
-import { toDisplayAttachments } from "@/domains/chat/lib/api.js";
-import type {
-  AssistantActivityStateEvent,
-  AssistantTextDeltaEvent,
-  GenerationCancelledEvent,
-  GenerationHandoffEvent,
-  MessageCompleteEvent,
-} from "@/domains/chat/lib/api.js";
-import { recordChatDiagnostic } from "@/domains/chat/lib/diagnostics.js";
-import { newStableId } from "@/domains/chat/lib/stable-id.js";
+import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
+import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import {
   appendTextDelta,
   createStreamingBubble,
@@ -16,6 +8,8 @@ import {
   stopStreaming,
 } from "@/domains/chat/hooks/stream-message-updaters.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
+import { toDisplayAttachments } from "@/domains/chat/api/event-parser.js";
+import type { AssistantActivityStateEvent, AssistantTextDeltaEvent, GenerationCancelledEvent, GenerationHandoffEvent, MessageCompleteEvent } from "@/domains/chat/api/event-types.js";
 
 export function handleAssistantTextDelta(
   event: AssistantTextDeltaEvent,

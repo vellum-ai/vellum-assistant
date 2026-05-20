@@ -32,7 +32,7 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
 import type { ClassificationEnum } from "@/generated/api/types.gen.js";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf.js";
-import { buildChatDiagnosticsSnapshot } from "@/domains/chat/lib/diagnostics.js";
+import { buildChatDiagnosticsSnapshot } from "@/domains/chat/utils/diagnostics.js";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 

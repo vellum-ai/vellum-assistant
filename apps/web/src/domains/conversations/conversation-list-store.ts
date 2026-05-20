@@ -20,7 +20,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors.js";
-import type { Conversation, ConversationGroup } from "@/domains/chat/lib/api.js";
+import type { Conversation, ConversationGroup } from "@/domains/chat/api/conversations.js";
 
 // ---------------------------------------------------------------------------
 // Set helpers — return the same reference when the mutation is a no-op so

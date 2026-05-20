@@ -12,24 +12,17 @@ import {
   useRef,
 } from "react";
 
-import {
-  ApiError,
-  type Conversation,
-  fetchGroups,
-  getChatContext,
-  listConversations,
-} from "@/domains/chat/lib/api.js";
 import { toast } from "@vellum/design-library";
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import {
   createDraftConversationKey,
   resolveBootstrappedConversationKey,
-} from "@/domains/chat/lib/conversation-selection.js";
-import { loadContextWindowUsageMap } from "@/domains/chat/lib/contextWindowStorage.js";
+} from "@/domains/chat/utils/conversation-selection.js";
+import { loadContextWindowUsageMap } from "@/domains/chat/utils/contextWindowStorage.js";
 import {
   loadLastViewedConversationKey,
   saveLastViewedConversationKey,
-} from "@/domains/chat/lib/lastViewedConversationStorage.js";
+} from "@/domains/chat/utils/lastViewedConversationStorage.js";
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 
@@ -44,6 +37,9 @@ import {
   type HistoryPaginationSnapshot,
 } from "@/domains/chat/hooks/use-conversation-history.js";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking.js";
+import { getChatContext } from "@/domains/chat/api/assistant.js";
+import { ApiError } from "@/domains/chat/api/client.js";
+import { type Conversation, fetchGroups, listConversations } from "@/domains/chat/api/conversations.js";
 
 // Re-export for consumers that import from this module
 export {

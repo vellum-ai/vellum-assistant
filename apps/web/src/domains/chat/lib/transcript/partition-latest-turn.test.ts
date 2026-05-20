@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import { newStableId } from "@/domains/chat/lib/stable-id.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import { partitionLatestTurn } from "@/domains/chat/lib/transcript/partition-latest-turn.js";
 import type {
   ErrorItem,

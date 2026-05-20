@@ -40,7 +40,7 @@ import type {
   ContactSelection,
 } from "@/domains/contacts/types.js";
 import { useAssistantContext } from "@/domains/chat/assistant-context.js";
-import { fetchAssistantIdentity } from "@/domains/chat/lib/assistant.js";
+import { fetchAssistantIdentity } from "@/domains/chat/api/assistant.js";
 import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
 import { routes } from "@/utils/routes.js";
 
@@ -458,7 +458,7 @@ function ContactsPageInner({
   };
 
   return (
-    <div className="flex h-full flex-col gap-4 sm:flex-row sm:gap-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden sm:flex-row sm:gap-6">
       <div className="flex items-center sm:hidden">
         <MobileSidebarTrigger onClick={() => setDrawerOpen(true)} />
       </div>
@@ -471,11 +471,11 @@ function ContactsPageInner({
         <ContactsList {...contactsListProps} onSelect={handleSelect} />
       </MobileSidebarDrawer>
 
-      <aside className="hidden h-full w-[320px] shrink-0 self-stretch sm:block">
+      <aside className="hidden min-h-0 w-[320px] shrink-0 overflow-y-auto self-stretch sm:block">
         <ContactsList {...contactsListProps} onSelect={handleSelect} />
       </aside>
 
-      <section className="min-w-0 flex-1">
+      <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
         {selection.kind === "assistant" ? (
           <AssistantChannelsDetail
             assistantName={assistantName}
