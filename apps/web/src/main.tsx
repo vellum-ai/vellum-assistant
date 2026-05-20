@@ -7,6 +7,7 @@ import { setupOrganizationStore } from "@/stores/organization-store.js";
 import { AppProviders } from "@/components/providers.js";
 import { router } from "./routes.js";
 
+import "@/lib/sentry/sentry-init.js";
 import "@/lib/api-interceptors.js";
 import "./index.css";
 
