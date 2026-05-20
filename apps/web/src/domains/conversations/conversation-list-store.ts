@@ -1,26 +1,22 @@
 /**
- * Zustand store for conversation-list state.
+ * Zustand store for the client-side slice of the conversation list.
  *
- * Manages the sidebar / conversation-selection state with direct named
- * actions. Each action calls `set()` to apply pure transitions so UI
- * components can derive display state deterministically.
+ * Server-derived state (conversations, conversation groups) lives in
+ * TanStack Query — see `conversation-list-queries.ts`. This store owns
+ * only state that has no server counterpart:
  *
- * **State managed:**
- * - `conversations` — the full list of conversations for the sidebar
- * - `conversationGroups` — user-created folder groups
- * - `activeConversationKey` — which conversation is currently open
- * - `editingConversationKey` — which conversation title is being edited
- * - `processingKeys` — conversations with in-flight assistant responses
- * - `attentionKeys` — conversations needing user attention (pending interactions)
+ * - `activeConversationKey` — URL/navigation-local selection
+ * - `editingConversationKey` — UI mode (app-edit-chat target)
+ * - `processingKeys` — in-flight assistant responses
+ * - `attentionKeys` — conversations with pending interactions
  *
  * @see https://zustand.docs.pmnd.rs/guides/flux-inspired-practice
- * @see https://zustand.docs.pmnd.rs/guides/updating-state
+ * @see ./conversation-list-queries.ts for the server-state half
  */
 
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors.js";
-import type { Conversation, ConversationGroup } from "@/domains/chat/api/conversations.js";
 
 // ---------------------------------------------------------------------------
 // Set helpers — return the same reference when the mutation is a no-op so
@@ -50,49 +46,10 @@ function removeMultipleFromSet<T>(prev: Set<T>, keys: T[]): Set<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Conversation helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Immutably patch the conversation matching `key`, leaving all others
- * untouched. Returns the same array reference when no conversation matches
- * so Zustand can bail out of re-renders.
- */
-export function applyConversationPatch(
-  conversations: Conversation[],
-  key: string,
-  patch: Partial<Conversation>,
-): Conversation[] {
-  let changed = false;
-  const result = conversations.map((c) => {
-    if (c.conversationKey !== key) return c;
-    changed = true;
-    return { ...c, ...patch };
-  });
-  return changed ? result : conversations;
-}
-
-function applyGroupPatch(
-  groups: ConversationGroup[],
-  id: string,
-  patch: Partial<ConversationGroup>,
-): ConversationGroup[] {
-  let changed = false;
-  const result = groups.map((g) => {
-    if (g.id !== id) return g;
-    changed = true;
-    return { ...g, ...patch };
-  });
-  return changed ? result : groups;
-}
-
-// ---------------------------------------------------------------------------
 // State & Actions
 // ---------------------------------------------------------------------------
 
 export interface ConversationListState {
-  conversations: Conversation[];
-  conversationGroups: ConversationGroup[];
   activeConversationKey: string | null;
   editingConversationKey: string | null;
   processingKeys: Set<string>;
@@ -100,22 +57,6 @@ export interface ConversationListState {
 }
 
 export interface ConversationListActions {
-  // --- Conversations ---
-  setConversations: (conversations: Conversation[]) => void;
-  patchConversation: (key: string, patch: Partial<Conversation>) => void;
-  markConversationSeen: (key: string, lastSeenAssistantMessageAt?: string) => void;
-  prependConversation: (conversation: Conversation) => void;
-  removeConversation: (key: string) => void;
-  resolveDraftKey: (oldKey: string, newKey: string) => void;
-
-  // --- Conversation groups ---
-  setGroups: (groups: ConversationGroup[]) => void;
-  appendGroup: (group: ConversationGroup) => void;
-  patchGroup: (groupId: string, patch: Partial<ConversationGroup>) => void;
-  replaceOptimisticGroup: (optimisticId: string, group: ConversationGroup) => void;
-  removeGroup: (groupId: string) => void;
-  deleteGroupAndResetConversations: (groupId: string) => void;
-
   // --- Active / editing key ---
   setActiveKey: (key: string | null) => void;
   setEditingKey: (key: string | null) => void;
@@ -140,8 +81,6 @@ export interface ConversationListActions {
 type ConversationListStore = ConversationListState & ConversationListActions;
 
 const INITIAL_STATE: ConversationListState = {
-  conversations: [],
-  conversationGroups: [],
   activeConversationKey: null,
   editingConversationKey: null,
   processingKeys: new Set(),
@@ -155,110 +94,6 @@ const INITIAL_STATE: ConversationListState = {
 export const useConversationListStore = createSelectors(
   create<ConversationListStore>((set, get) => ({
     ...INITIAL_STATE,
-
-    // --- Conversations ---
-
-    setConversations: (conversations) => {
-      set({ conversations });
-    },
-
-    patchConversation: (key, patch) => {
-      set({ conversations: applyConversationPatch(get().conversations, key, patch) });
-    },
-
-    markConversationSeen: (key, lastSeenAssistantMessageAt) => {
-      set({
-        conversations: get().conversations.map((c) =>
-          c.conversationKey !== key
-            ? c
-            : {
-                ...c,
-                hasUnseenLatestAssistantMessage: false,
-                lastSeenAssistantMessageAt:
-                  lastSeenAssistantMessageAt ??
-                  c.latestAssistantMessageAt ??
-                  c.lastSeenAssistantMessageAt,
-              },
-        ),
-      });
-    },
-
-    prependConversation: (conversation) => {
-      set({ conversations: [conversation, ...get().conversations] });
-    },
-
-    removeConversation: (key) => {
-      set({
-        conversations: get().conversations.filter(
-          (c) => c.conversationKey !== key,
-        ),
-      });
-    },
-
-    resolveDraftKey: (oldKey, newKey) => {
-      set({
-        conversations: get().conversations.map((c) =>
-          c.conversationKey === oldKey
-            ? { ...c, conversationKey: newKey, draft: false }
-            : c,
-        ),
-      });
-    },
-
-    // --- Conversation groups ---
-
-    setGroups: (groups) => {
-      set({ conversationGroups: groups });
-    },
-
-    appendGroup: (group) => {
-      set({
-        conversationGroups: [
-          ...get().conversationGroups,
-          {
-            ...group,
-            sortPosition: group.sortPosition || get().conversationGroups.length,
-          },
-        ],
-      });
-    },
-
-    patchGroup: (groupId, patch) => {
-      set({
-        conversationGroups: applyGroupPatch(
-          get().conversationGroups,
-          groupId,
-          patch,
-        ),
-      });
-    },
-
-    replaceOptimisticGroup: (optimisticId, group) => {
-      set({
-        conversationGroups: get().conversationGroups.map((g) =>
-          g.id === optimisticId ? group : g,
-        ),
-      });
-    },
-
-    removeGroup: (groupId) => {
-      set({
-        conversationGroups: get().conversationGroups.filter(
-          (g) => g.id !== groupId,
-        ),
-      });
-    },
-
-    deleteGroupAndResetConversations: (groupId) => {
-      set({
-        conversationGroups: get().conversationGroups.filter(
-          (g) => g.id !== groupId,
-        ),
-        conversations: get().conversations.map((c) =>
-          c.groupId === groupId ? { ...c, groupId: undefined } : c,
-        ),
-      });
-    },
 
     // --- Active / editing key ---
 

@@ -3,6 +3,7 @@ import type {
   MutableRefObject,
   SetStateAction,
 } from "react";
+import type { QueryClient } from "@tanstack/react-query";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { TurnActions, TurnState } from "@/domains/messaging/turn-store.js";
@@ -71,6 +72,8 @@ export interface StreamHandlerContext {
 
   // --- Conversations ---
   scheduleConversationListRefetch: () => void;
+  /** TanStack Query client used by conversation/group cache helpers. */
+  queryClient: QueryClient;
 
   // --- Compaction ---
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;

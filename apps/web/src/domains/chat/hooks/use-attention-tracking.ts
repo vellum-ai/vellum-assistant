@@ -5,8 +5,10 @@ import {
   useEffect,
   useRef,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { markConversationSeenInCache } from "@/domains/conversations/conversation-list-queries.js";
 import type { AssistantStateKind } from "@/domains/chat/types.js";
 import { type Conversation, markConversationSeen } from "@/domains/chat/api/conversations.js";
 import { listConversationKeysWithPendingInteractions } from "@/domains/chat/api/interactions.js";
@@ -90,6 +92,7 @@ export function useAttentionTracking({
   conversationsRef,
   processingSnapshotsRef,
 }: UseAttentionTrackingParams) {
+  const queryClient = useQueryClient();
   const lastSeenOnOpenConversationKeyRef = useRef<string | null>(null);
   const initialAttentionSweepDoneRef = useRef(false);
 
@@ -109,7 +112,7 @@ export function useAttentionTracking({
     markConversationSeen(assistantId, activeConversationKey)
       .then(() => {
         if (cancelled) return;
-        useConversationListStore.getState().markConversationSeen(activeConversationKey);
+        markConversationSeenInCache(queryClient, assistantId, activeConversationKey);
       })
       .catch((err) => {
         Sentry.captureException(err, {
@@ -125,6 +128,7 @@ export function useAttentionTracking({
     activeConversationKey,
     assistantId,
     assistantStateKind,
+    queryClient,
   ]);
 
   // -------------------------------------------------------------------------

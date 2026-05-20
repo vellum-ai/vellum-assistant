@@ -16,7 +16,10 @@ import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecy
 import type { AssistantContextValue } from "@/domains/chat/assistant-context.js";
 
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
-import { useConversationListInit } from "@/domains/conversations/use-conversation-list-init.js";
+import {
+  useConversationGroupsQuery,
+  useConversationListQuery,
+} from "@/domains/conversations/conversation-list-queries.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
@@ -119,15 +122,20 @@ export function ChatLayout() {
     onRedirect: navigate,
   });
 
-  // Hydrate the sidebar conversation list at the layout level so every
+  // Subscribe to the sidebar conversation list at the layout level so every
   // chat-layout child route (home, library, contacts, identity, chat)
   // inherits a populated sidebar on direct navigation — not just /assistant.
+  // TanStack Query handles dedup with any other consumer using the same key.
   const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
-  useConversationListInit({
-    assistantId: lifecycle.assistantId,
-    assistantStateKind: lifecycle.assistantState.kind,
-    conversationGroupsUI,
-  });
+  const isAssistantActive = lifecycle.assistantState.kind === "active";
+  const { conversations } = useConversationListQuery(
+    lifecycle.assistantId,
+    isAssistantActive,
+  );
+  const { conversationGroups } = useConversationGroupsQuery(
+    lifecycle.assistantId,
+    isAssistantActive && conversationGroupsUI,
+  );
 
   // --- Layout slot state for child route content ---
   const [topBarCenter, setTopBarCenter] = useState<ReactNode>(null);
@@ -325,8 +333,6 @@ export function ChatLayout() {
     };
   }, [drawerVisible]);
 
-  const conversations = useConversationListStore.use.conversations();
-  const conversationGroups = useConversationListStore.use.conversationGroups();
   const activeConversationKey = useConversationListStore.use.activeConversationKey();
   const processingKeys = useConversationListStore.use.processingKeys();
   const attentionKeys = useConversationListStore.use.attentionKeys();

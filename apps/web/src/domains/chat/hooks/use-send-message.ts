@@ -17,6 +17,7 @@ import {
   type SetStateAction,
   useCallback,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { NavigateFunction } from "react-router";
 import { routes } from "@/utils/routes.js";
 
@@ -34,6 +35,11 @@ import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissedSurfacesS
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import {
+  prependConversationInCache,
+  removeConversationFromCache,
+  resolveDraftKeyInCache,
+} from "@/domains/conversations/conversation-list-queries.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import type { PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
 
@@ -152,6 +158,8 @@ export function useSendMessage({
   refreshConversations,
   navigate,
 }: UseSendMessageParams) {
+  const queryClient = useQueryClient();
+
   // -------------------------------------------------------------------------
   // Queue management (delegated to useMessageQueue)
   // -------------------------------------------------------------------------
@@ -513,7 +521,7 @@ export function useSendMessage({
       // Optimistically add a stub conversation to the sidebar for draft
       // conversations that don't exist on the server yet.
       if (!currentConv) {
-        useConversationListStore.getState().prependConversation({ conversationKey: activeConversationKey, lastMessageAt: new Date().toISOString(), draft: true } as Conversation);
+        prependConversationInCache(queryClient, assistantId, { conversationKey: activeConversationKey, lastMessageAt: new Date().toISOString(), draft: true } as Conversation);
       }
 
       cancelReconciliation();
@@ -539,7 +547,7 @@ export function useSendMessage({
           if (snapshot !== undefined) {
             processingSnapshotsRef.current.set(newKey, snapshot);
           }
-          useConversationListStore.getState().resolveDraftKey(activeConversationKey, newKey);
+          resolveDraftKeyInCache(queryClient, assistantId, activeConversationKey, newKey);
           resolveEditChatDraftKey(activeConversationKey, newKey);
 
           // Only update active view state if the user is still on this conversation.
@@ -567,7 +575,7 @@ export function useSendMessage({
           useConversationListStore.getState().removeMultipleProcessingKeys(keysToClean);
         }
         if (isDraft) {
-          useConversationListStore.getState().removeConversation(activeConversationKey);
+          removeConversationFromCache(queryClient, assistantId, activeConversationKey);
         }
       }
     },
@@ -579,6 +587,7 @@ export function useSendMessage({
       refreshConversations,
       revertQueuedMessage,
       persistDismissedSurfaces,
+      queryClient,
     ],
   );
 

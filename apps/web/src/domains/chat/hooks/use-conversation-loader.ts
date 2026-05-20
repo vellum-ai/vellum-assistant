@@ -43,8 +43,11 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { getChatContext } from "@/domains/chat/api/assistant.js";
 import { ApiError } from "@/domains/chat/api/client.js";
-import { type Conversation, fetchGroups, listConversations } from "@/domains/chat/api/conversations.js";
-import { chatContextQueryKey } from "@/domains/conversations/use-conversation-list-init.js";
+import { type Conversation } from "@/domains/chat/api/conversations.js";
+import {
+  chatContextQueryKey,
+  conversationGroupsQueryKey,
+} from "@/domains/conversations/conversation-list-queries.js";
 
 // Re-export for consumers that import from this module
 export {
@@ -235,21 +238,27 @@ export function useConversationLoader({
   const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
-  // refreshConversations -- fetch conversation list + groups
+  // refreshConversations -- invalidate the cached conversation list + groups
+  // so subscribed query consumers refetch. The active list query is mounted
+  // by `ChatLayout` and `ChatPage`, so invalidation triggers a background
+  // refetch through the same `getChatContext` queryFn used at boot.
   // -------------------------------------------------------------------------
   const refreshConversations = useCallback(async () => {
     if (!assistantId) return;
     try {
-      const updated = await listConversations(assistantId);
-      useConversationListStore.getState().setConversations(updated);
+      await queryClient.invalidateQueries({
+        queryKey: chatContextQueryKey(assistantId),
+      });
     } catch (err) {
       Sentry.captureException(err, {
         tags: { context: "refresh_conversations" },
       });
     }
     if (conversationGroupsUI) {
-      fetchGroups(assistantId)
-        .then((groups) => useConversationListStore.getState().setGroups(groups))
+      void queryClient
+        .invalidateQueries({
+          queryKey: conversationGroupsQueryKey(assistantId),
+        })
         .catch((err) => {
           Sentry.captureException(err, {
             level: "warning",
@@ -257,7 +266,7 @@ export function useConversationLoader({
           });
         });
     }
-  }, [assistantId, conversationGroupsUI]);
+  }, [assistantId, conversationGroupsUI, queryClient]);
 
   // Keep the ref in sync so the debounced scheduler always calls the latest.
   useEffect(() => {
@@ -317,7 +326,7 @@ export function useConversationLoader({
         // and pick up server-side changes" (pull-to-refresh, pod
         // recovery, conversation removal, etc.). `fetchQuery` with
         // `staleTime: 0` forces a fresh request and writes through to
-        // the same cache that `useConversationListInit` (mounted in
+        // the same cache that `useConversationListQuery` (mounted in
         // `ChatLayout`) subscribes to — so the sidebar refreshes too,
         // and concurrent fetches on initial mount dedup via the
         // shared query key.
@@ -354,12 +363,12 @@ export function useConversationLoader({
           prev?.code === CHAT_CONTEXT_LOAD_FAILED_CODE ? null : prev,
         );
 
-        // Set conversations and activeKey atomically so consumers of
-        // `useConversationListStore` never observe an active key with
-        // an empty conversations list (which would render `undefined`
-        // for the active conversation on this commit). Idempotent with
-        // the matching write in `useConversationListInit`'s effect.
-        useConversationListStore.getState().setConversations(ctx.conversations);
+        // The conversation list is already in the React Query cache via
+        // `fetchQuery` above; subscribed consumers (`ChatLayout`,
+        // `ChatPage`) will re-render with the populated list on the next
+        // commit. Set the active key in the client store within the same
+        // effect tick so React batches both updates and consumers never
+        // observe an active key with an empty list.
         useConversationListStore.getState().setActiveKey(key);
 
         // Ensure the URL reflects the active conversation so the page is
