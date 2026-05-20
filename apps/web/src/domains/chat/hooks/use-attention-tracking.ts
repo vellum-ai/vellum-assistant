@@ -2,10 +2,17 @@
 import * as Sentry from "@sentry/react";
 import { useEffect, useRef } from "react";
 
-import { useAssistantContext } from "@/domains/chat/assistant-context.js";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { markConversationSeen } from "@/domains/chat/api/conversations.js";
 import { listConversationKeysWithPendingInteractions } from "@/domains/chat/api/interactions.js";
+import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+
+interface UseAttentionTrackingParams {
+  /** From `useAssistantLifecycle` in `ChatLayout`. */
+  assistantId: string | null;
+  /** From `useAssistantLifecycle` in `ChatLayout`. */
+  assistantStateKind: AssistantState["kind"];
+}
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -63,10 +70,10 @@ export function decideGraduationDispatches(
   return actions;
 }
 
-export function useAttentionTracking() {
-  const { assistantId, assistantState } = useAssistantContext();
-  const assistantStateKind = assistantState.kind;
-
+export function useAttentionTracking({
+  assistantId,
+  assistantStateKind,
+}: UseAttentionTrackingParams) {
   const conversations = useConversationListStore.use.conversations();
   const activeConversationKey = useConversationListStore.use.activeConversationKey();
   const processingKeys = useConversationListStore.use.processingKeys();
