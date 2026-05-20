@@ -52,7 +52,7 @@ export function AccessConsentSetting() {
         <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
           Lets Vellum administrators reach privileged data on your assistant
           pod for debugging — today this means tailing{" "}
-          <code className="rounded bg-[var(--surface-overlay)] px-1 py-0.5 text-body-small-default">
+          <code className="rounded bg-[var(--surface-base)] px-1.5 py-0.5 font-mono text-[var(--content-secondary)] dark:bg-[var(--surface-lift)] dark:text-[var(--content-default)]">
             /workspace/data/logs/vellum.log
           </code>
           . Off by default. Turn on temporarily when asking support to

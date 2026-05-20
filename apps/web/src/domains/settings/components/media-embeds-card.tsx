@@ -108,7 +108,7 @@ export function MediaEmbedsCard() {
             type="button"
             variant="ghost"
             onClick={() => setExpanded((prev) => !prev)}
-            className="mt-4 w-full justify-between px-0"
+            className="mt-4 w-full justify-between px-3"
             aria-expanded={expanded}
           >
             <span className="flex items-center gap-2">
