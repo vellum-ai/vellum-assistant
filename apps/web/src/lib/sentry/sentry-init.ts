@@ -3,7 +3,7 @@ import type { BrowserOptions } from "@sentry/react";
 import {
   installSentryControlListeners,
   syncSentryClient,
-} from "@/utils/sentry-control.js";
+} from "@/lib/sentry/sentry-control.js";
 
 /**
  * Browser-side Sentry initialization, gated on the user's Share Diagnostics

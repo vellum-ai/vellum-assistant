@@ -116,10 +116,13 @@ src/
     browser.ts
   types/                           # cross-domain shared types
     window.d.ts
-  lib/                             # configured third-party wrappers
-    api-client.ts
-    csrf.ts
-    telemetry.ts
+  lib/                             # third-party integrations & infrastructure
+    sentry/                        #   Sentry error reporting (init, consent control)
+    auth/                          #   allauth client, CSRF, auth middleware
+    feature-flags/                 #   LaunchDarkly provider
+    sync/                          #   server state sync (tag registry, router)
+    api-client.ts                  #   HeyAPI configured client + interceptors
+    telemetry/                     #   client identity for daemon registration
   runtime/                         # framework adapters, platform bridges
     native-auth.ts
     route-adapter.ts
@@ -190,22 +193,28 @@ directories. If something is domain-specific, it belongs inside
 |---|---|---|
 | `stores/` | App-level Zustand stores (cross-domain state) | `viewer-store.ts`, `sse-connected-store.ts` |
 | `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-keyboard-shortcuts.ts` |
-| `utils/` | Pure utility functions | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |
+| `utils/` | Pure utility functions (no side effects, no third-party SDKs) | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |
 | `types/` | Shared type definitions | `window.d.ts`, `api-types.ts` |
-| `lib/` | Configured third-party wrappers | `api-client.ts` (HeyAPI + interceptors), `csrf.ts`, `telemetry.ts` (Sentry), `feature-flags.ts` |
+| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (LaunchDarkly), `sync/` (state sync), `api-client.ts` (HeyAPI) |
 | `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
 | `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
 
 | `generated/` | Auto-generated code (HeyAPI, catalogs) | `api/`, `catalogs/` |
 
-#### Why `lib/` exists
+#### `lib/` vs `utils/` — where does my code go?
 
-The platform repo has configured third-party wrappers (HeyAPI client
-with request/response interceptors, CSRF token management, Sentry
-configuration, feature flag providers) that don't fit `utils/` (they
-have side effects and configure instances — not pure functions) or
-`runtime/` (they're not framework adapters). `lib/` is the standard
-home for this category of code.
+| | `lib/` | `utils/` |
+|---|---|---|
+| **Purpose** | Third-party SDK integrations, infrastructure wrappers, code with initialization or lifecycle | Pure helper functions with no side effects |
+| **Side effects?** | Yes — initializes SDKs, configures interceptors, manages consent/lifecycle | No — pure input→output, no global state, no I/O |
+| **Third-party SDK dependency?** | Yes — wraps `@sentry/react`, `@heyapi/client-fetch`, LaunchDarkly, etc. | No — only standard library / language utilities |
+| **Subdirectories?** | Yes — each integration gets its own directory (e.g. `lib/sentry/`, `lib/auth/`, `lib/sync/`) | Flat — individual utility files at the top level |
+| **Examples** | `lib/sentry/sentry-init.ts`, `lib/auth/allauth-client.ts`, `lib/api-client.ts` | `utils/format.ts`, `utils/browser.ts`, `utils/cn.ts` |
+
+If the code configures an SDK instance, runs at startup, or manages a
+third-party service lifecycle, it belongs in `lib/`. If it's a pure
+function you could copy-paste into any project without installing a
+dependency, it belongs in `utils/`.
 
 Reference: [Bulletproof React — `lib/` directory](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md)
 
