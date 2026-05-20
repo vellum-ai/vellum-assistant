@@ -25,12 +25,12 @@ import {
   readTosAccepted,
   useOnboardingCompleted,
   writeSelectedVersion,
-} from "@/lib/onboarding/prefs.js";
+} from "@/domains/onboarding/prefs.js";
 import {
   clearPrivacyConsent,
   hasRecentPrivacyConsent,
   markPrivacyConsent,
-} from "@/lib/onboarding/signals.js";
+} from "@/domains/onboarding/signals.js";
 import { isNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";

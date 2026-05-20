@@ -17,8 +17,8 @@ import {
 import {
   normalizePreChatOnboardingContext,
   type PreChatOnboardingContext,
-} from "@/lib/onboarding/prechat.js";
-import { persistPreChatOnboardingProfile } from "@/lib/onboarding/prechat-profile.js";
+} from "@/domains/onboarding/prechat.js";
+import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-profile.js";
 
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 120_000;

@@ -12,7 +12,7 @@
  */
 import { routes } from "@/utils/routes.js";
 
-import { readOnboardingCompleted } from "@/lib/onboarding/prefs.js";
+import { readOnboardingCompleted } from "@/domains/onboarding/prefs.js";
 
 /**
  * Returns the path to redirect to when onboarding should intercept, or

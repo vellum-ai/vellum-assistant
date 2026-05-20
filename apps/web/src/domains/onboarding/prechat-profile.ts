@@ -4,12 +4,7 @@ import {
   type PreChatOnboardingContext,
   type PreChatOnboardingProfileFields,
   preChatOnboardingProfileFields,
-} from "@/lib/onboarding/prechat.js";
-
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
+} from "@/domains/onboarding/prechat.js";
 
 export const PRECHAT_PROFILE_PATHS = [
   "users/guardian.md",
@@ -75,7 +70,6 @@ async function fetchWorkspaceTextFile(
     WorkspaceFileResponse,
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/workspace/file/",
     path: { assistant_id: assistantId },
     query: { path },
@@ -101,7 +95,6 @@ async function writeWorkspaceTextFile(
   content: string,
 ): Promise<void> {
   const { error, response } = await client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/workspace/write/",
     path: { assistant_id: assistantId },
     body: { path, content },

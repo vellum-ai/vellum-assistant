@@ -7,7 +7,7 @@ import { AppleLogo } from "@/components/icons/apple-logo.js";
 import { GoogleLogo } from "@/components/icons/google-logo.js";
 import { NativeSplash } from "@/components/native-splash.js";
 import { LoginBackground } from "@/domains/account/components/login-background.js";
-import { PROVIDER_ID, buildProviderCallbackUrl } from "@/lib/account/login-flow.js";
+import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow.js";
 import {
   startAuthFlow,
   startNativeLogin,

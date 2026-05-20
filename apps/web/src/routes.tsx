@@ -1,4 +1,4 @@
-import { createBrowserRouter, useNavigate } from "react-router";
+import { createBrowserRouter, Navigate, useNavigate, useSearchParams } from "react-router";
 
 import { authMiddleware } from "@/lib/auth/auth-middleware.js";
 import { RootLayout } from "@/components/layout/root-layout.js";
@@ -51,6 +51,23 @@ import { UsagePage } from "@/domains/logs/pages/usage-page.js";
 import { SystemEventsPage } from "@/domains/logs/pages/system-events-page.js";
 import { EmailsPage } from "@/domains/logs/pages/emails-page.js";
 import { routes } from "@/utils/routes.js";
+
+/**
+ * Handles the `/assistant` index route. If a legacy `?conversationKey=` search
+ * param is present, redirects to the canonical path-based conversation URL.
+ * Otherwise renders `ChatPage` (new/default conversation).
+ */
+function ConversationKeyRedirect() {
+  const [searchParams] = useSearchParams();
+  const conversationKey = searchParams.get("conversationKey");
+  if (conversationKey) {
+    const remaining = new URLSearchParams(searchParams);
+    remaining.delete("conversationKey");
+    const qs = remaining.toString();
+    return <Navigate to={`${routes.conversation(conversationKey)}${qs ? `?${qs}` : ""}`} replace />;
+  }
+  return <ChatPage />;
+}
 
 function HomePageRoute() {
   const navigate = useNavigate();
@@ -155,7 +172,8 @@ export const router = createBrowserRouter([
       {
         element: <ChatLayout />,
         children: [
-          { index: true, element: <ChatPage /> },
+          { index: true, element: <ConversationKeyRedirect /> },
+          { path: "conversations/:conversationKey", element: <ChatPage /> },
           { path: "home", element: <HomePageRoute /> },
           { path: "library", element: <LibraryPage /> },
           { path: "library/:appId", element: <LibraryDetailPage /> },

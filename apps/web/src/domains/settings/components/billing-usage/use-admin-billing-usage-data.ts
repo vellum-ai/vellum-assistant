@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 
 import type { DateRange } from "@/components/charts/date-range-select.js";
-import { getBrowserTimezone } from "@/lib/usage/browser-timezone.js";
+import { getBrowserTimezone } from "@/utils/browser-timezone.js";
 import {
   type LlmUsageDimension,
   toBillingGroupBy,
-} from "@/lib/usage/llm-dimension.js";
+} from "@/utils/llm-dimension.js";
 
 export type AdminSourceFilter = "all" | "llm" | "oauth";
 

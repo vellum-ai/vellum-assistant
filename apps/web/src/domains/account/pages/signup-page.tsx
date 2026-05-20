@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
-import { PROVIDER_CALLBACK_URL, PROVIDER_ID } from "@/lib/account/login-flow.js";
+import { PROVIDER_CALLBACK_URL, PROVIDER_ID } from "@/domains/account/login-flow.js";
 import { startAuthFlow } from "@/runtime/native-auth.js";
 
 /**

@@ -18,7 +18,7 @@ import {
   DEFAULT_LLM_USAGE_DIMENSION,
   LLM_USAGE_DIMENSION_ITEMS,
   type LlmUsageDimension,
-} from "@/lib/usage/llm-dimension.js";
+} from "@/utils/llm-dimension.js";
 
 import { BillingUsageChart, type ChartMetric } from "@/domains/settings/components/billing-usage/billing-usage-chart.js";
 import {

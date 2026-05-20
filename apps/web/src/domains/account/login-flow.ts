@@ -1,4 +1,4 @@
-import { sanitizeReturnTo } from "@/lib/account/return-to.js";
+import { sanitizeReturnTo } from "@/domains/account/return-to.js";
 import { routes } from "@/utils/routes.js";
 
 export const PROVIDER_ID = "workos-oidc";

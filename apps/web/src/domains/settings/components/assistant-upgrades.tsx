@@ -20,7 +20,7 @@ import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import {
   compareParsed,
   parseSemver,
-} from "@/lib/semver/semver.js";
+} from "@/utils/semver.js";
 
 function releaseLabel(
   release: ReleaseListItem,

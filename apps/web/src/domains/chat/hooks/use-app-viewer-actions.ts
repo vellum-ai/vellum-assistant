@@ -1,11 +1,8 @@
 /**
  * App and document viewer action handlers.
  *
- * Consolidates the app/document lifecycle operations previously inlined in
- * `AssistantPageClient`: open, close, share, deploy, edit, navigate
- * (back/forward), and deep-link auto-open. All framework-specific routing
- * is delegated to adapter callbacks (`pushConversationKeyParam`) so the hook
- * stays portable for the Vite + React Router v7 migration.
+ * Consolidates the app/document lifecycle operations: open, close, share,
+ * deploy, edit, and deep-link auto-open.
  *
  * @see stores/viewer-store.ts — Zustand store for viewer UI state
  */
@@ -44,13 +41,8 @@ export interface UseAppViewerActionsParams {
   lastConversationKeyRef: MutableRefObject<string | null>;
   deepLinkAppId: RefObject<string | undefined>;
   switchConversation: (key: string) => void;
-  /**
-   * Framework adapter: set the `conversationKey` URL search parameter.
-   *
-   * In Next.js this is wired to `router.push(`?${params.toString()}`)`; in
-   * React Router v7 it will map to `setSearchParams`.
-   */
-  pushConversationKeyParam: (key: string) => void;
+  /** Navigate to a conversation by key (path-based routing). */
+  navigateToConversation: (key: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,14 +72,14 @@ export function useAppViewerActions({
   lastConversationKeyRef,
   deepLinkAppId,
   switchConversation,
-  pushConversationKeyParam,
+  navigateToConversation,
 }: UseAppViewerActionsParams) {
   // Ref-stabilize unstable callbacks so consuming useCallbacks keep stable identity.
   const switchConversationRef = useRef(switchConversation);
   switchConversationRef.current = switchConversation;
 
-  const pushConversationKeyParamRef = useRef(pushConversationKeyParam);
-  pushConversationKeyParamRef.current = pushConversationKeyParam;
+  const navigateToConversationRef = useRef(navigateToConversation);
+  navigateToConversationRef.current = navigateToConversation;
 
   // Tracks the appId / documentSurfaceId of the most recent open request so
   // concurrent calls don't let a late-arriving response overwrite the latest.
@@ -214,7 +206,7 @@ export function useAppViewerActions({
       useConversationListStore.getState().setEditingKey(conversationKey);
       useViewerStore.getState().enterAppEditing();
       if (activeConversationKey !== conversationKey) {
-        pushConversationKeyParamRef.current(conversationKey);
+        navigateToConversationRef.current(conversationKey);
       }
     },
     [

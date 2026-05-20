@@ -15,8 +15,8 @@ import {
   useShareAnalytics,
   useShareDiagnostics,
   useTosAccepted,
-} from "@/lib/onboarding/prefs.js";
-import { markPrivacyConsent } from "@/lib/onboarding/signals.js";
+} from "@/domains/onboarding/prefs.js";
+import { markPrivacyConsent } from "@/domains/onboarding/signals.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { legalUrl, routes } from "@/utils/routes.js";

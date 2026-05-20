@@ -29,6 +29,8 @@ import type { ContextWindowUsage } from "@/domains/chat/components/context-windo
 
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { haptic } from "@/utils/haptics.js";
+import { routes } from "@/utils/routes.js";
+import type { NavigateFunction } from "react-router";
 
 import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
 import type { AssistantStateKind, ChatError } from "@/domains/chat/types.js";
@@ -58,11 +60,7 @@ export {
 const CONVERSATION_LIST_INVALIDATED_DEBOUNCE_MS = 250;
 const CHAT_CONTEXT_LOAD_FAILED_CODE = "CHAT_CONTEXT_LOAD_FAILED";
 
-/**
- * Minimal URL search-params reader — accepts any object that supports
- * `get` and `toString`. Both Next.js `ReadonlyURLSearchParams` and the
- * standard `URLSearchParams` satisfy this.
- */
+/** Minimal URL search-params reader (subset of `URLSearchParams`). */
 interface SearchParamsLike {
   get: (key: string) => string | null;
   toString: () => string;
@@ -73,9 +71,11 @@ interface UseConversationLoaderParams {
   assistantId: string | null;
   assistantStateKind: AssistantStateKind;
   activeConversationKey: string | null;
+  /** Conversation key from the URL path param (e.g. `/assistant/conversations/:key`). */
+  urlConversationKey: string | null;
   searchParams: SearchParamsLike;
-  /** Navigate to a URL string. Callers wire this to their framework router. */
-  pushRoute: (url: string) => void;
+  /** React Router navigate function for path-based routing. */
+  navigate: NavigateFunction;
 
   // Collections
   conversations: Conversation[];
@@ -173,8 +173,9 @@ export function useConversationLoader({
   assistantId,
   assistantStateKind,
   activeConversationKey,
+  urlConversationKey,
   searchParams,
-  pushRoute,
+  navigate,
   conversations,
   activeConversation,
   processingKeys,
@@ -328,14 +329,15 @@ export function useConversationLoader({
         });
         if (!ctx || cancelled) return;
 
-        const qpKey = searchParams.get("conversationKey");
+        // Path param is the canonical source; fall back to legacy search param.
+        const explicitKey = urlConversationKey ?? searchParams.get("conversationKey");
         let onboardingDraftConversationKey: string | null = null;
         if (searchParams.get("onboarding") === "1") {
           onboardingDraftConversationKeyRef.current ??= createDraftConversationKey();
           onboardingDraftConversationKey = onboardingDraftConversationKeyRef.current;
         }
         const key = resolveBootstrappedConversationKey({
-          queryParamKey: qpKey,
+          queryParamKey: explicitKey,
           onboardingDraftConversationKey,
           currentConversationKey: activeConversationKeyRef.current,
           currentAssistantId: assistantIdRef.current,
@@ -359,6 +361,16 @@ export function useConversationLoader({
         // the matching write in `useConversationListInit`'s effect.
         useConversationListStore.getState().setConversations(ctx.conversations);
         useConversationListStore.getState().setActiveKey(key);
+
+        // Ensure the URL reflects the active conversation so the page is
+        // deep-linkable from the moment it loads.  `replace` avoids a
+        // spurious history entry. This also moves ChatPage from the index
+        // route (where it renders inside ConversationKeyRedirect) to the
+        // canonical conversations/:key route before any user interaction,
+        // preventing a remount when draft keys resolve during sendMessage.
+        if (key) {
+          void navigate(routes.conversation(key), { replace: true });
+        }
       } catch (err) {
         if (cancelled) return;
         if (err instanceof ApiError && err.status === 401) {
@@ -393,7 +405,9 @@ export function useConversationLoader({
     // manual reload.
   }, [
     assistantStateKind,
+    urlConversationKey,
     searchParams,
+    navigate,
     reachabilityReadyEpoch,
     refreshEpoch,
     assistantIdRef,
@@ -492,11 +506,9 @@ export function useConversationLoader({
     (key: string) => {
       useViewerStore.getState().setMainView("chat");
       if (key === activeConversationKey) return;
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("conversationKey", key);
-      pushRoute(`?${params.toString()}`);
+      void navigate(routes.conversation(key));
     },
-    [activeConversationKey, pushRoute, searchParams],
+    [activeConversationKey, navigate],
   );
 
   // -------------------------------------------------------------------------
@@ -511,11 +523,9 @@ export function useConversationLoader({
         pendingInitialMessageRef.current = { conversationKey: draftKey, content: initialMessage };
       }
       useConversationListStore.getState().setActiveKey(draftKey);
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("conversationKey", draftKey);
-      pushRoute(`?${params.toString()}`);
+      void navigate(routes.conversation(draftKey));
     },
-    [pushRoute, searchParams, pendingInitialMessageRef],
+    [navigate, pendingInitialMessageRef],
   );
 
   return {

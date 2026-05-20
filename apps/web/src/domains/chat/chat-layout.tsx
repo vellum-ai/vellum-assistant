@@ -18,6 +18,8 @@ import type { AssistantContextValue } from "@/domains/chat/assistant-context.js"
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { useConversationListInit } from "@/domains/conversations/use-conversation-list-init.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useViewerStore } from "@/stores/viewer-store.js";
+import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 
 import { OfflineBanner } from "@/components/offline-banner.js";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
@@ -333,8 +335,10 @@ export function ChatLayout() {
   const handleSelectConversation = useCallback(
     (key: string) => {
       haptic.light();
+      useViewerStore.getState().setMainView("chat");
+      useSubagentStore.getState().reset();
       setActiveKey(key);
-      navigate(routes.assistant);
+      navigate(routes.conversation(key));
       setDrawerOpen(false);
     },
     [setActiveKey, navigate],

@@ -8,7 +8,7 @@ import { Dropdown } from "@vellum/design-library";
 import { storePendingInitialMessage } from "@/domains/chat/utils/initial-message-launch.js";
 import { routes } from "@/utils/routes.js";
 import { formatCost, formatTokens } from "@/domains/logs/format.js";
-import { getBrowserTimezone } from "@/domains/logs/browser-timezone.js";
+import { getBrowserTimezone } from "@/utils/browser-timezone.js";
 import {
   buildCallSiteMetadataMap,
   fetchUsageCallSiteCatalog,

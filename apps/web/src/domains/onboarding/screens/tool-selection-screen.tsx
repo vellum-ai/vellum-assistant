@@ -8,7 +8,7 @@ import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-lay
 import {
   PRECHAT_TOOLS,
   type PreChatToolItem,
-} from "@/lib/onboarding/prechat-tools.js";
+} from "@/domains/onboarding/prechat-tools.js";
 
 interface ToolSelectionScreenProps {
   selectedTools: Set<string>;

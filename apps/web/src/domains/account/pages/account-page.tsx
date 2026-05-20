@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router";
 
 import { AccountHeading } from "@/components/account/account-form.js";
 import { AccountShell } from "@/components/account/account-shell.js";
-import { PROVIDER_CALLBACK_URL, PROVIDER_ID } from "@/lib/account/login-flow.js";
+import { PROVIDER_CALLBACK_URL, PROVIDER_ID } from "@/domains/account/login-flow.js";
 import { startAuthFlow } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
