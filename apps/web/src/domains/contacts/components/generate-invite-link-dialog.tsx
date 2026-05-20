@@ -38,12 +38,14 @@ export function GenerateInviteLinkDialog({
     mutationFn: () => createA2AInvite(assistantId),
   });
 
+  const mutateRef = useRef(mutation.mutate);
+  mutateRef.current = mutation.mutate;
+
   useEffect(() => {
     if (open && !prevOpenRef.current) {
-      mutation.mutate();
+      mutateRef.current();
     }
     prevOpenRef.current = open;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
