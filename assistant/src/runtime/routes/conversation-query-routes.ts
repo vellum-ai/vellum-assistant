@@ -32,6 +32,7 @@ import {
   withSuppressedConfigDiskWrites,
   withSuppressedConfigDiskWritesSync,
 } from "../../config/loader.js";
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import { ProfileEntry } from "../../config/schemas/llm.js";
@@ -923,6 +924,10 @@ function handleSteerToMessage({
   queryParams = {},
   pathParams = {},
 }: RouteHandlerArgs) {
+  const config = getConfig();
+  if (!isAssistantFeatureFlagEnabled("queue-steering", config)) {
+    throw new BadRequestError("Queue steering is not enabled");
+  }
   const conversationId = queryParams.conversationId;
   if (!conversationId) {
     throw new BadRequestError(

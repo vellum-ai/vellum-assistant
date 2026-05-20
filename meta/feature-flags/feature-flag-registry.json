@@ -352,6 +352,14 @@
       "label": "Query Complexity Routing",
       "description": "Automatically route user messages to the most appropriate inference profile based on query complexity. Simple queries use the speed profile, complex queries escalate to the quality profile. The user is notified of each switch and can opt out by pinning a profile on the conversation.",
       "defaultEnabled": true
+    },
+    {
+      "id": "queue-steering",
+      "scope": "assistant",
+      "key": "queue-steering",
+      "label": "Queue Steering",
+      "description": "Enable the 'Push to agent' button on queued messages, allowing users to steer the assistant to a specific queued message by aborting the current generation and promoting the message to the head of the queue.",
+      "defaultEnabled": false
     }
   ]
 }
