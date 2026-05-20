@@ -27,16 +27,39 @@ let lastRunAtBumps: Array<{ conversationId: string; lastRunAt: number }> = [];
 
 let newMessages: Array<{ id: string; createdAt: number }> = [];
 
+// Fork-path bookkeeping. `forkCount` is the number of `forkConversation`
+// calls observed so far (also used to mint unique fork IDs).
+// `mockSourceConversation`, when set, is what `getConversation` returns for
+// the source conversation ID — fork-path tests must set this.
+let forkCount = 0;
+let mockSourceConversation: {
+  id: string;
+  title: string | null;
+} | null = null;
+
 // Prior retrospective conversation + messages.
 let priorRetroId: string | null = null;
 let priorRetroMessages: Array<{ role: string; content: string }> = [];
 
 let mockWakeResult: { invoked: boolean; reason?: string } = { invoked: true };
 let mockWakeThrows: Error | null = null;
-let wakeCalls: Array<{ conversationId: string; hint: string }> = [];
+let wakeCalls: Array<{
+  conversationId: string;
+  hint: string;
+  opts: Record<string, unknown>;
+}> = [];
 let bootstrappedConversationId = "bg-conv-new";
 let bootstrapCalls: Array<{ forkParentConversationId?: string }> = [];
 let deletedConversationIds: string[] = [];
+
+// Feature flag — defaults to legacy path. Fork-path tests flip this to true
+// in their own `beforeEach`/test body before invoking the job.
+let forkFlagEnabled = false;
+
+mock.module("../../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (key: string, _config: unknown) =>
+    key === "memory-retrospective-fork" ? forkFlagEnabled : false,
+}));
 
 mock.module("../memory-retrospective-state.js", () => ({
   getRetrospectiveState: (_id: string) => mockState,
@@ -61,21 +84,21 @@ mock.module("../conversation-crud.js", () => ({
   findMostRecentRetrospectiveFor: (_id: string) =>
     priorRetroId ? { id: priorRetroId } : null,
   // `collectPriorRetrospectiveRemembers` reads the prior row to discriminate
-  // between legacy and fork-kind sources. Return a legacy-shaped row so the
-  // existing tests exercise the unchanged extract-everything code path.
-  getConversation: (_id: string) => ({
-    source: "memory-retrospective",
-    forkParentMessageId: null,
-  }),
-  // Imported by `runForkBasedRetrospective`; legacy-path tests never hit it.
-  forkConversation: (_params: unknown) => {
-    throw new Error(
-      "forkConversation should not be called in legacy-path tests",
-    );
+  // between legacy and fork-kind sources. `runForkBasedRetrospective` also
+  // reads the *source* conversation to compute the fork title. Discriminate
+  // by id: the source returns the configured row; everything else returns a
+  // legacy-shaped prior so the unchanged extract-everything code path runs.
+  getConversation: (id: string) => {
+    if (mockSourceConversation && id === mockSourceConversation.id) {
+      return mockSourceConversation;
+    }
+    return { source: "memory-retrospective", forkParentMessageId: null };
   },
-  addMessage: async () => {
-    throw new Error("addMessage should not be called in legacy-path tests");
+  forkConversation: (_params: { conversationId: string }) => {
+    forkCount += 1;
+    return { id: `fork-conv-${forkCount}` };
   },
+  addMessage: async () => {},
   deleteConversation: (id: string) => {
     deletedConversationIds.push(id);
   },
@@ -133,11 +156,14 @@ mock.module("../../daemon/trust-context.js", () => ({
 }));
 
 mock.module("../../runtime/agent-wake.js", () => ({
-  wakeAgentForOpportunity: async (opts: {
-    conversationId: string;
-    hint: string;
-  }) => {
-    wakeCalls.push({ conversationId: opts.conversationId, hint: opts.hint });
+  wakeAgentForOpportunity: async (
+    opts: { conversationId: string; hint: string } & Record<string, unknown>,
+  ) => {
+    wakeCalls.push({
+      conversationId: opts.conversationId,
+      hint: opts.hint,
+      opts,
+    });
     if (mockWakeThrows) throw mockWakeThrows;
     return mockWakeResult;
   },
@@ -216,6 +242,9 @@ describe("memoryRetrospectiveJob", () => {
     transcriptFormatterCalls = [];
     mockAssistantName = "Bob";
     mockUserName = "Alice";
+    forkFlagEnabled = false;
+    forkCount = 0;
+    mockSourceConversation = null;
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -423,5 +452,21 @@ describe("memoryRetrospectiveJob", () => {
 
     const hint = wakeCalls[0]!.hint;
     expect(hint).toContain("<\u200B/already_remembered>");
+  });
+
+  test("fork path: wake opts include suppressWakeSurface so clients don't render an empty wake card on top of the '(Retrospective)' fork", async () => {
+    forkFlagEnabled = true;
+    mockSourceConversation = { id: "src-conv-1", title: "Trip planning" };
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(forkCount).toBe(1);
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.conversationId).toBe("fork-conv-1");
+    const opts = wakeCalls[0]!.opts;
+    expect(opts.suppressWakeSurface).toBe(true);
+    // Sanity: the other fork-specific opts the handler relies on are still set.
+    expect(opts.skipHintInjection).toBe(true);
+    expect(opts.suppressAutoCompaction).toBe(true);
+    expect(opts.hintRole).toBe("user");
   });
 });
