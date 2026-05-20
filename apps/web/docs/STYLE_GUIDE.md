@@ -4,8 +4,7 @@ Coding style, naming conventions, and formatting rules for the Vellum
 web app. For architectural decisions and patterns see
 [`CONVENTIONS.md`](./CONVENTIONS.md).
 
-Subordinate to [`apps/web/AGENTS.md`](../AGENTS.md), [`apps/AGENTS.md`](../../AGENTS.md), and
-root [`AGENTS.md`](../../../AGENTS.md).
+See also [`apps/web/AGENTS.md`](../AGENTS.md) for the quick-rules entry point, and broader patterns in [`apps/AGENTS.md`](../../AGENTS.md) / root [`AGENTS.md`](../../../AGENTS.md).
 
 ---
 

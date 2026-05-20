@@ -5,8 +5,7 @@ Covers code organization, state management, component design, and
 framework strategy. For coding style, naming, and import rules see
 [`STYLE_GUIDE.md`](./STYLE_GUIDE.md).
 
-Subordinate to [`apps/web/AGENTS.md`](../AGENTS.md), [`apps/AGENTS.md`](../../AGENTS.md), and
-root [`AGENTS.md`](../../../AGENTS.md).
+See also [`apps/web/AGENTS.md`](../AGENTS.md) for the quick-rules entry point, and broader patterns in [`apps/AGENTS.md`](../../AGENTS.md) / root [`AGENTS.md`](../../../AGENTS.md).
 
 ---
 
@@ -131,7 +130,7 @@ src/
 
 #### Why `domains/` not `features/`
 
-The team chose `domains/` over the more common `features/` because
+This app uses `domains/` over the more common `features/` because
 "features" implies product-level concepts (like "chat" or
 "settings") that contain multiple domains. `messages`,
 `conversations`, and `streaming` are business domains with distinct
@@ -230,8 +229,8 @@ If the code imports a third-party SDK and configures it → `lib/`. If it bridge
 ### No barrel files
 
 Do not use barrel files (`index.ts` that re-export siblings). Import
-from the source file directly. If a genuine need arises in the future,
-discuss with the team before adding one.
+from the source file directly. If you believe this rule should change,
+open a GitHub issue to discuss.
 
 ---
 
@@ -505,10 +504,11 @@ automatically via [npm lifecycle hooks](https://docs.npmjs.com/cli/v10/using-npm
 - **`predev`** — runs before every `bun run dev`; always regenerates so
   the client stays in sync with the committed specs.
 
-No manual codegen step is needed — both `bun install` + `bun run dev` and
-`vel up --vite` trigger these hooks automatically.
+No manual codegen step is needed — `bun install` + `bun run dev` triggers
+these hooks automatically. Vellum maintainers using the internal `vel`
+CLI also get codegen via `vel up --vite`.
 
-**Vellum developers** updating the specs after platform API changes:
+**Vellum maintainers** updating the specs after backend API changes:
 
 ```bash
 ./scripts/sync-openapi-specs.sh   # copies from sibling platform checkout

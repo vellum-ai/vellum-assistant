@@ -1,6 +1,6 @@
 # Web App — Agent Instructions
 
-Applies to all code under `apps/web/`. Subordinate to [`apps/AGENTS.md`](../AGENTS.md) and root [`AGENTS.md`](../../AGENTS.md).
+Applies to all code under `apps/web/`. For broader patterns see [`apps/AGENTS.md`](../AGENTS.md) and root [`AGENTS.md`](../../AGENTS.md).
 
 ## Conventions and style
 
@@ -31,7 +31,7 @@ pattern (`assistant/docs/`, `docs/` at the repo root).
 - Route config: `src/routes.tsx`
 - Route constants: `src/utils/routes.ts` — all paths are absolute browser paths
 - No `basename` on the router — `/account/*` and `/assistant/*` are explicit top-level branches
-- Routes must match the platform repo exactly during migration (no URL changes)
+- URL paths are part of the contract — bookmarks and deep links depend on them. Don't rename URL patterns without a deprecation period.
 - **Route protection**: uses React Router v7 [middleware](https://reactrouter.com/how-to/middleware) (`v8_middleware` future flag), not layout gate components or `useEffect` redirects. Auth is always required — the middleware redirects unauthenticated users to `/account/login`. See [`docs/CONVENTIONS.md` — Route protection via middleware](./docs/CONVENTIONS.md#route-protection-via-middleware).
 - **Assistant lifecycle**: owned by `ChatLayout`, passed to child routes via [outlet context](https://reactrouter.com/start/framework/outlet). Child routes consume the resolved `assistantId` via `useAssistantContext()` — never hardcode or independently resolve it.
 
@@ -48,10 +48,6 @@ cd apps/web && bun test src/path/to/file.test.ts  # Run specific tests
 cd apps/web && bun run test:ci       # Run all tests (isolated, CI)
 ```
 
-## Migration status
+## Scope
 
-This app is being migrated from [`vellum-assistant-platform/web/`](https://github.com/vellum-ai/vellum-assistant-platform). During migration:
-
-- **Faithful copy, not simplification.** Port real implementations, not stubs. All Capacitor/native code paths must be preserved.
-- **Convention compliance on arrival.** Apply this repo's naming (kebab-case), import conventions (`.js` extensions, `@/` aliases), and directory structure as code is ported.
-- **No marketing or admin pages.** Only the assistant web app and auth/identity pages are migrating.
+This package contains only the assistant web app and authentication / identity pages. Marketing pages and admin/internal surfaces are out of scope.

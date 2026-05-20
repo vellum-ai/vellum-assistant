@@ -4,7 +4,7 @@ How client state and server state are managed in `apps/web/`. Zustand
 stores for client state, TanStack Query for server state, atomic
 selectors, no `useReducer`.
 
-Subordinate to [`../AGENTS.md`](../AGENTS.md) and
+See also [`apps/web/AGENTS.md`](../AGENTS.md) and the umbrella
 [`CONVENTIONS.md`](./CONVENTIONS.md).
 
 ---
@@ -143,11 +143,11 @@ section ([Auto-generated selectors via `createSelectors`](#auto-generated-select
 Atomic selectors per field handle the re-render-granularity problem
 without any of the `useShallow` ceremony described below.
 
-### Legacy: `useShallow` patterns (do not use in new code)
+### Legacy: `useShallow` patterns (for migration reference)
 
-These patterns exist in a small number of pre-`createSelectors` call
-sites. They're documented here so reviewers can recognize and migrate
-them, **not** as a recommendation.
+A small number of pre-`createSelectors` call sites still use these
+patterns. They're documented here for historical context and to help
+migrate them — new code uses atomic selectors instead.
 
 ```ts
 // 1. Primitive selector — works without useShallow
@@ -351,13 +351,12 @@ no-ops if `phase !== "thinking"`. The action stays a plain function;
 the rules stay testable in isolation; we don't need a dispatcher
 ceremony to enforce them.
 
-**Known exceptions** (being migrated):
+**Known exceptions** (slated for migration):
 
 - `apps/web/src/domains/terminal/use-terminal-state.ts` and
   `apps/web/src/domains/terminal/use-terminal-session.ts` still use
-  `useReducer` + dispatch. Tracked in
-  [LUM-1748](https://linear.app/vellum/issue/LUM-1748). Do not
-  pattern-match new code on these files.
+  `useReducer` + dispatch. These will be migrated to Zustand stores
+  in a future change. Do not pattern-match new code on these files.
 
 References:
 - [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/guides/auto-generating-selectors)
