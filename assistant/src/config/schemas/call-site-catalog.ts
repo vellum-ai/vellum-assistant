@@ -300,6 +300,20 @@ const CATALOG_RECORD: CatalogRecord = {
       "Builds the personalized artifact in a background conversation with tool access.",
     domain: "agentLoop",
   },
+  homeGreeting: {
+    id: "homeGreeting",
+    displayName: "Home Greeting",
+    description:
+      "Generates the personalized greeting shown on the Home page in the assistant's tone/persona.",
+    domain: "ui",
+  },
+  homeSuggestedPrompts: {
+    id: "homeSuggestedPrompts",
+    displayName: "Home Suggested Prompts",
+    description:
+      "Generates contextual conversation-starter suggestions for the Home page.",
+    domain: "ui",
+  },
 };
 
 // Source of truth for call-site display metadata. API responses and usage

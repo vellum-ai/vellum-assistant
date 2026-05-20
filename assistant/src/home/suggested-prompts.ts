@@ -7,10 +7,16 @@
  * Two sources of prompts:
  *   - **Deterministic** — derived from missing OAuth connections.
  *   - **Assistant-generated** — contextual suggestions from the LLM
- *     (placeholder; not yet implemented).
+ *     based on what's relevant to the user.
  */
 
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import { getConfig } from "../config/loader.js";
 import { isProviderConnected, listProviders } from "../oauth/oauth-store.js";
+import { resolvePersonaContext } from "../prompts/persona-resolver.js";
+import { buildSystemPrompt } from "../prompts/system-prompt.js";
+import { getProvider } from "../providers/registry.js";
+import { runBtwSidechain } from "../runtime/btw-sidechain.js";
 import { getLogger } from "../util/logger.js";
 import type { SuggestedPrompt } from "./feed-types.js";
 
@@ -72,23 +78,30 @@ const CONNECT_PROMPT_META: Record<
   },
 };
 
+const LLM_SUGGESTIONS_TIMEOUT_MS = 5_000;
+
 /**
- * Produce deterministic suggested prompts based on missing OAuth
- * connections and (in the future) assistant-generated conversation
- * starters.
+ * Produce suggested prompts from both deterministic and LLM sources.
+ * Deterministic prompts always come first; LLM-generated prompts are
+ * appended when available.
  */
 export async function getSuggestedPrompts(): Promise<SuggestedPrompt[]> {
   const prompts: SuggestedPrompt[] = [];
 
+  let deterministicPrompts: SuggestedPrompt[] = [];
   try {
-    const deterministicPrompts = await getDeterministicPrompts();
+    deterministicPrompts = await getDeterministicPrompts();
     prompts.push(...deterministicPrompts);
   } catch (err) {
     log.warn({ err }, "Failed to compute deterministic suggested prompts");
   }
 
-  // Placeholder: assistant-generated prompts will be added here once
-  // the LLM producer is implemented.
+  try {
+    const llmPrompts = await getAssistantGeneratedPrompts(deterministicPrompts);
+    prompts.push(...llmPrompts);
+  } catch (err) {
+    log.warn({ err }, "Failed to generate assistant suggested prompts");
+  }
 
   return prompts;
 }
@@ -134,4 +147,93 @@ async function getDeterministicPrompts(): Promise<SuggestedPrompt[]> {
   }
 
   return prompts;
+}
+
+// ---------------------------------------------------------------------------
+// LLM-generated suggestions
+// ---------------------------------------------------------------------------
+
+interface LLMSuggestion {
+  label: string;
+  prompt: string;
+}
+
+/**
+ * Ask the LLM to generate contextual conversation-starter suggestions
+ * based on the assistant's persona and the user's connected services.
+ * Returns an empty array on failure so deterministic prompts still show.
+ */
+async function getAssistantGeneratedPrompts(
+  deterministicPrompts: SuggestedPrompt[],
+): Promise<SuggestedPrompt[]> {
+  const config = getConfig();
+  const resolved = resolveCallSiteConfig("homeSuggestedPrompts", config.llm);
+  const provider = getProvider(resolved.provider);
+  const { userPersona, userSlug, channelPersona } = resolvePersonaContext(
+    undefined,
+    undefined,
+  );
+
+  const systemPrompt = buildSystemPrompt({
+    excludeBootstrap: true,
+    excludeCustomPrefix: true,
+    userPersona,
+    channelPersona,
+    userSlug,
+  });
+
+  const existingLabels = deterministicPrompts.map((p) => p.label).join(", ");
+  const contextNote = existingLabels
+    ? `The user already has these suggestions: ${existingLabels}. Do NOT duplicate them.`
+    : "";
+
+  const result = await runBtwSidechain({
+    content:
+      "Suggest 2-3 short, actionable conversation starters for the home page. " +
+      "Each should be something specific and helpful you can do for the user right now. " +
+      `${contextNote} ` +
+      'Return ONLY a JSON array of objects with "label" (max 5 words) and "prompt" (the full message to send). ' +
+      "No markdown fences, no explanation.",
+    provider,
+    systemPrompt,
+    messages: [],
+    tools: [],
+    callSite: "homeSuggestedPrompts",
+    timeoutMs: LLM_SUGGESTIONS_TIMEOUT_MS,
+  });
+
+  const text = result.text.trim();
+  if (!text) {
+    return [];
+  }
+
+  const parsed = parseLLMSuggestions(text);
+  return parsed.map((s, i) => ({
+    id: `assistant-${i}-${s.label.toLowerCase().replace(/\s+/g, "-")}`,
+    label: s.label,
+    prompt: s.prompt,
+    source: "assistant" as const,
+  }));
+}
+
+function parseLLMSuggestions(text: string): LLMSuggestion[] {
+  try {
+    const cleaned = text
+      .replace(/^```(?:json)?\n?/m, "")
+      .replace(/\n?```$/m, "");
+    const parsed = JSON.parse(cleaned);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter(
+      (item): item is LLMSuggestion =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof item.label === "string" &&
+        typeof item.prompt === "string",
+    );
+  } catch {
+    log.warn("Failed to parse LLM suggestions response");
+    return [];
+  }
 }

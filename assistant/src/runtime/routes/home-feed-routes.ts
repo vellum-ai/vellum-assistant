@@ -29,6 +29,7 @@ import {
   suggestedPromptSchema,
 } from "../../home/feed-types.js";
 import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
+import { getPersonalizedGreeting } from "../../home/home-greeting.js";
 import { getSuggestedPrompts } from "../../home/suggested-prompts.js";
 import {
   addMessage,
@@ -123,13 +124,17 @@ export async function handleGetHomeFeed({
   const filtered = feed.items;
 
   const now = new Date();
+
+  const [personalizedGreeting, suggestedPrompts] = await Promise.all([
+    getPersonalizedGreeting().catch(() => null),
+    getSuggestedPrompts(),
+  ]);
+
   const contextBanner = {
-    greeting: computeGreeting(now),
+    greeting: personalizedGreeting ?? computeGreeting(now),
     timeAwayLabel: formatRelativeTime(timeAwaySeconds),
     newCount: filtered.filter((i) => i.status === "new").length,
   };
-
-  const suggestedPrompts = await getSuggestedPrompts();
 
   log.debug(
     {

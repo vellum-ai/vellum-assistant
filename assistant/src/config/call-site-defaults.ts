@@ -102,4 +102,17 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
+  homeGreeting: {
+    profile: "cost-optimized",
+    maxTokens: 60,
+    effort: "low",
+    thinking: { enabled: false },
+    temperature: 0.7,
+  },
+  homeSuggestedPrompts: {
+    profile: "cost-optimized",
+    maxTokens: 512,
+    effort: "low",
+    thinking: { enabled: false },
+  },
 };
