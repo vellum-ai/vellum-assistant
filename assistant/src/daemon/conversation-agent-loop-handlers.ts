@@ -48,6 +48,7 @@ import { isContextOverflowError } from "../providers/types.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
 import { ProviderError } from "../util/errors.js";
+import { faviconUrlForDomain } from "../util/favicon.js";
 import { getLogger } from "../util/logger.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
 import {
@@ -1306,13 +1307,17 @@ export async function dispatchAgentEvent(
               r != null &&
               (r as { type?: string }).type === "web_search_result",
           )
-          .map((r, i) => ({
-            rank: i + 1,
-            title: r.title,
-            url: r.url,
-            domain: extractDomain(r.url),
-            // snippet intentionally absent — Anthropic native content is encrypted/opaque
-          }));
+          .map((r, i) => {
+            const domain = extractDomain(r.url);
+            return {
+              rank: i + 1,
+              title: r.title,
+              url: r.url,
+              domain,
+              faviconUrl: faviconUrlForDomain(domain),
+              // snippet intentionally absent — Anthropic native content is encrypted/opaque
+            };
+          });
 
         const metadata: WebSearchMetadata = {
           query,

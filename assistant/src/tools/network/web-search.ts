@@ -7,6 +7,7 @@ import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
+import { faviconUrlForDomain } from "../../util/favicon.js";
 import { getLogger } from "../../util/logger.js";
 import {
   DEFAULT_BASE_DELAY_MS,
@@ -211,14 +212,18 @@ function buildBraveMetadata(
   query: string,
   durationMs: number,
 ): WebSearchMetadata {
-  const items: WebSearchResultItem[] = results.map((r, i) => ({
-    rank: i + 1,
-    title: r.title,
-    url: r.url,
-    domain: extractDomain(r.url),
-    snippet: r.description,
-    age: r.age,
-  }));
+  const items: WebSearchResultItem[] = results.map((r, i) => {
+    const domain = extractDomain(r.url);
+    return {
+      rank: i + 1,
+      title: r.title,
+      url: r.url,
+      domain,
+      faviconUrl: faviconUrlForDomain(domain),
+      snippet: r.description,
+      age: r.age,
+    };
+  });
   return {
     query,
     provider: "brave",
@@ -234,12 +239,16 @@ function buildPerplexityMetadata(
   durationMs: number,
 ): WebSearchMetadata {
   const citations = data.citations ?? [];
-  const items: WebSearchResultItem[] = citations.map((url, i) => ({
-    rank: i + 1,
-    title: "",
-    url,
-    domain: extractDomain(url),
-  }));
+  const items: WebSearchResultItem[] = citations.map((url, i) => {
+    const domain = extractDomain(url);
+    return {
+      rank: i + 1,
+      title: "",
+      url,
+      domain,
+      faviconUrl: faviconUrlForDomain(domain),
+    };
+  });
   return {
     query,
     provider: "perplexity",
@@ -257,12 +266,13 @@ function buildTavilyMetadata(
   const results = data.results ?? [];
   const items: WebSearchResultItem[] = results.map((r, i) => {
     const url = r.url ?? "";
+    const domain = extractDomain(url);
     return {
       rank: i + 1,
       title: r.title ?? url,
       url,
-      domain: extractDomain(url),
-      faviconUrl: r.favicon,
+      domain,
+      faviconUrl: r.favicon ?? faviconUrlForDomain(domain),
       snippet: r.content,
       score: r.score,
     };
