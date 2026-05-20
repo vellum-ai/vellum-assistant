@@ -8,7 +8,27 @@ import { HomePage } from "@/domains/home/home-page.js";
 import { LibraryPage } from "@/domains/library/library-page.js";
 import { LibraryDetailPage } from "@/domains/library/library-detail-page.js";
 import { NotFound } from "@/components/not-found.js";
-import { SettingsTabPage } from "@/domains/settings/settings-tab-page.js";
+import { SettingsLayout } from "@/domains/settings/settings-layout.js";
+import { GeneralPage } from "@/domains/settings/pages/general-page.js";
+import { AiPage } from "@/domains/settings/ai/ai-page.js";
+import { IntegrationsPage } from "@/domains/settings/pages/integrations-page.js";
+import { SchedulesPage } from "@/domains/settings/pages/schedules-page.js";
+import { NotificationsPage } from "@/domains/settings/pages/notifications-page.js";
+import { SoundsPage } from "@/domains/settings/pages/sounds-page.js";
+import { VoicePage } from "@/domains/settings/pages/voice-page.js";
+import { DevicesPage } from "@/domains/settings/pages/devices-page.js";
+import { PrivacyPage } from "@/domains/settings/pages/privacy-page.js";
+import { ArchivePage } from "@/domains/settings/pages/archive-page.js";
+import { CommunityPage } from "@/domains/settings/pages/community-page.js";
+import { DebugPage } from "@/domains/settings/pages/debug-page.js";
+import { DeveloperPage } from "@/domains/settings/pages/developer-page.js";
+import { AdvancedPage } from "@/domains/settings/pages/advanced-page.js";
+import { BillingPage } from "@/domains/settings/billing/billing-page.js";
+import { BillingOnboardingPage } from "@/domains/settings/billing/onboarding-page.js";
+import { UpgradeCancelPage } from "@/domains/settings/billing/upgrade-cancel-page.js";
+import { UpgradeSuccessPage } from "@/domains/settings/billing/upgrade-success-page.js";
+import { DangerZoneRedirectPage } from "@/domains/settings/pages/danger-zone-redirect-page.js";
+import { SystemEventsRedirectPage } from "@/domains/settings/pages/system-events-redirect-page.js";
 import { AccountPage } from "@/domains/account/pages/account-page.js";
 import { LoginPage } from "@/domains/account/pages/login-page.js";
 import { SignupPage } from "@/domains/account/pages/signup-page.js";
@@ -67,7 +87,13 @@ function HomePageRoute() {
  *   │       ├── ChatPage (index, /assistant)
  *   │       ├── HomePageRoute (/assistant/home)
  *   │       ├── LibraryPage / LibraryDetailPage
- *   │       └── SettingsTabPage
+ *   │       └── SettingsLayout (/assistant/settings)
+ *   │            ├── GeneralPage (/assistant/settings/general)
+ *   │            ├── AiPage (/assistant/settings/ai)
+ *   │            ├── IntegrationsPage, SchedulesPage, ...
+ *   │            ├── BillingPage (/assistant/settings/billing)
+ *   │            │   ├── onboarding, upgrade/cancel, upgrade/success
+ *   │            └── AdvancedPage, DeveloperPage, DebugPage
  *
  * References:
  * - React Router data mode routing: https://reactrouter.com/start/data/routing
@@ -110,7 +136,33 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <ChatPage /> },
           { path: "home", element: <HomePageRoute /> },
-          { path: "settings/:tab", element: <SettingsTabPage /> },
+          {
+            path: "settings",
+            element: <SettingsLayout />,
+            children: [
+              { index: true, element: <GeneralPage /> },
+              { path: "general", element: <GeneralPage /> },
+              { path: "ai", element: <AiPage /> },
+              { path: "integrations", element: <IntegrationsPage /> },
+              { path: "schedules", element: <SchedulesPage /> },
+              { path: "notifications", element: <NotificationsPage /> },
+              { path: "sounds", element: <SoundsPage /> },
+              { path: "voice", element: <VoicePage /> },
+              { path: "devices", element: <DevicesPage /> },
+              { path: "privacy", element: <PrivacyPage /> },
+              { path: "archive", element: <ArchivePage /> },
+              { path: "billing", element: <BillingPage /> },
+              { path: "billing/onboarding", element: <BillingOnboardingPage /> },
+              { path: "billing/upgrade/cancel", element: <UpgradeCancelPage /> },
+              { path: "billing/upgrade/success", element: <UpgradeSuccessPage /> },
+              { path: "community", element: <CommunityPage /> },
+              { path: "debug", element: <DebugPage /> },
+              { path: "developer", element: <DeveloperPage /> },
+              { path: "advanced", element: <AdvancedPage /> },
+              { path: "danger-zone", element: <DangerZoneRedirectPage /> },
+              { path: "system-events", element: <SystemEventsRedirectPage /> },
+            ],
+          },
           { path: "library", element: <LibraryPage /> },
           { path: "library/:appId", element: <LibraryDetailPage /> },
         ],

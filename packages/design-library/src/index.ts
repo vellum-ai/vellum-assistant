@@ -182,7 +182,15 @@ export {
   type CollapsibleTriggerProps,
   type CollapsibleContentProps,
 } from "./components/collapsible.js";
-
+export {
+  StatSquare,
+  type StatSquareProps,
+  type StatSquareTone,
+} from "./components/stat-square.js";
+export {
+  SkillRow,
+  type SkillRowProps,
+} from "./components/skill-row.js";
 export { cn } from "./utils/cn.js";
 export {
   PortalContainerProvider,
