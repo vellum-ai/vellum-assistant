@@ -19,6 +19,7 @@ import {
   useState,
 } from "react";
 import { useNavigate, useSearchParams } from "react-router";
+import { ChevronDown } from "lucide-react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
@@ -30,6 +31,7 @@ import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { ChatError } from "@/domains/chat/types.js";
@@ -40,6 +42,7 @@ import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
 
+import { Button } from "@vellum/design-library";
 import { useSyncChatStore } from "@/domains/chat/chat-store.js";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input.js";
@@ -50,6 +53,9 @@ import { useDiskPressureMonitor } from "@/domains/assistant/use-disk-pressure-mo
 import { getDiskPressureChatBlockReason } from "@/domains/assistant/disk-pressure.js";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges.js";
 import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loader.js";
+import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions.js";
+import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions.js";
+import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections.js";
 import { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation.js";
 import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-handler.js";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message.js";
@@ -63,6 +69,11 @@ import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js"
 import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
 import type { UIContext } from "@/domains/chat/utils/turn-selectors.js";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
+import { buildMoveToGroupTargets } from "@/domains/chat/utils/groupConversations.js";
+import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu.js";
+import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill.js";
+import { CommandPalette } from "@/components/command-palette/command-palette.js";
+import { shouldHandleShortcut } from "@/domains/chat/chat-layout.js";
 import { abortSubagent } from "@/domains/chat/api/conversations.js";
 import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
@@ -84,7 +95,15 @@ export function ChatPage() {
   const isNative = useIsNativePlatform();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { assistantId, assistantState, checkAssistant, setAssistantId } = useAssistantContext();
+  const {
+    assistantId,
+    assistantState,
+    checkAssistant,
+    setAssistantId,
+    setTopBarCenter,
+    setTopBarRightSlot,
+    setOnSearchClick,
+  } = useAssistantContext();
   const chatPullToRefresh = useFeatureFlagStore.use.chatPullToRefresh();
   const deployToVercel = useFeatureFlagStore.use.deployToVercel();
   const doctor = useFeatureFlagStore.use.doctor();
@@ -113,8 +132,8 @@ export function ChatPage() {
     isPinnedToLatest: true,
   });
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
-  void assetsRefreshKey;
   const [assistantIdentity, setAssistantIdentity] = useState<AssistantIdentity | null>(null);
+  const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
   // -------------------------------------------------------------------------
   // Zustand store selectors
@@ -591,6 +610,261 @@ export function ChatPage() {
   });
 
   // -------------------------------------------------------------------------
+  // Sync assistant identity to the global store (read by ChatLayout)
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (assistantIdentity) {
+      useAssistantIdentityStore.getState().setIdentity(
+        assistantIdentity.name ?? null,
+        assistantIdentity.version ?? null,
+      );
+    } else {
+      useAssistantIdentityStore.getState().clearIdentity();
+    }
+  }, [assistantIdentity]);
+
+  useEffect(() => {
+    return () => { useAssistantIdentityStore.getState().clearIdentity(); };
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // Conversation actions (archive, pin, rename, etc.)
+  // -------------------------------------------------------------------------
+  const conversationGroups = useConversationListStore.use.conversationGroups();
+
+  const pushConversationKeyParam = useCallback(
+    (key: string) => { void navigate(`${routes.assistant}?conversationKey=${encodeURIComponent(key)}`); },
+    [navigate],
+  );
+
+  const {
+    handleArchiveConversation,
+    handleUnarchiveConversation,
+    handleMarkConversationUnread,
+    handleMarkConversationRead,
+    handleTogglePinConversation,
+    handleMoveToGroup,
+    handleRemoveFromGroup,
+    handleRenameConversation,
+  } = useConversationActions({
+    assistantId,
+    activeConversationKey,
+    conversations,
+    refreshConversations,
+    switchConversation,
+    startNewConversation,
+    prePinGroupIdsRef,
+  });
+
+  const {
+    handleForkConversation,
+    handleForkConversationFromMenu,
+    handleAnalyzeConversation,
+    handleOpenInNewWindow,
+    handleInspectConversation,
+    handleCopyConversation,
+  } = useConversationSecondaryActions({
+    assistantId,
+    activeConversationKey,
+    activeConversation: activeConversation ?? null,
+    assistantIdentityName: assistantIdentity?.name ?? undefined,
+    messagesRef,
+    refreshConversations,
+    switchConversation,
+    setError,
+    pushConversationKeyParam,
+    pushRoute,
+  });
+
+  // -------------------------------------------------------------------------
+  // Command palette
+  // -------------------------------------------------------------------------
+  const navigateToSettings = useCallback(() => {
+    void navigate(routes.settings.root);
+  }, [navigate]);
+
+  const { commandPalette, mergedSections, handleItemSelect } =
+    useCommandPaletteSections({
+      assistantId,
+      assistantName: assistantIdentity?.name ?? undefined,
+      conversations,
+      activeConversationKey: activeConversationKey ?? undefined,
+      startNewConversation: () => startNewConversation(),
+      switchConversation,
+      navigate: (to: string | number) => {
+        if (typeof to === "number") navigate(to);
+        else void navigate(to);
+      },
+      navigateToSettings,
+    });
+
+  // Guard: command palette should only be togglable once the page is fully loaded
+  const isPageReady = !authLoading && assistantState.kind !== "loading" && assistantState.kind !== "error";
+
+  // Ctrl/Cmd+K shortcut for command palette
+  useEffect(() => {
+    if (!isPageReady) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!shouldHandleShortcut(event, document.activeElement, "k")) return;
+      event.preventDefault();
+      commandPalette.toggle();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => { window.removeEventListener("keydown", onKeyDown); };
+  }, [commandPalette.toggle, isPageReady]);
+
+  // Register command palette toggle as the search callback for the layout
+  useEffect(() => {
+    if (!isPageReady) return;
+    setOnSearchClick(commandPalette.toggle);
+    return () => { setOnSearchClick(null); };
+  }, [commandPalette.toggle, setOnSearchClick, isPageReady]);
+
+  // -------------------------------------------------------------------------
+  // Layout header slot registration — topBarCenter + topBarRightSlot
+  // -------------------------------------------------------------------------
+  const hasPersistedMessage = useMemo(
+    () => messages.some((m) => m.daemonMessageId != null || m.id != null),
+    [messages],
+  );
+
+  const topBarCenterContent = useMemo(() => {
+    if (!activeConversation) {
+      return assistantId ? (
+        <span className="text-sm font-medium text-[var(--content-default)]">
+          New conversation
+        </span>
+      ) : null;
+    }
+    const moveToGroups = buildMoveToGroupTargets(activeConversation, conversationGroups);
+    const isPinned = activeConversation.isPinned || activeConversation.groupId === "system:pinned";
+    const isArchived = activeConversation.archivedAt != null;
+    return (
+      <ConversationActionsMenu
+        variant="header"
+        isPinned={isPinned}
+        isArchived={isArchived}
+        isReadonly={isChannelReadonly}
+        onPinToggle={() => handleTogglePinConversation(activeConversation)}
+        onRename={() => handleRenameConversation(activeConversation)}
+        onArchive={() => handleArchiveConversation(activeConversation)}
+        onUnarchive={() => handleUnarchiveConversation(activeConversation)}
+        onAnalyze={
+          !isChannelReadonly && activeConversation.conversationKey
+            ? () => handleAnalyzeConversation(activeConversation)
+            : undefined
+        }
+        onForkConversation={
+          !isChannelReadonly && hasPersistedMessage
+            ? handleForkConversationFromMenu
+            : undefined
+        }
+        onOpenInNewWindow={
+          activeConversation.conversationKey
+            ? () => handleOpenInNewWindow(activeConversation)
+            : undefined
+        }
+        onInspect={
+          activeConversation.conversationKey
+            ? () => handleInspectConversation(activeConversation)
+            : undefined
+        }
+        onCopyConversation={
+          messages.length > 0
+            ? handleCopyConversation
+            : undefined
+        }
+        moveToGroups={moveToGroups}
+        onMoveToGroup={(groupId) => handleMoveToGroup(activeConversation, groupId)}
+        onRemoveFromGroup={
+          activeConversation.groupId && !activeConversation.groupId.startsWith("system:")
+            ? () => handleRemoveFromGroup(activeConversation)
+            : undefined
+        }
+        onMarkUnread={
+          !isChannelReadonly && activeConversation.hasUnseenLatestAssistantMessage === false
+            ? () => handleMarkConversationUnread(activeConversation)
+            : undefined
+        }
+        onMarkRead={
+          activeConversation.hasUnseenLatestAssistantMessage
+            ? () => handleMarkConversationRead(activeConversation)
+            : undefined
+        }
+        side="bottom"
+        align="center"
+        sideOffset={8}
+        trigger={
+          <Button
+            variant="ghost"
+            rightIcon={<ChevronDown />}
+            aria-haspopup="menu"
+            className="min-w-0"
+          >
+            <span className="min-w-0 max-w-[240px] truncate">
+              {isArchived && (
+                <span className="mr-1 text-[var(--content-tertiary)]">
+                  [Archived]
+                </span>
+              )}
+              {activeConversation.title ?? "Untitled"}
+            </span>
+          </Button>
+        }
+      />
+    );
+  }, [
+    activeConversation,
+    assistantId,
+    isChannelReadonly,
+    conversationGroups,
+    handleTogglePinConversation,
+    handleRenameConversation,
+    handleArchiveConversation,
+    handleUnarchiveConversation,
+    handleAnalyzeConversation,
+    handleForkConversationFromMenu,
+    handleOpenInNewWindow,
+    handleInspectConversation,
+    handleCopyConversation,
+    handleMoveToGroup,
+    handleRemoveFromGroup,
+    handleMarkConversationUnread,
+    handleMarkConversationRead,
+    hasPersistedMessage,
+    messages.length,
+  ]);
+
+  useEffect(() => {
+    setTopBarCenter(topBarCenterContent);
+    return () => { setTopBarCenter(null); };
+  }, [topBarCenterContent, setTopBarCenter]);
+
+  const topBarRightContent = useMemo(() => {
+    if (!activeConversation?.conversationKey || !assistantId) return null;
+    return (
+      <ConversationAssetsPill
+        assistantId={assistantId}
+        conversationId={activeConversation.conversationKey}
+        refreshKey={assetsRefreshKey}
+        onOpenApp={(appId) => {
+          haptic.light();
+          useViewerStore.getState().openApp(appId);
+        }}
+        onOpenDocument={() => {
+          haptic.light();
+          useViewerStore.getState().openDocument();
+        }}
+      />
+    );
+  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey]);
+
+  useEffect(() => {
+    setTopBarRightSlot(topBarRightContent);
+    return () => { setTopBarRightSlot(null); };
+  }, [topBarRightContent, setTopBarRightSlot]);
+
+  // -------------------------------------------------------------------------
   // Derived UI state
   // -------------------------------------------------------------------------
   const hasUncompletedVisibleSurface = useMemo(() => {
@@ -652,10 +926,6 @@ export function ChatPage() {
   };
 
   const pushToAiSettings = () => { void navigate(routes.settings.ai); };
-
-  const handleForkConversation = async (_throughMessageId: string) => {
-    // Fork is not yet implemented in the OSS app
-  };
 
   const chatRouteProps: ChatRouteContentProps = {
     assistantId,
@@ -839,5 +1109,20 @@ export function ChatPage() {
     isChannelReadonly,
   };
 
-  return <ChatRouteContent {...chatRouteProps} />;
+  return (
+    <>
+      <ChatRouteContent {...chatRouteProps} />
+      <CommandPalette
+        isOpen={commandPalette.isOpen}
+        onClose={commandPalette.close}
+        query={commandPalette.query}
+        onQueryChange={commandPalette.setQuery}
+        selectedIndex={commandPalette.selectedIndex}
+        sections={mergedSections}
+        isSearching={commandPalette.isSearching}
+        onItemSelect={handleItemSelect}
+        onKeyDown={commandPalette.handleKeyDown}
+      />
+    </>
+  );
 }
