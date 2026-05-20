@@ -111,3 +111,12 @@ export const routes = {
     },
   },
 } as const;
+
+const WWW_DOMAIN = "vellum.ai";
+
+/** Full external URL for a legal/docs page hosted on the marketing site. */
+export function legalUrl(
+  path: (typeof routes.docs.legal)[keyof typeof routes.docs.legal],
+): string {
+  return `https://${WWW_DOMAIN}${path}`;
+}

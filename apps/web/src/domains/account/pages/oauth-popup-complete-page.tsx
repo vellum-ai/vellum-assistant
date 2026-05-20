@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
+import { oauthCompletionStorageKey } from "@/lib/oauth-popup.js";
 import {
   buildOAuthCompleteDeepLink,
   getNativeUrlSchemeForHost,
@@ -187,10 +188,6 @@ function formatProviderName(provider: string): string {
     .split(/[-_]/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
-}
-
-function oauthCompletionStorageKey(requestId: string): string {
-  return `vellum:oauth-complete:${requestId}`;
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
