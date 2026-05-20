@@ -2,7 +2,7 @@
  * TanStack Query hooks and cache helpers for the conversations domain.
  *
  * Conversations and conversation groups are server-derived data and live
- * in TanStack Query per `apps/web/CONVENTIONS.md`. The
+ * in TanStack Query per `apps/web/docs/STATE_MANAGEMENT.md`. The
  * companion `conversation-store.ts` keeps only the client-side slice —
  * active/editing key, processing/attention sets, and snapshots.
  *
