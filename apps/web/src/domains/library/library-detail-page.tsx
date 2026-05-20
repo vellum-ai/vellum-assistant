@@ -2,6 +2,8 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
+import { toast } from "@vellum/design-library";
+
 import { useAssistantContext } from "@/domains/chat/assistant-context.js";
 import { openApp, shareApp } from "@/domains/chat/lib/apps.js";
 import { AppViewerContainer } from "@/domains/intelligence/components/apps/app-viewer-container.js";
@@ -44,6 +46,10 @@ export function LibraryDetailPage() {
         if (requestRef.current !== appId) return;
         setError(err instanceof Error ? err.message : "Failed to open app");
       });
+
+    return () => {
+      requestRef.current = null;
+    };
   }, [assistantId, appId]);
 
   const handleClose = useCallback(() => {
@@ -55,6 +61,11 @@ export function LibraryDetailPage() {
     setIsSharing(true);
     try {
       await shareApp(assistantId, app.appId, app.name);
+      toast.success("App exported", { description: `${app.name}.vellum` });
+    } catch (err) {
+      toast.error("Failed to share app", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setIsSharing(false);
     }

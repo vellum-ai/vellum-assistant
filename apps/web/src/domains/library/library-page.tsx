@@ -10,12 +10,14 @@ export function LibraryPage() {
   const navigate = useNavigate();
 
   const handleNewConversation = useCallback(
-    (initialMessage?: string) => {
-      void navigate(
-        initialMessage
-          ? `${routes.assistant}?message=${encodeURIComponent(initialMessage)}`
-          : routes.assistant,
-      );
+    (_initialMessage?: string) => {
+      // TODO: initialMessage seeding requires cross-route state coordination
+      // (e.g. a Zustand store or sessionStorage handoff). The platform passes
+      // initialMessage directly via startNewConversation() in the same React
+      // tree, but here the library is a separate route. For now we just
+      // navigate to chat; the deploy-flow prompt handoff will come with the
+      // broader cross-route state work.
+      void navigate(routes.assistant);
     },
     [navigate],
   );
