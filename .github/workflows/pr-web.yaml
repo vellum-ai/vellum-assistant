@@ -38,44 +38,19 @@ jobs:
         run: bun run openapi-ts
 
       - name: Lint
-        run: |
-          set +e
-          bun run lint
-          rc=$?
-          if [ $rc -ne 0 ]; then
-            echo "::group::lint failed with rc=$rc — dumping env"
-            echo "node: $(node --version 2>&1 || echo missing)"
-            echo "bun: $(bun --version 2>&1)"
-            echo "eslint: $(bunx eslint --version 2>&1)"
-            echo "::endgroup::"
-            echo "::group::ls src/generated (first 20)"
-            ls src/generated 2>&1 | head -20 || true
-            echo "::endgroup::"
-            echo "::group::file count under src/domains"
-            find src/domains -type f \( -name "*.ts" -o -name "*.tsx" \) | wc -l
-            echo "::endgroup::"
-            echo "::group::eslint --max-warnings test"
-            bunx eslint --max-warnings 0 src 2>&1 | tail -40 || true
-            echo "::endgroup::"
-            exit $rc
-          fi
+        run: bun run lint
 
+      # On failure, regenerate the snapshot and print the diff so the
+      # contributor sees exactly what changed (e.g. after rebasing
+      # onto a main that moved files between domains).
       - name: Audit cross-domain import allow-list freshness
         run: |
-          set +e
-          bun run audit:cross-domain:check
-          rc=$?
-          if [ $rc -ne 0 ]; then
-            echo "::group::audit:cross-domain debug — regenerating to show diff"
+          if ! bun run audit:cross-domain:check; then
+            echo "::group::regenerated allow-list diff"
             bun run audit:cross-domain
-            echo "::endgroup::"
-            echo "::group::git diff"
             git -c color.ui=never diff -- .cross-domain-allowlist.json | head -200
             echo "::endgroup::"
-            echo "::group::file count"
-            find src/domains -type f \( -name "*.ts" -o -name "*.tsx" \) | wc -l
-            echo "::endgroup::"
-            exit $rc
+            exit 1
           fi
 
   typecheck:

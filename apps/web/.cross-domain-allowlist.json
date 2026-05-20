@@ -77,26 +77,11 @@
     "assistant",
     "onboarding"
   ],
-  "src/domains/chat/hooks/use-attention-tracking.ts": [
-    "conversations"
-  ],
-  "src/domains/chat/hooks/use-conversation-actions.test.ts": [
-    "conversations"
-  ],
-  "src/domains/chat/hooks/use-conversation-actions.ts": [
-    "conversations"
-  ],
-  "src/domains/chat/hooks/use-conversation-group-actions.ts": [
-    "conversations"
-  ],
   "src/domains/chat/hooks/use-conversation-history.ts": [
     "conversations",
     "interactions",
     "messaging",
     "subagents"
-  ],
-  "src/domains/chat/hooks/use-conversation-loader.ts": [
-    "conversations"
   ],
   "src/domains/chat/hooks/use-event-stream.ts": [
     "conversations",
@@ -182,10 +167,25 @@
   "src/domains/contacts/contacts-page.tsx": [
     "chat"
   ],
-  "src/domains/conversations/conversation-list-queries.test.ts": [
+  "src/domains/conversations/conversation-queries.test.ts": [
     "chat"
   ],
-  "src/domains/conversations/conversation-list-queries.ts": [
+  "src/domains/conversations/conversation-queries.ts": [
+    "chat"
+  ],
+  "src/domains/conversations/use-attention-tracking.ts": [
+    "chat"
+  ],
+  "src/domains/conversations/use-conversation-actions.test.ts": [
+    "chat"
+  ],
+  "src/domains/conversations/use-conversation-actions.ts": [
+    "chat"
+  ],
+  "src/domains/conversations/use-conversation-group-actions.ts": [
+    "chat"
+  ],
+  "src/domains/conversations/use-conversation-loader.ts": [
     "chat"
   ],
   "src/domains/home/home-greeting-header.tsx": [
