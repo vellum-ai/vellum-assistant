@@ -171,9 +171,11 @@ export function HomePage({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[960px] px-[var(--app-spacing-xl)] py-[var(--app-spacing-2xl)]">
-      <div className="flex flex-col gap-[var(--app-spacing-xl)]">
-        {feedContent}
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="mx-auto w-full max-w-[960px] px-[var(--app-spacing-xl)] py-[var(--app-spacing-2xl)]">
+        <div className="flex flex-col gap-[var(--app-spacing-xl)]">
+          {feedContent}
+        </div>
       </div>
     </div>
   );
