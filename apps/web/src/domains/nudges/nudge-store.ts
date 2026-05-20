@@ -1,21 +1,19 @@
 /**
  * Zustand store for GitHub + Discord nudge prefs.
  *
- * Replaces the hand-rolled `useSyncExternalStore` + per-key
- * subscribe/snapshot caches that previously lived in `github-prefs.ts`
- * and `discord-prefs.ts`. Both pref modules now read/write through this
- * store; their public hooks (`useGitHubNudgeState`, `useDiscordNudgeState`)
- * remain as thin selector wrappers so consumers don't change.
+ * Owns whether each nudge has been actioned (starred, joined) or
+ * dismissed (banner, sidebar) and when. `github-prefs.ts` and
+ * `discord-prefs.ts` expose thin selector hooks (`useGitHubNudgeState`,
+ * `useDiscordNudgeState`) backed by this store.
  *
  * **Storage model:**
  *
  * - The persist middleware serialises the whole nudge slice into a
  *   single localStorage key, `vellum:nudge-prefs`.
  * - On first load (no `vellum:nudge-prefs` key present), the initial
- *   state is seeded from the legacy per-key entries the old modules
- *   wrote (`app.githubNudge.starred`, `app.discordNudge.joined`, etc.),
- *   so users carrying over from the platform deployment keep their
- *   dismissals.
+ *   state is seeded from per-key boolean/number entries under
+ *   `app.githubNudge.*` / `app.discordNudge.*` so a returning user
+ *   keeps their dismissals.
  * - Cross-tab updates: the persist middleware doesn't sync across tabs
  *   on its own. We listen for `storage` events on `vellum:nudge-prefs`
  *   and call `persist.rehydrate()` to pull in the other tab's write.
@@ -78,7 +76,7 @@ export interface NudgeActions {
 export type NudgeStore = NudgeState & NudgeActions;
 
 // ---------------------------------------------------------------------------
-// Initial state — hydrate from legacy per-key localStorage entries
+// Initial state — seeded from per-key localStorage entries on first load
 // ---------------------------------------------------------------------------
 
 function computeInitialFromLegacy(): NudgeState {

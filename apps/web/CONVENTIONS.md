@@ -168,10 +168,22 @@ Think of domains like database tables, not nested documents. Split by
   different developer without merge conflicts.
 - **Same domain if:** two things always change together, share the same
   store, and splitting them would create circular cross-imports.
-- **Cross-domain imports are normal.** `messages/` importing types from
-  `conversations/` is expected. The rule is: **no circular
-  dependencies** between domains. If A imports from B AND B imports
-  from A, either merge them or hoist the shared code to `types/`.
+- **Avoid cross-domain imports.** If a piece of code is consumed by
+  two or more domains, that's a signal it doesn't belong inside any
+  single domain — lift it to the appropriate top-level shared
+  directory (`hooks/`, `stores/`, `utils/`, `types/`, `components/`)
+  per [Top-level shared directories](#top-level-shared-directories).
+  Aligns with the bulletproof-react rule: *"if one feature uses it, it
+  lives in that feature; once two or more features need it, it moves
+  up to the shared layer."* This is stricter than the previous
+  permissive policy and is the direction we're moving toward — see
+  [LUM-1753](https://linear.app/vellum/issue/LUM-1753) for the
+  tracking initiative to bring existing violations into compliance.
+- **No circular dependencies.** If A imports from B AND B imports
+  from A, either merge them or hoist the shared code to a top-level
+  directory.
+
+Reference: [bulletproof-react — Project Structure (Cross-Feature Access)](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md#cross-feature-access)
 
 Examples of correct splits:
 - `messages/` vs `conversations/`: messages are created, streamed,
@@ -188,6 +200,22 @@ Examples of correct splits:
 Code used across multiple domains lives in top-level shared
 directories. If something is domain-specific, it belongs inside
 `domains/<name>/`.
+
+**Decision rule for hooks/stores/utils:**
+
+1. Used by exactly one domain → live inside that domain
+   (`domains/<x>/hooks/`, `domains/<x>/<x>-store.ts`, etc.).
+2. Used by two or more domains → lift to the top-level shared dir
+   (`hooks/`, `stores/`, `utils/`). Cross-domain imports between
+   `domains/` peers are a smell.
+3. Foundational/cross-cutting concerns with no single domain owner
+   (auth, viewer identity, SSE connectivity, feature flags) → always
+   top-level, even if currently consumed by one domain.
+
+Example: `useAssistantIdentityInit` and `assistant-identity-store`
+live at `hooks/` and `stores/` because the assistant identity is
+consumed by chat, intelligence, library, contacts — no single domain
+owns it.
 
 | Folder | Purpose | Example contents |
 |---|---|---|
@@ -323,8 +351,12 @@ Consumers use `.use.field()` in render bodies and `.getState()` in
 callbacks — see
 [Reading state: `.use.*` vs `.getState()`](#reading-state-use-vs-getstate).
 
-Keep store definitions in their domain folder — adding or removing a
-domain means adding or removing a folder.
+Keep domain-specific store definitions in their domain folder —
+adding or removing a domain means adding or removing a folder.
+Cross-domain stores (consumed by two or more domains, or with no
+single domain owner — auth, viewer, feature flags, assistant
+identity) live in top-level `stores/`. See the
+[Decision rule for hooks/stores/utils](#top-level-shared-directories).
 
 References:
 - [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
@@ -512,32 +544,70 @@ References:
 - [TkDodo — Working with Zustand](https://tkdodo.eu/blog/working-with-zustand) — React Query maintainer's guidance on the boundary between server state (RQ) and client/infrastructure state (Zustand)
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
 
-### useReducer for component-local state only
+### useReducer is not used for client state
 
-When two or more pieces of **component-local** state change together
-or have interdependent transitions, consolidate them into a
-`useReducer` with typed action events. Reserve `useState` for
-independent, single-value state (a boolean toggle, a text input
-value).
-
-**Do not use `useReducer` for state shared across components.** Shared
-state belongs in a Zustand store with direct named actions (see
-[Direct named actions, not reducers](#direct-named-actions-not-reducers)).
+**Do not use `useReducer` in `apps/web/`.** All client state — including
+single-hook-scoped state with non-trivial transitions — lives in a
+Zustand store with direct named actions (see
+[Direct named actions, not reducers](#direct-named-actions-not-reducers)
+just below). The dispatch/action-type/reducer pattern is not the
+shape we want even inside a Zustand store — Zustand's
+[Flux-inspired practice guide](https://zustand.docs.pmnd.rs/guides/flux-inspired-practice)
+exists for Redux migration paths, not as the recommended idiom.
 
 ```ts
-// Good — related state transitions are atomic and self-documenting
-dispatch({ type: "SHOW_SECRET", requestId, prompt });
+// Good — Zustand store with direct named actions
+const useSecretStore = createSelectors(
+  create<SecretState>((set) => ({
+    requestId: null,
+    prompt: null,
+    showSecret: (requestId: string, prompt: string) =>
+      set({ requestId, prompt }),
+    dismissSecret: () => set({ requestId: null, prompt: null }),
+  })),
+);
 
-// Avoid — multiple setState calls that must stay in sync
-setSecretRequestId(requestId);
-setSecretPrompt(prompt);
-setShowSecretOverlay(true);
+// Avoid — useReducer in any form. Locks state to one component subtree,
+// prevents atomic selectors, no devtools, doesn't survive remount,
+// duplicates the React state primitive we already use Zustand for.
+const [state, dispatch] = useReducer(secretReducer, initialState);
+
+// Avoid — dispatcher pattern inside a Zustand store. Zustand supports
+// this for Redux migrants but it's not idiomatic; named actions are
+// independently testable, discoverable in IDE autocomplete, and don't
+// pay the action-type/switch tax.
+create((set) => ({
+  dispatch: (action: SecretAction) =>
+    set((state) => secretReducer(state, action)),
+}));
 ```
 
-Extract the reducer into its own file so it can be tested as a pure
-function.
+Why no `useReducer` and no in-store reducer pattern:
 
-Reference: [React — Scaling Up with Reducer and Context](https://react.dev/learn/scaling-up-with-reducer-and-context)
+- **Consistency** — the codebase standardizes on Zustand stores with direct named actions as the single client-state primitive.
+- **Cross-component subscribers** — Zustand atomic selectors handle this for free; `useReducer` requires Context wrapping + cross-tree re-renders.
+- **Devtools** — Zustand integrates with Redux DevTools; `useReducer` doesn't.
+- **Persistence across remounts** — module-level Zustand stores survive route remounts; `useReducer` state doesn't.
+- **No prop drilling** — `useReducer` state must be passed down or wrapped in Context. Zustand selectors are accessible everywhere.
+- **No dispatcher boilerplate** — direct named actions skip the action-type union, the switch statement, and the runtime cost of an indirection layer. Each action is a plain function that's testable in isolation.
+
+For state with complex transition rules (state machines), express the
+rules as guards inside the named action itself — e.g. `acceptSend`
+no-ops if `phase !== "thinking"`. The action stays a plain function;
+the rules stay testable in isolation; we don't need a dispatcher
+ceremony to enforce them.
+
+**Known exceptions** (being migrated):
+
+- `apps/web/src/domains/terminal/use-terminal-state.ts` and
+  `apps/web/src/domains/terminal/use-terminal-session.ts` still use
+  `useReducer` + dispatch. Tracked in
+  [LUM-1748](https://linear.app/vellum/issue/LUM-1748). Do not
+  pattern-match new code on these files.
+
+References:
+- [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/guides/auto-generating-selectors)
+- [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
 
 ### Direct named actions, not reducers
 

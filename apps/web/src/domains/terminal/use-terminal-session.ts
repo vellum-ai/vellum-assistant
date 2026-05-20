@@ -1,5 +1,12 @@
+/**
+ * Hook that orchestrates terminal I/O: SSE stream subscription, input
+ * batching, resize debouncing, and auto-reconnect with exponential backoff.
+ *
+ * State lives in {@link useTerminalStore}; this hook drives transitions
+ * by calling store actions in response to I/O events.
+ */
 
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import {
   createTerminalSession,
@@ -9,43 +16,21 @@ import {
   subscribeTerminalEvents,
   type TerminalOutputStream,
 } from "@/domains/terminal/api.js";
-
-import {
-  INITIAL_TERMINAL_STATE,
-  terminalReducer,
-  type TerminalState,
-} from "@/domains/terminal/use-terminal-state.js";
+import { useTerminalStore } from "@/domains/terminal/terminal-store.js";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/**
- * Interval at which batched keyboard input is flushed to the backend.
- * Buffering reduces POST volume for rapid typing.
- */
 const INPUT_FLUSH_INTERVAL_MS = 50;
-
-/**
- * Debounce delay for resize events — only the last resize within this window
- * is sent to reduce request volume during drag-resizing.
- */
 const RESIZE_DEBOUNCE_MS = 150;
-
-/** Maximum number of automatic reconnection attempts before giving up. */
 const MAX_AUTO_RECONNECT_ATTEMPTS = 3;
-
-/** Base delay (ms) for exponential backoff between auto-reconnect attempts. */
 const AUTO_RECONNECT_BASE_DELAY_MS = 1000;
 
 // ---------------------------------------------------------------------------
 // Output de-duplication
 // ---------------------------------------------------------------------------
 
-/**
- * Tracks the highest sequence number seen on the current stream so that
- * duplicate or out-of-order events (e.g. after reconnect) are dropped.
- */
 interface SeqTracker {
   highWaterMark: number;
 }
@@ -60,38 +45,15 @@ function createSeqTracker(): SeqTracker {
 
 export interface UseTerminalSessionArgs {
   assistantId: string | null;
-  /**
-   * Called with each new chunk of PTY output as it arrives.
-   * The caller is responsible for writing this to the xterm terminal instance.
-   * `data` is a base64-encoded string of raw VT100/xterm bytes.
-   */
   onData: (data: string) => void;
-  /**
-   * Target container service name (e.g. "assistant", "gateway",
-   * "credential-executor"). Sent to the backend so `open_pod_exec_stream`
-   * attaches to the right container. Omit for the default
-   * (assistant-container).
-   */
   service?: string;
 }
 
 export interface UseTerminalSessionResult {
-  terminalState: TerminalState;
-  /** Open a terminal session and start streaming output. */
   connect: () => void;
-  /** Manually reconnect (tears down existing session first). */
   reconnect: () => void;
-  /** Close the terminal session cleanly. */
   close: () => void;
-  /**
-   * Send keyboard input to the PTY.
-   * Input is buffered and flushed on a short interval to reduce POST volume.
-   */
   sendInput: (data: string) => void;
-  /**
-   * Notify the backend of a terminal window resize.
-   * Updates are debounced to reduce request volume.
-   */
   sendResize: (cols: number, rows: number) => void;
 }
 
@@ -102,22 +64,9 @@ export interface UseTerminalSessionResult {
 export function useTerminalSession({
   assistantId,
   onData,
-
   service,
 }: UseTerminalSessionArgs): UseTerminalSessionResult {
-  const [terminalState, dispatch] = useReducer(terminalReducer, INITIAL_TERMINAL_STATE);
-
-  // Stable ref so event handlers can read latest state without stale closures.
-  const stateRef = useRef(terminalState);
-
-  useEffect(() => {
-    stateRef.current = terminalState;
-  }, [terminalState]);
-
-  // Active SSE stream handle.
   const streamRef = useRef<TerminalOutputStream | null>(null);
-
-  // onData callback via ref to avoid recreating effects on every render.
   const onDataRef = useRef(onData);
 
   useEffect(() => {
@@ -131,22 +80,19 @@ export function useTerminalSession({
   // Resize debounce
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingResizeRef = useRef<{ cols: number; rows: number } | null>(null);
-
-  // Last known terminal dimensions — updated on every resize callback so we
-  // can send the correct size to the PTY immediately after session connect.
   const lastDimensionsRef = useRef<{ cols: number; rows: number } | null>(null);
 
-  // Sequence tracker for deduplication — reset on each new session.
+  // Sequence tracker for deduplication
   const seqTrackerRef = useRef<SeqTracker>(createSeqTracker());
 
-  // Auto-reconnect timer — cleared on unmount or manual close.
+  // Auto-reconnect timer
   const autoReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Whether the session was intentionally closed by the user (suppresses auto-reconnect).
+  // Whether the session was intentionally closed by the user
   const userClosedRef = useRef(false);
 
   // Tracks the last session ID so auto-reconnect can destroy the previous
-  // session even after ERROR_OCCURRED clears sessionId from state.
+  // session even after errorOccurred clears sessionId from state.
   const lastSessionIdRef = useRef<string | null>(null);
 
   // ---------------------------------------------------------------------------
@@ -164,9 +110,7 @@ export function useTerminalSession({
       const buffered = inputBufferRef.current;
       if (!buffered || !assistantId) return;
       inputBufferRef.current = "";
-      sendTerminalInput(assistantId, sessionId, buffered).catch(() => {
-        // Best-effort — lost keystrokes are acceptable over a crash
-      });
+      sendTerminalInput(assistantId, sessionId, buffered).catch(() => {});
     }, INPUT_FLUSH_INTERVAL_MS);
   }, [assistantId]);
 
@@ -185,30 +129,34 @@ export function useTerminalSession({
   const openSession = useCallback(
     async (isReconnect: boolean) => {
       if (!assistantId) {
-        dispatch({ type: isReconnect ? "RECONNECT_FAILED" : "CONNECT_FAILED", message: "No assistant ID" });
+        if (isReconnect) useTerminalStore.getState().reconnectFailed("No assistant ID");
+        else useTerminalStore.getState().connectFailed("No assistant ID");
         return;
       }
 
-      // Create backend session
       let sessionId: string;
       try {
         const session = await createTerminalSession(assistantId, apiOptions);
         sessionId = session.sessionId;
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to create terminal session";
-        dispatch({ type: isReconnect ? "RECONNECT_FAILED" : "CONNECT_FAILED", message });
+        if (isReconnect) useTerminalStore.getState().reconnectFailed(message);
+        else useTerminalStore.getState().connectFailed(message);
         return;
       }
 
-      // Reset seq tracker for this fresh session
+      const expected = isReconnect ? "reconnecting" : "connecting";
+      if (useTerminalStore.getState().status !== expected) {
+        destroyTerminalSession(assistantId, sessionId).catch(() => {});
+        return;
+      }
+
       seqTrackerRef.current = createSeqTracker();
 
-      // Subscribe to the SSE output stream
       const stream = subscribeTerminalEvents(
         assistantId,
         sessionId,
         (event) => {
-          // Drop duplicate / out-of-order events
           if (event.seq <= seqTrackerRef.current.highWaterMark) return;
           seqTrackerRef.current.highWaterMark = event.seq;
           try {
@@ -218,40 +166,23 @@ export function useTerminalSession({
           }
         },
         (err) => {
-          // Surface the error so callers can reconnect.
-          // ERROR_OCCURRED transitions from any state to error with the actual
-          // message, which is more useful than the generic "Connection lost."
-          // that DISCONNECTED would produce.
           stopInputFlushTimer();
-          dispatch({ type: "ERROR_OCCURRED", message: err.message });
+          useTerminalStore.getState().errorOccurred(err.message);
         },
       );
 
       streamRef.current = stream;
-
-      // Start input batching
       startInputFlushTimer(sessionId);
 
-      // Successful connection resets the user-closed flag.
       userClosedRef.current = false;
-
       lastSessionIdRef.current = sessionId;
 
-      dispatch({
-        type: isReconnect ? "RECONNECT_SUCCEEDED" : "CONNECT_SUCCEEDED",
-        sessionId,
-      });
+      if (isReconnect) useTerminalStore.getState().reconnectSucceeded(sessionId);
+      else useTerminalStore.getState().connectSucceeded(sessionId);
 
-      // Flush the last known terminal dimensions to the PTY so that the
-      // backend column/row count matches what xterm.js is rendering.
-      // Without this, the initial resize fired by fitAddon.fit() before the
-      // session was connected is silently dropped, leaving the PTY at its
-      // default size (e.g. 80×24) which causes incorrect text wrapping.
       const dims = lastDimensionsRef.current;
       if (dims && assistantId) {
-        resizeTerminal(assistantId, sessionId, dims.cols, dims.rows).catch(() => {
-          // Best-effort — resize failures are non-critical
-        });
+        resizeTerminal(assistantId, sessionId, dims.cols, dims.rows).catch(() => {});
       }
     },
     [assistantId, apiOptions, startInputFlushTimer, stopInputFlushTimer],
@@ -261,29 +192,30 @@ export function useTerminalSession({
   // Auto-reconnect on stream error
   // ---------------------------------------------------------------------------
 
-  useEffect(() => {
-    if (terminalState.status !== "error") return;
-    if (userClosedRef.current) return;
-    if (terminalState.reconnectAttempts >= MAX_AUTO_RECONNECT_ATTEMPTS) return;
+  const status = useTerminalStore.use.status();
+  const reconnectAttempts = useTerminalStore.use.reconnectAttempts();
 
-    const delay = AUTO_RECONNECT_BASE_DELAY_MS * 2 ** terminalState.reconnectAttempts;
+  useEffect(() => {
+    if (status !== "error") return;
+    if (userClosedRef.current) return;
+    if (reconnectAttempts >= MAX_AUTO_RECONNECT_ATTEMPTS) return;
+
+    const delay = AUTO_RECONNECT_BASE_DELAY_MS * 2 ** reconnectAttempts;
     autoReconnectTimerRef.current = setTimeout(() => {
       autoReconnectTimerRef.current = null;
-      const current = stateRef.current;
+      const current = useTerminalStore.getState();
       if (current.status !== "error" || userClosedRef.current) return;
 
-      // Tear down any leftover stream.
       streamRef.current?.cancel();
       streamRef.current = null;
 
-      // ERROR_OCCURRED clears sessionId from state, so use the ref instead.
       const prevSessionId = lastSessionIdRef.current;
       if (prevSessionId && assistantId) {
         lastSessionIdRef.current = null;
         destroyTerminalSession(assistantId, prevSessionId).catch(() => {});
       }
 
-      dispatch({ type: "RECONNECT_REQUESTED" });
+      useTerminalStore.getState().requestReconnect();
       openSession(true);
     }, delay);
 
@@ -293,24 +225,23 @@ export function useTerminalSession({
         autoReconnectTimerRef.current = null;
       }
     };
-  }, [terminalState.status, terminalState.reconnectAttempts, assistantId, openSession]);
+  }, [status, reconnectAttempts, assistantId, openSession]);
 
   // ---------------------------------------------------------------------------
   // Public actions
   // ---------------------------------------------------------------------------
 
   const connect = useCallback(() => {
-    const status = stateRef.current.status;
-    if (status !== "idle" && status !== "closed" && status !== "error") return;
-    dispatch({ type: "CONNECT_REQUESTED" });
+    const { status: s } = useTerminalStore.getState();
+    if (s !== "idle" && s !== "closed" && s !== "error") return;
+    useTerminalStore.getState().requestConnect();
     openSession(false);
   }, [openSession]);
 
   const reconnect = useCallback(() => {
-    const { status, sessionId } = stateRef.current;
-    if (status !== "error" && status !== "connected") return;
+    const { status: s, sessionId } = useTerminalStore.getState();
+    if (s !== "error" && s !== "connected") return;
 
-    // Tear down existing session/stream first
     streamRef.current?.cancel();
     streamRef.current = null;
     stopInputFlushTimer();
@@ -322,19 +253,16 @@ export function useTerminalSession({
     pendingResizeRef.current = null;
 
     if (sessionId && assistantId) {
-      destroyTerminalSession(assistantId, sessionId).catch(() => {
-        // Best-effort
-      });
+      destroyTerminalSession(assistantId, sessionId).catch(() => {});
     }
 
-    dispatch({ type: "RECONNECT_REQUESTED" });
+    useTerminalStore.getState().requestReconnect();
     openSession(true);
   }, [assistantId, openSession, stopInputFlushTimer]);
 
   const close = useCallback(() => {
-    const { sessionId } = stateRef.current;
+    const { sessionId } = useTerminalStore.getState();
 
-    // Mark as intentionally closed so auto-reconnect does not fire.
     userClosedRef.current = true;
 
     if (autoReconnectTimerRef.current) {
@@ -352,26 +280,22 @@ export function useTerminalSession({
     }
 
     if (sessionId && assistantId) {
-      destroyTerminalSession(assistantId, sessionId).catch(() => {
-        // Best-effort cleanup
-      });
+      destroyTerminalSession(assistantId, sessionId).catch(() => {});
     }
 
-    dispatch({ type: "TERMINAL_CLOSED" });
+    useTerminalStore.getState().closed();
   }, [assistantId, stopInputFlushTimer]);
 
   const sendInput = useCallback((data: string) => {
-    // Buffer keystrokes; the interval flush sends them in batches
     inputBufferRef.current += data;
   }, []);
 
   const sendResize = useCallback(
     (cols: number, rows: number) => {
-      // Always track latest dimensions so we can flush them on connect.
       lastDimensionsRef.current = { cols, rows };
 
-      const { status, sessionId } = stateRef.current;
-      if (status !== "connected" || !sessionId || !assistantId) return;
+      const { status: s, sessionId } = useTerminalStore.getState();
+      if (s !== "connected" || !sessionId || !assistantId) return;
 
       pendingResizeRef.current = { cols, rows };
 
@@ -381,13 +305,10 @@ export function useTerminalSession({
       resizeTimerRef.current = setTimeout(() => {
         resizeTimerRef.current = null;
         const pending = pendingResizeRef.current;
-        const currentSessionId = stateRef.current.sessionId;
-        const currentStatus = stateRef.current.status;
-        if (!pending || !currentSessionId || currentStatus !== "connected" || !assistantId) return;
+        const current = useTerminalStore.getState();
+        if (!pending || !current.sessionId || current.status !== "connected" || !assistantId) return;
         pendingResizeRef.current = null;
-        resizeTerminal(assistantId, currentSessionId, pending.cols, pending.rows).catch(() => {
-          // Best-effort — resize failures are non-critical
-        });
+        resizeTerminal(assistantId, current.sessionId, pending.cols, pending.rows).catch(() => {});
       }, RESIZE_DEBOUNCE_MS);
     },
     [assistantId],
@@ -419,17 +340,16 @@ export function useTerminalSession({
         resizeTimerRef.current = null;
       }
 
-      const { sessionId } = stateRef.current;
+      const { sessionId } = useTerminalStore.getState();
       if (sessionId && assistantId) {
-        destroyTerminalSession(assistantId, sessionId).catch(() => {
-          // Best-effort cleanup on unmount
-        });
+        destroyTerminalSession(assistantId, sessionId).catch(() => {});
       }
+
+      useTerminalStore.getState().reset();
     };
-  }, []);
+  }, [assistantId]);
 
   return {
-    terminalState,
     connect,
     reconnect,
     close,

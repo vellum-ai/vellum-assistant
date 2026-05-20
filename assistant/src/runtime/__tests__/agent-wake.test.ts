@@ -1587,4 +1587,130 @@ describe("wakeAgentForOpportunity", () => {
     // No log row was inserted because JSON.stringify threw.
     expect(recordRequestLogCalls).toHaveLength(0);
   });
+
+  describe("suppressWakeSurface option", () => {
+    function makeCheckpointTarget(): {
+      target: WakeTarget;
+      persistedTailCalls: Message[];
+      wakeProducedOutputCalls: string[];
+    } {
+      const firstAssistant: Message = {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu-1", name: "some_tool", input: {} },
+        ],
+      };
+      const toolResult: Message = {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }],
+      };
+      const persistedTailCalls: Message[] = [];
+      const baseline: Message[] = [
+        { role: "user", content: [{ type: "text", text: "hi" }] },
+      ];
+      const history: Message[] = [...baseline];
+      let processing = false;
+      const wakeProducedOutputCalls: string[] = [];
+
+      const target: WakeTarget = {
+        conversationId: "conv-suppress-surface",
+        agentLoop: {
+          run: async (_input, _onEvent, _signal, _requestId, onCheckpoint) => {
+            const runHistory: Message[] = [..._input];
+            runHistory.push(firstAssistant);
+            runHistory.push(toolResult);
+            await onCheckpoint!({
+              turnIndex: 0,
+              toolCount: 1,
+              hasToolUse: true,
+              history: runHistory,
+            });
+            return runHistory;
+          },
+        },
+        getMessages: () => history,
+        pushMessage: (msg) => {
+          history.push(msg);
+        },
+        emitAgentEvent: () => {},
+        isProcessing: () => processing,
+        markProcessing: (on) => {
+          processing = on;
+        },
+        persistTailMessage: async (msg) => {
+          persistedTailCalls.push(msg);
+        },
+        onWakeProducedOutput: (_source, _hint, surfaceId) => {
+          wakeProducedOutputCalls.push(surfaceId);
+        },
+      };
+      return { target, persistedTailCalls, wakeProducedOutputCalls };
+    }
+
+    test(
+      "default (suppressWakeSurface omitted) still injects the ui_surface " +
+        "card and calls onWakeProducedOutput",
+      async () => {
+        const { target, persistedTailCalls, wakeProducedOutputCalls } =
+          makeCheckpointTarget();
+
+        await wakeAgentForOpportunity(
+          {
+            conversationId: "conv-suppress-surface",
+            hint: "do the thing",
+            source: "memory_v2_consolidation",
+          },
+          { resolveTarget: async () => target },
+        );
+
+        // Existing behavior: card injected, broadcast fired exactly once.
+        expect(wakeProducedOutputCalls).toHaveLength(1);
+        const persistedFirst = persistedTailCalls[0];
+        expect(persistedFirst).toBeDefined();
+        const blocks = Array.isArray(persistedFirst!.content)
+          ? persistedFirst!.content
+          : [];
+        const uiBlock = blocks.find(
+          (b: { type?: string }) => b.type === "ui_surface",
+        );
+        expect(uiBlock).toBeDefined();
+      },
+    );
+
+    test(
+      "suppressWakeSurface: true produces output but skips the ui_surface " +
+        "card injection and the onWakeProducedOutput broadcast",
+      async () => {
+        const { target, persistedTailCalls, wakeProducedOutputCalls } =
+          makeCheckpointTarget();
+
+        await wakeAgentForOpportunity(
+          {
+            conversationId: "conv-suppress-surface",
+            hint: "do the thing",
+            source: "memory_v2_consolidation",
+            suppressWakeSurface: true,
+          },
+          { resolveTarget: async () => target },
+        );
+
+        // Tail still persisted (wake produced real output).
+        const persistedFirst = persistedTailCalls[0];
+        expect(persistedFirst).toBeDefined();
+        // First assistant tail message should NOT have a ui_surface block
+        // prepended at the front.
+        const blocks = Array.isArray(persistedFirst!.content)
+          ? persistedFirst!.content
+          : [];
+        const firstBlock = blocks[0] as { type?: string } | undefined;
+        expect(firstBlock?.type).not.toBe("ui_surface");
+        const uiBlock = blocks.find(
+          (b: { type?: string }) => b.type === "ui_surface",
+        );
+        expect(uiBlock).toBeUndefined();
+        // Live broadcast was suppressed.
+        expect(wakeProducedOutputCalls).toHaveLength(0);
+      },
+    );
+  });
 });
