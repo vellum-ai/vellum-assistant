@@ -269,7 +269,7 @@ function buildTavilyMetadata(
     const domain = extractDomain(url);
     return {
       rank: i + 1,
-      title: r.title ?? url,
+      title: r.title?.trim() || url.trim() || "Untitled result",
       url,
       domain,
       faviconUrl: r.favicon ?? faviconUrlForDomain(domain),
@@ -696,6 +696,7 @@ class WebSearchTool implements Tool {
       };
     }
 
+    const startedAt = Date.now();
     let provider = getWebSearchProvider();
     let apiKey = await getApiKey(provider);
 
@@ -717,11 +718,12 @@ class WebSearchTool implements Tool {
       }
 
       if (!apiKey) {
-        return {
-          content:
-            "Error: No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, or `keys set tavily <key>`, or configure it from the Settings page under API Keys.",
-          isError: true,
-        };
+        return errorResult(
+          query,
+          provider,
+          startedAt,
+          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, or `keys set tavily <key>`, or configure it from the Settings page under API Keys.",
+        );
       }
     }
 
@@ -750,7 +752,7 @@ class WebSearchTool implements Tool {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error({ err }, "Web search failed");
-      return { content: `Error: Web search failed: ${msg}`, isError: true };
+      return errorResult(query, provider, startedAt, `Web search failed: ${msg}`);
     }
   }
 }
