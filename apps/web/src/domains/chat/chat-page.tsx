@@ -26,7 +26,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantContext } from "@/domains/chat/assistant-context.js";
 import { useShallow } from "zustand/shallow";
-import { useConversationListStore } from "@/domains/conversations/conversation-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import {
   useConversationGroupsQuery,
   useConversationListQuery,
@@ -161,9 +161,9 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Zustand store selectors
   // -------------------------------------------------------------------------
-  const activeConversationKey = useConversationListStore.use.activeConversationKey();
-  const editingConversationKey = useConversationListStore.use.editingConversationKey();
-  const processingKeys = useConversationListStore.use.processingKeys();
+  const activeConversationKey = useConversationStore.use.activeConversationKey();
+  const editingConversationKey = useConversationStore.use.editingConversationKey();
+  const processingKeys = useConversationStore.use.processingKeys();
   const viewerState = useViewerStore(useShallow((s) => ({
     mainView: s.mainView,
     activeAppId: s.activeAppId,

@@ -34,7 +34,7 @@ import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissedSurfacesStorage.js";
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import { useConversationListStore } from "@/domains/conversations/conversation-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import {
   findConversation,
   prependConversation,
@@ -494,7 +494,7 @@ export function useSendMessage({
                 assistantId,
                 activeConversationKey,
               );
-              useConversationListStore
+              useConversationStore
                 .getState()
                 .addProcessingKey(
                   activeConversationKey,
@@ -518,7 +518,7 @@ export function useSendMessage({
         assistantId,
         activeConversationKey,
       );
-      useConversationListStore
+      useConversationStore
         .getState()
         .addProcessingKey(
           activeConversationKey,
@@ -548,7 +548,7 @@ export function useSendMessage({
         // Resolve draft key -> server-assigned conversation ID.
         if (resolvedId && resolvedId !== activeConversationKey) {
           const newKey = resolvedId;
-          useConversationListStore
+          useConversationStore
             .getState()
             .transferProcessingKey(activeConversationKey, newKey);
           resolveDraftKey(queryClient, assistantId, activeConversationKey, newKey);
@@ -558,7 +558,7 @@ export function useSendMessage({
           if (activeConversationKeyRef.current === activeConversationKey) {
             draftKeyResolutionRef.current = true;
             previousConversationKeyRef.current = newKey;
-            useConversationListStore.getState().setActiveKey(newKey);
+            useConversationStore.getState().setActiveKey(newKey);
             void navigate(routes.conversation(newKey), { replace: true });
           }
         }
@@ -575,7 +575,7 @@ export function useSendMessage({
         useTurnStore.getState().onStreamError();
         const keysToClean = [activeConversationKey, resolvedId].filter(Boolean) as string[];
         if (keysToClean.length > 0) {
-          useConversationListStore.getState().removeMultipleProcessingKeys(keysToClean);
+          useConversationStore.getState().removeMultipleProcessingKeys(keysToClean);
         }
         if (isDraft) {
           removeConversation(queryClient, assistantId, activeConversationKey);
@@ -606,7 +606,7 @@ export function useSendMessage({
     useInteractionStore.getState().resetAll();
     useSubagentStore.getState().reset();
     confirmationToolCallMapRef.current.clear();
-    useConversationListStore.getState().removeProcessingKey(activeConversationKey);
+    useConversationStore.getState().removeProcessingKey(activeConversationKey);
     try {
       await cancelGeneration(assistantId, activeConversationKey);
     } catch {

@@ -16,7 +16,7 @@ import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecy
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
 import type { AssistantContextValue } from "@/domains/chat/assistant-context.js";
 
-import { useConversationListStore } from "@/domains/conversations/conversation-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import {
   useConversationGroupsQuery,
   useConversationListQuery,
@@ -366,10 +366,10 @@ export function ChatLayout() {
     };
   }, [drawerVisible]);
 
-  const activeConversationKey = useConversationListStore.use.activeConversationKey();
-  const processingKeys = useConversationListStore.use.processingKeys();
-  const attentionKeys = useConversationListStore.use.attentionKeys();
-  const setActiveKey = useConversationListStore.use.setActiveKey();
+  const activeConversationKey = useConversationStore.use.activeConversationKey();
+  const processingKeys = useConversationStore.use.processingKeys();
+  const attentionKeys = useConversationStore.use.attentionKeys();
+  const setActiveKey = useConversationStore.use.setActiveKey();
 
   const handleSelectConversation = useCallback(
     (key: string) => {

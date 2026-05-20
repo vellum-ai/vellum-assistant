@@ -107,7 +107,7 @@ const INITIAL_STATE: ConversationListState = {
 // Store
 // ---------------------------------------------------------------------------
 
-export const useConversationListStore = createSelectors(
+export const useConversationStore = createSelectors(
   create<ConversationListStore>((set, get) => ({
     ...INITIAL_STATE,
 
