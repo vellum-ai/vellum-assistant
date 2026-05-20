@@ -14,7 +14,11 @@
  * Reference: https://docs.sentry.io/security-legal-pii/scrubbing/
  */
 
+// Bare `key` is intentionally excluded — too broad (would shadow
+// `?conversationKey=…` and similar routing params) and the credential
+// variants below cover the auth surface.
 const SENSITIVE_PARAM_KEYS = new Set([
+  "access_key",
   "access_token",
   "apikey",
   "api_key",
@@ -23,8 +27,9 @@ const SENSITIVE_PARAM_KEYS = new Set([
   "code",
   "email",
   "id_token",
-  "key",
+  "oauth_code",
   "password",
+  "private_key",
   "pwd",
   "refresh_token",
   "secret",

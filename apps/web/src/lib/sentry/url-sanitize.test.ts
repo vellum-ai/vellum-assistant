@@ -27,6 +27,22 @@ describe("sanitizeUrl", () => {
     );
   });
 
+  it("does not over-scrub routing params containing `key` substrings", () => {
+    expect(sanitizeUrl("https://app/chat?conversationKey=abc123")).toBe(
+      "https://app/chat?conversationKey=abc123",
+    );
+  });
+
+  it("scrubs OAuth deep-link codes on custom schemes (iOS Capacitor)", () => {
+    expect(
+      sanitizeUrl(
+        "vellum-assistant://oauth-complete?oauth_code=xyz&oauth_provider=google",
+      ),
+    ).toBe(
+      "vellum-assistant://oauth-complete?oauth_code=%5BREDACTED%5D&oauth_provider=google",
+    );
+  });
+
   it("redacts parametric hash fragments (OAuth implicit flow)", () => {
     expect(
       sanitizeUrl("https://app/#access_token=abc&token_type=Bearer"),
