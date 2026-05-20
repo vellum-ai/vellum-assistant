@@ -387,6 +387,7 @@ mock.module("../daemon/history-repair.js", () => ({
 const recordUsageMock = mock(() => {});
 const recordRequestLogMock = mock(() => {});
 const backfillMessageIdOnLogsMock = mock(() => {});
+const setAgentLoopExitReasonOnLatestLogMock = mock(() => {});
 mock.module("../daemon/conversation-usage.js", () => ({
   recordUsage: recordUsageMock,
 }));
@@ -484,6 +485,7 @@ mock.module("../memory/archive-store.js", () => ({
 mock.module("../memory/llm-request-log-store.js", () => ({
   recordRequestLog: recordRequestLogMock,
   backfillMessageIdOnLogs: backfillMessageIdOnLogsMock,
+  setAgentLoopExitReasonOnLatestLog: setAgentLoopExitReasonOnLatestLogMock,
 }));
 
 let mockHasProactiveArtifactCompleted = true;
@@ -660,6 +662,7 @@ beforeEach(() => {
   recordUsageMock.mockClear();
   recordRequestLogMock.mockClear();
   backfillMessageIdOnLogsMock.mockClear();
+  setAgentLoopExitReasonOnLatestLogMock.mockClear();
   syncMessageToDiskMock.mockClear();
   rebuildConversationDiskViewFromDbStateMock.mockClear();
   updateMessageMetadataMock.mockClear();
@@ -2300,6 +2303,10 @@ describe("session-agent-loop", () => {
 
       const handoff = events.find((e) => e.type === "generation_handoff");
       expect(handoff).toBeDefined();
+      expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
+        "test-conv",
+        "checkpoint_handoff",
+      );
     });
 
     test("continues when canHandoffAtCheckpoint returns false", async () => {
@@ -2359,6 +2366,10 @@ describe("session-agent-loop", () => {
 
       const handoff = events.find((e) => e.type === "generation_handoff");
       expect(handoff).toBeUndefined();
+      expect(setAgentLoopExitReasonOnLatestLogMock).not.toHaveBeenCalledWith(
+        "test-conv",
+        "checkpoint_handoff",
+      );
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
     });
