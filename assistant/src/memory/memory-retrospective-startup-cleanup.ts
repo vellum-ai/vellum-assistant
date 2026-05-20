@@ -45,7 +45,7 @@ import {
 import { getLogger } from "../util/logger.js";
 import { deleteConversation } from "./conversation-crud.js";
 import { getDb } from "./db-connection.js";
-import { MEMORY_RETROSPECTIVE_SOURCE } from "./memory-retrospective-constants.js";
+import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { conversations, memoryJobs } from "./schema.js";
 
 const log = getLogger("memory-retrospective-startup-cleanup");
@@ -103,7 +103,7 @@ export function sweepOrphanMemoryRetrospectiveConversations(
     .from(conversations)
     .where(
       and(
-        eq(conversations.source, MEMORY_RETROSPECTIVE_SOURCE),
+        inArray(conversations.source, MEMORY_RETROSPECTIVE_SOURCES),
         isNotNull(conversations.forkParentConversationId),
       ),
     )
@@ -129,7 +129,7 @@ export function sweepOrphanMemoryRetrospectiveConversations(
     .from(conversations)
     .where(
       and(
-        eq(conversations.source, MEMORY_RETROSPECTIVE_SOURCE),
+        inArray(conversations.source, MEMORY_RETROSPECTIVE_SOURCES),
         // Conservative: only sweep rows that have had at least one message
         // AND haven't seen activity recently. Conversations without a
         // last_message_at value are too fresh to assess.
