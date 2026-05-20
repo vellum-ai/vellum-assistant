@@ -707,11 +707,7 @@ export function ChatPage() {
     [messages],
   );
 
-  const mainView = viewerState.mainView;
-  const isNonChatView = mainView === "intelligence" || mainView === "library" || mainView === "home";
-
   const topBarCenterContent = useMemo(() => {
-    if (isNonChatView) return null;
     if (!activeConversation) {
       return assistantId ? (
         <span className="text-sm font-medium text-[var(--content-default)]">
@@ -800,7 +796,6 @@ export function ChatPage() {
     activeConversation,
     assistantId,
     isChannelReadonly,
-    isNonChatView,
     conversationGroups,
     conversationActions,
     secondaryActions,
@@ -814,7 +809,6 @@ export function ChatPage() {
   }, [topBarCenterContent, setTopBarCenter]);
 
   const topBarRightContent = useMemo(() => {
-    if (isNonChatView) return null;
     if (!activeConversation?.conversationKey || !assistantId) return null;
     return (
       <ConversationAssetsPill
@@ -831,7 +825,7 @@ export function ChatPage() {
         }}
       />
     );
-  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey, isNonChatView]);
+  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey]);
 
   useEffect(() => {
     setTopBarRightSlot(topBarRightContent);
