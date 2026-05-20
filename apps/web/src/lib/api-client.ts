@@ -8,7 +8,7 @@
  *
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch
  */
-import { createClient } from "@hey-api/client-fetch";
+import { createClient } from "@/generated/api/client/index.js";
 
 export const client = createClient({
   baseUrl: "",

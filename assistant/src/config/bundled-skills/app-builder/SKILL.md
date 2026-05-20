@@ -127,10 +127,10 @@ App building is design-heavy judgment work — color palettes, layout decisions,
 assistant inference session list
 ```
 
-If no session is active, check the current default profile:
+If no session is active, check the current active profile:
 
 ```
-assistant config get llm.default.profile
+assistant config get llm.activeProfile
 ```
 
 If the profile is already `quality-optimized`, skip the rest of this step and proceed to Step 1.

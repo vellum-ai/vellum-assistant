@@ -14,6 +14,7 @@ interface AppFeatureFlags {
   homePage: boolean;
   isNonProduction: boolean;
   multiPlatformAssistant: boolean;
+  openAICompatibleEndpoints: boolean;
   platformNotifications: boolean;
   proPlanAdjust: boolean;
   rollbackEnabled: boolean;
@@ -39,6 +40,7 @@ const DEFAULT_FLAGS: AppFeatureFlags = {
   homePage: false,
   isNonProduction: false,
   multiPlatformAssistant: false,
+  openAICompatibleEndpoints: false,
   platformNotifications: false,
   proPlanAdjust: false,
   rollbackEnabled: false,
@@ -66,6 +68,7 @@ export function AppFeatureFlagProvider({
   homePage,
   isNonProduction,
   multiPlatformAssistant,
+  openAICompatibleEndpoints,
   platformNotifications,
   proPlanAdjust,
   rollbackEnabled,
@@ -92,6 +95,7 @@ export function AppFeatureFlagProvider({
       homePage,
       isNonProduction,
       multiPlatformAssistant,
+      openAICompatibleEndpoints,
       platformNotifications,
       proPlanAdjust,
       rollbackEnabled,
@@ -116,6 +120,7 @@ export function AppFeatureFlagProvider({
       homePage,
       isNonProduction,
       multiPlatformAssistant,
+      openAICompatibleEndpoints,
       platformNotifications,
       proPlanAdjust,
       rollbackEnabled,

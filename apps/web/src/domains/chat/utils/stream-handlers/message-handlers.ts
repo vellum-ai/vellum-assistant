@@ -22,7 +22,7 @@ export function handleAssistantTextDelta(
   ctx: StreamHandlerContext,
 ): void {
   ctx.cancelReconciliation();
-  ctx.dispatchTurn({ type: "ASSISTANT_TEXT_DELTA" });
+  ctx.turnActions.onTextDelta();
   if (ctx.needsNewBubbleRef.current) {
     ctx.needsNewBubbleRef.current = false;
     const stableId = newStableId("assistant-stream");
@@ -61,10 +61,7 @@ export function handleAssistantActivityState(
   }
 
   if (event.phase === "thinking") {
-    ctx.dispatchTurn({
-      type: "ACTIVITY_STATE_THINKING",
-      statusText: event.statusText,
-    });
+    ctx.turnActions.onActivityThinking(event.statusText);
     recordChatDiagnostic("sse_activity_state_thinking_handled", {
       convKey,
       reason: event.reason,
@@ -85,8 +82,8 @@ export function handleAssistantActivityState(
 
   ctx.setMessages(finalizeOnIdle);
   ctx.needsNewBubbleRef.current = true;
-  const turnPhaseBefore = ctx.turnStateRef.current.phase;
-  ctx.dispatchTurn({ type: "MESSAGE_COMPLETE" });
+  const turnPhaseBefore = ctx.getTurnState().phase;
+  ctx.turnActions.completeTurn();
   if (convKey) {
     ctx.clearProcessingKey(convKey);
   }
@@ -116,8 +113,8 @@ export function handleMessageComplete(
     }),
   );
   ctx.needsNewBubbleRef.current = true;
-  const turnPhaseBefore = ctx.turnStateRef.current.phase;
-  ctx.dispatchTurn({ type: "MESSAGE_COMPLETE" });
+  const turnPhaseBefore = ctx.getTurnState().phase;
+  ctx.turnActions.completeTurn();
   const convKey = ctx.streamContextRef.current?.conversationKey;
   if (convKey) {
     ctx.clearProcessingKey(convKey);
@@ -137,7 +134,7 @@ export function handleGenerationHandoff(
   ctx: StreamHandlerContext,
 ): void {
   ctx.cancelReconciliation();
-  ctx.dispatchTurn({ type: "GENERATION_HANDOFF" });
+  ctx.turnActions.handoffGeneration();
   const displayMessageId = event.displayMessageId ?? event.messageId;
   ctx.setMessages((prev) =>
     stopStreaming(prev, {
@@ -152,7 +149,7 @@ export function handleGenerationCancelled(
   _event: GenerationCancelledEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "GENERATION_CANCELLED" });
+  ctx.turnActions.cancelGeneration();
   const convKey = ctx.streamContextRef.current?.conversationKey;
   if (convKey) {
     ctx.clearProcessingKey(convKey);

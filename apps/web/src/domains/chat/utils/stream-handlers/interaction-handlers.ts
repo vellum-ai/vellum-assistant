@@ -7,25 +7,23 @@ import type {
 import { normalizeQuestionRequest } from "@/domains/chat/lib/api.js";
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat-utils.js";
 import type { PendingConfirmationState } from "@/domains/chat/types.js";
+import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
 
 export function handleSecretRequest(
   event: SecretRequestEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "SECRET_REQUEST" });
-  ctx.dispatchInteraction({
-    type: "SHOW_SECRET",
-    payload: {
-      requestId: event.requestId,
-      label: event.label,
-      description: event.description,
-      placeholder: event.placeholder,
-      allowOneTimeSend: event.allowOneTimeSend,
-      allowedTools: event.allowedTools,
-      allowedDomains: event.allowedDomains,
-      purpose: event.purpose,
-    },
+  ctx.turnActions.onSecretRequest();
+  useInteractionStore.getState().showSecret({
+    requestId: event.requestId,
+    label: event.label,
+    description: event.description,
+    placeholder: event.placeholder,
+    allowOneTimeSend: event.allowOneTimeSend,
+    allowedTools: event.allowedTools,
+    allowedDomains: event.allowedDomains,
+    purpose: event.purpose,
   });
 }
 
@@ -33,7 +31,7 @@ export function handleConfirmationRequest(
   event: ConfirmationRequestEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "CONFIRMATION_REQUEST" });
+  ctx.turnActions.onConfirmationRequest();
   const confData: PendingConfirmationState = {
     requestId: event.requestId,
     title: event.title,
@@ -50,25 +48,19 @@ export function handleConfirmationRequest(
     input: event.input,
     toolUseId: event.toolUseId,
   };
-  ctx.dispatchInteraction({ type: "SHOW_CONFIRMATION", payload: confData });
+  useInteractionStore.getState().showConfirmation(confData);
 
   const result = attachConfirmationToToolCall(ctx.messagesRef.current, confData);
   ctx.setMessages(() => result.updatedMessages);
 
   if (result.attachedToolCallId) {
-    ctx.dispatchInteraction({
-      type: "SET_INLINE_CONFIRMATION_TOOL_CALL_ID",
-      toolCallId: result.attachedToolCallId,
-    });
+    useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
     ctx.confirmationToolCallMapRef.current.set(
       confData.requestId,
       result.attachedToolCallId,
     );
   } else {
-    ctx.dispatchInteraction({
-      type: "SET_INLINE_CONFIRMATION_TOOL_CALL_ID",
-      toolCallId: null,
-    });
+    useInteractionStore.getState().setInlineConfirmationToolCallId(null);
   }
 }
 
@@ -76,17 +68,14 @@ export function handleContactRequest(
   event: ContactRequestEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "CONTACT_REQUEST" });
-  ctx.dispatchInteraction({
-    type: "SHOW_CONTACT_REQUEST",
-    payload: {
-      requestId: event.requestId,
-      channel: event.channel,
-      placeholder: event.placeholder,
-      label: event.label,
-      description: event.description,
-      role: event.role,
-    },
+  ctx.turnActions.onContactRequest();
+  useInteractionStore.getState().showContactRequest({
+    requestId: event.requestId,
+    channel: event.channel,
+    placeholder: event.placeholder,
+    label: event.label,
+    description: event.description,
+    role: event.role,
   });
 }
 
@@ -96,13 +85,10 @@ export function handleQuestionRequest(
 ): void {
   const entries = normalizeQuestionRequest(event);
   if (entries.length === 0) return;
-  ctx.dispatchTurn({ type: "QUESTION_REQUEST" });
-  ctx.dispatchInteraction({
-    type: "SHOW_QUESTION",
-    payload: {
-      requestId: event.requestId,
-      entries,
-      toolUseId: event.toolUseId,
-    },
+  ctx.turnActions.onQuestionRequest();
+  useInteractionStore.getState().showQuestion({
+    requestId: event.requestId,
+    entries,
+    toolUseId: event.toolUseId,
   });
 }

@@ -5,7 +5,7 @@ import { type FormEvent, useCallback, useMemo, useState } from "react";
 import { Toggle } from "@vellum/design-library";
 import type { Surface } from "@/domains/chat/lib/types.js";
 
-import { MarkdownMessage } from "@/components/markdown-message.js";
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -304,7 +304,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
       )}
 
       {(currentPageData.description || (!isMultiPage && formData.description)) && (
-        <MarkdownMessage
+        <ChatMarkdownMessage
           content={(isMultiPage ? currentPageData.description : formData.description) ?? ""}
           className="mb-3 text-body-medium-lighter text-stone-500 dark:text-stone-400"
         />

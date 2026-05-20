@@ -50,10 +50,9 @@ import type {
   WebSyncRouter,
 } from "@/lib/sync/web-sync-router.js";
 
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import type { DomainEvent as TurnAction, TurnState } from "@/domains/chat/lib/turn-state-machine.js";
-import { isSending } from "@/domains/chat/lib/turn-state-machine.js";
+import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -90,12 +89,7 @@ export interface UseEventStreamParams {
   reachabilityPhase: string;
   reachabilityReset: () => void;
 
-  // Turn state
-  dispatchTurn: Dispatch<TurnAction>;
-  turnStateRef: MutableRefObject<TurnState>;
-
   // Conversation list
-  dispatchConversationList: Dispatch<ConversationListAction>;
   processingSnapshotsRef: MutableRefObject<Map<string, string | undefined>>;
 
   // Messages
@@ -147,9 +141,6 @@ export function useEventStream({
   reachabilityProbe,
   reachabilityPhase,
   reachabilityReset,
-  dispatchTurn,
-  turnStateRef,
-  dispatchConversationList,
   processingSnapshotsRef,
   setMessages,
   setError,
@@ -178,12 +169,6 @@ export function useEventStream({
 
   const reachabilityProbeRef = useRef(reachabilityProbe);
   reachabilityProbeRef.current = reachabilityProbe;
-
-  const dispatchTurnRef = useRef(dispatchTurn);
-  dispatchTurnRef.current = dispatchTurn;
-
-  const dispatchConversationListRef = useRef(dispatchConversationList);
-  dispatchConversationListRef.current = dispatchConversationList;
 
   const setMessagesRef = useRef(setMessages);
   setMessagesRef.current = setMessages;
@@ -261,14 +246,11 @@ export function useEventStream({
             });
           }
           streamRef.current = null;
-          dispatchTurnRef.current({ type: "SESSION_ERROR" });
+          useTurnStore.getState().onSessionError();
           {
             const convKey = streamContextRef.current?.conversationKey;
             if (convKey) {
-              dispatchConversationListRef.current({
-                type: "REMOVE_PROCESSING_KEY",
-                key: convKey,
-              });
+              useConversationListStore.getState().removeProcessingKey(convKey);
               processingSnapshotsRef.current.delete(convKey);
             }
           }
@@ -282,7 +264,7 @@ export function useEventStream({
           });
         },
         {
-          getActiveTurnSending: () => isSending(turnStateRef.current),
+          getActiveTurnSending: () => isSending(useTurnStore.getState()),
           onReconnect: async (cause) => {
             recordChatDiagnostic("sse_stream_reconnect", {
               assistantId: capturedAssistantId,
@@ -411,7 +393,7 @@ export function useEventStream({
       reachabilityResetRef.current();
       return;
     }
-    dispatchTurnRef.current({ type: "TURN_RESET" });
+    useTurnStore.getState().resetTurn();
     setErrorRef.current(null);
     reconcileAfterNextStreamOpenRef.current = true;
     setStreamRetryNonceRef.current((value) => value + 1);

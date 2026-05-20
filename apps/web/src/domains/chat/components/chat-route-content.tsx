@@ -66,15 +66,15 @@ import { pickRandomPlaceholder } from "@/domains/chat/lib/empty-state-constants.
 import { useEmptyStateGreeting } from "@/domains/chat/lib/use-empty-state-greeting.js";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/lib/error-classification.js";
 import { fetchOlderHistoryPage } from "@/domains/chat/lib/history.js";
-import { type InteractionState } from "@/domains/chat/lib/interaction-state-machine.js";
-import type { SubagentEntry, SubagentMapState } from "@/domains/chat/lib/subagent-state.js";
+import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
+import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import { buildTranscriptItems } from "@/domains/chat/lib/transcript/build-items.js";
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
 import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/chat/lib/turn-selectors.js";
 import { isSurfaceInteractive } from "@/domains/chat/lib/types.js";
-import type { TurnState } from "@/domains/chat/lib/turn-state-machine.js";
-import type { MainView, OpenedAppState, OpenedDocumentState, ViewerState } from "@/domains/chat/lib/viewer-state.js";
+
+import type { MainView, OpenedAppState, OpenedDocumentState, ViewerState } from "@/stores/viewer-store.js";
 import { submitQuestionResponse } from "@/domains/chat/lib/api.js";
 import { useActiveProfileModel } from "@/domains/chat/lib/use-active-profile-model.js";
 import { modelSupportsVision } from "@/domains/assistant/model-capabilities.js";
@@ -84,8 +84,7 @@ import { haptic } from "@/utils/haptics.js";
 import { isChannelConversation as _isChannelConversation } from "@/domains/chat/lib/conversation-channel.js";
 import { getDiskPressureChatBlockReason } from "@/domains/assistant/disk-pressure.js";
 import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
-import type { InteractionEvent } from "@/domains/chat/lib/interaction-state-machine.js";
-import type { DomainEvent } from "@/domains/chat/lib/turn-state-machine.js";
+import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/lib/event-types.js";
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
@@ -223,8 +222,7 @@ export interface ChatRouteRefs {
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  turnStateRef: MutableRefObject<TurnState>;
-  interactionStateRef: MutableRefObject<InteractionState>;
+
   reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
 }
 
@@ -251,10 +249,6 @@ export interface ChatRouteContentProps {
   messages: DisplayMessage[];
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
 
-  // Turn state
-  turnState: TurnState;
-  dispatchTurn: Dispatch<DomainEvent>;
-
   // Input
   input: string;
   setInput: Dispatch<SetStateAction<string>>;
@@ -266,9 +260,7 @@ export interface ChatRouteContentProps {
   // Loading
   isLoadingHistory: boolean;
 
-  // Interaction
-  interactionState: InteractionState;
-  dispatchInteraction: Dispatch<InteractionEvent>;
+
 
   // Conversation
   conversations: Conversation[];
@@ -344,7 +336,7 @@ export interface ChatRouteContentProps {
 
   // Subagent
   subagentEntries: SubagentEntry[];
-  subagentState: SubagentMapState;
+  subagentState: SubagentState;
   activeSubagentId: string | null;
   onSubagentClick: (subagentId: string) => void;
   onCloseSubagentDetail: () => void;
@@ -383,15 +375,11 @@ export function ChatRouteContent({
   isKeyboardOpen,
   messages,
   setMessages,
-  turnState,
-  dispatchTurn: _dispatchTurn,
   input,
   setInput,
   error,
   setError,
   isLoadingHistory,
-  interactionState,
-  dispatchInteraction,
   conversations: _conversations,
   activeConversationKey,
   activeConversation,
@@ -509,26 +497,30 @@ export function ChatRouteContent({
     requestIdToStableIdRef: _requestIdToStableIdRef,
     pendingLocalDeletionsRef: _pendingLocalDeletionsRef,
     confirmationToolCallMapRef: _confirmationToolCallMapRef,
-    turnStateRef: _turnStateRef,
-    interactionStateRef,
+
     reconcileAfterNextStreamOpenRef: _reconcileAfterNextStreamOpenRef,
   } = refs;
 
   // -------------------------------------------------------------------------
-  // Derived interaction state
+  // Turn state (read from Zustand store)
+  // -------------------------------------------------------------------------
+  const turnState = useTurnStore();
+
+  // -------------------------------------------------------------------------
+  // Interaction state (from Zustand store)
   // -------------------------------------------------------------------------
 
-  const pendingSecret = interactionState.pendingSecret;
-  const pendingConfirmation = interactionState.pendingConfirmation;
-  const pendingContactRequest = interactionState.pendingContactRequest;
-  const pendingQuestion = interactionState.pendingQuestion;
-  const isSubmittingSecret = interactionState.isSubmittingSecret;
-  const isSubmittingConfirmation = interactionState.isSubmittingConfirmation;
-  const isSubmittingContactRequest = interactionState.isSubmittingContactRequest;
-  const isSubmittingQuestion = interactionState.isSubmittingQuestion;
-  const contactRequestAccepted = interactionState.contactRequestAccepted;
-  const secretSaved = interactionState.secretSaved;
-  const inlineConfirmationToolCallId = interactionState.inlineConfirmationToolCallId;
+  const pendingSecret = useInteractionStore.use.pendingSecret();
+  const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
+  const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
+  const pendingQuestion = useInteractionStore.use.pendingQuestion();
+  const isSubmittingSecret = useInteractionStore.use.isSubmittingSecret();
+  const isSubmittingConfirmation = useInteractionStore.use.isSubmittingConfirmation();
+  const isSubmittingContactRequest = useInteractionStore.use.isSubmittingContactRequest();
+  const isSubmittingQuestion = useInteractionStore.use.isSubmittingQuestion();
+  const contactRequestAccepted = useInteractionStore.use.contactRequestAccepted();
+  const secretSaved = useInteractionStore.use.secretSaved();
+  const inlineConfirmationToolCallId = useInteractionStore.use.inlineConfirmationToolCallId();
   const inlineConfirmationAttached = inlineConfirmationToolCallId !== null;
 
   // -------------------------------------------------------------------------
@@ -929,8 +921,8 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
 
   const handleDismissPendingQuestion = useCallback(() => {
-    const snapshot = interactionStateRef.current.pendingQuestion;
-    dispatchInteraction({ type: "DISMISS_QUESTION" });
+    const snapshot = useInteractionStore.getState().pendingQuestion;
+    useInteractionStore.getState().dismissQuestion();
     if (!snapshot) return;
     const ctx = streamContextRef.current;
     if (!ctx) return;
@@ -953,7 +945,7 @@ export function ChatRouteContent({
           tags: { context: "submit_question_response_close" },
         });
       });
-  }, [dispatchInteraction, interactionStateRef, streamContextRef]);
+  }, [streamContextRef]);
 
   // -------------------------------------------------------------------------
   // Empty state placeholder (stable per mount)
@@ -1212,7 +1204,6 @@ export function ChatRouteContent({
     onVoiceRecordingChange: handleVoiceRecordingChange,
     onVoiceError: _setVoiceError,
     onVoiceBeforeStart: handleVoiceBeforeStart,
-    turnState,
     onStopGenerating: handleStopGenerating,
     assistantId,
     modelSupportsVision: activeModelSupportsVision,

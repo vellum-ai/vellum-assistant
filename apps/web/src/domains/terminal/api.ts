@@ -7,9 +7,6 @@ import {
 } from "@/generated/api/sdk.gen.js";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
 
-// Configure the HeyAPI client (CSRF + Vellum-Organization-Id interceptors)
-import "@/lib/api-client.js";
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------

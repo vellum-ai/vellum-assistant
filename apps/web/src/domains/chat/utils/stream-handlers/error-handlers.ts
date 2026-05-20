@@ -14,7 +14,7 @@ export function handleStreamError(
   event: StreamErrorEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "STREAM_ERROR" });
+  ctx.turnActions.onStreamError();
   const convKey = ctx.streamContextRef.current?.conversationKey;
   if (convKey) {
     ctx.clearProcessingKey(convKey);
@@ -39,7 +39,7 @@ export function handleConversationErrorEvent(
 ): void {
   const isBannerError = shouldSuppressGenericChatErrorNotice(event);
 
-  ctx.dispatchTurn({ type: "STREAM_ERROR" });
+  ctx.turnActions.onStreamError();
   const convKey = ctx.streamContextRef.current?.conversationKey;
   if (convKey) {
     ctx.clearProcessingKey(convKey);

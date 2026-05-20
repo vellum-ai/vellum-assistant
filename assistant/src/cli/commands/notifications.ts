@@ -8,6 +8,7 @@ import {
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
+import { tryResolveConversationId } from "../utils/conversation-id.js";
 
 // ---------------------------------------------------------------------------
 // Command registration
@@ -261,6 +262,11 @@ Examples:
                 return;
               }
 
+              // Picks up __CONVERSATION_ID / __SKILL_CONTEXT_JSON env vars
+              // so deferred-emit can buffer notifications when called from a
+              // background job that hasn't confirmed success yet.
+              const originatingConversationId = tryResolveConversationId();
+
               const result = await cliIpcCall<{
                 signalId: string;
                 dispatched: boolean;
@@ -288,6 +294,9 @@ Examples:
                   ...(opts.dedupeKey ? { dedupeKey: opts.dedupeKey } : {}),
                   ...(conversationId
                     ? { conversationAffinityHint: { vellum: conversationId } }
+                    : {}),
+                  ...(originatingConversationId
+                    ? { originatingConversationId }
                     : {}),
                   throwOnError: true,
                 },

@@ -54,7 +54,11 @@ struct HomeRecapRow: View {
         return isHovering ? VColor.surfaceLift : VColor.surfaceOverlay
     }
 
-    private var contentOpacity: Double {
+    /// Dim only the decorative icon for read rows — blanket-fading the
+    /// row would drop title/timestamp contrast below WCAG minimums on
+    /// `surfaceOverlay`. Unread vs. read is already signalled by the
+    /// title font weight (see `titleFont`).
+    private var iconOpacity: Double {
         if isUrgent { return 1.0 }
         return status == .new ? 1.0 : 0.55
     }
@@ -64,6 +68,7 @@ struct HomeRecapRow: View {
             HStack(spacing: VSpacing.sm) {
                 leadingIcon
                     .frame(width: 26, height: 26)
+                    .opacity(iconOpacity)
 
                 Text(title)
                     // Mock uses #A9B2BB which is `contentSecondary` in the
@@ -104,7 +109,6 @@ struct HomeRecapRow: View {
                 }
             }
             .contentShape(Rectangle())
-            .opacity(contentOpacity)
         }
         .buttonStyle(.plain)
         .pointerCursor()

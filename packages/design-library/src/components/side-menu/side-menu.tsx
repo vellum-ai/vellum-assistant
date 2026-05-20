@@ -1,0 +1,550 @@
+import type { LucideIcon } from "lucide-react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ComponentProps,
+  type MouseEvent,
+  type ReactNode,
+  type Ref,
+} from "react";
+
+import { Typography } from "../typography.js";
+import { cn } from "../../utils/cn.js";
+
+/**
+ * SideMenu primitive — a docked application navigation rail.
+ *
+ * Two variants:
+ * - `rail` (default) — desktop, docked left. Supports a `collapsed` state
+ *   that shrinks the rail to an icon-only 48 px column. When collapsed,
+ *   section titles, sublists, labels, badges, and trailing icons are
+ *   suppressed via a shared context so consumers never conditionally render
+ *   child content themselves.
+ * - `overlay` — mobile, full-bleed. `collapsed` is ignored (labels always
+ *   render) and the radius goes to 0 to read as a full-height drawer.
+ *
+ * Compound API:
+ *
+ *   SideMenu
+ *     ├── SideMenu.Header        — top slot (non-scrolling)
+ *     ├── SideMenu.Body          — scrolling middle; flex-1
+ *     │   ├── SideMenu.Section   — labeled group with optional `actions`
+ *     │   │   └── SideMenu.SubList
+ *     │   │       └── SideMenu.Item
+ *     │   └── SideMenu.Separator
+ *     └── SideMenu.Footer        — bottom slot (sticks via margin-top: auto)
+ *
+ * All colors come from semantic tokens (`--surface-overlay`, `--content-default`,
+ * `--border-base`, etc.). Zero hex literals live in this file.
+ */
+
+// ---------------------------------------------------------------------------
+// Context
+// ---------------------------------------------------------------------------
+
+export type SideMenuVariant = "rail" | "overlay";
+
+interface SideMenuContextValue {
+  collapsed: boolean;
+  /** Content-level collapsed — lags behind `collapsed` when expanding so
+   *  labels appear after the width transition finishes. */
+  contentCollapsed: boolean;
+  variant: SideMenuVariant;
+}
+
+const SideMenuContext = createContext<SideMenuContextValue>({
+  collapsed: false,
+  contentCollapsed: false,
+  variant: "rail",
+});
+
+function useSideMenuContext(): SideMenuContextValue {
+  return useContext(SideMenuContext);
+}
+
+/**
+ * Whether content (labels, sublists, section headers) should be hidden.
+ * Uses the delayed `contentCollapsed` so content lingers while the width
+ * transition completes on collapse.
+ */
+function isCollapsedRail(ctx: SideMenuContextValue): boolean {
+  return ctx.variant === "rail" && ctx.contentCollapsed;
+}
+
+// ---------------------------------------------------------------------------
+// Root
+// ---------------------------------------------------------------------------
+
+export interface SideMenuProps extends ComponentProps<"nav"> {
+  /** Ignored when `variant="overlay"`. */
+  collapsed?: boolean;
+  /** `rail` = desktop docked; `overlay` = mobile full-bleed. */
+  variant?: SideMenuVariant;
+  /** Required for the `navigation` landmark role. */
+  ariaLabel: string;
+  ref?: Ref<HTMLElement>;
+}
+
+const ROOT_BASE_CLASSES = [
+  "flex flex-col",
+  "bg-[var(--surface-overlay)]",
+  "text-[color:var(--content-default)]",
+  "border border-[var(--border-base)]",
+  "overflow-hidden",
+].join(" ");
+
+const ROOT_RAIL_EXPANDED_CLASSES = [
+  "w-[230px]",
+  "rounded-[12px]",
+  "pt-4 px-4 pb-2",
+].join(" ");
+
+const ROOT_RAIL_COLLAPSED_CLASSES = [
+  "w-[48px]",
+  "rounded-[12px]",
+  "pt-4 px-2 pb-2",
+].join(" ");
+
+const ROOT_OVERLAY_CLASSES = [
+  "w-full",
+  "rounded-none",
+  "p-4",
+].join(" ");
+
+const RAIL_TRANSITION_MS = 150;
+const ROOT_RAIL_TRANSITION = "transition-[width,padding] duration-[150ms] ease-in-out";
+
+function rootChromeClasses(variant: SideMenuVariant, collapsed: boolean): string {
+  if (variant === "overlay") return ROOT_OVERLAY_CLASSES;
+  const rail = collapsed ? ROOT_RAIL_COLLAPSED_CLASSES : ROOT_RAIL_EXPANDED_CLASSES;
+  return cn(rail, ROOT_RAIL_TRANSITION);
+}
+
+function SideMenuRoot({
+  ariaLabel,
+  collapsed = false,
+  variant = "rail",
+  className,
+  children,
+  ref,
+  ...rest
+}: SideMenuProps) {
+  const effectiveCollapsed = variant === "overlay" ? false : collapsed;
+
+  const [contentCollapsed, setContentCollapsed] = useState(effectiveCollapsed);
+  if (!effectiveCollapsed && contentCollapsed) {
+    setContentCollapsed(false);
+  }
+  useEffect(() => {
+    if (!effectiveCollapsed) return;
+    const id = setTimeout(() => setContentCollapsed(true), RAIL_TRANSITION_MS);
+    return () => clearTimeout(id);
+  }, [effectiveCollapsed]);
+
+  return (
+    <SideMenuContext
+      value={{ collapsed: effectiveCollapsed, contentCollapsed, variant }}
+    >
+      <nav
+        ref={ref}
+        data-slot="side-menu"
+        role="navigation"
+        aria-label={ariaLabel}
+        className={cn(
+          ROOT_BASE_CLASSES,
+          rootChromeClasses(variant, effectiveCollapsed),
+          className,
+        )}
+        {...rest}
+      >
+        {children}
+      </nav>
+    </SideMenuContext>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Header / Body / Footer
+// ---------------------------------------------------------------------------
+
+interface SlotProps extends ComponentProps<"div"> {
+  ref?: Ref<HTMLDivElement>;
+}
+
+function SideMenuHeader({ className, children, ref, ...rest }: SlotProps) {
+  return (
+    <div
+      ref={ref}
+      data-slot="side-menu-header"
+      className={cn("flex flex-col gap-2", className)}
+      {...rest}
+    >
+      {children}
+    </div>
+  );
+}
+
+function SideMenuBody({ className, children, ref, ...rest }: SlotProps) {
+  return (
+    <div
+      ref={ref}
+      data-slot="side-menu-body"
+      className={cn(
+        "flex flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden",
+        className,
+      )}
+      {...rest}
+    >
+      {children}
+    </div>
+  );
+}
+
+function SideMenuFooter({ className, children, ref, ...rest }: SlotProps) {
+  return (
+    <div
+      ref={ref}
+      data-slot="side-menu-footer"
+      className={cn("mt-auto flex flex-col gap-2 pt-2", className)}
+      {...rest}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Separator
+// ---------------------------------------------------------------------------
+
+function SideMenuSeparator({
+  className,
+  ref,
+  ...rest
+}: ComponentProps<"hr"> & { ref?: Ref<HTMLHRElement> }) {
+  return (
+    <hr
+      ref={ref}
+      data-slot="side-menu-separator"
+      className={cn(
+        "my-1 h-px w-full border-0 bg-[var(--border-base)]",
+        className,
+      )}
+      {...rest}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section — title row + right-aligned actions
+// ---------------------------------------------------------------------------
+
+export interface SideMenuSectionProps extends ComponentProps<"div"> {
+  title?: string;
+  actions?: ReactNode;
+  ref?: Ref<HTMLDivElement>;
+}
+
+function SideMenuSection({
+  title,
+  actions,
+  className,
+  children,
+  ref,
+  ...rest
+}: SideMenuSectionProps) {
+  const ctx = useSideMenuContext();
+  const hideHeader = isCollapsedRail(ctx);
+  return (
+    <div
+      ref={ref}
+      data-slot="side-menu-section"
+      className={cn("flex flex-col gap-2", className)}
+      {...rest}
+    >
+      {!hideHeader && (title || actions) ? (
+        <div className="flex h-[21px] items-center justify-between">
+          {title ? (
+            <Typography
+              variant="body-small-default"
+              as="span"
+              className="text-[color:var(--content-tertiary)]"
+            >
+              {title}
+            </Typography>
+          ) : (
+            <span />
+          )}
+          {actions ? (
+            <div className="flex items-center gap-[4px]">{actions}</div>
+          ) : null}
+        </div>
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SubList — suppressed in collapsed rail mode
+// ---------------------------------------------------------------------------
+
+function SideMenuSubList({
+  className,
+  children,
+  ref,
+  ...rest
+}: ComponentProps<"ul"> & { ref?: Ref<HTMLUListElement> }) {
+  const ctx = useSideMenuContext();
+  if (isCollapsedRail(ctx)) return null;
+  return (
+    <ul
+      ref={ref}
+      data-slot="side-menu-sub-list"
+      className={cn("flex flex-col gap-[2px] list-none p-0 m-0", className)}
+      {...rest}
+    >
+      {children}
+    </ul>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Item
+// ---------------------------------------------------------------------------
+
+export interface SideMenuItemProps {
+  icon?: LucideIcon;
+  label: string;
+  badge?: ReactNode;
+  trailingIcon?: LucideIcon;
+  trailingIconClassName?: string;
+  indent?: boolean;
+  active?: boolean;
+  emphasized?: boolean;
+  size?: "default" | "compact";
+  onSelect?: () => void;
+  href?: string;
+  className?: string;
+  ref?: Ref<HTMLAnchorElement | HTMLButtonElement>;
+}
+
+function ItemLeadingIcon({
+  Icon,
+  indent,
+  active,
+  collapsed,
+}: {
+  Icon: LucideIcon | undefined;
+  indent: boolean;
+  active: boolean;
+  collapsed: boolean;
+}) {
+  if (indent) {
+    return (
+      <span
+        aria-hidden
+        className="inline-block h-[14px] w-[14px] shrink-0"
+      />
+    );
+  }
+  if (!Icon) return null;
+  const iconClass = cn(
+    "shrink-0",
+    active
+      ? "text-[color:var(--content-emphasised)]"
+      : "text-[color:var(--content-secondary)]",
+    collapsed ? "mx-auto" : undefined,
+  );
+  return <Icon size={14} aria-hidden className={iconClass} />;
+}
+
+function ItemBadge({ children }: { children: ReactNode }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center justify-center",
+        "px-[4px] py-[2px] rounded-[4px]",
+        "bg-[var(--surface-base)]",
+        "text-label-small-default",
+        "text-[color:var(--content-tertiary)]",
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+type SharedAnchorProps = Omit<
+  ComponentProps<"a">,
+  "href" | "children" | "ref"
+>;
+type SharedButtonProps = Omit<
+  ComponentProps<"button">,
+  "children" | "type" | "ref"
+>;
+
+function SideMenuItem({
+  icon: Icon,
+  label,
+  badge,
+  trailingIcon: TrailingIcon,
+  trailingIconClassName,
+  indent = false,
+  active = false,
+  emphasized = false,
+  size = "default",
+  onSelect,
+  href,
+  className,
+  ref,
+  ...rest
+}: SideMenuItemProps & SharedAnchorProps & SharedButtonProps) {
+  const ctx = useSideMenuContext();
+  const collapsed = isCollapsedRail(ctx);
+
+  const rowClasses = cn(
+    "group relative flex items-center",
+    "rounded-[6px]",
+    "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
+    "cursor-pointer select-none",
+    "transition-colors",
+    "gap-[8px] p-2",
+    collapsed ? "justify-center" : "justify-start",
+    size === "compact"
+      ? "text-body-small-default max-md:text-body-large-default"
+      : "text-body-medium-lighter max-md:py-3 max-md:text-body-large-default",
+    emphasized
+      ? "text-[color:var(--content-emphasised)]"
+      : "text-[color:var(--content-secondary)]",
+    active
+      ? "bg-[var(--surface-active)] text-[color:var(--content-emphasised)]"
+      : "hover:bg-[var(--surface-hover)]",
+    className,
+  );
+
+  const labelNode = collapsed ? null : (
+    <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+  );
+  const badgeNode = collapsed || !badge ? null : <ItemBadge>{badge}</ItemBadge>;
+  const trailingNode =
+    collapsed || !TrailingIcon ? null : (
+      <TrailingIcon
+        size={14}
+        aria-hidden
+        className={cn(
+          "shrink-0 text-[color:var(--content-tertiary)]",
+          trailingIconClassName,
+        )}
+      />
+    );
+
+  const leadingIconNode = (
+    <ItemLeadingIcon
+      Icon={Icon}
+      indent={indent}
+      active={active}
+      collapsed={collapsed}
+    />
+  );
+
+  const titleAttr = collapsed ? label : undefined;
+  const ariaCurrent = active ? ("page" as const) : undefined;
+
+  if (href) {
+    const {
+      onClick: anchorOnClick,
+      ...anchorProps
+    } = rest as SharedAnchorProps;
+    return (
+      <a
+        ref={ref as Ref<HTMLAnchorElement>}
+        data-slot="side-menu-item"
+        href={href}
+        title={titleAttr}
+        aria-current={ariaCurrent}
+        className={rowClasses}
+        onClick={(event) => {
+          anchorOnClick?.(event);
+          if (!event.defaultPrevented) {
+            onSelect?.();
+          }
+        }}
+        {...anchorProps}
+      >
+        {leadingIconNode}
+        {labelNode}
+        {badgeNode}
+        {trailingNode}
+      </a>
+    );
+  }
+
+  const {
+    onClick: buttonOnClick,
+    onKeyDown: buttonOnKeyDown,
+    ...buttonProps
+  } = rest as SharedButtonProps;
+
+  const composedOnClick = (event: MouseEvent<HTMLButtonElement>) => {
+    buttonOnClick?.(event);
+    if (!event.defaultPrevented) {
+      onSelect?.();
+    }
+  };
+
+  return (
+    <button
+      ref={ref as Ref<HTMLButtonElement>}
+      data-slot="side-menu-item"
+      type="button"
+      title={titleAttr}
+      aria-current={ariaCurrent}
+      className={rowClasses}
+      onClick={composedOnClick}
+      onKeyDown={buttonOnKeyDown}
+      {...buttonProps}
+    >
+      {leadingIconNode}
+      {labelNode}
+      {badgeNode}
+      {trailingNode}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Compound export
+// ---------------------------------------------------------------------------
+
+type SideMenuComponent = typeof SideMenuRoot & {
+  Header: typeof SideMenuHeader;
+  Body: typeof SideMenuBody;
+  Footer: typeof SideMenuFooter;
+  Section: typeof SideMenuSection;
+  SubList: typeof SideMenuSubList;
+  Item: typeof SideMenuItem;
+  Separator: typeof SideMenuSeparator;
+};
+
+const SideMenu = SideMenuRoot as SideMenuComponent;
+SideMenu.Header = SideMenuHeader;
+SideMenu.Body = SideMenuBody;
+SideMenu.Footer = SideMenuFooter;
+SideMenu.Section = SideMenuSection;
+SideMenu.SubList = SideMenuSubList;
+SideMenu.Item = SideMenuItem;
+SideMenu.Separator = SideMenuSeparator;
+
+export {
+  SideMenu,
+  SideMenuBody,
+  SideMenuFooter,
+  SideMenuHeader,
+  SideMenuItem,
+  SideMenuSection,
+  SideMenuSeparator,
+  SideMenuSubList,
+};

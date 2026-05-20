@@ -1,0 +1,91 @@
+import { useMemo } from "react";
+import { useSearchParams } from "react-router";
+
+import { AssistantLifecyclePanel } from "@/domains/settings/components/panels/assistant-lifecycle-panel.js";
+import { FeatureFlagsPanel } from "@/domains/settings/components/panels/feature-flags-panel.js";
+import { SentryTestingPanel } from "@/domains/settings/components/panels/sentry-testing-panel.js";
+import { cn } from "@/utils/misc.js";
+
+const ALL_TABS = [
+  { id: "feature-flags", label: "Feature Flags" },
+  { id: "lifecycle", label: "Assistant Lifecycle" },
+  { id: "sentry", label: "Sentry Testing" },
+] as const;
+
+type DeveloperTabId = (typeof ALL_TABS)[number]["id"];
+
+export function DeveloperPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const activeTab: DeveloperTabId = useMemo(() => {
+    const tabParam = searchParams.get("tab");
+    const match = ALL_TABS.find((tab) => tab.id === tabParam);
+    return match?.id ?? "feature-flags";
+  }, [searchParams]);
+
+  const setActiveTab = (tabId: DeveloperTabId) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (tabId === "feature-flags") {
+      params.delete("tab");
+    } else {
+      params.set("tab", tabId);
+    }
+    setSearchParams(params, { replace: true });
+  };
+
+  return (
+    <div data-slot="developer-page" className="flex min-h-0 flex-1 flex-col">
+      <div
+        role="tablist"
+        aria-label="Developer sections"
+        className="flex shrink-0 items-center gap-1 border-b border-[var(--border-base)]"
+      >
+        {ALL_TABS.map((tab) => {
+          const isActive = tab.id === activeTab;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`developer-tab-panel-${tab.id}`}
+              id={`developer-tab-${tab.id}`}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "relative -mb-px cursor-pointer border-b-2 px-4 py-2 text-body-medium-default transition-colors",
+                isActive
+                  ? "border-[var(--system-positive-strong)] text-[var(--system-positive-strong)]"
+                  : "border-transparent text-[var(--content-tertiary)] hover:text-[var(--content-default)] dark:text-[var(--content-disabled)] dark:hover:text-[var(--content-default)]",
+              )}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div
+        id={`developer-tab-panel-${activeTab}`}
+        role="tabpanel"
+        aria-labelledby={`developer-tab-${activeTab}`}
+        className="flex min-h-0 flex-1 flex-col pt-6"
+      >
+        {activeTab === "feature-flags" && (
+          <div className="max-w-[940px]">
+            <FeatureFlagsPanel />
+          </div>
+        )}
+        {activeTab === "lifecycle" && (
+          <div className="max-w-[940px]">
+            <AssistantLifecyclePanel />
+          </div>
+        )}
+        {activeTab === "sentry" && (
+          <div className="max-w-[940px]">
+            <SentryTestingPanel />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

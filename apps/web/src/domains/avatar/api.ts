@@ -27,17 +27,30 @@ export async function fetchCharacterComponents(
 export async function fetchCharacterTraits(
   assistantId: string,
 ): Promise<CharacterTraits | null> {
+  const { data, error, response } = await client.get({
+    url: "/v1/assistants/{assistant_id}/avatar/character-traits",
+    path: { assistant_id: assistantId },
+  });
+  assertHasResponse(response, error, "Failed to fetch character traits");
+  if (!response.ok || !data) return null;
+  if (!isCharacterTraits(data)) return null;
+  return data;
+}
+
+export async function saveCharacterTraits(
+  assistantId: string,
+  traits: CharacterTraits,
+): Promise<void> {
   try {
-    const { data, error, response } = await client.get({
+    await client.put({
       url: "/v1/assistants/{assistant_id}/avatar/character-traits",
       path: { assistant_id: assistantId },
+      body: traits,
     });
-    assertHasResponse(response, error, "Failed to fetch character traits");
-    if (!response.ok || !data) return null;
-    if (!isCharacterTraits(data)) return null;
-    return data;
   } catch {
-    return null;
+    // Best-effort — avatar traits are non-critical. The assistant still
+    // functions without persisted traits; the next session fetch will
+    // regenerate random traits and the user can customise later.
   }
 }
 

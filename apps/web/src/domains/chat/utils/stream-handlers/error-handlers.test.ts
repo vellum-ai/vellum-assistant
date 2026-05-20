@@ -16,9 +16,7 @@ describe("handleStreamError", () => {
       { type: "error", message: "Something went wrong." },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "STREAM_ERROR",
-    });
+    expect(ctx.turnActions.onStreamError).toHaveBeenCalled();
     expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
     expect(ctx.setError).toHaveBeenCalled();
     expect(cancelFn).toHaveBeenCalled();
@@ -39,9 +37,7 @@ describe("handleConversationErrorEvent", () => {
       },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "STREAM_ERROR",
-    });
+    expect(ctx.turnActions.onStreamError).toHaveBeenCalled();
     expect(ctx.setError).toHaveBeenCalled();
     expect(ctx.setMessages).toHaveBeenCalled();
   });

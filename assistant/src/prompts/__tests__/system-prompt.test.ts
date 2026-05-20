@@ -1,13 +1,13 @@
 /**
- * Tests for the Background Conversation gating in buildSystemPrompt.
- *
- * The Background Conversation guidance is gated on
- * `options.isBackgroundConversation === true`.  Interactive (default)
- * conversations must pay zero token cost — the section must be entirely
- * absent unless the flag is explicitly true.
+ * Smoke tests for buildSystemPrompt — covers tool-routing-guidance
+ * exclusions and other call-shape invariants. Background-conversation
+ * guidance is no longer rendered into the system prompt; see
+ * `__tests__/injector-background-turn.test.ts` for the per-turn
+ * user-message injection that replaced it.
  */
 
-import { mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
@@ -58,51 +58,8 @@ mock.module("../../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-const { buildSystemPrompt, SYSTEM_PROMPT_CACHE_BOUNDARY } =
+const { buildSystemPrompt, maybeReseedBootstrapForCohort } =
   await import("../system-prompt.js");
-
-describe("buildSystemPrompt — Background Conversation gating", () => {
-  beforeEach(() => {
-    mkdirSync(TEST_DIR, { recursive: true });
-  });
-
-  test("isBackgroundConversation: true — appends the Background Conversation section", () => {
-    const result = buildSystemPrompt({ isBackgroundConversation: true });
-    expect(result).toContain("## Background Conversation");
-    expect(result).toContain("`notifications` skill");
-    expect(result).toContain("assistant notifications send");
-  });
-
-  test("isBackgroundConversation: false — section is omitted", () => {
-    const result = buildSystemPrompt({ isBackgroundConversation: false });
-    expect(result).not.toContain("## Background Conversation");
-  });
-
-  test("options undefined — section is omitted (interactive default)", () => {
-    const result = buildSystemPrompt(undefined);
-    expect(result).not.toContain("## Background Conversation");
-  });
-
-  test("options provided without the flag — section is omitted", () => {
-    const result = buildSystemPrompt({});
-    expect(result).not.toContain("## Background Conversation");
-  });
-
-  test("section lives in the static (cached) block, not the dynamic suffix", () => {
-    // The section is deterministic for a given conversationType, so it
-    // belongs in staticParts to share the cache block with other
-    // call-time-stable instructions.
-    const result = buildSystemPrompt({ isBackgroundConversation: true });
-    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
-    expect(boundaryIdx).toBeGreaterThan(-1);
-    const staticBlock = result.slice(0, boundaryIdx);
-    const dynamicBlock = result.slice(
-      boundaryIdx + SYSTEM_PROMPT_CACHE_BOUNDARY.length,
-    );
-    expect(staticBlock).toContain("## Background Conversation");
-    expect(dynamicBlock).not.toContain("## Background Conversation");
-  });
-});
 
 describe("buildSystemPrompt — tool routing guidance", () => {
   beforeEach(() => {
@@ -113,5 +70,58 @@ describe("buildSystemPrompt — tool routing guidance", () => {
     const result = buildSystemPrompt({});
     expect(result).not.toContain("## Clarifying questions");
     expect(result).not.toContain("ask_question");
+  });
+});
+
+describe("maybeReseedBootstrapForCohort — content-automation template", () => {
+  const templatesDir = join(import.meta.dirname!, "..", "templates");
+
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+    // Seed the workspace with the generic BOOTSTRAP.md so the cohort
+    // reseed detects it as an unmodified template and overwrites it.
+    copyFileSync(
+      join(templatesDir, "BOOTSTRAP.md"),
+      join(TEST_DIR, "BOOTSTRAP.md"),
+    );
+  });
+
+  function reseedAndRead(): string {
+    maybeReseedBootstrapForCohort("content-automation");
+    return readFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "utf-8");
+  }
+
+  test("produces BOOTSTRAP.md containing credential_store prompt instructions", () => {
+    const content = reseedAndRead();
+    expect(content).toContain("credential_store");
+    expect(content).toContain("action `prompt`");
+  });
+
+  test("contains all four path options", () => {
+    const content = reseedAndRead();
+    expect(content).toContain("I have a Sanity account");
+    expect(content).toContain("I want to try Sanity");
+    expect(content).toContain("website or blog");
+    expect(content).toContain("somewhere else");
+  });
+
+  test("does NOT contain the old three-question pattern", () => {
+    const content = reseedAndRead();
+    // Old pattern batched three ask_question calls for separate fields
+    expect(content).not.toContain("Batch three");
+    expect(content).not.toContain("one question per field");
+    expect(content).not.toContain("Project ID (options:");
+    expect(content).not.toContain("Dataset name (options:");
+    expect(content).not.toContain('API token (options: "I have one ready"');
+  });
+
+  test("references data/sanity-connection.json for project/dataset state", () => {
+    const content = reseedAndRead();
+    expect(content).toContain("data/sanity-connection.json");
+  });
+
+  test("references assistant oauth request --provider sanity for authenticated API calls", () => {
+    const content = reseedAndRead();
+    expect(content).toContain("assistant oauth request --provider sanity");
   });
 });

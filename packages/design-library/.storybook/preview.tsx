@@ -1,10 +1,14 @@
-import type { Preview } from "@storybook/react-vite";
+import { definePreview } from "@storybook/react-vite";
+import docsAddon from "@storybook/addon-docs";
+import a11yAddon from "@storybook/addon-a11y";
+import { withThemeByDataAttribute } from "@storybook/addon-themes";
 import {
   DocsContainer,
   type DocsContainerProps,
 } from "@storybook/addon-docs/blocks";
 import { create, themes } from "storybook/theming";
 import type { PropsWithChildren } from "react";
+import type { ReactRenderer } from "@storybook/react-vite";
 
 import "./preview.css";
 
@@ -65,45 +69,24 @@ function ThemedDocsContainer({
   );
 }
 
-const preview: Preview = {
+export default definePreview({
+  addons: [docsAddon(), a11yAddon()],
   tags: ["autodocs"],
+  decorators: [
+    withThemeByDataAttribute<ReactRenderer>({
+      themes: {
+        light: "light",
+        dark: "dark",
+        velvet: "velvet",
+      },
+      defaultTheme: "light",
+      attributeName: "data-theme",
+    }),
+  ],
   parameters: {
     controls: { expanded: true },
     docs: {
       container: ThemedDocsContainer,
     },
   },
-  globalTypes: {
-    theme: {
-      description: "Color theme for components",
-      toolbar: {
-        title: "Theme",
-        icon: "paintbrush",
-        items: [
-          { value: "light", title: "Light", icon: "sun" },
-          { value: "dark", title: "Dark", icon: "moon" },
-          { value: "velvet", title: "Velvet", icon: "heart" },
-        ],
-        dynamicTitle: true,
-      },
-    },
-  },
-  initialGlobals: {
-    theme: "light",
-  },
-  decorators: [
-    (Story, context) => {
-      const theme = (context.globals["theme"] as string) ?? "light";
-
-      // Apply theme to the document root so CSS variables resolve globally.
-      // Both the <html> element and <body> are updated so docs-mode inline
-      // previews and standalone canvas stories both pick up the tokens.
-      document.documentElement.setAttribute("data-theme", theme);
-      document.body.setAttribute("data-theme", theme);
-
-      return Story();
-    },
-  ],
-};
-
-export default preview;
+});

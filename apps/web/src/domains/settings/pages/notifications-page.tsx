@@ -1,0 +1,632 @@
+import {
+  AlertTriangle,
+  Bell,
+  BellOff,
+  Check,
+  CheckCheck,
+  Loader2,
+  Moon,
+} from "lucide-react";
+import { useCallback, useState, type ReactNode } from "react";
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { BottomSheet } from "@vellum/design-library/components/bottom-sheet";
+import { Input } from "@vellum/design-library/components/input";
+import { Menu } from "@vellum/design-library/components/menu";
+import { Notice } from "@vellum/design-library/components/notice";
+import { PanelItem } from "@vellum/design-library/components/panel-item";
+import { Popover } from "@vellum/design-library/components/popover";
+import { useIsMobile } from "@/hooks/use-is-mobile.js";
+import {
+  organizationsNotificationsAcknowledgeCreateMutation,
+  organizationsNotificationsListOptions,
+  organizationsNotificationsListQueryKey,
+  organizationsNotificationsPauseRulesCreateMutation,
+  organizationsNotificationsPauseRulesDestroyMutation,
+  organizationsNotificationsSnoozeCreateMutation,
+  organizationsNotificationsSummaryRetrieveQueryKey,
+} from "@/generated/api/@tanstack/react-query.gen.js";
+import type {
+  NotificationList,
+  PauseRuleRead,
+} from "@/generated/api/types.gen.js";
+import {
+  SNOOZE_OPTIONS,
+  formatRelativeDate,
+  isSnoozed,
+} from "@/domains/settings/utils/notification-utils.js";
+
+interface SnoozeMenuProps {
+  notificationId: string;
+  currentlySnoozed: boolean;
+  children: ReactNode;
+}
+
+function SnoozeMenu({
+  notificationId,
+  currentlySnoozed,
+  children,
+}: SnoozeMenuProps) {
+  const queryClient = useQueryClient();
+  const snoozeMutation = useMutation(
+    organizationsNotificationsSnoozeCreateMutation(),
+  );
+  const isMobile = useIsMobile();
+  const [open, setOpen] = useState(false);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({
+      queryKey: organizationsNotificationsListQueryKey(),
+    });
+    queryClient.invalidateQueries({
+      queryKey: organizationsNotificationsSummaryRetrieveQueryKey(),
+    });
+  };
+
+  const handleSnooze = async (hours: number) => {
+    const now = new Date();
+    const snoozedUntil = new Date(
+      now.getTime() + hours * 60 * 60 * 1000,
+    ).toISOString();
+    await snoozeMutation.mutateAsync({
+      path: { id: notificationId },
+      body: { snoozed_until: snoozedUntil },
+    });
+    invalidate();
+  };
+
+  const handleUnsnooze = async () => {
+    await snoozeMutation.mutateAsync({
+      path: { id: notificationId },
+      body: { snoozed_until: null },
+    });
+    invalidate();
+  };
+
+  if (isMobile) {
+    return (
+      <BottomSheet.Root open={open} onOpenChange={setOpen}>
+        <BottomSheet.Trigger asChild>{children}</BottomSheet.Trigger>
+        <BottomSheet.Content>
+          <BottomSheet.Header>
+            <BottomSheet.Title>Snooze until…</BottomSheet.Title>
+          </BottomSheet.Header>
+          <BottomSheet.Body>
+            {SNOOZE_OPTIONS.map(({ label, hours }) => (
+              <PanelItem
+                key={label}
+                label={label}
+                onSelect={() => {
+                  if (snoozeMutation.isPending) return;
+                  setOpen(false);
+                  void handleSnooze(hours);
+                }}
+              />
+            ))}
+            {currentlySnoozed && (
+              <PanelItem
+                label="Clear snooze"
+                onSelect={() => {
+                  if (snoozeMutation.isPending) return;
+                  setOpen(false);
+                  void handleUnsnooze();
+                }}
+              />
+            )}
+          </BottomSheet.Body>
+        </BottomSheet.Content>
+      </BottomSheet.Root>
+    );
+  }
+
+  return (
+    <Menu.Root open={open} onOpenChange={setOpen}>
+      <Menu.Trigger>{children}</Menu.Trigger>
+      <Menu.Content align="start" className="min-w-[12rem]">
+        <Menu.Label>Snooze until…</Menu.Label>
+        {SNOOZE_OPTIONS.map(({ label, hours }) => (
+          <Menu.Item
+            key={label}
+            disabled={snoozeMutation.isPending}
+            onSelect={() => void handleSnooze(hours)}
+          >
+            {label}
+          </Menu.Item>
+        ))}
+        {currentlySnoozed && (
+          <>
+            <Menu.Separator />
+            <Menu.Item
+              disabled={snoozeMutation.isPending}
+              onSelect={() => void handleUnsnooze()}
+            >
+              Clear snooze
+            </Menu.Item>
+          </>
+        )}
+      </Menu.Content>
+    </Menu.Root>
+  );
+}
+
+interface PauseAlertsContentProps {
+  existingRules: PauseRuleRead[];
+  onClose: () => void;
+  onPauseCreated: (rule: PauseRuleRead) => void;
+  onPauseDeleted: (ruleId: string) => void;
+  hideTitle?: boolean;
+}
+
+function PauseAlertsContent({
+  existingRules,
+  onClose,
+  onPauseCreated,
+  onPauseDeleted,
+  hideTitle = false,
+}: PauseAlertsContentProps) {
+  const queryClient = useQueryClient();
+  const createRule = useMutation(
+    organizationsNotificationsPauseRulesCreateMutation(),
+  );
+  const deleteRule = useMutation(
+    organizationsNotificationsPauseRulesDestroyMutation(),
+  );
+  const [reason, setReason] = useState("");
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({
+      queryKey: organizationsNotificationsListQueryKey(),
+    });
+    queryClient.invalidateQueries({
+      queryKey: organizationsNotificationsSummaryRetrieveQueryKey(),
+    });
+  };
+
+  const handleCreate = async () => {
+    const now = new Date();
+    const oneYearFromNow = new Date(
+      now.getTime() + 365 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const created = await createRule.mutateAsync({
+      body: {
+        notification_type: "alert",
+        dedupe_key_prefix: "",
+        reason: reason.trim() || "User requested pause",
+        expires_at: oneYearFromNow,
+      },
+    });
+    onPauseCreated(created);
+    invalidate();
+    onClose();
+  };
+
+  const handleDelete = async (ruleId: string) => {
+    await deleteRule.mutateAsync({ path: { rule_id: ruleId } });
+    onPauseDeleted(ruleId);
+    invalidate();
+    onClose();
+  };
+
+  const isPending = createRule.isPending || deleteRule.isPending;
+
+  return (
+    <div>
+      {!hideTitle && (
+        <p className="mb-2 text-body-medium-default text-[var(--content-default)]">
+          Pause alerts
+        </p>
+      )}
+
+      {existingRules.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-body-small-default text-[var(--content-secondary)]">
+            Active pause rules:
+          </p>
+          {existingRules.map((rule) => (
+            <div
+              key={rule.id}
+              className="flex items-center justify-between rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] px-2 py-2"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-body-small-default text-[var(--content-default)]">
+                  {rule.reason || "All alerts paused"}
+                </p>
+                {rule.expires_at && (
+                  <p className="text-body-small-default text-[var(--content-secondary)]">
+                    Expires {formatRelativeDate(rule.expires_at)}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleDelete(rule.id)}
+                disabled={isPending}
+                className="ml-2 shrink-0 cursor-pointer rounded px-2 py-1 text-body-small-default text-[var(--system-negative-strong)] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Resume
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-body-small-default text-[var(--content-secondary)]">
+            Temporarily mute all alert notifications.
+          </p>
+          <Input
+            type="text"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Reason (optional)"
+          />
+          <button
+            type="button"
+            onClick={() => void handleCreate()}
+            disabled={isPending}
+            className="w-full cursor-pointer rounded-md bg-[var(--primary-base)] px-3 py-1.5 text-body-medium-default text-[var(--content-inset)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {createRule.isPending ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Pausing…
+              </span>
+            ) : (
+              "Pause all alerts"
+            )}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface NotificationCardProps {
+  notification: NotificationList;
+  onAck: (id: string, acknowledged: boolean) => void;
+  isAcking: boolean;
+}
+
+function NotificationCard({
+  notification,
+  onAck,
+  isAcking,
+}: NotificationCardProps) {
+  const isAlert = notification.notification_type === "alert";
+  const snoozedNow = isSnoozed(notification);
+  const unread = !notification.is_read;
+
+  return (
+    <div
+      className="relative rounded-lg border border-[var(--border-base)] p-4"
+      style={{
+        background: notification.is_resolved
+          ? "var(--surface-base)"
+          : "var(--surface-lift)",
+        opacity: notification.is_resolved ? 0.75 : 1,
+      }}
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            {unread && !notification.is_resolved && (
+              <span
+                aria-hidden
+                className="h-2 w-2 shrink-0 rounded-full bg-[var(--primary-base)]"
+              />
+            )}
+            {isAlert && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[color-mix(in_oklab,var(--system-negative-strong)_14%,transparent)] px-2 py-0.5 text-body-small-default text-[var(--system-negative-strong)]">
+                <AlertTriangle className="h-3 w-3" />
+                Alert
+              </span>
+            )}
+            {snoozedNow && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--surface-base)] px-2 py-0.5 text-body-small-default text-[var(--content-secondary)]">
+                <Moon className="h-3 w-3" />
+                Snoozed
+              </span>
+            )}
+            {notification.is_resolved && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[color-mix(in_oklab,var(--system-positive-strong)_14%,transparent)] px-2 py-0.5 text-body-small-default text-[var(--system-positive-strong)]">
+                <Check className="h-3 w-3" />
+                Resolved
+              </span>
+            )}
+          </div>
+
+          <h3
+            className="text-body-medium-default leading-tight"
+            style={{
+              color: notification.is_resolved
+                ? "var(--content-secondary)"
+                : "var(--content-default)",
+            }}
+          >
+            {notification.title}
+          </h3>
+
+          {notification.body && (
+            <p className="text-body-small-default leading-relaxed text-[var(--content-secondary)]">
+              {notification.body}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-3 text-body-small-default text-[var(--content-secondary)]">
+        <span>Last seen {formatRelativeDate(notification.last_seen_at)}</span>
+        {notification.occurrence_count > 1 && (
+          <span>· {notification.occurrence_count}× occurrences</span>
+        )}
+      </div>
+
+      {!notification.is_resolved && (
+        <div className="mt-3 flex items-center gap-2 border-t border-[var(--border-base)] pt-3">
+          <button
+            type="button"
+            onClick={() => onAck(notification.id, unread)}
+            disabled={isAcking}
+            className="flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-body-small-default transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+            style={{
+              background: unread
+                ? "var(--primary-base)"
+                : "var(--surface-base)",
+              color: unread
+                ? "var(--content-inset)"
+                : "var(--content-secondary)",
+            }}
+          >
+            {isAcking ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Check className="h-3 w-3" />
+            )}
+            {unread ? "Mark as read" : "Mark as unread"}
+          </button>
+
+          <SnoozeMenu
+            notificationId={notification.id}
+            currentlySnoozed={snoozedNow}
+          >
+            <button
+              type="button"
+              className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] px-3 py-1.5 text-body-small-default text-[var(--content-secondary)] transition-opacity hover:opacity-80"
+            >
+              <Moon className="h-3 w-3" />
+              {snoozedNow ? "Change snooze" : "Snooze"}
+            </button>
+          </SnoozeMenu>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type StatusFilter = "open" | "resolved";
+
+export function NotificationsPage() {
+  const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
+
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
+  const [pauseOpen, setPauseOpen] = useState(false);
+  const [pauseRules, setPauseRules] = useState<PauseRuleRead[]>([]);
+
+  const { data, isLoading, isError, refetch } = useQuery(
+    organizationsNotificationsListOptions({
+      query: { status: statusFilter },
+    }),
+  );
+
+  const notifications = data?.results ?? [];
+  const unreadOpen = notifications.filter(
+    (n) => !n.is_read && !n.is_resolved,
+  );
+
+  const ackMutation = useMutation(
+    organizationsNotificationsAcknowledgeCreateMutation(),
+  );
+  const [ackingIds, setAckingIds] = useState<Set<string>>(new Set());
+  const [markingAll, setMarkingAll] = useState(false);
+
+  const invalidateLists = useCallback(() => {
+    queryClient.invalidateQueries({
+      queryKey: organizationsNotificationsListQueryKey(),
+    });
+    queryClient.invalidateQueries({
+      queryKey: organizationsNotificationsSummaryRetrieveQueryKey(),
+    });
+  }, [queryClient]);
+
+  const handleAck = async (id: string, acknowledged: boolean) => {
+    setAckingIds((prev) => new Set(prev).add(id));
+    try {
+      await ackMutation.mutateAsync({
+        path: { id },
+        body: { acknowledged },
+      });
+      invalidateLists();
+    } finally {
+      setAckingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    if (unreadOpen.length === 0 || markingAll) return;
+    setMarkingAll(true);
+    try {
+      await Promise.allSettled(
+        unreadOpen.map((n) =>
+          ackMutation.mutateAsync({
+            path: { id: n.id },
+            body: { acknowledged: true },
+          }),
+        ),
+      );
+    } finally {
+      invalidateLists();
+      setMarkingAll(false);
+    }
+  };
+
+  const pauseButton = (
+    <button
+      type="button"
+      className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] px-3 py-1.5 text-body-small-default text-[var(--content-secondary)] transition-opacity hover:opacity-80"
+      title="Pause alerts"
+    >
+      <BellOff className="h-3.5 w-3.5" />
+      Pause alerts
+    </button>
+  );
+
+  const pauseContent = (
+    <PauseAlertsContent
+      existingRules={pauseRules}
+      onClose={() => setPauseOpen(false)}
+      onPauseCreated={(rule) => setPauseRules((prev) => [...prev, rule])}
+      onPauseDeleted={(ruleId) =>
+        setPauseRules((prev) => prev.filter((r) => r.id !== ruleId))
+      }
+    />
+  );
+
+  return (
+    <div className="max-w-[940px] space-y-4">
+      <div className="flex items-center gap-3">
+        <Bell className="h-5 w-5 text-[var(--content-secondary)]" />
+        <div className="flex-1">
+          <h2 className="text-title-medium text-[var(--content-default)]">
+            Notifications
+          </h2>
+          <p className="text-body-medium-lighter text-[var(--content-secondary)]">
+            Platform alerts and status notifications
+          </p>
+        </div>
+        {isMobile ? (
+          <BottomSheet.Root open={pauseOpen} onOpenChange={setPauseOpen}>
+            <BottomSheet.Trigger asChild>{pauseButton}</BottomSheet.Trigger>
+            <BottomSheet.Content>
+              <BottomSheet.Header>
+                <BottomSheet.Title>Pause alerts</BottomSheet.Title>
+              </BottomSheet.Header>
+              <BottomSheet.Body>
+                <PauseAlertsContent
+                  existingRules={pauseRules}
+                  onClose={() => setPauseOpen(false)}
+                  onPauseCreated={(rule) =>
+                    setPauseRules((prev) => [...prev, rule])
+                  }
+                  onPauseDeleted={(ruleId) =>
+                    setPauseRules((prev) =>
+                      prev.filter((r) => r.id !== ruleId),
+                    )
+                  }
+                  hideTitle
+                />
+              </BottomSheet.Body>
+            </BottomSheet.Content>
+          </BottomSheet.Root>
+        ) : (
+          <Popover.Root open={pauseOpen} onOpenChange={setPauseOpen}>
+            <Popover.Trigger asChild>{pauseButton}</Popover.Trigger>
+            <Popover.Content align="end" className="w-72">
+              {pauseContent}
+            </Popover.Content>
+          </Popover.Root>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <div className="flex gap-1 rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] p-1">
+          {(["open", "resolved"] as const).map((f) => {
+            const active = statusFilter === f;
+            return (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setStatusFilter(f)}
+                className="cursor-pointer rounded px-3 py-1 text-body-small-default capitalize transition-colors"
+                style={{
+                  background: active ? "var(--surface-lift)" : "transparent",
+                  color: active
+                    ? "var(--content-default)"
+                    : "var(--content-secondary)",
+                  boxShadow: active
+                    ? "0 1px 2px rgba(0,0,0,0.08)"
+                    : undefined,
+                }}
+              >
+                {f}
+              </button>
+            );
+          })}
+        </div>
+
+        {statusFilter === "open" && unreadOpen.length > 1 && (
+          <button
+            type="button"
+            onClick={() => void handleMarkAllRead()}
+            disabled={markingAll}
+            className="ml-auto flex cursor-pointer items-center gap-1.5 rounded-md border border-[var(--border-base)] bg-transparent px-3 py-1.5 text-body-small-default text-[var(--content-secondary)] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {markingAll ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <CheckCheck className="h-3 w-3" />
+            )}
+            Mark all as read ({unreadOpen.length})
+          </button>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 py-6 text-body-medium-lighter text-[var(--content-secondary)]">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading notifications…
+        </div>
+      ) : isError ? (
+        <Notice tone="error">
+          Failed to load notifications.{" "}
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="cursor-pointer underline hover:no-underline"
+          >
+            Retry
+          </button>
+        </Notice>
+      ) : notifications.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--surface-base)]">
+            <Bell className="h-5 w-5 text-[var(--content-secondary)]" />
+          </div>
+          <p className="text-body-medium-default text-[var(--content-default)]">
+            No {statusFilter} notifications
+          </p>
+          <p className="text-body-small-default text-[var(--content-secondary)]">
+            {statusFilter === "open"
+              ? "You're all caught up!"
+              : "Nothing to show here."}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {notifications.map((notification) => (
+            <NotificationCard
+              key={notification.id}
+              notification={notification}
+              onAck={(id, ack) => void handleAck(id, ack)}
+              isAcking={ackingIds.has(notification.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

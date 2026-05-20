@@ -130,6 +130,30 @@ import { Button } from "@vellum/design-library/components/button";
 import { cn } from "@vellum/design-library/utils/cn";
 ```
 
+### Just-in-Time compilation
+
+This package uses the **Just-in-Time (JIT) internal package** strategy —
+it exports raw TypeScript source that the consuming app's bundler (Vite)
+compiles on the fly. This means:
+
+- **No build step required** — clone, `bun install`, and start developing.
+  Changes to design library components are picked up immediately by HMR.
+- **Consumer apps must list this package's dependencies** in their own
+  `package.json` (e.g. `react-markdown`, `remark-gfm`, Radix packages).
+  Because the `file:` link resolves to raw source, TypeScript resolves
+  imports through the consumer's `node_modules`. These deps are deduplicated
+  at runtime by Vite — they only need to be listed for type resolution.
+
+For multi-consumer setups or when build times become a concern, consider
+the [compiled package strategy](https://turborepo.dev/docs/core-concepts/internal-packages#compiled-packages)
+instead.
+
+References:
+- [Turborepo — Internal Packages: Just-in-Time strategy](https://turborepo.dev/docs/core-concepts/internal-packages#just-in-time-packages)
+- [Hiroki Osame — Think twice before importing package source files](https://hirok.io/posts/importing-source-files-in-dev) (tradeoffs of source imports)
+
+### Tailwind and token setup
+
 The consuming app must import the design token stylesheet and include this
 package's source in its Tailwind source scan:
 
@@ -185,12 +209,39 @@ the same three-step pattern above and keep values in sync with the platform's
 [`appTheme.css`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/web/src/app/(app)/appTheme.css)
 and [`globals.css`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/web/src/app/globals.css).
 
+## Customization
+
+Components expose callback or component props for injecting
+domain-specific behavior. The library provides sensible defaults;
+consumers override only what they need.
+
+```tsx
+import { MarkdownMessage } from "@vellum/design-library";
+
+// Default behavior — links open in a new tab with noopener noreferrer
+<MarkdownMessage content={text} />
+
+// Custom link rendering — pass a component via the linkComponent prop
+<MarkdownMessage content={text} linkComponent={MyCustomLink} />
+```
+
+This is the standard composition pattern used by
+[react-markdown](https://github.com/remarkjs/react-markdown#components)
+(`components` prop),
+[MUI](https://mui.com/material-ui/integrations/routing/) (`component`
+prop), and [Radix](https://www.radix-ui.com/docs/primitives/guides/composition)
+(`asChild`).
+
+References:
+- [React — Passing Props to a Component](https://react.dev/learn/passing-props-to-a-component)
+
 ## Storybook
 
 [Storybook](https://storybook.js.org/) provides isolated component development and auto-generated documentation.
 
 ```bash
 cd packages/design-library
+bun install                # installs deps + Playwright Chromium via @playwright/browser-chromium
 bun run storybook          # dev server → http://localhost:6006
 bun run build-storybook    # static build → storybook-static/
 ```
@@ -198,6 +249,23 @@ bun run build-storybook    # static build → storybook-static/
 Stories are colocated next to their components (`*.stories.tsx`). Autodocs generates prop tables from TypeScript types automatically.
 
 Use the **Theme** toolbar in Storybook to switch between Light, Dark, and Velvet modes. All components re-render with the selected theme's tokens.
+
+### Testing
+
+Every story doubles as a render test via the [Vitest addon](https://storybook.js.org/docs/writing-tests/integrations/vitest-addon):
+
+```bash
+cd packages/design-library
+bun run test               # run all render tests (Playwright Chromium)
+```
+
+Tests run in a real browser (headless Chromium via [Playwright](https://playwright.dev/)) and verify that each story renders without errors. No extra test files needed — stories _are_ the tests.
+
+Playwright Chromium is installed automatically by the [`@playwright/browser-chromium`](https://www.npmjs.com/package/@playwright/browser-chromium) package (listed in `trustedDependencies` so bun runs its install script). The Storybook dev server also uses Playwright to power the in-UI testing widget — if you see a "Failed to initialize Vitest" error on startup, run `bunx playwright install chromium` to fix it.
+
+### MCP (AI agent integration)
+
+The [`@storybook/addon-mcp`](https://github.com/storybookjs/mcp) addon exposes component metadata (props, stories, variants) via the [Model Context Protocol](https://modelcontextprotocol.io/). AI coding agents (Claude, Cursor, Copilot, etc.) can discover and correctly use design library components when this Storybook is running.
 
 ### npm publishing
 

@@ -28,10 +28,10 @@ import {
 } from "@/domains/chat/lib/diagnostics.js";
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import type { DomainEvent } from "@/domains/chat/lib/turn-state-machine.js";
-import type { InteractionEvent, InteractionState } from "@/domains/chat/lib/interaction-state-machine.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
-import type { SubagentAction } from "@/domains/chat/lib/subagent-state.js";
+import { useTurnStore } from "@/domains/messaging/turn-store.js";
+import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import type { SubagentStatus } from "@/domains/chat/lib/event-types.js";
 
 import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
@@ -101,7 +101,7 @@ interface UseConversationHistoryParams {
   inputRef: MutableRefObject<HTMLTextAreaElement | null>;
   draftsRef: MutableRefObject<Map<string, string>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  interactionStateRef: MutableRefObject<InteractionState>;
+
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   needsNewBubbleRef: MutableRefObject<boolean>;
@@ -119,19 +119,15 @@ interface UseConversationHistoryParams {
   loadEpochRef: MutableRefObject<number>;
 
   // State setters
-  dispatchConversationList: Dispatch<ConversationListAction>;
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
   setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
   setError: Dispatch<SetStateAction<ChatError | null>>;
-  dispatchInteraction: Dispatch<InteractionEvent>;
   setAutoGreetPending: Dispatch<SetStateAction<boolean>>;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
   setSuggestion: Dispatch<SetStateAction<string | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
   setInput: Dispatch<SetStateAction<string>>;
-  dispatchTurn: Dispatch<DomainEvent>;
-  dispatchSubagent: Dispatch<SubagentAction>;
 
   // Callbacks
   resetChatAttachments: () => void;
@@ -180,7 +176,6 @@ export function useConversationHistory({
   inputRef,
   draftsRef,
   messagesRef,
-  interactionStateRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   needsNewBubbleRef,
@@ -196,19 +191,15 @@ export function useConversationHistory({
   isLoadingOlderRef,
   historyLoadedRef,
   loadEpochRef,
-  dispatchConversationList,
   setMessages,
   setTranscriptPagination,
   setIsLoadingHistory,
   setError,
-  dispatchInteraction,
   setAutoGreetPending,
   setContextWindowUsage,
   setSuggestion,
   setCompactionCircuitOpenUntil,
   setInput,
-  dispatchTurn,
-  dispatchSubagent,
   resetChatAttachments,
   syncNeedsNewBubbleFromMessages,
   onDraftRestored,
@@ -254,8 +245,9 @@ export function useConversationHistory({
       }
       // If the outgoing conversation has a pending interaction, mark it as
       // needing attention so the sidebar shows an alert icon.
-      if (interactionStateRef.current.pendingSecret || interactionStateRef.current.pendingConfirmation) {
-        dispatchConversationList({ type: "ADD_ATTENTION_KEY", key: outgoingKey });
+      const interactionSnapshot = useInteractionStore.getState();
+      if (interactionSnapshot.pendingSecret || interactionSnapshot.pendingConfirmation) {
+        useConversationListStore.getState().addAttentionKey(outgoingKey);
       }
       // Cache outgoing conversation's messages (LRU eviction)
       const outgoingMessages = messagesRef.current;
@@ -326,7 +318,7 @@ export function useConversationHistory({
       previousPagination: transcriptPaginationRef.current,
       cacheSize: conversationCacheRef.current.size,
     });
-    dispatchTurn({ type: "TURN_RESET" });
+    useTurnStore.getState().resetTurn();
     setIsLoadingHistory(true);
     needsNewBubbleRef.current = true;
     setMessages([]);
@@ -340,7 +332,7 @@ export function useConversationHistory({
       isLoadingOlder: false,
       isPinnedToLatest: true,
     });
-    dispatchInteraction({ type: "RESET_ALL" });
+    useInteractionStore.getState().resetAll();
     confirmationToolCallMapRef.current.clear();
     setAutoGreetPending(false);
     resetChatAttachments();
@@ -394,7 +386,7 @@ export function useConversationHistory({
             interactions.pendingSecret as Record<string, unknown>,
           );
           if (loadEpochRef.current === epoch) {
-            dispatchInteraction({ type: "SHOW_SECRET", payload: parsed });
+            useInteractionStore.getState().showSecret(parsed);
           }
         }
         if (interactions.pendingConfirmation) {
@@ -402,11 +394,11 @@ export function useConversationHistory({
             interactions.pendingConfirmation as Record<string, unknown>,
           );
           if (loadEpochRef.current === epoch) {
-            dispatchInteraction({ type: "SHOW_CONFIRMATION", payload: state });
+            useInteractionStore.getState().showConfirmation(state);
           }
         }
         if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
-          dispatchConversationList({ type: "REMOVE_ATTENTION_KEY", key: activeConversationKey });
+          useConversationListStore.getState().removeAttentionKey(activeConversationKey);
         }
       } catch {
         // Keep attention key on failure -- the prompt wasn't restored.
@@ -511,10 +503,10 @@ export function useConversationHistory({
           }
         }
 
-        dispatchSubagent({ type: "SUBAGENT_RESET" });
+        const subagentStore = useSubagentStore.getState();
+        subagentStore.reset();
         for (const n of deduped.values()) {
-          dispatchSubagent({
-            type: "SUBAGENT_SPAWNED",
+          subagentStore.spawnSubagent({
             subagentId: n.subagentId,
             label: n.label,
             objective: "",
@@ -644,7 +636,6 @@ export function useConversationHistory({
     inputRef,
     draftsRef,
     messagesRef,
-    interactionStateRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     needsNewBubbleRef,
@@ -664,16 +655,12 @@ export function useConversationHistory({
     setMessages,
     setTranscriptPagination,
     setIsLoadingHistory,
-    dispatchConversationList,
     setError,
-    dispatchInteraction,
     setAutoGreetPending,
     setContextWindowUsage,
     setSuggestion,
     setCompactionCircuitOpenUntil,
     setInput,
-    dispatchTurn,
-    dispatchSubagent,
     onDraftRestored,
     shouldSuppressGenericChatErrorNotice,
   ]);

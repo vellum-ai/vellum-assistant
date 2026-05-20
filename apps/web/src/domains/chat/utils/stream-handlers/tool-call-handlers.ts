@@ -15,7 +15,7 @@ export function handleToolUseStart(
   ctx: StreamHandlerContext,
 ): void {
   ctx.cancelReconciliation();
-  ctx.dispatchTurn({ type: "TOOL_USE_START" });
+  ctx.turnActions.onToolUseStart();
   const toolCallId =
     event.toolUseId ?? `tool-${++ctx.toolCallIdCounterRef.current}`;
   const newToolCall: ChatMessageToolCall = {
@@ -41,7 +41,7 @@ export function handleToolResult(
   event: ToolResultEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchTurn({ type: "TOOL_RESULT" });
+  ctx.turnActions.onToolResult();
   ctx.setMessages((prev) =>
     applyToolResult(prev, {
       toolUseId: event.toolUseId,

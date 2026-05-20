@@ -1,7 +1,5 @@
 import { client } from "@/generated/api/client.gen.js";
 
-import "@/lib/api-client.js";
-
 // `/v1/stt/transcribe` is not yet in the OpenAPI schema, so we fall through
 // to the low-level HeyAPI client until it's generated — matching the pattern
 // used by dictation-api.ts for `/v1/dictation`.

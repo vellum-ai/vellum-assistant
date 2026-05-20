@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 
 import type { Surface } from "@/domains/chat/lib/types.js";
 
-import { MarkdownMessage } from "@/components/markdown-message.js";
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,7 +80,7 @@ export function ConfirmationSurface({ surface, onAction }: ConfirmationSurfacePr
         </div>
       )}
 
-      <MarkdownMessage
+      <ChatMarkdownMessage
         content={data.message}
         className={`text-body-medium-default ${
           data.destructive
@@ -90,7 +90,7 @@ export function ConfirmationSurface({ surface, onAction }: ConfirmationSurfacePr
       />
 
       {data.detail && (
-        <MarkdownMessage
+        <ChatMarkdownMessage
           content={data.detail}
           className="mt-1 text-body-medium-lighter text-[var(--content-secondary)]"
         />

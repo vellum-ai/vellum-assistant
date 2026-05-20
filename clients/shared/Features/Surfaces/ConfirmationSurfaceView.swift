@@ -39,12 +39,16 @@ public struct ConfirmationSurfaceView: View {
             if let selectedAction {
                 selectedActionFeedback(selectedAction)
             } else if showCardChrome {
-                pendingContent
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .inlineWidgetCard()
+                HStack(spacing: 0) {
+                    pendingContent
+                    Spacer(minLength: 0)
+                }
+                .inlineWidgetCard()
             } else {
-                pendingContent
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 0) {
+                    pendingContent
+                    Spacer(minLength: 0)
+                }
             }
         }
         .onChange(of: data) { _, _ in

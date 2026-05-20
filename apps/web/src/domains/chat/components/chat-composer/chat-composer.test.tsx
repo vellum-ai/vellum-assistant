@@ -17,7 +17,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   type ChatAttachment,
 } from "@/domains/chat/components/chat-attachments/index.js";
-import { INITIAL_TURN_STATE, type TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
 
 import { ChatComposer, computeGhostSuffix, shouldSubmitOnEnter } from "@/domains/chat/components/chat-composer/chat-composer.js";
 
@@ -294,7 +294,6 @@ function renderComposer(props: Partial<Parameters<typeof ChatComposer>[0]> = {})
       chatAttachments={[]}
       onAddAttachmentFiles={() => {}}
       onRemoveAttachment={() => {}}
-      turnState={INITIAL_TURN_STATE}
       onStopGenerating={() => {}}
       assistantId="asst_test"
       {...props}
@@ -316,41 +315,45 @@ describe("ChatComposer — placeholder", () => {
 
 describe("ChatComposer — send/stop button visibility", () => {
   test("idle state renders a Send button (aria-label='Send message')", () => {
-    const html = renderComposer({ turnState: INITIAL_TURN_STATE });
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    const html = renderComposer();
     expect(html).toContain('aria-label="Send message"');
     expect(html).not.toContain('aria-label="Stop generating"');
   });
 
-  test("isSending(turnState)=true on desktop renders only the Stop button (send/attach/voice hidden)", () => {
+  test("isSending=true on desktop renders only the Stop button (send/attach/voice hidden)", () => {
     mockIsMobile = false;
     const sending: TurnState = {
       ...INITIAL_TURN_STATE,
       phase: "streaming",
     };
-    const html = renderComposer({ turnState: sending });
+    useTurnStore.setState(sending);
+    const html = renderComposer();
     expect(html).toContain('aria-label="Stop generating"');
     expect(html).not.toContain('aria-label="Send message"');
   });
 
-  test("isSending(turnState)=true on mobile with no input renders only Stop button", () => {
+  test("isSending=true on mobile with no input renders only Stop button", () => {
     mockIsMobile = true;
     const sending: TurnState = {
       ...INITIAL_TURN_STATE,
       phase: "streaming",
     };
-    const html = renderComposer({ turnState: sending, input: "" });
+    useTurnStore.setState(sending);
+    const html = renderComposer({ input: "" });
     expect(html).toContain('aria-label="Stop generating"');
     expect(html).not.toContain('aria-label="Send message"');
     mockIsMobile = false;
   });
 
-  test("isSending(turnState)=true on mobile with user input renders only Send button", () => {
+  test("isSending=true on mobile with user input renders only Send button", () => {
     mockIsMobile = true;
     const sending: TurnState = {
       ...INITIAL_TURN_STATE,
       phase: "streaming",
     };
-    const html = renderComposer({ turnState: sending, input: "hello" });
+    useTurnStore.setState(sending);
+    const html = renderComposer({ input: "hello" });
     expect(html).not.toContain('aria-label="Stop generating"');
     expect(html).toContain('aria-label="Send message"');
     mockIsMobile = false;
@@ -363,7 +366,8 @@ describe("ChatComposer — send/stop button visibility", () => {
       ...INITIAL_TURN_STATE,
       phase: "awaiting_user_input",
     };
-    const html = renderComposer({ turnState: awaiting });
+    useTurnStore.setState(awaiting);
+    const html = renderComposer();
     expect(html).toContain('aria-label="Send message"');
     expect(html).not.toContain('aria-label="Stop generating"');
   });
@@ -431,7 +435,6 @@ describe("ChatComposer — Stop button click invokes onStopGenerating", () => {
     // captured callback directly.
     const onStopGenerating = mock(() => {});
     renderComposer({
-      turnState: { ...INITIAL_TURN_STATE, phase: "streaming" },
       onStopGenerating,
     });
     onStopGenerating();

@@ -17,7 +17,7 @@ describe("handleUISurfaceShow", () => {
       ctx,
     );
     expect(ctx.setAssetsRefreshKey).toHaveBeenCalled();
-    expect(ctx.dispatchTurn).toHaveBeenCalled();
+    expect(ctx.turnActions.showSurface).toHaveBeenCalled();
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 
@@ -47,9 +47,7 @@ describe("handleUISurfaceUpdate", () => {
       { type: "ui_surface_update", surfaceId: "s-1", data: { key: "value" } },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "UI_SURFACE_UPDATE",
-    });
+    expect(ctx.turnActions.updateSurface).toHaveBeenCalled();
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 });
@@ -61,9 +59,7 @@ describe("handleUISurfaceDismiss", () => {
       { type: "ui_surface_dismiss", surfaceId: "s-1" },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "UI_SURFACE_DISMISS",
-    });
+    expect(ctx.turnActions.dismissSurface).toHaveBeenCalled();
     expect(ctx.dismissedSurfaceIdsRef.current.has("s-1")).toBe(true);
     expect(ctx.setMessages).toHaveBeenCalled();
   });
@@ -86,9 +82,7 @@ describe("handleUISurfaceComplete", () => {
       ctx,
     );
     expect(ctx.setAssetsRefreshKey).toHaveBeenCalled();
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "UI_SURFACE_COMPLETE",
-    });
+    expect(ctx.turnActions.completeSurface).toHaveBeenCalled();
   });
 
   it("does not increment refresh key for non-dynamic surface types", () => {

@@ -1,0 +1,90 @@
+import { useMemo } from "react";
+import { useSearchParams } from "react-router";
+
+import { AssistantTerminalPanel } from "@/domains/settings/components/panels/assistant-terminal-panel.js";
+import { DebugControlsPanel } from "@/domains/settings/components/panels/debug-controls-panel.js";
+import { DoctorPanel } from "@/domains/settings/components/panels/doctor-panel.js";
+import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { cn } from "@/utils/misc.js";
+
+const ALL_TABS = [
+  { id: "general", label: "General" },
+  { id: "terminal", label: "Terminal" },
+  { id: "doctor", label: "Doctor" },
+] as const;
+
+type DebugTabId = (typeof ALL_TABS)[number]["id"];
+
+export function DebugPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { doctor: doctorEnabled } = useAppFeatureFlags();
+
+  const tabs = useMemo(
+    () => ALL_TABS.filter((tab) => tab.id !== "doctor" || doctorEnabled),
+    [doctorEnabled],
+  );
+
+  const activeTab: DebugTabId = useMemo(() => {
+    const tabParam = searchParams.get("tab");
+    const match = tabs.find((tab) => tab.id === tabParam);
+    return match?.id ?? "general";
+  }, [searchParams, tabs]);
+
+  const setActiveTab = (tabId: DebugTabId) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (tabId === "general") {
+      params.delete("tab");
+    } else {
+      params.set("tab", tabId);
+    }
+    setSearchParams(params, { replace: true });
+  };
+
+  return (
+    <div data-slot="debug-page" className="flex min-h-0 flex-1 flex-col">
+      <div
+        role="tablist"
+        aria-label="Debug sections"
+        className="flex shrink-0 items-center gap-1 border-b border-[var(--border-base)]"
+      >
+        {tabs.map((tab) => {
+          const isActive = tab.id === activeTab;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`debug-tab-panel-${tab.id}`}
+              id={`debug-tab-${tab.id}`}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "relative -mb-px cursor-pointer border-b-2 px-4 py-2 text-body-medium-default transition-colors",
+                isActive
+                  ? "border-[var(--system-positive-strong)] text-[var(--system-positive-strong)]"
+                  : "border-transparent text-[var(--content-tertiary)] hover:text-[var(--content-default)] dark:text-[var(--content-disabled)] dark:hover:text-[var(--content-default)]",
+              )}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div
+        id={`debug-tab-panel-${activeTab}`}
+        role="tabpanel"
+        aria-labelledby={`debug-tab-${activeTab}`}
+        className="flex min-h-0 flex-1 flex-col pt-6"
+      >
+        {activeTab === "general" && (
+          <div className="max-w-[940px]">
+            <DebugControlsPanel />
+          </div>
+        )}
+        {activeTab === "terminal" && <AssistantTerminalPanel />}
+        {activeTab === "doctor" && doctorEnabled && <DoctorPanel />}
+      </div>
+    </div>
+  );
+}

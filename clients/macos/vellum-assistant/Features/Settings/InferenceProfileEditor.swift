@@ -181,8 +181,9 @@ struct InferenceProfileEditor: View {
               let model = profile.model, !model.isEmpty else {
             return false
         }
-        let catalog = store.dynamicProviderModels(provider).map(\.id)
-        return !catalog.contains(model)
+        let catalogIds = store.dynamicProviderModels(provider).map(\.id)
+        let connectionIds = effectiveConnection?.models?.map(\.id) ?? []
+        return !catalogIds.contains(model) && !connectionIds.contains(model)
     }
 
     /// Combined gate for the Save button: provider must be picked AND
@@ -605,9 +606,22 @@ struct InferenceProfileEditor: View {
         return conn.name
     }
 
+    private var selectedConnection: ProviderConnection? {
+        guard let name = profile.providerConnection, !name.isEmpty else { return nil }
+        return availableConnectionsForProvider.first { $0.name == name }
+    }
+
+    private var effectiveConnection: ProviderConnection? {
+        selectedConnection ?? availableConnectionsForProvider.first
+    }
+
     private var modelField: some View {
         let provider = profile.provider ?? ""
-        let models = store.dynamicProviderModels(provider)
+        let catalogModels = store.dynamicProviderModels(provider)
+        let connectionModels: [CatalogModel] = effectiveConnection?.models?.map {
+            CatalogModel(id: $0.id, displayName: $0.displayName ?? $0.id)
+        } ?? []
+        let models = connectionModels.isEmpty ? catalogModels : connectionModels
         return labeled(
             "Model",
             accessory: {

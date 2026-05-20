@@ -250,7 +250,7 @@ describe("pairDeliveryWithConversation", () => {
     // Should NOT be the JSON dump
     expect(contentArg).not.toContain('"raw"');
     // Should be the runtime-composed seed from copy.title/body
-    expect(contentArg).toContain("Reminder");
+    expect(contentArg).toContain("Daily standup");
   });
 
   test("rejects very short conversationSeedMessage and uses runtime composer", async () => {
@@ -273,7 +273,7 @@ describe("pairDeliveryWithConversation", () => {
     const contentArg = addMessageMock.mock.calls[0]![2] as string;
     expect(contentArg).not.toBe("Hi");
     // Runtime composer builds from copy.title/body
-    expect(contentArg).toContain("Reminder");
+    expect(contentArg).toContain("Test reminder");
   });
 
   test("passes skipIndexing option to addMessage", async () => {

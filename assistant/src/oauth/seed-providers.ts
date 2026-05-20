@@ -746,6 +746,28 @@ export const PROVIDER_SEED_DATA: Record<
     logoUrl: "https://cdn.simpleicons.org/telegram",
     defaultScopes: [],
   },
+
+  sanity: {
+    provider: "sanity",
+    authorizeUrl: "urn:manual-token",
+    tokenExchangeUrl: "urn:manual-token",
+    baseUrl: "https://api.sanity.io",
+    displayLabel: "Sanity",
+    description: "Content management platform",
+    dashboardUrl: "https://www.sanity.io/manage",
+    clientIdPlaceholder: null,
+    requiresClientSecret: false,
+    logoUrl: "https://cdn.simpleicons.org/sanity",
+    defaultScopes: [],
+    injectionTemplates: [
+      {
+        hostPattern: "*.sanity.io",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+  },
 };
 
 export const SEEDED_PROVIDER_KEYS = new Set(Object.keys(PROVIDER_SEED_DATA));

@@ -19,7 +19,7 @@ import {
 
 import { deleteQueuedMessage } from "@/domains/chat/lib/api.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import type { DomainEvent } from "@/domains/chat/lib/turn-state-machine.js";
+import { useTurnStore } from "@/domains/messaging/turn-store.js";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -38,7 +38,7 @@ interface UseMessageQueueParams {
   // State setters
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   setInput: Dispatch<SetStateAction<string>>;
-  dispatchTurn: Dispatch<DomainEvent>;
+
 }
 
 // ---------------------------------------------------------------------------
@@ -54,7 +54,6 @@ export function useMessageQueue({
   pendingLocalDeletionsRef,
   setMessages,
   setInput,
-  dispatchTurn,
 }: UseMessageQueueParams) {
   /** Remove an optimistically-added queued message and its tracking state. */
   const revertQueuedMessage = useCallback(
@@ -92,7 +91,7 @@ export function useMessageQueue({
         void deleteQueuedMessage(assistantId, activeConversationKey, targetRequestId);
       } else {
         pendingLocalDeletionsRef.current.add(stableId);
-        dispatchTurn({ type: "MESSAGE_QUEUED_DELETED" });
+        useTurnStore.getState().deleteQueuedMessage();
       }
     },
     [assistantId, activeConversationKey],

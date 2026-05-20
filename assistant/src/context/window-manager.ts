@@ -51,6 +51,11 @@ export interface ContextWindowResult {
   thresholdTokens: number;
   compactedMessages: number;
   compactedPersistedMessages: number;
+  /**
+   * Number of recent ("tail") messages preserved verbatim alongside the
+   * summary. Omitted on no-op / skipped results — defaults to 0 at render.
+   */
+  preservedTailMessages?: number;
   summaryCalls: number;
   summaryInputTokens: number;
   summaryOutputTokens: number;

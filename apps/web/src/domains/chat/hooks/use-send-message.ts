@@ -39,10 +39,10 @@ import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } fro
 import { recordChatDiagnostic } from "@/domains/chat/lib/diagnostics.js";
 import { newStableId } from "@/domains/chat/lib/stable-id.js";
 import { saveDismissedSurfaceIds } from "@/domains/chat/lib/dismissedSurfacesStorage.js";
-import { isSending, type TurnState, type DomainEvent } from "@/domains/chat/lib/turn-state-machine.js";
-import type { InteractionEvent } from "@/domains/chat/lib/interaction-state-machine.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
-import type { SubagentAction } from "@/domains/chat/lib/subagent-state.js";
+import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
+import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import type { PreChatOnboardingContext } from "@/lib/onboarding/prechat.js";
 
 import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters.js";
@@ -84,7 +84,7 @@ interface UseSendMessageParams {
   // Refs
   assistantIdRef: MutableRefObject<string | null>;
   activeConversationKeyRef: MutableRefObject<string | null>;
-  turnStateRef: MutableRefObject<TurnState>;
+
   messagesRef: MutableRefObject<DisplayMessage[]>;
   conversationsRef: MutableRefObject<Conversation[]>;
   streamRef: MutableRefObject<ChatEventStream | null>;
@@ -108,12 +108,8 @@ interface UseSendMessageParams {
   // State setters
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   setError: Dispatch<SetStateAction<ChatError | null>>;
-  dispatchConversationList: Dispatch<ConversationListAction>;
-  dispatchInteraction: Dispatch<InteractionEvent>;
   setStreamRetryNonce: Dispatch<SetStateAction<number>>;
   setInput: Dispatch<SetStateAction<string>>;
-  dispatchTurn: Dispatch<DomainEvent>;
-  dispatchSubagent: Dispatch<SubagentAction>;
 
   // Callbacks
   startReconciliationLoop: (epoch: number) => void;
@@ -136,7 +132,6 @@ export function useSendMessage({
   messages,
   assistantIdRef,
   activeConversationKeyRef,
-  turnStateRef,
   messagesRef,
   conversationsRef,
   streamRef,
@@ -155,12 +150,8 @@ export function useSendMessage({
   confirmationToolCallMapRef,
   setMessages,
   setError,
-  dispatchConversationList,
-  dispatchInteraction,
   setStreamRetryNonce,
   setInput,
-  dispatchTurn,
-  dispatchSubagent,
   startReconciliationLoop,
   cancelReconciliation,
   refreshConversations,
@@ -185,7 +176,6 @@ export function useSendMessage({
     pendingLocalDeletionsRef,
     setMessages,
     setInput,
-    dispatchTurn,
   });
 
   // -------------------------------------------------------------------------
@@ -220,7 +210,7 @@ export function useSendMessage({
     async (content: string, epoch: number, turnId: string, attachmentIds: string[] = []): Promise<string | undefined> => {
       if (!activeConversationKey || !assistantId) {
         setError({ message: "No active conversation. Please try again." });
-        dispatchTurn({ type: "STREAM_ERROR" });
+        useTurnStore.getState().onStreamError();
         return undefined;
       }
       const requestAssistantId = assistantId;
@@ -258,7 +248,7 @@ export function useSendMessage({
           "Something went wrong. Please try again.",
         );
         setError({ message: detail, code: postResult.error.code ?? undefined });
-        dispatchTurn({ type: "STREAM_ERROR" });
+        useTurnStore.getState().onStreamError();
         return undefined;
       }
       // Success — drain the ref so subsequent messages omit the field.
@@ -268,7 +258,7 @@ export function useSendMessage({
       }
 
       if (isCurrentSendScope()) {
-        dispatchTurn({ type: "USER_SEND_ACCEPTED", turnId });
+        useTurnStore.getState().acceptSend(turnId);
       }
 
       const effectiveConversationKey =
@@ -319,13 +309,13 @@ export function useSendMessage({
             );
             if (!isCurrentSendScope(effectiveConversationKey)) return;
             if (interactions.pendingSecret) {
-              dispatchInteraction({ type: "SHOW_SECRET", payload: parsePendingSecretState(interactions.pendingSecret) });
+              useInteractionStore.getState().showSecret(parsePendingSecretState(interactions.pendingSecret));
               if (!reply) return;
             }
             if (interactions.pendingConfirmation) {
               const { confData, state } = parsePendingConfirmationData(interactions.pendingConfirmation);
               restoredConfData = confData;
-              dispatchInteraction({ type: "SHOW_CONFIRMATION", payload: state });
+              useInteractionStore.getState().showConfirmation(state);
               if (!reply) return;
             }
           } catch {
@@ -384,10 +374,10 @@ export function useSendMessage({
               if (!isCurrentSendScope(effectiveConversationKey)) return prev;
               const result = attachConfirmationToToolCall(prev, capturedConfData);
               if (result.attachedToolCallId) {
-                dispatchInteraction({ type: "SET_INLINE_CONFIRMATION_TOOL_CALL_ID", toolCallId: result.attachedToolCallId });
+                useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
                 confirmationToolCallMapRef.current.set(capturedConfData.requestId, result.attachedToolCallId);
               } else {
-                dispatchInteraction({ type: "SET_INLINE_CONFIRMATION_TOOL_CALL_ID", toolCallId: null });
+                useInteractionStore.getState().setInlineConfirmationToolCallId(null);
               }
               return result.updatedMessages;
             });
@@ -400,7 +390,7 @@ export function useSendMessage({
         })
         .finally(() => {
           if (!isCurrentSendScope(effectiveConversationKey)) return;
-          dispatchTurn({ type: "POLL_RECONCILED", turnId });
+          useTurnStore.getState().onPollReconciled(turnId);
         });
 
       return postResult.resolvedConversationId;
@@ -426,7 +416,7 @@ export function useSendMessage({
         return;
       }
       setError(null);
-      dispatchInteraction({ type: "RESET_SECRET_AND_CONFIRMATION" });
+      useInteractionStore.getState().resetSecretAndConfirmation();
       confirmationToolCallMapRef.current.clear();
       // Clear pending confirmations and dismiss interactive surfaces in a
       // single functional updater so the two transforms compose correctly
@@ -447,10 +437,10 @@ export function useSendMessage({
       );
       if (dismissedIds.size > 0) {
         persistDismissedSurfaces(dismissedIds);
-        dispatchTurn({ type: "UI_SURFACE_DISMISS" });
+        useTurnStore.getState().dismissSurface();
       }
 
-      const willQueue = isSending(turnStateRef.current);
+      const willQueue = isSending(useTurnStore.getState());
       const userMessage: DisplayMessage = {
         stableId: newStableId("user"),
         role: "user",
@@ -497,9 +487,9 @@ export function useSendMessage({
             );
             needsNewBubbleRef.current = true;
             const fallbackTurnId = newTurnId();
-            dispatchTurn({ type: "USER_SEND_REQUESTED", turnId: fallbackTurnId });
-            dispatchTurn({ type: "USER_SEND_ACCEPTED", turnId: fallbackTurnId });
-            dispatchConversationList({ type: "ADD_PROCESSING_KEY", key: activeConversationKey });
+            useTurnStore.getState().requestSend(fallbackTurnId);
+            useTurnStore.getState().acceptSend(fallbackTurnId);
+            useConversationListStore.getState().addProcessingKey(activeConversationKey);
             const currentConv = conversationsRef.current.find(
               (c) => c.conversationKey === activeConversationKey,
             );
@@ -517,9 +507,9 @@ export function useSendMessage({
       }
 
       const turnId = newTurnId();
-      dispatchTurn({ type: "USER_SEND_REQUESTED", turnId });
+      useTurnStore.getState().requestSend(turnId);
 
-      dispatchConversationList({ type: "ADD_PROCESSING_KEY", key: activeConversationKey });
+      useConversationListStore.getState().addProcessingKey(activeConversationKey);
       const currentConv = conversationsRef.current.find(c => c.conversationKey === activeConversationKey);
       processingSnapshotsRef.current.set(
         activeConversationKey,
@@ -529,7 +519,7 @@ export function useSendMessage({
       // Optimistically add a stub conversation to the sidebar for draft
       // conversations that don't exist on the server yet.
       if (!currentConv) {
-        dispatchConversationList({ type: "PREPEND_CONVERSATION", conversation: { conversationKey: activeConversationKey, lastMessageAt: new Date().toISOString(), draft: true } as Conversation });
+        useConversationListStore.getState().prependConversation({ conversationKey: activeConversationKey, lastMessageAt: new Date().toISOString(), draft: true } as Conversation);
       }
 
       cancelReconciliation();
@@ -549,21 +539,21 @@ export function useSendMessage({
         // Resolve draft key -> server-assigned conversation ID.
         if (resolvedId && resolvedId !== activeConversationKey) {
           const newKey = resolvedId;
-          dispatchConversationList({ type: "TRANSFER_PROCESSING_KEY", oldKey: activeConversationKey, newKey });
+          useConversationListStore.getState().transferProcessingKey(activeConversationKey, newKey);
           const snapshot = processingSnapshotsRef.current.get(activeConversationKey);
           processingSnapshotsRef.current.delete(activeConversationKey);
           if (snapshot !== undefined) {
             processingSnapshotsRef.current.set(newKey, snapshot);
           }
           navRemapKey(activeConversationKey, newKey);
-          dispatchConversationList({ type: "RESOLVE_DRAFT_KEY", oldKey: activeConversationKey, newKey });
+          useConversationListStore.getState().resolveDraftKey(activeConversationKey, newKey);
           resolveEditChatDraftKey(activeConversationKey, newKey);
 
           // Only update active view state if the user is still on this conversation.
           if (activeConversationKeyRef.current === activeConversationKey) {
             draftKeyResolutionRef.current = true;
             previousConversationKeyRef.current = newKey;
-            dispatchConversationList({ type: "SET_ACTIVE_KEY", key: newKey });
+            useConversationListStore.getState().setActiveKey(newKey);
             const params = new URLSearchParams(window.location.search);
             params.set("conversationKey", newKey);
             replaceUrl(`?${params.toString()}`);
@@ -579,14 +569,14 @@ export function useSendMessage({
           tags: { context: "send_chat_message" },
         });
         setError({ message: "Something went wrong. Please try again." });
-        dispatchTurn({ type: "STREAM_ERROR" });
+        useTurnStore.getState().onStreamError();
         const keysToClean = [activeConversationKey, resolvedId].filter(Boolean) as string[];
         for (const k of keysToClean) processingSnapshotsRef.current.delete(k);
         if (keysToClean.length > 0) {
-          dispatchConversationList({ type: "REMOVE_MULTIPLE_PROCESSING_KEYS", keys: keysToClean });
+          useConversationListStore.getState().removeMultipleProcessingKeys(keysToClean);
         }
         if (isDraft) {
-          dispatchConversationList({ type: "REMOVE_CONVERSATION", key: activeConversationKey });
+          useConversationListStore.getState().removeConversation(activeConversationKey);
         }
       }
     },
@@ -607,13 +597,13 @@ export function useSendMessage({
   const handleStopGenerating = useCallback(async () => {
     if (!assistantId || !activeConversationKey) return;
     streamEpochRef.current++;
-    dispatchTurn({ type: "GENERATION_CANCELLED" });
+    useTurnStore.getState().cancelGeneration();
     setMessages(stopStreamingAndClearConfirmations);
     needsNewBubbleRef.current = true;
-    dispatchInteraction({ type: "RESET_ALL" });
-    dispatchSubagent({ type: "SUBAGENT_RESET" });
+    useInteractionStore.getState().resetAll();
+    useSubagentStore.getState().reset();
     confirmationToolCallMapRef.current.clear();
-    dispatchConversationList({ type: "REMOVE_PROCESSING_KEY", key: activeConversationKey });
+    useConversationListStore.getState().removeProcessingKey(activeConversationKey);
     processingSnapshotsRef.current.delete(activeConversationKey);
     try {
       await cancelGeneration(assistantId, activeConversationKey);

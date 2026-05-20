@@ -1,0 +1,139 @@
+import { ArrowLeft } from "lucide-react";
+import { type ReactNode } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+
+import { Button, Typography } from "@vellum/design-library";
+import { routes } from "@/utils/routes.js";
+
+interface SettingsShellProps {
+  sidebar: ReactNode;
+  children: ReactNode;
+  actions?: ReactNode;
+  backHref: string;
+  title?: string;
+  menuRoute?: string;
+}
+
+/**
+ * Settings shell — overlay panel treatment.
+ *
+ * Desktop: one outer card containing sidebar + content side-by-side.
+ * Mobile: two-page flow — root shows sidebar, sub-pages show content
+ * with a back arrow returning to the root.
+ */
+export function SettingsShell({
+  sidebar,
+  children,
+  actions,
+  backHref,
+  title = "Settings",
+  menuRoute = routes.settings.root,
+}: SettingsShellProps) {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const isMenuRoute = pathname === menuRoute;
+
+  const mobileBackHref = isMenuRoute ? backHref : menuRoute;
+  const mobileBackLabel = isMenuRoute
+    ? `Back from ${title}`
+    : "Back to settings menu";
+
+  const mobileBackButton = (
+    <Button
+      variant="ghost"
+      iconOnly={<ArrowLeft />}
+      aria-label={mobileBackLabel}
+      tintColor="var(--content-secondary)"
+      onClick={() => navigate(mobileBackHref)}
+    />
+  );
+
+  const desktopBackButton = (
+    <Button
+      asChild
+      variant="outlined"
+      aria-label={`Back from ${title}`}
+      className="h-8 w-8 px-0"
+      tintColor="var(--content-secondary)"
+    >
+      <Link
+        to={backHref}
+        className="flex items-center justify-center no-underline"
+      >
+        <ArrowLeft size={16} aria-hidden="true" />
+      </Link>
+    </Button>
+  );
+
+  const mobileTitle = isMenuRoute ? "Settings" : title;
+
+  return (
+    <div
+      className="flex h-full min-h-0 w-full flex-1 flex-col gap-4 p-4 sm:p-6 md:gap-0"
+      style={{
+        paddingTop:
+          "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
+      }}
+    >
+      {/* Mobile header */}
+      <div className="flex shrink-0 items-center gap-3 md:hidden">
+        {mobileBackButton}
+        <Typography
+          as="h1"
+          variant="body-large-default"
+          className="flex-1 truncate text-center"
+          style={{ color: "var(--content-tertiary)", lineHeight: 1.4 }}
+        >
+          {mobileTitle}
+        </Typography>
+        <div className="h-10 w-10 shrink-0" aria-hidden="true" />
+      </div>
+
+      {/* Card chrome — desktop only */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:rounded-[12px] md:border md:border-[var(--border-base)] md:bg-[var(--surface-overlay)]">
+        {/* Desktop header */}
+        <div className="hidden shrink-0 items-center justify-between gap-4 px-6 py-5 md:flex">
+          <div className="flex min-w-0 items-center gap-3">
+            {desktopBackButton}
+            <h1
+              className="text-title-large truncate"
+              style={{
+                color: "var(--content-emphasised)",
+                lineHeight: 1.2,
+              }}
+            >
+              {title}
+            </h1>
+          </div>
+          {actions ? (
+            <div className="flex shrink-0 items-center gap-2">{actions}</div>
+          ) : null}
+        </div>
+
+        {/* Body — sidebar + content */}
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <aside
+            className="hidden w-64 shrink-0 overflow-y-auto md:block"
+            aria-label="Settings navigation"
+          >
+            {sidebar}
+          </aside>
+
+          {isMenuRoute ? (
+            <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-y-auto pb-6 md:hidden">
+              {sidebar}
+            </div>
+          ) : null}
+
+          <main
+            className={`min-w-0 min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-6 md:flex md:px-6 md:pt-0 ${
+              isMenuRoute ? "hidden" : "flex"
+            }`}
+          >
+            {children}
+          </main>
+        </div>
+      </div>
+    </div>
+  );
+}

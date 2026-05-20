@@ -2,24 +2,20 @@ import {
   type MutableRefObject,
   type RefObject,
   useCallback,
-  useReducer,
+  useEffect,
   useRef,
   useState,
 } from "react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { useAuth } from "@/lib/auth/auth-provider.js";
-import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+import { useAuthStore } from "@/stores/auth-store.js";
+import { useAssistantContext } from "@/domains/chat/assistant-context.js";
 import {
-  interactionReducer,
-  INITIAL_INTERACTION_STATE,
-} from "@/domains/chat/lib/interaction-state-machine.js";
-import {
-  turnReducer,
   INITIAL_TURN_STATE,
-} from "@/domains/chat/lib/turn-state-machine.js";
+  useTurnStore,
+} from "@/domains/messaging/turn-store.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import { ChatProvider } from "@/domains/chat/chat-context.js";
+import { useSyncChatStore } from "@/domains/chat/chat-store.js";
 import {
   ChatRouteContent,
   type ChatRouteContentProps,
@@ -38,27 +34,14 @@ const EMPTY_MAP_MESSAGES = new Map<
 const EMPTY_SET_STRINGS = new Set<string>();
 
 export function ChatPage() {
-  const { isLoggedIn, isLoading: authLoading } = useAuth();
+  const authLoading = useAuthStore.use.isLoading();
   const isMobile = useIsMobile();
-
-  const navigate = useCallback((_path: string) => {}, []);
-
-  const lifecycle = useAssistantLifecycle({
-    isLoggedIn,
-    isLoading: authLoading,
-    isRetired: false,
-    isNonProduction: false,
-    onRedirect: navigate,
-  });
-
-  const { assistantState, assistantId } = lifecycle;
+  const { assistantId, assistantState, checkAssistant } = useAssistantContext();
 
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
-  const [turnState, dispatchTurn] = useReducer(turnReducer, INITIAL_TURN_STATE);
-  const [interactionState, dispatchInteraction] = useReducer(
-    interactionReducer,
-    INITIAL_INTERACTION_STATE,
-  );
+  useEffect(() => {
+    useTurnStore.setState(INITIAL_TURN_STATE);
+  }, []);
   const [input, setInput] = useState("");
   const [error, setError] = useState<{ message: string } | null>(null);
   const [compactionCircuitOpenUntil, setCompactionCircuitOpenUntil] =
@@ -88,6 +71,13 @@ export function ChatPage() {
     },
     [],
   );
+
+  useSyncChatStore({
+    messages,
+    activeConversationKey: null,
+    assistantId,
+    sendMessage,
+  });
 
   if (authLoading || assistantState.kind === "loading") {
     return (
@@ -119,15 +109,11 @@ export function ChatPage() {
     isKeyboardOpen: false,
     messages,
     setMessages,
-    turnState,
-    dispatchTurn,
     input,
     setInput,
     error,
     setError,
     isLoadingHistory: false,
-    interactionState,
-    dispatchInteraction,
     conversations: [],
     activeConversationKey: null,
     activeConversation: undefined,
@@ -220,14 +206,14 @@ export function ChatPage() {
     handleDeployApp: noopVoid,
     handleForkConversation: noopAsync as ChatRouteContentProps["handleForkConversation"],
     subagentEntries: [],
-    subagentState: { byId: new Map(), orderedIds: [], entries: [] } as unknown as ChatRouteContentProps["subagentState"],
+    subagentState: { byId: {}, orderedIds: [] },
     activeSubagentId: null,
     onSubagentClick: noopVoid,
     onCloseSubagentDetail: noopVoid,
     onStopSubagent: noopVoid,
     onRequestSubagentDetail: noopAsync as ChatRouteContentProps["onRequestSubagentDetail"],
     pushToAiSettings: noopVoid,
-    checkAssistant: noopVoid,
+    checkAssistant,
     setRefreshEpoch,
     streamRetryNonce: 0,
     refs: {
@@ -261,16 +247,5 @@ export function ChatPage() {
     isChannelReadonly: false,
   };
 
-  return (
-    <ChatProvider
-      messages={messages}
-      activeConversationKey={null}
-      assistantId={assistantId}
-      sendMessage={sendMessage}
-      dispatchTurn={dispatchTurn}
-      dispatchInteraction={dispatchInteraction}
-    >
-      <ChatRouteContent {...chatRouteProps} />
-    </ChatProvider>
-  );
+  return <ChatRouteContent {...chatRouteProps} />;
 }

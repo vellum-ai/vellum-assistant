@@ -472,6 +472,8 @@ export class AgentLoop {
      */
     overrideProfile?: string,
     effectiveMaxInputTokens?: number,
+    resolveOverrideProfile?: () => string | undefined,
+    resolveEffectiveMaxInputTokens?: () => number | undefined,
   ): Promise<Message[]> {
     const history = [...messages];
     const initialHistoryLength = messages.length;
@@ -594,9 +596,14 @@ export class AgentLoop {
         // `activeProfile` and any call-site named profile. Threading it on
         // every send (rather than once at construction) keeps subagents that
         // share an `AgentLoop` instance but ought to inherit a different
-        // profile correct — and matches how `callSite` is plumbed.
-        if (overrideProfile) {
-          providerConfig.overrideProfile = overrideProfile;
+        // profile correct — and matches how `callSite` is plumbed. The
+        // optional resolver lets a turn observe an explicitly confirmed
+        // profile-session switch before the next model call.
+        const effectiveOverrideProfile = resolveOverrideProfile
+          ? resolveOverrideProfile()
+          : overrideProfile;
+        if (effectiveOverrideProfile) {
+          providerConfig.overrideProfile = effectiveOverrideProfile;
         }
 
         // Rate-limit consecutive LLM calls to prevent spin when tools return instantly
@@ -1100,7 +1107,10 @@ export class AgentLoop {
         // truncation strategy (e.g. a summariser) while the default
         // middleware preserves the historical tail-drop behaviour.
         const contextWindowTokens =
-          effectiveMaxInputTokens ?? this.config.maxInputTokens ?? 180_000;
+          resolveEffectiveMaxInputTokens?.() ??
+          effectiveMaxInputTokens ??
+          this.config.maxInputTokens ??
+          180_000;
         const maxChars = calculateMaxToolResultChars(contextWindowTokens);
         const truncateMiddlewares = getMiddlewaresFor("toolResultTruncate");
 

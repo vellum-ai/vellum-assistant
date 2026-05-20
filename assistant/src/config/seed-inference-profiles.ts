@@ -3,6 +3,7 @@ import {
   createConnection,
   disableManagedConnectionsForByokHatch,
   getConnection,
+  MANAGED_CONNECTION_NAMES,
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
 } from "../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
@@ -18,10 +19,6 @@ import {
 
 const log = getLogger("seed-inference-profiles");
 
-const MANAGED_CONNECTION_NAME = "anthropic-managed";
-const MANAGED_PROFILE_PROVIDER: NonNullable<ProfileEntry["provider"]> =
-  "anthropic";
-
 /**
  * Template for a daemon-managed inference profile. The profile's model is
  * resolved at seed time from `PROVIDER_MODEL_INTENTS` so the catalog stays the
@@ -32,20 +29,20 @@ type ManagedProfileTemplate = Omit<
   "provider" | "model" | "provider_connection"
 > & {
   intent: ModelIntent;
-  /** Override the global MANAGED_PROFILE_PROVIDER for this template. */
-  providerOverride?: NonNullable<ProfileEntry["provider"]>;
-  /** Override the global MANAGED_CONNECTION_NAME for this template. */
-  connectionOverride?: string;
+  provider: NonNullable<ProfileEntry["provider"]>;
+  connectionName: string;
 };
 
 /**
- * Managed Anthropic profiles. Overwritten on every daemon boot so Vellum can
- * push model/config updates to customers in new releases. Platform overlays
+ * Managed profiles. Overwritten on every daemon boot so Vellum can push
+ * model/config updates to customers in new releases. Platform overlays
  * (`preserveProfileNames`) take precedence when present.
  */
 const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   balanced: {
     intent: "balanced",
+    provider: "anthropic",
+    connectionName: "anthropic-managed",
     source: "managed",
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
@@ -53,11 +50,11 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-    providerOverride: "fireworks",
-    connectionOverride: "fireworks-managed",
   },
   "quality-optimized": {
     intent: "quality-optimized",
+    provider: "anthropic",
+    connectionName: "anthropic-managed",
     source: "managed",
     label: "Quality",
     description: "Best results with the most capable model",
@@ -68,6 +65,8 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
   "cost-optimized": {
     intent: "latency-optimized",
+    provider: "anthropic",
+    connectionName: "anthropic-managed",
     source: "managed",
     label: "Speed",
     description: "Fastest responses at lower cost",
@@ -81,11 +80,15 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
 /**
  * User profile templates. Materialized at hatch time for off-platform
  * installations. Each points at the user's personal provider connection
- * (backed by their API key in CES).
+ * (backed by their API key in CES). The `provider` and `connectionName`
+ * fields are placeholders — they are overridden at hatch time with the
+ * user's chosen provider and personal connection name.
  */
 const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   "custom-balanced": {
     intent: "balanced",
+    provider: "anthropic",
+    connectionName: "",
     source: "user",
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
@@ -96,6 +99,8 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
   "custom-quality-optimized": {
     intent: "quality-optimized",
+    provider: "anthropic",
+    connectionName: "",
     source: "user",
     label: "Quality",
     description: "Best results with the most capable model",
@@ -106,6 +111,8 @@ const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   },
   "custom-cost-optimized": {
     intent: "latency-optimized",
+    provider: "anthropic",
+    connectionName: "",
     source: "user",
     label: "Speed",
     description: "Fastest responses at lower cost",
@@ -171,11 +178,12 @@ export function seedInferenceProfiles(
   // BYOK mode = off-platform installs. The user is bringing their own provider
   // API key; managed profile labels get a " (Managed)" suffix to disambiguate
   // from the personal "custom-*" profiles that share base labels. Managed
-  // profile + connection status is initially "disabled" so the picker doesn't
-  // offer an unusable platform-auth option on day one — but ONLY at hatch
-  // time, and ONLY when the entry isn't already in the user's config (i.e.
-  // first materialization). Post-hatch user toggles survive every subsequent
-  // boot.
+  // profile + connection status is initially "disabled" for true BYOK hatches
+  // so the picker doesn't offer an unusable platform-auth option on day one.
+  // When the hatch overlay explicitly selects a managed profile, the matching
+  // managed connection stays active so the first post-onboarding message can
+  // use the user's chosen managed route. Post-hatch user toggles survive every
+  // subsequent boot.
   const isByokMode = !isPlatform;
 
   // 1. Managed profiles. Off-platform: overwrite on every boot so Vellum can
@@ -205,10 +213,18 @@ export function seedInferenceProfiles(
   //        rewritten to the suffixed form. Any other previous label value
   //        (user-set custom string, explicit null, already-suffixed) is
   //        preserved as-is.
-  //      • status: "disabled" on fresh materialization at hatch only —
-  //        gated on (isHatch && !previous) so post-hatch boots and existing
-  //        installs are never auto-disabled. A user re-enable persists
-  //        across boots via the key-presence preservation below.
+  //      • status: "disabled" on fresh materialization at BYOK hatch only —
+  //        gated on (isHatch && !previous) and skipped for any managed
+  //        connection explicitly selected by the hatch overlay. Post-hatch
+  //        boots and existing installs are never auto-disabled. A user
+  //        re-enable persists across boots via the key-presence preservation
+  //        below.
+  const hatchSelectedManagedConnection = getHatchSelectedManagedConnection(
+    llm,
+    profiles,
+    options,
+  );
+
   for (const [name, template] of Object.entries(MANAGED_PROFILE_TEMPLATES)) {
     if (preservedProfileNames.has(name)) continue;
     if (isPlatform && readObject(profiles[name]) !== null) continue;
@@ -217,16 +233,17 @@ export function seedInferenceProfiles(
     const effectiveTemplate: ManagedProfileTemplate = isByokMode
       ? { ...template, label: `${template.label} (Managed)` }
       : template;
-    const effectiveProvider =
-      template.providerOverride ?? MANAGED_PROFILE_PROVIDER;
-    const effectiveConnection =
-      template.connectionOverride ?? MANAGED_CONNECTION_NAME;
     const next = materializeProfile(
       effectiveTemplate,
-      effectiveProvider,
-      effectiveConnection,
+      template.provider,
+      template.connectionName,
     ) as Record<string, unknown>;
-    if (isByokMode && options.isHatch && !previous) {
+    if (
+      isByokMode &&
+      options.isHatch &&
+      !previous &&
+      template.connectionName !== hatchSelectedManagedConnection
+    ) {
       next.status = "disabled";
     }
     if (previous) {
@@ -249,13 +266,16 @@ export function seedInferenceProfiles(
   // 2. User profiles — only at hatch time for off-platform installations.
   let userConnectionName: string | undefined;
   if (options.isHatch && !isPlatform) {
-    // BYOK hatch: disable the three canonical managed connections so the
-    // picker doesn't surface unusable platform-auth options on day one.
-    // Runs only here, only at hatch — `seedCanonicalConnections` leaves
-    // `status` alone on subsequent boots so a post-hatch user re-enable
-    // persists.
+    // BYOK hatch: disable canonical managed connections so the picker doesn't
+    // surface unusable platform-auth options on day one. If the hatch overlay
+    // selected a managed profile, leave that connection active; the user has
+    // already chosen managed inference. Runs only here, only at hatch —
+    // `seedCanonicalConnections` leaves `status` alone on subsequent boots so
+    // a post-hatch user re-enable persists.
     if (options.db) {
-      disableManagedConnectionsForByokHatch(options.db);
+      disableManagedConnectionsForByokHatch(options.db, {
+        excludeConnection: hatchSelectedManagedConnection,
+      });
     }
 
     const hatchProvider = readString(readObject(llm.default)?.provider);
@@ -284,8 +304,7 @@ export function seedInferenceProfiles(
         }
       }
 
-      const provider =
-        hatchProvider as NonNullable<ProfileEntry["provider"]>;
+      const provider = hatchProvider as NonNullable<ProfileEntry["provider"]>;
       for (const [name, template] of Object.entries(USER_PROFILE_TEMPLATES)) {
         if (preservedProfileNames.has(name)) continue;
         profiles[name] = materializeProfile(
@@ -357,7 +376,7 @@ function materializeProfile(
   provider: NonNullable<ProfileEntry["provider"]>,
   connectionName: string,
 ): ProfileEntry {
-  const { intent, providerOverride: _po, connectionOverride: _co, ...rest } = template;
+  const { intent, provider: _p, connectionName: _c, ...rest } = template;
   return {
     ...rest,
     provider,
@@ -374,6 +393,42 @@ function readObject(value: unknown): Record<string, unknown> | null {
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function getHatchSelectedManagedConnection(
+  llm: Record<string, unknown>,
+  profiles: Record<string, Record<string, unknown>>,
+  options: SeedInferenceProfilesOptions,
+): string | undefined {
+  if (!options.isHatch || options.preserveActiveProfile !== true) {
+    return undefined;
+  }
+
+  const activeProfile = readString(llm.activeProfile);
+  if (!activeProfile) return undefined;
+
+  const activeProfileEntry = readObject(profiles[activeProfile]);
+  if (
+    activeProfileEntry &&
+    Object.prototype.hasOwnProperty.call(
+      activeProfileEntry,
+      "provider_connection",
+    )
+  ) {
+    const explicitConnection = readString(
+      activeProfileEntry.provider_connection,
+    );
+    return explicitConnection &&
+      MANAGED_CONNECTION_NAMES.has(explicitConnection)
+      ? explicitConnection
+      : undefined;
+  }
+
+  const templateConnection =
+    MANAGED_PROFILE_TEMPLATES[activeProfile]?.connectionName;
+  return templateConnection && MANAGED_CONNECTION_NAMES.has(templateConnection)
+    ? templateConnection
+    : undefined;
 }
 
 /**

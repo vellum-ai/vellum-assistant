@@ -10,8 +10,6 @@ import {
   extractErrorMessage,
 } from "@/lib/api-errors.js";
 
-import "@/lib/api-client.js";
-
 import type {
   AddTrustRuleBody,
   TrustRuleItem,

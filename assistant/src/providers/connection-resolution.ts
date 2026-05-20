@@ -139,7 +139,7 @@ export async function tryResolveProviderForConnectionName(
   }
   if (connection.status === "disabled") {
     log.debug(
-      { connectionName },
+      { connectionName, provider: connection.provider },
       "provider_connection is disabled — returning null",
     );
     return null;

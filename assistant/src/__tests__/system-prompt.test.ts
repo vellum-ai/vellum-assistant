@@ -675,10 +675,7 @@ describe("buildSystemPrompt", () => {
       // so the bundled body must not leak into the rendered output.  This is
       // the explicit "user silenced this section" path.
       mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
-      writeFileSync(
-        PARALLEL_FILE,
-        "---\nenabled: false\n---\nIgnored body.\n",
-      );
+      writeFileSync(PARALLEL_FILE, "---\nenabled: false\n---\nIgnored body.\n");
       const result = buildSystemPrompt();
       expect(result).not.toContain("<use_parallel_tool_calls>");
       expect(result).not.toContain("Batch independent tool calls");
@@ -713,7 +710,10 @@ describe("buildSystemPrompt", () => {
     });
 
     describe("containerized section (slot 02)", () => {
-      const CONTAINERIZED_FILE = join(SYSTEM_PROMPTS_DIR, "02-containerized.md");
+      const CONTAINERIZED_FILE = join(
+        SYSTEM_PROMPTS_DIR,
+        "02-containerized.md",
+      );
 
       // The runtime gate is `isContainerized` on the render context, sourced
       // from `getIsContainerized()` which reads `process.env.IS_CONTAINERIZED`.
@@ -1093,10 +1093,7 @@ describe("buildSystemPrompt", () => {
     });
 
     describe("external-content section (slot 07)", () => {
-      const EXTERNAL_FILE = join(
-        SYSTEM_PROMPTS_DIR,
-        "07-external-content.md",
-      );
+      const EXTERNAL_FILE = join(SYSTEM_PROMPTS_DIR, "07-external-content.md");
 
       test("workspace external-content file is rendered into the static block", () => {
         mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
@@ -1139,69 +1136,6 @@ describe("buildSystemPrompt", () => {
       });
     });
 
-    describe("background-conversation section (slot 08)", () => {
-      const BACKGROUND_FILE = join(
-        SYSTEM_PROMPTS_DIR,
-        "08-background-conversation.md",
-      );
-
-      test("bundled default renders when isBackgroundConversation is true", () => {
-        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
-        const result = buildSystemPrompt({ isBackgroundConversation: true });
-        expect(result).toContain("## Background Conversation");
-        expect(result).toContain("non-interactive background job");
-        expect(result).toContain("`notifications` skill");
-      });
-
-      test("bundled default is gated out when isBackgroundConversation is false", () => {
-        // Mustache `{{#isBackgroundConversation}}...{{/isBackgroundConversation}}`
-        // wraps the entire heading + body so the slot interpolates to empty
-        // in foreground conversations and the renderer drops it.
-        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
-        const result = buildSystemPrompt({ isBackgroundConversation: false });
-        expect(result).not.toContain("## Background Conversation");
-      });
-
-      test("bundled default is gated out when isBackgroundConversation is omitted", () => {
-        // `ctx.isBackgroundConversation` is normalized to `false` when the
-        // caller omits the flag, so the gated section drops out cleanly.
-        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
-        const result = buildSystemPrompt();
-        expect(result).not.toContain("## Background Conversation");
-      });
-
-      test("workspace override is also gated by isBackgroundConversation", () => {
-        // Workspace overrides flow through the same mustache interpolation,
-        // so authors can rely on the same `{{#isBackgroundConversation}}`
-        // gate in their custom body.
-        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
-        writeFileSync(
-          BACKGROUND_FILE,
-          "{{#isBackgroundConversation}}## Background Conversation\n\nWorkspace override marker COMET_3K.\n{{/isBackgroundConversation}}\n",
-        );
-
-        const offResult = buildSystemPrompt({ isBackgroundConversation: false });
-        expect(offResult).not.toContain("## Background Conversation");
-        expect(offResult).not.toContain("Workspace override marker COMET_3K.");
-
-        const onResult = buildSystemPrompt({ isBackgroundConversation: true });
-        expect(onResult).toContain("## Background Conversation");
-        expect(onResult).toContain("Workspace override marker COMET_3K.");
-      });
-
-      test("renders after the external-content section when both render", () => {
-        // Numeric prefix `08-` > `07-` so the background-conversation
-        // section trails the external-content section in the static block.
-        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
-        const result = buildSystemPrompt({ isBackgroundConversation: true });
-        const externalIdx = result.indexOf("## External Content");
-        const backgroundIdx = result.indexOf("## Background Conversation");
-        expect(externalIdx).toBeGreaterThan(-1);
-        expect(backgroundIdx).toBeGreaterThan(-1);
-        expect(externalIdx).toBeLessThan(backgroundIdx);
-      });
-    });
-
     test("unresolved {{variable}} is left as a literal in the body", () => {
       mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
       writeFileSync(
@@ -1211,7 +1145,6 @@ describe("buildSystemPrompt", () => {
       const result = buildSystemPrompt();
       expect(result).toContain("Has {{somethingMissing}} in body.");
     });
-
   });
 });
 

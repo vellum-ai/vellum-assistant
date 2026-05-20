@@ -1,8 +1,8 @@
 
 import * as Sentry from "@sentry/react";
-import { type Dispatch, useCallback } from "react";
+import { useCallback } from "react";
 
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 
 import {
   type ConversationGroup,
@@ -34,26 +34,22 @@ export function patchGroup(
 /**
  * Folder/group CRUD actions: create, rename, and delete conversation groups.
  *
- * Each action applies an optimistic update via `dispatchConversationList`
+ * Each action applies an optimistic update via `useConversationListStore`
  * before hitting the API. On failure, create/rename roll back optimistically;
  * delete refetches the full conversation list for accuracy.
  *
- * @param dispatchConversationList - Dispatch function from the
- *   `conversationListReducer`. Used for all optimistic group mutations.
  * @returns Stable callbacks: `handleCreateGroup`, `handleRenameGroup`,
  *   `handleDeleteGroup`.
  */
 interface UseConversationGroupActionsParams {
   assistantId: string | null;
   conversationGroups: ConversationGroup[];
-  dispatchConversationList: Dispatch<ConversationListAction>;
   refreshConversations: () => Promise<void>;
 }
 
 export function useConversationGroupActions({
   assistantId,
   conversationGroups,
-  dispatchConversationList,
   refreshConversations,
 }: UseConversationGroupActionsParams) {
   const handleCreateGroup = useCallback(async () => {
@@ -68,18 +64,18 @@ export function useConversationGroupActions({
     if (!trimmed) return;
 
     const optimisticId = `optimistic-${Date.now()}`;
-    dispatchConversationList({ type: "APPEND_GROUP", group: { id: optimisticId, name: trimmed, sortPosition: 0, isSystemGroup: false } });
+    useConversationListStore.getState().appendGroup({ id: optimisticId, name: trimmed, sortPosition: 0, isSystemGroup: false });
 
     try {
       const created = await createGroup(assistantId, trimmed);
-      dispatchConversationList({ type: "REPLACE_OPTIMISTIC_GROUP", optimisticId, group: created });
+      useConversationListStore.getState().replaceOptimisticGroup(optimisticId, created);
     } catch (err) {
-      dispatchConversationList({ type: "REMOVE_GROUP", groupId: optimisticId });
+      useConversationListStore.getState().removeGroup(optimisticId);
       Sentry.captureException(err, {
         tags: { context: "createGroup" },
       });
     }
-  }, [assistantId, dispatchConversationList]);
+  }, [assistantId]);
 
   const handleRenameGroup = useCallback(
     async (groupId: string) => {
@@ -93,18 +89,18 @@ export function useConversationGroupActions({
       const trimmed = next.trim();
       if (!trimmed || trimmed === current) return;
 
-      dispatchConversationList({ type: "PATCH_GROUP", groupId, patch: { name: trimmed } });
+      useConversationListStore.getState().patchGroup(groupId, { name: trimmed });
 
       try {
         await updateGroup(assistantId, groupId, { name: trimmed });
       } catch (err) {
-        dispatchConversationList({ type: "PATCH_GROUP", groupId, patch: { name: current } });
+        useConversationListStore.getState().patchGroup(groupId, { name: current });
         Sentry.captureException(err, {
           tags: { context: "renameGroup" },
         });
       }
     },
-    [assistantId, conversationGroups, dispatchConversationList],
+    [assistantId, conversationGroups],
   );
 
   const handleDeleteGroup = useCallback(
@@ -112,7 +108,7 @@ export function useConversationGroupActions({
       if (!assistantId) return;
       haptic.medium();
 
-      dispatchConversationList({ type: "DELETE_GROUP_AND_RESET_CONVERSATIONS", groupId });
+      useConversationListStore.getState().deleteGroupAndResetConversations(groupId);
 
       try {
         await deleteGroup(assistantId, groupId);
@@ -126,7 +122,7 @@ export function useConversationGroupActions({
         });
       }
     },
-    [assistantId, dispatchConversationList, refreshConversations],
+    [assistantId, refreshConversations],
   );
 
   return {

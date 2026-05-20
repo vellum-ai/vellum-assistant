@@ -256,7 +256,12 @@ describe("token estimator", () => {
     // tokens = ceil(1461 * 822 / 750) = ceil(1601.26) = ~1,602
     // With IMAGE_BLOCK_OVERHEAD_TOKENS and media_type overhead, still well under 5000.
     // Same result for every provider — dimension-based estimate is universal.
-    for (const providerName of ["anthropic", "openai", "openrouter"]) {
+    for (const providerName of [
+      "anthropic",
+      "openai",
+      "openrouter",
+      "gemini",
+    ]) {
       const tokens = estimateContentBlockTokens(
         {
           type: "image",
@@ -274,7 +279,12 @@ describe("token estimator", () => {
       "not-a-valid-image-header-at-all",
     ).toString("base64");
 
-    for (const providerName of ["anthropic", "openai", "openrouter"]) {
+    for (const providerName of [
+      "anthropic",
+      "openai",
+      "openrouter",
+      "gemini",
+    ]) {
       const tokens = estimateContentBlockTokens(
         {
           type: "image",
@@ -292,6 +302,43 @@ describe("token estimator", () => {
       expect(tokens).toBeGreaterThanOrEqual(1_600);
       expect(tokens).toBeLessThan(2_000);
     }
+  });
+
+  test("Gemini image tokens scale with image area via 768x768 tiling", () => {
+    // Per Google's docs, Gemini tiles images larger than 384px into 768x768
+    // chunks at 258 tokens each. The Anthropic-style ~1,600 cap under-counts
+    // large images badly enough to skip compaction and overflow context.
+    // 4000x4000 → ceil(4000/768)^2 = 6*6 = 36 tiles → 9,288 image tokens.
+    const tokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: makePngBase64(4000, 4000),
+        },
+      },
+      { providerName: "gemini" },
+    );
+    expect(tokens).toBeGreaterThan(9_000);
+    expect(tokens).toBeLessThan(9_500);
+  });
+
+  test("Gemini images ≤384px on both sides count as a single 258-token tile", () => {
+    const tokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: makePngBase64(200, 200),
+        },
+      },
+      { providerName: "gemini" },
+    );
+    // 258 (tile) + 16 (block overhead) + 3 (media type) = 277
+    expect(tokens).toBeGreaterThanOrEqual(258);
+    expect(tokens).toBeLessThan(300);
   });
 
   test("Anthropic image tokens are the same for same-dimension images regardless of payload size", () => {

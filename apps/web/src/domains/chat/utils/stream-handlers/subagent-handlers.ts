@@ -3,14 +3,14 @@ import type {
   SubagentStatusChangedEvent,
   SubagentEventWrapperEvent,
 } from "@/domains/chat/lib/api.js";
+import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
 
 export function handleSubagentSpawned(
   event: SubagentSpawnedEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchSubagent({
-    type: "SUBAGENT_SPAWNED",
+  useSubagentStore.getState().spawnSubagent({
     subagentId: event.subagentId,
     label: event.label,
     objective: event.objective,
@@ -22,10 +22,9 @@ export function handleSubagentSpawned(
 
 export function handleSubagentStatusChanged(
   event: SubagentStatusChangedEvent,
-  ctx: StreamHandlerContext,
+  _ctx: StreamHandlerContext,
 ): void {
-  ctx.dispatchSubagent({
-    type: "SUBAGENT_STATUS_CHANGED",
+  useSubagentStore.getState().changeStatus({
     subagentId: event.subagentId,
     status: event.status,
     error: event.error,
@@ -37,17 +36,13 @@ export function handleSubagentStatusChanged(
 
 export function handleSubagentEvent(
   event: SubagentEventWrapperEvent,
-  ctx: StreamHandlerContext,
+  _ctx: StreamHandlerContext,
 ): void {
+  const store = useSubagentStore.getState();
   if (event.conversationId) {
-    ctx.dispatchSubagent({
-      type: "SUBAGENT_CONVERSATION_ID_SET",
-      subagentId: event.subagentId,
-      conversationId: event.conversationId,
-    });
+    store.setConversationId(event.subagentId, event.conversationId);
   }
-  ctx.dispatchSubagent({
-    type: "SUBAGENT_EVENT_RECEIVED",
+  store.receiveEvent({
     subagentId: event.subagentId,
     event: event.event,
     timestamp: Date.now(),

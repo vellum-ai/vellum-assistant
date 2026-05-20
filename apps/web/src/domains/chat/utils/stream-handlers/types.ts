@@ -3,14 +3,10 @@ import type {
   MutableRefObject,
   SetStateAction,
 } from "react";
-
-import type { InteractionEvent } from "@/domains/chat/lib/interaction-state-machine.js";
-import type { SubagentAction } from "@/domains/chat/lib/subagent-state.js";
 import type { ChatEventStream } from "@/domains/chat/lib/api.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import type { DomainEvent, TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import type { TurnActions, TurnState } from "@/domains/messaging/turn-store.js";
 import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
 import type { ChatError, PendingQuestionState } from "@/domains/chat/types.js";
 
@@ -52,8 +48,8 @@ export interface StreamHandlerContext {
   needsNewBubbleRef: MutableRefObject<boolean>;
 
   // --- Turn state ---
-  dispatchTurn: Dispatch<DomainEvent>;
-  turnStateRef: MutableRefObject<TurnState>;
+  turnActions: TurnActions;
+  getTurnState: () => TurnState;
 
   // --- Processing ---
   clearProcessingKey: (convKey: string) => void;
@@ -67,12 +63,7 @@ export interface StreamHandlerContext {
   startReconciliationLoop: (epoch: number) => void;
 
   // --- Interaction state ---
-  dispatchInteraction: Dispatch<InteractionEvent>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-
-  // --- Subagent state ---
-  dispatchSubagent: Dispatch<SubagentAction>;
-
 
   // --- UI surfaces ---
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
@@ -86,7 +77,6 @@ export interface StreamHandlerContext {
 
   // --- Conversations ---
   scheduleConversationListRefetch: () => void;
-  dispatchConversationList: Dispatch<ConversationListAction>;
 
   // --- Compaction ---
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;

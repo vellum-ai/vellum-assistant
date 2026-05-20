@@ -2,12 +2,13 @@
  * Encapsulates all interaction-prompt action handlers: secret, confirmation,
  * contact-request, question-response, surface-action, and rule-editor flows.
  *
- * Extracts ~530 lines of callback logic from `AssistantPageClient` into a
- * single hook with a clean return surface. The hook is framework-agnostic
- * aside from React's `useCallback` / `useState` — no Next.js imports.
+ * Each handler calls the interaction store's named actions directly
+ * (e.g. `submitSecretStart()`, `dismissConfirmation()`) instead of
+ * dispatching event objects. Non-reactive reads use
+ * `useInteractionStore.getState()` to avoid stale closures.
  *
- * @see interaction-state-machine.ts  — reducer that drives prompt state
- * @see send-message-utils.ts         — pure helpers reused here
+ * @see domains/interactions/interaction-store.ts — Zustand store for prompt state
+ * @see send-message-utils.ts — pure helpers reused here
  */
 
 import * as Sentry from "@sentry/react";
@@ -27,9 +28,9 @@ import {
 } from "@/domains/chat/lib/api.js";
 import { addTrustRule } from "@/domains/trust-rules/api.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import type { InteractionState, InteractionEvent } from "@/domains/chat/lib/interaction-state-machine.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
-import type { DomainEvent as TurnEvent } from "@/domains/chat/lib/turn-state-machine.js";
+import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useTurnStore } from "@/domains/messaging/turn-store.js";
 
 import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils.js";
 import { deriveCommandText } from "@/domains/chat/utils/chat-utils.js";
@@ -73,11 +74,6 @@ export interface ToolCallRuleContext {
 // ---------------------------------------------------------------------------
 
 export interface UseInteractionActionsParams {
-  interactionState: InteractionState;
-  interactionStateRef: MutableRefObject<InteractionState>;
-  dispatchInteraction: Dispatch<InteractionEvent>;
-  dispatchConversationList: Dispatch<ConversationListAction>;
-  dispatchTurn: Dispatch<TurnEvent>;
   setMessages: Dispatch<DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[])>;
   setError: Dispatch<ChatError | null>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
@@ -115,11 +111,6 @@ export interface UseInteractionActionsReturn {
 // ---------------------------------------------------------------------------
 
 export function useInteractionActions({
-  interactionState,
-  interactionStateRef,
-  dispatchInteraction,
-  dispatchConversationList,
-  dispatchTurn,
   setMessages,
   setError,
   messagesRef,
@@ -127,16 +118,14 @@ export function useInteractionActions({
   activeConversationKeyRef,
   confirmationToolCallMapRef,
 }: UseInteractionActionsParams): UseInteractionActionsReturn {
-  const {
-    pendingSecret,
-    isSubmittingSecret,
-    pendingConfirmation,
-    isSubmittingConfirmation,
-    pendingContactRequest,
-    isSubmittingContactRequest,
-    pendingQuestion,
-    isSubmittingQuestion,
-  } = interactionState;
+  const pendingSecret = useInteractionStore.use.pendingSecret();
+  const isSubmittingSecret = useInteractionStore.use.isSubmittingSecret();
+  const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
+  const isSubmittingConfirmation = useInteractionStore.use.isSubmittingConfirmation();
+  const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
+  const isSubmittingContactRequest = useInteractionStore.use.isSubmittingContactRequest();
+  const pendingQuestion = useInteractionStore.use.pendingQuestion();
+  const isSubmittingQuestion = useInteractionStore.use.isSubmittingQuestion();
 
   const [showRuleEditor, setShowRuleEditor] = useState(false);
   const [ruleEditorContext, setRuleEditorContext] = useState<RuleEditorContext | null>(null);
@@ -150,13 +139,13 @@ export function useInteractionActions({
   const handleSecretSubmit = useCallback(
     async (value: string, delivery: string = "store") => {
       if (!pendingSecret || isSubmittingSecret) return;
-      dispatchInteraction({ type: "SUBMIT_SECRET_START" });
+      useInteractionStore.getState().submitSecretStart();
       setError(null);
 
       const ctx = streamContextRef.current;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
-        dispatchInteraction({ type: "SUBMIT_SECRET_END" });
+        useInteractionStore.getState().submitSecretEnd();
         return;
       }
 
@@ -169,26 +158,26 @@ export function useInteractionActions({
         );
         if (!result.ok) {
           setError({ message: result.error });
-          dispatchInteraction({ type: "SUBMIT_SECRET_END" });
+          useInteractionStore.getState().submitSecretEnd();
           return;
         }
 
-        dispatchInteraction({ type: "SUBMIT_SECRET_END", saved: true });
+        useInteractionStore.getState().submitSecretEnd(true);
         const convKey = activeConversationKeyRef.current;
         if (convKey) {
-          dispatchConversationList({ type: "REMOVE_ATTENTION_KEY", key: convKey });
+          useConversationListStore.getState().removeAttentionKey(convKey);
         }
         const savedRequestId = pendingSecret.requestId;
         setTimeout(() => {
-          const current = interactionStateRef.current.pendingSecret;
+          const current = useInteractionStore.getState().pendingSecret;
           if (current?.requestId === savedRequestId) {
-            dispatchInteraction({ type: "DISMISS_SECRET" });
+            useInteractionStore.getState().dismissSecret();
           }
         }, 1500);
       } catch (err) {
         Sentry.captureException(err, { tags: { context: "submit_secret" } });
         setError({ message: "Failed to submit secret. Please try again." });
-        dispatchInteraction({ type: "SUBMIT_SECRET_END" });
+        useInteractionStore.getState().submitSecretEnd();
       }
     },
     [pendingSecret, isSubmittingSecret],
@@ -196,16 +185,16 @@ export function useInteractionActions({
 
   const handleSecretCancel = useCallback(() => {
     const ctx = streamContextRef.current;
-    const requestId = interactionStateRef.current.pendingSecret?.requestId;
+    const requestId = useInteractionStore.getState().pendingSecret?.requestId;
     if (ctx && requestId) {
       submitSecretResponse(ctx.assistantId, requestId, "", "none").catch(() => {});
     }
-    dispatchInteraction({ type: "DISMISS_SECRET" });
+    useInteractionStore.getState().dismissSecret();
     const convKey = activeConversationKeyRef.current;
     if (convKey) {
-      dispatchConversationList({ type: "REMOVE_ATTENTION_KEY", key: convKey });
+      useConversationListStore.getState().removeAttentionKey(convKey);
     }
-    dispatchTurn({ type: "STREAM_ERROR" });
+    useTurnStore.getState().onStreamError();
   }, []);
 
   // -------------------------------------------------------------------------
@@ -215,13 +204,13 @@ export function useInteractionActions({
   const handleContactPromptSubmit = useCallback(
     async (address: string, channelType: string) => {
       if (!pendingContactRequest || isSubmittingContactRequest) return;
-      dispatchInteraction({ type: "SUBMIT_CONTACT_REQUEST_START" });
+      useInteractionStore.getState().submitContactRequestStart();
       setError(null);
 
       const ctx = streamContextRef.current;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
-        dispatchInteraction({ type: "SUBMIT_CONTACT_REQUEST_END" });
+        useInteractionStore.getState().submitContactRequestEnd();
         return;
       }
 
@@ -235,30 +224,30 @@ export function useInteractionActions({
         );
         if (!result.ok) {
           setError({ message: result.error });
-          dispatchInteraction({ type: "SUBMIT_CONTACT_REQUEST_END" });
+          useInteractionStore.getState().submitContactRequestEnd();
           return;
         }
 
-        dispatchInteraction({ type: "ACCEPT_CONTACT_REQUEST" });
+        useInteractionStore.getState().acceptContactRequest();
         const savedRequestId = pendingContactRequest.requestId;
         setTimeout(() => {
-          const current = interactionStateRef.current.pendingContactRequest;
+          const current = useInteractionStore.getState().pendingContactRequest;
           if (current?.requestId === savedRequestId) {
-            dispatchInteraction({ type: "DISMISS_CONTACT_REQUEST" });
+            useInteractionStore.getState().dismissContactRequest();
           }
         }, 1500);
       } catch (err) {
         Sentry.captureException(err, { tags: { context: "submit_contact_prompt" } });
         setError({ message: "Failed to save contact. Please try again." });
-        dispatchInteraction({ type: "SUBMIT_CONTACT_REQUEST_END" });
+        useInteractionStore.getState().submitContactRequestEnd();
       }
     },
     [pendingContactRequest, isSubmittingContactRequest, streamContextRef],
   );
 
   const handleContactPromptCancel = useCallback(() => {
-    dispatchInteraction({ type: "DISMISS_CONTACT_REQUEST" });
-    dispatchTurn({ type: "STREAM_ERROR" });
+    useInteractionStore.getState().dismissContactRequest();
+    useTurnStore.getState().onStreamError();
   }, []);
 
   // -------------------------------------------------------------------------
@@ -274,11 +263,11 @@ export function useInteractionActions({
   const cleanupAfterConfirmationDecision = useCallback(
     (snapshot: NonNullable<typeof pendingConfirmation>, mappedToolCallId: string | undefined, decision: ConfirmationDecision) => {
       const confirmationDecisionValue = decision === "allow" ? "approved" : "denied";
-      dispatchInteraction({ type: "DISMISS_CONFIRMATION" });
-      dispatchInteraction({ type: "SET_INLINE_CONFIRMATION_TOOL_CALL_ID", toolCallId: null });
+      useInteractionStore.getState().dismissConfirmation();
+      useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       const convKey = activeConversationKeyRef.current;
       if (convKey) {
-        dispatchConversationList({ type: "REMOVE_ATTENTION_KEY", key: convKey });
+        useConversationListStore.getState().removeAttentionKey(convKey);
       }
 
       // Clear inline confirmation from the matched tool call by requestId
@@ -380,7 +369,7 @@ export function useInteractionActions({
       }
 
       confirmationToolCallMapRef.current.delete(snapshot.requestId);
-      dispatchInteraction({ type: "SUBMIT_CONFIRMATION_END" });
+      useInteractionStore.getState().submitConfirmationEnd();
     },
     [],
   );
@@ -389,13 +378,13 @@ export function useInteractionActions({
     async (decision: ConfirmationDecision) => {
       const snapshot = pendingConfirmation;
       if (!pendingConfirmation || isSubmittingConfirmation) return;
-      dispatchInteraction({ type: "SUBMIT_CONFIRMATION_START" });
+      useInteractionStore.getState().submitConfirmationStart();
       setError(null);
 
       const ctx = streamContextRef.current;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
-        dispatchInteraction({ type: "SUBMIT_CONFIRMATION_END" });
+        useInteractionStore.getState().submitConfirmationEnd();
         return;
       }
 
@@ -422,7 +411,7 @@ export function useInteractionActions({
 
           if (!result.ok) {
             setError({ message: result.error });
-            dispatchInteraction({ type: "SUBMIT_CONFIRMATION_END" });
+            useInteractionStore.getState().submitConfirmationEnd();
             return;
           }
           cleanupAfterConfirmationDecision(snapshot!, mappedToolCallId, decision);
@@ -437,14 +426,14 @@ export function useInteractionActions({
 
         if (!result.ok) {
           setError({ message: result.error });
-          dispatchInteraction({ type: "SUBMIT_CONFIRMATION_END" });
+          useInteractionStore.getState().submitConfirmationEnd();
           return;
         }
         cleanupAfterConfirmationDecision(snapshot!, mappedToolCallId, decision);
       } catch (err) {
         Sentry.captureException(err, { tags: { context: "submit_confirmation" } });
         setError({ message: "Failed to submit confirmation. Please try again." });
-        dispatchInteraction({ type: "SUBMIT_CONFIRMATION_END" });
+        useInteractionStore.getState().submitConfirmationEnd();
       }
     },
     [pendingConfirmation, isSubmittingConfirmation, cleanupAfterConfirmationDecision],
@@ -458,13 +447,13 @@ export function useInteractionActions({
     async (responses: QuestionResponseEntry[]) => {
       const snapshot = pendingQuestion;
       if (!snapshot || isSubmittingQuestion) return;
-      dispatchInteraction({ type: "SUBMIT_QUESTION_START" });
+      useInteractionStore.getState().submitQuestionStart();
       setError(null);
 
       const ctx = streamContextRef.current;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
-        dispatchInteraction({ type: "SUBMIT_QUESTION_END" });
+        useInteractionStore.getState().submitQuestionEnd();
         return;
       }
 
@@ -476,24 +465,24 @@ export function useInteractionActions({
         );
         if (!result.ok) {
           setError({ message: result.error });
-          dispatchInteraction({ type: "SUBMIT_QUESTION_END" });
+          useInteractionStore.getState().submitQuestionEnd();
           return;
         }
         // Guard against an SSE-driven `question_request` that lands while
         // our POST is in flight: only clear the prompt if the snapshot we
         // submitted is still the current one.
-        if (interactionStateRef.current.pendingQuestion?.requestId === snapshot.requestId) {
-          dispatchInteraction({ type: "DISMISS_QUESTION" });
+        if (useInteractionStore.getState().pendingQuestion?.requestId === snapshot.requestId) {
+          useInteractionStore.getState().dismissQuestion();
         } else {
-          dispatchInteraction({ type: "SUBMIT_QUESTION_END" });
+          useInteractionStore.getState().submitQuestionEnd();
         }
       } catch (err) {
         Sentry.captureException(err, { tags: { context: "submit_question_response" } });
         setError({ message: "Failed to submit response. Please try again." });
-        dispatchInteraction({ type: "SUBMIT_QUESTION_END" });
+        useInteractionStore.getState().submitQuestionEnd();
       }
     },
-    [pendingQuestion, isSubmittingQuestion, dispatchInteraction],
+    [pendingQuestion, isSubmittingQuestion],
   );
 
   // -------------------------------------------------------------------------
@@ -509,7 +498,7 @@ export function useInteractionActions({
     }
 
     const snapshot = pendingConfirmation;
-    dispatchInteraction({ type: "SUBMIT_CONFIRMATION_START" });
+    useInteractionStore.getState().submitConfirmationStart();
 
     const mappedToolCallId = confirmationToolCallMapRef.current.get(snapshot.requestId);
 
@@ -533,8 +522,8 @@ export function useInteractionActions({
 
       if (!result.ok) {
         setError({ message: result.error });
-        dispatchInteraction({ type: "SUBMIT_CONFIRMATION_END" });
-        dispatchInteraction({ type: "SET_INLINE_CONFIRMATION_TOOL_CALL_ID", toolCallId: null });
+        useInteractionStore.getState().submitConfirmationEnd();
+        useInteractionStore.getState().setInlineConfirmationToolCallId(null);
         setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
         setRuleEditorContext(editorContext);
         setShowRuleEditor(true);
@@ -547,12 +536,12 @@ export function useInteractionActions({
       setShowRuleEditor(true);
     } catch (err) {
       Sentry.captureException(err, { tags: { context: "allow_and_create_rule" } });
-      dispatchInteraction({ type: "SET_INLINE_CONFIRMATION_TOOL_CALL_ID", toolCallId: null });
+      useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
       setRuleEditorContext(editorContext);
       setShowRuleEditor(true);
       setError({ message: "Failed to submit confirmation, but you can still create a rule." });
-      dispatchInteraction({ type: "SUBMIT_CONFIRMATION_END" });
+      useInteractionStore.getState().submitConfirmationEnd();
     }
   }, [pendingConfirmation, isSubmittingConfirmation, cleanupAfterConfirmationDecision]);
 
@@ -602,7 +591,7 @@ export function useInteractionActions({
       }
 
       setIsSavingRule(true);
-      dispatchInteraction({ type: "SUBMIT_CONFIRMATION_START" });
+      useInteractionStore.getState().submitConfirmationStart();
       try {
         const result = await submitConfirmation(
           ctx.assistantId,
@@ -625,11 +614,11 @@ export function useInteractionActions({
         return;
       } finally {
         setIsSavingRule(false);
-        dispatchInteraction({ type: "SUBMIT_CONFIRMATION_END" });
+        useInteractionStore.getState().submitConfirmationEnd();
       }
 
-      dispatchInteraction({ type: "DISMISS_CONFIRMATION_IF_MATCHES", requestId: context.requestId });
-      dispatchInteraction({ type: "SET_INLINE_CONFIRMATION_TOOL_CALL_ID", toolCallId: null });
+      useInteractionStore.getState().dismissConfirmationIfMatches(context.requestId);
+      useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       confirmationToolCallMapRef.current.delete(context.requestId);
       setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, context.requestId));
       setShowRuleEditor(false);
@@ -677,7 +666,7 @@ export function useInteractionActions({
         throw new Error("Surface action failed");
       }
 
-      dispatchTurn({ type: "USER_SEND_REQUESTED" });
+      useTurnStore.getState().requestSend();
 
       const ONE_SHOT_SURFACE_TYPES = ["form", "confirmation", "file_upload", "card", "list", "table", "browser_view"];
       setMessages((prev: DisplayMessage[]) => {

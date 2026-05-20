@@ -143,7 +143,7 @@ describe("oauth popup links", () => {
       // query string, but `getHttpUrl` rejects the scheme so we never dispatch.
       expect(
         openOAuthUrlInPopup(
-          "javascript:alert(1)?response_type=code&client_id=x&redirect_uri=y",
+          "x-apple.systempreferences:foo?response_type=code&client_id=bar&redirect_uri=http%3A%2F%2Flocalhost",
         ),
       ).toBe(false);
       expect(openUrlMock).not.toHaveBeenCalled();

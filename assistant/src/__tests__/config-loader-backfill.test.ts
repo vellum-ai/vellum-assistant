@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import {
   afterAll,
   afterEach,
@@ -16,6 +17,8 @@ import {
   mock,
   test,
 } from "bun:test";
+
+import { drizzle } from "drizzle-orm/bun-sqlite";
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports that depend on platform/logger
@@ -73,6 +76,12 @@ import {
   mergeDefaultWorkspaceConfig,
 } from "../config/loader.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
+import type { DrizzleDb } from "../memory/db-connection.js";
+import { migrateCreateProviderConnections } from "../memory/migrations/243-provider-connections.js";
+import { migrateProviderConnectionStatusLabel } from "../memory/migrations/244-provider-connection-status-label.js";
+import { migrateProviderConnectionBaseUrlAndModels } from "../memory/migrations/250-provider-connection-base-url-and-models.js";
+import * as schema from "../memory/schema.js";
+import { getConnection } from "../providers/inference/connections.js";
 import { _setStorePath } from "../security/encrypted-store.js";
 
 // ---------------------------------------------------------------------------
@@ -83,13 +92,24 @@ function writeConfig(obj: unknown): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(obj, null, 2) + "\n");
 }
 
-function mergeDefaultConfigAndSeedInferenceProfiles(): void {
+function mergeDefaultConfigAndSeedInferenceProfiles(db?: DrizzleDb): void {
   const defaultConfigMerge = mergeDefaultWorkspaceConfig();
   seedInferenceProfiles({
     preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
     preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
     isHatch: defaultConfigMerge.hadOverlay,
+    db,
   });
+}
+
+function createProviderConnectionsDb(): DrizzleDb {
+  const sqlite = new Database(":memory:");
+  sqlite.exec("PRAGMA journal_mode=WAL");
+  const db = drizzle(sqlite, { schema });
+  migrateCreateProviderConnections(db);
+  migrateProviderConnectionStatusLabel(db);
+  migrateProviderConnectionBaseUrlAndModels(db);
+  return db;
 }
 
 // ---------------------------------------------------------------------------
@@ -440,11 +460,9 @@ describe("loadConfig startup behavior", () => {
       "anthropic-personal",
     );
     // Managed profiles exist as well.
-    expect(config.llm.profiles.balanced?.model).toBe(
-      "accounts/fireworks/models/kimi-k2p6",
-    );
+    expect(config.llm.profiles.balanced?.model).toBe("claude-sonnet-4-6");
     expect(config.llm.profiles.balanced?.provider_connection).toBe(
-      "fireworks-managed",
+      "anthropic-managed",
     );
 
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
@@ -453,9 +471,7 @@ describe("loadConfig startup behavior", () => {
       model: "claude-opus-4-7",
     });
     expect(raw.llm.activeProfile).toBe("custom-balanced");
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/kimi-k2p6",
-    );
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
   });
 
   test("on-platform hatch seeds only managed profiles", () => {
@@ -483,11 +499,9 @@ describe("loadConfig startup behavior", () => {
     const config = loadConfig();
 
     expect(config.llm.activeProfile).toBe("balanced");
-    expect(config.llm.profiles.balanced?.model).toBe(
-      "accounts/fireworks/models/kimi-k2p6",
-    );
+    expect(config.llm.profiles.balanced?.model).toBe("claude-sonnet-4-6");
     expect(config.llm.profiles.balanced?.provider_connection).toBe(
-      "fireworks-managed",
+      "anthropic-managed",
     );
     // No user profiles created on platform.
     expect(config.llm.profiles["custom-balanced"]).toBeUndefined();
@@ -529,10 +543,10 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles["custom-balanced"].provider_connection).toBe(
       "anthropic-personal",
     );
-    // Managed balanced profile is seeded for fireworks-managed.
-    expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
+    // Managed balanced profile is seeded for anthropic-managed.
+    expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "fireworks-managed",
+      "anthropic-managed",
     );
   });
 
@@ -566,9 +580,9 @@ describe("loadConfig startup behavior", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     // On-platform: no user profiles created, active resets to managed balanced.
     expect(raw.llm.activeProfile).toBe("balanced");
-    expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
+    expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "fireworks-managed",
+      "anthropic-managed",
     );
     // The old custom-balanced is preserved on disk but no longer active.
     expect(raw.llm.profiles["custom-balanced"].provider).toBe("openai");
@@ -595,11 +609,8 @@ describe("loadConfig startup behavior", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
-      JSON.stringify(
-        { llm: { default: { provider: "openai" } } },
-        null,
-        2,
-      ) + "\n",
+      JSON.stringify({ llm: { default: { provider: "openai" } } }, null, 2) +
+        "\n",
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
@@ -623,10 +634,10 @@ describe("loadConfig startup behavior", () => {
       "gpt-5.4-nano",
     );
 
-    // Managed profiles are also seeded (balanced uses fireworks).
-    expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
+    // Managed profiles are also seeded (balanced uses Anthropic).
+    expect(raw.llm.profiles.balanced.provider).toBe("anthropic");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "fireworks-managed",
+      "anthropic-managed",
     );
     expect(raw.llm.profiles.balanced.source).toBe("managed");
     expect(raw.llm.profiles["quality-optimized"].provider).toBe("anthropic");
@@ -654,11 +665,9 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/kimi-k2p6",
-    );
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "fireworks-managed",
+      "anthropic-managed",
     );
     expect(raw.llm.activeProfile).toBe("balanced");
   });
@@ -685,9 +694,7 @@ describe("loadConfig startup behavior", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     // Model still gets the new template value (provider-controlled).
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/kimi-k2p6",
-    );
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
     // But the user's label override is preserved across the reseed.
     expect(raw.llm.profiles.balanced.label).toBe("My Default");
   });
@@ -715,9 +722,7 @@ describe("loadConfig startup behavior", () => {
 
     expect(raw.llm.profiles.balanced.status).toBe("disabled");
     // Model still refreshes — only label/status are user-owned.
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/kimi-k2p6",
-    );
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
   });
 
   test("off-platform reseed preserves an explicit null label (user cleared it)", () => {
@@ -758,9 +763,7 @@ describe("loadConfig startup behavior", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     expect(raw.llm.profiles.balanced.label).toBe("Balanced (Managed)");
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/kimi-k2p6",
-    );
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
     // Status is unset by default — must not appear as `undefined`.
     expect("status" in raw.llm.profiles.balanced).toBe(false);
   });
@@ -887,9 +890,7 @@ describe("loadConfig startup behavior", () => {
     // Off-platform hatch: user profiles are active.
     expect(raw.llm.activeProfile).toBe("custom-balanced");
     expect(raw.llm.profiles["custom-balanced"].provider).toBe("anthropic");
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/kimi-k2p6",
-    );
+    expect(raw.llm.profiles.balanced.model).toBe("claude-sonnet-4-6");
   });
 
   test("still quarantines corrupt JSON", () => {
@@ -997,11 +998,8 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
-      JSON.stringify(
-        { llm: { default: { provider: "anthropic" } } },
-        null,
-        2,
-      ) + "\n",
+      JSON.stringify({ llm: { default: { provider: "anthropic" } } }, null, 2) +
+        "\n",
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
@@ -1011,6 +1009,92 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(config.llm.profiles.balanced?.status).toBe("disabled");
     expect(config.llm.profiles["quality-optimized"]?.status).toBe("disabled");
     expect(config.llm.profiles["cost-optimized"]?.status).toBe("disabled");
+  });
+
+  test("off-platform managed-inference hatch keeps selected managed connection active", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "anthropic" },
+            activeProfile: "balanced",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.profiles.balanced.provider_connection).toBe(
+      "anthropic-managed",
+    );
+    expect("status" in raw.llm.profiles.balanced).toBe(false);
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("active");
+    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
+    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
+  });
+
+  test("off-platform managed-inference hatch respects explicit non-managed active connection", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "anthropic" },
+            profiles: {
+              balanced: {
+                source: "managed",
+                provider: "anthropic",
+                provider_connection: "anthropic-personal",
+                model: "claude-sonnet-4-6",
+              },
+            },
+            activeProfile: "balanced",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.profiles.balanced.provider_connection).toBe(
+      "anthropic-personal",
+    );
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("disabled");
+    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
+    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
+  });
+
+  test("off-platform BYOK hatch still disables managed connections", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify({ llm: { default: { provider: "anthropic" } } }, null, 2) +
+        "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+
+    expect(getConnection(db, "anthropic-managed")?.status).toBe("disabled");
+    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
+    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
   });
 
   test("non-hatch off-platform boot does NOT auto-disable freshly-materialized managed profiles", () => {
@@ -1045,11 +1129,8 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
-      JSON.stringify(
-        { llm: { default: { provider: "anthropic" } } },
-        null,
-        2,
-      ) + "\n",
+      JSON.stringify({ llm: { default: { provider: "anthropic" } } }, null, 2) +
+        "\n",
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 

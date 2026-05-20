@@ -14,9 +14,7 @@ describe("handleToolUseStart", () => {
       ctx,
     );
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "TOOL_USE_START",
-    });
+    expect(ctx.turnActions.onToolUseStart).toHaveBeenCalled();
     expect(ctx.toolCallIdCounterRef.current).toBe(1);
     expect(ctx.needsNewBubbleRef.current).toBe(false);
     expect(ctx.setMessages).toHaveBeenCalled();
@@ -58,9 +56,7 @@ describe("handleToolResult", () => {
       },
       ctx,
     );
-    expect(ctx.dispatchTurn).toHaveBeenCalledWith({
-      type: "TOOL_RESULT",
-    });
+    expect(ctx.turnActions.onToolResult).toHaveBeenCalled();
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 });

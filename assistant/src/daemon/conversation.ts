@@ -54,7 +54,6 @@ import {
   getConversationOriginChannel,
   getConversationOverrideProfileFromRow,
 } from "../memory/conversation-crud.js";
-import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
@@ -489,9 +488,6 @@ export class Conversation {
                 channelPersona: persona.channelPersona,
                 userSlug: persona.userSlug,
                 onboardingContext: this.getOnboardingContext(),
-                isBackgroundConversation: isBackgroundConversationType(
-                  getConversation(this.conversationId)?.conversationType,
-                ),
               });
             })(),
       };
@@ -583,9 +579,6 @@ export class Conversation {
             channelPersona: persona.channelPersona,
             userSlug: persona.userSlug,
             onboardingContext: this.getOnboardingContext(),
-            isBackgroundConversation: isBackgroundConversationType(
-              getConversation(this.conversationId)?.conversationType,
-            ),
           });
         })();
     const tools = buildToolDefinitions();

@@ -81,7 +81,7 @@ import {
   INITIAL_TURN_STATE,
   turnReducer,
   isSending,
-} from "@/domains/chat/lib/turn-state-machine.js";
+} from "@/domains/messaging/turn-store.js";
 import { SYNC_TAGS } from "@/lib/sync/types.js";
 
 describe("parseAssistantEvent", () => {

@@ -18,7 +18,6 @@ import {
 } from "@capacitor/local-notifications";
 
 import { client } from "@/generated/api/client.gen.js";
-import "@/lib/api-client.js";
 import { isNativePlatform } from "@/runtime/native-auth.js";
 
 const SDK_BASE_OPTIONS =

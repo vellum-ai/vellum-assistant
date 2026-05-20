@@ -1,16 +1,14 @@
 
 import {
-  type Dispatch,
   type MutableRefObject,
+  type Dispatch,
   type SetStateAction,
   useCallback,
   useRef,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import type { InteractionEvent } from "@/domains/chat/lib/interaction-state-machine.js";
-import type { SubagentAction } from "@/domains/chat/lib/subagent-state.js";
-import type { ConversationListAction } from "@/domains/chat/lib/conversation-list-state.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import type {
   AssistantEvent,
   AssistantSyncChangedEvent,
@@ -18,7 +16,7 @@ import type {
 } from "@/domains/chat/lib/api.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import type { DomainEvent, TurnState } from "@/domains/chat/lib/turn-state-machine.js";
+import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
 import {
   recordChatDiagnostic,
@@ -99,12 +97,7 @@ export interface UseStreamEventHandlerParams {
   messagesRef: MutableRefObject<DisplayMessage[]>;
   needsNewBubbleRef: MutableRefObject<boolean>;
 
-  // --- Turn state ---
-  dispatchTurn: Dispatch<DomainEvent>;
-  turnStateRef: MutableRefObject<TurnState>;
-
   // --- Processing ---
-  dispatchConversationList: Dispatch<ConversationListAction>;
   processingSnapshotsRef: MutableRefObject<
     Map<string, string | undefined>
   >;
@@ -118,11 +111,7 @@ export interface UseStreamEventHandlerParams {
   startReconciliationLoop: (epoch: number) => void;
 
   // --- Interaction state (secret, confirmation, contact request) ---
-  dispatchInteraction: Dispatch<InteractionEvent>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-
-  // --- Subagent state ---
-  dispatchSubagent: Dispatch<SubagentAction>;
 
   // --- UI surfaces ---
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
@@ -171,9 +160,6 @@ interface UseStreamEventHandlerReturn {
  * Builds a `StreamHandlerContext` on each call and delegates to the
  * appropriate handler based on event type via an exhaustive switch.
  *
- * @param params.dispatchConversationList - Dispatch function from the
- *   `conversationListReducer`. Passed through to handlers that update
- *   conversation state (e.g., title updates, processing key removal).
  * @returns `handleStreamEvent(event, epoch)` — call this for each SSE event.
  */
 export function useStreamEventHandler(
@@ -191,18 +177,12 @@ export function useStreamEventHandler(
     setMessages,
     messagesRef,
     needsNewBubbleRef,
-    dispatchTurn,
-    turnStateRef,
-    dispatchConversationList,
     processingSnapshotsRef,
     setError,
     streamRef,
     cancelReconciliation,
     startReconciliationLoop,
-    dispatchInteraction,
     confirmationToolCallMapRef,
-    dispatchSubagent,
-
     setAssetsRefreshKey,
     dismissedSurfaceIdsRef,
     contextWindowUsageByConversationRef,
@@ -237,10 +217,10 @@ export function useStreamEventHandler(
   /** Remove a conversation key from the processing set and snapshots map. */
   const clearProcessingKey = useCallback(
     (convKey: string) => {
-      dispatchConversationList({ type: "REMOVE_PROCESSING_KEY", key: convKey });
+      useConversationListStore.getState().removeProcessingKey(convKey);
       processingSnapshotsRef.current.delete(convKey);
     },
-    [dispatchConversationList, processingSnapshotsRef],
+    [processingSnapshotsRef],
   );
 
   // --- Main event handler ---
@@ -301,23 +281,19 @@ export function useStreamEventHandler(
         setMessages,
         messagesRef,
         needsNewBubbleRef,
-        dispatchTurn,
-        turnStateRef,
+        turnActions: useTurnStore.getState(),
+        getTurnState: () => useTurnStore.getState(),
         clearProcessingKey,
         setError,
         streamRef,
         cancelReconciliation,
         startReconciliationLoop,
-        dispatchInteraction,
         confirmationToolCallMapRef,
-        dispatchSubagent,
-
         setAssetsRefreshKey,
         dismissedSurfaceIdsRef,
         contextWindowUsageByConversationRef,
         setContextWindowUsage,
         scheduleConversationListRefetch,
-        dispatchConversationList,
         setCompactionCircuitOpenUntil,
         applyDiskPressureStatusEvent: (...args) =>
           applyDiskPressureStatusEventRef.current(...args),
@@ -478,18 +454,13 @@ export function useStreamEventHandler(
       setMessages,
       messagesRef,
       needsNewBubbleRef,
-      dispatchTurn,
-      turnStateRef,
       setError,
       streamRef,
-      dispatchInteraction,
       confirmationToolCallMapRef,
-      dispatchSubagent,
       setAssetsRefreshKey,
       dismissedSurfaceIdsRef,
       contextWindowUsageByConversationRef,
       setContextWindowUsage,
-      dispatchConversationList,
       setCompactionCircuitOpenUntil,
       pendingQueuedStableIdsRef,
       requestIdToStableIdRef,

@@ -85,7 +85,9 @@ final class ProvidersSheetTests: XCTestCase {
             provider: "openai",
             auth: ProviderConnectionAuth(type: "api_key", credential: "sk-open"),
             label: nil,
-            status: nil
+            status: nil,
+            baseUrl: nil,
+            models: nil
         )
 
         XCTAssertEqual(mockClient.createCallCount, 1)
@@ -119,7 +121,9 @@ final class ProvidersSheetTests: XCTestCase {
             name: "gone",
             auth: ProviderConnectionAuth(type: "api_key", credential: "sk-x"),
             status: nil,
-            label: nil
+            label: nil,
+            baseUrl: nil,
+            models: nil
         )
         XCTAssertNil(result, "nil update signals 404; caller should refresh")
 
@@ -251,7 +255,9 @@ final class ProvidersSheetTests: XCTestCase {
             provider: "anthropic",
             auth: ProviderConnectionAuth(type: "api_key", credential: "credential/anthropic/api_key"),
             label: "Anthropic",
-            status: .active
+            status: .active,
+            baseUrl: nil,
+            models: nil
         )
 
         XCTAssertEqual(mockClient.createCallCount, 1, "Save as New must POST.")

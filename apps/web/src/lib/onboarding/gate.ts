@@ -21,7 +21,7 @@ import { readOnboardingCompleted } from "@/lib/onboarding/prefs.js";
  * Rules (short-circuit, top to bottom):
  *   1. If onboarding is already marked completed, let the user through.
  *   2. If the intended destination isn't the chat surface itself
- *      (`routes.assistant`), let them through — sibling paths
+ *      (`/assistant`), let them through — sibling paths
  *      `/assistant/settings/...`, `/assistant/onboarding/...`,
  *      `/admin/...` etc. shouldn't be gated.
  *   3. Otherwise, route them to `routes.onboarding.privacy`.

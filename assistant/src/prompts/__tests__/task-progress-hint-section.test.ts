@@ -74,18 +74,14 @@ describe("task_progress hint in parallel-tool-calls section", () => {
   });
 
   test("renders regardless of options passed", () => {
-    const withBackground = buildSystemPrompt({
-      isBackgroundConversation: true,
-    });
-    const withoutBackground = buildSystemPrompt({
-      isBackgroundConversation: false,
-    });
+    const withClientFlag = buildSystemPrompt({ hasNoClient: true });
+    const withoutClientFlag = buildSystemPrompt({ hasNoClient: false });
     const withExcludePrefix = buildSystemPrompt({
       excludeCustomPrefix: true,
     });
 
-    expect(withBackground).toContain("task_progress");
-    expect(withoutBackground).toContain("task_progress");
+    expect(withClientFlag).toContain("task_progress");
+    expect(withoutClientFlag).toContain("task_progress");
     expect(withExcludePrefix).toContain("task_progress");
   });
 

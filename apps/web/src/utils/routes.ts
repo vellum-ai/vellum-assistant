@@ -1,8 +1,10 @@
 /**
  * Centralized URL registry for app-internal navigation.
  *
- * Use these for any in-app `<Link to>`, `navigate()`, `returnTo` default,
- * or pathname matching against canonical app paths.
+ * All paths are absolute browser paths — pass them directly to
+ * `<Link to>`, `navigate()`, `window.location.href`, and pathname
+ * comparisons. No React Router basename is in play; the router runs
+ * at `/` and matches these paths as-is.
  *
  * Captured paths (e.g. inputs to `sanitizeReturnTo`, query-string round-trips)
  * are values, not constants — do NOT rewrite those through this module.
@@ -14,6 +16,7 @@ const dyn = (parent: string, id: string): string => `${parent}/${id}`;
 
 export const routes = {
   assistant: r("/assistant"),
+  conversation: (key: string) => dyn(r("/assistant/conversations"), key),
   inspect: r("/assistant/inspect"),
   logs: {
     root: r("/assistant/logs"),
@@ -35,6 +38,7 @@ export const routes = {
     providerCallback: r("/account/provider/callback"),
     oauth: {
       popupComplete: r("/account/oauth/popup-complete"),
+      desktopComplete: r("/account/oauth/desktop-complete"),
     },
   },
 
@@ -108,3 +112,12 @@ export const routes = {
     },
   },
 } as const;
+
+const WWW_DOMAIN = "vellum.ai";
+
+/** Full external URL for a legal/docs page hosted on the marketing site. */
+export function legalUrl(
+  path: (typeof routes.docs.legal)[keyof typeof routes.docs.legal],
+): string {
+  return `https://${WWW_DOMAIN}${path}`;
+}

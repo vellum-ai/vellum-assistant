@@ -43,6 +43,7 @@ let mockConfig = {
     timezone: null as string | null,
     activeHoursStart: undefined as number | undefined,
     activeHoursEnd: undefined as number | undefined,
+    disposition: "Default disposition text mentioning notifications skill.",
   },
 };
 
@@ -386,6 +387,7 @@ describe("HeartbeatService", () => {
         timezone: null,
         activeHoursStart: undefined,
         activeHoursEnd: undefined,
+        disposition: "Default disposition text mentioning notifications skill.",
       },
     };
   });
@@ -418,8 +420,7 @@ describe("HeartbeatService", () => {
     expect(processMessageCalls[0].conversationId).toBe("conv-1");
     expect(processMessageCalls[0].content).toContain("<heartbeat-checklist>");
     expect(processMessageCalls[0].content).toContain("<heartbeat-disposition>");
-    expect(processMessageCalls[0].content).toContain("HEARTBEAT_OK");
-    expect(processMessageCalls[0].content).toContain("HEARTBEAT_ALERT");
+    expect(processMessageCalls[0].content).toContain("notifications skill");
   });
 
   test("HEARTBEAT.md content is embedded in prompt when file exists", async () => {
@@ -750,30 +751,13 @@ describe("HeartbeatService", () => {
     });
   });
 
-  test("HEARTBEAT_ALERT emits a notification signal and surfaces the conversation", async () => {
+  test("conversation surfaces to the sidebar on every successful run", async () => {
     const conversationCreatedCalls: Array<{
       conversationId: string;
       title: string;
     }> = [];
     const service = createService({
       onConversationCreated: (info) => conversationCreatedCalls.push(info),
-      processMessage: async (...args: unknown[]) => {
-        const conversationId = args[0] as string;
-        mockStoredMessages.push({
-          id: "assistant-alert-1",
-          conversationId,
-          role: "assistant",
-          content: JSON.stringify([
-            {
-              type: "text",
-              text: "The first heartbeat found a concrete follow-up for the guardian.\nHEARTBEAT_ALERT",
-            },
-          ]),
-          createdAt: Date.now(),
-          metadata: null,
-        });
-        return { messageId: "user-heartbeat-1" };
-      },
     });
 
     await service.runOnce();
@@ -782,113 +766,6 @@ describe("HeartbeatService", () => {
     expect(conversationCreatedCalls).toEqual([
       { conversationId: "conv-1", title: "Heartbeat" },
     ]);
-    expect(emittedNotificationSignals).toHaveLength(1);
-    expect(emittedNotificationSignals[0]).toMatchObject({
-      sourceEventName: "heartbeat.alert",
-      sourceChannel: "watcher",
-      sourceContextId: "mock-run-id",
-      dedupeKey: "heartbeat:alert:mock-run-id",
-      attentionHints: {
-        requiresAction: true,
-        urgency: "medium",
-        isAsyncBackground: true,
-        visibleInSourceNow: false,
-      },
-      conversationAffinityHint: { vellum: "conv-1" },
-      conversationMetadata: {
-        source: "heartbeat",
-        groupId: "system:background",
-      },
-    });
-    expect(emittedNotificationSignals[0].contextPayload.summary).toBe(
-      "The first heartbeat found a concrete follow-up for the guardian.",
-    );
-    expect(emittedNotificationSignals[0].contextPayload.messageId).toBe(
-      "assistant-alert-1",
-    );
-    expect(
-      emittedNotificationSignals[0].contextPayload.sourceInterface,
-    ).toBeUndefined();
-  });
-
-  test("HEARTBEAT_OK stays silent", async () => {
-    const conversationCreatedCalls: Array<{
-      conversationId: string;
-      title: string;
-    }> = [];
-    const service = createService({
-      onConversationCreated: (info) => conversationCreatedCalls.push(info),
-      processMessage: async (...args: unknown[]) => {
-        const conversationId = args[0] as string;
-        mockStoredMessages.push({
-          id: "assistant-ok-1",
-          conversationId,
-          role: "assistant",
-          content: JSON.stringify([
-            {
-              type: "text",
-              text: "Everything looks good.\nHEARTBEAT_OK",
-            },
-          ]),
-          createdAt: Date.now(),
-          metadata: null,
-        });
-        return { messageId: "user-heartbeat-1" };
-      },
-    });
-
-    await service.runOnce();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    // The conversation surfaces to the sidebar via the runner's bootstrap
-    // callback for *every* heartbeat — "silent OK" means no notification
-    // signal is emitted, not that the conversation is hidden.
-    expect(conversationCreatedCalls).toHaveLength(1);
-    expect(emittedNotificationSignals).toHaveLength(0);
-  });
-
-  test("HEARTBEAT_OK stays silent when earlier content mentions HEARTBEAT_ALERT", async () => {
-    const conversationCreatedCalls: Array<{
-      conversationId: string;
-      title: string;
-    }> = [];
-    const service = createService({
-      onConversationCreated: (info) => conversationCreatedCalls.push(info),
-      processMessage: async (...args: unknown[]) => {
-        const conversationId = args[0] as string;
-        mockStoredMessages.push({
-          id: "assistant-ok-2",
-          conversationId,
-          role: "assistant",
-          content: JSON.stringify([
-            {
-              type: "thinking",
-              thinking:
-                "I should decide between HEARTBEAT_ALERT and HEARTBEAT_OK.",
-            },
-            {
-              type: "tool_result",
-              content: "Tool output mentions HEARTBEAT_ALERT.",
-            },
-            {
-              type: "text",
-              text: "I considered HEARTBEAT_ALERT, but there is nothing useful to surface.\nHEARTBEAT_OK",
-            },
-          ]),
-          createdAt: Date.now(),
-          metadata: null,
-        });
-        return { messageId: "user-heartbeat-1" };
-      },
-    });
-
-    await service.runOnce();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    // Conversation surfaces via the runner bootstrap, but no notification
-    // is emitted since the disposition is OK.
-    expect(conversationCreatedCalls).toHaveLength(1);
-    expect(emittedNotificationSignals).toHaveLength(0);
   });
 
   test("end-to-end: llm.callSites.heartbeatAgent.speed resolves to 'fast'", async () => {
@@ -1524,43 +1401,6 @@ describe("HeartbeatService", () => {
       });
     });
 
-    test("CAS false suppresses success surfacing", async () => {
-      mockCompleteHeartbeatRun.mockImplementation(() => false);
-
-      const conversationCreatedCalls: Array<{
-        conversationId: string;
-        title: string;
-      }> = [];
-      const service = createService({
-        onConversationCreated: (info) => conversationCreatedCalls.push(info),
-        processMessage: async (...args: unknown[]) => {
-          const conversationId = args[0] as string;
-          mockStoredMessages.push({
-            id: "assistant-alert-1",
-            conversationId,
-            role: "assistant",
-            content: JSON.stringify([
-              {
-                type: "text",
-                text: "Something worth surfacing.\nHEARTBEAT_ALERT",
-              },
-            ]),
-            createdAt: Date.now(),
-            metadata: null,
-          });
-          return { messageId: "msg-1" };
-        },
-      });
-      await service.runOnce();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-
-      // The bootstrap-time surface fires regardless of CAS (it happens
-      // before completeHeartbeatRun). CAS-false suppresses the alert
-      // notification emit but not the sidebar entry.
-      expect(conversationCreatedCalls).toHaveLength(1);
-      expect(emittedNotificationSignals).toHaveLength(0);
-    });
-
     test("CAS false suppresses failure alerter and feed event", async () => {
       mockCompleteHeartbeatRun.mockImplementation(() => false);
 
@@ -1834,6 +1674,26 @@ describe("HeartbeatService", () => {
 
       expect(processMessageCalls).toHaveLength(1);
       expect(processMessageCalls[0].content).not.toContain("<early-heartbeat>");
+    });
+  });
+
+  describe("configurable disposition", () => {
+    test("injects the configured disposition inside <heartbeat-disposition>", () => {
+      mockConfig.heartbeat.disposition = "Marker text from config.";
+      const service = createService();
+      const { prompt } = service.buildPrompt("- Check things", [], 10);
+
+      expect(prompt).toContain(
+        "<heartbeat-disposition>\nMarker text from config.\n</heartbeat-disposition>",
+      );
+    });
+
+    test("omits the block when disposition is empty", () => {
+      mockConfig.heartbeat.disposition = "";
+      const service = createService();
+      const { prompt } = service.buildPrompt("- Check things", [], 10);
+
+      expect(prompt).not.toContain("<heartbeat-disposition>");
     });
   });
 });

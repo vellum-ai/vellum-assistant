@@ -4,7 +4,7 @@ import { type DragEvent, useCallback, useRef, useState } from "react";
 
 import type { Surface } from "@/domains/chat/lib/types.js";
 
-import { MarkdownMessage } from "@/components/markdown-message.js";
+import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -265,7 +265,7 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
         </div>
       )}
 
-      <MarkdownMessage
+      <ChatMarkdownMessage
         content={data.prompt}
         className="mb-3 text-body-medium-lighter text-stone-600 dark:text-stone-300"
       />
