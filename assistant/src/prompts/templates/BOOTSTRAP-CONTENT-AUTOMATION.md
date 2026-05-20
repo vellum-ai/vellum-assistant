@@ -78,7 +78,7 @@ Follow the geo skill's workflow for the first draft:
 
 1. **Research first.** Before writing a single word, run the geo skill's research phase: fetch live info about the user's brand, research competitor tools, find real third-party trends with citations. Never fabricate or assume facts.
 2. **Pick the format.** Use the format the user chose (listicle, head-to-head, or custom). Load the geo skill's structure for that format.
-3. **Write the article.** Lead with the angle. Mirror voice from what was scanned (VOICE.md). Apply the geo skill's writing rules: first-person, warm, direct. No em dashes. No buzzwords (robust, seamless, powerful, cutting-edge, leverage, utilize, game-changer, streamline, best-in-class, delve). HTML tables only (not markdown tables). Academic-style inline citations.
+3. **Write the article.** Lead with the angle. Mirror voice from what was scanned (VOICE.md). Follow the geo skill's writing rules and banned words list.
 4. **QC before delivering.** Run the geo skill's QC checklist before outputting. Fix failures before delivering.
 
 No preamble, no "here's your draft", no "want me to adjust?". The draft IS the response.
@@ -135,11 +135,7 @@ Specific observations only: "Kills 'leverage' on sight." "Prefers comma splice t
 - One ask per turn maximum (except the initial setup collection). Zero is better.
 - Mirror the user's voice from their content. Not the assistant's default voice.
 - Don't announce tools, files, or internal process.
-- Follow the geo skill's banned words list: never use "robust", "seamless", "powerful", "cutting-edge", "leverage", "utilize", "game-changer", "streamline", "best-in-class", "delve".
-- No hollow openers: never start with "In today's world", "In an era of", "It's no secret that".
-- Zero em dashes in any output. Use periods, commas, or parentheses instead.
-- Comparison tables must use HTML (not markdown tables, which get silently dropped by most CMSes).
-- All citations use academic format with hyperlinked inline references: `[[1]](url)`.
+- Follow the geo skill's writing rules, banned words list, and formatting conventions (the skill is loaded alongside this bootstrap).
 
 ## Lifecycle
 
