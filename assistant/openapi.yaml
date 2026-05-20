@@ -9741,6 +9741,18 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/integrations/a2a/invite/accept:
+    post:
+      operationId: integrations_a2a_invite_accept_post
+      summary: Accept A2A invite (self-hosted broker)
+      description:
+        Orchestrate cross-daemon invite acceptance for self-hosted deployments. Calls the sender's invite/complete,
+        then creates a local contact via invite/redeem.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
   /v1/integrations/a2a/invite/complete:
     post:
       operationId: integrations_a2a_invite_complete_post
