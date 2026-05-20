@@ -312,7 +312,9 @@ export async function fetchConversationMessages(
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch conversation messages");
-  if (!response.ok) return [];
+  if (!response.ok) {
+    throw new Error(`Failed to fetch conversation messages (HTTP ${response.status})`);
+  }
   return Array.isArray(data?.messages) ? data.messages : [];
 }
 

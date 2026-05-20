@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ArrowLeft, Download } from "lucide-react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@vellum/design-library";
@@ -172,12 +172,12 @@ function Header({
         size="compact"
         leftIcon={<ArrowLeft size={16} aria-hidden />}
       >
-        <a
-          href={routes.conversation(conversationKey)}
+        <Link
+          to={routes.conversation(conversationKey)}
           aria-label="Back to conversation"
         >
           Back
-        </a>
+        </Link>
       </Button>
       <div className="flex flex-1 flex-col">
         <h1

@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, Copy } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Card } from "@vellum/design-library";
 import type {
@@ -15,6 +15,8 @@ import type {
  * are present a pill switcher lets the user toggle between the two
  * views; when only one is present it renders directly.
  */
+type MemoryView = "recall" | "v2";
+
 export function MemoryTab({
   context,
 }: {
@@ -25,7 +27,6 @@ export function MemoryTab({
   const hasRecall = recall !== null;
   const hasV2 = v2 !== null;
 
-  type MemoryView = "recall" | "v2";
   const defaultView: MemoryView = hasV2 ? "v2" : "recall";
   const [view, setView] = useState<MemoryView>(defaultView);
 
@@ -653,11 +654,15 @@ function TypeChip({ label }: { label: string }): ReactNode {
 
 function CopyButton({ text }: { text: string }): ReactNode {
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
+
+  useEffect(() => () => { clearTimeout(timerRef.current!); }, []);
 
   const handleCopy = () => {
     void navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      clearTimeout(timerRef.current!);
+      timerRef.current = setTimeout(() => setCopied(false), 1500);
     });
   };
 
