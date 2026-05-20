@@ -1200,6 +1200,145 @@ jobs:
           echo "| gateway | \`${{ steps.preview.outputs.gateway_immutable_tag }}\`<br>\`${{ steps.preview.outputs.gateway_floating_tag }}\` | \`${{ steps.preview.outputs.gateway_digest }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| credential-executor | \`${{ steps.preview.outputs.credential_executor_immutable_tag }}\`<br>\`${{ steps.preview.outputs.credential_executor_floating_tag }}\` | \`${{ steps.preview.outputs.credential_executor_digest }}\` |" >> $GITHUB_STEP_SUMMARY
 
+  register-preview-release:
+    needs: [extract-version, publish-production-preview-image-tags]
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging == 'true' && needs.publish-production-preview-image-tags.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - name: Download assistant production preview manifest digest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: assistant-preview-manifest-digest-production
+          path: /tmp/assistant-preview-digest
+
+      - name: Download gateway production preview manifest digest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: gateway-preview-manifest-digest-production
+          path: /tmp/gateway-preview-digest
+
+      - name: Download credential-executor production preview manifest digest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: credential-executor-preview-manifest-digest-production
+          path: /tmp/credential-executor-preview-digest
+
+      - name: Extract production preview manifest digests
+        id: digests
+        run: |
+          ASSISTANT_DIGEST=$(cat /tmp/assistant-preview-digest/digest)
+          GATEWAY_DIGEST=$(cat /tmp/gateway-preview-digest/digest)
+          CREDENTIAL_EXECUTOR_DIGEST=$(cat /tmp/credential-executor-preview-digest/digest)
+          echo "assistant_digest=${ASSISTANT_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "credential_executor_digest=${CREDENTIAL_EXECUTOR_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "gateway_digest=${GATEWAY_DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve production platform credentials
+        id: platform-creds
+        run: |
+          API_URL="${{ secrets.PLATFORM_API_URL }}"
+          API_HOST="${API_URL#*://}"
+          API_HOST="${API_HOST%%/*}"
+          echo "api_url=${API_URL}" >> "$GITHUB_OUTPUT"
+          echo "api_key=${{ secrets.PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
+          echo "api_host=${API_HOST}" >> "$GITHUB_OUTPUT"
+
+      - name: Register preview release with production platform
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          SHA="${{ github.sha }}"
+          ASSISTANT_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
+          GATEWAY_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          CREDENTIAL_EXECUTOR_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+          IS_STABLE="false"
+
+          PAYLOAD=$(jq -n \
+            --arg version "$VERSION" \
+            --arg released_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg release_channel "preview" \
+            --argjson is_stable "$IS_STABLE" \
+            --arg assistant_repo "$ASSISTANT_REPO" \
+            --arg assistant_tag "preview-v${VERSION}" \
+            --arg assistant_sha "$SHA" \
+            --arg assistant_digest "${{ steps.digests.outputs.assistant_digest }}" \
+            --arg gateway_repo "$GATEWAY_REPO" \
+            --arg gateway_tag "preview-v${VERSION}" \
+            --arg gateway_sha "$SHA" \
+            --arg gateway_digest "${{ steps.digests.outputs.gateway_digest }}" \
+            --arg credential_executor_repo "$CREDENTIAL_EXECUTOR_REPO" \
+            --arg credential_executor_tag "preview-v${VERSION}" \
+            --arg credential_executor_sha "$SHA" \
+            --arg credential_executor_digest "${{ steps.digests.outputs.credential_executor_digest }}" \
+            '{
+              version: $version,
+              released_at: $released_at,
+              release_channel: $release_channel,
+              is_stable: $is_stable,
+              assistant_image: {
+                repository: $assistant_repo,
+                tag: $assistant_tag,
+                sha: $assistant_sha,
+                digest: $assistant_digest
+              },
+              gateway_image: {
+                repository: $gateway_repo,
+                tag: $gateway_tag,
+                sha: $gateway_sha,
+                digest: $gateway_digest
+              },
+              credential_executor_image: {
+                repository: $credential_executor_repo,
+                tag: $credential_executor_tag,
+                sha: $credential_executor_sha,
+                digest: $credential_executor_digest
+              }
+            }')
+
+          DELAYS=(5 15 30)
+          MAX_ATTEMPTS=3
+
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            CURL_EXIT=0
+            echo "Registering preview release v${VERSION} with production platform [attempt ${attempt}/${MAX_ATTEMPTS}]..."
+            HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+              -X POST "${{ steps.platform-creds.outputs.api_url }}/v1/internal/assistant-image-releases/" \
+              -H "Content-Type: application/json" \
+              -H "X-Internal-Service-Api-Key: ${{ steps.platform-creds.outputs.api_key }}" \
+              -d "$PAYLOAD") || CURL_EXIT=$?
+
+            if [ "${CURL_EXIT:-0}" -ne 0 ]; then
+              echo "::warning::curl transport error (exit code $CURL_EXIT) on attempt ${attempt}"
+              HTTP_STATUS="000"
+            else
+              echo "HTTP Status: $HTTP_STATUS"
+              cat /tmp/response.json
+            fi
+
+            if [ "$HTTP_STATUS" -ge 200 ] 2>/dev/null && [ "$HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+              echo "Preview registration succeeded on attempt ${attempt}"
+              exit 0
+            fi
+
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              DELAY=${DELAYS[$((attempt - 1))]}
+              echo "::warning::Attempt ${attempt} failed (HTTP $HTTP_STATUS). Retrying in ${DELAY}s..."
+              sleep "$DELAY"
+            else
+              echo "::error::Preview release registration failed after ${MAX_ATTEMPTS} attempts (last HTTP $HTTP_STATUS)"
+              exit 1
+            fi
+          done
+
+      - name: Summary
+        run: |
+          echo "## Production Preview Release Registered" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Release channel:** \`preview\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Production platform host:** \`${{ steps.platform-creds.outputs.api_host }}\`" >> $GITHUB_STEP_SUMMARY
+
   push-dockerhub-image:
     needs: [extract-version, ci-assistant, ci-gateway, ci-credential-executor]
     if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
@@ -3249,7 +3388,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, publish-production-preview-image-tags, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, dispatch-ios-release, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, publish-production-preview-image-tags, register-preview-release, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, dispatch-ios-release, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -3298,6 +3437,9 @@ jobs:
             if [ "${{ needs.publish-production-preview-image-tags.result }}" != "success" ]; then
               STAGING_READY="false"
             fi
+            if [ "${{ needs.register-preview-release.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
@@ -3330,6 +3472,7 @@ jobs:
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
           CEI=$(ci_icon "${{ needs.push-credential-executor-manifest.result }}")
           PP=$(ci_icon "${{ needs.publish-production-preview-image-tags.result }}")
+          RPR=$(ci_icon "${{ needs.register-preview-release.result }}")
           DH=$(ci_icon "${{ needs.push-dockerhub-image.result }}")
           RR=$(ci_icon "${{ needs.register-release.result }}")
           PC=$(ci_icon "${{ needs.pack-cli.result }}")
@@ -3351,7 +3494,7 @@ jobs:
             fi
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s dispatch-ios-release\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s production-preview-tags\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$DI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$PP" "$DH" "$RR" "$PC" "$TQ" "$MB")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s dispatch-ios-release\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s production-preview-tags\n• %s production-preview-registration\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$DI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$PP" "$RPR" "$DH" "$RR" "$PC" "$TQ" "$MB")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"
@@ -3360,7 +3503,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, and DockerHub publishes were skipped. Docker images pushed to staging GCR, production preview tags were published, and the staging release was registered._' "$VERSION" "$TRIGGERED_BY")
+            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, and DockerHub publishes were skipped. Docker images pushed to staging GCR, production preview tags were published, the production preview release was registered, and the staging release was registered._' "$VERSION" "$TRIGGERED_BY")
           else
             META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi
