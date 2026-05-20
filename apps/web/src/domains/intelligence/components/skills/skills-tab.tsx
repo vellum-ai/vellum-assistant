@@ -234,7 +234,7 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
           onBack={() => setSelectedSkillId(null)}
           onInstall={() => handleInstall(selectedSkill)}
           onRemove={() => handleRemove(selectedSkill)}
-          isInstalling={installingSkillId === selectedSkill.id}
+          isInstalling={installingSkillId === (selectedSkill.slug ?? selectedSkill.id)}
           isRemoving={removingSkillId === selectedSkill.id}
         />
         {removalDialog}
@@ -299,7 +299,7 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
                     onSelect={() => setSelectedSkillId(skill.id)}
                     onInstall={() => handleInstall(skill)}
                     onRemove={() => handleRemove(skill)}
-                    isInstalling={installingSkillId === skill.id}
+                    isInstalling={installingSkillId === (skill.slug ?? skill.id)}
                     isRemoving={removingSkillId === skill.id}
                   />
                 </li>

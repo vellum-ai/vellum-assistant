@@ -54,22 +54,6 @@ export async function saveCharacterTraits(
   }
 }
 
-export async function deleteAvatar(
-  assistantId: string,
-): Promise<boolean> {
-  try {
-    const { error, response } = await client.post({
-      url: "/v1/assistants/{assistant_id}/workspace/delete/",
-      path: { assistant_id: assistantId },
-      body: { path: "data/avatar" },
-      headers: { "Content-Type": "application/json" },
-    });
-    assertHasResponse(response, error, "Failed to delete avatar");
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
 
 export async function uploadAvatarImage(
   assistantId: string,
