@@ -41,6 +41,13 @@ let deletedConversationIds: string[] = [];
 // Fork-path mocks. Flag off by default so legacy-path tests stay untouched.
 let forkFlagEnabled = false;
 let forkedConversationId = "fork-conv-1";
+let forkCalls: Array<{
+  conversationId: string;
+  source: string;
+  title: string;
+  conversationType?: string;
+  groupId?: string;
+}> = [];
 let addMessageCalls: Array<{
   conversationId: string;
   role: string;
@@ -69,14 +76,34 @@ mock.module("../conversation-crud.js", () => ({
   },
   findMostRecentRetrospectiveFor: (_id: string) =>
     priorRetroId ? { id: priorRetroId } : null,
-  // `collectPriorRetrospectiveRemembers` reads the prior row to discriminate
-  // between legacy and fork-kind sources. Return a legacy-shaped row so the
-  // existing tests exercise the unchanged extract-everything code path.
-  getConversation: (_id: string) => ({
-    source: "memory-retrospective",
-    forkParentMessageId: null,
-  }),
-  forkConversation: (_params: unknown) => ({ id: forkedConversationId }),
+  // The fork path calls `getConversation(sourceConversationId)` to read the
+  // source's title for the fork title. `collectPriorRetrospectiveRemembers`
+  // also calls it with the prior retro id to discriminate legacy vs fork
+  // sources — for that id return a legacy-shaped row so the existing tests
+  // exercise the unchanged extract-everything code path.
+  getConversation: (id: string) => {
+    if (id === priorRetroId) {
+      return {
+        source: "memory-retrospective",
+        forkParentMessageId: null,
+      };
+    }
+    return {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+    };
+  },
+  forkConversation: (params: {
+    conversationId: string;
+    source: string;
+    title: string;
+    conversationType?: string;
+    groupId?: string;
+  }) => {
+    forkCalls.push(params);
+    return { id: forkedConversationId };
+  },
   addMessage: async (
     conversationId: string,
     role: string,
@@ -232,6 +259,7 @@ describe("memoryRetrospectiveJob", () => {
     mockUserName = "Alice";
     forkFlagEnabled = false;
     forkedConversationId = "fork-conv-1";
+    forkCalls = [];
     addMessageCalls = [];
   });
 
@@ -453,5 +481,15 @@ describe("memoryRetrospectiveJob", () => {
       kind: "memory_retrospective_instruction",
       hidden: true,
     });
+  });
+
+  test("fork path: forked retrospective is bucketed as background under the retrospective group", async () => {
+    forkFlagEnabled = true;
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(forkCalls).toHaveLength(1);
+    expect(forkCalls[0]!.conversationType).toBe("background");
+    expect(forkCalls[0]!.groupId).toBe("system:background");
   });
 });
