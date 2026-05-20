@@ -55,7 +55,11 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: "dist",
       emptyOutDir: true,
-      sourcemap: true,
+      // Generate source maps only when Sentry upload is enabled (CI/CD).
+      // The Sentry plugin deletes .map files after upload, so they never
+      // reach the deployed artifact. Without the token, skip generation
+      // entirely to avoid shipping maps in non-Sentry builds.
+      sourcemap: sentryUploadEnabled ? "hidden" : false,
     },
   };
 });
