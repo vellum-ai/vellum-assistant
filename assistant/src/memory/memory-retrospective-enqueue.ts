@@ -20,7 +20,7 @@ import {
 import { getLogger } from "../util/logger.js";
 import { getConversationSource } from "./conversation-crud.js";
 import { upsertMemoryRetrospectiveJob } from "./jobs-store.js";
-import { MEMORY_RETROSPECTIVE_SOURCE } from "./memory-retrospective-constants.js";
+import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 
 const log = getLogger("memory-retrospective-enqueue");
 
@@ -67,7 +67,8 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
 export function isMemoryRetrospectiveConversation(
   conversationId: string,
 ): boolean {
-  return getConversationSource(conversationId) === MEMORY_RETROSPECTIVE_SOURCE;
+  const source = getConversationSource(conversationId);
+  return source !== null && MEMORY_RETROSPECTIVE_SOURCES.includes(source);
 }
 
 /**

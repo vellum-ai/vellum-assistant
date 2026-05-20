@@ -145,6 +145,52 @@ export {
   type DropdownMenuPosition,
   type DropdownMenuAlign,
 } from "./components/dropdown.js";
+export {
+  PanelItem,
+  ROW_BASE_CLASSES as panelItemRowBaseClasses,
+  ACTIVE_DEFAULT_CLASSES as panelItemActiveDefaultClasses,
+  ACTIVE_BRANDED_CLASSES as panelItemActiveBrandedClasses,
+  type PanelItemProps,
+} from "./components/panel-item/panel-item.js";
+export {
+  MarqueeText,
+  type MarqueeTextProps,
+} from "./components/panel-item/marquee-text.js";
+export {
+  MarkdownMessage,
+  type MarkdownMessageProps,
+  type MarkdownLinkComponent,
+} from "./components/markdown-message.js";
+export {
+  SideMenu,
+  SideMenuBody,
+  SideMenuFooter,
+  SideMenuHeader,
+  SideMenuItem,
+  SideMenuSection,
+  SideMenuSeparator,
+  SideMenuSubList,
+  type SideMenuProps,
+  type SideMenuVariant,
+  type SideMenuSectionProps,
+  type SideMenuItemProps,
+} from "./components/side-menu/side-menu.js";
+export {
+  Collapsible,
+  type CollapsibleRootProps,
+  type CollapsibleItemProps,
+  type CollapsibleTriggerProps,
+  type CollapsibleContentProps,
+} from "./components/collapsible.js";
+export {
+  StatSquare,
+  type StatSquareProps,
+  type StatSquareTone,
+} from "./components/stat-square.js";
+export {
+  SkillRow,
+  type SkillRowProps,
+} from "./components/skill-row.js";
 export { cn } from "./utils/cn.js";
 export {
   PortalContainerProvider,

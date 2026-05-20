@@ -60,6 +60,11 @@ struct ProvidersSheet: View {
         // Inline credential editing
         var apiKeyValue = ""
         var isAdvancedExpanded = false
+        // OpenAI-compatible fields
+        var baseUrl = ""
+        var connectionModels = ""
+
+        var isOpenAICompatible: Bool { provider == "openai-compatible" }
     }
 
     enum EditorState {
@@ -335,6 +340,10 @@ struct ProvidersSheet: View {
                     if case .create = editorState {
                         editorProviderField
                     }
+                    if editorDraft.isOpenAICompatible {
+                        editorBaseUrlField
+                        editorModelsField
+                    }
                     Group {
                         editorAuthTypeField
                         if editorDraft.authType == "api_key" {
@@ -497,6 +506,35 @@ struct ProvidersSheet: View {
                 selection: $editorDraft.provider,
                 options: store.providerCatalog.map { (label: $0.displayName, value: $0.id) }
             )
+        }
+    }
+
+    private var editorBaseUrlField: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("Base URL")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+            VTextField(
+                placeholder: "https://api.example.com/v1",
+                text: $editorDraft.baseUrl
+            )
+            .disabled(isAuthLocked)
+        }
+    }
+
+    private var editorModelsField: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("Models")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+            VTextField(
+                placeholder: "model-1, model-2",
+                text: $editorDraft.connectionModels
+            )
+            .disabled(isAuthLocked)
+            Text("Comma-separated model identifiers exposed by your endpoint.")
+                .font(VFont.bodySmallDefault)
+                .foregroundStyle(VColor.contentTertiary)
         }
     }
 
@@ -847,7 +885,9 @@ struct ProvidersSheet: View {
             provider: conn.provider,
             authType: conn.auth.type,
             credential: conn.auth.credential ?? "",
-            status: conn.status
+            status: conn.status,
+            baseUrl: conn.baseUrl ?? "",
+            connectionModels: conn.models?.map(\.id).joined(separator: ", ") ?? ""
         )
         editorState = .edit(name: conn.name)
 
@@ -873,7 +913,9 @@ struct ProvidersSheet: View {
             provider: conn.provider,
             authType: conn.auth.type,
             credential: conn.auth.credential ?? "",
-            status: conn.status
+            status: conn.status,
+            baseUrl: conn.baseUrl ?? "",
+            connectionModels: conn.models?.map(\.id).joined(separator: ", ") ?? ""
         )
         editorState = .managedEdit(name: conn.name)
 
@@ -924,6 +966,8 @@ struct ProvidersSheet: View {
             editorDraft.credential = "credential/\(provider)/api_key"
         }
         editorDraft.apiKeyValue = ""
+        editorDraft.baseUrl = ""
+        editorDraft.connectionModels = ""
         // New connection starts active by convention; user can toggle off
         // before saving if they want it disabled.
         editorDraft.status = .active
@@ -988,7 +1032,9 @@ struct ProvidersSheet: View {
             name: conn.name,
             auth: conn.auth,
             status: newStatus,
-            label: .none
+            label: .none,
+            baseUrl: .none,
+            models: .none
         ) else {
             // Roll back on failure.
             if let idx = connections.firstIndex(where: { $0.name == conn.name }) {
@@ -1063,6 +1109,19 @@ struct ProvidersSheet: View {
         let label: String? = draft.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draft.label.trimmingCharacters(in: .whitespacesAndNewlines)
         let status = draft.status
 
+        let baseUrlValue: String? = draft.isOpenAICompatible && !draft.baseUrl.trimmingCharacters(in: .whitespaces).isEmpty
+            ? draft.baseUrl.trimmingCharacters(in: .whitespaces)
+            : nil
+        let modelsValue: [ConnectionModel]? = {
+            guard draft.isOpenAICompatible,
+                  !draft.connectionModels.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+            let parsed = draft.connectionModels
+                .split(separator: ",")
+                .map { ConnectionModel(id: String($0).trimmingCharacters(in: .whitespaces)) }
+                .filter { !$0.id.isEmpty }
+            return parsed.isEmpty ? nil : parsed
+        }()
+
         switch editorState {
         case .create:
             let result = await client.createProviderConnection(
@@ -1070,7 +1129,9 @@ struct ProvidersSheet: View {
                 provider: draft.provider,
                 auth: auth,
                 label: label,
-                status: status
+                status: status,
+                baseUrl: baseUrlValue,
+                models: modelsValue
             )
             switch result {
             case .created(let created):
@@ -1105,7 +1166,9 @@ struct ProvidersSheet: View {
                 name: originalName,
                 auth: auth,
                 status: status,
-                label: .some(label)
+                label: .some(label),
+                baseUrl: draft.isOpenAICompatible ? .some(baseUrlValue) : .none,
+                models: draft.isOpenAICompatible ? .some(modelsValue) : .none
             ) else {
                 await refresh()
                 actionError = "Couldn't update connection. List refreshed."

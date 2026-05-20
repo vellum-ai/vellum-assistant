@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 
-import { ResizablePanel } from "@vellum/design-library/components/resizable-panel";
+import { ResizablePanel } from "@vellum/design-library";
 import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel.js";
@@ -41,7 +41,7 @@ function HomePageSkeleton() {
 }
 
 export interface HomePageProps {
-  assistantId: string;
+  assistantId: string | null;
   onStartNewChat: () => void;
   onOpenConversation: (conversationId: string) => void;
   onSuggestionSelected: (prompt: string) => void;
@@ -84,6 +84,13 @@ export function HomePage({
       }
     },
     [feedQuery.updateStatus, selectedItem?.id],
+  );
+
+  const handleRestoreItem = useCallback(
+    (itemId: string) => {
+      feedQuery.updateStatus.mutate({ itemId, status: "seen" });
+    },
+    [feedQuery.updateStatus],
   );
 
   const handleUpdateStatus = useCallback(
@@ -129,6 +136,7 @@ export function HomePage({
         items={feedQuery.data?.items ?? []}
         onSelectItem={handleSelectItem}
         onDismissItem={handleDismissItem}
+        onRestoreItem={handleRestoreItem}
       />
     </>
   );
@@ -150,7 +158,7 @@ export function HomePage({
     return (
       <ResizablePanel
         storageKey="homeDetailPanelWidth"
-        defaultLeftWidth={600}
+        defaultLeftPercent={50}
         minLeftWidth={400}
         minRightWidth={320}
         left={
@@ -171,9 +179,11 @@ export function HomePage({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[960px] px-[var(--app-spacing-xl)] py-[var(--app-spacing-2xl)]">
-      <div className="flex flex-col gap-[var(--app-spacing-xl)]">
-        {feedContent}
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="mx-auto w-full max-w-[960px] px-[var(--app-spacing-xl)] py-[var(--app-spacing-2xl)]">
+        <div className="flex flex-col gap-[var(--app-spacing-xl)]">
+          {feedContent}
+        </div>
       </div>
     </div>
   );

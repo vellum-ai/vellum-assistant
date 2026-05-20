@@ -52,6 +52,16 @@ const IMAGE_MAX_PIXELS = 1_200_000;
 const IMAGE_TOKENS_PER_PIXEL = 1 / 750;
 const IMAGE_MAX_TOKENS = 1_600;
 
+// Gemini prices images differently: any side ≤384px counts as a single 258-token
+// tile; anything larger is split into 768x768 tiles at 258 tokens each. A
+// 4000x4000 image is ceil(4000/768)^2 = 36 tiles ≈ 9,288 tokens — well above
+// the dimension-based cap — so under-counting these as ~1,600 tokens lets
+// shouldCompact() skip compaction and hit upstream context overflow.
+// See: https://ai.google.dev/gemini-api/docs/tokens#multimodal-tokens
+const GEMINI_IMAGE_SMALL_THRESHOLD = 384;
+const GEMINI_IMAGE_TILE_SIZE = 768;
+const GEMINI_IMAGE_TOKENS_PER_TILE = 258;
+
 // Anthropic renders each PDF page as an image (~1,568 tokens at standard
 // resolution) plus any extracted text. Typical PDF pages are 50-150 KB.
 // Using ~100 KB/page and ~1,600 tokens/page gives ~0.016 tokens/byte.
@@ -129,11 +139,27 @@ function estimateImageTokensByDimensions(
   return Math.ceil(scaledWidth * scaledHeight * IMAGE_TOKENS_PER_PIXEL);
 }
 
+function estimateGeminiImageTokens(width: number, height: number): number {
+  if (
+    width <= GEMINI_IMAGE_SMALL_THRESHOLD &&
+    height <= GEMINI_IMAGE_SMALL_THRESHOLD
+  ) {
+    return GEMINI_IMAGE_TOKENS_PER_TILE;
+  }
+  const tilesWide = Math.ceil(width / GEMINI_IMAGE_TILE_SIZE);
+  const tilesHigh = Math.ceil(height / GEMINI_IMAGE_TILE_SIZE);
+  return tilesWide * tilesHigh * GEMINI_IMAGE_TOKENS_PER_TILE;
+}
+
 function estimateImageTokens(
   block: Extract<ContentBlock, { type: "image" }>,
+  options?: TokenEstimatorOptions,
 ): number {
   const dims = parseImageDimensions(block.source.data, block.source.media_type);
   if (dims) {
+    if (options?.providerName === "gemini") {
+      return estimateGeminiImageTokens(dims.width, dims.height);
+    }
     return estimateImageTokensByDimensions(dims.width, dims.height);
   }
   // Dimensions unparseable (corrupt header, exotic format): use the per-image
@@ -186,7 +212,7 @@ export function estimateContentBlockTokens(
       return (
         IMAGE_BLOCK_OVERHEAD_TOKENS +
         estimateTextTokens(block.source.media_type) +
-        estimateImageTokens(block)
+        estimateImageTokens(block, options)
       );
     case "file":
       return (

@@ -5,13 +5,16 @@ import {
 } from "node:https";
 import { Readable } from "node:stream";
 
+import type { WebFetchMetadata } from "../../daemon/message-types/web-activity.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
+import { faviconUrlForDomain } from "../../util/favicon.js";
 import { getLogger } from "../../util/logger.js";
 import { safeStringSlice } from "../../util/unicode.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import { extractDomain } from "./domain-normalize.js";
 import {
   buildHostHeader,
   isIPv4,
@@ -351,6 +354,26 @@ function extractFirstMatch(
   return value || undefined;
 }
 
+const MAX_TITLE_CHARS = 200;
+
+/**
+ * Parse the first HTML `<title>` element from a response body.
+ *
+ * Used to populate {@link WebFetchMetadata.title}. Returns `undefined`
+ * when no `<title>` is present. The result is HTML-entity-decoded and
+ * capped at {@link MAX_TITLE_CHARS} characters so client UIs never have
+ * to truncate.
+ */
+function parseHtmlTitle(html: string): string | undefined {
+  // Bound the search to the first 200KB to avoid scanning huge bodies.
+  const searchRegion = safeStringSlice(html, 0, 200_000);
+  const match = /<title[^>]*>([^<]+)<\/title>/i.exec(searchRegion);
+  if (!match) return undefined;
+  const decoded = decodeHtmlEntities(match[1]).trim();
+  if (!decoded) return undefined;
+  return safeStringSlice(decoded, 0, MAX_TITLE_CHARS);
+}
+
 function extractHtmlMetadata(html: string): {
   title?: string;
   description?: string;
@@ -518,15 +541,62 @@ export async function executeWebFetch(
   input: Record<string, unknown>,
   options?: ExecuteWebFetchOptions,
 ): Promise<ToolExecutionResult> {
+  const startedAt = Date.now();
+
+  /**
+   * Build a {@link ToolExecutionResult} for an early-exit error path (bad
+   * input, blocked target, timeout, bad content-type, HTTP error, ...).
+   * Always attaches structured {@link WebFetchMetadata} so client UIs can
+   * still render failed visits.
+   */
+  const buildErrorResult = (
+    errorMessage: string,
+    meta: {
+      url: string;
+      finalUrl?: string;
+      status?: number;
+      contentType?: string;
+      redirectCount?: number;
+    },
+  ): ToolExecutionResult => {
+    const safeUrl = sanitizeUrlStringForOutput(meta.url);
+    const safeFinalUrl = meta.finalUrl
+      ? sanitizeUrlStringForOutput(meta.finalUrl)
+      : safeUrl;
+    const domain = extractDomain(safeFinalUrl);
+    return {
+      content: errorMessage,
+      isError: true,
+      activityMetadata: {
+        webFetch: {
+          url: safeUrl,
+          finalUrl: safeFinalUrl,
+          status: meta.status ?? 0,
+          contentType: meta.contentType,
+          byteCount: 0,
+          charCount: 0,
+          truncated: false,
+          domain,
+          faviconUrl: faviconUrlForDomain(domain),
+          redirectCount: meta.redirectCount ?? 0,
+          durationMs: Date.now() - startedAt,
+          errorMessage,
+        },
+      },
+    };
+  };
+
   const parsedUrl = parseUrl(input.url);
   if (!parsedUrl) {
-    return {
-      content: "Error: url is required and must be a valid HTTP(S) URL",
-      isError: true,
-    };
+    return buildErrorResult(
+      "Error: url is required and must be a valid HTTP(S) URL",
+      { url: typeof input.url === "string" ? input.url : "" },
+    );
   }
   if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-    return { content: "Error: url must use http or https", isError: true };
+    return buildErrorResult("Error: url must use http or https", {
+      url: parsedUrl.href,
+    });
   }
 
   const allowPrivateNetwork = input.allow_private_network === true;
@@ -534,10 +604,10 @@ export async function executeWebFetch(
   const requestExecutor = options?.requestExecutor ?? defaultRequestExecutor;
 
   if (!allowPrivateNetwork && isPrivateOrLocalHost(parsedUrl.hostname)) {
-    return {
-      content: `Error: Refusing to fetch local/private network target (${parsedUrl.hostname}). Set allow_private_network=true if you explicitly need it.`,
-      isError: true,
-    };
+    return buildErrorResult(
+      `Error: Refusing to fetch local/private network target (${parsedUrl.hostname}). Set allow_private_network=true if you explicitly need it.`,
+      { url: parsedUrl.href },
+    );
   }
   const timeoutSeconds = clampInteger(
     input.timeout_seconds,
@@ -576,6 +646,9 @@ export async function executeWebFetch(
     }
   }
 
+  let currentUrl = new URL(requestedUrl);
+  let redirectCount = 0;
+
   try {
     log.debug(
       { url: safeRequestedUrl, timeoutSeconds, maxChars, startIndex, rawMode },
@@ -591,8 +664,6 @@ export async function executeWebFetch(
         "VellumAssistant/1.0 (+https://vellum.ai)",
     };
 
-    let currentUrl = new URL(requestedUrl);
-    let redirectCount = 0;
     let response: Response | null = null;
     let currentResolvedAddresses: string[] | undefined;
 
@@ -606,16 +677,16 @@ export async function executeWebFetch(
         controller.signal,
       );
       if (resolution.blockedAddress) {
-        return {
-          content: `Error: Refusing to fetch target (${currentUrl.hostname}) because it resolves to local/private network address ${resolution.blockedAddress}. Set allow_private_network=true if you explicitly need it.`,
-          isError: true,
-        };
+        return buildErrorResult(
+          `Error: Refusing to fetch target (${currentUrl.hostname}) because it resolves to local/private network address ${resolution.blockedAddress}. Set allow_private_network=true if you explicitly need it.`,
+          { url: requestedUrl, finalUrl: currentUrl.href, redirectCount },
+        );
       }
       if (resolution.addresses.length === 0) {
-        return {
-          content: `Error: Unable to resolve host "${currentUrl.hostname}" while fetching ${safeRequestedUrl}`,
-          isError: true,
-        };
+        return buildErrorResult(
+          `Error: Unable to resolve host "${currentUrl.hostname}" while fetching ${safeRequestedUrl}`,
+          { url: requestedUrl, finalUrl: currentUrl.href, redirectCount },
+        );
       }
       currentResolvedAddresses = resolution.addresses;
     }
@@ -650,10 +721,10 @@ export async function executeWebFetch(
       currentResolvedAddresses = undefined;
 
       if (!response) {
-        return {
-          content: "Error: Web fetch failed: no response returned",
-          isError: true,
-        };
+        return buildErrorResult(
+          "Error: Web fetch failed: no response returned",
+          { url: requestedUrl, finalUrl: currentUrl.href, redirectCount },
+        );
       }
 
       const location = response.headers.get("location");
@@ -662,10 +733,15 @@ export async function executeWebFetch(
       if (!isRedirect) break;
 
       if (redirectCount >= MAX_REDIRECTS) {
-        return {
-          content: `Error: Too many redirects (>${MAX_REDIRECTS}) while fetching ${safeRequestedUrl}`,
-          isError: true,
-        };
+        return buildErrorResult(
+          `Error: Too many redirects (>${MAX_REDIRECTS}) while fetching ${safeRequestedUrl}`,
+          {
+            url: requestedUrl,
+            finalUrl: currentUrl.href,
+            status: response.status,
+            redirectCount,
+          },
+        );
       }
 
       let nextUrl: URL;
@@ -677,24 +753,39 @@ export async function executeWebFetch(
           currentUrl,
         );
         const safeCurrentUrl = sanitizeUrlForOutput(currentUrl);
-        return {
-          content: `Error: Invalid redirect location "${safeLocation}" received from ${safeCurrentUrl}`,
-          isError: true,
-        };
+        return buildErrorResult(
+          `Error: Invalid redirect location "${safeLocation}" received from ${safeCurrentUrl}`,
+          {
+            url: requestedUrl,
+            finalUrl: currentUrl.href,
+            status: response.status,
+            redirectCount,
+          },
+        );
       }
 
       if (nextUrl.protocol !== "http:" && nextUrl.protocol !== "https:") {
-        return {
-          content: `Error: Refusing redirect to unsupported protocol "${nextUrl.protocol}"`,
-          isError: true,
-        };
+        return buildErrorResult(
+          `Error: Refusing redirect to unsupported protocol "${nextUrl.protocol}"`,
+          {
+            url: requestedUrl,
+            finalUrl: currentUrl.href,
+            status: response.status,
+            redirectCount,
+          },
+        );
       }
 
       if (!allowPrivateNetwork && isPrivateOrLocalHost(nextUrl.hostname)) {
-        return {
-          content: `Error: Refusing redirect to local/private network target (${nextUrl.hostname}). Set allow_private_network=true if you explicitly need it.`,
-          isError: true,
-        };
+        return buildErrorResult(
+          `Error: Refusing redirect to local/private network target (${nextUrl.hostname}). Set allow_private_network=true if you explicitly need it.`,
+          {
+            url: requestedUrl,
+            finalUrl: currentUrl.href,
+            status: response.status,
+            redirectCount,
+          },
+        );
       }
       if (!allowPrivateNetwork) {
         const resolution = await withAbortSignal(
@@ -706,17 +797,27 @@ export async function executeWebFetch(
           controller.signal,
         );
         if (resolution.blockedAddress) {
-          return {
-            content: `Error: Refusing redirect to target (${nextUrl.hostname}) because it resolves to local/private network address ${resolution.blockedAddress}. Set allow_private_network=true if you explicitly need it.`,
-            isError: true,
-          };
+          return buildErrorResult(
+            `Error: Refusing redirect to target (${nextUrl.hostname}) because it resolves to local/private network address ${resolution.blockedAddress}. Set allow_private_network=true if you explicitly need it.`,
+            {
+              url: requestedUrl,
+              finalUrl: currentUrl.href,
+              status: response.status,
+              redirectCount,
+            },
+          );
         }
         if (resolution.addresses.length === 0) {
           const safeCurrentUrl = sanitizeUrlForOutput(currentUrl);
-          return {
-            content: `Error: Unable to resolve redirect host "${nextUrl.hostname}" from ${safeCurrentUrl}`,
-            isError: true,
-          };
+          return buildErrorResult(
+            `Error: Unable to resolve redirect host "${nextUrl.hostname}" from ${safeCurrentUrl}`,
+            {
+              url: requestedUrl,
+              finalUrl: currentUrl.href,
+              status: response.status,
+              redirectCount,
+            },
+          );
         }
         currentResolvedAddresses = resolution.addresses;
       }
@@ -726,18 +827,25 @@ export async function executeWebFetch(
     }
 
     if (!response) {
-      return {
-        content: "Error: Web fetch failed: no response returned",
-        isError: true,
-      };
+      return buildErrorResult("Error: Web fetch failed: no response returned", {
+        url: requestedUrl,
+        finalUrl: currentUrl.href,
+        redirectCount,
+      });
     }
 
     const contentType = response.headers.get("content-type") ?? "";
     if (!isTextLikeContentType(contentType)) {
-      return {
-        content: `Error: Unsupported content type "${contentType || "unknown"}". web_fetch only supports text-like responses.`,
-        isError: true,
-      };
+      return buildErrorResult(
+        `Error: Unsupported content type "${contentType || "unknown"}". web_fetch only supports text-like responses.`,
+        {
+          url: requestedUrl,
+          finalUrl: currentUrl.href,
+          status: response.status,
+          contentType,
+          redirectCount,
+        },
+      );
     }
 
     const body = await readResponseText(response, MAX_DOWNLOAD_BYTES);
@@ -803,11 +911,31 @@ export async function executeWebFetch(
       markdownTokens,
     });
 
+    const truncated = body.truncated || safeEnd < processed.length;
+    const parsedTitle = html ? parseHtmlTitle(body.text) : undefined;
+    const finalDomain = extractDomain(currentUrl.href);
+    const meta: WebFetchMetadata = {
+      url: safeRequestedUrl,
+      finalUrl: sanitizeUrlForOutput(currentUrl),
+      status: response.status,
+      contentType: contentType || undefined,
+      byteCount: body.bytesRead,
+      charCount: sliced.length,
+      truncated,
+      title: parsedTitle,
+      domain: finalDomain,
+      faviconUrl: faviconUrlForDomain(finalDomain),
+      redirectCount,
+      durationMs: Date.now() - startedAt,
+    };
+
     if (!response.ok) {
+      const errorMessage = `Error: HTTP ${response.status}`;
       return {
-        content: `Error: HTTP ${response.status}\n\n${content}`,
+        content: `${errorMessage}\n\n${content}`,
         isError: true,
         status: notices.length > 0 ? notices.join("\n") : undefined,
+        activityMetadata: { webFetch: { ...meta, errorMessage } },
       };
     }
 
@@ -815,21 +943,30 @@ export async function executeWebFetch(
       content,
       isError: false,
       status: notices.length > 0 ? notices.join("\n") : undefined,
+      activityMetadata: { webFetch: meta },
     };
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
       if (externalSignal?.aborted) {
-        return { content: "Error: web fetch was cancelled", isError: true };
+        return buildErrorResult("Error: web fetch was cancelled", {
+          url: requestedUrl,
+          finalUrl: currentUrl.href,
+          redirectCount,
+        });
       }
-      return {
-        content: `Error: web fetch timed out after ${timeoutSeconds}s`,
-        isError: true,
-      };
+      return buildErrorResult(
+        `Error: web fetch timed out after ${timeoutSeconds}s`,
+        { url: requestedUrl, finalUrl: currentUrl.href, redirectCount },
+      );
     }
 
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, url: safeRequestedUrl }, "Web fetch failed");
-    return { content: `Error: Web fetch failed: ${msg}`, isError: true };
+    return buildErrorResult(`Error: Web fetch failed: ${msg}`, {
+      url: requestedUrl,
+      finalUrl: currentUrl.href,
+      redirectCount,
+    });
   } finally {
     clearTimeout(timeoutHandle);
     externalSignal?.removeEventListener("abort", onExternalAbort);
@@ -839,7 +976,7 @@ export async function executeWebFetch(
 class WebFetchTool implements Tool {
   name = "web_fetch";
   description =
-    "Fetch a webpage and return LLM-friendly extracted text with metadata. Use this after web_search when you need to read a specific result.";
+    "Fetch a webpage and return LLM-friendly extracted text with metadata. Use this after web_search when you need to read a specific result. To find pages on a site without guessing slugs, fetch /sitemap.xml first — it has ground-truth paths and works even when pages are JS-rendered.";
   category = "network";
   defaultRiskLevel = RiskLevel.Low;
 

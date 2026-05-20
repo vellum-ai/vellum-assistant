@@ -32,7 +32,9 @@
 // conversations left by a mid-run crash are swept by
 // `memory-retrospective-startup-cleanup.ts`.
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/types.js";
+import { extractTurnContextTimestamp } from "../context/compactor.js";
 import { resolveTurnTimezoneContext } from "../daemon/date-context.js";
 import {
   getAssistantName,
@@ -40,13 +42,17 @@ import {
 } from "../daemon/identity-helpers.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { formatMessageSliceForTranscript } from "../export/transcript-formatter.js";
+import type { Message } from "../providers/types.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { bootstrapConversation } from "./conversation-bootstrap.js";
 import {
+  addMessage,
   deleteConversation,
   findMostRecentRetrospectiveFor,
+  forkConversation,
+  getConversation,
   getMessages,
   getMessagesAfter,
 } from "./conversation-crud.js";
@@ -56,7 +62,9 @@ import {
   type MemoryJobType,
 } from "./jobs-store.js";
 import {
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_GROUP_ID,
+  MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
   MEMORY_RETROSPECTIVE_SOURCE,
 } from "./memory-retrospective-constants.js";
 import {
@@ -64,6 +72,17 @@ import {
   getRetrospectiveState,
   upsertRetrospectiveState,
 } from "./memory-retrospective-state.js";
+
+/**
+ * Feature flag that switches the retrospective handler between the legacy
+ * transcript-based path (renders the new-message slice into a `<transcript>`
+ * block and wakes an empty background conversation) and the new fork-based
+ * path (forks the source through its latest message, persists a user-role
+ * instruction, and wakes the fork). The fork path lets the retrospective hit
+ * the provider prompt cache and read compaction summary + tail messages
+ * natively.
+ */
+const MEMORY_RETROSPECTIVE_FORK_FLAG = "memory-retrospective-fork" as const;
 
 const log = getLogger("memory-retrospective-job");
 
@@ -96,6 +115,24 @@ export async function memoryRetrospectiveJob(
     return { kind: "no_new_messages" };
   }
 
+  const useFork = isAssistantFeatureFlagEnabled(
+    MEMORY_RETROSPECTIVE_FORK_FLAG,
+    config,
+  );
+  return useFork
+    ? runForkBasedRetrospective(sourceConversationId, config)
+    : runLegacyRetrospective(sourceConversationId, config);
+}
+
+// ---------------------------------------------------------------------------
+// Legacy path — transcript-rendered slice + empty background conversation.
+// Kept behind the `memory-retrospective-fork` flag for safe rollback.
+// ---------------------------------------------------------------------------
+
+async function runLegacyRetrospective(
+  sourceConversationId: string,
+  config: AssistantConfig,
+): Promise<MemoryRetrospectiveOutcome> {
   // 1. Load state + compute the message slice.
   const state = getRetrospectiveState(sourceConversationId);
   const lastProcessedMessageId = state?.lastProcessedMessageId ?? null;
@@ -142,7 +179,7 @@ export async function memoryRetrospectiveJob(
     assistantName: getAssistantName(),
     userName: resolveUserName(getWorkspaceDir()),
   });
-  const prompt = buildPrompt({
+  const prompt = buildLegacyPrompt({
     transcript,
     priorRemembers,
     timeZone: timezoneContext.effectiveTimezone,
@@ -191,17 +228,7 @@ export async function memoryRetrospectiveJob(
       lastRunAt: Date.now(),
     });
 
-    const followUpJobIds: string[] = [];
-    for (const jobType of FOLLOW_UP_JOB_TYPES) {
-      try {
-        followUpJobIds.push(enqueueMemoryJob(jobType, {}));
-      } catch (err) {
-        log.warn(
-          { err, jobType },
-          "memory-retrospective: failed to enqueue follow-up job; continuing",
-        );
-      }
-    }
+    const followUpJobIds = enqueueFollowUpJobs();
 
     log.info(
       {
@@ -210,6 +237,7 @@ export async function memoryRetrospectiveJob(
         cutoffMessageId,
         newMessageCount: newMessages.length,
         priorRememberCount: priorRemembers.length,
+        kind: "legacy",
       },
       "memory-retrospective invoked",
     );
@@ -252,6 +280,230 @@ export async function memoryRetrospectiveJob(
 }
 
 // ---------------------------------------------------------------------------
+// Fork-based path — fork the source through its latest message, persist a
+// user-role retrospective instruction at the tail, and wake the fork. The
+// fork inherits compaction state (summary + tail messages) via the existing
+// `forkConversation` machinery, and its prefix matches the source's prefix
+// so provider prompt caching hits.
+// ---------------------------------------------------------------------------
+
+async function runForkBasedRetrospective(
+  sourceConversationId: string,
+  config: AssistantConfig,
+): Promise<MemoryRetrospectiveOutcome> {
+  const sourceConversation = getConversation(sourceConversationId);
+  if (!sourceConversation) {
+    log.warn(
+      { sourceConversationId },
+      "memory-retrospective (fork): source conversation not found; skipping",
+    );
+    return { kind: "no_new_messages" };
+  }
+
+  const state = getRetrospectiveState(sourceConversationId);
+  const lastProcessedMessageId = state?.lastProcessedMessageId ?? null;
+  const newMessages = getMessagesAfter(
+    sourceConversationId,
+    lastProcessedMessageId,
+  );
+
+  if (newMessages.length === 0) {
+    return { kind: "no_new_messages" };
+  }
+
+  const cutoffMessage = newMessages[newMessages.length - 1];
+  if (!cutoffMessage) {
+    return { kind: "no_new_messages" };
+  }
+  const cutoffMessageId = cutoffMessage.id;
+
+  // The fork carries the full conversation, so the agent needs an explicit
+  // anchor telling it where the review window begins. Prefer the user
+  // turn's `<turn_context>` `current_time:` (matches the conversation's
+  // own clock); fall back to ISO-formatted `createdAt` when the slice
+  // begins with an assistant turn or tool_result-only user message.
+  const windowStartTimestamp =
+    findFirstTurnContextTimestamp(newMessages) ??
+    new Date(newMessages[0]!.createdAt).toISOString();
+
+  // Pull prior `remember` calls BEFORE forking — otherwise
+  // `findMostRecentRetrospectiveFor` could locate this run's own fork.
+  const priorRemembers =
+    collectPriorRetrospectiveRemembers(sourceConversationId);
+
+  // `forkConversation` inherits `contextSummary` /
+  // `contextCompactedMessageCount` / `contextCompactedAt` when the fork
+  // point sits within the visible window — always true here since no
+  // `throughMessageId` means fork through latest. Compacted source ⇒
+  // compacted fork ⇒ summary + tail visible to the agent natively.
+  let forkConversationRow: ReturnType<typeof forkConversation>;
+  try {
+    forkConversationRow = forkConversation({
+      conversationId: sourceConversationId,
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+      title: `${sourceConversation.title ?? "Untitled"} (Retrospective)`,
+    });
+  } catch (err) {
+    bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
+    log.error(
+      { err, sourceConversationId },
+      "memory-retrospective (fork): forkConversation failed",
+    );
+    throw err;
+  }
+  const forkId = forkConversationRow.id;
+
+  const timezoneContext = resolveTurnTimezoneContext({
+    configuredUserTimeZone: config.ui.userTimezone ?? null,
+    detectedTimezone: config.ui.detectedTimezone ?? null,
+  });
+  const instruction = buildForkInstruction({
+    windowStartTimestamp,
+    priorRemembers,
+    timeZone: timezoneContext.effectiveTimezone,
+    isFirstPass: lastProcessedMessageId == null,
+  });
+  try {
+    await addMessage(
+      forkId,
+      "user",
+      JSON.stringify([{ type: "text", text: instruction }]),
+      { kind: MEMORY_RETROSPECTIVE_INSTRUCTION_KIND },
+      { skipIndexing: true },
+    );
+  } catch (err) {
+    log.error(
+      { err, forkId, sourceConversationId },
+      "memory-retrospective (fork): failed to persist instruction message",
+    );
+    safeDeleteForkOnFailure(forkId);
+    bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
+    throw err;
+  }
+
+  // `skipHintInjection: true` because the instruction is already a
+  // persisted message — the wake's hint sandwich would only duplicate it.
+  let wakeSucceeded = false;
+  let failureReason: string | undefined;
+  let threw: unknown;
+  try {
+    const result = await wakeAgentForOpportunity({
+      conversationId: forkId,
+      hint: "",
+      source: MEMORY_RETROSPECTIVE_SOURCE,
+      trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
+      callSite: "memoryRetrospective",
+      hintRole: "user",
+      skipHintInjection: true,
+      suppressAutoCompaction: true,
+    });
+    wakeSucceeded = result.invoked;
+    failureReason = result.reason;
+  } catch (err) {
+    threw = err;
+    failureReason = err instanceof Error ? err.message : String(err);
+    log.error(
+      { err, forkId, sourceConversationId },
+      "memory-retrospective (fork): wake threw",
+    );
+  }
+
+  if (wakeSucceeded) {
+    upsertRetrospectiveState({
+      conversationId: sourceConversationId,
+      lastProcessedMessageId: cutoffMessageId,
+      lastRunAt: Date.now(),
+    });
+
+    const followUpJobIds = enqueueFollowUpJobs();
+
+    log.info(
+      {
+        sourceConversationId,
+        backgroundConversationId: forkId,
+        cutoffMessageId,
+        newMessageCount: newMessages.length,
+        priorRememberCount: priorRemembers.length,
+        windowStartTimestamp,
+        kind: "fork",
+      },
+      "memory-retrospective invoked",
+    );
+    return {
+      kind: "invoked",
+      backgroundConversationId: forkId,
+      cutoffMessageId,
+      newMessageCount: newMessages.length,
+      followUpJobIds,
+    };
+  }
+
+  bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
+  safeDeleteForkOnFailure(forkId);
+
+  if (threw !== undefined) {
+    throw threw;
+  }
+
+  return {
+    kind: "wake_failed",
+    reason: failureReason,
+    conversationId: forkId,
+  };
+}
+
+function enqueueFollowUpJobs(): string[] {
+  const followUpJobIds: string[] = [];
+  for (const jobType of FOLLOW_UP_JOB_TYPES) {
+    try {
+      followUpJobIds.push(enqueueMemoryJob(jobType, {}));
+    } catch (err) {
+      log.warn(
+        { err, jobType },
+        "memory-retrospective: failed to enqueue follow-up job; continuing",
+      );
+    }
+  }
+  return followUpJobIds;
+}
+
+function safeDeleteForkOnFailure(forkId: string): void {
+  try {
+    deleteConversation(forkId);
+  } catch (err) {
+    log.warn(
+      { err, forkId },
+      "memory-retrospective (fork): failed to delete fork on wake failure; continuing",
+    );
+  }
+}
+
+/**
+ * Walk the slice and return the `<turn_context>` `current_time:` value from
+ * the first message that has one (typically the first user message). The
+ * agent uses this as the explicit anchor for the review window inside its
+ * forked history.
+ */
+function findFirstTurnContextTimestamp(
+  messages: Array<{ role: string; content: string }>,
+): string | null {
+  for (const row of messages) {
+    if (row.role !== "user") continue;
+    let blocks: unknown;
+    try {
+      blocks = JSON.parse(row.content);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(blocks)) continue;
+    const message = { role: "user", content: blocks } as Message;
+    const ts = extractTurnContextTimestamp(message);
+    if (ts) return ts;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Prior-retrospective remember extraction
 // ---------------------------------------------------------------------------
 
@@ -261,9 +513,23 @@ export async function memoryRetrospectiveJob(
  * array on first run (no prior retrospective) or when the prior run had no
  * `remember` calls (it found nothing to save).
  *
- * This is bounded — a single retrospective conversation, however long the
- * source conversation has grown. Older retrospectives' saves are already
- * baked into the most recent one's `<already_remembered>` block transitively.
+ * Two artifact shapes exist depending on which path produced the prior
+ * retrospective:
+ *
+ *   - **Legacy** (`source === MEMORY_RETROSPECTIVE_SOURCE`): empty bg
+ *     conversation containing only the wake's tail (`remember` tool_use
+ *     blocks). Scan everything.
+ *   - **Fork** (`source === MEMORY_RETROSPECTIVE_FORK_SOURCE`): full source
+ *     prefix forked in, followed by the retrospective's post-fork tail.
+ *     The forked prefix contains the source conversation's own inline
+ *     `remember` calls — scanning the whole row would dump source-inline
+ *     saves into the dedup baseline and inflate it dramatically. Restrict
+ *     to messages created **after** `forkParentMessageId` (the last copied
+ *     message); only messages after that boundary came from this
+ *     retrospective's own work.
+ *
+ * Older retrospectives' saves remain reflected transitively because each
+ * retrospective dedups against the one before it.
  */
 function collectPriorRetrospectiveRemembers(
   sourceConversationId: string,
@@ -280,7 +546,74 @@ function collectPriorRetrospectiveRemembers(
     );
     return [];
   }
+
+  const priorConv = getConversation(prior.id);
+  if (priorConv?.source === MEMORY_RETROSPECTIVE_FORK_SOURCE) {
+    // For fork-kind rows, prior `remember` calls live in the post-fork
+    // tail (messages created after the last copied source message).
+    // `cloneForkMessageMetadata` stamps every copied message with
+    // `forkSourceMessageId`; the cloned row whose stamp equals
+    // `forkParentMessageId` sits at the boundary, and the fork preserves
+    // `createdAt` on cloned messages, so everything strictly greater than
+    // that timestamp is post-fork.
+    if (priorConv.forkParentMessageId == null) {
+      log.warn(
+        { priorConversationId: prior.id },
+        "memory-retrospective: fork-kind prior has null forkParentMessageId; treating dedup as empty",
+      );
+      return [];
+    }
+    const boundaryCreatedAt = findForkBoundaryCreatedAt(
+      messages,
+      priorConv.forkParentMessageId,
+    );
+    if (boundaryCreatedAt == null) {
+      log.warn(
+        {
+          priorConversationId: prior.id,
+          forkParentMessageId: priorConv.forkParentMessageId,
+        },
+        "memory-retrospective: fork-kind prior's boundary message missing; treating dedup as empty",
+      );
+      return [];
+    }
+    return extractRememberContents(
+      messages.filter((m) => m.createdAt > boundaryCreatedAt),
+    );
+  }
+
   return extractRememberContents(messages);
+}
+
+/**
+ * Locate the boundary timestamp between the fork's prefix and its post-fork
+ * tail. The cloned row with `metadata.forkSourceMessageId === forkParentMessageId`
+ * marks the last copied source message; its `createdAt` is the boundary.
+ * Returns `null` only if the stamp is missing — which indicates corrupted
+ * fork metadata (caller logs + degrades).
+ */
+function findForkBoundaryCreatedAt(
+  forkMessages: Array<{
+    id: string;
+    createdAt: number;
+    metadata: string | null;
+  }>,
+  forkParentMessageId: string,
+): number | null {
+  for (const row of forkMessages) {
+    if (!row.metadata) continue;
+    try {
+      const parsed = JSON.parse(row.metadata) as {
+        forkSourceMessageId?: string;
+      };
+      if (parsed.forkSourceMessageId === forkParentMessageId) {
+        return row.createdAt;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 interface MessageLike {
@@ -339,17 +672,17 @@ function neutralizeSentinels(s: string): string {
     );
 }
 
-interface PromptArgs {
+interface LegacyPromptArgs {
   transcript: string;
   priorRemembers: string[];
   timeZone: string;
 }
 
-function buildPrompt({
+function buildLegacyPrompt({
   transcript,
   priorRemembers,
   timeZone,
-}: PromptArgs): string {
+}: LegacyPromptArgs): string {
   const safeTranscript = neutralizeSentinels(transcript);
   const renderedPrior =
     priorRemembers.length === 0
@@ -374,5 +707,58 @@ Two dedup sources to skip:
 2. Anything you already called \`remember\` on inline in this slice's transcript — those appear as \`[Tool: remember] {...}\` entries above.
 
 For everything else, use the \`remember\` tool on facts, plans, decisions, preferences, names, dates, felt moments, corrections, commitments, or anything else concrete and worth carrying forward. One \`remember\` call per fact. If nothing new is worth saving, say "Nothing new to save." and stop.
+`;
+}
+
+// ---------------------------------------------------------------------------
+// Fork-based retrospective instruction
+// ---------------------------------------------------------------------------
+
+interface ForkInstructionArgs {
+  windowStartTimestamp: string;
+  priorRemembers: string[];
+  timeZone: string;
+  /** True when this is the first retrospective pass over the source conversation. */
+  isFirstPass: boolean;
+}
+
+/**
+ * Build the user-role instruction message appended to the forked conversation.
+ * The agent reads the conversation natively (including any inherited compaction
+ * summary + tail messages), so the prompt is short — it just anchors the
+ * review window by `<turn_context>` timestamp and lists the prior
+ * retrospective's saves for cross-kind dedup (a legacy-kind prior's
+ * `remember` calls aren't visible inside the forked conversation history).
+ */
+function buildForkInstruction({
+  windowStartTimestamp,
+  priorRemembers,
+  timeZone,
+  isFirstPass,
+}: ForkInstructionArgs): string {
+  const renderedPrior =
+    priorRemembers.length === 0
+      ? "(none — this is your first retrospective over this conversation)"
+      : priorRemembers.map((c) => `- ${neutralizeSentinels(c)}`).join("\n");
+
+  const windowAnchor = isFirstPass
+    ? "Your review window is the full conversation above."
+    : `Your review window starts at the user turn with \`current_time: ${neutralizeSentinels(windowStartTimestamp)}\` (timezone: ${timeZone}) and ends at the most recent message.`;
+
+  return `This is a memory retrospective pass over the conversation above.
+
+${windowAnchor}
+
+Here are the facts you saved in your previous retrospective pass over this conversation (so you don't restate them):
+
+<already_remembered>
+${renderedPrior}
+</already_remembered>
+
+Two dedup sources to skip:
+1. Anything semantically captured in <already_remembered> above (from your prior retrospective pass).
+2. Anything you already called \`remember\` on inline within your review window — those appear as \`tool_use\` blocks with \`name: "remember"\` in your history.
+
+For everything else in your review window, use the \`remember\` tool on facts, plans, decisions, preferences, names, dates, felt moments, corrections, commitments, or anything else concrete and worth carrying forward. One \`remember\` call per fact. If nothing new is worth saving, say "Nothing new to save." and stop.
 `;
 }

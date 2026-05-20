@@ -1,0 +1,257 @@
+
+import type { LucideIcon } from "lucide-react";
+import { Loader2, Search, X } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type FC,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
+
+import { Button } from "@vellum/design-library";
+import { Typography } from "@vellum/design-library";
+import { useIsMobile } from "@/hooks/use-is-mobile.js";
+
+import { CommandPaletteItem } from "@/components/command-palette/command-palette-item.js";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface CommandPaletteItemData {
+  id: string;
+  icon?: LucideIcon;
+  title: string;
+  subtitle?: string;
+  shortcutHint?: ReactNode;
+}
+
+export interface CommandPaletteSection {
+  id: string;
+  label: string;
+  items: CommandPaletteItemData[];
+}
+
+export interface CommandPaletteProps {
+  /** Whether the palette is currently visible. */
+  isOpen: boolean;
+  /** Close the palette. */
+  onClose: () => void;
+  /** Current search query. */
+  query: string;
+  /** Update the search query. */
+  onQueryChange: (value: string) => void;
+  /** Currently selected index (flat across all sections). */
+  selectedIndex: number;
+  /** Sections of results to display. */
+  sections: CommandPaletteSection[];
+  /** Whether a server search is currently in-flight. */
+  isSearching?: boolean;
+  /** Called when an item is selected (clicked or Enter pressed). */
+  onItemSelect?: (item: CommandPaletteItemData, index: number) => void;
+  /** Key-down handler from useCommandPalette for keyboard navigation. */
+  onKeyDown: (e: React.KeyboardEvent) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+/**
+ * macOS Spotlight-style command palette overlay on desktop, swapping to a
+ * full-area inline overlay on mobile (`max-width: 767px`). Dismissable by
+ * Escape or backdrop click. Keyboard-shortcut hints (per-item and the ⌘K
+ * badge) are suppressed on mobile since there is no physical keyboard to
+ * invoke them.
+ *
+ * Accepts items/sections as props — no data fetching is performed internally.
+ */
+export const CommandPalette: FC<CommandPaletteProps> = ({
+  isOpen,
+  onClose,
+  query,
+  onQueryChange,
+  selectedIndex,
+  sections,
+  isSearching = false,
+  onItemSelect,
+  onKeyDown,
+}) => {
+  const isMobile = useIsMobile();
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Auto-focus the search input when the palette opens.
+  useEffect(() => {
+    if (isOpen) {
+      // Small timeout to ensure the element is mounted before focusing.
+      const id = requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
+      return () => cancelAnimationFrame(id);
+    }
+  }, [isOpen]);
+
+  // Scroll the selected item into view when keyboard-navigating.
+  useEffect(() => {
+    if (!isOpen || !listRef.current) return;
+    const selected = listRef.current.querySelector("[aria-current='page']");
+    if (selected) {
+      selected.scrollIntoView({ block: "nearest" });
+    }
+  }, [isOpen, selectedIndex]);
+
+  const handleBackdropClick = useCallback(
+    (e: MouseEvent) => {
+      if (e.target === overlayRef.current) {
+        onClose();
+      }
+    },
+    [onClose],
+  );
+
+  if (!isOpen) {
+    return null;
+  }
+
+  // Flatten all items to compute the global index for each item.
+  let flatIndex = 0;
+
+  const searchInputRow = (
+    <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-base)] px-4 py-3">
+      {isSearching ? (
+        <Loader2
+          size={16}
+          aria-hidden
+          className="shrink-0 animate-spin text-[var(--content-tertiary)]"
+        />
+      ) : (
+        <Search
+          size={16}
+          aria-hidden
+          className="shrink-0 text-[var(--content-tertiary)]"
+        />
+      )}
+      <input
+        ref={inputRef}
+        type="text"
+        value={query}
+        onChange={(e) => onQueryChange(e.target.value)}
+        placeholder="Search conversations, memories…"
+        className="min-w-0 flex-1 bg-transparent text-body-medium-lighter text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none"
+        aria-label="Search"
+      />
+      {query ? (
+        isMobile ? (
+          <button
+            type="button"
+            className="shrink-0 text-body-medium-lighter text-[var(--content-tertiary)]"
+            onClick={() => onQueryChange("")}
+            aria-label="Clear search"
+          >
+            Clear
+          </button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="compact"
+            iconOnly={<X />}
+            aria-label="Clear search"
+            onClick={() => onQueryChange("")}
+            tintColor="var(--content-tertiary)"
+          />
+        )
+      ) : isMobile ? null : (
+        <kbd className="shrink-0 rounded-md border border-[var(--border-base)] bg-[var(--surface-active)] px-1.5 py-0.5 text-label-small-default text-[var(--content-tertiary)]">
+          ⌘K
+        </kbd>
+      )}
+    </div>
+  );
+
+  const resultsList = (
+    <div
+      ref={listRef}
+      className={
+        isMobile
+          ? "flex-1 overflow-y-auto overscroll-contain p-2"
+          : "max-h-[360px] overflow-y-auto overscroll-contain p-2"
+      }
+      role="listbox"
+    >
+      {sections.length === 0 ? (
+        <div className="px-3 py-6 text-center">
+          <Typography
+            variant="body-medium-lighter"
+            className="text-[var(--content-tertiary)]"
+          >
+            {isSearching ? "Searching…" : "No results"}
+          </Typography>
+        </div>
+      ) : (
+        sections.map((section) => (
+          <div key={section.id} role="group" aria-label={section.label}>
+            <Typography
+              variant="label-small-default"
+              as="div"
+              className="px-3 pb-1 pt-2 text-[var(--content-tertiary)]"
+            >
+              {section.label}
+            </Typography>
+            {section.items.map((item) => {
+              const currentIndex = flatIndex++;
+              return (
+                <CommandPaletteItem
+                  key={item.id}
+                  icon={item.icon}
+                  title={item.title}
+                  subtitle={item.subtitle}
+                  shortcutHint={isMobile ? undefined : item.shortcutHint}
+                  isSelected={currentIndex === selectedIndex}
+                  onClick={() => onItemSelect?.(item, currentIndex)}
+                />
+              );
+            })}
+          </div>
+        ))
+      )}
+    </div>
+  );
+
+  if (isMobile) {
+    return (
+      <div
+        className="absolute inset-0 z-30 flex flex-col bg-[var(--surface-lift)]"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search"
+        onKeyDown={onKeyDown}
+      >
+        {searchInputRow}
+        {resultsList}
+      </div>
+    );
+  }
+
+  return createPortal(
+    <div
+      ref={overlayRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Command palette"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh]"
+      onClick={handleBackdropClick}
+      onKeyDown={onKeyDown}
+    >
+      <div className="flex w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-[var(--border-base)] bg-[var(--surface-base)] shadow-xl">
+        {searchInputRow}
+        {resultsList}
+      </div>
+    </div>,
+    document.body,
+  );
+};

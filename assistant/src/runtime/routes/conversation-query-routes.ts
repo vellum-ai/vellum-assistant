@@ -854,6 +854,12 @@ async function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
         requestPayload: null,
         responsePayload: null,
         createdAt: log.createdAt,
+        // Agent-loop exit reason for the iteration that produced this
+        // call, stamped onto the most-recent unstamped log by
+        // `conversation-agent-loop-handlers.ts` after the loop yields.
+        // Only the terminal call in each loop iteration carries a value;
+        // non-terminal calls land here as `null`.
+        agentLoopExitReason: log.agentLoopExitReason ?? null,
         ...result,
       };
     }),

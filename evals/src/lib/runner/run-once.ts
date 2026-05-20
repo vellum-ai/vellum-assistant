@@ -50,9 +50,49 @@ export interface EvalRunResult {
   metrics: MetricResult[];
 }
 
-function assistantContent(event: AgentEvent): string | undefined {
-  const message = event.message;
-  return message.text ?? message.content ?? message.message ?? message.chunk;
+/** Decimals used when rendering a `fraction`-unit metric score in the CLI log. */
+const FRACTION_SCORE_DECIMALS = 2;
+/** Decimals used when rendering a `raw`-unit metric score (e.g. dollars) in the CLI log. */
+const RAW_SCORE_DECIMALS = 4;
+
+/**
+ * Render the per-metric score list as a single-line `name=score, …` string
+ * for the `result` progress event's `detail` field. Each metric's unit
+ * decides the precision: `fraction` scores get two decimals (matches the
+ * 0–1 range humans expect from quality metrics), `raw` scores get four
+ * decimals (enough to read sub-cent dollar costs without padding zeros).
+ *
+ * Returns `"no metrics"` when the test has no metric files configured so
+ * the log line still says something rather than dangling an empty suffix.
+ */
+function formatMetricSummary(metrics: MetricResult[]): string {
+  if (metrics.length === 0) return "no metrics";
+  return metrics
+    .map((m) => {
+      const decimals =
+        m.unit === "raw" ? RAW_SCORE_DECIMALS : FRACTION_SCORE_DECIMALS;
+      return `${m.name}=${m.score.toFixed(decimals)}`;
+    })
+    .join(", ");
+}
+
+/**
+ * Pull the text payload an event contributes to the assistant's transcript
+ * turn, or `undefined` if the event is not an assistant content event.
+ *
+ * **Species-specific filtering lives in the adapter, not here.** Each
+ * adapter (`adapters/vellum.ts`, `adapters/hermes.ts`) wraps its raw
+ * event stream with a normalization step that clears `text` and `chunk`
+ * on events that don't carry assistant transcript content (echoes, tool
+ * I/O, thinking, errors, usage, …). By the time an event reaches this
+ * function, `text` / `chunk` are either set (transcript) or undefined
+ * (everything else) — so the getter is a trivial coalesce.
+ *
+ * Exported for unit-tests; only `collectAndPersistEvents` calls it in
+ * production.
+ */
+export function assistantContent(event: AgentEvent): string | undefined {
+  return event.message.text ?? event.message.chunk;
 }
 
 async function collectAndPersistEvents(input: {
@@ -215,7 +255,11 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       progress({
         step: "simulator",
         status: "start",
-        message: `Asking simulator for turn ${simulatorTurns + 1}`,
+        // Turn number is rendered by the reporter as the `turn N` suffix —
+        // keeping it out of the message avoids the doubled `turn 2  turn 2`
+        // output observed in `eval-vellum-bare-timeline-recall-
+        // 20260520135745`.
+        message: "Asking simulator",
         turn: simulatorTurns + 1,
       });
       const decision = await simulator.decide({
@@ -300,6 +344,17 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       startedAt,
       completedAt: new Date().toISOString(),
       artifactDir: artifacts.runDir,
+    });
+    // Surface the per-metric scores through the progress reporter so the
+    // CLI logs them in the same timestamped/labeled format as every other
+    // step, instead of dumping a `console.log(JSON.stringify(result))`
+    // blob onto stdout. The detail string lists each metric inline so a
+    // tail of the eval log immediately shows what the profile achieved.
+    progress({
+      step: "result",
+      status: "done",
+      message: `${input.profile.id}/${input.test.id}`,
+      detail: formatMetricSummary(metrics),
     });
     return {
       runId: input.runId,

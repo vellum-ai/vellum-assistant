@@ -84,6 +84,7 @@ export function formatCompactResult(result: ContextWindowResult): string {
       result.maxInputTokens,
     )} tokens`,
     `Messages: ${fmt(result.compactedMessages)} compacted`,
+    `Tail:     ${fmt(result.preservedTailMessages)} preserved`,
   ].join("\n");
 }
 

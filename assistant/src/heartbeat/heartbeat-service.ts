@@ -9,8 +9,6 @@ import {
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
-import { getConversation, getMessages } from "../memory/conversation-crud.js";
-import { GENERATING_TITLE } from "../memory/conversation-title-service.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
   GUARDIAN_PERSONA_TEMPLATE,
@@ -47,9 +45,6 @@ const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still ac
 const EARLY_HEARTBEAT_THRESHOLD = 3;
 const REENGAGEMENT_COOLDOWN_MS = 18 * 60 * 60 * 1000; // 18 hours
 const HEARTBEAT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-const HEARTBEAT_ALERT_MARKER = "HEARTBEAT_ALERT";
-const HEARTBEAT_OK_MARKER = "HEARTBEAT_OK";
-const HEARTBEAT_ALERT_SUMMARY_MAX_CHARS = 700;
 
 // Stripped-comment form of the guardian persona scaffold. Computed
 // once at module load because stripping comment lines is deterministic
@@ -99,69 +94,6 @@ function recordReengagementTimestamp(): void {
     writeFileSync(getReengagementTimestampPath(), Date.now().toString());
   } catch {
     // Best-effort; don't block the heartbeat.
-  }
-}
-
-type HeartbeatDisposition = "alert" | "ok" | "unknown";
-
-function parseHeartbeatDisposition(text: string | null): HeartbeatDisposition {
-  if (!text) return "unknown";
-  const lines = text
-    .trim()
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  const lastLine = lines.at(-1);
-  if (lastLine === HEARTBEAT_ALERT_MARKER) return "alert";
-  if (lastLine === HEARTBEAT_OK_MARKER) return "ok";
-  return "unknown";
-}
-
-function stripHeartbeatDispositionMarkers(text: string): string {
-  return text
-    .replace(
-      new RegExp(
-        `(?:\\r?\\n)?\\s*(?:${HEARTBEAT_ALERT_MARKER}|${HEARTBEAT_OK_MARKER})\\s*$`,
-      ),
-      "",
-    )
-    .trim();
-}
-
-function truncateSummary(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
-}
-
-function buildHeartbeatAlertSummary(text: string | null): string {
-  const summary = text ? stripHeartbeatDispositionMarkers(text) : "";
-  return truncateSummary(
-    summary || "Your assistant found something worth your attention.",
-    HEARTBEAT_ALERT_SUMMARY_MAX_CHARS,
-  );
-}
-
-function extractVisibleTextFromStoredMessageContent(raw: string): string {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (typeof parsed === "string") return parsed;
-    if (!Array.isArray(parsed)) return "";
-    const texts: string[] = [];
-    for (const block of parsed) {
-      if (
-        block != null &&
-        typeof block === "object" &&
-        "type" in block &&
-        block.type === "text" &&
-        "text" in block &&
-        typeof block.text === "string"
-      ) {
-        texts.push(block.text);
-      }
-    }
-    return texts.join("\n").trim();
-  } catch {
-    return raw;
   }
 }
 
@@ -710,66 +642,6 @@ export class HeartbeatService {
     }
   }
 
-  private getLatestAssistantMessage(
-    conversationId: string,
-  ): { id: string; text: string } | null {
-    try {
-      const messages = getMessages(conversationId);
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const message = messages[i]!;
-        if (message.role !== "assistant") continue;
-        return {
-          id: message.id,
-          text: extractVisibleTextFromStoredMessageContent(message.content),
-        };
-      }
-    } catch (err) {
-      log.warn(
-        { err, conversationId },
-        "Failed to read heartbeat assistant message",
-      );
-    }
-    return null;
-  }
-
-  private async emitHeartbeatAlertNotification(params: {
-    runId: string;
-    conversationId: string;
-    messageId?: string;
-    conversationTitle: string;
-    summary: string;
-  }): Promise<void> {
-    const { emitNotificationSignal } =
-      await import("../notifications/emit-signal.js");
-
-    await emitNotificationSignal({
-      sourceEventName: "heartbeat.alert",
-      sourceChannel: "watcher",
-      sourceContextId: params.runId,
-      dedupeKey: `heartbeat:alert:${params.runId}`,
-      attentionHints: {
-        requiresAction: true,
-        urgency: "medium",
-        isAsyncBackground: true,
-        visibleInSourceNow: false,
-      },
-      contextPayload: {
-        title: "Heartbeat Alert",
-        summary: params.summary,
-        conversationTitle: params.conversationTitle,
-        conversationId: params.conversationId,
-        messageId: params.messageId,
-      },
-      routingIntent: "single_channel",
-      conversationAffinityHint: { vellum: params.conversationId },
-      conversationMetadata: {
-        source: "heartbeat",
-        groupId: "system:background",
-        conversationType: "background",
-      },
-    });
-  }
-
   private async executeRun(runId: string, scheduledFor: number): Promise<void> {
     log.info("Running heartbeat");
 
@@ -798,9 +670,9 @@ export class HeartbeatService {
     // The runner fires `onConversationCreated` synchronously after
     // bootstrap so the macOS sidebar gets the new conversation
     // immediately rather than waiting up to HEARTBEAT_TIMEOUT_MS for
-    // the LLM turn to finish. We forward to `deps.onConversationCreated`
-    // for every run; "silent OK" is enforced by NOT emitting any
-    // notification signal further down, not by hiding the conversation.
+    // the LLM turn to finish. If the model judges the run worth
+    // surfacing to the guardian, it calls the `notifications` skill
+    // directly — no in-band marker.
     let conversationId: string | undefined;
     const result = await runBackgroundJob({
       jobName: "heartbeat",
@@ -814,6 +686,7 @@ export class HeartbeatService {
       callSite: "heartbeatAgent",
       timeoutMs: HEARTBEAT_TIMEOUT_MS,
       origin: "heartbeat",
+      deferNotifications: true,
       onConversationCreated: (newConversationId) => {
         conversationId = newConversationId;
         this.deps.onConversationCreated?.({
@@ -832,62 +705,26 @@ export class HeartbeatService {
         "Heartbeat completed",
       );
 
-      // Mark the run record as ok and surface any disposition-driven
-      // alert the assistant decided to raise. The runner owns failure
-      // emission via `activity.failed`; success-side surfacing (alerts,
-      // late warnings) lives here so it can read the actual conversation
-      // contents.
+      // Mark the run record as ok. The runner owns failure emission via
+      // `activity.failed`; any user-facing alert the model decided to
+      // raise was emitted in-band via the `notifications` skill during
+      // the turn itself.
       const transitioned = completeHeartbeatRun(runId, {
         status: "ok",
         conversationId: result.conversationId,
       });
 
-      if (transitioned) {
-        let title = "Heartbeat";
-        try {
-          const row = getConversation(result.conversationId);
-          if (row?.title && row.title !== GENERATING_TITLE) {
-            title = row.title;
-          }
-        } catch {
-          // Best-effort; fall back to generic title.
-        }
-
-        const assistantMessage = this.getLatestAssistantMessage(
-          result.conversationId,
-        );
-        const disposition = parseHeartbeatDisposition(
-          assistantMessage?.text ?? null,
-        );
-        if (disposition === "alert") {
-          // Conversation was already surfaced via the runner's bootstrap
-          // callback above; alert just needs to emit the notification.
-          void this.emitHeartbeatAlertNotification({
+      if (transitioned && latenessMs > LATE_THRESHOLD_MS) {
+        const lateMinutes = Math.round(latenessMs / 60_000);
+        log.warn(
+          {
+            latenessMs,
+            lateMinutes,
+            scheduledFor,
             runId,
-            conversationId: result.conversationId,
-            messageId: assistantMessage?.id,
-            conversationTitle: title,
-            summary: buildHeartbeatAlertSummary(assistantMessage?.text ?? null),
-          }).catch((err) => {
-            log.warn(
-              { err, conversationId: result.conversationId },
-              "Failed to emit heartbeat alert notification",
-            );
-          });
-        }
-
-        if (latenessMs > LATE_THRESHOLD_MS) {
-          const lateMinutes = Math.round(latenessMs / 60_000);
-          log.warn(
-            {
-              latenessMs,
-              lateMinutes,
-              scheduledFor,
-              runId,
-            },
-            "Heartbeat ran late",
-          );
-        }
+          },
+          "Heartbeat ran late",
+        );
       }
       return;
     }
@@ -952,18 +789,14 @@ Do NOT attempt to use tools for these providers — they will fail. Skip any che
 </credential-status>`;
     }
 
-    prompt += `\n\n<heartbeat-disposition>
-This heartbeat runs frequently. Do not manufacture a report just because it ran.
-If there is nothing genuinely useful, actionable, or interesting to surface, keep the response brief and end with HEARTBEAT_OK.
-If there is something worth interrupting the guardian for, write a concise guardian-facing note first: what happened, why it matters, and the recommended next step. Address the guardian directly as "you"; do not write instructions to yourself or another intermediary. Then end with HEARTBEAT_ALERT. That note may be used as notification copy.
-After completing your review, end your response with one of:
-- HEARTBEAT_OK — if everything looks good, no action needed
-- HEARTBEAT_ALERT — if you found issues that need attention (describe them before this marker)
-</heartbeat-disposition>`;
+    const disposition = getConfig().heartbeat.disposition;
+    if (disposition) {
+      prompt += `\n\n<heartbeat-disposition>\n${disposition}\n</heartbeat-disposition>`;
+    }
 
     if (completedRunCount < EARLY_HEARTBEAT_THRESHOLD) {
       prompt += `\n\n<early-heartbeat>
-This is one of your first heartbeats. Your user hasn't heard from you yet and may not know you're here. Find something genuinely useful to share — a follow-up from a recent conversation, something you noticed, or a quick check-in. Lean toward HEARTBEAT_ALERT this time. First impressions matter.
+This is one of your first heartbeats. Your user hasn't heard from you yet and may not know you're here. Find something genuinely useful to share — a follow-up from a recent conversation, something you noticed, or a quick check-in. Lean toward surfacing it via the notifications skill this time. First impressions matter.
 </early-heartbeat>`;
     }
 

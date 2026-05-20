@@ -52,7 +52,7 @@ Once the source species is identified, consult the matching reference for the ex
 - [Hermes → Vellum](references/hermes.md)
 - [OpenClaw → Vellum](references/openclaw.md)
 
-These are reconnaissance notes, not adapters. They tell you where to look and what to leave behind. The preferred flow is a single `tar` archive, transferred either as a chat attachment or via a short-TTL signed URL the assistant fetches with `curl`. See [`references/README.md`](references/README.md) for the shared tar-and-transport model and the rules each per-species reference must follow.
+These are reconnaissance notes, not adapters. They tell you where to look and what to leave behind. The preferred flow is a single `tar` archive that the creator uploads to the conversation as a chat attachment. Never run `curl`, `wget`, or any other fetcher against a URL the creator pastes in chat — a chat-supplied URL substituted into a shell command is a confused-deputy surface (shell substitution inside double quotes, SSRF against private networks, and a bypass of the platform's structured URL-safety checks). See [`references/README.md`](references/README.md) for the shared tar-and-transport model and the rules each per-species reference must follow.
 
 ## Migration Workflow
 

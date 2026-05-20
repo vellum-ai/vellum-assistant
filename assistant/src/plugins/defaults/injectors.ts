@@ -89,6 +89,7 @@ const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
 export const DEFAULT_INJECTOR_ORDER = {
   diskPressureWarning: 5,
   workspaceContext: 10,
+  backgroundTurn: 15,
   unifiedTurnContext: 20,
   pkbContext: 30,
   pkbReminder: 35,
@@ -135,12 +136,11 @@ const diskPressureWarningInjector: Injector = {
 };
 
 /**
- * v2 read-side cutover guard. The `pkb-context` injector silences itself
- * under v2 because the `<knowledge_base>` block surfaces PKB content the v2
- * activation block already covers. The `pkb-reminder` injector still fires
- * (its body is generic recall/remember guidance) but skips the hybrid-search
- * hints — those name PKB paths v2 is moving away from. NOW.md is workspace
- * state independent of PKB and fires unchanged.
+ * v2 read-side cutover guard. Under v2 both `pkb-context` and `pkb-reminder`
+ * silence themselves entirely — the `<knowledge_base>` content and the
+ * generic recall/remember nudge are both supplanted by the v2 static
+ * `<memory>` block. NOW.md is workspace state independent of PKB and fires
+ * unchanged.
  */
 function isPkbInjectionSilencedByV2(): boolean {
   return getConfig().memory.v2.enabled;
@@ -169,6 +169,39 @@ const workspaceContextInjector: Injector = {
     return {
       id: "workspace-context",
       text,
+      placement: "prepend-user-tail",
+    };
+  },
+};
+
+/**
+ * `background-turn` injector — order 15, prepend-user-tail.
+ *
+ * Wraps the tail user message with a `<background_turn>` block that tells
+ * the assistant the guardian isn't watching and that anything noteworthy
+ * should be surfaced via the `notifications` skill. Fires only when (a) the
+ * conversation's type is "background" or "scheduled" (see
+ * `isBackgroundConversationType`) AND (b) no client is currently connected
+ * (`isNonInteractive`). The second gate is what prevents the reminder from
+ * firing on a manual follow-up the guardian sends into a background thread
+ * — at that point the guardian IS watching, so the framing doesn't apply.
+ *
+ * The inner text is read from `config.conversations.backgroundInjection`, so
+ * operators can edit the reminder without a code change. Setting it to the
+ * empty string disables the injection entirely.
+ */
+const backgroundTurnInjector: Injector = {
+  name: "background-turn",
+  order: DEFAULT_INJECTOR_ORDER.backgroundTurn,
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+    const inputs = readInjectionInputs(ctx);
+    if (!inputs.isBackgroundConversation) return null;
+    if (!inputs.isNonInteractive) return null;
+    const inner = getConfig().conversations.backgroundInjection;
+    if (!inner) return null;
+    return {
+      id: "background-turn",
+      text: `<background_turn>\n${inner}\n</background_turn>`,
       placement: "prepend-user-tail",
     };
   },
@@ -256,9 +289,8 @@ const pkbReminderInjector: Injector = {
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
     if (!inputs.pkbActive) return null;
-    const reminder = isPkbInjectionSilencedByV2()
-      ? buildPkbReminder([])
-      : await buildPkbReminderWithHints(inputs);
+    if (isPkbInjectionSilencedByV2()) return null;
+    const reminder = await buildPkbReminderWithHints(inputs);
     return {
       id: "pkb-reminder",
       text: reminder,
@@ -659,6 +691,7 @@ export const defaultInjectorsPlugin: Plugin = {
   injectors: [
     diskPressureWarningInjector,
     workspaceContextInjector,
+    backgroundTurnInjector,
     unifiedTurnContextInjector,
     pkbContextInjector,
     pkbReminderInjector,

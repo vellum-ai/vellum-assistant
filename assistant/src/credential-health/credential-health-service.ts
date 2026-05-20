@@ -315,9 +315,11 @@ async function checkManagedProvider(
     const client = await VellumPlatformClient.create();
     if (!client?.platformAssistantId) return results;
 
+    // Query without a status filter so we can distinguish "never
+    // connected" (empty result) from "previously connected but now
+    // inactive" (non-empty result with no ACTIVE entries).
     const params = new URLSearchParams();
     params.set("provider", providerRow.provider);
-    params.set("status", "ACTIVE");
 
     const path = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/oauth/connections/?${params.toString()}`;
     const response = await client.fetch(path);
@@ -331,19 +333,30 @@ async function checkManagedProvider(
     }
 
     const body = (await response.json()) as unknown;
-    const connections = (
+    const allConnections = (
       Array.isArray(body)
         ? body
         : ((body as Record<string, unknown>).results ?? [])
-    ) as Array<{ id: string; account_label?: string }>;
+    ) as Array<{ id: string; account_label?: string; status?: string }>;
+
+    if (allConnections.length === 0) {
+      // No connections of any status — the user has never connected this
+      // provider. The suggested-prompts system handles prompting them to
+      // connect; this is not a health issue.
+      return results;
+    }
+
+    const connections = allConnections.filter(
+      (c) => (c.status ?? "ACTIVE").toUpperCase() === "ACTIVE",
+    );
 
     if (connections.length === 0) {
-      // No active managed connections — report as missing so the
-      // heartbeat can notify the user.
+      // Connections exist but none are active — the user previously
+      // connected and the connection was revoked/deactivated.
       results.push({
         connectionId: `managed:${providerRow.provider}`,
         provider: providerRow.provider,
-        accountInfo: null,
+        accountInfo: allConnections[0]?.account_label ?? null,
         status: "missing_token",
         details: `No active managed connection for ${providerRow.provider}. Reconnect on the Vellum platform.`,
         missingScopes: [],
@@ -550,9 +563,20 @@ export async function checkAllCredentials(): Promise<CredentialHealthReport> {
   for (const providerRow of providers) {
     if (!(await isManagedProvider(providerRow))) continue;
 
-    // If the provider is in managed mode and also has BYO connections,
-    // remove the stale BYO results — managed mode takes priority.
-    if (byoProviders.has(providerRow.provider)) {
+    let managedResults: CredentialHealthResult[] = [];
+    try {
+      managedResults = await checkManagedProvider(providerRow);
+    } catch (err) {
+      log.warn(
+        { err, provider: providerRow.provider },
+        "Failed to check managed provider health",
+      );
+    }
+
+    // Only replace BYO results with managed results when the managed
+    // check returned something. If managed returned empty (user never
+    // connected via managed mode), keep any existing BYO results.
+    if (managedResults.length > 0 && byoProviders.has(providerRow.provider)) {
       const beforeLen = results.length;
       const filtered = results.filter(
         (r) => r.provider !== providerRow.provider,
@@ -562,16 +586,7 @@ export async function checkAllCredentials(): Promise<CredentialHealthReport> {
         results.push(...filtered);
       }
     }
-
-    try {
-      const managedResults = await checkManagedProvider(providerRow);
-      results.push(...managedResults);
-    } catch (err) {
-      log.warn(
-        { err, provider: providerRow.provider },
-        "Failed to check managed provider health",
-      );
-    }
+    results.push(...managedResults);
   }
 
   const unhealthy = results.filter((r) => r.status !== "healthy");

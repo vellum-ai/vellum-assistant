@@ -7,7 +7,13 @@
  * `POST {apiBaseUrl}/v1/upload/feedback/` as `multipart/form-data` with
  * the same field shape the macOS app uses — `message`, `classification`,
  * `email`, `device_id`, `client_version`, optional `assistant_id`, and a
- * `logs_file` part containing the gzipped JSON bundle.
+ * `logs_file` part containing a single-member `tar.gz` archive with the
+ * diagnostic bundle JSON inside.
+ *
+ * The platform-side `sanitize_tar_gz` validator opens `logs_file` as
+ * `tarfile.open(..., mode="r|")` and drops the upload on the floor when
+ * it isn't a real tar — so we ship a real (one-file) tar.gz instead of a
+ * plain gzipped JSON blob.
  *
  * Cloud submissions attach `X-Session-Token` and `Vellum-Organization-Id`
  * when available; self-hosted submissions ship unauthenticated, same as
@@ -186,10 +192,10 @@ export async function submitFeedback(
   }
 
   if (bundle) {
-    const gzipped = await gzipJson(bundle);
+    const archive = await buildBundleTarGz(bundle);
     formData.set(
       "logs_file",
-      new File([gzipped], "vellum-extension-diagnostics.json.gz", {
+      new File([archive], "vellum-extension-diagnostics.tar.gz", {
         type: "application/gzip",
       }),
     );
@@ -233,6 +239,125 @@ export async function gzipJson(value: unknown): Promise<Blob> {
     .stream()
     .pipeThrough(new CompressionStream("gzip"));
   return new Response(compressed).blob();
+}
+
+/** Filename of the single member written into the support bundle archive. */
+export const BUNDLE_TAR_MEMBER_NAME = "extension-diagnostics.json";
+
+const TAR_BLOCK_SIZE = 512;
+
+/**
+ * Build a single-member `tar.gz` archive containing the JSON-serialized
+ * *bundle* as `extension-diagnostics.json`.
+ *
+ * The platform-side `sanitize_tar_gz` validator opens uploads with
+ * `tarfile.open(..., mode="r|")` and drops uploads that don't yield a
+ * valid tar — we ship a real (one-file) ustar archive so the bundle
+ * makes it through sanitization end-to-end.
+ */
+export async function buildBundleTarGz(value: unknown): Promise<Blob> {
+  const json = JSON.stringify(value);
+  const payload = new TextEncoder().encode(json);
+  const mtime = Math.floor(Date.now() / 1000);
+  const tar = buildSingleFileTar(BUNDLE_TAR_MEMBER_NAME, payload, mtime);
+  const compressed = new Blob([new Uint8Array(tar)])
+    .stream()
+    .pipeThrough(new CompressionStream("gzip"));
+  return new Response(compressed).blob();
+}
+
+/**
+ * Build an in-memory ustar archive containing a single regular-file
+ * member with the given name, payload, and modification time. Two
+ * trailing zero blocks are appended so standard tar readers recognise
+ * the archive as terminated.
+ */
+function buildSingleFileTar(
+  filename: string,
+  content: Uint8Array,
+  mtime: number,
+): Uint8Array {
+  const header = buildUstarHeader(filename, content.length, mtime);
+
+  const contentBlocks =
+    Math.ceil(content.length / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE;
+  const totalSize =
+    TAR_BLOCK_SIZE + contentBlocks + TAR_BLOCK_SIZE * 2; // header + padded payload + 2 zero blocks
+  const out = new Uint8Array(totalSize);
+  out.set(header, 0);
+  out.set(content, TAR_BLOCK_SIZE);
+  // Padding between content and the two zero blocks is already zero by
+  // virtue of Uint8Array initialization. The trailing two zero blocks are
+  // likewise already zero — nothing else to write.
+  return out;
+}
+
+/**
+ * Build a 512-byte ustar header for a regular file. The checksum field
+ * is filled in by summing the header bytes with the checksum field
+ * itself treated as ASCII spaces (per POSIX), then writing the result
+ * back as six octal digits followed by `\0 `.
+ */
+function buildUstarHeader(
+  filename: string,
+  size: number,
+  mtime: number,
+): Uint8Array {
+  const enc = new TextEncoder();
+  const header = new Uint8Array(TAR_BLOCK_SIZE);
+
+  const nameBytes = enc.encode(filename);
+  if (nameBytes.length > 100) {
+    throw new Error(
+      `tar member name exceeds the 100-byte ustar limit: ${filename}`,
+    );
+  }
+
+  // Layout (byte offsets):
+  //   0..99    name        | 100..107 mode    | 108..115 uid
+  //   116..123 gid          | 124..135 size    | 136..147 mtime
+  //   148..155 checksum     | 156      typeflag| 157..256 linkname
+  //   257..262 magic        | 263..264 version | 265..296 uname
+  //   297..328 gname        | 329..336 devmajor| 337..344 devminor
+  //   345..499 prefix       | 500..511 pad
+  header.set(nameBytes, 0);
+  header.set(enc.encode(octalField(0o644, 8)), 100); // mode
+  header.set(enc.encode(octalField(0, 8)), 108); // uid
+  header.set(enc.encode(octalField(0, 8)), 116); // gid
+  header.set(enc.encode(octalField(size, 12)), 124); // size
+  header.set(enc.encode(octalField(mtime, 12)), 136); // mtime
+  // Checksum placeholder — spaces — so the checksum sum picks up a known constant.
+  for (let i = 148; i < 156; i++) header[i] = 0x20;
+  header[156] = 0x30; // typeflag = '0' (regular file)
+  header.set(enc.encode("ustar\0"), 257); // magic
+  header.set(enc.encode("00"), 263); // version
+
+  let sum = 0;
+  for (let i = 0; i < TAR_BLOCK_SIZE; i++) sum += header[i]!;
+  // POSIX: 6 octal digits, NUL, space.
+  const checksum = sum.toString(8).padStart(6, "0");
+  header.set(enc.encode(checksum), 148);
+  header[154] = 0x00;
+  header[155] = 0x20;
+
+  return header;
+}
+
+/**
+ * Encode *value* as a zero-padded octal string of *width* bytes total,
+ * with a trailing NUL byte (ustar's canonical numeric encoding).
+ */
+function octalField(value: number, width: number): string {
+  if (value < 0 || !Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new Error(`tar octal field requires a non-negative integer: ${value}`);
+  }
+  const digits = value.toString(8).padStart(width - 1, "0");
+  if (digits.length >= width) {
+    throw new Error(
+      `tar octal field overflow: ${value} does not fit in ${width - 1} octal digits`,
+    );
+  }
+  return `${digits}\0`;
 }
 
 async function safeReadSession(): Promise<CloudSession | null> {

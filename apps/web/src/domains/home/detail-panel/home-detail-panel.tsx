@@ -1,7 +1,6 @@
 import { Circle, CircleCheck, X } from "lucide-react";
 
-import { Button } from "@vellum/design-library/components/button";
-import { Typography } from "@vellum/design-library/components/typography";
+import { Button, Typography } from "@vellum/design-library";
 import { CATEGORY_STYLES } from "../home-feed-filter-bar.js";
 import { HomeGenericDetail } from "./home-generic-detail.js";
 import { HomeToolPermissionCard } from "./home-tool-permission-card.js";

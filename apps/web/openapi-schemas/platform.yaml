@@ -4,6 +4,102 @@ info:
   version: 1.0.0 (v1)
   description: Documentation of API endpoints of vellum-assistant-platform
 paths:
+  /v1/admin/assistants/{assistant_id}/doctor/history/:
+    get:
+      operationId: admin_assistants_doctor_history_list
+      description: List persisted Doctor sessions for any hosted assistant.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      tags:
+      - admin
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDoctorSessionListList'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/admin/assistants/{assistant_id}/doctor/history/{doctor_session_id}/:
+    get:
+      operationId: admin_assistants_doctor_history_retrieve
+      description: Return a persisted Doctor session for any hosted assistant.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: doctor_session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - admin
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DoctorSessionDetail'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/:
     get:
       operationId: assistants_list
@@ -2011,6 +2107,45 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/assistants/{id}/upgrade-status/:
+    get:
+      operationId: assistants_upgrade_status_detail_read
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpgradeStatus'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/access-consent/:
     get:
       operationId: assistants_access_consent_retrieve
@@ -2589,6 +2724,39 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/assistants/upgrade-status/:
+    get:
+      operationId: assistants_upgrade_status_retrieve
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpgradeStatus'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/feedback/:
     post:
       operationId: feedback_create
@@ -3027,6 +3195,10 @@ paths:
   /v1/organizations/billing/subscription/machine/:
     post:
       operationId: organizations_billing_subscription_machine_resize
+      description: |-
+        Within-tier machine resize: bump every org assistant up to ``machine_size``
+        (no-op for assistants already at or above it). Bounded by the org's
+        ``BillingAccount.max_machine_tier`` ceiling. Free — no Stripe call.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -3164,6 +3336,37 @@ paths:
               schema:
                 $ref: '#/components/schemas/OnboardingMachineResponse'
           description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/subscription/onboarding/storage/:
+    post:
+      operationId: organizations_billing_subscription_onboarding_storage_create
+      description: Apply the active Pro storage tier to every assistant's PVC on demand.
+        Idempotent at the vembda layer — re-clicks are safe. Marks pvc_ready on first
+        successful application if the account's last_invoice_paid_at is still null.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingStorageResponse'
+          description: ''
+        '409':
+          description: Missing or invalid storage tier on the account.
       x-vellum-api-clients:
       - platform
   /v1/organizations/billing/subscription/retire/:
@@ -5319,6 +5522,16 @@ components:
       - max_machine_tier
       - pvc_ready
       - selected_storage_tier
+    OnboardingStorageResponse:
+      type: object
+      properties:
+        target_gib:
+          type: integer
+        failures:
+          type: integer
+      required:
+      - failures
+      - target_gib
     OrganizationRead:
       type: object
       properties:
@@ -6133,6 +6346,20 @@ components:
       required:
       - detail
       - version
+    UpgradeStatus:
+      type: object
+      description: |-
+        Response shape for the upgrade-status read endpoint.
+
+        `in_progress` reflects whether the `assistant:update-lifecycle:<id>`
+        Redis lock is currently held by an in-flight upgrade or rollback.
+        Clients use this to proactively disable the Upgrade button rather
+        than only soft-handling a 409 from POST /upgrade/.
+      properties:
+        in_progress:
+          type: boolean
+      required:
+      - in_progress
     UsageBucket:
       type: object
       properties:

@@ -46,7 +46,9 @@ import type {
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
 import { redactSecrets } from "../security/secret-scanner.js";
+import { extractDomain } from "../tools/network/domain-normalize.js";
 import { ProviderError } from "../util/errors.js";
+import { faviconUrlForDomain } from "../util/favicon.js";
 import { getLogger } from "../util/logger.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
 import {
@@ -61,6 +63,10 @@ import {
 } from "./conversation-error.js";
 import { isProviderOrderingError } from "./conversation-slash.js";
 import type { ServerMessage } from "./message-protocol.js";
+import type {
+  WebSearchMetadata,
+  WebSearchResultItem,
+} from "./message-types/web-activity.js";
 
 const log = getLogger("agent-loop-handlers");
 
@@ -199,6 +205,10 @@ export interface EventHandlerState {
   currentTurnToolUseIds: string[];
   /** Wall-clock time (ms since epoch) when the agent loop turn started, used as the display timestamp for assistant messages. */
   turnStartedAt: number;
+  /** Wall-clock start time of native server tool calls, keyed by tool_use_id. */
+  readonly serverToolStartedAt: Map<string, number>;
+  /** Original input from server_tool_start, keyed by tool_use_id, so the complete handler can read the query. */
+  readonly serverToolInputs: Map<string, Record<string, unknown>>;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -257,6 +267,8 @@ export function createEventHandlerState(): EventHandlerState {
     toolRiskOutcomes: new Map(),
     currentTurnToolUseIds: [],
     turnStartedAt: Date.now(),
+    serverToolStartedAt: new Map(),
+    serverToolInputs: new Map(),
   };
 }
 
@@ -322,6 +334,56 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
 
 function friendlyToolName(name: string): string {
   return TOOL_FRIENDLY_NAMES[name] ?? name.replace(/_/g, " ");
+}
+
+/**
+ * Status text shown to the client while a web search is in flight.
+ * Surfaces the actual query so the loading state is meaningful instead of
+ * a generic "Searching the web". Used for both Anthropic native server-tool
+ * starts and non-native `web_search` tool starts.
+ */
+export function formatSearchStatusText(
+  toolName: string,
+  query: string,
+): string {
+  if (toolName !== "web_search") return `Running ${toolName}`;
+  const trimmed = query.trim();
+  if (!trimmed) return "Searching the web";
+  const truncated =
+    trimmed.length > 60 ? trimmed.slice(0, 57) + "..." : trimmed;
+  return `Searching "${truncated}"`;
+}
+
+/**
+ * Status text shown to the client while a web fetch is in flight.
+ * Surfaces the domain so users can tell what page is being read.
+ */
+export function formatFetchStatusText(url: unknown): string {
+  if (typeof url !== "string") return "Reading a page";
+  const domain = extractDomain(url);
+  if (!domain) return "Reading a page";
+  return `Reading ${domain}`;
+}
+
+function computeToolUseStatusText(
+  name: string,
+  input: Record<string, unknown>,
+): string {
+  if (name === "web_search") {
+    const query = typeof input.query === "string" ? input.query : "";
+    return formatSearchStatusText("web_search", query);
+  }
+  if (name === "web_fetch") {
+    return formatFetchStatusText(input.url);
+  }
+  if (
+    name === "skill_execute" &&
+    typeof input.activity === "string" &&
+    input.activity.length > 0
+  ) {
+    return input.activity;
+  }
+  return `Running ${friendlyToolName(name)}`;
 }
 
 // ── Individual Handlers ──────────────────────────────────────────────
@@ -405,12 +467,7 @@ export function handleToolUse(
   state.toolCallTimestamps.set(event.id, { startedAt: Date.now() });
   state.currentToolUseId = event.id;
   state.currentTurnToolUseIds.push(event.id);
-  const statusText =
-    event.name === "skill_execute" &&
-    typeof event.input.activity === "string" &&
-    event.input.activity.length > 0
-      ? event.input.activity
-      : `Running ${friendlyToolName(event.name)}`;
+  const statusText = computeToolUseStatusText(event.name, event.input);
   deps.ctx.emitActivityState(
     "tool_running",
     "tool_use_start",
@@ -677,6 +734,7 @@ export function handleToolResult(
     approvalMode: event.approvalMode,
     approvalReason: event.approvalReason,
     riskThreshold: event.riskThreshold,
+    activityMetadata: event.activityMetadata,
   });
 }
 
@@ -1246,10 +1304,9 @@ export async function dispatchAgentEvent(
         handleToolResult(state, deps, event);
         break;
       case "server_tool_start": {
-        const friendlyNames: Record<string, string> = {
-          web_search: "Searching the web",
-        };
-        const statusText = friendlyNames[event.name] ?? `Running ${event.name}`;
+        const query =
+          typeof event.input.query === "string" ? event.input.query : "";
+        const statusText = formatSearchStatusText(event.name, query);
         deps.ctx.emitActivityState(
           "tool_running",
           "tool_use_start",
@@ -1257,6 +1314,8 @@ export async function dispatchAgentEvent(
           deps.reqId,
           statusText,
         );
+        state.serverToolStartedAt.set(event.toolUseId, Date.now());
+        state.serverToolInputs.set(event.toolUseId, event.input);
         deps.onEvent({
           type: "tool_use_start",
           toolName: event.name,
@@ -1275,19 +1334,65 @@ export async function dispatchAgentEvent(
           "Thinking",
         );
 
-        // Format web search results into a human-readable string for the client.
-        let resultText = "";
-        if (Array.isArray(event.content) && event.content.length > 0) {
-          resultText = (event.content as unknown[])
-            .filter(
-              (r): r is { type: string; title: string; url: string } =>
-                typeof r === "object" &&
-                r != null &&
-                (r as { type?: string }).type === "web_search_result",
-            )
-            .map((r) => `${r.title}\n${r.url}`)
-            .join("\n\n");
-        }
+        // Prefer `resolvedInput` (Anthropic's accumulated server-tool input,
+        // populated on content_block_stop) over the input captured at
+        // server_tool_start, which is `{}` on Anthropic until the deltas land.
+        const inputForCall =
+          event.resolvedInput ?? state.serverToolInputs.get(event.toolUseId);
+        const query =
+          typeof inputForCall?.query === "string" ? inputForCall.query : "";
+        const startedAt =
+          state.serverToolStartedAt.get(event.toolUseId) ?? Date.now();
+        const durationMs = Date.now() - startedAt;
+        state.serverToolStartedAt.delete(event.toolUseId);
+        state.serverToolInputs.delete(event.toolUseId);
+
+        const rawBlocks = Array.isArray(event.content) ? event.content : [];
+        const results: WebSearchResultItem[] = rawBlocks
+          .filter(
+            (r): r is { type: string; title: string; url: string } =>
+              typeof r === "object" &&
+              r != null &&
+              (r as { type?: string }).type === "web_search_result",
+          )
+          .map((r, i) => {
+            const domain = extractDomain(r.url);
+            return {
+              rank: i + 1,
+              title: r.title,
+              url: r.url,
+              domain,
+              faviconUrl: faviconUrlForDomain(domain),
+              // snippet intentionally absent — Anthropic native content is encrypted/opaque
+            };
+          });
+
+        // Only Anthropic produces structured `web_search_tool_result` blocks
+        // that map cleanly onto `WebSearchMetadata` (provider-tagged
+        // "anthropic-native"). Other providers (e.g. OpenAI's responses
+        // `web_search_call`) share this event channel but their results are
+        // woven into the text stream — emitting "anthropic-native" metadata
+        // for them would mis-label the provider and ship empty results.
+        const isAnthropicNative = deps.ctx.provider.name === "anthropic";
+
+        const errorMessage = event.isError
+          ? (event.errorMessage ?? event.errorCode ?? "Search failed")
+          : undefined;
+
+        const metadata: WebSearchMetadata | undefined = isAnthropicNative
+          ? {
+              query,
+              provider: "anthropic-native",
+              resultCount: results.length,
+              durationMs,
+              results,
+              ...(errorMessage ? { errorMessage } : {}),
+            }
+          : undefined;
+
+        const resultText = results
+          .map((r) => `${r.title}\n${r.url}`)
+          .join("\n\n");
 
         deps.onEvent({
           type: "tool_result",
@@ -1296,6 +1401,7 @@ export async function dispatchAgentEvent(
           isError: event.isError,
           conversationId: deps.ctx.conversationId,
           toolUseId: event.toolUseId,
+          ...(metadata ? { activityMetadata: { webSearch: metadata } } : {}),
         });
         break;
       }

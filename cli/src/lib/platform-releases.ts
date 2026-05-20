@@ -46,7 +46,10 @@ export async function resolveImageRefs(
   const platformRefs = await fetchPlatformImageRefs(version, log);
   if (platformRefs) {
     log?.("Resolved image refs from platform API");
-    return { imageTags: platformRefs, source: "platform" };
+    return {
+      imageTags: platformRefs.imageTags,
+      source: "platform",
+    };
   }
 
   log?.("Falling back to DockerHub tags");
@@ -68,7 +71,9 @@ export async function resolveImageRefs(
 async function fetchPlatformImageRefs(
   version: string,
   log?: (msg: string) => void,
-): Promise<Record<ServiceName, string> | null> {
+): Promise<{
+  imageTags: Record<ServiceName, string>;
+} | null> {
   try {
     const platformUrl = getPlatformUrl();
     const url = `${platformUrl}/v1/releases/?stable=true`;
@@ -123,9 +128,11 @@ async function fetchPlatformImageRefs(
     }
 
     return {
-      assistant: assistantImage,
-      "credential-executor": credentialExecutorImage,
-      gateway: gatewayImage,
+      imageTags: {
+        assistant: assistantImage,
+        "credential-executor": credentialExecutorImage,
+        gateway: gatewayImage,
+      },
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Button, Tag, Typography } from "@vellum/design-library";
 
-import type { DocumentComment } from "../lib/document-comments.js";
+import type { DocumentComment } from "@/domains/chat/api/document-comments.js";
 import { DocumentCommentForm } from "./document-comment-form.js";
 
 // ---------------------------------------------------------------------------

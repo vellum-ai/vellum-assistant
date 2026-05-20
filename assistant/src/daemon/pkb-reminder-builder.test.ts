@@ -8,6 +8,7 @@ const BASE_REMINDER =
   "<system_reminder>" +
   "\nStay present in this conversation. Use `remember` when something feels worth pausing to mark — corrections (highest priority), plans, decisions, felt moments. You don't have to capture everything in the moment — a retrospective pass reviews this conversation in the background and saves what you didn't capture." +
   "\nIf you're unsure about something that may live in the workspace — past decisions, prior conversations, files — use `recall` before asking or guessing." +
+  '\nUse `file_read("memory/concepts/path/to/file.md")` to read the full pages for any of the injected memory summaries you want more information on.' +
   "\n</system_reminder>";
 
 describe("buildPkbReminder", () => {
@@ -21,6 +22,7 @@ describe("buildPkbReminder", () => {
       "<system_reminder>" +
       "\nStay present in this conversation. Use `remember` when something feels worth pausing to mark — corrections (highest priority), plans, decisions, felt moments. You don't have to capture everything in the moment — a retrospective pass reviews this conversation in the background and saves what you didn't capture." +
       "\nIf you're unsure about something that may live in the workspace — past decisions, prior conversations, files — use `recall` before asking or guessing." +
+      '\nUse `file_read("memory/concepts/path/to/file.md")` to read the full pages for any of the injected memory summaries you want more information on.' +
       "\nBased on the current context, these files look especially relevant:" +
       "\n- projects/alpha.md" +
       "\n</system_reminder>";
@@ -41,6 +43,7 @@ describe("buildPkbReminder", () => {
       "<system_reminder>" +
       "\nStay present in this conversation. Use `remember` when something feels worth pausing to mark — corrections (highest priority), plans, decisions, felt moments. You don't have to capture everything in the moment — a retrospective pass reviews this conversation in the background and saves what you didn't capture." +
       "\nIf you're unsure about something that may live in the workspace — past decisions, prior conversations, files — use `recall` before asking or guessing." +
+      '\nUse `file_read("memory/concepts/path/to/file.md")` to read the full pages for any of the injected memory summaries you want more information on.' +
       "\nBased on the current context, these files look especially relevant:" +
       "\n- a.md" +
       "\n- sub/b.md" +

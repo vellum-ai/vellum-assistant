@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
-import { LLMSchema } from "../config/schemas/llm.js";
+import { type LLMCallSite, LLMSchema } from "../config/schemas/llm.js";
 
 const fullDefault = {
   provider: "anthropic" as const,
@@ -570,6 +570,186 @@ describe("resolveCallSiteConfig", () => {
     const resolved = resolveCallSiteConfig("memoryExtraction", llm);
     expect(resolved.model).toBe("claude-opus-4-7");
     expect(resolved.effort).toBe("max");
+  });
+
+  test("BYOK: disabled managed profile falls back to custom-* user profile", () => {
+    const llm = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider: "openai",
+        model: "gpt-5.5",
+        provider_connection: "openai-personal",
+      },
+      profiles: {
+        "cost-optimized": {
+          status: "disabled",
+          model: "claude-haiku-4-5-20251001",
+          provider: "anthropic",
+          provider_connection: "anthropic-managed",
+        },
+        "custom-cost-optimized": {
+          source: "user",
+          model: "gpt-5.4-nano",
+          provider: "openai",
+          provider_connection: "openai-personal",
+        },
+        "custom-balanced": {
+          source: "user",
+          model: "gpt-5.5",
+          provider: "openai",
+          provider_connection: "openai-personal",
+        },
+      },
+      activeProfile: "custom-balanced",
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.model).toBe("gpt-5.4-nano");
+    expect(resolved.provider_connection).toBe("openai-personal");
+  });
+
+  test("BYOK: strips profile when neither managed nor custom-* is available", () => {
+    const llm = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider: "openai",
+        model: "gpt-5.5",
+        provider_connection: "openai-personal",
+      },
+      profiles: {
+        "cost-optimized": {
+          status: "disabled",
+          model: "claude-haiku-4-5-20251001",
+          provider: "anthropic",
+          provider_connection: "anthropic-managed",
+        },
+        "custom-balanced": {
+          model: "gpt-5.5",
+          provider: "openai",
+          provider_connection: "openai-personal",
+        },
+      },
+      activeProfile: "custom-balanced",
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.model).toBe("gpt-5.5");
+    expect(resolved.provider_connection).toBe("openai-personal");
+  });
+
+  test("BYOK full-workspace: cost-optimized call sites use custom-cost-optimized, balanced use custom-balanced", () => {
+    const byokConfig = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider: "openai",
+        model: "gpt-5.5",
+        provider_connection: "openai-personal",
+      },
+      profiles: {
+        balanced: {
+          status: "disabled",
+          source: "managed",
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          provider_connection: "anthropic-managed",
+        },
+        "cost-optimized": {
+          status: "disabled",
+          source: "managed",
+          provider: "anthropic",
+          model: "claude-haiku-4-5-20251001",
+          provider_connection: "anthropic-managed",
+        },
+        "quality-optimized": {
+          status: "disabled",
+          source: "managed",
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          provider_connection: "anthropic-managed",
+        },
+        "custom-balanced": {
+          source: "user",
+          provider: "openai",
+          model: "gpt-5.5",
+          provider_connection: "openai-personal",
+        },
+        "custom-cost-optimized": {
+          source: "user",
+          provider: "openai",
+          model: "gpt-5.4-nano",
+          provider_connection: "openai-personal",
+        },
+        "custom-quality-optimized": {
+          source: "user",
+          provider: "openai",
+          model: "gpt-5.5-pro",
+          provider_connection: "openai-personal",
+        },
+      },
+      activeProfile: "custom-balanced",
+    });
+
+    const callSites: LLMCallSite[] = [
+      "mainAgent", "subagentSpawn", "heartbeatAgent", "filingAgent",
+      "compactionAgent", "analyzeConversation", "callAgent",
+      "memoryExtraction", "memoryConsolidation", "memoryRetrieval",
+      "memoryRouter", "recall", "conversationSummarization",
+      "commitMessage", "conversationStarters", "replySuggestion",
+      "conversationTitle", "identityIntro", "emptyStateGreeting",
+      "notificationDecision", "interactionClassifier", "inference",
+    ];
+
+    for (const cs of callSites) {
+      const resolved = resolveCallSiteConfig(cs, byokConfig);
+      expect(resolved.provider_connection).not.toBe("anthropic-managed");
+      expect(resolved.provider).toBe("openai");
+    }
+
+    // Cost-optimized call sites should use the user's nano model
+    const costSite = resolveCallSiteConfig("heartbeatAgent", byokConfig);
+    expect(costSite.model).toBe("gpt-5.4-nano");
+
+    // Balanced call sites should use the user's balanced model
+    const balancedSite = resolveCallSiteConfig("mainAgent", byokConfig);
+    expect(balancedSite.model).toBe("gpt-5.5");
+  });
+
+  test("BYOK: tuning overrides from defaults apply on top of custom-* fallback profile", () => {
+    const byokConfig = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider: "openai",
+        model: "gpt-5.5",
+        provider_connection: "openai-personal",
+      },
+      profiles: {
+        "cost-optimized": {
+          status: "disabled",
+          provider: "anthropic",
+          model: "claude-haiku-4-5-20251001",
+          provider_connection: "anthropic-managed",
+        },
+        "custom-cost-optimized": {
+          source: "user",
+          provider: "openai",
+          model: "gpt-5.4-nano",
+          provider_connection: "openai-personal",
+        },
+        "custom-balanced": {
+          provider: "openai",
+          model: "gpt-5.5",
+          provider_connection: "openai-personal",
+        },
+      },
+      activeProfile: "custom-balanced",
+    });
+
+    const resolved = resolveCallSiteConfig("commitMessage", byokConfig);
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.model).toBe("gpt-5.4-nano");
+    expect(resolved.maxTokens).toBe(120);
+    expect(resolved.effort).toBe("low");
+    expect(resolved.thinking.enabled).toBe(false);
   });
 
   test("overrideProfile wins over CALL_SITE_DEFAULTS profile for non-main call sites", () => {

@@ -1,0 +1,287 @@
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import {
+  acknowledgeAssistantDiskPressure,
+  getAssistantDiskPressureStatus,
+  type DiskPressureStatus,
+} from "@/domains/assistant/api.js";
+import {
+  DISK_PRESSURE_POLL_INTERVAL_MS,
+  areDiskPressureStatusesEqual,
+  getDiskPressureMonitorMode,
+  type DiskPressureMonitorMode,
+} from "@/domains/assistant/disk-pressure.js";
+
+export interface UseDiskPressureMonitorOptions {
+  assistantId: string | null;
+  enabled: boolean;
+  refreshKey?: unknown;
+  cadenceMs?: number;
+}
+
+export type DiskPressureStatusEventPayload = DiskPressureStatus | null;
+
+export interface UseDiskPressureMonitorResult {
+  status: DiskPressureStatus | null;
+  mode: DiskPressureMonitorMode;
+  hasResolvedStatus: boolean;
+  isAcknowledging: boolean;
+  acknowledgeError: Error | null;
+  acknowledge: () => Promise<void>;
+  applyStatusEvent: (payload: DiskPressureStatusEventPayload) => void;
+  refresh: () => Promise<void>;
+}
+
+interface DiskPressureMonitorSnapshot {
+  assistantId: string | null;
+  status: DiskPressureStatus | null;
+  hasResolvedStatus: boolean;
+}
+
+const EMPTY_DISK_PRESSURE_MONITOR_SNAPSHOT: DiskPressureMonitorSnapshot = {
+  assistantId: null,
+  status: null,
+  hasResolvedStatus: false,
+};
+
+function errorFromUnknown(value: unknown, fallback: string): Error {
+  return value instanceof Error ? value : new Error(fallback);
+}
+
+export function useDiskPressureMonitor({
+  assistantId,
+  enabled,
+  refreshKey,
+  cadenceMs = DISK_PRESSURE_POLL_INTERVAL_MS,
+}: UseDiskPressureMonitorOptions): UseDiskPressureMonitorResult {
+  const [snapshot, setSnapshot] = useState<DiskPressureMonitorSnapshot>(
+    EMPTY_DISK_PRESSURE_MONITOR_SNAPSHOT,
+  );
+  const [isAcknowledging, setIsAcknowledging] = useState(false);
+  const [acknowledgeError, setAcknowledgeError] = useState<Error | null>(null);
+  const activeAssistantIdRef = useRef<string | null>(assistantId);
+  const enabledRef = useRef(enabled);
+  const generationRef = useRef(0);
+  const pollRequestIdRef = useRef(0);
+
+  activeAssistantIdRef.current = assistantId;
+  enabledRef.current = enabled;
+
+  useEffect(() => {
+    generationRef.current += 1;
+    setSnapshot(EMPTY_DISK_PRESSURE_MONITOR_SNAPSHOT);
+    setAcknowledgeError(null);
+    setIsAcknowledging(false);
+  }, [assistantId, enabled]);
+
+  const isCurrentRequest = useCallback(
+    (requestedAssistantId: string, generation: number) =>
+      enabledRef.current &&
+      activeAssistantIdRef.current === requestedAssistantId &&
+      generationRef.current === generation,
+    [],
+  );
+
+  const applyStatusForAssistant = useCallback(
+    (
+      requestedAssistantId: string,
+      nextStatus: DiskPressureStatus | null,
+      hasResolvedStatus: boolean,
+      generation: number,
+    ) => {
+      if (!isCurrentRequest(requestedAssistantId, generation)) {
+        return;
+      }
+
+      setSnapshot((current) => {
+        if (
+          current.assistantId === requestedAssistantId &&
+          current.hasResolvedStatus === hasResolvedStatus &&
+          areDiskPressureStatusesEqual(current.status, nextStatus)
+        ) {
+          return current;
+        }
+
+        return {
+          assistantId: requestedAssistantId,
+          status: nextStatus,
+          hasResolvedStatus,
+        };
+      });
+    },
+    [isCurrentRequest],
+  );
+
+  const clearStatus = useCallback(() => {
+    generationRef.current += 1;
+    setSnapshot(EMPTY_DISK_PRESSURE_MONITOR_SNAPSHOT);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    const requestedAssistantId = assistantId;
+
+    if (!enabled || !requestedAssistantId) {
+      clearStatus();
+      return;
+    }
+
+    const generation = generationRef.current;
+    const pollRequestId = pollRequestIdRef.current + 1;
+    pollRequestIdRef.current = pollRequestId;
+
+    try {
+      const result = await getAssistantDiskPressureStatus(requestedAssistantId);
+      if (pollRequestIdRef.current !== pollRequestId) {
+        return;
+      }
+
+      if (!result.ok) {
+        applyStatusForAssistant(requestedAssistantId, null, false, generation);
+        return;
+      }
+
+      applyStatusForAssistant(
+        requestedAssistantId,
+        result.data.status,
+        true,
+        generation,
+      );
+    } catch {
+      if (pollRequestIdRef.current !== pollRequestId) {
+        return;
+      }
+
+      applyStatusForAssistant(requestedAssistantId, null, false, generation);
+    }
+  }, [assistantId, applyStatusForAssistant, clearStatus, enabled]);
+
+  useEffect(() => {
+    if (!enabled || !assistantId) {
+      return;
+    }
+
+    void refresh();
+
+    const intervalId = window.setInterval(() => {
+      void refresh();
+    }, cadenceMs);
+
+    const refreshOnFocus = () => {
+      void refresh();
+    };
+
+    const refreshOnVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void refresh();
+      }
+    };
+
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnVisibility);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshOnVisibility);
+    };
+  }, [assistantId, cadenceMs, enabled, refresh, refreshKey]);
+
+  const applyStatusEvent = useCallback(
+    (payload: DiskPressureStatusEventPayload) => {
+      if (!enabled || !assistantId) {
+        clearStatus();
+        return;
+      }
+
+      const generation = generationRef.current + 1;
+      generationRef.current = generation;
+      setIsAcknowledging(false);
+      setAcknowledgeError(null);
+      applyStatusForAssistant(
+        assistantId,
+        payload,
+        true,
+        generation,
+      );
+    },
+    [assistantId, applyStatusForAssistant, clearStatus, enabled],
+  );
+
+  const acknowledge = useCallback(async () => {
+    const requestedAssistantId = assistantId;
+
+    if (!enabled || !requestedAssistantId) {
+      clearStatus();
+      return;
+    }
+
+    const generation = generationRef.current + 1;
+    generationRef.current = generation;
+    setIsAcknowledging(true);
+    setAcknowledgeError(null);
+
+    try {
+      const result = await acknowledgeAssistantDiskPressure(
+        requestedAssistantId,
+      );
+      if (!result.ok) {
+        throw new Error("Failed to acknowledge assistant disk pressure.");
+      }
+
+      if (!isCurrentRequest(requestedAssistantId, generation)) {
+        return;
+      }
+
+      const applyGeneration = generationRef.current + 1;
+      generationRef.current = applyGeneration;
+      applyStatusForAssistant(
+        requestedAssistantId,
+        result.data.status,
+        true,
+        applyGeneration,
+      );
+      setIsAcknowledging(false);
+    } catch (error) {
+      if (isCurrentRequest(requestedAssistantId, generation)) {
+        setAcknowledgeError(
+          errorFromUnknown(
+            error,
+            "Failed to acknowledge assistant disk pressure.",
+          ),
+        );
+      }
+    } finally {
+      if (isCurrentRequest(requestedAssistantId, generation)) {
+        setIsAcknowledging(false);
+      }
+    }
+  }, [
+    assistantId,
+    applyStatusForAssistant,
+    clearStatus,
+    enabled,
+    isCurrentRequest,
+  ]);
+
+  const status =
+    enabled && snapshot.assistantId === assistantId ? snapshot.status : null;
+  const hasResolvedStatus = Boolean(
+    enabled &&
+      assistantId &&
+      snapshot.assistantId === assistantId &&
+      snapshot.hasResolvedStatus,
+  );
+  const mode = useMemo(() => getDiskPressureMonitorMode(status), [status]);
+
+  return {
+    status,
+    mode,
+    hasResolvedStatus,
+    isAcknowledging,
+    acknowledgeError,
+    acknowledge,
+    applyStatusEvent,
+    refresh,
+  };
+}

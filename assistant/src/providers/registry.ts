@@ -1,4 +1,6 @@
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import type { AssistantConfig } from "../config/schema.js";
 import { type LLMConfig } from "../config/schemas/llm.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { ProviderNotConfiguredError } from "../util/errors.js";
@@ -26,6 +28,7 @@ const log = getLogger("provider-registry");
 
 const providers = new Map<string, Provider>();
 const routingSources = new Map<string, "user-key" | "managed-proxy">();
+const OPENAI_COMPATIBLE_ENDPOINTS_FLAG = "openai-compatible-endpoints";
 
 /** Per-connection provider cache, keyed by connection name. */
 const connectionProviders = new Map<string, Provider>();
@@ -67,6 +70,16 @@ export interface ProvidersConfig {
   };
   llm: LLMConfig;
   timeouts?: { providerStreamTimeoutSec?: number };
+}
+
+function isProviderFeatureFlagEnabled(
+  key: string,
+  config: ProvidersConfig,
+): boolean {
+  return isAssistantFeatureFlagEnabled(
+    key,
+    config as unknown as AssistantConfig,
+  );
 }
 
 function resolveModel(config: ProvidersConfig, providerName: string): string {
@@ -130,6 +143,13 @@ export async function initializeProviders(
   ).provider;
 
   for (const entry of PROVIDER_CATALOG) {
+    if (
+      entry.featureFlag &&
+      !isProviderFeatureFlagEnabled(entry.featureFlag, config)
+    ) {
+      continue;
+    }
+
     const isKeyless = entry.setupMode === "keyless";
 
     // Credential resolution: user key first, managed proxy second. Keyless
@@ -202,6 +222,13 @@ export async function resolveProviderFromConnection(
   connection: ProviderConnection,
   config: ProvidersConfig,
 ): Promise<Provider | null> {
+  if (
+    connection.provider === "openai-compatible" &&
+    !isProviderFeatureFlagEnabled(OPENAI_COMPATIBLE_ENDPOINTS_FLAG, config)
+  ) {
+    return null;
+  }
+
   const cached = connectionProviders.get(connection.name);
   if (cached) return cached;
 

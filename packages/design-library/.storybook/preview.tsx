@@ -1,10 +1,26 @@
-import type { Preview } from "@storybook/react-vite";
+import { definePreview } from "@storybook/react-vite";
+import docsAddon from "@storybook/addon-docs";
+import a11yAddon from "@storybook/addon-a11y";
+import themesAddonImport, {
+  withThemeByDataAttribute,
+} from "@storybook/addon-themes";
 import {
   DocsContainer,
   type DocsContainerProps,
 } from "@storybook/addon-docs/blocks";
 import { create, themes } from "storybook/theming";
+import { addons } from "storybook/preview-api";
+import { GLOBALS_UPDATED } from "storybook/internal/core-events";
+import { useEffect, useState } from "react";
 import type { PropsWithChildren } from "react";
+import type { ReactRenderer } from "@storybook/react-vite";
+
+// @storybook/addon-themes@10.4.0 ships ESM code but its package.json omits
+// `"type": "module"`, so TypeScript NodeNext resolution misreads the default
+// export. The cast preserves the runtime call signature.
+const themesAddon = themesAddonImport as unknown as () => ReturnType<
+  typeof docsAddon
+>;
 
 import "./preview.css";
 
@@ -40,70 +56,80 @@ const storybookThemeMap: Record<string, typeof themes.light> = {
   velvet: velvetTheme,
 };
 
+function readInitialTheme(): string {
+  const channel = addons.getChannel();
+  const last = channel.last(GLOBALS_UPDATED) as
+    | [{ globals?: Record<string, unknown> }]
+    | undefined;
+  return (last?.[0]?.globals?.["theme"] as string) || "light";
+}
+
 function ThemedDocsContainer({
   children,
   ...props
 }: PropsWithChildren<DocsContainerProps>) {
-  let currentTheme = "light";
-  try {
-    const stories = props.context.componentStories();
-    if (stories.length > 0) {
-      const storyContext = props.context.getStoryContext(stories[0]);
-      currentTheme = (storyContext.globals?.["theme"] as string) ?? "light";
-    }
-  } catch {
-    // Standalone docs pages without stories fall back to light theme
-  }
+  const [theme, setTheme] = useState<string>(readInitialTheme);
+
+  useEffect(() => {
+    const channel = addons.getChannel();
+    const onGlobalsUpdated = ({
+      globals,
+    }: {
+      globals?: Record<string, unknown>;
+    }) => {
+      setTheme((globals?.["theme"] as string) || "light");
+    };
+    channel.on(GLOBALS_UPDATED, onGlobalsUpdated);
+    return () => channel.off(GLOBALS_UPDATED, onGlobalsUpdated);
+  }, []);
 
   return (
     <DocsContainer
       {...props}
-      theme={storybookThemeMap[currentTheme] ?? themes.light}
+      theme={storybookThemeMap[theme] ?? themes.light}
     >
       {children}
     </DocsContainer>
   );
 }
 
-const preview: Preview = {
+export default definePreview({
+  addons: [docsAddon(), a11yAddon(), themesAddon()],
   tags: ["autodocs"],
+  decorators: [
+    withThemeByDataAttribute<ReactRenderer>({
+      themes: {
+        light: "light",
+        dark: "dark",
+        velvet: "velvet",
+      },
+      defaultTheme: "light",
+      attributeName: "data-theme",
+    }),
+  ],
   parameters: {
-    controls: { expanded: true },
+    controls: {
+      expanded: true,
+      matchers: {
+        color: /(background|color)$/i,
+        date: /Date$/,
+      },
+    },
+    backgrounds: { disable: true },
     docs: {
       container: ThemedDocsContainer,
     },
-  },
-  globalTypes: {
-    theme: {
-      description: "Color theme for components",
-      toolbar: {
-        title: "Theme",
-        icon: "paintbrush",
-        items: [
-          { value: "light", title: "Light", icon: "sun" },
-          { value: "dark", title: "Dark", icon: "moon" },
-          { value: "velvet", title: "Velvet", icon: "heart" },
+    options: {
+      storySort: {
+        order: ["Introduction", "Components", ["Button", "*"], "*"],
+      },
+    },
+    a11y: {
+      config: {
+        rules: [
+          { id: "color-contrast", enabled: true },
         ],
-        dynamicTitle: true,
       },
     },
   },
-  initialGlobals: {
-    theme: "light",
-  },
-  decorators: [
-    (Story, context) => {
-      const theme = (context.globals["theme"] as string) ?? "light";
-
-      // Apply theme to the document root so CSS variables resolve globally.
-      // Both the <html> element and <body> are updated so docs-mode inline
-      // previews and standalone canvas stories both pick up the tokens.
-      document.documentElement.setAttribute("data-theme", theme);
-      document.body.setAttribute("data-theme", theme);
-
-      return Story();
-    },
-  ],
-};
-
-export default preview;
+});

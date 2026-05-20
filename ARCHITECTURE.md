@@ -255,10 +255,6 @@ In Docker mode, the gateway and daemon must share the same actor-token signing k
 
 In local mode (non-Docker), `resolveSigningKey()` delegates to `loadOrCreateSigningKey()`, which loads an existing key from disk or generates a new one — no network calls involved.
 
-### Legacy Data Volume Migration
-
-The former shared data volume (`<name>-data`) is no longer created for new instances. Existing instances that still have a data volume are migrated on startup: `migrateGatewaySecurityFiles()` copies `trust.json` and `actor-token-signing-key` to the gateway security volume, and `migrateCesSecurityFiles()` copies `keys.enc` and `store.key` to the CES security volume (with ownership set to the CES service user `1001:1001`). Both migrations are idempotent.
-
 ## System Overview
 
 ```mermaid

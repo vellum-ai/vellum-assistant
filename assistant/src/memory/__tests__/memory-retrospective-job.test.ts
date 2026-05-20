@@ -60,6 +60,22 @@ mock.module("../conversation-crud.js", () => ({
   },
   findMostRecentRetrospectiveFor: (_id: string) =>
     priorRetroId ? { id: priorRetroId } : null,
+  // `collectPriorRetrospectiveRemembers` reads the prior row to discriminate
+  // between legacy and fork-kind sources. Return a legacy-shaped row so the
+  // existing tests exercise the unchanged extract-everything code path.
+  getConversation: (_id: string) => ({
+    source: "memory-retrospective",
+    forkParentMessageId: null,
+  }),
+  // Imported by `runForkBasedRetrospective`; legacy-path tests never hit it.
+  forkConversation: (_params: unknown) => {
+    throw new Error(
+      "forkConversation should not be called in legacy-path tests",
+    );
+  },
+  addMessage: async () => {
+    throw new Error("addMessage should not be called in legacy-path tests");
+  },
   deleteConversation: (id: string) => {
     deletedConversationIds.push(id);
   },

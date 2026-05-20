@@ -35,7 +35,6 @@ import {
   composeFallbackCopy,
   hasAccessRequestInstructions,
   hasInviteFlowDirective,
-  looksLikeIntermediaryInstruction,
 } from "./copy-composer.js";
 import { createDecision } from "./decisions-store.js";
 import {
@@ -683,47 +682,6 @@ function enforceAccessRequestInstructions(
   };
 }
 
-function enforceHeartbeatAlertCopy(
-  decision: NotificationDecision,
-  signal: NotificationSignal,
-): NotificationDecision {
-  if (signal.sourceEventName !== "heartbeat.alert") return decision;
-  if (!decision.shouldNotify || decision.selectedChannels.length === 0)
-    return decision;
-
-  const fallbackCopy = composeFallbackCopy(signal, decision.selectedChannels);
-  const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
-    ...decision.renderedCopy,
-  };
-
-  for (const channel of decision.selectedChannels) {
-    const currentCopy = nextCopy[channel];
-    if (
-      currentCopy &&
-      !heartbeatCopyLooksLikeIntermediaryInstruction(currentCopy)
-    ) {
-      continue;
-    }
-    const safeCopy = fallbackCopy[channel];
-    if (!safeCopy) continue;
-    nextCopy[channel] = safeCopy;
-  }
-
-  return {
-    ...decision,
-    renderedCopy: nextCopy,
-  };
-}
-
-function heartbeatCopyLooksLikeIntermediaryInstruction(
-  copy: RenderedChannelCopy,
-): boolean {
-  return [copy.title, copy.body, copy.deliveryText].some(
-    (value) =>
-      typeof value === "string" && looksLikeIntermediaryInstruction(value),
-  );
-}
-
 function ensureAccessRequestInstructionsInCopy(
   copy: RenderedChannelCopy,
   requestCode: string,
@@ -893,7 +851,6 @@ export async function evaluateSignal(
     };
     decision = enforceGuardianRequestCode(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
-    decision = enforceHeartbeatAlertCopy(decision, signal);
     decision = enforceGuardianCallConversationAffinity(decision, signal);
     decision = enforceConversationAffinity(
       decision,
@@ -911,7 +868,6 @@ export async function evaluateSignal(
     let decision = buildFallbackDecision(signal, availableChannels);
     decision = enforceGuardianRequestCode(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
-    decision = enforceHeartbeatAlertCopy(decision, signal);
     decision = enforceGuardianCallConversationAffinity(decision, signal);
     decision = enforceConversationAffinity(
       decision,
@@ -941,7 +897,6 @@ export async function evaluateSignal(
 
   decision = enforceGuardianRequestCode(decision, signal);
   decision = enforceAccessRequestInstructions(decision, signal);
-  decision = enforceHeartbeatAlertCopy(decision, signal);
   decision = enforceGuardianCallConversationAffinity(decision, signal);
   decision = enforceConversationAffinity(
     decision,

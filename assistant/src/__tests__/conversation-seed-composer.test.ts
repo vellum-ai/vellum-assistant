@@ -175,7 +175,7 @@ describe("isConversationSeedSane", () => {
 
 describe("composeConversationSeed", () => {
   describe("rich verbosity (vellum/macos)", () => {
-    test("combines title and body into flowing prose", () => {
+    test("omits title when conversationTitle is absent (it's the chat header)", () => {
       const signal = makeSignal();
       const copy = makeCopy({ title: "Reminder", body: "Take out the trash" });
       const seed = composeConversationSeed(
@@ -183,10 +183,69 @@ describe("composeConversationSeed", () => {
         "vellum" as NotificationChannel,
         copy,
       );
-      expect(seed).toContain("Reminder");
-      expect(seed).toContain("Take out the trash");
-      // Should be flowing prose (joined with ". "), not newline-separated
+      // The conversation header already shows copy.title — including it in
+      // the bubble would duplicate it.
+      expect(seed).toBe("Take out the trash");
+    });
+
+    test("includes title when conversationTitle provides a distinct header", () => {
+      const signal = makeSignal();
+      const copy = makeCopy({
+        conversationTitle: "Updates",
+        title: "Heart rate spike",
+        body: "You hit 103 bpm.",
+      });
+      const seed = composeConversationSeed(
+        signal,
+        "vellum" as NotificationChannel,
+        copy,
+      );
+      expect(seed).toContain("Heart rate spike");
+      expect(seed).toContain("You hit 103 bpm");
       expect(seed).not.toContain("\n");
+    });
+
+    test("does not duplicate title when body already starts with it", () => {
+      const signal = makeSignal();
+      const copy = makeCopy({
+        title: "Status update — service running",
+        body: "Status update — service running since 12:00 PM.",
+      });
+      const seed = composeConversationSeed(
+        signal,
+        "vellum" as NotificationChannel,
+        copy,
+      );
+      // Without the fix, this would produce
+      // "Status update — service running. Status update — service running since 12:00 PM."
+      expect(seed).toBe("Status update — service running since 12:00 PM.");
+    });
+
+    test("falls back to title when body is empty and title is the header", () => {
+      const signal = makeSignal();
+      const copy = makeCopy({ title: "Reminder", body: "" });
+      const seed = composeConversationSeed(
+        signal,
+        "vellum" as NotificationChannel,
+        copy,
+      );
+      // Even though the title is the conversation header, keeping the
+      // bubble non-empty wins over avoiding the redundancy.
+      expect(seed).toBe("Reminder");
+    });
+
+    test("falls back to title when body is whitespace-only", () => {
+      const signal = makeSignal();
+      const copy = makeCopy({ title: "Reminder", body: "   " });
+      const seed = composeConversationSeed(
+        signal,
+        "vellum" as NotificationChannel,
+        copy,
+      );
+      // Whitespace-only bodies must be treated as empty — otherwise the
+      // title would be suppressed (header dedupe) and the seed would
+      // render as a blank bubble.
+      expect(seed).toBe("Reminder");
     });
 
     test('appends "Action required." when requiresAction is true', () => {
@@ -277,6 +336,7 @@ describe("composeConversationSeed", () => {
     test("preserves localized LLM copy on vellum (rich)", () => {
       const signal = makeSignal();
       const copy = makeCopy({
+        conversationTitle: "通知",
         title: "リマインダー",
         body: "ゴミを出してください",
       });
@@ -285,6 +345,7 @@ describe("composeConversationSeed", () => {
         "vellum" as NotificationChannel,
         copy,
       );
+      // conversationTitle is set, so the rich seed includes both title and body.
       expect(seed).toContain("リマインダー");
       expect(seed).toContain("ゴミを出してください");
     });
@@ -314,6 +375,7 @@ describe("composeConversationSeed", () => {
         },
       });
       const copy = makeCopy({
+        conversationTitle: "ガーディアン",
         title: "ガーディアンの質問",
         body: "ゲートコードは何ですか？",
       });

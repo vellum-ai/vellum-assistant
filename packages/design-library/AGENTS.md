@@ -40,6 +40,17 @@ Applies to all code under `packages/design-library/`. Subordinate to root [`AGEN
    single file. Only break into a directory when the file exceeds 300 lines
    with multiple independently useful subcomponents.
 
+7. **Customization via props, not wrappers.** When a component needs
+   domain-specific behavior (e.g. custom link rendering), expose a callback
+   or component prop with a sensible default. Consumers inject behavior at
+   the call site. This follows the patterns used by
+   [react-markdown](https://github.com/remarkjs/react-markdown#components)
+   (`components` prop),
+   [MUI](https://mui.com/material-ui/integrations/routing/) (`component`
+   prop), and [Radix](https://www.radix-ui.com/docs/primitives/guides/composition)
+   (`asChild`). Domain convenience wrappers are the app layer's
+   responsibility — not the design library's.
+
 ## Review checklist
 
 When reviewing PRs that add or modify design library components, verify:

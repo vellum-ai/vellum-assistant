@@ -122,6 +122,24 @@ export async function syncManualTokenConnection(
       return;
     }
 
+    case "sanity": {
+      const tokenResult = await getSecureKeyResultAsync(
+        credentialKey("sanity", "api_token"),
+      );
+      if (tokenResult.unreachable) {
+        log.warn(
+          "Skipping sanity manual-token reconciliation — credential backend unreachable",
+        );
+        return;
+      }
+      if (tokenResult.value) {
+        await ensureManualTokenConnection(provider, accountInfo);
+      } else {
+        removeManualTokenConnection(provider);
+      }
+      return;
+    }
+
     default:
       return;
   }
@@ -142,4 +160,5 @@ export async function syncManualTokenConnection(
 export async function backfillManualTokenConnections(): Promise<void> {
   await syncManualTokenConnection("telegram");
   await syncManualTokenConnection("slack_channel");
+  await syncManualTokenConnection("sanity");
 }

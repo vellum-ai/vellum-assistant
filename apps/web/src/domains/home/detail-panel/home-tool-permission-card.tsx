@@ -1,4 +1,4 @@
-import { Typography } from "@vellum/design-library/components/typography";
+import { Typography } from "@vellum/design-library";
 import type { FeedItem } from "../types.js";
 
 type CredentialStatus =

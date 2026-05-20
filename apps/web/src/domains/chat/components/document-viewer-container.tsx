@@ -32,10 +32,10 @@ import {
 } from "lucide-react";
 import { Button, Typography } from "@vellum/design-library";
 
-import type { DocumentComment } from "../lib/document-comments.js";
-import { createComment, fetchComments } from "../lib/document-comments.js";
-import type { CommentAnchor } from "../lib/editor-bridge.js";
-import { generateEditorHTML } from "../lib/editor-bridge.js";
+import type { DocumentComment } from "@/domains/chat/api/document-comments.js";
+import { createComment, fetchComments } from "@/domains/chat/api/document-comments.js";
+import type { CommentAnchor } from "@/domains/chat/utils/editor-bridge.js";
+import { generateEditorHTML } from "@/domains/chat/utils/editor-bridge.js";
 import {
   DocumentCommentPanel,
   type DocumentCommentPanelHandle,
@@ -305,7 +305,7 @@ export function DocumentViewerContainer({
         ) : null}
 
         <Button
-          variant={commentsPanelOpen ? "secondary" : "ghost"}
+          variant={commentsPanelOpen ? "outlined" : "ghost"}
           size="compact"
           leftIcon={<MessageSquareText />}
           onClick={toggleComments}

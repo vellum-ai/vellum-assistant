@@ -68,9 +68,6 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("agent-wake");
 
-/** Number of messages injected for the wake hint (user + assistant + user). */
-const WAKE_HINT_MESSAGE_COUNT = 3;
-
 /** Static preamble user message — no dynamic content, injection-safe. */
 const WAKE_PREAMBLE =
   "[system] The following assistant message comes from an external system.";
@@ -196,6 +193,42 @@ export interface WakeOptions {
    * tune the model/profile and observability bucket independently.
    */
   callSite?: LLMCallSite;
+  /**
+   * Role to use for the injected hint message. Defaults to `"assistant"` so
+   * the hint is sandwiched between two static user bookends — the canonical
+   * anti-injection pattern for hints that may carry text from an external
+   * source. Trusted internal callers (e.g. fork-based memory retrospectives)
+   * can pass `"user"` to inject a single user-role message containing the
+   * hint directly, which reads more naturally as an instruction from the
+   * user/system rather than a self-directed assistant note.
+   */
+  hintRole?: "assistant" | "user";
+  /**
+   * Documented intent: this wake must not trigger auto-threshold compaction.
+   *
+   * Today this is automatically satisfied because the wake invokes
+   * `target.agentLoop.run()` directly, bypassing the daemon orchestrator
+   * (`conversation-agent-loop.ts`) where the compaction pipeline lives. The
+   * flag is recorded in the wake's structured log line so operators can
+   * verify the contract holds across refactors. If compaction is ever moved
+   * into `AgentLoop.run` or invoked from the wake path, callers that pass
+   * `true` here MUST be updated to suppress it; callers that pass `false`
+   * (or omit it) MUST tolerate compaction firing.
+   *
+   * Used by fork-based memory retrospectives: the wake operates on a
+   * freshly-forked conversation that may already be near (or past) the
+   * source's auto-threshold, but the goal is to operate on that exact
+   * context — running a compaction LLM call before the wake's own first
+   * call would waste tokens and defeat prompt-cache reuse.
+   */
+  suppressAutoCompaction?: boolean;
+  /**
+   * Skip injection of the hint sandwich entirely. Used when the caller has
+   * already persisted the instruction as a real message in the conversation
+   * (e.g. fork-based memory retrospectives that append a user message to the
+   * forked conversation before waking). When `true`, `hint` is ignored.
+   */
+  skipHintInjection?: boolean;
 }
 
 /**
@@ -376,6 +409,7 @@ function buildWakeTurnContext(
  */
 function inspectWakeOutput(
   baselineLength: number,
+  hintMessageCount: number,
   updatedHistory: Message[],
 ): {
   tailMessages: Message[];
@@ -383,10 +417,10 @@ function inspectWakeOutput(
   toolUseNames: string[];
 } {
   // The agent loop appends messages onto the history it was given. We
-  // injected 3 hint messages (user preamble + assistant hint + user
-  // postamble), so anything at index >= baselineLength + 3 came from
-  // the run.
-  const firstAssistantIndex = baselineLength + WAKE_HINT_MESSAGE_COUNT;
+  // injected `hintMessageCount` hint messages (0, 1, or 3 depending on
+  // hint mode), so anything at index >= baselineLength + hintMessageCount
+  // came from the run.
+  const firstAssistantIndex = baselineLength + hintMessageCount;
   if (updatedHistory.length <= firstAssistantIndex) {
     return { tailMessages: [], hasVisibleText: false, toolUseNames: [] };
   }
@@ -505,28 +539,45 @@ export async function wakeAgentForOpportunity(
     // tail-slice math would skip every message.
     const baselineLength = baseline.length;
     const wakeTurnContext = buildWakeTurnContext(opts, diskPressureDecision);
-    const hintContent = `[opportunity:${source}] ${hint}`;
-    // Sandwich the hint as an assistant message between two hardcoded
-    // user messages. The assistant role prevents prompt injection — LLMs
-    // don't follow instructions in their own prior output. The trailing
-    // user message satisfies providers that reject assistant prefill
-    // (conversation must end on a user turn). Both user messages are
-    // static strings with no dynamic content so they cannot carry
-    // injection payloads.
-    const wakeMessages: Message[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: WAKE_PREAMBLE }],
-      },
-      {
-        role: "assistant",
-        content: [{ type: "text", text: hintContent }],
-      },
-      {
-        role: "user",
-        content: [{ type: "text", text: WAKE_POSTAMBLE }],
-      },
-    ];
+    // Build the hint injection. Three modes:
+    //   - `skipHintInjection`: caller has already persisted an instruction
+    //     message into the conversation history (typical for fork-based
+    //     memory retrospectives that append a user message before waking).
+    //   - `hintRole === "user"`: single user-role message containing the
+    //     hint directly. Used by trusted internal callers where the hint
+    //     reads naturally as an instruction.
+    //   - default (`hintRole === "assistant"`): sandwich the hint as an
+    //     assistant message between two hardcoded user bookends. The
+    //     assistant role defangs prompt injection (LLMs don't follow
+    //     instructions in their own prior output) and the trailing user
+    //     message satisfies providers that reject assistant prefill.
+    const hintRole = opts.hintRole ?? "assistant";
+    const wakeMessages: Message[] = opts.skipHintInjection
+      ? []
+      : hintRole === "user"
+        ? [
+            {
+              role: "user",
+              content: [{ type: "text", text: hint }],
+            },
+          ]
+        : [
+            {
+              role: "user",
+              content: [{ type: "text", text: WAKE_PREAMBLE }],
+            },
+            {
+              role: "assistant",
+              content: [
+                { type: "text", text: `[opportunity:${source}] ${hint}` },
+              ],
+            },
+            {
+              role: "user",
+              content: [{ type: "text", text: WAKE_POSTAMBLE }],
+            },
+          ];
+    const wakeHintMessageCount = wakeMessages.length;
     const runInput: Message[] = [...baseline, ...wakeMessages];
 
     // Event handling runs in two modes. While `mode === "buffering"`,
@@ -663,7 +714,7 @@ export async function wakeAgentForOpportunity(
     const goLive = (currentHistory: Message[]): void => {
       if (mode === "live") return;
       if (!surfaceInjected) {
-        const tailStart = baselineLength + WAKE_HINT_MESSAGE_COUNT;
+        const tailStart = baselineLength + wakeHintMessageCount;
         const tail = currentHistory.slice(tailStart);
         const firstAssistant = tail.find((m) => m.role === "assistant");
         if (firstAssistant && Array.isArray(firstAssistant.content)) {
@@ -721,8 +772,7 @@ export async function wakeAgentForOpportunity(
     const flushPendingTail = async (
       currentHistory: Message[],
     ): Promise<void> => {
-      const start =
-        baselineLength + WAKE_HINT_MESSAGE_COUNT + persistedTailIndex;
+      const start = baselineLength + wakeHintMessageCount + persistedTailIndex;
       if (start >= currentHistory.length) return;
       const newMessages = currentHistory.slice(start);
       for (const msg of newMessages) {
@@ -825,7 +875,11 @@ export async function wakeAgentForOpportunity(
         tailMessages,
         hasVisibleText,
         toolUseNames: names,
-      } = inspectWakeOutput(baselineLength, updatedHistory);
+      } = inspectWakeOutput(
+        baselineLength,
+        wakeHintMessageCount,
+        updatedHistory,
+      );
       toolUseNames = names;
       producedToolCalls = names.length > 0;
       const producedOutput = producedToolCalls || hasVisibleText;
@@ -904,9 +958,17 @@ export async function wakeAgentForOpportunity(
       }
 
       const durationMs = nowFn() - startedAt;
+      const suppressAutoCompaction = opts.suppressAutoCompaction === true;
       if (runError) {
         log.error(
-          { conversationId, source, durationMs, err: runError },
+          {
+            conversationId,
+            source,
+            durationMs,
+            suppressAutoCompaction,
+            hintRole,
+            err: runError,
+          },
           "agent-wake: agent loop threw; treating as no-op",
         );
       } else if (tailMessageCount === 0) {
@@ -915,6 +977,8 @@ export async function wakeAgentForOpportunity(
             source,
             conversationId,
             durationMs,
+            suppressAutoCompaction,
+            hintRole,
             producedToolCalls: false,
             toolNamesCalled: [],
           },
@@ -926,6 +990,8 @@ export async function wakeAgentForOpportunity(
             source,
             conversationId,
             durationMs,
+            suppressAutoCompaction,
+            hintRole,
             producedToolCalls,
             toolNamesCalled: toolUseNames,
             tailMessageCount,

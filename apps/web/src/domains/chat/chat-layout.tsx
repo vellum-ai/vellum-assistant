@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -8,10 +9,23 @@ import {
 import { Outlet, useLocation, useNavigate } from "react-router";
 
 import { haptic } from "@/utils/haptics.js";
+import { routes } from "@/utils/routes.js";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
+import { useAuthStore } from "@/stores/auth-store.js";
+import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+import type { AssistantContextValue } from "@/domains/chat/assistant-context.js";
 
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationListInit } from "@/domains/conversations/use-conversation-list-init.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useViewerStore } from "@/stores/viewer-store.js";
+import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
+
+import { OfflineBanner } from "@/components/offline-banner.js";
+import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
+import { PreferencesMenu } from "@/domains/chat/components/preferences-menu.js";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 import { ChatLayoutHeader } from "./chat-layout-header.js";
-import { SideMenu } from "./side-menu.js";
 
 /**
  * LocalStorage key used to persist the collapsed state of the sidebar rail
@@ -74,7 +88,7 @@ export function shouldHandleShortcut(
 
 export type SideMenuVariant = "rail" | "overlay";
 
-export interface SideMenuRenderArgs {
+interface SideMenuRenderArgs {
   collapsed: boolean;
   variant: SideMenuVariant;
   onClose?: () => void;
@@ -83,15 +97,74 @@ export interface SideMenuRenderArgs {
 
 /**
  * Chat-specific layout route providing sidebar rail, mobile drawer, keyboard
- * shortcuts (Ctrl+\, Ctrl+K, Ctrl+[/]), and the chat header bar. Renders
- * inside RootLayout and wraps chat child routes via `<Outlet />`.
+ * shortcuts (Ctrl+\, Ctrl+K, Ctrl+[/]), and the chat header bar. Owns the
+ * assistant lifecycle and passes the resolved state to child routes via
+ * outlet context.
  *
  * References:
  * - React Router nested layouts: https://reactrouter.com/start/data/routing
+ * - React Router outlet context: https://reactrouter.com/start/framework/outlet
  */
 export function ChatLayout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const authLoading = useAuthStore.use.isLoading();
+
+  const lifecycle = useAssistantLifecycle({
+    isLoggedIn,
+    isLoading: authLoading,
+    isRetired: false,
+    isNonProduction: false,
+    onRedirect: navigate,
+  });
+
+  // Hydrate the sidebar conversation list at the layout level so every
+  // chat-layout child route (home, library, contacts, identity, chat)
+  // inherits a populated sidebar on direct navigation — not just /assistant.
+  const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
+  useConversationListInit({
+    assistantId: lifecycle.assistantId,
+    assistantStateKind: lifecycle.assistantState.kind,
+    conversationGroupsUI,
+  });
+
+  // --- Layout slot state for child route content ---
+  const [topBarCenter, setTopBarCenter] = useState<ReactNode>(null);
+  const [topBarRightSlot, setTopBarRightSlot] = useState<ReactNode>(null);
+  const onSearchClickRef = useRef<(() => void) | null>(null);
+  const setOnSearchClick = useCallback((cb: (() => void) | null) => {
+    onSearchClickRef.current = cb;
+  }, []);
+
+  // --- Assistant identity from store (written by ChatPage) ---
+  const assistantName = useAssistantIdentityStore.use.name();
+  const assistantVersion = useAssistantIdentityStore.use.version();
+
+  const assistantContext = useMemo<AssistantContextValue>(
+    () => ({
+      assistantId: lifecycle.assistantId,
+      assistantState: lifecycle.assistantState,
+      checkAssistant: lifecycle.checkAssistant,
+      retryAssistant: lifecycle.retryAssistant,
+      hatchVersion: lifecycle.hatchVersion,
+      setAssistantId: lifecycle.setAssistantId,
+      autoGreetRef: lifecycle.autoGreetRef,
+      setTopBarCenter,
+      setTopBarRightSlot,
+      setOnSearchClick,
+    }),
+    [
+      lifecycle.assistantId,
+      lifecycle.assistantState,
+      lifecycle.checkAssistant,
+      lifecycle.retryAssistant,
+      lifecycle.hatchVersion,
+      lifecycle.setAssistantId,
+      lifecycle.autoGreetRef,
+      setOnSearchClick,
+    ],
+  );
 
   // --- History tracking for back/forward nav ---
   const historyIndexRef = useRef(0);
@@ -111,11 +184,11 @@ export function ChatLayout() {
   const canGoForward = historyIndexRef.current < maxHistoryIndexRef.current;
 
   const handleStartNewConversation = useCallback(() => {
-    navigate("/");
+    navigate(routes.assistant);
   }, [navigate]);
 
   const handleOpenHome = useCallback(() => {
-    navigate("/home");
+    navigate(routes.home);
   }, [navigate]);
 
   const handleGoBack = useCallback(() => {
@@ -126,7 +199,7 @@ export function ChatLayout() {
     navigate(1);
   }, [navigate]);
 
-  const isHomeActive = location.pathname === "/home";
+  const isHomeActive = location.pathname === routes.home;
 
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
@@ -176,9 +249,6 @@ export function ChatLayout() {
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [toggleSidebar]);
-
-  // Ctrl/Cmd+K shortcut for command palette — listener is only installed
-  // when a handler exists to avoid swallowing the browser's default behavior.
 
   // Ctrl/Cmd+[ and Ctrl/Cmd+] shortcuts for back/forward navigation
   useEffect(() => {
@@ -255,9 +325,75 @@ export function ChatLayout() {
     };
   }, [drawerVisible]);
 
+  const conversations = useConversationListStore.use.conversations();
+  const conversationGroups = useConversationListStore.use.conversationGroups();
+  const activeConversationKey = useConversationListStore.use.activeConversationKey();
+  const processingKeys = useConversationListStore.use.processingKeys();
+  const attentionKeys = useConversationListStore.use.attentionKeys();
+  const setActiveKey = useConversationListStore.use.setActiveKey();
+
+  const handleSelectConversation = useCallback(
+    (key: string) => {
+      haptic.light();
+      useViewerStore.getState().setMainView("chat");
+      useSubagentStore.getState().reset();
+      setActiveKey(key);
+      navigate(routes.conversation(key));
+      setDrawerOpen(false);
+    },
+    [setActiveKey, navigate],
+  );
+
+  const handleOpenLibrary = useCallback(() => {
+    navigate(routes.library.root);
+  }, [navigate]);
+
+  const isLibraryActive = location.pathname.startsWith("/assistant/library");
+
   const renderSideMenu = useCallback(
-    (args: SideMenuRenderArgs): ReactNode => <SideMenu {...args} />,
-    [],
+    (args: SideMenuRenderArgs): ReactNode => (
+      <AssistantSideMenu
+        assistantId={lifecycle.assistantId ?? ""}
+        assistantName={assistantName}
+        collapsed={args.collapsed}
+        variant={args.variant}
+        conversations={conversations}
+        conversationGroups={conversationGroups}
+        activeConversationKey={activeConversationKey ?? undefined}
+        processingConversationKeys={processingKeys}
+        attentionConversationKeys={attentionKeys}
+        onSelectConversation={handleSelectConversation}
+        onStartNewConversation={handleStartNewConversation}
+        isIntelligenceActive={isHomeActive}
+        onOpenIntelligence={handleOpenHome}
+        isLibraryActive={isLibraryActive}
+        onOpenLibrary={handleOpenLibrary}
+        footerAction={
+          <PreferencesMenu
+            assistantId={lifecycle.assistantId}
+            assistantVersion={assistantVersion}
+          />
+        }
+        onClose={args.onClose}
+        onSearchClick={args.onSearch}
+      />
+    ),
+    [
+      lifecycle.assistantId,
+      assistantName,
+      assistantVersion,
+      conversations,
+      conversationGroups,
+      activeConversationKey,
+      processingKeys,
+      attentionKeys,
+      handleSelectConversation,
+      handleStartNewConversation,
+      isHomeActive,
+      handleOpenHome,
+      isLibraryActive,
+      handleOpenLibrary,
+    ],
   );
 
   return (
@@ -267,6 +403,8 @@ export function ChatLayout() {
         drawerOpen={drawerOpen}
         collapsed={collapsed}
         toggleSidebar={toggleSidebar}
+        topBarCenter={topBarCenter}
+        topBarRightSlot={topBarRightSlot}
         onStartNewConversation={handleStartNewConversation}
         canGoBack={canGoBack}
         canGoForward={canGoForward}
@@ -274,11 +412,14 @@ export function ChatLayout() {
         onGoForward={handleGoForward}
         onOpenHome={handleOpenHome}
         isHomeActive={isHomeActive}
+        onSearchClick={() => onSearchClickRef.current?.()}
       />
 
+      <OfflineBanner />
+
       {isMobile ? (
-        <main className="relative flex min-w-0 flex-1 min-h-0 overflow-y-auto">
-          <Outlet />
+        <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
+          <Outlet context={assistantContext} />
           {drawerVisible ? (
             <div
               ref={drawerRef}
@@ -307,25 +448,23 @@ export function ChatLayout() {
                   collapsed: false,
                   variant: "overlay",
                   onClose: () => setDrawerOpen(false),
+                  onSearch: () => onSearchClickRef.current?.(),
                 })}
               </aside>
             </div>
           ) : null}
         </main>
       ) : (
-        <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden">
+        <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden flex-col md:flex-row">
           <aside
             id="chat-side-menu"
             className="shrink-0"
             aria-label="Navigation"
           >
-            {renderSideMenu({ collapsed, variant: "rail" })}
+            {renderSideMenu({ collapsed, variant: "rail", onSearch: () => onSearchClickRef.current?.() })}
           </aside>
-          <main
-            className="min-w-0 flex-1 overflow-y-auto"
-            style={{ flex: 1 }}
-          >
-            <Outlet />
+          <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
+            <Outlet context={assistantContext} />
           </main>
         </div>
       )}

@@ -103,10 +103,6 @@ export function getSandboxWorkingDir(): string {
   return getWorkspaceDir();
 }
 
-export function getInterfacesDir(): string {
-  return join(getDataDir(), "interfaces");
-}
-
 /**
  * Returns the sounds directory (~/.vellum/workspace/data/sounds).
  * Custom sound files and sound configuration live here.
@@ -413,7 +409,6 @@ export function ensureDataDir(): void {
     join(wsData, "memory", "knowledge"),
     join(wsData, "apps"),
     join(wsData, "attachments"),
-    join(wsData, "interfaces"),
     join(wsData, "sounds"),
   ];
   for (const dir of dirs) {

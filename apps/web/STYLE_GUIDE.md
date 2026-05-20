@@ -20,7 +20,7 @@ keeps imports predictable.
 ```
 use-send-message.ts        # hook
 message-handlers.ts         # module
-conversation-reducer.ts     # reducer
+conversation-store.ts       # Zustand store
 chat-body.tsx               # component
 stream-event-types.ts       # types
 ```
@@ -42,6 +42,13 @@ Files that export a custom hook as their primary export are prefixed
 with `use-`. This mirrors the React convention that hooks are functions
 whose names start with `use`.
 
+**Zustand store files are not hook files.** A store module's primary
+export is a store — a module-level singleton with both React
+(`useChatStore(selector)`) and non-React (`.getState()`,
+`.setState()`, `.subscribe()`) APIs. Store files use
+`{domain}-store.ts`. See
+[CONVENTIONS.md — Zustand store conventions](./CONVENTIONS.md#zustand-store-conventions).
+
 Reference: [React — Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks)
 
 ### Test files use `.test.ts` / `.test.tsx`
@@ -58,6 +65,7 @@ src/
   App.tsx                    # root layout component
   main.tsx                   # entry point (createRoot, RouterProvider)
   routes.tsx                 # route tree (createBrowserRouter)
+  stores/                    # app-level Zustand stores (cross-domain)
   domains/                   # business domain modules
     messages/                # message lifecycle
     conversations/           # conversation CRUD, grouping, selection
@@ -91,8 +99,13 @@ one domain, it belongs inside `domains/<name>/`.
 Reusable, domain-agnostic UI components live in `components/` for
 cross-domain shared UI. The design system (Button, Card, Modal, etc.)
 lives in `packages/design-library/` and is imported as
-`@vellum/design-library`. Components must not import domain state or
-feature hooks.
+`@vellum/design-library`. Components in `components/` must not import
+domain state or feature hooks.
+
+Domain-specific compositions of design library components (e.g. a
+wrapper that injects OAuth link handling) belong in their domain
+directory (`domains/<name>/components/`), not in `components/`. See
+[CONVENTIONS.md — Injecting app-specific behavior](./CONVENTIONS.md#injecting-app-specific-behavior).
 
 ---
 
@@ -106,13 +119,13 @@ feature module.
 
 ```ts
 // Good — alias for cross-module imports
-import { useMessageStore } from "@/domains/messages/use-message-store.js";
+import { useMessageStore } from "@/domains/messages/message-store.js";
 
 // Good — relative within same domain
 import { messageReducer } from "./message-reducer.js";
 
 // Avoid — deep relative path crossing module boundaries
-import { useMessageStore } from "../../../domains/messages/use-message-store.js";
+import { useMessageStore } from "../../../domains/messages/message-store.js";
 ```
 
 Reference: [Vite — resolve.alias](https://vite.dev/config/shared-options.html#resolve-alias)
@@ -130,7 +143,7 @@ import { useCallback, useMemo } from "react";
 import { useParams } from "react-router";
 import { Button } from "@vellum/design-library";
 
-import { useMessageStore } from "@/domains/messages/use-message-store.js";
+import { useMessageStore } from "@/domains/messages/message-store.js";
 
 import { messageReducer } from "./message-reducer.js";
 ```

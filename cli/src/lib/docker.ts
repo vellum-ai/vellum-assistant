@@ -21,7 +21,15 @@ import { leaseGuardianToken } from "./guardian-token";
 import { logHatchNextSteps } from "./hatch-next-steps.js";
 import { isVellumProcess, stopProcess } from "./process";
 import { generateInstanceName } from "./random-name";
-import { resolveImageRefs } from "./platform-releases.js";
+import {
+  HOST_IMAGE_LOADER_URL,
+  isLocalBuildRef,
+  loadImageViaHost,
+} from "./host-image-loader.js";
+import {
+  fetchLatestStableVersion,
+  resolveImageRefs,
+} from "./platform-releases.js";
 import {
   configureHatchProviderApiKey,
   formatProviderName,
@@ -1059,8 +1067,23 @@ export async function hatchDocker(
         imageSource = "env override";
         log("Using image overrides from environment variables");
       } else {
-        const version = cliPkg.version;
-        const versionTag = version ? `v${version}` : "latest";
+        // Resolve image refs from a remote source that may have dev/local
+        // builds. If resolution is unavailable, fall back to the CLI's own
+        // version so a default tag can still be resolved.
+        log("🔍 Fetching latest stable release...");
+        const latestVersion = await fetchLatestStableVersion();
+        let versionTag: string;
+        if (latestVersion) {
+          versionTag = latestVersion.startsWith("v")
+            ? latestVersion
+            : `v${latestVersion}`;
+        } else {
+          const fallback = cliPkg.version;
+          versionTag = fallback ? `v${fallback}` : "latest";
+          log(
+            `⚠️  Platform releases unavailable; falling back to CLI version ${versionTag}`,
+          );
+        }
         log("🔍 Resolving image references...");
         const resolved = await resolveImageRefs(versionTag, log);
         imageTags.assistant = resolved.imageTags.assistant;
@@ -1078,11 +1101,25 @@ export async function hatchDocker(
       log(`     credential-executor:  ${imageTags["credential-executor"]}`);
       log("");
 
-      log("📦 Pulling Docker images...");
-      await exec("docker", ["pull", imageTags.assistant]);
-      await exec("docker", ["pull", imageTags.gateway]);
-      await exec("docker", ["pull", imageTags["credential-executor"]]);
-      log("✅ Docker images pulled");
+      // Per-ref branching: local-build refs need the image-loader; external
+      // registry refs get a normal `docker pull`. The two transports compose
+      // cleanly — a release can mix different sources for different images.
+      log("📦 Acquiring Docker images...");
+      for (const service of [
+        "assistant",
+        "gateway",
+        "credential-executor",
+      ] as const) {
+        const ref = imageTags[service];
+        if (isLocalBuildRef(ref)) {
+          log(`   ↪ loading ${ref} via host image-loader`);
+          await loadImageViaHost(HOST_IMAGE_LOADER_URL, ref, log);
+        } else {
+          log(`   ↪ pulling ${ref}`);
+          await exec("docker", ["pull", ref]);
+        }
+      }
+      log("✅ Docker images acquired");
     }
 
     const res = dockerResourceNames(instanceName);

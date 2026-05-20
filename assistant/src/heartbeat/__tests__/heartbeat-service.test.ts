@@ -35,7 +35,6 @@ mock.module("../../util/platform.js", () => ({
   getEmbeddingModelsDir: () => join(workspaceDir ?? fallbackDir, "models"),
   getSandboxRootDir: () => join(workspaceDir ?? fallbackDir, "sandbox"),
   getSandboxWorkingDir: () => join(workspaceDir ?? fallbackDir, "sandbox/work"),
-  getInterfacesDir: () => join(workspaceDir ?? fallbackDir, "interfaces"),
   getSoundsDir: () => join(workspaceDir ?? fallbackDir, "sounds"),
   getAvatarDir: () => join(workspaceDir ?? fallbackDir, "avatar"),
   AVATAR_IMAGE_FILENAME: "avatar-image.png",
@@ -55,6 +54,7 @@ const stubConfig: {
     activeHoursStart: number | null;
     activeHoursEnd: number | null;
     maxConsecutiveRuns: number | null;
+    disposition: string;
   };
 } = {
   heartbeat: {
@@ -63,6 +63,7 @@ const stubConfig: {
     activeHoursStart: null,
     activeHoursEnd: null,
     maxConsecutiveRuns: null,
+    disposition: "Default disposition text.",
   },
 };
 mock.module("../../config/loader.js", () => ({

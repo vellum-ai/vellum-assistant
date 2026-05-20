@@ -1,5 +1,6 @@
 import { Outlet } from "react-router";
 
+import { useAppTheme } from "@/hooks/use-app-theme.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport.js";
 
@@ -21,6 +22,7 @@ const KEYBOARD_OPEN_THRESHOLD_PX = 100;
  * - Visual Viewport API: https://developer.mozilla.org/en-US/docs/Web/API/Visual_Viewport_API
  */
 export function RootLayout() {
+  useAppTheme();
   const isMobile = useIsMobile();
   const visibleViewport = useVisibleViewport();
 

@@ -1,14 +1,7 @@
 /**
  * Route handlers for conversation messages and suggestions.
  */
-import {
-  existsSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import { z } from "zod";
 
@@ -41,6 +34,7 @@ import {
 import { getOrCreateConversation as getOrCreateConversationInstance } from "../../daemon/conversation-store.js";
 import { canonicalizeTimeZone } from "../../daemon/date-context.js";
 import {
+  buildScanFirstMessage,
   getCannedFirstGreeting,
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
@@ -75,7 +69,6 @@ import {
 } from "../../memory/canonical-guardian-store.js";
 import {
   addMessage,
-  getLastAssistantTimestampBefore,
   getMessages,
   getMessagesPaginated,
   hasMessages,
@@ -103,10 +96,7 @@ import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
-import {
-  getInterfacesDir,
-  getWorkspacePromptPath,
-} from "../../util/platform.js";
+import { getWorkspacePromptPath } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -390,32 +380,9 @@ async function tryConsumeCanonicalGuardianReply(params: {
   return { consumed: true, messageId };
 }
 
-function getInterfaceFilesWithMtimes(
-  interfacesDir: string | null,
-): Array<{ path: string; mtimeMs: number }> {
-  if (!interfacesDir || !existsSync(interfacesDir)) return [];
-  const results: Array<{ path: string; mtimeMs: number }> = [];
-  const scan = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const fullPath = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        scan(fullPath);
-      } else {
-        results.push({
-          path: relative(interfacesDir, fullPath),
-          mtimeMs: statSync(fullPath).mtimeMs,
-        });
-      }
-    }
-  };
-  scan(interfacesDir);
-  return results;
-}
-
-export function handleListMessages(
-  { queryParams }: RouteHandlerArgs,
-  interfacesDir: string | null,
-): Record<string, unknown> {
+export function handleListMessages({
+  queryParams,
+}: RouteHandlerArgs): Record<string, unknown> {
   const conversationId = queryParams?.conversationId;
   const conversationKey = queryParams?.conversationKey;
 
@@ -627,15 +594,6 @@ export function handleListMessages(
     };
   });
 
-  const interfaceFiles = getInterfaceFilesWithMtimes(interfacesDir);
-
-  let prevAssistantTimestamp = 0;
-  if (isPaginated && rawMessages.length > 0) {
-    prevAssistantTimestamp = getLastAssistantTimestampBefore(
-      resolvedConversationId!,
-      rawMessages[0].createdAt,
-    );
-  }
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
     if (m.id) {
@@ -682,21 +640,6 @@ export function handleListMessages(
       }
     }
 
-    let interfaces: string[] | undefined;
-    if (m.role === "assistant") {
-      const msgTimestamp = new Date(m.timestamp).getTime();
-      const dirtied = interfaceFiles
-        .filter(
-          (f) =>
-            f.mtimeMs > prevAssistantTimestamp && f.mtimeMs <= msgTimestamp,
-        )
-        .map((f) => f.path);
-      if (dirtied.length > 0) {
-        interfaces = dirtied;
-      }
-      prevAssistantTimestamp = msgTimestamp;
-    }
-
     // Use sentAt (actual event time) for the display timestamp when
     // available, falling back to createdAt (persistence time).
     // Note: clients use this display timestamp as their pagination cursor
@@ -717,7 +660,6 @@ export function handleListMessages(
       timestamp: new Date(displayTimestamp).toISOString(),
       attachments: msgAttachments,
       ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
-      ...(interfaces ? { interfaces } : {}),
       ...(m.surfaces.length > 0 ? { surfaces: m.surfaces } : {}),
       ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
       ...(m.thinkingSegments?.length
@@ -1092,6 +1034,9 @@ export function persistOnboardingArtifacts(onboarding: {
   tone: string;
   userName?: string;
   assistantName?: string;
+  cohort?: string;
+  websiteUrl?: string;
+  contentSourceUrl?: string;
 }): void {
   writeOnboardingSidecar(onboarding);
 
@@ -1169,6 +1114,9 @@ export async function handleSendMessage(
       assistantName?: string;
       googleConnected?: boolean;
       googleScopes?: string[];
+      cohort?: string;
+      websiteUrl?: string;
+      contentSourceUrl?: string;
     };
   };
 
@@ -1500,12 +1448,30 @@ export async function handleSendMessage(
     );
   }
 
-  // ── Canned first-greeting fast path ──
-  // On a completely fresh workspace, skip LLM inference for the macOS
-  // wake-up greeting and return a pre-written response. When onboarding
-  // context is present the greeting is personalized using the selections;
-  // otherwise a generic greeting is served. Both paths are instant.
-  if (isWakeUpGreeting(trimmedContent, conversation.getMessages().length)) {
+  // ── URL scan path: rewrite first message for scan onboarding ──
+  // When onboarding provides a websiteUrl or contentSourceUrl and the
+  // first message is the macOS wake-up greeting, bypass the canned
+  // greeting and rewrite the user message to a scan instruction so real
+  // LLM inference runs against the URL.
+  const sanitizeUrl = (u?: string) =>
+    u?.trim().replace(/[\r\n\t]/g, "") || undefined;
+  const websiteUrl = sanitizeUrl(body.onboarding?.websiteUrl);
+  const contentSourceUrl = sanitizeUrl(body.onboarding?.contentSourceUrl);
+  const scanUrl = websiteUrl || contentSourceUrl;
+  const isWakeUp = isWakeUpGreeting(
+    trimmedContent,
+    conversation.getMessages().length,
+  );
+  const isScanPath = !!scanUrl && isWakeUp;
+
+  let effectiveContent: string | undefined;
+  if (isScanPath) {
+    const scanVariant = websiteUrl
+      ? ("website" as const)
+      : ("content-source" as const);
+    effectiveContent = buildScanFirstMessage(scanUrl, scanVariant);
+    // Fall through to normal inference path below
+  } else if (isWakeUp) {
     const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
 
     conversation.processing = true;
@@ -1629,6 +1595,11 @@ export async function handleSendMessage(
     }
   }
 
+  // When the scan path rewrote the first message, prefer the rewritten
+  // content for all downstream consumers (guardian reply, enqueue, agent
+  // loop) so they see the scan instruction rather than the wake-up greeting.
+  const contentAfterScan = effectiveContent ?? content ?? "";
+
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
     : [];
@@ -1648,7 +1619,7 @@ export async function handleSendMessage(
       conversationId: mapping.conversationId,
       sourceChannel,
       sourceInterface,
-      content: content ?? "",
+      content: contentAfterScan,
       attachments,
       conversation,
       onEvent: broadcastMessage,
@@ -1682,7 +1653,7 @@ export async function handleSendMessage(
     // Queue the message so it's processed when the current turn completes
     const requestId = crypto.randomUUID();
     const enqueueResult = conversation.enqueueMessage(
-      content ?? "",
+      contentAfterScan,
       attachments,
       broadcastMessage,
       requestId,
@@ -1801,7 +1772,9 @@ export async function handleSendMessage(
   await conversation.ensureActorScopedHistory();
 
   // Resolve slash commands before persisting or running the agent loop.
-  const rawContent = content ?? "";
+  // `contentAfterScan` already carries the scan-rewritten content when
+  // applicable; reuse it here for consistency.
+  const rawContent = contentAfterScan;
   const slashContext = buildSlashContextForContent(rawContent, {
     conversationId: mapping.conversationId,
     messageCount: conversation.getMessages().length,
@@ -2369,7 +2342,7 @@ export const ROUTES: RouteDefinition[] = [
         .optional()
         .describe("ID of the oldest message in this page"),
     }),
-    handler: (args) => handleListMessages(args, getInterfacesDir()),
+    handler: (args) => handleListMessages(args),
   },
   {
     operationId: "messages_post",

@@ -82,12 +82,9 @@ export function useHomeFeedQuery(assistantId: string | null) {
         if (!old) return old;
         return {
           ...old,
-          items:
-            status === "dismissed"
-              ? old.items.filter((item: FeedItem) => item.id !== itemId)
-              : old.items.map((item: FeedItem) =>
-                  item.id === itemId ? { ...item, status } : item,
-                ),
+          items: old.items.map((item: FeedItem) =>
+            item.id === itemId ? { ...item, status } : item,
+          ),
         };
       });
 

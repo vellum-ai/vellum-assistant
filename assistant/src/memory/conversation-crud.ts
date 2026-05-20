@@ -50,7 +50,7 @@ import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { getDb, getSqliteFrom } from "./db-connection.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
-import { MEMORY_RETROSPECTIVE_SOURCE } from "./memory-retrospective-constants.js";
+import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import { rawExec, rawGet, rawRun } from "./raw-query.js";
 import {
@@ -482,7 +482,7 @@ export function findMostRecentRetrospectiveFor(
       .from(conversations)
       .where(
         and(
-          eq(conversations.source, MEMORY_RETROSPECTIVE_SOURCE),
+          inArray(conversations.source, MEMORY_RETROSPECTIVE_SOURCES),
           eq(conversations.forkParentConversationId, currentId),
         ),
       )
@@ -535,6 +535,18 @@ function getConversationGroupId(conversationId: string): string | null {
 export function forkConversation(params: {
   conversationId: string;
   throughMessageId?: string;
+  /**
+   * Override the fork's `source` column. Defaults to the standard
+   * `createConversation` default (`"user"`). Used by fork-based memory
+   * retrospectives to mark the fork as a retrospective artifact distinct
+   * from a user-initiated fork, so dedup and cleanup queries can scope
+   * correctly.
+   */
+  source?: string;
+  /**
+   * Optional title for the fork. Defaults to `<parent title> (Fork)`.
+   */
+  title?: string;
 }): ConversationRow {
   const { conversationId, throughMessageId } = params;
   const db = getDb();
@@ -577,7 +589,8 @@ export function forkConversation(params: {
       ? sourceMessages.slice(0, copyBoundaryIndex + 1)
       : ([] as MessageRow[]);
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
-  const forkTitle = `${sourceConversation.title ?? "Untitled"} (Fork)`;
+  const forkTitle =
+    params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
 
   // Collect disk-sync work to run after the transaction commits.
   const diskSyncQueue: Array<{
@@ -599,6 +612,7 @@ export function forkConversation(params: {
       title: forkTitle,
       conversationType: "standard",
       groupId: parentGroupId ?? "system:all",
+      ...(params.source != null ? { source: params.source } : {}),
     });
 
     db.update(conversations)
@@ -1272,27 +1286,6 @@ export function getMessagesPaginated(
   rows.reverse();
 
   return { messages: rows, hasMore };
-}
-
-export function getLastAssistantTimestampBefore(
-  conversationId: string,
-  beforeTimestamp: number,
-): number {
-  const db = getDb();
-  const row = db
-    .select({ createdAt: messages.createdAt })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        eq(messages.role, "assistant"),
-        lt(messages.createdAt, beforeTimestamp),
-      ),
-    )
-    .orderBy(desc(messages.createdAt))
-    .limit(1)
-    .get();
-  return row?.createdAt ?? 0;
 }
 
 export function getLastUserTimestampBefore(

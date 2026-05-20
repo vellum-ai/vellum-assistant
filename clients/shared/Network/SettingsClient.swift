@@ -652,12 +652,14 @@ public struct CallSiteCatalogEntry: Codable {
     public let displayName: String
     public let description: String
     public let domain: String
+    public let defaultProfile: String?
 
-    public init(id: String, displayName: String, description: String, domain: String) {
+    public init(id: String, displayName: String, description: String, domain: String, defaultProfile: String? = nil) {
         self.id = id
         self.displayName = displayName
         self.description = description
         self.domain = domain
+        self.defaultProfile = defaultProfile
     }
 }
 

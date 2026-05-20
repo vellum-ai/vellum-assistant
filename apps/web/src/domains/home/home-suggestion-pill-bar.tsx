@@ -1,7 +1,7 @@
 import { icons, Sparkles, X } from "lucide-react";
 import { useState } from "react";
 
-import { Typography } from "@vellum/design-library/components/typography";
+import { Typography } from "@vellum/design-library";
 import type { SuggestedPrompt } from "./types.js";
 
 function toPascalCase(s: string): string {
@@ -80,7 +80,7 @@ export function HomeSuggestionPillBar({
                 style={{ width: 26, height: 26 }}
                 aria-hidden="true"
               >
-                <Icon className="size-[9px]" />
+                <Icon className="size-[18px]" />
               </span>
               <span className="text-body-small-default">
                 {suggestion.label}

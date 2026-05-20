@@ -68,3 +68,48 @@ export function resolveDefinitions(
   if (!color) throw new Error(`Unknown color: "${colorId}"`);
   return { bodyShape, eyeStyle, color };
 }
+
+function escapeAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+export function composeSvg(
+  components: CharacterComponents,
+  bodyShapeId: string,
+  eyeStyleId: string,
+  colorId: string,
+  size: number = 512,
+): string {
+  const { bodyShape, eyeStyle, color } = resolveDefinitions(
+    components,
+    bodyShapeId,
+    eyeStyleId,
+    colorId,
+  );
+  return composeSvgFromDefinitions(bodyShape, eyeStyle, color, components, size);
+}
+
+export function composeSvgFromDefinitions(
+  bodyShape: BodyShapeDefinition,
+  eyeStyle: EyeStyleDefinition,
+  color: ColorDefinition,
+  components: CharacterComponents,
+  size: number = 512,
+): string {
+  const { bodyTransform, eyeTransform } = computeTransforms(bodyShape, eyeStyle, components, size);
+
+  const bodyPath = `<path d="${escapeAttr(bodyShape.svgPath)}" fill="${escapeAttr(color.hex)}" transform="${bodyTransform}"/>`;
+
+  const eyePaths = eyeStyle.paths
+    .map(
+      (p) =>
+        `<path d="${escapeAttr(p.svgPath)}" fill="${escapeAttr(p.color)}" transform="${eyeTransform}"/>`,
+    )
+    .join("");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${bodyPath}${eyePaths}</svg>`;
+}

@@ -131,7 +131,6 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationSource: () => null,
   getAssistantMessageIdsInTurn: () => [],
   getDisplayMetaForConversations: () => new Map(),
-  getLastAssistantTimestampBefore: () => null,
   getLastUserTimestampBefore: () => null,
   getMessageById: () => null,
   getMessages: () => [],

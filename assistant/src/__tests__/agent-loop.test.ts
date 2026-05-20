@@ -181,6 +181,88 @@ describe("AgentLoop", () => {
     ]);
   });
 
+  test("re-resolves override profile before each provider call", async () => {
+    const toolCallId = "tool-1";
+    const { provider, calls } = createMockProvider([
+      toolUseResponse(toolCallId, "read_file", { path: "/tmp/test.txt" }),
+      textResponse("File contents received."),
+    ]);
+
+    let overrideProfile: string | undefined;
+    const toolExecutor = async () => {
+      overrideProfile = "quality-optimized";
+      return { content: "ok", isError: false };
+    };
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    await loop.run(
+      [userMessage],
+      collectEvents([]),
+      undefined,
+      "req-1",
+      undefined,
+      "mainAgent",
+      undefined,
+      undefined,
+      undefined,
+      () => overrideProfile,
+    );
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0].options?.config?.overrideProfile).toBeUndefined();
+    expect(calls[1].options?.config?.overrideProfile).toBe("quality-optimized");
+  });
+
+  test("re-resolves max input tokens before truncating tool results", async () => {
+    const toolCallId = "tool-1";
+    const toolOutput = "x".repeat(2_500);
+    const { provider, calls } = createMockProvider([
+      toolUseResponse(toolCallId, "read_file", { path: "/tmp/test.txt" }),
+      textResponse("File contents received."),
+    ]);
+
+    let maxInputTokens = 1_000;
+    const toolExecutor = async () => {
+      maxInputTokens = 10_000;
+      return { content: toolOutput, isError: false };
+    };
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    await loop.run(
+      [userMessage],
+      collectEvents([]),
+      undefined,
+      "req-1",
+      undefined,
+      "mainAgent",
+      undefined,
+      undefined,
+      1_000,
+      undefined,
+      () => maxInputTokens,
+    );
+
+    const secondCallMessages = calls[1].messages;
+    const lastMsg = secondCallMessages[secondCallMessages.length - 1];
+    const toolResultBlock = lastMsg.content.find(
+      (b): b is Extract<ContentBlock, { type: "tool_result" }> =>
+        b.type === "tool_result",
+    );
+    expect(toolResultBlock?.content).toBe(toolOutput);
+  });
+
   // 3. Multi-turn tool loop
   test("supports multi-turn tool execution", async () => {
     const { provider, calls } = createMockProvider([
@@ -469,7 +551,6 @@ describe("AgentLoop", () => {
         .isError,
     ).toBe(false);
   });
-
 
   // 9. Tool executor error results are forwarded correctly
   test("forwards tool error results to provider", async () => {
@@ -1767,7 +1848,9 @@ describe("AgentLoop", () => {
     ]);
 
     // message_complete emitted for tool_use response + retry text response (not the empty one)
-    const messageCompletes = events.filter((e) => e.type === "message_complete");
+    const messageCompletes = events.filter(
+      (e) => e.type === "message_complete",
+    );
     expect(messageCompletes).toHaveLength(2);
   });
 
@@ -1883,7 +1966,9 @@ describe("AgentLoop", () => {
     expect(calls).toHaveLength(3);
 
     // message_complete: tool_use response + final empty response (retry exhausted)
-    const messageCompletes = events.filter((e) => e.type === "message_complete");
+    const messageCompletes = events.filter(
+      (e) => e.type === "message_complete",
+    );
     expect(messageCompletes).toHaveLength(2);
 
     // The last assistant message in history is the empty one

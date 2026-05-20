@@ -16,9 +16,9 @@ import {
   type DocumentContent,
   exportDocumentPDF,
   fetchDocumentContent,
-} from "./lib/documents.js";
-import { useDocumentCommentEvents } from "./lib/use-document-comment-events.js";
-import { subscribeChatEvents } from "./lib/stream.js";
+} from "./api/documents.js";
+import { useDocumentCommentEvents } from "./hooks/use-document-comment-events.js";
+import { subscribeChatEvents } from "./api/stream.js";
 import {
   DocumentViewerContainer,
   type DocumentViewerContainerHandle,

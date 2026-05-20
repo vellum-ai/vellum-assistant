@@ -204,6 +204,28 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(lastStreamParams!.thinking).toEqual({ type: "disabled" });
   });
 
+  test("drops unsigned thinking blocks from prior assistant messages", async () => {
+    await provider.sendMessage([
+      userMsg("Hi"),
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "non-native reasoning", signature: "" },
+          { type: "text", text: "I can help." },
+        ],
+      },
+      userMsg("Continue"),
+    ]);
+
+    const messages = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string; thinking?: string }>;
+    }>;
+    const assistant = messages.find((message) => message.role === "assistant");
+
+    expect(assistant?.content).toEqual([{ type: "text", text: "I can help." }]);
+  });
+
   test("splits system prompt into two cache blocks on boundary marker", async () => {
     const staticBlock = "You are a helpful assistant.";
     const dynamicBlock = "User workspace files here.";

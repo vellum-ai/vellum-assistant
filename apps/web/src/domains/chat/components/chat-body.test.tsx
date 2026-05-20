@@ -1,0 +1,205 @@
+/**
+ * Tests for the `ChatBody` layout behavior.
+ *
+ * Verifies the conditional CSS class logic and slot rendering that
+ * enables centered empty-state layout (LUM-1566): greeting + composer +
+ * conversation-starter chips center as one visual group via
+ * `justify-content: safe center`.
+ *
+ * Uses bun:test + react-dom/server (renderToStaticMarkup) matching the
+ * existing project test convention. Complex child components are stubbed
+ * via `mock.module` so the test focuses on the composition logic inside
+ * `ChatBody` itself.
+ */
+
+import { describe, expect, mock, test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import type { ChatBodyProps } from "@/domains/chat/components/chat-body.js";
+
+// Stub child components that require browser APIs or complex hooks.
+// NOTE: Do NOT mock chat-scroll-area itself — that leaks across test
+// files via bun's shared module registry and breaks chat-scroll-area's
+// own tests. Instead, mock ChatScrollArea's deep dependencies.
+mock.module(
+  "@/domains/chat/transcript/transcript.js",
+  () => ({
+    Transcript: () => <div data-testid="transcript">TRANSCRIPT</div>,
+  }),
+);
+
+mock.module(
+  "@/domains/chat/components/maintenance-recovery-card",
+  () => ({
+    MaintenanceRecoveryCard: () => <div>MAINTENANCE</div>,
+  }),
+);
+
+mock.module("@/domains/chat/components/chat-skeleton.js", () => ({
+  ChatSkeleton: () => <div>SKELETON</div>,
+}));
+
+mock.module(
+  "@/domains/chat/components/scroll-to-latest-button",
+  () => ({
+    ScrollToLatestButton: ({ onClick }: { onClick: () => void }) => (
+      <button data-testid="scroll-to-latest" onClick={onClick}>
+        SCROLL_TO_LATEST
+      </button>
+    ),
+  }),
+);
+
+mock.module(
+  "@/domains/chat/components/chat-composer/chat-composer.js",
+  () => ({
+    ChatComposer: () => <div data-testid="composer">COMPOSER</div>,
+  }),
+);
+
+mock.module("@vellum/design-library/components/notice", () => ({
+  Notice: ({ children }: { children: string }) => (
+    <div data-testid="notice">{children}</div>
+  ),
+}));
+
+mock.module(
+  "@/domains/chat/refresh-feedback-pill.js",
+  () => ({
+    RefreshFeedbackPill: () => <div>REFRESH_PILL</div>,
+  }),
+);
+
+// Import after mocks are registered.
+import { ChatBody } from "@/domains/chat/components/chat-body.js";
+
+const noop = () => {};
+const noopDrag = () => {};
+
+function baseProps(
+  overrides: Partial<ChatBodyProps> = {},
+): ChatBodyProps {
+  return {
+    variant: "main",
+    scrollAreaProps: {
+      isLoadingHistory: false,
+      messageCount: 0,
+      showMaintenanceRecoveryCard: false,
+      showEmptyState: false,
+      emptyStateProps: {},
+      transcriptRef: null,
+      transcriptProps: { messages: [], onScrollToMessage: noop } as never,
+    },
+    composerProps: {} as never,
+    dragHandlers: {
+      onDragEnter: noopDrag,
+      onDragOver: noopDrag,
+      onDragLeave: noopDrag,
+      onDrop: noopDrag,
+    },
+    isAttachmentDragOver: false,
+    isKeyboardOpen: false,
+    showScrollToLatest: false,
+    onScrollToLatest: noop,
+    refreshFeedback: null,
+    onDismissRefreshFeedback: noop,
+    onRetryRefresh: noop,
+    genericChatError: null,
+    isChannelReadonly: false,
+    ...overrides,
+  };
+}
+
+function withEmptyState(
+  overrides: Partial<ChatBodyProps> = {},
+): ChatBodyProps {
+  return baseProps({
+    scrollAreaProps: {
+      ...baseProps().scrollAreaProps,
+      showEmptyState: true,
+    },
+    ...overrides,
+  });
+}
+
+describe("ChatBody — empty-state centering (LUM-1566)", () => {
+  test("applies safe_center and overflow-y-auto when empty state is visible", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody {...withEmptyState()} />,
+    );
+    expect(html).toContain("[justify-content:safe_center]");
+    expect(html).toContain("overflow-y-auto");
+  });
+
+  test("does NOT apply safe_center or overflow-y-auto when empty state is hidden", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody {...baseProps()} />,
+    );
+    expect(html).not.toContain("[justify-content:safe_center]");
+    expect(html).not.toContain("overflow-y-auto");
+  });
+
+  test("uses flex-1 in outer class for main variant", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody {...baseProps({ variant: "main" })} />,
+    );
+    // The outer container class for the main variant.
+    expect(html).toContain("relative flex min-h-0 flex-1 flex-col");
+  });
+
+  test("uses h-full in outer class for side-panel variant", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody {...baseProps({ variant: "side-panel" })} />,
+    );
+    // The outer container class for the side-panel variant.
+    expect(html).toContain("relative flex h-full min-h-0 flex-col");
+  });
+});
+
+describe("ChatBody — banner overlay suppression (LUM-1566)", () => {
+  test("suppresses banner overlay on empty state to prevent greeting overlap", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...withEmptyState({
+          bannerSlot: <div data-testid="banner">BANNER_CONTENT</div>,
+        })}
+      />,
+    );
+    // The banner node is passed but the overlay container should not
+    // render it on the empty state — it would overlap the greeting.
+    expect(html).not.toContain("BANNER_CONTENT");
+  });
+
+  test("renders banner overlay when empty state is hidden and bannerSlot is provided", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          bannerSlot: <div data-testid="banner">BANNER_CONTENT</div>,
+        })}
+      />,
+    );
+    expect(html).toContain("BANNER_CONTENT");
+  });
+});
+
+describe("ChatBody — startersSlot rendering", () => {
+  test("renders startersSlot content when provided", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...withEmptyState({
+          startersSlot: (
+            <div data-testid="starters">STARTER_CHIPS</div>
+          ),
+        })}
+      />,
+    );
+    expect(html).toContain("STARTER_CHIPS");
+  });
+
+  test("omits starters when startersSlot is undefined", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody {...withEmptyState()} />,
+    );
+    expect(html).not.toContain("STARTER_CHIPS");
+  });
+});

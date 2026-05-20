@@ -105,7 +105,6 @@ const HELP_DISPLAY_HEIGHT = 7;
 interface ListMessagesResponse {
   messages: RuntimeMessage[];
   nextCursor?: string;
-  interfaces?: string[];
 }
 
 interface SendMessageResponse {
