@@ -512,32 +512,62 @@ References:
 - [TkDodo — Working with Zustand](https://tkdodo.eu/blog/working-with-zustand) — React Query maintainer's guidance on the boundary between server state (RQ) and client/infrastructure state (Zustand)
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
 
-### useReducer for component-local state only
+### useReducer is not used for client state
 
-When two or more pieces of **component-local** state change together
-or have interdependent transitions, consolidate them into a
-`useReducer` with typed action events. Reserve `useState` for
-independent, single-value state (a boolean toggle, a text input
-value).
-
-**Do not use `useReducer` for state shared across components.** Shared
-state belongs in a Zustand store with direct named actions (see
-[Direct named actions, not reducers](#direct-named-actions-not-reducers)).
+**Do not use `useReducer` in `apps/web/`.** All client state — including
+single-hook-scoped state with non-trivial transitions — lives in a
+Zustand store with direct named actions (see
+[Direct named actions, not reducers](#direct-named-actions-not-reducers)
+just below). The dispatch/action-type/reducer pattern is not the
+shape we want even inside a Zustand store — Zustand's
+[Flux-inspired practice guide](https://zustand.docs.pmnd.rs/guides/flux-inspired-practice)
+exists for Redux migration paths, not as the recommended idiom.
 
 ```ts
-// Good — related state transitions are atomic and self-documenting
-dispatch({ type: "SHOW_SECRET", requestId, prompt });
+// Good — Zustand store with direct named actions
+const useSecretStore = createSelectors(
+  create<SecretState>((set) => ({
+    requestId: null,
+    prompt: null,
+    showSecret: (requestId: string, prompt: string) =>
+      set({ requestId, prompt }),
+    dismissSecret: () => set({ requestId: null, prompt: null }),
+  })),
+);
 
-// Avoid — multiple setState calls that must stay in sync
-setSecretRequestId(requestId);
-setSecretPrompt(prompt);
-setShowSecretOverlay(true);
+// Avoid — useReducer in any form. Locks state to one component subtree,
+// prevents atomic selectors, no devtools, doesn't survive remount,
+// duplicates the React state primitive we already use Zustand for.
+const [state, dispatch] = useReducer(secretReducer, initialState);
+
+// Avoid — dispatcher pattern inside a Zustand store. Zustand supports
+// this for Redux migrants but it's not idiomatic; named actions are
+// independently testable, discoverable in IDE autocomplete, and don't
+// pay the action-type/switch tax.
+create((set) => ({
+  dispatch: (action: SecretAction) =>
+    set((state) => secretReducer(state, action)),
+}));
 ```
 
-Extract the reducer into its own file so it can be tested as a pure
-function.
+Why no `useReducer` and no in-store reducer pattern:
 
-Reference: [React — Scaling Up with Reducer and Context](https://react.dev/learn/scaling-up-with-reducer-and-context)
+- **Consistency** — the codebase standardizes on Zustand stores with direct named actions as the single client-state primitive.
+- **Cross-component subscribers** — Zustand atomic selectors handle this for free; `useReducer` requires Context wrapping + cross-tree re-renders.
+- **Devtools** — Zustand integrates with Redux DevTools; `useReducer` doesn't.
+- **Persistence across remounts** — module-level Zustand stores survive route remounts; `useReducer` state doesn't.
+- **No prop drilling** — `useReducer` state must be passed down or wrapped in Context. Zustand selectors are accessible everywhere.
+- **No dispatcher boilerplate** — direct named actions skip the action-type union, the switch statement, and the runtime cost of an indirection layer. Each action is a plain function that's testable in isolation.
+
+For state with complex transition rules (state machines), express the
+rules as guards inside the named action itself — e.g. `acceptSend`
+no-ops if `phase !== "thinking"`. The action stays a plain function;
+the rules stay testable in isolation; we don't need a dispatcher
+ceremony to enforce them.
+
+References:
+- [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/guides/auto-generating-selectors)
+- [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
 
 ### Direct named actions, not reducers
 
