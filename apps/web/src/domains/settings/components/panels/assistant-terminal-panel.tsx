@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { TerminalPanel } from "@/domains/terminal/components/terminal-panel.js";
 import type { MaintenanceMode } from "@/generated/api/types.gen.js";
-import { getAssistant } from "@/domains/assistant/api.js";
+import { getAssistant } from "@/assistant/api.js";
 import { reportError } from "@/lib/errors/report.js";
 
 type TerminalService = "assistant" | "gateway" | "credential-executor";

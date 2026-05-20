@@ -11,7 +11,7 @@ import {
   assistantsProUpgradeMachineCreateMutation,
   organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen.js";
-import type { Assistant } from "@/domains/assistant/api.js";
+import type { Assistant } from "@/assistant/api.js";
 
 export interface ComputeUpgradeCardProps {
   assistant: Assistant;

@@ -54,9 +54,9 @@ import { useChatAttachments } from "@/domains/chat/components/chat-attachments/u
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input.js";
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters.js";
 import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
-import { useAssistantReachability } from "@/domains/assistant/use-assistant-reachability.js";
-import { useDiskPressureMonitor } from "@/domains/assistant/use-disk-pressure-monitor.js";
-import { getDiskPressureChatBlockReason } from "@/domains/assistant/disk-pressure.js";
+import { useAssistantReachability } from "@/assistant/use-assistant-reachability.js";
+import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor.js";
+import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges.js";
 import { useConversationLoader } from "@/domains/conversations/use-conversation-loader.js";
 import { useConversationActions } from "@/domains/conversations/use-conversation-actions.js";

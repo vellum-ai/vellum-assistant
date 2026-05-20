@@ -77,10 +77,14 @@ top-level folder for domain modules is called **`domains/`**.
 
 ```
 src/
+  assistant/                       # core domain — the assistant itself
+    api.ts                         #   identity, state, version, settings
+    lifecycle.ts                   #   hatch / retire / restart
+    types.ts                       #   shared assistant types
   stores/                          # app-level Zustand stores (cross-domain)
     viewer-store.ts
     sse-connected-store.ts
-  domains/                         # business domain modules
+  domains/                         # feature modules
     messages/                      # message lifecycle
       message-store.ts
       use-send-message.ts
@@ -250,6 +254,7 @@ owns it.
 
 | Folder | Purpose | Example contents |
 |---|---|---|
+| `assistant/` | Core business-domain code for the assistant itself — the central concept every feature composes around. Every domain may depend on it; it depends on no domain. New top-level business-concept folders require explicit team approval. | `api.ts`, `lifecycle.ts`, `types.ts`, `llm-model-catalog.ts` |
 | `stores/` | App-level Zustand stores (cross-domain state) | `viewer-store.ts`, `sse-connected-store.ts` |
 | `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-keyboard-shortcuts.ts` |
 | `utils/` | Pure utility functions (no side effects, no third-party SDKs) | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |

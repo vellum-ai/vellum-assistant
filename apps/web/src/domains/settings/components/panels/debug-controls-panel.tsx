@@ -7,7 +7,7 @@ import { toast } from "@vellum/design-library/components/toast";
 import { AssistantBackups } from "@/domains/settings/components/assistant-backups.js";
 import { RestartAssistant } from "@/domains/settings/components/restart-assistant.js";
 import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls.js";
-import { type Assistant, getAssistant } from "@/domains/assistant/api.js";
+import { type Assistant, getAssistant } from "@/assistant/api.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { reportError } from "@/lib/errors/report.js";
 import { clearOnboardingFlags } from "@/domains/onboarding/prefs.js";

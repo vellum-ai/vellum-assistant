@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   shouldDeferReachabilityOverlay,
   shouldFailReachabilityImmediately,
-} from "@/domains/assistant/use-assistant-reachability.js";
+} from "@/assistant/use-assistant-reachability.js";
 import type { ConnectionStatus } from "@/generated/api/index.js";
 
 function fakeResponse(

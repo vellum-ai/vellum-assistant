@@ -27,7 +27,7 @@ import {
   assistantsDoctorHistoryRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen.js";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen.js";
-import { getAssistant } from "@/domains/assistant/api.js";
+import { getAssistant } from "@/assistant/api.js";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf.js";
 import { reportError } from "@/lib/errors/report.js";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";

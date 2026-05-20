@@ -1,10 +1,4 @@
 {
-  "src/domains/chat/api/event-parser.ts": [
-    "assistant"
-  ],
-  "src/domains/chat/api/event-types.ts": [
-    "assistant"
-  ],
   "src/domains/chat/api/messages.ts": [
     "onboarding"
   ],
@@ -16,7 +10,6 @@
     "subagents"
   ],
   "src/domains/chat/chat-page.tsx": [
-    "assistant",
     "avatar",
     "conversations",
     "interactions",
@@ -31,21 +24,11 @@
     "voice"
   ],
   "src/domains/chat/components/chat-route-content.tsx": [
-    "assistant",
     "avatar",
     "interactions",
     "messaging",
     "nudges",
     "subagents"
-  ],
-  "src/domains/chat/components/composer-settings-menu.tsx": [
-    "assistant"
-  ],
-  "src/domains/chat/components/connecting-to-assistant.tsx": [
-    "assistant"
-  ],
-  "src/domains/chat/components/disk-pressure-banner.tsx": [
-    "assistant"
   ],
   "src/domains/chat/components/mobile-subagent-detail-overlay.tsx": [
     "subagents"
@@ -74,7 +57,6 @@
     "conversations"
   ],
   "src/domains/chat/hooks/use-assistant-lifecycle.ts": [
-    "assistant",
     "onboarding"
   ],
   "src/domains/chat/hooks/use-conversation-history.ts": [
@@ -103,7 +85,6 @@
     "messaging"
   ],
   "src/domains/chat/hooks/use-send-message.ts": [
-    "assistant",
     "conversations",
     "interactions",
     "messaging",
@@ -111,12 +92,14 @@
     "subagents"
   ],
   "src/domains/chat/hooks/use-stream-event-handler.ts": [
-    "assistant",
     "conversations",
     "messaging"
   ],
   "src/domains/chat/hooks/use-voice-input.ts": [
     "voice"
+  ],
+  "src/domains/chat/inspector/components/tabs/prompt-tab.tsx": [
+    "intelligence"
   ],
   "src/domains/chat/transcript/latest-turn-row.tsx": [
     "subagents"
@@ -146,7 +129,6 @@
     "messaging"
   ],
   "src/domains/chat/utils/stream-handlers/types.ts": [
-    "assistant",
     "messaging"
   ],
   "src/domains/chat/utils/turn-selectors.ts": [
@@ -213,7 +195,6 @@
     "avatar"
   ],
   "src/domains/intelligence/components/identity-tab.tsx": [
-    "assistant",
     "avatar",
     "chat"
   ],
@@ -262,7 +243,6 @@
     "settings"
   ],
   "src/domains/onboarding/pages/hatching-screen.tsx": [
-    "assistant",
     "avatar"
   ],
   "src/domains/onboarding/pages/pre-chat-flow.tsx": [
@@ -278,58 +258,21 @@
     "nudges"
   ],
   "src/domains/settings/ai/ai-page.tsx": [
-    "assistant",
     "voice"
-  ],
-  "src/domains/settings/ai/call-site-overrides-modal.tsx": [
-    "assistant"
-  ],
-  "src/domains/settings/ai/profile-editor-modal.tsx": [
-    "assistant"
-  ],
-  "src/domains/settings/ai/profile-param-visibility.ts": [
-    "assistant"
-  ],
-  "src/domains/settings/ai/provider-connections-client.ts": [
-    "assistant"
-  ],
-  "src/domains/settings/ai/provider-editor-modal.tsx": [
-    "assistant"
-  ],
-  "src/domains/settings/components/assistant-backups.tsx": [
-    "assistant"
-  ],
-  "src/domains/settings/components/assistant-status-panel.tsx": [
-    "assistant"
-  ],
-  "src/domains/settings/components/compute-upgrade-card.tsx": [
-    "assistant"
   ],
   "src/domains/settings/components/ios-app-card.tsx": [
     "nudges"
   ],
-  "src/domains/settings/components/panels/assistant-lifecycle-panel.tsx": [
-    "assistant"
-  ],
   "src/domains/settings/components/panels/assistant-terminal-panel.tsx": [
-    "assistant",
     "terminal"
   ],
   "src/domains/settings/components/panels/debug-controls-panel.tsx": [
-    "assistant",
     "onboarding"
-  ],
-  "src/domains/settings/components/panels/doctor-panel.tsx": [
-    "assistant"
   ],
   "src/domains/settings/components/profile-card.tsx": [
     "account"
   ],
-  "src/domains/settings/components/restart-assistant.tsx": [
-    "assistant"
-  ],
   "src/domains/settings/components/retire-assistant.tsx": [
-    "assistant",
     "onboarding"
   ],
   "src/domains/settings/components/risk-tolerance-settings.tsx": [
@@ -346,9 +289,6 @@
   ],
   "src/domains/settings/pages/community-page.tsx": [
     "nudges"
-  ],
-  "src/domains/settings/pages/integrations-page.tsx": [
-    "assistant"
   ],
   "src/domains/settings/pages/voice-page.tsx": [
     "voice"

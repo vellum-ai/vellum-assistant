@@ -7,7 +7,7 @@
  * provider or model is absent.
  */
 
-import { getModelsForProvider } from "@/domains/assistant/llm-model-catalog.js";
+import { getModelsForProvider } from "@/assistant/llm-model-catalog.js";
 
 export interface ProfileParamVisibility {
   maxTokens: boolean;

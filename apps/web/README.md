@@ -134,8 +134,9 @@ src/
   App.tsx                    # root layout component
   main.tsx                   # entry point (createRoot, RouterProvider)
   routes.tsx                 # route tree (createBrowserRouter)
+  assistant/                 # core domain — the assistant itself
   stores/                    # app-level Zustand stores (cross-domain)
-  domains/                   # business domain modules
+  domains/                   # feature modules
     messages/                # message lifecycle
     conversations/           # conversation CRUD, grouping, selection
     streaming/               # SSE transport, event parsing

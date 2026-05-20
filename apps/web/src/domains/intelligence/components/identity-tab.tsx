@@ -11,7 +11,7 @@ import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 import { fetchSkills, installSkill, uninstallSkill } from "@/domains/intelligence/skills/api.js";
 import type { SkillInfo } from "@/domains/intelligence/skills/types.js";
-import { getAssistant } from "@/domains/assistant/api.js";
+import { getAssistant } from "@/assistant/api.js";
 import { type AssistantIdentity, fetchAssistantIdentity } from "@/domains/chat/api/assistant.js";
 
 export interface IdentityCardProps {

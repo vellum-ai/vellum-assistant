@@ -75,13 +75,13 @@ import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
 
 import type { MainView, OpenedAppState, OpenedDocumentState } from "@/stores/viewer-store.js";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model.js";
-import { modelSupportsVision } from "@/domains/assistant/model-capabilities.js";
+import { modelSupportsVision } from "@/assistant/model-capabilities.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
 import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
-import { getDiskPressureChatBlockReason } from "@/domains/assistant/disk-pressure.js";
-import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
+import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";
+import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
 import { isSending, type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
 import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types.js";
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";

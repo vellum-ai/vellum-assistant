@@ -4,13 +4,13 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
 import { ProgressBar } from "@vellum/design-library/components/progress-bar";
-import { getAssistant, hatchAssistant } from "@/domains/assistant/api.js";
+import { getAssistant, hatchAssistant } from "@/assistant/api.js";
 import {
   isPlatformHostedDisabled,
   PLATFORM_HOSTED_DISABLED_MESSAGE,
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
-} from "@/domains/assistant/lifecycle.js";
+} from "@/assistant/lifecycle.js";
 import { fetchCharacterTraits, saveCharacterTraits } from "@/domains/avatar/api.js";
 import { BUNDLED_COMPONENTS } from "@/domains/avatar/bundled-components.js";
 import { randomCharacterTraits } from "@/domains/avatar/random.js";

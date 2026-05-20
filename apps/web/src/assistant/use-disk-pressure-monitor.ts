@@ -5,13 +5,13 @@ import {
   acknowledgeAssistantDiskPressure,
   getAssistantDiskPressureStatus,
   type DiskPressureStatus,
-} from "@/domains/assistant/api.js";
+} from "@/assistant/api.js";
 import {
   DISK_PRESSURE_POLL_INTERVAL_MS,
   areDiskPressureStatusesEqual,
   getDiskPressureMonitorMode,
   type DiskPressureMonitorMode,
-} from "@/domains/assistant/disk-pressure.js";
+} from "@/assistant/disk-pressure.js";
 
 export interface UseDiskPressureMonitorOptions {
   assistantId: string | null;
