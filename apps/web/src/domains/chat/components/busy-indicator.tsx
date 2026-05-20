@@ -4,7 +4,7 @@
  *
  * A filled circle that gently pulses in opacity (1→0.3) and scale (1→0.85)
  * over 1s easeInOut. Respects prefers-reduced-motion via the
- * `.busy-indicator` CSS class defined in appTheme.css.
+ * `.busy-indicator` CSS class defined in `apps/web/src/index.css`.
  *
  * Size guide (matching macOS usage):
  *   - 8px  — card-header status icon (ToolCallProgressCard CardStatusIcon)

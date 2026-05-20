@@ -2,7 +2,9 @@
 @import "@vellum/design-library/tokens.css";
 @source "../node_modules/@vellum/design-library/src/**/*.tsx";
 
-/* Functional keyframes — ported from platform appTheme.css */
+/* Functional keyframes — app-only animations. Animations consumed by
+ * design-library primitives (popoverIn, bottomSheetIn, panelitem-marquee,
+ * collapsible-slide-*) live in the library's tokens.css. */
 
 @keyframes indeterminate {
   0% { width: 0%; margin-left: 0%; }
@@ -39,4 +41,154 @@
   25% { transform: rotate(0.86deg); }
   50% { transform: rotate(0deg); }
   75% { transform: rotate(-0.86deg); }
+}
+
+/* BusyIndicator — mirrors macOS VBusyIndicator. A filled circle pulsing in
+ * opacity (1→0.3) and scale (1→0.85) over 1s easeInOut. Used in
+ * ToolCallProgressCard for active/thinking phases. */
+@keyframes busy-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.85); }
+}
+
+.busy-indicator {
+  animation: busy-pulse 1s ease-in-out infinite;
+}
+
+/* Onboarding hatching avatar pulse. Mirrors the macOS HatchingStepView
+ * character animation: scales between 0.9 and 1.0 on ease-in-out, 1.2s
+ * cycle, infinite alternate. Opacity dimmed to 0.6 so the creature reads
+ * as "asleep" during hatching. When the assistant becomes active, swap
+ * the class for `.onboarding-avatar-awake`. */
+@keyframes morphPulse {
+  0% { transform: scale(0.9); }
+  100% { transform: scale(1.0); }
+}
+
+.onboarding-avatar-pulse {
+  animation: morphPulse 1.2s ease-in-out infinite alternate;
+  opacity: 0.6;
+  will-change: transform, opacity;
+}
+
+.onboarding-avatar-awake {
+  transform: scale(1.1);
+  opacity: 1;
+  transition:
+    transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.4s ease-out;
+}
+
+/* Failed hatch — tilt the creature ~45° and desaturate toward gray.
+ * No `transition`: the error branch mounts a fresh MorphAvatar rather than
+ * swapping classes on a persistent node. */
+.onboarding-avatar-failed {
+  transform: rotate(45deg);
+  filter: grayscale(1) brightness(0.55);
+  opacity: 1;
+}
+
+/* App shell sizing guards: keep routed pages from collapsing inside flex
+ * main containers. */
+.app-shell {
+  width: 100%;
+  min-width: 0;
+}
+
+.app-shell-main > * {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Themed scrollbars — subtle, replacing the default OS gray. Applied to
+ * the root and all descendants. Theme-aware via the `data-theme` attribute
+ * on <html>. */
+:root {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 128, 142, 0.35) transparent;
+}
+
+:root *,
+:root *::before,
+:root *::after {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 128, 142, 0.35) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(113, 128, 142, 0.35);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(113, 128, 142, 0.6);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+[data-theme="dark"] {
+  scrollbar-color: rgba(169, 178, 187, 0.25) transparent;
+}
+
+[data-theme="dark"] *,
+[data-theme="dark"] *::before,
+[data-theme="dark"] *::after {
+  scrollbar-color: rgba(169, 178, 187, 0.25) transparent;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(169, 178, 187, 0.25);
+  background-clip: padding-box;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(169, 178, 187, 0.5);
+  background-clip: padding-box;
+}
+
+[data-theme="velvet"] {
+  scrollbar-color: rgba(232, 63, 91, 0.28) transparent;
+}
+
+[data-theme="velvet"] *,
+[data-theme="velvet"] *::before,
+[data-theme="velvet"] *::after {
+  scrollbar-color: rgba(232, 63, 91, 0.28) transparent;
+}
+
+[data-theme="velvet"] ::-webkit-scrollbar-thumb {
+  background: rgba(232, 63, 91, 0.28);
+  background-clip: padding-box;
+}
+
+[data-theme="velvet"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(232, 63, 91, 0.5);
+  background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .busy-indicator {
+    animation: none;
+    opacity: 0.6;
+  }
+  .typing-dot {
+    animation: none !important;
+    opacity: 0.7 !important;
+  }
 }
