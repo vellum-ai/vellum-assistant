@@ -47,3 +47,17 @@ This app is being migrated from [`vellum-assistant-platform/web/`](https://githu
 - **Faithful copy, not simplification.** Port real implementations, not stubs. All Capacitor/native code paths must be preserved.
 - **Convention compliance on arrival.** Apply this repo's naming (kebab-case), import conventions (`.js` extensions, `@/` aliases), and directory structure as code is ported.
 - **No marketing or admin pages.** Only the assistant web app and auth/identity pages are migrating.
+
+### Do not bring over upstream tech debt
+
+A faithful port is about preserving **behavior and feature parity**, not preserving every implementation choice. The platform repo was Next.js + Server Components + a different state model. This repo is Vite + React Router v7 + Zustand + TanStack Query. The stack changed; the code should change with it.
+
+This is an **open-source repo**. We're publicly setting an example for how to build a React app well — convention, style guide, and patterns should align with what [React](https://react.dev/), [React Router](https://reactrouter.com/), and major OSS players recommend, not with whatever the platform repo happened to do.
+
+When porting code or reviewing drift PRs:
+
+- **Apply React-idiomatic patterns**, not platform-idiomatic ones. Examples: prefer [adjust-state-during-render](https://react.dev/reference/react/useState#storing-information-from-previous-renders) over `useEffect` for state synchronization; prefer [`key` resets](https://react.dev/learn/you-might-not-need-an-effect#resetting-all-state-when-a-prop-changes) over manual cleanup effects; follow [React 19 patterns](https://react.dev/blog/2024/12/05/react-19) (Context as provider, ref as prop, `use()` for promises) — see also [`CLAUDE.md` — React conventions](../../CLAUDE.md).
+- **If a bot review (Codex, Devin, vex-assistant-bot, etc.) flags a real issue in code you just ported, fix it.** Don't dismiss findings as "matches upstream" — that's exactly the tech debt this rule exists to stop. The upstream platform repo will be deprecated; we do not need to mirror its bugs.
+- **If a refactor is called for, do it or ticket it.** Small refactors (extract a helper, replace `useEffect` with derived state, rename for clarity) belong in the port PR. Large refactors (rewrite a hook architecture, change a state management approach) get a separate Linear issue tracked in the [Web App Repo Move project](https://linear.app/vellum/project/web-app-repo-move-platform-vellum-assistant-1b8cd4f8-49cf-4b7b-b8e9-98b92046d2c3).
+- **If something is just completely wrong, fix it.** Same PR if small and obviously correct, separate PR + Linear issue if it warrants discussion.
+- **PR descriptions should call out divergences from the platform implementation** so reviewers understand what changed and why. A drift port that mirrors platform exactly is unusual; we expect deltas because the stack and conventions are different.
