@@ -4,7 +4,7 @@ The web app ships as both a browser SPA and the JS layer of a [Capacitor](https:
 
 If you're touching anything in `apps/web/src/runtime/`, anything that calls a `@capacitor/*` plugin, anything that streams from the daemon, anything that auto-resizes based on content, or anything that gates a browser API that triggers an OS permission alert — start here.
 
-The native iOS shell that consumes these patterns lives at [`apps/ios/`](../../apps/ios/).
+The native iOS shell that consumes these patterns lives at [`apps/ios/`](../../../apps/ios/).
 
 ---
 
@@ -39,7 +39,7 @@ References:
 
 ## Native auth on iOS
 
-Native auth uses [`ASWebAuthenticationSession`](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession) (Safari sheet) via a `NativeAuth` Capacitor plugin — see [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts) and the Swift side at [`apps/ios/App/App/NativeAuthPlugin.swift`](../../apps/ios/App/App/NativeAuthPlugin.swift).
+Native auth uses [`ASWebAuthenticationSession`](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession) (Safari sheet) via a `NativeAuth` Capacitor plugin — see [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts) and the Swift side at [`apps/ios/App/App/NativeAuthPlugin.swift`](../../../apps/ios/App/App/NativeAuthPlugin.swift).
 
 - **Protected (app) routes**: route protection middleware (see [`CONVENTIONS.md` § Route protection via middleware](./CONVENTIONS.md#route-protection-via-middleware)) redirects unauthenticated users to `/account/login?returnTo=…`. Individual pages should **not** render inline sign-in gates. Return `null` when `!isLoggedIn` and let the middleware handle the redirect. The branded login page (`/account/login`) renders a native login form (inside [`NativeSplash`](../src/components/native-splash.tsx)) on Capacitor iOS and a web login form on web.
 - **iOS login — no `providerHint`**: the iOS login form must use a single "Sign in" button with **no `providerHint`**. Do NOT add individual provider buttons or pass `providerHint` from the iOS login screen — see [Apple App Store Review Guideline 4](https://developer.apple.com/app-store/review/guidelines/#design) and [Guideline 4.8 — Sign in with Apple](https://developer.apple.com/app-store/review/guidelines/#login-services). The `providerHint` / `loginHint` parameters remain in the helper API for web and other use cases but must not be used from the iOS login entry point.

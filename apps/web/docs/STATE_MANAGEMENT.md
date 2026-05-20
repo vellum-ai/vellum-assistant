@@ -285,7 +285,16 @@ const useOrgStoreBase = create<OrgStore>()((set) => ({
 const { data } = useQuery(assistantsListOptions());
 ```
 
+### Why React Query (not SWR or others)
+
+- [HeyAPI `@tanstack/react-query` plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query) auto-generates type-safe query/mutation/infinite-query hooks from the OpenAPI spec. No equivalent plugin exists for SWR (still in proposal stage) or other libraries — this alone is decisive given our HeyAPI codegen pipeline.
+- First-class mutation support, optimistic updates, and Redux-DevTools-style query inspection.
+- 12M+ weekly downloads (2026), the most feature-complete option in the React server-state space.
+- Boundary with Zustand is documented explicitly — see the section above. React Query handles server state; Zustand handles client state; they do not overlap.
+
 References:
+- [React Query — Overview](https://tanstack.com/query/latest/docs/framework/react/overview)
+- [React Query — Comparison](https://tanstack.com/query/latest/docs/framework/react/comparison)
 - [TkDodo — Working with Zustand](https://tkdodo.eu/blog/working-with-zustand) — React Query maintainer's guidance on the boundary between server state (RQ) and client/infrastructure state (Zustand)
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
 

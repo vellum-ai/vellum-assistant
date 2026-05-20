@@ -5,8 +5,8 @@ Covers code organization, state management, component design, and
 framework strategy. For coding style, naming, and import rules see
 [`STYLE_GUIDE.md`](./STYLE_GUIDE.md).
 
-Subordinate to [`apps/AGENTS.md`](../AGENTS.md) and root
-[`AGENTS.md`](../../AGENTS.md).
+Subordinate to [`apps/web/AGENTS.md`](../AGENTS.md), [`apps/AGENTS.md`](../../AGENTS.md), and
+root [`AGENTS.md`](../../../AGENTS.md).
 
 ---
 
@@ -15,7 +15,7 @@ Subordinate to [`apps/AGENTS.md`](../AGENTS.md) and root
 The web app is a **Vite + React Router v7 SPA** using
 [library / data-router mode](https://reactrouter.com/start/modes)
 (`createBrowserRouter` + `<RouterProvider>`). See
-[`apps/web/README.md`](./README.md) for the full stack description and
+[`apps/web/README.md`](../README.md) for the full stack description and
 local development commands.
 
 ### Why Data mode, not Framework mode
@@ -469,7 +469,7 @@ export function ChatMarkdownMessage(props: ChatMarkdownMessageProps) {
 
 For component authoring conventions (React 19 ref-as-prop, `data-slot`,
 variant patterns, file organization), see
-[`packages/design-library/README.md`](../../packages/design-library/README.md).
+[`packages/design-library/README.md`](../../../packages/design-library/README.md).
 
 References:
 - [Node.js — Package exports](https://nodejs.org/api/packages.html#exports)

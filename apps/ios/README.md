@@ -95,7 +95,7 @@ Apple's reference for the toolbar controls:
 
 > **Web-side conventions for iOS code paths**: any change to the web app
 > that might run inside this WKWebView shell needs to follow the patterns
-> in [`apps/web/CAPACITOR.md`](../web/CAPACITOR.md) — Capacitor plugin
+> in [`apps/web/docs/CAPACITOR.md`](../web/docs/CAPACITOR.md) — Capacitor plugin
 > lazy imports, native auth, deep links, autogrowing textareas,
 > streaming watchdogs, OS permission UI, etc.
 
