@@ -804,6 +804,13 @@ export interface UnifiedTurnContextOptions {
    * the model can acknowledge long absences; otherwise omitted.
    */
   timeSinceLastMessage?: string | null;
+  /**
+   * Human-readable model profile description. Only populated when the active
+   * inference profile changed since the last turn (or on the first turn of a
+   * conversation) so the model knows which profile/model it is using without
+   * paying per-turn token cost.
+   */
+  modelProfile?: string | null;
 }
 
 /**
@@ -861,6 +868,9 @@ export function buildUnifiedTurnContextBlock(
   }
   if (options.timeSinceLastMessage) {
     lines.push(`time_since_last_message: ${options.timeSinceLastMessage}`);
+  }
+  if (options.modelProfile) {
+    lines.push(`model_profile: ${options.modelProfile}`);
   }
   if (options.interfaceName) {
     lines.push(`interface: ${options.interfaceName}`);

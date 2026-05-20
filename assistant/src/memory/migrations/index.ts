@@ -227,6 +227,7 @@ export {
   downMemoryV2InjectionEvents,
   migrateMemoryV2InjectionEvents,
 } from "./256-memory-v2-injection-events.js";
+export { migrateConversationLastNotifiedProfile } from "./253-conversation-last-notified-profile.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

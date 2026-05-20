@@ -41,6 +41,7 @@ export const conversations = sqliteTable(
     inferenceProfile: text("inference_profile"),
     inferenceProfileSessionId: text("inference_profile_session_id"),
     inferenceProfileExpiresAt: integer("inference_profile_expires_at"),
+    lastNotifiedInferenceProfile: text("last_notified_inference_profile"),
   },
   (table) => [
     index("idx_conversations_updated_at").on(table.updatedAt),

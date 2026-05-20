@@ -206,6 +206,7 @@ export interface ConversationRow {
   inferenceProfile: string | null;
   inferenceProfileSessionId: string | null;
   inferenceProfileExpiresAt: number | null;
+  lastNotifiedInferenceProfile: string | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -238,6 +239,7 @@ export const parseConversation = createRowMapper<
   inferenceProfile: "inferenceProfile",
   inferenceProfileSessionId: "inferenceProfileSessionId",
   inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
+  lastNotifiedInferenceProfile: "lastNotifiedInferenceProfile",
 });
 
 export interface MessageRow {
@@ -1614,6 +1616,17 @@ export function getConversationOverrideProfile(
   conversationId: string,
 ): string | undefined {
   return getConversationOverrideProfileFromRow(getConversation(conversationId));
+}
+
+export function setLastNotifiedInferenceProfile(
+  conversationId: string,
+  profileKey: string | null,
+): void {
+  rawRun(
+    "UPDATE conversations SET last_notified_inference_profile = ? WHERE id = ?",
+    profileKey,
+    conversationId,
+  );
 }
 
 /**

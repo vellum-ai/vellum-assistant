@@ -31,7 +31,10 @@ import {
   type EffectiveContextWindow,
   resolveEffectiveContextWindow,
 } from "../config/llm-context-resolution.js";
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import {
+  resolveCallSiteConfig,
+  resolveDefaultProfileKey,
+} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../config/types.js";
@@ -62,6 +65,7 @@ import {
   getConversationOriginInterface,
   getConversationOverrideProfileFromRow,
   getLastUserTimestampBefore,
+  setLastNotifiedInferenceProfile,
   getMessageById,
   provenanceFromTrustContext,
   updateConversationContextWindow,
@@ -1519,6 +1523,31 @@ export async function runAgentLoopImpl(
       }
     }
 
+    // Resolve the effective profile key for this turn and detect changes.
+    // Only inject model_profile into the turn context when the profile
+    // changed since the last turn (or on the first turn of a conversation)
+    // to avoid per-turn token cost.
+    const effectiveProfileKey =
+      turnOverrideProfile ??
+      config.llm.activeProfile ??
+      resolveDefaultProfileKey("mainAgent", config.llm);
+    const lastNotified = turnStartConversation?.lastNotifiedInferenceProfile;
+    let modelProfileStr: string | null = null;
+    if (effectiveProfileKey != null && effectiveProfileKey !== lastNotified) {
+      const profileEntry = config.llm.profiles?.[effectiveProfileKey];
+      const resolved = resolveCallSiteConfig(turnCallSite, config.llm, {
+        overrideProfile: turnOverrideProfile ?? undefined,
+      });
+      const label = profileEntry?.label ?? effectiveProfileKey;
+      modelProfileStr = resolved.model
+        ? `${label} (${resolved.model})`
+        : label;
+      setLastNotifiedInferenceProfile(
+        ctx.conversationId,
+        effectiveProfileKey,
+      );
+    }
+
     const baseTurnContext = {
       timestamp,
       interfaceName,
@@ -1527,6 +1556,7 @@ export async function runAgentLoopImpl(
       clientTimezone: timezoneContext.clientTimezone,
       detectedTimezone: timezoneContext.detectedTimezone,
       timeSinceLastMessage,
+      modelProfile: modelProfileStr,
     };
     const unifiedTurnContextStr = buildUnifiedTurnContextBlock(
       isGuardian

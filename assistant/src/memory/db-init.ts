@@ -69,6 +69,7 @@ import {
   migrateConversationForkLineage,
   migrateConversationHostAccess,
   migrateConversationInferenceProfileSession,
+  migrateConversationLastNotifiedProfile,
   migrateConversationsArchivedAt,
   migrateConversationsLastMessageAt,
   migrateConversationsThreadTypeIndex,
@@ -444,6 +445,7 @@ export function initializeDb(): void {
     migrateExternalConversationBindingChatName,
     migrateChannelInboundDeliveryAttempts,
     migrateMemoryV2InjectionEvents,
+    migrateConversationLastNotifiedProfile,
   ];
 
   // Run each migration step, catching and logging individual failures so one
