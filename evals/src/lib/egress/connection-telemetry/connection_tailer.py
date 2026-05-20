@@ -43,8 +43,11 @@ import threading
 from datetime import datetime, timezone
 from typing import Optional
 
-OUTPUT_PATH = os.environ["TELEMETRY_OUTPUT_PATH"]
-ACCT_ENABLED = os.environ.get("TELEMETRY_ACCT_ENABLED", "false").lower() == "true"
+# Env vars are read inside main() rather than at module top-level so that
+# importing this module (e.g. from test_connection_tailer.py to exercise the
+# pure parser functions) does not require setting TELEMETRY_OUTPUT_PATH.
+TELEMETRY_OUTPUT_PATH_ENV = "TELEMETRY_OUTPUT_PATH"
+TELEMETRY_ACCT_ENABLED_ENV = "TELEMETRY_ACCT_ENABLED"
 
 
 # Conntrack -E line format (extended + ktimestamp), e.g.:
@@ -136,13 +139,20 @@ def connection_key(parsed: dict) -> tuple:
 
 
 def main() -> int:
+    # Read env vars here (not at module load) so the module stays
+    # importable from tests without requiring runtime env setup.
+    output_path = os.environ[TELEMETRY_OUTPUT_PATH_ENV]
+    acct_enabled = (
+        os.environ.get(TELEMETRY_ACCT_ENABLED_ENV, "false").lower() == "true"
+    )
+
     # Track NEW timestamps keyed by 5-tuple so we can compute duration
     # at DESTROY time.
     first_seen: dict[tuple, float] = {}
 
     # Open in line-buffered append mode so partial writes during
     # mid-record SIGTERM never corrupt the NDJSON.
-    out = open(OUTPUT_PATH, "a", buffering=1)
+    out = open(output_path, "a", buffering=1)
 
     cmd = [
         "conntrack",
@@ -203,7 +213,7 @@ def main() -> int:
                 "bytes_recv": parsed["bytes_recv"],
                 "packets_sent": parsed["packets_sent"],
                 "packets_recv": parsed["packets_recv"],
-                "acct_enabled": ACCT_ENABLED,
+                "acct_enabled": acct_enabled,
             }
             out.write(json.dumps(record) + "\n")
 
