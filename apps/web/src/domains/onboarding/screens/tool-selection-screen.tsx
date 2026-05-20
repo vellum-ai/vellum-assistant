@@ -58,6 +58,7 @@ export function ToolSelectionScreen({
       lastEmittedOtherSet.current = setKeyForOtherEntries(next);
       onChange(next);
     }
+    // deps: selectedTools and onChange intentionally omitted — including selectedTools causes an update loop (effect → onChange → new selectedTools → effect)
   }, [otherText]);
 
   const toggleTool = (id: string): void => {

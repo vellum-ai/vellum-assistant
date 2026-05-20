@@ -18,7 +18,7 @@ import {
 } from "@/lib/oauth-popup.js";
 import { PRECHAT_TOOLS } from "@/lib/onboarding/prechat-tools.js";
 import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link.js";
-import { isNativePlatform } from "@/runtime/native-auth.js";
+import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser.js";
 import { routes } from "@/utils/routes.js";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout.js";
@@ -43,7 +43,7 @@ export function GoogleConnectScreen({
   onBack,
 }: GoogleConnectScreenProps) {
   const queryClient = useQueryClient();
-  const isNative = isNativePlatform();
+  const isNative = useIsNativePlatform();
 
   const popupRef = useRef<Window | null>(null);
   const pendingRequestRef = useRef<{ requestId: string } | null>(null);

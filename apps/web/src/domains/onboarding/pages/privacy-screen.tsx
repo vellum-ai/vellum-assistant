@@ -39,7 +39,6 @@ function SettingRow({
         checked={checked}
         onChange={onChange}
         id={toggleId}
-        aria-label={label}
       />
       <label htmlFor={toggleId} className="min-w-0 flex-1 cursor-pointer">
         <span className="block text-body-medium-default text-[var(--content-default)]">
