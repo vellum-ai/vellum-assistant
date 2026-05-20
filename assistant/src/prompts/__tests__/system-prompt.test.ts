@@ -120,6 +120,33 @@ describe("maybeReseedBootstrapForCohort — content-automation template", () => 
     expect(content).toContain("data/sanity-connection.json");
   });
 
+  test("references data/content-source.json for URL-import sidecar detection", () => {
+    const content = reseedAndRead();
+    expect(content).toContain("data/content-source.json");
+  });
+
+  test("instructs to skip triage when sanity-connection.json sidecar exists", () => {
+    const content = reseedAndRead();
+    // The preamble check must instruct skipping triage when the sidecar is present
+    expect(content).toContain("data/sanity-connection.json");
+    expect(content).toContain("Skip the triage question");
+  });
+
+  test("instructs to skip triage when content-source.json sidecar exists", () => {
+    const content = reseedAndRead();
+    expect(content).toContain("data/content-source.json");
+    expect(content).toContain("Skip the triage question");
+  });
+
+  test("still contains four-option triage as fallback when no sidecars exist", () => {
+    const content = reseedAndRead();
+    // The "If neither exists" path must still present the four-option triage
+    expect(content).toContain("I have a Sanity account");
+    expect(content).toContain("I want to try Sanity");
+    expect(content).toContain("website or blog");
+    expect(content).toContain("somewhere else");
+  });
+
   test("references assistant oauth request --provider sanity for authenticated API calls", () => {
     const content = reseedAndRead();
     expect(content).toContain("assistant oauth request --provider sanity");
