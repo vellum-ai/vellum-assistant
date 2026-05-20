@@ -41,7 +41,22 @@ jobs:
         run: bun run lint
 
       - name: Audit cross-domain import allow-list freshness
-        run: bun run audit:cross-domain:check
+        run: |
+          set +e
+          bun run audit:cross-domain:check
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "::group::audit:cross-domain debug — regenerating to show diff"
+            bun run audit:cross-domain
+            echo "::endgroup::"
+            echo "::group::git diff"
+            git -c color.ui=never diff -- .cross-domain-allowlist.json | head -200
+            echo "::endgroup::"
+            echo "::group::file count"
+            find src/domains -type f \( -name "*.ts" -o -name "*.tsx" \) | wc -l
+            echo "::endgroup::"
+            exit $rc
+          fi
 
   typecheck:
     name: Type Check
