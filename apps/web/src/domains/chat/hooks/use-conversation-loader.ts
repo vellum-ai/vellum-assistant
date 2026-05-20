@@ -38,7 +38,6 @@ import {
   useConversationHistory,
   type HistoryPaginationSnapshot,
 } from "@/domains/chat/hooks/use-conversation-history.js";
-import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking.js";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { getChatContext } from "@/domains/chat/api/assistant.js";
@@ -82,9 +81,6 @@ interface UseConversationLoaderParams {
 
   // Collections
   conversations: Conversation[];
-  activeConversation: Conversation | undefined;
-  processingKeys: Set<string>;
-  attentionKeys: Set<string>;
   transcriptPagination: Omit<TranscriptPaginationState, "items">;
 
   // Feature flags / epochs
@@ -104,7 +100,6 @@ interface UseConversationLoaderParams {
   inputRef: MutableRefObject<HTMLTextAreaElement | null>;
   draftsRef: MutableRefObject<Map<string, string>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  conversationsRef: MutableRefObject<Conversation[]>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   needsNewBubbleRef: MutableRefObject<boolean>;
@@ -113,7 +108,6 @@ interface UseConversationLoaderParams {
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  processingSnapshotsRef: MutableRefObject<Map<string, string | undefined>>;
   refreshSettleRef: MutableRefObject<RefreshSettleHandle | null>;
   lastSuggestionMsgIdRef: MutableRefObject<string | null>;
   autoGreetRef: MutableRefObject<boolean>;
@@ -170,7 +164,10 @@ interface UseConversationLoaderParams {
  *
  * Delegates to:
  * - `useConversationHistory` -- conversation switch, cache, and history loading
- * - `useAttentionTracking` -- processing/attention key lifecycle and polling
+ *
+ * Attention/processing-key tracking is now owned by `useAttentionTracking`,
+ * mounted in `ChatLayout` so its 10s polling loop covers every chat-layout
+ * route (home/library/contacts/identity), not only `/assistant`.
  */
 export function useConversationLoader({
   assistantId,
@@ -180,9 +177,6 @@ export function useConversationLoader({
   searchParams,
   navigate,
   conversations,
-  activeConversation,
-  processingKeys,
-  attentionKeys,
   transcriptPagination,
   conversationGroupsUI,
   refreshEpoch,
@@ -196,7 +190,6 @@ export function useConversationLoader({
   inputRef,
   draftsRef,
   messagesRef,
-  conversationsRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   needsNewBubbleRef,
@@ -205,7 +198,6 @@ export function useConversationLoader({
   requestIdToStableIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
-  processingSnapshotsRef,
   refreshSettleRef,
   lastSuggestionMsgIdRef,
   autoGreetRef,
@@ -491,21 +483,6 @@ export function useConversationLoader({
     resetChatAttachments,
     syncNeedsNewBubbleFromMessages,
     shouldSuppressGenericChatErrorNotice,
-  });
-
-  // -------------------------------------------------------------------------
-  // Delegate: attention tracking and processing key lifecycle
-  // -------------------------------------------------------------------------
-  useAttentionTracking({
-    assistantId,
-    assistantStateKind,
-    activeConversationKey,
-    conversations,
-    activeConversation,
-    processingKeys,
-    attentionKeys,
-    conversationsRef,
-    processingSnapshotsRef,
   });
 
   // -------------------------------------------------------------------------

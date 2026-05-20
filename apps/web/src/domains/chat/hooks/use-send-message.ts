@@ -36,6 +36,7 @@ import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import {
+  findConversationInCache,
   prependConversationInCache,
   removeConversationFromCache,
   resolveDraftKeyInCache,
@@ -88,7 +89,6 @@ interface UseSendMessageParams {
   activeConversationKeyRef: MutableRefObject<string | null>;
 
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  conversationsRef: MutableRefObject<Conversation[]>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamContextRef: MutableRefObject<{
     assistantId: string;
@@ -96,7 +96,6 @@ interface UseSendMessageParams {
   } | null>;
   streamEpochRef: MutableRefObject<number>;
   needsNewBubbleRef: MutableRefObject<boolean>;
-  processingSnapshotsRef: MutableRefObject<Map<string, string | undefined>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   pendingOnboardingContextRef: MutableRefObject<PreChatOnboardingContext | null>;
   onboardingDraftConversationKeyRef: MutableRefObject<string | null>;
@@ -134,12 +133,10 @@ export function useSendMessage({
   assistantIdRef,
   activeConversationKeyRef,
   messagesRef,
-  conversationsRef,
   streamRef,
   streamContextRef,
   streamEpochRef,
   needsNewBubbleRef,
-  processingSnapshotsRef,
   dismissedSurfaceIdsRef,
   pendingOnboardingContextRef,
   onboardingDraftConversationKeyRef,
@@ -491,14 +488,19 @@ export function useSendMessage({
             const fallbackTurnId = newTurnId();
             useTurnStore.getState().requestSend(fallbackTurnId);
             useTurnStore.getState().acceptSend(fallbackTurnId);
-            useConversationListStore.getState().addProcessingKey(activeConversationKey);
-            const currentConv = conversationsRef.current.find(
-              (c) => c.conversationKey === activeConversationKey,
-            );
-            processingSnapshotsRef.current.set(
-              activeConversationKey,
-              currentConv?.latestAssistantMessageAt as string | undefined,
-            );
+            {
+              const currentConv = findConversationInCache(
+                queryClient,
+                assistantId,
+                activeConversationKey,
+              );
+              useConversationListStore
+                .getState()
+                .addProcessingKey(
+                  activeConversationKey,
+                  currentConv?.latestAssistantMessageAt as string | undefined,
+                );
+            }
             return;
           }
         } catch {
@@ -511,12 +513,17 @@ export function useSendMessage({
       const turnId = newTurnId();
       useTurnStore.getState().requestSend(turnId);
 
-      useConversationListStore.getState().addProcessingKey(activeConversationKey);
-      const currentConv = conversationsRef.current.find(c => c.conversationKey === activeConversationKey);
-      processingSnapshotsRef.current.set(
+      const currentConv = findConversationInCache(
+        queryClient,
+        assistantId,
         activeConversationKey,
-        currentConv?.latestAssistantMessageAt as string | undefined,
       );
+      useConversationListStore
+        .getState()
+        .addProcessingKey(
+          activeConversationKey,
+          currentConv?.latestAssistantMessageAt as string | undefined,
+        );
 
       // Optimistically add a stub conversation to the sidebar for draft
       // conversations that don't exist on the server yet.
@@ -541,12 +548,9 @@ export function useSendMessage({
         // Resolve draft key -> server-assigned conversation ID.
         if (resolvedId && resolvedId !== activeConversationKey) {
           const newKey = resolvedId;
-          useConversationListStore.getState().transferProcessingKey(activeConversationKey, newKey);
-          const snapshot = processingSnapshotsRef.current.get(activeConversationKey);
-          processingSnapshotsRef.current.delete(activeConversationKey);
-          if (snapshot !== undefined) {
-            processingSnapshotsRef.current.set(newKey, snapshot);
-          }
+          useConversationListStore
+            .getState()
+            .transferProcessingKey(activeConversationKey, newKey);
           resolveDraftKeyInCache(queryClient, assistantId, activeConversationKey, newKey);
           resolveEditChatDraftKey(activeConversationKey, newKey);
 
@@ -570,7 +574,6 @@ export function useSendMessage({
         setError({ message: "Something went wrong. Please try again." });
         useTurnStore.getState().onStreamError();
         const keysToClean = [activeConversationKey, resolvedId].filter(Boolean) as string[];
-        for (const k of keysToClean) processingSnapshotsRef.current.delete(k);
         if (keysToClean.length > 0) {
           useConversationListStore.getState().removeMultipleProcessingKeys(keysToClean);
         }
@@ -604,7 +607,6 @@ export function useSendMessage({
     useSubagentStore.getState().reset();
     confirmationToolCallMapRef.current.clear();
     useConversationListStore.getState().removeProcessingKey(activeConversationKey);
-    processingSnapshotsRef.current.delete(activeConversationKey);
     try {
       await cancelGeneration(assistantId, activeConversationKey);
     } catch {

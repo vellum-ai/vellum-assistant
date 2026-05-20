@@ -10,6 +10,7 @@ import { LibraryDetailPage } from "@/domains/library/library-detail-page.js";
 import { IdentityPage } from "@/domains/intelligence/identity-page.js";
 import { ConnectPage } from "@/domains/contacts/connect-page.js";
 import { ContactsPage } from "@/domains/contacts/contacts-page.js";
+import { WorkspacePage } from "@/domains/workspace/workspace-page.js";
 import { NotFound } from "@/components/not-found.js";
 import { SettingsLayout } from "@/domains/settings/settings-layout.js";
 import { GeneralPage } from "@/domains/settings/pages/general-page.js";
@@ -178,6 +179,7 @@ export const router = createBrowserRouter([
           { path: "library", element: <LibraryPage /> },
           { path: "library/:appId", element: <LibraryDetailPage /> },
           { path: "identity", element: <IdentityPage /> },
+          { path: "workspace", element: <WorkspacePage /> },
           { path: "contacts", element: <ContactsPage /> },
           { path: "connect", element: <ConnectPage /> },
         ],
