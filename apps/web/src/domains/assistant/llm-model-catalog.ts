@@ -214,6 +214,7 @@ export const MODELS_BY_PROVIDER = {
       contextWindowTokens: 1_040_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 131_072,
+      supportsThinking: true,
     },
   ],
   openrouter: [

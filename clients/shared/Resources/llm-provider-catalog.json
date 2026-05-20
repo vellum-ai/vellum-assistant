@@ -567,7 +567,7 @@
           "maxOutputTokens": 131072,
           "defaultContextWindowTokens": 200000,
           "longContextMode": "native-model",
-          "supportsThinking": false,
+          "supportsThinking": true,
           "supportsCaching": false,
           "supportsVision": false,
           "supportsToolUse": true,
