@@ -24,7 +24,7 @@ import type {
   ConversationStarter,
   ConversationStartersStatus,
   ListConversationStartersResult,
-} from "@/domains/chat/lib/conversation-starters.js";
+} from "@/domains/chat/utils/conversation-starters.js";
 
 // ---------------------------------------------------------------------------
 // Captured query config + currently-served stub data.

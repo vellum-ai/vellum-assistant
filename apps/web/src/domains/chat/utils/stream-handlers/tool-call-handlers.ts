@@ -1,4 +1,4 @@
-import { newStableId } from "@/domains/chat/lib/stable-id.js";
+import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import {
   applyToolResult,
   upsertToolCall,

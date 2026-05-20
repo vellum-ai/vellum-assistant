@@ -7,7 +7,7 @@ import {
   pinApp,
   savePinnedApps,
   unpinApp,
-} from "@/domains/chat/lib/appPinStorage.js";
+} from "@/domains/chat/utils/appPinStorage.js";
 
 const STORAGE_KEY = "vellum:pinnedApps";
 

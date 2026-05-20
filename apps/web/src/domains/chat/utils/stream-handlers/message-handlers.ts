@@ -1,5 +1,5 @@
-import { recordChatDiagnostic } from "@/domains/chat/lib/diagnostics.js";
-import { newStableId } from "@/domains/chat/lib/stable-id.js";
+import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
+import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import {
   appendTextDelta,
   createStreamingBubble,

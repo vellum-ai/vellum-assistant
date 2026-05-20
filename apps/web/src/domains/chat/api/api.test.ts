@@ -65,7 +65,7 @@ mock.module("@sentry/nextjs", () => ({
 import {
   getChatDiagnosticsEvents,
   recordChatDiagnostic,
-} from "@/domains/chat/lib/diagnostics.js";
+} from "@/domains/chat/utils/diagnostics.js";
 import {
   type TurnState,
   INITIAL_TURN_STATE,

@@ -6,7 +6,7 @@ import {
   buildMoveToGroupTargets,
   getEffectiveGroupId,
   groupConversations,
-} from "@/domains/chat/lib/groupConversations.js";
+} from "@/domains/chat/utils/groupConversations.js";
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
   return {

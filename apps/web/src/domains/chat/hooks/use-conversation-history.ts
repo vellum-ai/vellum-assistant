@@ -12,16 +12,16 @@ import {
 import {
   type DisplayMessage,
   reconcileDisplayMessagesWithLatestHistory,
-} from "@/domains/chat/lib/reconcile.js";
+} from "@/domains/chat/utils/reconcile.js";
 import {
   filterDismissedSurfaces,
   loadDismissedSurfaceIds,
-} from "@/domains/chat/lib/dismissedSurfacesStorage.js";
+} from "@/domains/chat/utils/dismissedSurfacesStorage.js";
 import { fetchLatestHistoryPage } from "@/domains/chat/api/history.js";
 import {
   recordChatDiagnostic,
   summarizeDisplayMessages,
-} from "@/domains/chat/lib/diagnostics.js";
+} from "@/domains/chat/utils/diagnostics.js";
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";

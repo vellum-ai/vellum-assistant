@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { getRiskBadgeStyle, getProvenanceText, wasExpected } from "@/domains/chat/lib/risk-utils.js";
+import { getRiskBadgeStyle, getProvenanceText, wasExpected } from "@/domains/chat/utils/risk-utils.js";
 import { useElapsedTime } from "@/domains/chat/lib/use-elapsed-time.js";
 
 import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";

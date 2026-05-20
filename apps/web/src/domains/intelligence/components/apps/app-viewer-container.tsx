@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import { AppNavBar } from "@/components/app-nav-bar.js";
-import { FETCH_PROXY_ALLOWED_PATH_RE, injectBridge } from "@/domains/chat/lib/app-bridge.js";
+import { FETCH_PROXY_ALLOWED_PATH_RE, injectBridge } from "@/domains/chat/utils/app-bridge.js";
 import { client } from "@/domains/intelligence/client.js";
 
 export interface AppViewerContainerProps {

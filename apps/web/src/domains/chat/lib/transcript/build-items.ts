@@ -5,7 +5,7 @@
 // forthcoming Transcript component can render a single flat list
 // without re-implementing those projection rules.
 
-import { dedupeDisplayMessages, type DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import { dedupeDisplayMessages, type DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type {
   MessageItem,
   PendingContactRequestItem,

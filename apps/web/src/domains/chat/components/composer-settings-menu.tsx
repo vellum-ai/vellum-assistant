@@ -26,7 +26,7 @@ import {
   overrideAction,
   presetFromThreshold,
   type ThresholdPreset,
-} from "@/domains/chat/lib/threshold-presets.js";
+} from "@/domains/chat/utils/threshold-presets.js";
 
 interface Props {
   assistantId: string;

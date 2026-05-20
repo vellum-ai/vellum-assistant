@@ -15,7 +15,7 @@ import {
 import {
   THRESHOLD_PRESETS,
   presetFromThreshold,
-} from "@/domains/chat/lib/threshold-presets.js";
+} from "@/domains/chat/utils/threshold-presets.js";
 
 function Divider() {
   return (

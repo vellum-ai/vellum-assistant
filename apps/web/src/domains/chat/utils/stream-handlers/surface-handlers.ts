@@ -3,7 +3,7 @@ import {
   isSurfaceInteractive,
   type Surface,
 } from "@/domains/chat/lib/types.js";
-import { saveDismissedSurfaceIds } from "@/domains/chat/lib/dismissedSurfacesStorage.js";
+import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissedSurfacesStorage.js";
 import {
   attachSurface,
   completeSurface,

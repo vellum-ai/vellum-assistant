@@ -1,5 +1,5 @@
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import { saveContextWindowUsage } from "@/domains/chat/lib/contextWindowStorage.js";
+import { saveContextWindowUsage } from "@/domains/chat/utils/contextWindowStorage.js";
 import {
   extractConversationKey,
   postLocalNotification,

@@ -24,7 +24,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 
-import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 
 // ---------------------------------------------------------------------------
 // Store shape

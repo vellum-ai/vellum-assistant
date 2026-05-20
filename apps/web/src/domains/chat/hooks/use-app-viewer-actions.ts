@@ -16,7 +16,7 @@ import { type MutableRefObject, type RefObject, useCallback, useEffect, useRef }
 import { toast } from "@vellum/design-library";
 import { openApp, shareApp } from "@/domains/chat/api/apps.js";
 import { fetchDocumentContent } from "@/domains/chat/api/documents.js";
-import { getEditChatKey, setEditChatKey } from "@/domains/chat/lib/edit-chat-session.js";
+import { getEditChatKey, setEditChatKey } from "@/domains/chat/utils/edit-chat-session.js";
 import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/api/publish.js";
 import type {
   OpenedAppState,

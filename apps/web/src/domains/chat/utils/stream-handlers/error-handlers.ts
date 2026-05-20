@@ -1,4 +1,4 @@
-import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/lib/error-classification.js";
+import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
 import {
   handleConversationError,
   stopStreaming,

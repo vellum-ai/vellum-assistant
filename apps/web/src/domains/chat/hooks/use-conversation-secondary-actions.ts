@@ -24,7 +24,7 @@ import type { Conversation } from "@/domains/chat/api/conversations.js";
 import { analyzeConversation, forkConversation } from "@/domains/chat/api/conversations.js";
 import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { ChatError } from "@/domains/chat/types.js";
 
 // ---------------------------------------------------------------------------

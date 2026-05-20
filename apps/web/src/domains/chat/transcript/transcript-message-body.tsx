@@ -13,7 +13,7 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions.js";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/index.js";
 import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js";
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { Surface } from "@/domains/chat/lib/types.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";

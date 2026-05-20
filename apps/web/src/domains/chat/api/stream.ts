@@ -9,7 +9,7 @@
 import * as Sentry from "@sentry/browser";
 
 import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client.js";
-import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/lib/diagnostics.js";
+import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/utils/diagnostics.js";
 import { parseAssistantEvent, readEventConversationKey } from "@/domains/chat/api/event-parser.js";
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";

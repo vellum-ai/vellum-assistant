@@ -4,7 +4,7 @@ import {
   getChatBillingBannerDecision,
   shouldShowGenericChatErrorNotice,
   shouldSuppressGenericChatErrorNotice,
-} from "@/domains/chat/lib/error-classification.js";
+} from "@/domains/chat/utils/error-classification.js";
 
 describe("chat error classification", () => {
   test("classifies provider billing code with credits_exhausted category as managed credits", () => {

@@ -5,7 +5,7 @@ import type { Conversation } from "@/domains/chat/api/conversations.js";
 import {
   formatBackgroundSubGroupLabel,
   groupBackgroundConversationsBySource,
-} from "@/domains/chat/lib/backgroundSubGroups.js";
+} from "@/domains/chat/utils/backgroundSubGroups.js";
 
 function makeConversation(
   conversationKey: string,

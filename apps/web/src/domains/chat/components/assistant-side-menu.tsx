@@ -21,17 +21,17 @@ import { useCallback, useEffect, useMemo, useState, startTransition, type ReactN
 
 import {
   groupBackgroundConversationsBySource,
-} from "@/domains/chat/lib/backgroundSubGroups.js";
+} from "@/domains/chat/utils/backgroundSubGroups.js";
 import {
   groupScheduledConversationsByJobId,
-} from "@/domains/chat/lib/scheduledSubGroups.js";
+} from "@/domains/chat/utils/scheduledSubGroups.js";
 import {
   loadOpenCategories,
   loadOpenCustomGroups,
   saveOpenCategories,
   saveOpenCustomGroups,
-} from "@/domains/chat/lib/sidebarGroupCollapseStorage.js";
-import type { SubGroup } from "@/domains/chat/lib/subGroupUtils.js";
+} from "@/domains/chat/utils/sidebarGroupCollapseStorage.js";
+import type { SubGroup } from "@/domains/chat/utils/subGroupUtils.js";
 import { CollapsedConversationsButton } from "@/domains/chat/components/collapsed-conversations-button.js";
 import {
   ConversationActionsMenu,
@@ -52,8 +52,8 @@ import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { usePinnedAppsOptional } from "@/domains/chat/lib/pinnedAppsContext.js";
 import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
 
-import { buildMoveToGroupTargets, groupConversations, isConversationPinned } from "@/domains/chat/lib/groupConversations.js";
-import { isChannelConversation } from "@/domains/chat/lib/conversation-channel.js";
+import { buildMoveToGroupTargets, groupConversations, isConversationPinned } from "@/domains/chat/utils/groupConversations.js";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
 import { canMarkRead, canMarkUnread, type Conversation, type ConversationGroup } from "@/domains/chat/api/conversations.js";
 
 /**

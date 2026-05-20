@@ -1,6 +1,6 @@
-import { runtimeAttachmentsToDisplay } from "@/domains/chat/lib/attachment-mapping.js";
-import { parseAttachmentSummariesFromContent } from "@/domains/chat/lib/parse-attachment-summaries.js";
-import { newStableId } from "@/domains/chat/lib/stable-id.js";
+import { runtimeAttachmentsToDisplay } from "@/domains/chat/utils/attachment-mapping.js";
+import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries.js";
+import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/lib/types.js";
 import { mapRuntimeToolCalls, normalizeContentOrder, normalizeTextSegments, type RuntimeMessage } from "@/domains/chat/api/messages.js";
 

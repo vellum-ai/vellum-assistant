@@ -5,11 +5,11 @@ import { PanelItem, Popover } from "@vellum/design-library";
 import {
   formatBackgroundSubGroupLabel,
   groupBackgroundConversationsBySource,
-} from "@/domains/chat/lib/backgroundSubGroups.js";
+} from "@/domains/chat/utils/backgroundSubGroups.js";
 import {
   isConversationPinned,
   type CustomGroup,
-} from "@/domains/chat/lib/groupConversations.js";
+} from "@/domains/chat/utils/groupConversations.js";
 import type { Conversation } from "@/domains/chat/api/conversations.js";
 
 /**

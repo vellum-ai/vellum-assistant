@@ -17,7 +17,7 @@ import {
   useMemo,
 } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import { deleteQueuedMessage } from "@/domains/chat/api/messages.js";
 

@@ -14,10 +14,10 @@ import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-erro
 import {
   recordChatDiagnostic,
   summarizeDisplayMessages,
-} from "@/domains/chat/lib/diagnostics.js";
+} from "@/domains/chat/utils/diagnostics.js";
 
-import { mapRuntimeToDisplayMessage } from "@/domains/chat/lib/map-runtime-message.js";
-import { dedupeDisplayMessages } from "@/domains/chat/lib/reconcile.js";
+import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message.js";
+import { dedupeDisplayMessages } from "@/domains/chat/utils/reconcile.js";
 import type { PaginatedHistoryResult } from "@/domains/chat/lib/transcript/types.js";
 import type { RuntimeMessage, RuntimeSubagentNotification } from "@/domains/chat/api/messages.js";
 

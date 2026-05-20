@@ -33,8 +33,8 @@ import {
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { MutableRefObject } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import { newStableId } from "@/domains/chat/lib/stable-id.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import type { PaginatedHistoryResult } from "@/domains/chat/lib/transcript/types.js";
 
 // ---------------------------------------------------------------------------

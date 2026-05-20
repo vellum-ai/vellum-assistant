@@ -9,13 +9,13 @@ import {
 
 import {
   filterDismissedSurfaces,
-} from "@/domains/chat/lib/dismissedSurfacesStorage.js";
+} from "@/domains/chat/utils/dismissedSurfacesStorage.js";
 import { fetchLatestHistoryPage } from "@/domains/chat/api/history.js";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces.js";
 import {
   type DisplayMessage,
   reconcileDisplayMessagesWithLatestHistory,
-} from "@/domains/chat/lib/reconcile.js";
+} from "@/domains/chat/utils/reconcile.js";
 
 export type RefreshLatestOutcome =
   | { kind: "no-change" }

@@ -15,7 +15,7 @@ import {
   pinApp,
   unpinApp,
   type PinnedAppEntry,
-} from "@/domains/chat/lib/appPinStorage.js";
+} from "@/domains/chat/utils/appPinStorage.js";
 
 // ---------------------------------------------------------------------------
 // Pinned apps context — single source of truth for chat-side pin state.

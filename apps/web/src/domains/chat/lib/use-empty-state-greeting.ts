@@ -17,7 +17,7 @@ import {
   assertHasResponse,
   SDK_BASE_OPTIONS,
 } from "@/domains/chat/api/client.js";
-import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/lib/empty-state-constants.js";
+import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-constants.js";
 
 const STALE_TIME_MS = 5 * 60 * 1000;
 

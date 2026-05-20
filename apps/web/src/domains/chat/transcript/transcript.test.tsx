@@ -49,7 +49,7 @@ mock.module("@/domains/chat/components/chat-attachments/index.js", () => ({
 
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { TranscriptItem } from "@/domains/chat/lib/transcript/types.js";
 
 import { Transcript } from "@/domains/chat/transcript/transcript.js";

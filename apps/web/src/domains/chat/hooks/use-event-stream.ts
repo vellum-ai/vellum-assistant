@@ -36,12 +36,12 @@ import {
 } from "react";
 
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
-import { isExpectedBackgroundStreamEnd } from "@/domains/chat/lib/background-stream-error.js";
+import { isExpectedBackgroundStreamEnd } from "@/domains/chat/utils/background-stream-error.js";
 import {
   bucketMessagesAdded,
   recordChatDiagnostic,
   resolvePlatformTag,
-} from "@/domains/chat/lib/diagnostics.js";
+} from "@/domains/chat/utils/diagnostics.js";
 import { isNativePlatform } from "@/runtime/native-auth.js";
 import type {
   ActiveConversationMessagesRefreshResult,
@@ -49,7 +49,7 @@ import type {
 } from "@/lib/sync/web-sync-router.js";
 
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 import { type ChatEventStream, subscribeChatEvents } from "@/domains/chat/api/stream.js";
 

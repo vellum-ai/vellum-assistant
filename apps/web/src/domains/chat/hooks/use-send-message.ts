@@ -22,13 +22,13 @@ import {
   type DisplayAttachment,
   type DisplayMessage,
   reconcileMessages,
-} from "@/domains/chat/lib/reconcile.js";
-import { isAsyncChatScopeCurrent } from "@/domains/chat/lib/conversation-scope.js";
-import { resolveEditChatDraftKey } from "@/domains/chat/lib/edit-chat-session.js";
+} from "@/domains/chat/utils/reconcile.js";
+import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope.js";
+import { resolveEditChatDraftKey } from "@/domains/chat/utils/edit-chat-session.js";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/domains/assistant/disk-pressure.js";
-import { recordChatDiagnostic } from "@/domains/chat/lib/diagnostics.js";
-import { newStableId } from "@/domains/chat/lib/stable-id.js";
-import { saveDismissedSurfaceIds } from "@/domains/chat/lib/dismissedSurfacesStorage.js";
+import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
+import { newStableId } from "@/domains/chat/utils/stable-id.js";
+import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissedSurfacesStorage.js";
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";

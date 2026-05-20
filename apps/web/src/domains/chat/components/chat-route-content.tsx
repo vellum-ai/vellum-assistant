@@ -57,19 +57,19 @@ import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/
 import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel.js";
 
 import { Link } from "react-router";
-import type { ConversationStarter } from "@/domains/chat/lib/conversation-starters.js";
-import { recordChatDiagnostic, summarizeDisplayMessages } from "@/domains/chat/lib/diagnostics.js";
-import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/lib/edit-app-empty-state.js";
-import { pickRandomPlaceholder } from "@/domains/chat/lib/empty-state-constants.js";
+import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters.js";
+import { recordChatDiagnostic, summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics.js";
+import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state.js";
+import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants.js";
 import { useEmptyStateGreeting } from "@/domains/chat/lib/use-empty-state-greeting.js";
-import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/lib/error-classification.js";
+import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
 import { fetchOlderHistoryPage } from "@/domains/chat/api/history.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
-import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { buildTranscriptItems } from "@/domains/chat/lib/transcript/build-items.js";
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
-import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/chat/lib/turn-selectors.js";
+import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/chat/utils/turn-selectors.js";
 import { isSurfaceInteractive } from "@/domains/chat/lib/types.js";
 
 import type { MainView, OpenedAppState, OpenedDocumentState, ViewerState } from "@/stores/viewer-store.js";
@@ -78,7 +78,7 @@ import { modelSupportsVision } from "@/domains/assistant/model-capabilities.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
-import { isChannelConversation as _isChannelConversation } from "@/domains/chat/lib/conversation-channel.js";
+import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
 import { getDiskPressureChatBlockReason } from "@/domains/assistant/disk-pressure.js";
 import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";

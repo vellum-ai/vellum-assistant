@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { isChannelConversation } from "@/domains/chat/lib/conversation-channel.js";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
 
 describe("isChannelConversation", () => {
   test("returns false for an undefined or null conversation", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveBootstrappedConversationKey } from "@/domains/chat/lib/conversation-selection.js";
+import { resolveBootstrappedConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 
 const conversations = [
   { conversationKey: "old-visible" },

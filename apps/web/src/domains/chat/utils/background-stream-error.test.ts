@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { isExpectedBackgroundStreamEnd } from "@/domains/chat/lib/background-stream-error.js";
+import { isExpectedBackgroundStreamEnd } from "@/domains/chat/utils/background-stream-error.js";
 
 describe("isExpectedBackgroundStreamEnd", () => {
   test.each([

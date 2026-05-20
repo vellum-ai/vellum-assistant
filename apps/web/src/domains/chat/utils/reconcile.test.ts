@@ -5,8 +5,8 @@ import {
   type DisplayMessage,
   reconcileDisplayMessagesWithLatestHistory,
   reconcileMessages,
-} from "@/domains/chat/lib/reconcile.js";
-import { newStableId } from "@/domains/chat/lib/stable-id.js";
+} from "@/domains/chat/utils/reconcile.js";
+import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import { classifySurfaceDisplay, type Surface } from "@/domains/chat/lib/types.js";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
 import type { RuntimeMessage } from "@/domains/chat/api/messages.js";

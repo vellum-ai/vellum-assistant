@@ -13,16 +13,16 @@ import {
 } from "react";
 
 import { toast } from "@vellum/design-library";
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import {
   createDraftConversationKey,
   resolveBootstrappedConversationKey,
-} from "@/domains/chat/lib/conversation-selection.js";
-import { loadContextWindowUsageMap } from "@/domains/chat/lib/contextWindowStorage.js";
+} from "@/domains/chat/utils/conversation-selection.js";
+import { loadContextWindowUsageMap } from "@/domains/chat/utils/contextWindowStorage.js";
 import {
   loadLastViewedConversationKey,
   saveLastViewedConversationKey,
-} from "@/domains/chat/lib/lastViewedConversationStorage.js";
+} from "@/domains/chat/utils/lastViewedConversationStorage.js";
 import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 

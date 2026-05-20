@@ -7,7 +7,7 @@
  * assistant knows what to load.
  */
 
-import type { ConversationStarter } from "@/domains/chat/lib/conversation-starters.js";
+import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters.js";
 
 export interface EditAppContext {
   name: string;

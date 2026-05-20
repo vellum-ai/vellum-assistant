@@ -8,8 +8,8 @@ import {
   resolvePlatformTag,
   summarizeDisplayMessages,
   summarizeRuntimeMessages,
-} from "@/domains/chat/lib/diagnostics.js";
-import { type DisplayMessage, reconcileMessages } from "@/domains/chat/lib/reconcile.js";
+} from "@/domains/chat/utils/diagnostics.js";
+import { type DisplayMessage, reconcileMessages } from "@/domains/chat/utils/reconcile.js";
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/api/messages.js";
 

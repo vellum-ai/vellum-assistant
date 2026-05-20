@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   EMPTY_STATE_PLACEHOLDERS,
   pickRandomPlaceholder,
-} from "@/domains/chat/lib/empty-state-constants.js";
+} from "@/domains/chat/utils/empty-state-constants.js";
 
 describe("EMPTY_STATE_PLACEHOLDERS", () => {
   test("contains exactly 5 entries", () => {

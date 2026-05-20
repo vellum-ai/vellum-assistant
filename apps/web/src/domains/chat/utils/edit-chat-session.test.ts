@@ -5,7 +5,7 @@ import {
   getEditChatKey,
   resolveEditChatDraftKey,
   setEditChatKey,
-} from "@/domains/chat/lib/edit-chat-session.js";
+} from "@/domains/chat/utils/edit-chat-session.js";
 
 const ASSISTANT = "assistant-1";
 const APP = "app-1";

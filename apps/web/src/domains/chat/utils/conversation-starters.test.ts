@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { client } from "@/generated/api/client.gen.js";
 import { ApiError } from "@/lib/api-errors.js";
 
-import { listConversationStarters } from "@/domains/chat/lib/conversation-starters.js";
+import { listConversationStarters } from "@/domains/chat/utils/conversation-starters.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
