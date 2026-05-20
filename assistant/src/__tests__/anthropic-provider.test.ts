@@ -2427,3 +2427,253 @@ describe("OpenRouterProvider — Anthropic dispatch", () => {
     expect(lastStreamParams!.model).toBe("anthropic/claude-haiku-4.5");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Thinking block send-time filtering
+// ---------------------------------------------------------------------------
+
+describe("AnthropicProvider — thinking block send-time filtering", () => {
+  let provider: AnthropicProvider;
+
+  beforeEach(() => {
+    lastStreamParams = null;
+    _lastStreamOptions = null;
+    lastConstructorArgs = null;
+    scriptedStream = null;
+    provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
+  });
+
+  function assistantThinkingMsg(
+    thinking: string,
+    signature: string,
+    text: string,
+  ): Message {
+    return {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking, signature },
+        { type: "text", text },
+      ],
+    };
+  }
+
+  function assistantThinkingToolUseMsg(
+    thinking: string,
+    signature: string,
+    toolUseId: string,
+    toolName: string,
+  ): Message {
+    return {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking, signature },
+        { type: "tool_use", id: toolUseId, name: toolName, input: {} },
+      ],
+    };
+  }
+
+  function assistantRedactedThinkingMsg(data: string, text: string): Message {
+    return {
+      role: "assistant",
+      content: [
+        { type: "redacted_thinking", data },
+        { type: "text", text },
+      ],
+    };
+  }
+
+  test("strips thinking blocks from completed historical assistant turns", async () => {
+    const messages: Message[] = [
+      userMsg("What is 2+2?"),
+      assistantThinkingMsg("let me think...", "sig-abc-old", "4"),
+      userMsg("And what is 3+3?"),
+    ];
+
+    await provider.sendMessage(messages, sampleTools, "system");
+    expect(lastStreamParams).toBeTruthy();
+
+    const sent = lastStreamParams!.messages as Anthropic.MessageParam[];
+    const assistantTurn = sent.find((m) => m.role === "assistant");
+    expect(assistantTurn).toBeTruthy();
+
+    const blocks = assistantTurn!.content as Anthropic.ContentBlockParam[];
+    const thinkingBlocks = blocks.filter(
+      (b) => typeof b !== "string" && b.type === "thinking",
+    );
+    expect(thinkingBlocks).toHaveLength(0);
+
+    const textBlocks = blocks.filter(
+      (b) => typeof b !== "string" && b.type === "text",
+    );
+    expect(textBlocks).toHaveLength(1);
+  });
+
+  test("strips redacted_thinking blocks from completed historical turns", async () => {
+    const messages: Message[] = [
+      userMsg("What is 2+2?"),
+      assistantRedactedThinkingMsg("encrypted-data-xyz", "4"),
+      userMsg("And what is 3+3?"),
+    ];
+
+    await provider.sendMessage(messages, sampleTools, "system");
+    expect(lastStreamParams).toBeTruthy();
+
+    const sent = lastStreamParams!.messages as Anthropic.MessageParam[];
+    const assistantTurn = sent.find((m) => m.role === "assistant");
+    expect(assistantTurn).toBeTruthy();
+
+    const blocks = assistantTurn!.content as Anthropic.ContentBlockParam[];
+    const redactedBlocks = blocks.filter(
+      (b) => typeof b !== "string" && b.type === "redacted_thinking",
+    );
+    expect(redactedBlocks).toHaveLength(0);
+  });
+
+  test("preserves thinking blocks in active tool-use continuation span", async () => {
+    const messages: Message[] = [
+      userMsg("Read the file"),
+      assistantThinkingToolUseMsg(
+        "I should read the file",
+        "sig-valid-123",
+        "tu-1",
+        "file_read",
+      ),
+      toolResultMsg("tu-1", "file contents here"),
+    ];
+
+    await provider.sendMessage(messages, sampleTools, "system");
+    expect(lastStreamParams).toBeTruthy();
+
+    const sent = lastStreamParams!.messages as Anthropic.MessageParam[];
+    const assistantTurn = sent.find((m) => m.role === "assistant");
+    expect(assistantTurn).toBeTruthy();
+
+    const blocks = assistantTurn!.content as Anthropic.ContentBlockParam[];
+    const thinkingBlocks = blocks.filter(
+      (b) => typeof b !== "string" && b.type === "thinking",
+    );
+    expect(thinkingBlocks).toHaveLength(1);
+    expect((thinkingBlocks[0] as { signature: string }).signature).toBe(
+      "sig-valid-123",
+    );
+  });
+
+  test("strips historical thinking but preserves active continuation in same conversation", async () => {
+    const messages: Message[] = [
+      // Completed historical turn
+      userMsg("What is 2+2?"),
+      assistantThinkingMsg("old thinking", "sig-old-stale", "4"),
+      // Active tool-use continuation
+      userMsg("Now read the file"),
+      assistantThinkingToolUseMsg(
+        "current thinking",
+        "sig-current-valid",
+        "tu-2",
+        "file_read",
+      ),
+      toolResultMsg("tu-2", "file contents"),
+    ];
+
+    await provider.sendMessage(messages, sampleTools, "system");
+    expect(lastStreamParams).toBeTruthy();
+
+    const sent = lastStreamParams!.messages as Anthropic.MessageParam[];
+    const assistantTurns = sent.filter((m) => m.role === "assistant");
+    expect(assistantTurns.length).toBeGreaterThanOrEqual(2);
+
+    // Historical turn: thinking stripped
+    const historicalBlocks =
+      assistantTurns[0].content as Anthropic.ContentBlockParam[];
+    const historicalThinking = historicalBlocks.filter(
+      (b) => typeof b !== "string" && b.type === "thinking",
+    );
+    expect(historicalThinking).toHaveLength(0);
+
+    // Active turn: thinking preserved
+    const activeBlocks =
+      assistantTurns[1].content as Anthropic.ContentBlockParam[];
+    const activeThinking = activeBlocks.filter(
+      (b) => typeof b !== "string" && b.type === "thinking",
+    );
+    expect(activeThinking).toHaveLength(1);
+    expect((activeThinking[0] as { signature: string }).signature).toBe(
+      "sig-current-valid",
+    );
+  });
+
+  test("uses placeholder when stripping thinking leaves assistant message empty", async () => {
+    const messages: Message[] = [
+      userMsg("Think about this"),
+      {
+        role: "assistant",
+        content: [{ type: "thinking", thinking: "hmm...", signature: "sig-x" }],
+      },
+      userMsg("What did you conclude?"),
+    ];
+
+    await provider.sendMessage(messages, sampleTools, "system");
+    expect(lastStreamParams).toBeTruthy();
+
+    const sent = lastStreamParams!.messages as Anthropic.MessageParam[];
+    const assistantTurn = sent.find((m) => m.role === "assistant");
+    expect(assistantTurn).toBeTruthy();
+
+    const blocks = assistantTurn!.content as Anthropic.ContentBlockParam[];
+    expect(blocks).toHaveLength(1);
+    expect((blocks[0] as { type: string; text: string }).type).toBe("text");
+    expect(
+      isPlaceholderSentinelText(
+        (blocks[0] as { text: string }).text,
+      ),
+    ).toBe(true);
+  });
+
+  test("multi-step tool-use chain preserves all thinking in the active span", async () => {
+    const messages: Message[] = [
+      // Completed historical turn
+      userMsg("Hello"),
+      assistantThinkingMsg("old thinking", "sig-old", "Hi there"),
+      // Multi-step active tool-use chain
+      userMsg("Do two things"),
+      assistantThinkingToolUseMsg(
+        "step 1 thinking",
+        "sig-step1",
+        "tu-a",
+        "file_read",
+      ),
+      toolResultMsg("tu-a", "result a"),
+      assistantThinkingToolUseMsg(
+        "step 2 thinking",
+        "sig-step2",
+        "tu-b",
+        "file_write",
+      ),
+      toolResultMsg("tu-b", "result b"),
+    ];
+
+    await provider.sendMessage(messages, sampleTools, "system");
+    expect(lastStreamParams).toBeTruthy();
+
+    const sent = lastStreamParams!.messages as Anthropic.MessageParam[];
+
+    // Collect all thinking blocks across all assistant messages
+    const allThinking: Anthropic.ContentBlockParam[] = [];
+    for (const m of sent) {
+      if (m.role !== "assistant") continue;
+      const blocks = m.content as Anthropic.ContentBlockParam[];
+      for (const b of blocks) {
+        if (typeof b !== "string" && b.type === "thinking") {
+          allThinking.push(b);
+        }
+      }
+    }
+
+    // Only the active span's thinking blocks should remain
+    const signatures = allThinking.map(
+      (b) => (b as { signature: string }).signature,
+    );
+    expect(signatures).not.toContain("sig-old");
+    expect(signatures).toContain("sig-step1");
+    expect(signatures).toContain("sig-step2");
+  });
+});
