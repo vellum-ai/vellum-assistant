@@ -28,22 +28,25 @@ export interface PortalContainerProviderProps {
  * Provides a portal target element to all descendant design library
  * components that render overlays (Popover, Modal, Menu, etc.).
  *
- * Mount this at the top of your app shell, passing the element that has
- * your theme's CSS variables in scope. Overlay components read this
- * context internally and fall back to `document.body` when no provider
- * is mounted.
+ * Overlay components read this context internally and fall back to
+ * `document.body` when no provider is mounted. Because theme tokens are
+ * defined on `:root` (scoped via `data-theme` on `<html>`), the default
+ * `document.body` target already has access to design tokens, so most
+ * apps don't need to mount this provider at the top level.
  *
- * Nestable — an inner provider overrides the outer one for its subtree,
- * which is useful for rendering overlays inside dialogs or shadow DOM.
+ * The primary use case is nesting — an inner provider overrides the
+ * outer one for its subtree, which is useful for rendering overlays
+ * inside dialogs (so menus opened from within a modal portal into the
+ * modal rather than escaping to `document.body`) or shadow DOM.
  *
  * ```tsx
- * function AppShell({ children }: { children: ReactNode }) {
+ * function Dialog({ children }: { children: ReactNode }) {
  *   const ref = useRef<HTMLDivElement>(null);
  *   const [container, setContainer] = useState<HTMLElement | null>(null);
  *   useEffect(() => { setContainer(ref.current); }, []);
  *
  *   return (
- *     <div ref={ref} className="app-root">
+ *     <div ref={ref} role="dialog">
  *       <PortalContainerProvider container={container}>
  *         {children}
  *       </PortalContainerProvider>

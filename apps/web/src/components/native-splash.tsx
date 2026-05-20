@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
  */
 export function NativeSplash({ children }: { children?: ReactNode }) {
   return (
-    <div className="app-root fixed inset-0 z-50 flex flex-col items-center justify-center bg-[var(--surface-base)] text-[var(--content-default)]">
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[var(--surface-base)] text-[var(--content-default)]">
       <img
         src="/vellum-logo.svg"
         alt="Vellum"

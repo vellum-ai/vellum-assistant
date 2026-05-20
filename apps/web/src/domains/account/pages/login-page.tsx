@@ -142,7 +142,7 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
 
   return (
     <div className="dark">
-      <div className="app-root relative min-h-screen overflow-x-hidden bg-[var(--surface-base)] text-[var(--content-default)]">
+      <div className="relative min-h-screen overflow-x-hidden bg-[var(--surface-base)] text-[var(--content-default)]">
         <LoginBackground />
         <div className="relative z-10 flex min-h-screen flex-col items-center justify-center px-4">
           <LoginCard>
