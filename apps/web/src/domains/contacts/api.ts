@@ -7,9 +7,8 @@ import {
 import type {
   ChannelInfo,
   ChannelReadinessSnapshot,
-  ConnectAssistantInput,
-  ConnectAssistantResponse,
   ContactPayload,
+  CreateA2AInviteResponse,
   CreateContactInput,
   SlackChannelConfig,
   TelegramConfig,
@@ -484,31 +483,53 @@ export async function mergeContacts(
   return data.contact;
 }
 
-export async function connectToAssistant(
+interface DaemonCreateInviteResponse {
+  inviteId?: string;
+  token?: string;
+  expiresAt?: number;
+  senderGatewayUrl?: string;
+  success?: boolean;
+}
+
+export async function createA2AInvite(
   assistantId: string,
-  input: ConnectAssistantInput,
-): Promise<ConnectAssistantResponse> {
+  opts?: { expiresInHours?: number },
+): Promise<CreateA2AInviteResponse> {
+  const body: Record<string, unknown> = {};
+  if (opts?.expiresInHours !== undefined) {
+    body.expiresInHours = opts.expiresInHours;
+  }
+
   const { data, error, response } = await client.post<
-    ConnectAssistantResponse,
+    DaemonCreateInviteResponse,
     unknown
   >({
-    url: "/v1/assistants/{assistant_id}/integrations/a2a/connect/",
+    url: "/v1/assistants/{assistant_id}/integrations/a2a/invite/",
     path: { assistant_id: assistantId },
-    body: input,
+    body,
     headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
-  assertHasResponse(response, error, "Failed to connect to assistant");
+  assertHasResponse(response, error, "Failed to create A2A invite");
   if (!response.ok) {
     throw new ApiError(
       response.status,
-      extractErrorMessage(error, response, "Failed to connect to assistant"),
+      extractErrorMessage(error, response, "Failed to create A2A invite"),
     );
   }
-  if (!data?.contactId) {
-    throw new ApiError(500, "Connect succeeded but no contactId returned");
+  if (!data?.inviteId || !data.token || data.expiresAt === undefined || !data.senderGatewayUrl) {
+    throw new ApiError(
+      500,
+      "Create invite succeeded but response is missing required fields",
+    );
   }
-  return data;
+
+  return {
+    inviteId: data.inviteId,
+    token: data.token,
+    expiresAt: data.expiresAt,
+    senderGatewayUrl: data.senderGatewayUrl,
+  };
 }
 
 export async function verifyContactChannel(
