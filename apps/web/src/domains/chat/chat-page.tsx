@@ -23,7 +23,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantContext } from "@/domains/chat/assistant-context.js";
-import { useTurnStore } from "@/domains/messaging/turn-store.js";
+import { useShallow } from "zustand/shallow";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
@@ -65,6 +65,7 @@ import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js"
 import { isSurfaceInteractive } from "@/domains/chat/lib/types.js";
 import type { UIContext } from "@/domains/chat/lib/turn-selectors.js";
 import { isChannelConversation } from "@/domains/chat/lib/conversation-channel.js";
+import { abortSubagent } from "@/domains/chat/lib/conversations.js";
 import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
 import {
@@ -83,7 +84,7 @@ export function ChatPage() {
   const isNative = useIsNativePlatform();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { assistantId, assistantState, checkAssistant } = useAssistantContext();
+  const { assistantId, assistantState, checkAssistant, setAssistantId } = useAssistantContext();
   const {
     chatPullToRefresh,
     deployToVercel,
@@ -128,11 +129,9 @@ export function ChatPage() {
   const conversations = useConversationListStore.use.conversations();
   const activeConversationKey = useConversationListStore.use.activeConversationKey();
   const editingConversationKey = useConversationListStore.use.editingConversationKey();
-  void editingConversationKey;
   const processingKeys = useConversationListStore.use.processingKeys();
   const attentionKeys = useConversationListStore.use.attentionKeys();
-  const _turnState = useTurnStore((s) => s); void _turnState;
-  const viewerState = useViewerStore((s) => ({
+  const viewerState = useViewerStore(useShallow((s) => ({
     mainView: s.mainView,
     activeAppId: s.activeAppId,
     openedAppState: s.openedAppState,
@@ -148,8 +147,8 @@ export function ChatPage() {
     isTokenDialogOpen: s.isTokenDialogOpen,
     pendingDeployAppId: s.pendingDeployAppId,
     complexDeployApp: s.complexDeployApp,
-  }));
-  const subagentState = useSubagentStore((s) => ({ byId: s.byId, orderedIds: s.orderedIds }));
+  })));
+  const subagentState = useSubagentStore(useShallow((s) => ({ byId: s.byId, orderedIds: s.orderedIds })));
   const subagentEntries = useMemo(
     () => subagentState.orderedIds.map((id) => subagentState.byId[id]!).filter(Boolean),
     [subagentState.byId, subagentState.orderedIds],
@@ -355,7 +354,7 @@ export function ChatPage() {
     conversationListInvalidatedTimerRef,
     loadEpochRef,
     pendingInitialMessageRef,
-    setAssistantId: () => {},
+    setAssistantId,
     setMessages,
     setTranscriptPagination: setTranscriptPagination as Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>,
     setIsLoadingHistory,
@@ -429,7 +428,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Sync router
   // -------------------------------------------------------------------------
-  const invalidateAvatar = useCallback(() => { avatar.invalidate(); }, [avatar]);
+  const invalidateAvatar = useCallback(() => { avatar.invalidate(); }, [avatar.invalidate]);
 
   useEffect(() => {
     const syncRouter = createWebSyncRouter({
@@ -700,7 +699,7 @@ export function ChatPage() {
     viewerState,
     openedAppState: viewerState.openedAppState,
     openedDocumentState: viewerState.openedDocumentState,
-    editingConversationKey: useConversationListStore.getState().editingConversationKey,
+    editingConversationKey,
     restoredDraftConversationKey,
     setRestoredDraftConversationKey,
     avatar: {
@@ -788,20 +787,44 @@ export function ChatPage() {
       unknownNudgeToolCallIds: interactionActions.unknownNudgeToolCallIds,
       setUnknownNudgeToolCallIds: interactionActions.setUnknownNudgeToolCallIds,
     },
-    handleOpenApp: () => {},
-    handleOpenDocument: () => {},
-    handleCloseDocument: () => {},
-    handleCloseApp: () => {},
-    handleCloseEditPanel: () => {},
-    handleShareApp: () => {},
-    handleDeployApp: undefined,
+    handleOpenApp: (appId: string) => {
+      haptic.light();
+      navPush({ type: "app", appId });
+      useViewerStore.getState().openApp(appId);
+    },
+    handleOpenDocument: (_surfaceId: string) => {
+      haptic.light();
+      useViewerStore.getState().openDocument();
+    },
+    handleCloseDocument: () => {
+      useViewerStore.getState().closeDocument();
+    },
+    handleCloseApp: () => {
+      useViewerStore.getState().closeApp();
+    },
+    handleCloseEditPanel: () => {
+      useViewerStore.getState().exitAppEditing();
+    },
+    handleShareApp: () => {
+      useViewerStore.getState().startSharing();
+    },
+    handleDeployApp: deployToVercel ? () => {
+      useViewerStore.getState().startDeploying();
+    } : undefined,
     handleForkConversation,
     subagentEntries,
     subagentState,
     activeSubagentId: viewerState.activeSubagentId,
     onSubagentClick: (id: string) => { useViewerStore.getState().openSubagentDetail(id); },
     onCloseSubagentDetail: () => { useViewerStore.getState().closeSubagentDetail(); },
-    onStopSubagent: () => {},
+    onStopSubagent: async (subagentId: string) => {
+      if (!assistantId || !activeConversationKey) return;
+      try {
+        await abortSubagent(assistantId, activeConversationKey, subagentId);
+      } catch {
+        // Best-effort — the daemon may have already completed
+      }
+    },
     onRequestSubagentDetail: async () => {},
     pushToAiSettings,
     checkAssistant,
