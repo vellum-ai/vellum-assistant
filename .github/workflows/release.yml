@@ -1239,11 +1239,8 @@ jobs:
         id: platform-creds
         run: |
           API_URL="${{ secrets.PLATFORM_API_URL }}"
-          API_HOST="${API_URL#*://}"
-          API_HOST="${API_HOST%%/*}"
           echo "api_url=${API_URL}" >> "$GITHUB_OUTPUT"
           echo "api_key=${{ secrets.PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
-          echo "api_host=${API_HOST}" >> "$GITHUB_OUTPUT"
 
       - name: Register preview release with production platform
         run: |
@@ -1337,7 +1334,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Release channel:** \`preview\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Production platform host:** \`${{ steps.platform-creds.outputs.api_host }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Platform environment:** \`production\`" >> $GITHUB_STEP_SUMMARY
 
   push-dockerhub-image:
     needs: [extract-version, ci-assistant, ci-gateway, ci-credential-executor]
