@@ -54,6 +54,7 @@ export function AssistantUpgrades({
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [isPollingRollback, setIsPollingRollback] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const pollRefetchInterval = (version: string | null | undefined) => {
     if (
@@ -62,6 +63,10 @@ export function AssistantUpgrades({
       version === targetVersionRef.current
     ) {
       queueMicrotask(() => {
+        const msg = isPollingRollback
+          ? `Successfully rolled back to version ${targetVersionRef.current}.`
+          : `Successfully updated to version ${targetVersionRef.current}.`;
+        setSuccessMessage(msg);
         setIsPollingUpgrade(false);
         targetVersionRef.current = null;
         setSelectedVersion(null);
@@ -143,6 +148,7 @@ export function AssistantUpgrades({
 
   const handleUpgrade = async () => {
     setShowConfirmation(false);
+    setSuccessMessage(null);
     const targetVersion = selectedVersion ?? undefined;
     try {
       if (isRollback) {
@@ -286,7 +292,7 @@ export function AssistantUpgrades({
         effectiveSelectedVersion &&
         !releasesLoading && (
           <p className="text-body-medium-lighter text-[var(--system-positive-strong)]">
-            You are already on this version.
+            {successMessage ?? "You are already on this version."}
           </p>
         )}
 
