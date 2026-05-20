@@ -104,21 +104,3 @@ function isIPAddress(hostname: string): boolean {
   if (hostname.startsWith("[") || hostname.includes(":")) return true;
   return false;
 }
-
-/**
- * Extract a lowercased hostname suitable for client display from a raw URL.
- *
- * Unlike {@link normalizeDomain}, this is permissive: it accepts IP-literal
- * URLs, returns the bare hostname (no registrable-domain reduction), and
- * falls back to the input string when it cannot be parsed. Intended for
- * UI labels like favicons, badge text, and metadata fields.
- */
-export function extractDomain(rawUrl: string): string {
-  if (!rawUrl || typeof rawUrl !== "string") return "";
-  try {
-    const url = new URL(rawUrl);
-    return url.hostname.toLowerCase().replace(/\.$/, "");
-  } catch {
-    return rawUrl.toLowerCase();
-  }
-}

@@ -558,20 +558,23 @@ export async function executeWebFetch(
       redirectCount?: number;
     },
   ): ToolExecutionResult => {
-    const finalUrl = meta.finalUrl ?? meta.url;
+    const safeUrl = sanitizeUrlStringForOutput(meta.url);
+    const safeFinalUrl = meta.finalUrl
+      ? sanitizeUrlStringForOutput(meta.finalUrl)
+      : safeUrl;
     return {
       content: errorMessage,
       isError: true,
       activityMetadata: {
         webFetch: {
-          url: meta.url,
-          finalUrl,
+          url: safeUrl,
+          finalUrl: safeFinalUrl,
           status: meta.status ?? 0,
           contentType: meta.contentType,
           byteCount: 0,
           charCount: 0,
           truncated: false,
-          domain: extractDomain(finalUrl),
+          domain: extractDomain(safeFinalUrl),
           redirectCount: meta.redirectCount ?? 0,
           durationMs: Date.now() - startedAt,
           errorMessage,
@@ -906,12 +909,10 @@ export async function executeWebFetch(
     });
 
     const truncated = body.truncated || safeEnd < processed.length;
-    const parsedTitle = isHtmlContentType(contentType)
-      ? parseHtmlTitle(body.text)
-      : undefined;
+    const parsedTitle = html ? parseHtmlTitle(body.text) : undefined;
     const meta: WebFetchMetadata = {
-      url: requestedUrl,
-      finalUrl: currentUrl.href,
+      url: safeRequestedUrl,
+      finalUrl: sanitizeUrlForOutput(currentUrl),
       status: response.status,
       contentType: contentType || undefined,
       byteCount: body.bytesRead,
