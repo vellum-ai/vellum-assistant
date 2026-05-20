@@ -1034,6 +1034,7 @@ export function persistOnboardingArtifacts(onboarding: {
   userName?: string;
   assistantName?: string;
   cohort?: string;
+  websiteUrl?: string;
 }): void {
   writeOnboardingSidecar(onboarding);
 
@@ -1112,6 +1113,7 @@ export async function handleSendMessage(
       googleConnected?: boolean;
       googleScopes?: string[];
       cohort?: string;
+      websiteUrl?: string;
     };
   };
 
