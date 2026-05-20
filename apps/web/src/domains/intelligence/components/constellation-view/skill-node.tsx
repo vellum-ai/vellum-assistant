@@ -5,7 +5,7 @@ import { SKILL_NODE_SIZE } from "@/domains/intelligence/components/constellation
 import type { OrbitItem } from "@/domains/intelligence/components/constellation-layout.js";
 
 import { NODE_SPRING } from "@/domains/intelligence/components/constellation-view/constants.js";
-import { useNodeClickHandlers } from "@/domains/intelligence/components/constellation-view/hooks/use-node-click-handlers.js";
+import { useNodeClickHandlers } from "@/domains/intelligence/components/constellation-view/use-node-click-handlers.js";
 import { mixedBg, type NodeVisibility } from "@/domains/intelligence/components/constellation-view/utils.js";
 
 export interface SkillNodeProps {

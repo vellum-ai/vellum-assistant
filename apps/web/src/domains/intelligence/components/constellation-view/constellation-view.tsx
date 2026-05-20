@@ -37,7 +37,7 @@ import { EdgesLayer } from "@/domains/intelligence/components/constellation-view
 import { Legend } from "@/domains/intelligence/components/constellation-view/legend.js";
 import { NodePopover } from "@/domains/intelligence/components/constellation-view/node-popover.js";
 import { NodeView } from "@/domains/intelligence/components/constellation-view/node-view.js";
-import { useConstellationViewport } from "@/domains/intelligence/components/constellation-view/hooks/use-constellation-viewport.js";
+import { useConstellationViewport } from "@/domains/intelligence/components/constellation-view/use-constellation-viewport.js";
 import { popoverItemForNode } from "@/domains/intelligence/components/constellation-view/utils.js";
 
 export interface ConstellationViewProps {

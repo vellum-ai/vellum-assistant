@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, Image as ImageIcon, Wrench, X } from "lucide-react";
 import {
+  type ChangeEvent,
   type KeyboardEvent,
   type MouseEvent,
   useCallback,
@@ -99,7 +100,7 @@ export function AvatarManagementModal({
   }, []);
 
   const handleFileSelect = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) {
         return;

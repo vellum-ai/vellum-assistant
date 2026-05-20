@@ -1,9 +1,9 @@
 
 import { motion } from "motion/react";
-import { type CSSProperties } from "react";
+import { type CSSProperties, type ReactNode } from "react";
 
 import { NODE_SPRING, NODE_VARIANT_CONFIGS, type NodeShellVariant } from "@/domains/intelligence/components/constellation-view/constants.js";
-import { useNodeClickHandlers } from "@/domains/intelligence/components/constellation-view/hooks/use-node-click-handlers.js";
+import { useNodeClickHandlers } from "@/domains/intelligence/components/constellation-view/use-node-click-handlers.js";
 import { mixedBg, type NodeVisibility } from "@/domains/intelligence/components/constellation-view/utils.js";
 
 export type { NodeShellVariant } from "@/domains/intelligence/components/constellation-view/constants.js";
@@ -16,7 +16,7 @@ export interface NodeShellProps {
   tooltip: string;
   visibility: NodeVisibility;
   delay: number;
-  children: React.ReactNode;
+  children: ReactNode;
   isSelected?: boolean;
   onSingleClick?: () => void;
   onDoubleClick?: () => void;

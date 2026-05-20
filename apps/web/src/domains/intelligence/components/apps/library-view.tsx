@@ -10,7 +10,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AppSummary } from "@/domains/chat/lib/apps.js";
 import type { DocumentSummary } from "@/domains/chat/lib/documents.js";
@@ -451,7 +451,7 @@ export function LibraryView({
     }
   }, [appPendingDelete, isDeleting, assistantId, pinnedAppIds, togglePin]);
 
-  const handleImportBundle = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportBundle = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || isImporting) return;
     setIsImporting(true);
@@ -781,7 +781,7 @@ export function LibraryAppCardActionsMenu({
             size="compact"
             iconOnly={<Ellipsis />}
             aria-label="App actions"
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            onClick={(e: MouseEvent) => e.stopPropagation()}
           />
         </BottomSheet.Trigger>
         <BottomSheet.Content>
@@ -854,7 +854,7 @@ export function LibraryAppCardActionsMenu({
           size="compact"
           iconOnly={<Ellipsis />}
           aria-label="App actions"
-          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          onClick={(e: MouseEvent) => e.stopPropagation()}
         />
       </Menu.Trigger>
       <Menu.Content align="end" sideOffset={4}>
