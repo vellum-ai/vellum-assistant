@@ -162,6 +162,37 @@ function updateChatContextConversations(
   );
 }
 
+/**
+ * Read a single conversation from the chat-context query cache. Used by
+ * imperative callers (send pipeline, attention tracking) that need the
+ * current value without subscribing to re-renders.
+ */
+export function findConversationInCache(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  key: string,
+): Conversation | undefined {
+  const ctx = queryClient.getQueryData<ChatContext | null>(
+    chatContextQueryKey(assistantId),
+  );
+  return ctx?.conversations.find((c) => c.conversationKey === key);
+}
+
+/**
+ * Read all conversations from the chat-context query cache. Returns an
+ * empty array when the query hasn't populated yet.
+ */
+export function getConversationsFromCache(
+  queryClient: QueryClient,
+  assistantId: string | null,
+): Conversation[] {
+  return (
+    queryClient.getQueryData<ChatContext | null>(
+      chatContextQueryKey(assistantId),
+    )?.conversations ?? []
+  );
+}
+
 export function patchConversationInCache(
   queryClient: QueryClient,
   assistantId: string | null,
@@ -179,20 +210,22 @@ export function markConversationSeenInCache(
   key: string,
   lastSeenAssistantMessageAt?: string,
 ): void {
-  updateChatContextConversations(queryClient, assistantId, (conversations) =>
-    conversations.map((c) =>
-      c.conversationKey !== key
-        ? c
-        : {
-            ...c,
-            hasUnseenLatestAssistantMessage: false,
-            lastSeenAssistantMessageAt:
-              lastSeenAssistantMessageAt ??
-              c.latestAssistantMessageAt ??
-              c.lastSeenAssistantMessageAt,
-          },
-    ),
-  );
+  updateChatContextConversations(queryClient, assistantId, (conversations) => {
+    let changed = false;
+    const next = conversations.map((c) => {
+      if (c.conversationKey !== key) return c;
+      changed = true;
+      return {
+        ...c,
+        hasUnseenLatestAssistantMessage: false,
+        lastSeenAssistantMessageAt:
+          lastSeenAssistantMessageAt ??
+          c.latestAssistantMessageAt ??
+          c.lastSeenAssistantMessageAt,
+      };
+    });
+    return changed ? next : conversations;
+  });
 }
 
 export function prependConversationInCache(
