@@ -50,6 +50,7 @@ import { downToolInvocationsMatchedRuleId } from "./236-tool-invocations-matched
 import { downHeartbeatRuns } from "./237-heartbeat-runs.js";
 import { downNormalizeSlackExternalContent } from "./249-normalize-slack-external-content.js";
 import { downA2ATasks } from "./251-a2a-tasks.js";
+import { downExternalConversationBindingChatName } from "./254-external-conversation-binding-chat-name.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -427,6 +428,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Create a2a_tasks table for tracking A2A request/response lifecycle",
     down: downA2ATasks,
+  },
+  {
+    key: "migration_external_conversation_binding_chat_name_v1",
+    version: 50,
+    description:
+      "Add external_chat_name to external conversation bindings for channel footer metadata",
+    down: downExternalConversationBindingChatName,
   },
 ];
 

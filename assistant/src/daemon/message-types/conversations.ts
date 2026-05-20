@@ -224,6 +224,7 @@ export interface ConversationTitleUpdated {
 interface ChannelBinding {
   sourceChannel: ChannelId;
   externalChatId: string;
+  externalChatName?: string | null;
   externalThreadId?: string | null;
   externalUserId?: string | null;
   displayName?: string | null;
@@ -233,6 +234,13 @@ interface ChannelBinding {
     threadTs: string;
     link?: {
       appUrl?: string;
+      webUrl?: string;
+    };
+  };
+  slackChannel?: {
+    channelId: string;
+    name?: string;
+    link?: {
       webUrl?: string;
     };
   };

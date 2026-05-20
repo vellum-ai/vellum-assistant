@@ -219,6 +219,10 @@ export { downA2ATasks, migrateA2ATasks } from "./251-a2a-tasks.js";
 export { migrateLlmRequestLogAgentLoopExitReason } from "./252-llm-request-log-agent-loop-exit-reason.js";
 export { migrateCreateDocumentComments } from "./253-document-comments.js";
 export {
+  downExternalConversationBindingChatName,
+  migrateExternalConversationBindingChatName,
+} from "./254-external-conversation-binding-chat-name.js";
+export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,

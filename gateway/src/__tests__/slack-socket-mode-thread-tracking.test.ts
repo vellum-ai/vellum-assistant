@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
 import * as schema from "../db/schema.js";
+import type { RuntimeInboundPayload } from "../runtime/client.js";
 import type { NormalizedSlackEvent } from "../slack/normalize.js";
 
 type FetchFn = (
@@ -27,14 +28,42 @@ function makeSlackUserResponse(): Response {
 let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () =>
   makeSlackUserResponse(),
 );
+const runtimePayloads: RuntimeInboundPayload[] = [];
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
+mock.module("../runtime/client.js", () => ({
+  CircuitBreakerOpenError: class CircuitBreakerOpenError extends Error {
+    readonly retryAfterSecs: number;
+
+    constructor(retryAfterSecs: number) {
+      super("Circuit breaker is open");
+      this.name = "CircuitBreakerOpenError";
+      this.retryAfterSecs = retryAfterSecs;
+    }
+  },
+  forwardToRuntime: mock(
+    async (_config: GatewayConfig, payload: RuntimeInboundPayload) => {
+      runtimePayloads.push(payload);
+      return {
+        accepted: true,
+        duplicate: false,
+        eventId: "runtime-event-1",
+      };
+    },
+  ),
+}));
+
+mock.module("../verification/text-verification.js", () => ({
+  tryTextVerificationIntercept: mock(async () => ({ intercepted: false })),
+}));
+
 const { SlackSocketModeClient } = await import("../slack/socket-mode.js");
 const { clearChannelInfoCache, clearUserInfoCache, resolveSlackUser } =
   await import("../slack/normalize.js");
+const { handleInbound } = await import("../handlers/handle-inbound.js");
 import type { SlackSocketModeConfig } from "../slack/socket-mode.js";
 
 type SocketModeHarness = {
@@ -149,6 +178,7 @@ function flushAsyncEventEmission(): Promise<void> {
 }
 
 beforeEach(() => {
+  runtimePayloads.length = 0;
   clearUserInfoCache();
   clearChannelInfoCache();
   fetchMock = mock(async () => makeSlackUserResponse());
@@ -706,21 +736,82 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
+  test("forwards resolved channel name in runtime source metadata", async () => {
+    const { rawDb, store } = createSlackStore();
+    const config = makeConfig();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    fetchMock = mock(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        expect(url.searchParams.get("channel")).toBe("C-thread");
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            channel: { id: "C-thread", name: "support-triage" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return makeSlackUserResponse();
+    });
+
+    try {
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-channel-name",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-channel-name",
+            event: {
+              type: "app_mention",
+              user: "U-actor",
+              text: "<@UBOT> please summarize this",
+              ts: "1700000000.000950",
+              channel: "C-thread",
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.channelName).toBe("support-triage");
+
+      await handleInbound(config, emitted[0].event, {
+        routingOverride: emitted[0].routing,
+      });
+
+      expect(runtimePayloads).toHaveLength(1);
+      expect(runtimePayloads[0].sourceMetadata?.channelName).toBe(
+        "support-triage",
+      );
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("keeps embedded Slack channel labels without conversations.info lookup", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
     const client = createHarness(store, (event) => emitted.push(event));
     const ws = makeOpenSocket();
-    let conversationInfoCalls = 0;
+    const conversationInfoChannels: string[] = [];
 
     fetchMock = mock(async (input) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/conversations.info")) {
-        conversationInfoCalls++;
+        const channelId = url.searchParams.get("channel");
+        if (channelId) {
+          conversationInfoChannels.push(channelId);
+        }
         return new Response(
           JSON.stringify({
             ok: true,
-            channel: { id: "CFEEDBACK", name: "private-name" },
+            channel: { id: channelId, name: "private-name" },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
@@ -752,7 +843,7 @@ describe("SlackSocketModeClient thread tracking", () => {
       expect(emitted[0].event.message.content).toBe(
         "@Example User continue in #visible-name",
       );
-      expect(conversationInfoCalls).toBe(0);
+      expect(conversationInfoChannels).toEqual(["C-thread"]);
     } finally {
       rawDb.close();
     }

@@ -35,6 +35,7 @@ const slackFileMetadataSchema = z.object({
 export const slackMessageMetadataSchema = z.object({
   source: z.literal("slack"),
   channelId: z.string(),
+  channelName: z.string().optional(),
   channelTs: z.string(),
   threadTs: z.string().optional(),
   displayName: z.string().optional(),

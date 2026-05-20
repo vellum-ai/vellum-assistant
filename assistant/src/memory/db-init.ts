@@ -97,6 +97,7 @@ import {
   migrateDropSetupSkillIdColumn,
   migrateDropSimplifiedMemory,
   migrateDropUsageCompositeIndexes,
+  migrateExternalConversationBindingChatName,
   migrateExternalConversationBindingThreadId,
   migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
@@ -438,6 +439,7 @@ export function initializeDb(): void {
     migrateA2ATasks,
     migrateLlmRequestLogAgentLoopExitReason,
     migrateCreateDocumentComments,
+    migrateExternalConversationBindingChatName,
   ];
 
   // Run each migration step, catching and logging individual failures so one

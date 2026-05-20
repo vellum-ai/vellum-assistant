@@ -7,7 +7,7 @@
  * list APIs.
  */
 
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb } from "./db-connection.js";
 import { externalConversationBindings } from "./schema.js";
@@ -16,6 +16,7 @@ export interface ExternalConversationBinding {
   conversationId: string;
   sourceChannel: string;
   externalChatId: string;
+  externalChatName?: string | null;
   externalThreadId?: string | null;
   externalUserId?: string | null;
   displayName?: string | null;
@@ -30,6 +31,7 @@ export interface UpsertBindingInput {
   conversationId: string;
   sourceChannel: string;
   externalChatId: string;
+  externalChatName?: string | null;
   externalThreadId?: string | null;
   externalUserId?: string | null;
   displayName?: string | null;
@@ -43,6 +45,13 @@ function normalizeExternalThreadId(
   return trimmed ? trimmed : null;
 }
 
+function normalizeExternalChatName(
+  externalChatName?: string | null,
+): string | null {
+  const trimmed = externalChatName?.trim();
+  return trimmed ? trimmed : null;
+}
+
 /**
  * Insert or update an external conversation binding on conflict (conversationId).
  * On conflict, updates channel metadata and timestamps.
@@ -51,6 +60,7 @@ export function upsertBinding(input: UpsertBindingInput): void {
   const db = getDb();
   const now = Date.now();
   const externalThreadId = normalizeExternalThreadId(input.externalThreadId);
+  const externalChatName = normalizeExternalChatName(input.externalChatName);
 
   // If a stale binding exists for this channel/chat/thread tuple under a
   // different conversationId, remove it first so the unique index is not violated.
@@ -75,6 +85,7 @@ export function upsertBinding(input: UpsertBindingInput): void {
       conversationId: input.conversationId,
       sourceChannel: input.sourceChannel,
       externalChatId: input.externalChatId,
+      externalChatName,
       externalThreadId,
       externalUserId: input.externalUserId ?? null,
       displayName: input.displayName ?? null,
@@ -88,6 +99,9 @@ export function upsertBinding(input: UpsertBindingInput): void {
       set: {
         sourceChannel: input.sourceChannel,
         externalChatId: input.externalChatId,
+        externalChatName:
+          externalChatName ??
+          sql`${externalConversationBindings.externalChatName}`,
         externalThreadId,
         externalUserId: input.externalUserId ?? null,
         displayName: input.displayName ?? null,

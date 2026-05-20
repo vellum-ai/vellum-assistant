@@ -159,25 +159,43 @@ function buildSlackHistoryMessage(
   if (!slackMeta) return undefined;
 
   const slackConfig = getConfig().slack;
+  const replyThreadTs =
+    slackMeta.threadTs && slackMeta.threadTs !== slackMeta.channelTs
+      ? slackMeta.threadTs
+      : undefined;
   const messageLink = buildSlackMessageDeepLinks({
     teamId: slackConfig?.teamId,
     teamUrl: slackConfig?.teamUrl,
     channelId: slackMeta.channelId,
     messageTs: slackMeta.channelTs,
+    ...(replyThreadTs ? { threadTs: replyThreadTs } : {}),
   });
-  const threadLink = slackMeta.threadTs
+  const threadLink = replyThreadTs
     ? buildSlackMessageDeepLinks({
         teamId: slackConfig?.teamId,
         teamUrl: slackConfig?.teamUrl,
         channelId: slackMeta.channelId,
-        messageTs: slackMeta.threadTs,
+        messageTs: replyThreadTs,
       })
     : undefined;
 
   return {
     channelId: slackMeta.channelId,
+    ...(slackMeta.channelName ? { channelName: slackMeta.channelName } : {}),
     channelTs: slackMeta.channelTs,
     ...(slackMeta.threadTs ? { threadTs: slackMeta.threadTs } : {}),
+    ...(slackMeta.displayName || slackMeta.actorExternalUserId
+      ? {
+          sender: {
+            ...(slackMeta.displayName
+              ? { displayName: slackMeta.displayName }
+              : {}),
+            ...(slackMeta.actorExternalUserId
+              ? { externalUserId: slackMeta.actorExternalUserId }
+              : {}),
+          },
+        }
+      : {}),
     ...(messageLink ? { messageLink } : {}),
     ...(threadLink ? { threadLink } : {}),
   };
