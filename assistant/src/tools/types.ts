@@ -14,6 +14,7 @@ import type {
 
 import type { InterfaceId } from "../channels/types.js";
 import type { CesClient } from "../credential-execution/client.js";
+import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
@@ -163,6 +164,9 @@ export interface ToolExecutionResult extends PluginToolExecutionResult {
    * approval flow transparently.
    */
   cesApprovalRequired?: ApprovalRequired;
+  /** Structured activity metadata for client rendering (web search, web fetch, etc).
+   *  Populated by daemon-internal tools; plugins must not set this. */
+  activityMetadata?: ToolActivityMetadata;
 }
 
 export type ProxyToolResolver = (

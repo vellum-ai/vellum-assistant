@@ -7,6 +7,7 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { calculateMaxToolResultChars } from "../context/tool-result-truncation.js";
+import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response.js";
 import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error.js";
 import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate.js";
@@ -142,6 +143,7 @@ export type AgentEvent =
       approvalMode?: string;
       approvalReason?: string;
       riskThreshold?: string;
+      activityMetadata?: ToolActivityMetadata;
     }
   | { type: "tool_use_preview_start"; toolUseId: string; toolName: string }
   | {
@@ -161,6 +163,17 @@ export type AgentEvent =
       toolUseId: string;
       isError: boolean;
       content?: unknown[];
+      /**
+       * Finalized input for the server tool (e.g. the actual web-search
+       * query). Carried through so the daemon can populate accurate activity
+       * metadata; Anthropic streams server-tool input via deltas that aren't
+       * resolved at `server_tool_start` time.
+       */
+      resolvedInput?: Record<string, unknown>;
+      /** Provider-specific error code (e.g. `max_uses_exceeded`). */
+      errorCode?: string;
+      /** Optional human-readable error message from the provider. */
+      errorMessage?: string;
     }
   | { type: "error"; error: Error }
   | {
@@ -371,6 +384,7 @@ export type LoopToolExecutor = (
   approvalMode?: string;
   approvalReason?: string;
   riskThreshold?: string;
+  activityMetadata?: ToolActivityMetadata;
 }>;
 
 export class AgentLoop {
@@ -697,6 +711,13 @@ export class AgentLoop {
                   toolUseId: event.toolUseId,
                   isError: event.isError,
                   ...(event.content ? { content: event.content } : {}),
+                  ...(event.resolvedInput
+                    ? { resolvedInput: event.resolvedInput }
+                    : {}),
+                  ...(event.errorCode ? { errorCode: event.errorCode } : {}),
+                  ...(event.errorMessage
+                    ? { errorMessage: event.errorMessage }
+                    : {}),
                 });
               }
             },
@@ -1165,6 +1186,7 @@ export class AgentLoop {
             approvalMode: result.approvalMode,
             approvalReason: result.approvalReason,
             riskThreshold: result.riskThreshold,
+            activityMetadata: result.activityMetadata,
           });
         }
 

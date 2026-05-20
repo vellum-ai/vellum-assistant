@@ -11346,6 +11346,8 @@ paths:
                   type: string
                 throwOnError:
                   type: boolean
+                originatingConversationId:
+                  type: string
               required:
                 - sourceEventName
                 - sourceChannel
