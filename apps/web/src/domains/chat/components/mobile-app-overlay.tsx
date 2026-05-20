@@ -32,10 +32,13 @@ interface MobileAppOverlayProps {
  * minimized (`isAppMinimized=true`) so the chat behind becomes interactive
  * again.
  *
- * Rendered through the assistant shell's viewport-overlay slot, which places
- * it as a sibling of the shell's transformed inner wrapper. That sibling
- * position keeps `position: fixed` anchored to the viewport's initial
- * containing block rather than the keyboard-following shell transform.
+ * **Mounting constraint**: must render outside `RootLayout`'s inner
+ * transformed wrapper (see `src/components/layout/root-layout.tsx`). When
+ * the soft keyboard opens, `RootLayout` applies a `translate3d(...)` to its
+ * inner div to follow the visual viewport — any `position: fixed` element
+ * inside that transformed wrapper anchors to the transform's origin rather
+ * than the viewport's initial containing block, and the overlay drifts with
+ * the keyboard. Render as a sibling of the inner wrapper instead.
  *
  * https://www.w3.org/TR/css-transforms-1/#transform-rendering
  */

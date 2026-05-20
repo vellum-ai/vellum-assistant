@@ -14,10 +14,12 @@ interface MobileSubagentDetailOverlayProps {
 
 /**
  * Mobile-only full-screen overlay that hosts the subagent detail panel.
- * Rendered through the assistant shell's viewport-overlay slot so it lives
- * as a sibling of the shell's transformed inner wrapper — keeping its
- * `position: fixed` box anchored to the viewport's initial containing block
- * rather than the keyboard-following shell transform.
+ *
+ * **Mounting constraint**: must render outside `RootLayout`'s inner
+ * transformed wrapper (see `src/components/layout/root-layout.tsx`) so
+ * `position: fixed` anchors to the viewport's initial containing block
+ * rather than the keyboard-following transform `RootLayout` applies when
+ * the soft keyboard opens.
  *
  * https://www.w3.org/TR/css-transforms-1/#transform-rendering
  */

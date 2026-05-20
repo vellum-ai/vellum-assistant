@@ -1,6 +1,6 @@
 /**
  * Chat route content — renders the chat-specific UI (main chat, document panel,
- * app-editing side panel) within the `AssistantShell` layout.
+ * app-editing side panel) inside `ChatLayout`.
  *
  * Extracted from `AssistantPageClient` as Phase 1 of route-level component
  * splitting. This component owns:
