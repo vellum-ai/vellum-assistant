@@ -203,3 +203,37 @@ describe("ChatBody — startersSlot rendering", () => {
     expect(html).not.toContain("STARTER_CHIPS");
   });
 });
+
+describe("ChatBody — read-only cancellation", () => {
+  test("renders the read-only banner without a stop control while idle", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          isChannelReadonly: true,
+          composerProps: { onStopGenerating: noop } as never,
+        })}
+      />,
+    );
+
+    expect(html).toContain("Read-only conversation");
+    expect(html).not.toContain('aria-label="Stop generating"');
+    expect(html).not.toContain("COMPOSER");
+  });
+
+  test("renders the stop control for an active read-only turn", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          isChannelReadonly: true,
+          canStopGenerating: true,
+          composerProps: { onStopGenerating: noop } as never,
+        })}
+      />,
+    );
+
+    expect(html).toContain("Read-only conversation");
+    expect(html).toContain('aria-label="Stop generating"');
+    expect(html).toContain('title="Stop generation"');
+    expect(html).not.toContain("COMPOSER");
+  });
+});
