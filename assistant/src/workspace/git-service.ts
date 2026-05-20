@@ -1,5 +1,12 @@
 import { execFile, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -69,6 +76,41 @@ const WORKSPACE_GITIGNORE_RULES = [
   "vellum.pid",
   "session-token",
 ];
+
+const NULL_GIT_OID = "0000000000000000000000000000000000000000";
+
+const WORKSPACE_BRANCH_GUARD_HOOK = `#!/bin/sh
+set -eu
+
+state="\${1:-}"
+if [ "$state" != "prepared" ]; then
+  exit 0
+fi
+
+while read -r _old_oid new_oid refname; do
+  case "$refname" in
+    refs/heads/main)
+      ;;
+    refs/heads/*)
+      if [ "$new_oid" = "${NULL_GIT_OID}" ]; then
+        continue
+      fi
+
+      cat >&2 <<MSG
+Blocked: assistant workspace git branches are disabled.
+
+Use the workspace main branch for assistant state. Create task branches only in
+external product repositories or dedicated worktrees.
+
+Rejected ref update: $refname
+MSG
+      exit 1
+      ;;
+  esac
+done
+
+exit 0
+`;
 
 /** Properties added by Node's child_process errors. */
 interface ExecError extends Error {
@@ -426,7 +468,9 @@ export class WorkspaceGitService {
                 // These calls are OUTSIDE the rev-parse try/catch so that
                 // normalization errors are not misclassified as "no commits".
                 this.ensureGitignoreRulesLocked();
+                this.ensureBranchGuardHookLocked();
                 await this.ensureCommitIdentityLocked();
+                await this.ensureBranchGuardConfigLocked();
                 await this.ensureOnMainLocked();
                 this.initialized = true;
                 this.recordInitSuccess();
@@ -444,7 +488,9 @@ export class WorkspaceGitService {
           // in the corruption-recovery path we fall through here after
           // removing .git, so branch enforcement is still useful.
           this.ensureGitignoreRulesLocked();
+          this.ensureBranchGuardHookLocked();
           await this.ensureCommitIdentityLocked();
+          await this.ensureBranchGuardConfigLocked();
           await this.ensureOnMainLocked();
 
           // Create initial commit synchronously within the lock to prevent
@@ -452,9 +498,14 @@ export class WorkspaceGitService {
           // initial commit could run concurrently and consume edits meant
           // for the first user-requested commit.
           const status = await this.getStatusInternal();
-          const hasExistingFiles =
-            status.untracked.length > 1 || // More than just .gitignore
-            status.untracked.some((f) => f !== ".gitignore");
+          const autoCreatedInitFiles = new Set([
+            ".gitignore",
+            ".githooks/",
+            ".githooks/reference-transaction",
+          ]);
+          const hasExistingFiles = status.untracked.some(
+            (f) => !autoCreatedInitFiles.has(f),
+          );
 
           await this.execGit(["add", "-A"]);
 
@@ -764,6 +815,26 @@ export class WorkspaceGitService {
       process.env.ASSISTANT_GIT_USER_EMAIL || "assistant@vellum.ai";
     await this.execGit(["config", "user.name", gitName]);
     await this.execGit(["config", "user.email", gitEmail]);
+  }
+
+  /**
+   * Ensure workspace branch guard hook is present.
+   * Must be called with the mutex lock held.
+   */
+  private ensureBranchGuardHookLocked(): void {
+    const hooksDir = join(this.workspaceDir, ".githooks");
+    const hookPath = join(hooksDir, "reference-transaction");
+    mkdirSync(hooksDir, { recursive: true });
+    writeFileSync(hookPath, WORKSPACE_BRANCH_GUARD_HOOK, "utf-8");
+    chmodSync(hookPath, 0o755);
+  }
+
+  /**
+   * Ensure workspace git uses the branch guard hook path.
+   * Must be called with the mutex lock held.
+   */
+  private async ensureBranchGuardConfigLocked(): Promise<void> {
+    await this.execGit(["config", "core.hooksPath", ".githooks"]);
   }
 
   /**

@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -85,6 +86,58 @@ describe("WorkspaceGitService", () => {
 
       expect(userName).toBe("Vellum Assistant");
       expect(userEmail).toBe("assistant@vellum.ai");
+    });
+
+    test("installs branch guard hook that blocks non-main branches", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const hooksPath = execFileSync("git", ["config", "core.hooksPath"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+      expect(hooksPath).toBe(".githooks");
+
+      const hookPath = join(testDir, ".githooks", "reference-transaction");
+      expect(existsSync(hookPath)).toBe(true);
+      expect(statSync(hookPath).mode & 0o111).not.toBe(0);
+
+      const hookContent = readFileSync(hookPath, "utf-8");
+      expect(hookContent).toContain(
+        "assistant workspace git branches are disabled",
+      );
+
+      expect(() =>
+        execFileSync("git", ["branch", "apollo/test-branch"], {
+          cwd: testDir,
+          encoding: "utf-8",
+        }),
+      ).toThrow(/assistant workspace git branches are disabled/);
+    });
+
+    test("branch guard allows deleting old non-main branches", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      execFileSync(
+        "git",
+        ["-c", "core.hooksPath=/dev/null", "branch", "old-branch"],
+        {
+          cwd: testDir,
+        },
+      );
+
+      execFileSync("git", ["branch", "-D", "old-branch"], { cwd: testDir });
+
+      const branches = execFileSync(
+        "git",
+        ["branch", "--format=%(refname:short)"],
+        {
+          cwd: testDir,
+          encoding: "utf-8",
+        },
+      );
+      expect(branches).not.toContain("old-branch");
     });
 
     test("multiple ensureInitialized calls are idempotent", async () => {
@@ -709,6 +762,36 @@ describe("WorkspaceGitService", () => {
 
       expect(userName).toBe("Vellum Assistant");
       expect(userEmail).toBe("assistant@vellum.ai");
+    });
+
+    test("existing repo gets branch guard installed on init", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "test@test.com"], {
+        cwd: testDir,
+      });
+      writeFileSync(join(testDir, "file.txt"), "content");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const hooksPath = execFileSync("git", ["config", "core.hooksPath"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+      expect(hooksPath).toBe(".githooks");
+      expect(
+        existsSync(join(testDir, ".githooks", "reference-transaction")),
+      ).toBe(true);
+
+      expect(() =>
+        execFileSync("git", ["branch", "feature-after-init"], {
+          cwd: testDir,
+          encoding: "utf-8",
+        }),
+      ).toThrow(/assistant workspace git branches are disabled/);
     });
 
     test("existing repo with correct config is idempotent", async () => {
