@@ -1,4 +1,4 @@
-import type { DisplayMessage, Surface } from "@/domains/chat/lib/types.js";
+import type { DisplayMessage, Surface } from "@/domains/chat/types/types.js";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
 
 export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean {

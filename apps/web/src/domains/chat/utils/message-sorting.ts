@@ -1,4 +1,4 @@
-import type { DisplayMessage } from "@/domains/chat/lib/types.js";
+import type { DisplayMessage } from "@/domains/chat/types/types.js";
 
 /**
  * Stable in-place sort by timestamp.  Only messages that have a timestamp

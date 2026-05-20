@@ -1,7 +1,7 @@
 
 import { ExternalLink } from "lucide-react";
 
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container.js";
 

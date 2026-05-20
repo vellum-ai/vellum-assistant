@@ -96,7 +96,7 @@ import {
   shouldPoll,
   useConversationStarters,
   type UseConversationStartersResult,
-} from "@/domains/chat/lib/use-conversation-starters.js";
+} from "@/domains/chat/hooks/use-conversation-starters.js";
 
 // ---------------------------------------------------------------------------
 // Test harness — `renderToStaticMarkup` walks function components, so this

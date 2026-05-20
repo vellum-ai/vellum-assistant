@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 
 mock.module("@/domains/chat/api/apps", () => ({
   getCachedAppHtml: () => Promise.resolve("<html></html>"),

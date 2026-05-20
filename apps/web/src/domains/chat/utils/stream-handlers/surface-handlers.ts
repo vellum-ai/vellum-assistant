@@ -2,7 +2,7 @@ import {
   classifySurfaceDisplay,
   isSurfaceInteractive,
   type Surface,
-} from "@/domains/chat/lib/types.js";
+} from "@/domains/chat/types/types.js";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissedSurfacesStorage.js";
 import {
   attachSurface,
