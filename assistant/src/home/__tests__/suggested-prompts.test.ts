@@ -23,6 +23,34 @@ mock.module("../../util/logger.js", () => ({
     }),
 }));
 
+mock.module("../../config/loader.js", () => ({
+  getConfig: () => ({ llm: {} }),
+}));
+
+mock.module("../../config/llm-resolver.js", () => ({
+  resolveCallSiteConfig: () => ({ provider: "mock" }),
+}));
+
+mock.module("../../providers/registry.js", () => ({
+  getProvider: () => ({}),
+}));
+
+mock.module("../../prompts/persona-resolver.js", () => ({
+  resolvePersonaContext: () => ({
+    userPersona: null,
+    userSlug: null,
+    channelPersona: null,
+  }),
+}));
+
+mock.module("../../prompts/system-prompt.js", () => ({
+  buildSystemPrompt: () => "mock system prompt",
+}));
+
+mock.module("../../runtime/btw-sidechain.js", () => ({
+  runBtwSidechain: async () => ({ text: "" }),
+}));
+
 const { getSuggestedPrompts } = await import("../suggested-prompts.js");
 
 // ─── Tests ─────────────────────────────────────────────────────────────
