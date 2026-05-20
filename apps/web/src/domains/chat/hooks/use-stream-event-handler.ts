@@ -282,6 +282,7 @@ export function useStreamEventHandler(
         contextWindowUsageByConversationRef,
         setContextWindowUsage,
         scheduleConversationListRefetch,
+        queryClient,
         setCompactionCircuitOpenUntil,
         applyDiskPressureStatusEvent: (...args) =>
           applyDiskPressureStatusEventRef.current(...args),

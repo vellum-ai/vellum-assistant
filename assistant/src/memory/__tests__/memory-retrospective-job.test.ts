@@ -27,10 +27,13 @@ let lastRunAtBumps: Array<{ conversationId: string; lastRunAt: number }> = [];
 
 let newMessages: Array<{ id: string; createdAt: number }> = [];
 
-// Fork-path bookkeeping. `forkCount` is the number of `forkConversation`
-// calls observed so far (also used to mint unique fork IDs).
-// `mockSourceConversation`, when set, is what `getConversation` returns for
-// the source conversation ID — fork-path tests must set this.
+// Fork-path bookkeeping. Flag is off by default so legacy-path tests stay
+// untouched; fork-path tests flip it in their own bodies.
+// `forkCount` is the number of `forkConversation` calls observed so far (also
+// used to mint unique fork IDs). `mockSourceConversation`, when set, is what
+// `getConversation` returns for the source conversation ID — fork-path tests
+// must set this so the handler can read the source title.
+let forkFlagEnabled = false;
 let forkCount = 0;
 let mockSourceConversation: {
   id: string;
@@ -52,14 +55,15 @@ let bootstrappedConversationId = "bg-conv-new";
 let bootstrapCalls: Array<{ forkParentConversationId?: string }> = [];
 let deletedConversationIds: string[] = [];
 
-// Feature flag — defaults to legacy path. Fork-path tests flip this to true
-// in their own `beforeEach`/test body before invoking the job.
-let forkFlagEnabled = false;
-
-mock.module("../../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (key: string, _config: unknown) =>
-    key === "memory-retrospective-fork" ? forkFlagEnabled : false,
-}));
+// Fork-path mocks. Flag off by default so legacy-path tests stay untouched.
+// Fork-path tests flip `forkFlagEnabled` to true in their own bodies before
+// invoking the job. `addMessageCalls` captures the instruction message the
+// fork-path persists so tests can assert on its metadata.
+let addMessageCalls: Array<{
+  conversationId: string;
+  role: string;
+  metadata: unknown;
+}> = [];
 
 mock.module("../memory-retrospective-state.js", () => ({
   getRetrospectiveState: (_id: string) => mockState,
@@ -83,7 +87,6 @@ mock.module("../conversation-crud.js", () => ({
   },
   findMostRecentRetrospectiveFor: (_id: string) =>
     priorRetroId ? { id: priorRetroId } : null,
-  // `collectPriorRetrospectiveRemembers` reads the prior row to discriminate
   // between legacy and fork-kind sources. `runForkBasedRetrospective` also
   // reads the *source* conversation to compute the fork title. Discriminate
   // by id: the source returns the configured row; everything else returns a
@@ -98,10 +101,22 @@ mock.module("../conversation-crud.js", () => ({
     forkCount += 1;
     return { id: `fork-conv-${forkCount}` };
   },
-  addMessage: async () => {},
+  addMessage: async (
+    conversationId: string,
+    role: string,
+    _content: string,
+    metadata: unknown,
+  ) => {
+    addMessageCalls.push({ conversationId, role, metadata });
+  },
   deleteConversation: (id: string) => {
     deletedConversationIds.push(id);
   },
+}));
+
+mock.module("../../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (flag: string) =>
+    flag === "memory-retrospective-fork" && forkFlagEnabled,
 }));
 
 let transcriptFormatterCalls: Array<{
@@ -245,6 +260,7 @@ describe("memoryRetrospectiveJob", () => {
     forkFlagEnabled = false;
     forkCount = 0;
     mockSourceConversation = null;
+    addMessageCalls = [];
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -452,6 +468,20 @@ describe("memoryRetrospectiveJob", () => {
 
     const hint = wakeCalls[0]!.hint;
     expect(hint).toContain("<\u200B/already_remembered>");
+  });
+
+  test("fork path: persisted instruction is stamped with hidden: true so the UI list serializer drops it", async () => {
+    forkFlagEnabled = true;
+    mockSourceConversation = { id: "src-conv-1", title: "Trip planning" };
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(addMessageCalls).toHaveLength(1);
+    expect(addMessageCalls[0]!.conversationId).toBe("fork-conv-1");
+    expect(addMessageCalls[0]!.role).toBe("user");
+    expect(addMessageCalls[0]!.metadata).toEqual({
+      kind: "memory_retrospective_instruction",
+      hidden: true,
+    });
   });
 
   test("fork path: wake opts include suppressWakeSurface so clients don't render an empty wake card on top of the '(Retrospective)' fork", async () => {

@@ -12,7 +12,7 @@ Vellum assistant web app (chat, settings, library, docs).
   `<RouterProvider>`).
 - [Zustand](https://zustand.docs.pmnd.rs/) for shared client state
   (messages, streaming, interactions, conversations). See
-  [`CONVENTIONS.md`](./CONVENTIONS.md#state-management) for store patterns.
+  [`docs/STATE_MANAGEMENT.md`](./docs/STATE_MANAGEMENT.md) for store patterns.
 - [TanStack React Query](https://tanstack.com/query/latest) for server
   state (API calls, caching, mutations).
 - [HeyAPI](https://heyapi.dev/) for OpenAPI client generation with
@@ -104,11 +104,12 @@ deterministic results are required.
 
 ## Architecture
 
-See [`CONVENTIONS.md`](./CONVENTIONS.md) for code organization
-(domain-based architecture), state management patterns (Zustand +
-React Query), component conventions, and framework strategy.
+See [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) for code organization
+(domain-based architecture), component conventions, and framework strategy.
+See [`docs/STATE_MANAGEMENT.md`](./docs/STATE_MANAGEMENT.md) for state
+patterns (Zustand + TanStack Query).
 
-See [`STYLE_GUIDE.md`](./STYLE_GUIDE.md) for naming, imports,
+See [`docs/STYLE_GUIDE.md`](./docs/STYLE_GUIDE.md) for naming, imports,
 TypeScript rules, and formatting.
 
 ## Directory structure
