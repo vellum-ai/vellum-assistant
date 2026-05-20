@@ -42,7 +42,7 @@ cd apps/web && bun test src/path/to/file.test.ts  # Run specific tests
 
 ## Migration status
 
-This app is being migrated from [`vellum-assistant-platform/web/`](https://github.com/vellum-ai/vellum-assistant-platform). During migration:
+This app is being migrated from [`vellum-assistant-platform/web/`](https://github.com/vellum-ai/vellum-assistant-platform). Remaining work is tracked in the [Web App Repo Move](https://linear.app/vellum/project/web-app-repo-move-platform-vellum-assistant-1b8cd4f8-49cf-4b7b-b8e9-98b92046d2c3) Linear project. During migration:
 
 - **Faithful copy, not simplification.** Port real implementations, not stubs. All Capacitor/native code paths must be preserved.
 - **Convention compliance on arrival.** Apply this repo's naming (kebab-case), import conventions (`.js` extensions, `@/` aliases), and directory structure as code is ported.
