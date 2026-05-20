@@ -13,7 +13,7 @@ mock.module("@/hooks/use-network-status.js", () => ({
   useNetworkStatus: () => connectedMock,
 }));
 
-mock.module("../../packages/design-library/src/components/notice.tsx", () => ({
+mock.module("@vellum/design-library/components/notice", () => ({
   Notice: (props: { title: string }) => (
     <div data-testid="notice">{props.title}</div>
   ),
