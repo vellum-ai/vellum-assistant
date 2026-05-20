@@ -383,22 +383,6 @@ export async function handleClassifyRisk(
         }
       }
 
-      // Containerized bash risk cap:
-      // When bash runs inside the assistant's own container, high-risk
-      // commands have limited blast radius (only the container itself).
-      // Cap High → Medium to reflect the reduced effective risk.
-      // Credential-attached invocations are excluded because credentials
-      // may affect external systems beyond the container boundary.
-      if (
-        tool === "bash" &&
-        isContainerized &&
-        params.networkMode !== "proxied" &&
-        credentialRefCount === 0 &&
-        finalRisk === "high"
-      ) {
-        finalRisk = "medium";
-      }
-
       // Collect resolved paths for directory-scoped rule enforcement.
       // These are the same resolved args used for scope generation — the
       // assistant threads them into `findHighestPriorityRule` so scoped
