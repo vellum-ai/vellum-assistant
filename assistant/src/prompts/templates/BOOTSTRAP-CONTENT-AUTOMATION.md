@@ -16,7 +16,7 @@ Before asking anything, check for pre-existing state in this order:
 2. **`data/sanity-connection.json`**: Sanity is already connected. Read `projectId` and `dataset` from it. Go directly to "After connection — Sanity path."
 3. **`data/content-source.json`**: a content source URL was provided. Read `url` from it. Go directly to "After connection — Website scrape path" using this URL.
 
-One of the above will always be present — the pre-chat onboarding flow collects either a Sanity connection or a website URL before the first message.
+One of the above will usually be present — the pre-chat onboarding flow collects either a Sanity connection or a website URL before the first message. If none are found, ask for their website URL in one `ask_question` (free-text input).
 
 ## After connection — Sanity path
 
