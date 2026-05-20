@@ -15,6 +15,7 @@ import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 import type { AssistantContextValue } from "@/domains/chat/assistant-context.js";
 
+import { OfflineBanner } from "@/components/offline-banner.js";
 import { ChatLayoutHeader } from "./chat-layout-header.js";
 import { SideMenu } from "./side-menu.js";
 
@@ -313,6 +314,8 @@ export function ChatLayout() {
         onOpenHome={handleOpenHome}
         isHomeActive={isHomeActive}
       />
+
+      <OfflineBanner />
 
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 overflow-y-auto">
