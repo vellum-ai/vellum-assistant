@@ -7,7 +7,7 @@ import {
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { useMutation } from "@tanstack/react-query";
 import { AlertCircle, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Modal } from "@vellum/design-library/components/modal";
@@ -15,9 +15,12 @@ import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
 import { organizationsBillingAutoTopUpSetupIntentCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
 
-// Module-level Stripe singleton — `loadStripe` is memoised by Stripe and
-// must only be called once per page load.
-const STRIPE_PK = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
+// Stripe publishable key — injected at build time by the deployment pipeline.
+// This is Stripe's *publishable* key (pk_live_* / pk_test_*), designed to be
+// embedded in client bundles: https://docs.stripe.com/keys#obtain-api-keys
+// Not in .env.example because local/OSS contributors don't need billing;
+// without it the modal gracefully shows <MissingStripeKeyNotice />.
+const STRIPE_PK = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY ?? "";
 
 let stripePromise: Promise<Stripe | null> | null = null;
 function getStripePromise() {
@@ -165,12 +168,7 @@ export function AutoTopUpPaymentMethodModal({
   );
 }
 
-// ---------------------------------------------------------------------------
-// MissingStripeKeyNotice — fallback when `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
-// is empty. End users see a generic "try again later" message; developers
-// see an actionable env-var-name warning in the console (logged once on
-// mount). This keeps prod copy clean without losing the dev-side hint.
-// ---------------------------------------------------------------------------
+// Fallback when VITE_STRIPE_PUBLISHABLE_KEY is not set at build time.
 
 function MissingStripeKeyNotice() {
   useEffect(() => {
@@ -204,7 +202,7 @@ function SetupCardForm({
   const [error, setError] = useState<string | null>(null);
   const [elementReady, setElementReady] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!stripe || !elements || !elementReady) return;
 
