@@ -94,11 +94,6 @@ export interface UseStreamEventHandlerParams {
   messagesRef: MutableRefObject<DisplayMessage[]>;
   needsNewBubbleRef: MutableRefObject<boolean>;
 
-  // --- Processing ---
-  processingSnapshotsRef: MutableRefObject<
-    Map<string, string | undefined>
-  >;
-
   // --- Error & stream lifecycle ---
   setError: Dispatch<SetStateAction<ChatError | null>>;
   streamRef: MutableRefObject<ChatEventStream | null>;
@@ -174,7 +169,6 @@ export function useStreamEventHandler(
     setMessages,
     messagesRef,
     needsNewBubbleRef,
-    processingSnapshotsRef,
     setError,
     streamRef,
     cancelReconciliation,
@@ -212,13 +206,10 @@ export function useStreamEventHandler(
   invalidateAvatarRef.current = invalidateAvatar;
 
   /** Remove a conversation key from the processing set and snapshots map. */
-  const clearProcessingKey = useCallback(
-    (convKey: string) => {
-      useConversationListStore.getState().removeProcessingKey(convKey);
-      processingSnapshotsRef.current.delete(convKey);
-    },
-    [processingSnapshotsRef],
-  );
+  const clearProcessingKey = useCallback((convKey: string) => {
+    // `removeProcessingKey` clears the matching snapshot in the same set call.
+    useConversationListStore.getState().removeProcessingKey(convKey);
+  }, []);
 
   // --- Main event handler ---
 

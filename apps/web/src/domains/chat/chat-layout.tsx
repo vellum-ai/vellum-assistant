@@ -17,6 +17,7 @@ import type { AssistantContextValue } from "@/domains/chat/assistant-context.js"
 
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { useConversationListInit } from "@/domains/conversations/use-conversation-list-init.js";
+import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
@@ -127,6 +128,17 @@ export function ChatLayout() {
     assistantId: lifecycle.assistantId,
     assistantStateKind: lifecycle.assistantState.kind,
     conversationGroupsUI,
+  });
+
+  // Track processing/attention indicators for every conversation in the
+  // sidebar, on every chat-layout child route. Mounted here (not ChatPage)
+  // so the 10s polling loop and graduation logic stay live when the user is
+  // on home/library/contacts/identity. Pass lifecycle values directly —
+  // `useAssistantContext()` would crash here since this hook runs inside
+  // the layout that PROVIDES that context (no parent outlet to read from).
+  useAttentionTracking({
+    assistantId: lifecycle.assistantId,
+    assistantStateKind: lifecycle.assistantState.kind,
   });
 
   // --- Layout slot state for child route content ---

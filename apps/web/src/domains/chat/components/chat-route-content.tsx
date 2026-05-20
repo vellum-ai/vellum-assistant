@@ -217,7 +217,6 @@ export interface ChatRouteRefs {
   refreshSettleRef: MutableRefObject<RefreshSettleHandle | null>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
-  processingSnapshotsRef: MutableRefObject<Map<string, string | undefined>>;
   historyLoadedRef: MutableRefObject<boolean>;
   pendingQueuedStableIdsRef: MutableRefObject<string[]>;
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
@@ -489,7 +488,6 @@ export function ChatRouteContent({
     refreshSettleRef,
     streamRef: _streamRef,
     streamEpochRef: _streamEpochRef,
-    processingSnapshotsRef: _processingSnapshotsRef,
     historyLoadedRef: _historyLoadedRef,
     pendingQueuedStableIdsRef: _pendingQueuedStableIdsRef,
     requestIdToStableIdRef: _requestIdToStableIdRef,
