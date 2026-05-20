@@ -4,8 +4,12 @@ import { describe, expect, it } from "bun:test";
 
 const tempDir = process.env.VELLUM_WORKSPACE_DIR!;
 
-const { isWakeUpGreeting, getCannedFirstGreeting, CANNED_FIRST_GREETING } =
-  await import("../daemon/first-greeting.js");
+const {
+  isWakeUpGreeting,
+  getCannedFirstGreeting,
+  buildScanFirstMessage,
+  CANNED_FIRST_GREETING,
+} = await import("../daemon/first-greeting.js");
 import type { OnboardingGreetingContext } from "../daemon/first-greeting.js";
 
 describe("first-greeting", () => {
@@ -267,6 +271,23 @@ describe("first-greeting", () => {
       });
       const unique = new Set(invites);
       expect(unique.size).toBe(tones.length);
+    });
+  });
+
+  describe("buildScanFirstMessage", () => {
+    it("website variant includes 'my website' and the URL", () => {
+      const msg = buildScanFirstMessage("https://acme.com", "website");
+      expect(msg).toContain("my website");
+      expect(msg).toContain("https://acme.com");
+    });
+
+    it("content-source variant includes 'content' and the URL", () => {
+      const msg = buildScanFirstMessage(
+        "https://blog.acme.com/post",
+        "content-source",
+      );
+      expect(msg).toContain("content");
+      expect(msg).toContain("https://blog.acme.com/post");
     });
   });
 

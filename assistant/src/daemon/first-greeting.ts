@@ -102,6 +102,16 @@ function resolveTone(raw?: string): Tone {
   return raw && VALID_TONES.has(raw) ? (raw as Tone) : "grounded";
 }
 
+export function buildScanFirstMessage(
+  url: string,
+  variant: "website" | "content-source",
+): string {
+  if (variant === "content-source") {
+    return `Here's a page with content I'd like you to look at: ${url}`;
+  }
+  return `Here's my website: ${url}`;
+}
+
 function buildPersonalizedGreeting(ctx: OnboardingGreetingContext): string {
   const name = ctx.userName?.trim();
   const assistant = ctx.assistantName?.trim();

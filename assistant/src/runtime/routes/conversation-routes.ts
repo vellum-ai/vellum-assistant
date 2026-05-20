@@ -34,6 +34,7 @@ import {
 import { getOrCreateConversation as getOrCreateConversationInstance } from "../../daemon/conversation-store.js";
 import { canonicalizeTimeZone } from "../../daemon/date-context.js";
 import {
+  buildScanFirstMessage,
   getCannedFirstGreeting,
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
@@ -1114,6 +1115,7 @@ export async function handleSendMessage(
       googleScopes?: string[];
       cohort?: string;
       websiteUrl?: string;
+      contentSourceUrl?: string;
     };
   };
 
@@ -1445,12 +1447,28 @@ export async function handleSendMessage(
     );
   }
 
-  // ── Canned first-greeting fast path ──
-  // On a completely fresh workspace, skip LLM inference for the macOS
-  // wake-up greeting and return a pre-written response. When onboarding
-  // context is present the greeting is personalized using the selections;
-  // otherwise a generic greeting is served. Both paths are instant.
-  if (isWakeUpGreeting(trimmedContent, conversation.getMessages().length)) {
+  // ── URL scan path: rewrite first message for scan onboarding ──
+  // When onboarding provides a websiteUrl or contentSourceUrl and the
+  // first message is the macOS wake-up greeting, bypass the canned
+  // greeting and rewrite the user message to a scan instruction so real
+  // LLM inference runs against the URL.
+  const scanUrl =
+    body.onboarding?.websiteUrl?.trim() ||
+    body.onboarding?.contentSourceUrl?.trim();
+  const isWakeUp = isWakeUpGreeting(
+    trimmedContent,
+    conversation.getMessages().length,
+  );
+  const isScanPath = !!scanUrl && isWakeUp;
+
+  let effectiveContent: string | undefined;
+  if (isScanPath) {
+    const scanVariant = body.onboarding?.contentSourceUrl
+      ? ("content-source" as const)
+      : ("website" as const);
+    effectiveContent = buildScanFirstMessage(scanUrl, scanVariant);
+    // Fall through to normal inference path below
+  } else if (isWakeUp) {
     const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
 
     conversation.processing = true;
@@ -1746,7 +1764,9 @@ export async function handleSendMessage(
   await conversation.ensureActorScopedHistory();
 
   // Resolve slash commands before persisting or running the agent loop.
-  const rawContent = content ?? "";
+  // When the scan path rewrote the first message, use the rewritten content
+  // so the persisted user message and agent loop see the scan instruction.
+  const rawContent = effectiveContent ?? content ?? "";
   const slashContext = buildSlashContextForContent(rawContent, {
     conversationId: mapping.conversationId,
     messageCount: conversation.getMessages().length,
