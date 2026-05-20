@@ -15,9 +15,11 @@ import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 import type { AssistantContextValue } from "@/domains/chat/assistant-context.js";
 
+import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+
 import { OfflineBanner } from "@/components/offline-banner.js";
+import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
 import { ChatLayoutHeader } from "./chat-layout-header.js";
-import { SideMenu } from "./side-menu.js";
 
 /**
  * LocalStorage key used to persist the collapsed state of the sidebar rail
@@ -80,7 +82,7 @@ export function shouldHandleShortcut(
 
 export type SideMenuVariant = "rail" | "overlay";
 
-export interface SideMenuRenderArgs {
+interface SideMenuRenderArgs {
   collapsed: boolean;
   variant: SideMenuVariant;
   onClose?: () => void;
@@ -294,9 +296,48 @@ export function ChatLayout() {
     };
   }, [drawerVisible]);
 
+  const conversations = useConversationListStore.use.conversations();
+  const conversationGroups = useConversationListStore.use.conversationGroups();
+  const activeConversationKey = useConversationListStore.use.activeConversationKey();
+  const processingKeys = useConversationListStore.use.processingKeys();
+  const attentionKeys = useConversationListStore.use.attentionKeys();
+
+  const handleSelectConversation = useCallback(
+    (key: string) => {
+      haptic.light();
+      navigate(routes.conversation(key));
+      setDrawerOpen(false);
+    },
+    [navigate],
+  );
+
   const renderSideMenu = useCallback(
-    (args: SideMenuRenderArgs): ReactNode => <SideMenu {...args} />,
-    [],
+    (args: SideMenuRenderArgs): ReactNode => (
+      <AssistantSideMenu
+        assistantId={lifecycle.assistantId ?? ""}
+        collapsed={args.collapsed}
+        variant={args.variant}
+        conversations={conversations}
+        conversationGroups={conversationGroups}
+        activeConversationKey={activeConversationKey ?? undefined}
+        processingConversationKeys={processingKeys}
+        attentionConversationKeys={attentionKeys}
+        onSelectConversation={handleSelectConversation}
+        onStartNewConversation={handleStartNewConversation}
+        onClose={args.onClose}
+        onSearchClick={args.onSearch}
+      />
+    ),
+    [
+      lifecycle.assistantId,
+      conversations,
+      conversationGroups,
+      activeConversationKey,
+      processingKeys,
+      attentionKeys,
+      handleSelectConversation,
+      handleStartNewConversation,
+    ],
   );
 
   return (

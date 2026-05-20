@@ -52,7 +52,7 @@ function HomePageRoute() {
       assistantId={assistantId}
       onStartNewChat={() => navigate(routes.assistant)}
       onOpenConversation={(conversationId) =>
-        navigate(`${routes.assistant}/conversations/${conversationId}`)
+        navigate(routes.conversation(conversationId))
       }
       onSuggestionSelected={(prompt) =>
         navigate(`${routes.assistant}?prompt=${encodeURIComponent(prompt)}`)

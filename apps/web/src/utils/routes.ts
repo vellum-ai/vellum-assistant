@@ -16,6 +16,7 @@ const dyn = (parent: string, id: string): string => `${parent}/${id}`;
 
 export const routes = {
   assistant: r("/assistant"),
+  conversation: (key: string) => dyn(r("/assistant/conversations"), key),
   inspect: r("/assistant/inspect"),
   logs: {
     root: r("/assistant/logs"),
