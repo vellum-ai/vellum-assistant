@@ -433,7 +433,10 @@ apps/
     │   │   ├── AppIcon-Dev.icon/      # Dev icon (pink)
     │   │   ├── Assets.xcassets/      # Splash imageset lives here
     │   │   ├── Base.lproj/           # LaunchScreen.storyboard, Main.storyboard
-    │   │   ├── AppDelegate.swift     # Default Capacitor template, no edits
+    │   │   ├── AppDelegate.swift     # Universal Links + APNs token forwarding
+    │   │   ├── MyViewController.swift  # CAPBridgeViewController subclass
+    │   │   ├── NativeAuthPlugin.swift  # ASWebAuthenticationSession OIDC flow
+    │   │   ├── NativeBiometricPlugin.swift # Face ID / Touch ID Keychain
     │   │   └── Info.plist
     │   └── CapApp-SPM/               # SPM local package: pulls in @capacitor/ios
     │                                 # and any Capacitor plugin native deps
