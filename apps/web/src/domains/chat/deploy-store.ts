@@ -17,6 +17,9 @@
 
 import { create } from "zustand";
 
+import { toast } from "@vellum/design-library";
+import { shareApp as shareAppApi } from "@/domains/chat/api/apps.js";
+import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/api/publish.js";
 import { createSelectors } from "@/utils/create-selectors.js";
 
 // ---------------------------------------------------------------------------
@@ -43,8 +46,11 @@ export interface DeployState {
 export interface DeployActions {
   startSharing: () => void;
   finishSharing: () => void;
+  shareApp: (assistantId: string, appId: string, appName: string) => Promise<void>;
   startDeploying: () => void;
   finishDeploying: (clearPendingAppId?: boolean) => void;
+  deployApp: (assistantId: string, appId: string, appName: string, appHtml: string) => Promise<void>;
+  deployAfterTokenSaved: (assistantId: string) => Promise<void>;
   showTokenDialog: (pendingAppId: string) => void;
   hideTokenDialog: () => void;
   setComplexDeployApp: (app: ComplexDeployApp | null) => void;
@@ -69,7 +75,7 @@ const INITIAL_STATE: DeployState = {
 // Store
 // ---------------------------------------------------------------------------
 
-const useDeployStoreBase = create<DeployStore>()((set) => ({
+const useDeployStoreBase = create<DeployStore>()((set, get) => ({
   ...INITIAL_STATE,
 
   startSharing: () => {
@@ -78,6 +84,21 @@ const useDeployStoreBase = create<DeployStore>()((set) => ({
 
   finishSharing: () => {
     set({ isSharing: false });
+  },
+
+  shareApp: async (assistantId, appId, appName) => {
+    if (get().isSharing) return;
+    set({ isSharing: true });
+    try {
+      await shareAppApi(assistantId, appId, appName);
+      toast.success("App exported", { description: `${appName}.vellum` });
+    } catch (err) {
+      toast.error("Failed to share app", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      set({ isSharing: false });
+    }
   },
 
   startDeploying: () => {
@@ -89,6 +110,80 @@ const useDeployStoreBase = create<DeployStore>()((set) => ({
       isDeploying: false,
       ...(clearPendingAppId ? { pendingDeployAppId: null } : {}),
     });
+  },
+
+  deployApp: async (assistantId, appId, appName, appHtml) => {
+    if (get().isDeploying) return;
+    if (
+      appHtml.includes("vellum.fetch") ||
+      appHtml.includes("vellum.sendAction") ||
+      appHtml.includes("/v1/x/") ||
+      appHtml.includes("/v1/apps/")
+    ) {
+      set({ complexDeployApp: { appId, name: appName } });
+      return;
+    }
+    set({ isDeploying: true });
+    try {
+      const config = await getVercelConfig(assistantId);
+      if (!config.hasToken) {
+        set({ isTokenDialogOpen: true, pendingDeployAppId: appId, isDeploying: false });
+        return;
+      }
+      const result = await publishApp(assistantId, appId);
+      if (!result.success) {
+        if (isCredentialError(result)) {
+          set({ isTokenDialogOpen: true, pendingDeployAppId: appId, isDeploying: false });
+        } else {
+          toast.error("Failed to deploy", { description: result.error });
+        }
+      } else if (result.publicUrl) {
+        toast.success("Deployed to Vercel", {
+          description: result.publicUrl,
+          action: {
+            label: "Open",
+            onClick: () => window.open(result.publicUrl, "_blank"),
+          },
+        });
+      } else {
+        toast.success("Deployed to Vercel");
+      }
+    } catch (err) {
+      toast.error("Failed to deploy", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      set({ isDeploying: false });
+    }
+  },
+
+  deployAfterTokenSaved: async (assistantId) => {
+    const { pendingDeployAppId } = get();
+    set({ isTokenDialogOpen: false });
+    if (!pendingDeployAppId) return;
+    set({ isDeploying: true });
+    try {
+      const result = await publishApp(assistantId, pendingDeployAppId);
+      if (!result.success) {
+        toast.error("Failed to deploy", { description: result.error });
+      } else if (result.publicUrl) {
+        toast.success("Deployed to Vercel", {
+          description: result.publicUrl,
+          action: {
+            label: "Open",
+            onClick: () => window.open(result.publicUrl, "_blank"),
+          },
+        });
+      } else {
+        toast.success("Deployed to Vercel");
+      }
+    } catch (err) {
+      toast.error("Failed to deploy", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      set({ isDeploying: false, pendingDeployAppId: null });
+    }
   },
 
   showTokenDialog: (pendingAppId) => {

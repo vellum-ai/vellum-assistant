@@ -67,6 +67,7 @@ import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-han
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message.js";
 import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions.js";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
+import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
 
 import { createWebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import { fetchAssistantIdentity } from "@/domains/chat/api/assistant.js";
@@ -183,6 +184,24 @@ export function ChatPage() {
     () => subagentState.orderedIds.map((id) => subagentState.byId[id]!).filter(Boolean),
     [subagentState.byId, subagentState.orderedIds],
   );
+
+  // -------------------------------------------------------------------------
+  // Pin-sync side-effect
+  // -------------------------------------------------------------------------
+  const handleActiveAppUnpinned = useCallback(
+    (appId: string) => {
+      const { activeAppId, mainView } = useViewerStore.getState();
+      useViewerStore.getState().handleAppUnpinned(appId);
+      if (
+        activeAppId === appId &&
+        (mainView === "app" || mainView === "app-editing")
+      ) {
+        useConversationStore.getState().setEditingKey(null);
+      }
+    },
+    [],
+  );
+  useActiveAppPinSync(handleActiveAppUnpinned);
 
   // -------------------------------------------------------------------------
   // Shared refs — owned here, read/written by hooks
@@ -1036,27 +1055,31 @@ export function ChatPage() {
     },
     handleOpenApp: (appId: string) => {
       haptic.light();
-      useViewerStore.getState().openApp(appId);
+      if (assistantId) void useViewerStore.getState().loadApp(assistantId, appId);
     },
-    handleOpenDocument: (_surfaceId: string) => {
+    handleOpenDocument: (surfaceId: string) => {
       haptic.light();
-      useViewerStore.getState().openDocument();
+      if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
     },
     handleCloseDocument: () => {
       useViewerStore.getState().closeDocument();
     },
     handleCloseApp: () => {
       useViewerStore.getState().closeApp();
+      useConversationStore.getState().setEditingKey(null);
       useViewerStore.getState().setMainView("chat");
     },
     handleCloseEditPanel: () => {
+      useConversationStore.getState().setEditingKey(null);
       useViewerStore.getState().exitAppEditing();
     },
     handleShareApp: () => {
-      useDeployStore.getState().startSharing();
+      const app = useViewerStore.getState().openedAppState;
+      if (app && assistantId) void useDeployStore.getState().shareApp(assistantId, app.appId, app.name);
     },
     handleDeployApp: deployToVercel ? () => {
-      useDeployStore.getState().startDeploying();
+      const app = useViewerStore.getState().openedAppState;
+      if (app && assistantId) void useDeployStore.getState().deployApp(assistantId, app.appId, app.name, app.html);
     } : undefined,
     handleForkConversation,
     subagentEntries,
@@ -1141,16 +1164,19 @@ export function ChatPage() {
               }}
               onClose={() => {
                 useViewerStore.getState().closeApp();
+                useConversationStore.getState().setEditingKey(null);
                 useViewerStore.getState().setMainView("chat");
               }}
               onShare={() => {
-                useDeployStore.getState().startSharing();
+                const app = useViewerStore.getState().openedAppState;
+                if (app && assistantId) void useDeployStore.getState().shareApp(assistantId, app.appId, app.name);
               }}
               isSharing={isSharing}
               onDeploy={
                 deployToVercel
                   ? () => {
-                      useDeployStore.getState().startDeploying();
+                      const app = useViewerStore.getState().openedAppState;
+                      if (app && assistantId) void useDeployStore.getState().deployApp(assistantId, app.appId, app.name, app.html);
                     }
                   : undefined
               }
