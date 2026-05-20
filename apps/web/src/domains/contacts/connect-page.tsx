@@ -93,7 +93,7 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
         <div className="flex flex-col gap-4 p-6">
           <div className="flex items-center gap-3">
             <UserPlus className="h-6 w-6" style={{ color: "var(--content-secondary)" }} />
-            <Typography variant="heading-small">
+            <Typography variant="title-small">
               Accept Connection
             </Typography>
           </div>
@@ -119,7 +119,7 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
                 </Typography>
               </div>
               <div className="flex gap-2">
-                <Button variant="filled" onClick={handleGoToContacts}>
+                <Button variant="primary" onClick={handleGoToContacts}>
                   View Contacts
                 </Button>
                 <Button variant="outlined" onClick={handleGoBack}>
@@ -230,7 +230,7 @@ function ManualEntryForm({
         />
       </label>
       <div className="flex gap-2 pt-2">
-        <Button type="submit" variant="filled" disabled={!isValid}>
+        <Button type="submit" variant="primary" disabled={!isValid}>
           Accept Invite
         </Button>
         <Button type="button" variant="outlined" onClick={onCancel}>
