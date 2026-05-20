@@ -84,6 +84,7 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 - **Multi-step efforts.** Use a parent issue with [sub-issues](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues) or sibling issues when the effort has multiple phases. Link intermediate PRs with `Part of #N` or `Related to #N` (no auto-close). Issues earn their keep here — they're the tracking artifact across multiple PRs.
 - **Branch name**: include the issue number when one exists, e.g. `123-fix-stale-approvals`.
 - **Human attention comments**: After creating a PR with non-routine changes (architectural decisions, security, complex logic, deletions, low confidence), leave a `gh pr comment` highlighting where to focus review and the risk level. Skip for routine changes.
+- **Open-source hygiene**: This repo is public. Before opening a PR, review your diff for internal URLs, hardcoded credentials, proprietary infrastructure details, or references to internal services that should not be publicly visible. Generated files (OpenAPI specs, API clients) must be regenerated from committed sources — verify with `bun run generate:openapi` in `assistant/`.
 
 ### Notes for Vellum team members
 

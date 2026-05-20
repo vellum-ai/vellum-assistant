@@ -7,11 +7,13 @@
  * POST   /v1/integrations/a2a/invite          — create a shareable A2A invite token
  * POST   /v1/integrations/a2a/invite/complete — sender-side invite completion
  * POST   /v1/integrations/a2a/invite/redeem   — receiver-side invite redemption
+ * POST   /v1/integrations/a2a/invite/accept   — self-hosted broker: orchestrate complete + redeem
  */
 
 import { isA2AEnabled } from "../../../a2a/feature-gate.js";
 import { getConfig } from "../../../config/loader.js";
 import {
+  acceptA2AInvite,
   clearA2AConfig,
   completeA2AInvite,
   createA2AInvite,
@@ -19,7 +21,7 @@ import {
   redeemA2AInvite,
   setA2AConfig,
 } from "../../../daemon/handlers/config-a2a.js";
-import { BadRequestError } from "../errors.js";
+import { BadGatewayError, BadRequestError } from "../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -164,6 +166,52 @@ function handleRedeemA2AInvite({ body = {} }: RouteHandlerArgs) {
   return result;
 }
 
+async function handleAcceptA2AInvite({ body = {} }: RouteHandlerArgs) {
+  assertA2AFlag();
+  const { senderGatewayUrl, senderAssistantId, token } = body as {
+    senderGatewayUrl?: unknown;
+    senderAssistantId?: unknown;
+    token?: unknown;
+  };
+
+  if (typeof senderGatewayUrl !== "string" || !senderGatewayUrl) {
+    throw new BadRequestError(
+      "senderGatewayUrl is required and must be a non-empty string",
+    );
+  }
+  try {
+    new URL(senderGatewayUrl);
+  } catch {
+    throw new BadRequestError("senderGatewayUrl must be a valid URL");
+  }
+  if (typeof senderAssistantId !== "string" || !senderAssistantId) {
+    throw new BadRequestError(
+      "senderAssistantId is required and must be a non-empty string",
+    );
+  }
+  if (typeof token !== "string" || !token) {
+    throw new BadRequestError(
+      "token is required and must be a non-empty string",
+    );
+  }
+
+  const result = await acceptA2AInvite({
+    senderGatewayUrl,
+    senderAssistantId,
+    token,
+  });
+  if (!result.success) {
+    const isSenderFault =
+      result.errorCode === "sender_unreachable" ||
+      result.errorCode === "complete_failed";
+    if (isSenderFault) {
+      throw new BadGatewayError(result.error ?? "Failed to accept A2A invite");
+    }
+    throw new BadRequestError(result.error ?? "Failed to accept A2A invite");
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -231,5 +279,16 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["integrations"],
     requirePolicyEnforcement: true,
     handler: handleRedeemA2AInvite,
+  },
+  {
+    operationId: "integrations_a2a_invite_accept_post",
+    endpoint: "integrations/a2a/invite/accept",
+    method: "POST",
+    summary: "Accept A2A invite (self-hosted broker)",
+    description:
+      "Orchestrate cross-daemon invite acceptance for self-hosted deployments. Calls the sender's invite/complete, then creates a local contact via invite/redeem.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleAcceptA2AInvite,
   },
 ];
