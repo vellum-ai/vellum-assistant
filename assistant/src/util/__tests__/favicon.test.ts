@@ -40,4 +40,21 @@ describe("faviconUrlForDomain", () => {
     // Sanity check: the encoded form contains percent-encoded bytes for "ü".
     expect(result).toContain("m%C3%BCnchen.de");
   });
+
+  test("returns undefined for localhost", () => {
+    expect(faviconUrlForDomain("localhost")).toBeUndefined();
+  });
+
+  test("returns undefined for private IPv4 hosts", () => {
+    expect(faviconUrlForDomain("127.0.0.1")).toBeUndefined();
+    expect(faviconUrlForDomain("10.0.0.5")).toBeUndefined();
+    expect(faviconUrlForDomain("192.168.1.1")).toBeUndefined();
+  });
+
+  test("returns undefined for raw IP literals (we don't reverse-lookup, so any IP is private-equivalent for our purposes)", () => {
+    // isPrivateOrLocalHost rejects raw IP literals because we can't tell from
+    // the host alone whether they belong to a routable public host. Skipping
+    // favicons for them avoids leaking internal IPs.
+    expect(faviconUrlForDomain("172.16.0.1")).toBeUndefined();
+  });
 });
