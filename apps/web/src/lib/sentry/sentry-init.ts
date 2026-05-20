@@ -4,7 +4,7 @@ import {
   installSentryControlListeners,
   syncSentryClient,
 } from "@/lib/sentry/sentry-control.js";
-import { redactObject, redactString } from "@/lib/sentry/redact.js";
+import { sanitizeUrl } from "@/lib/sentry/url-sanitize.js";
 
 /**
  * Browser-side Sentry initialization, gated on the user's Share Diagnostics
@@ -16,58 +16,33 @@ import { redactObject, redactString } from "@/lib/sentry/redact.js";
  * here must never match errors raised from `src/` — fix those at the call
  * site so real regressions are not hidden.
  *
- * `beforeSend` / `beforeBreadcrumb` strip PII (emails, card numbers,
- * SSNs) from exception values, breadcrumbs, and extra context — same
- * policy as `assistant/src/instrument.ts`.
+ * `beforeBreadcrumb` strips auth codes, invite tokens, and OAuth fragment
+ * tokens from URLs the browser SDK records on navigation / fetch / XHR.
+ * Regex-based scrubbing of CC/SSN/password patterns is handled by
+ * Sentry's server-side Advanced Data Scrubbing (configured per-project
+ * in the dashboard), per Sentry's recommended layering.
  *
  * Reference: https://docs.sentry.io/platforms/javascript/configuration/filtering/
+ * Reference: https://docs.sentry.io/security-legal-pii/scrubbing/
  */
 const options: BrowserOptions = {
   dsn: import.meta.env.VITE_SENTRY_DSN,
   environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local",
   tracesSampleRate: 0,
-  // Defaults to false in @sentry/react v10+, but set explicitly so a future
-  // SDK default flip doesn't silently start sending IP / user-agent / cookies.
-  sendDefaultPii: false,
   // Attach a synthetic JS stack to `Sentry.captureMessage` calls so events
   // emitted without a thrown exception still resolve to a source location
   // after sourcemap upload.
   // Reference: https://docs.sentry.io/platforms/javascript/configuration/options/#attach-stacktrace
   attachStacktrace: true,
-  beforeSend(event) {
-    if (event.exception?.values) {
-      event.exception.values = event.exception.values.map((ex) => ({
-        ...ex,
-        value: ex.value ? redactString(ex.value) : ex.value,
-      }));
-    }
-    if (event.breadcrumbs) {
-      event.breadcrumbs = event.breadcrumbs.map((bc) => ({
-        ...bc,
-        message: bc.message ? redactString(bc.message) : bc.message,
-        data: bc.data
-          ? (redactObject(bc.data) as Record<string, unknown>)
-          : bc.data,
-      }));
-    }
-    if (event.extra) {
-      event.extra = redactObject(event.extra) as Record<string, unknown>;
-    }
-    if (event.message) {
-      event.message = redactString(event.message);
-    }
-    return event;
-  },
   beforeBreadcrumb(breadcrumb) {
-    return {
-      ...breadcrumb,
-      message: breadcrumb.message
-        ? redactString(breadcrumb.message)
-        : breadcrumb.message,
-      data: breadcrumb.data
-        ? (redactObject(breadcrumb.data) as Record<string, unknown>)
-        : breadcrumb.data,
-    };
+    const data = breadcrumb.data;
+    if (!data || typeof data !== "object") return breadcrumb;
+    const next: Record<string, unknown> = { ...data };
+    for (const key of ["url", "to", "from"] as const) {
+      const value = next[key];
+      if (typeof value === "string") next[key] = sanitizeUrl(value);
+    }
+    return { ...breadcrumb, data: next };
   },
   ignoreErrors: [
     // Chrome/Safari Translate mutates text nodes after a React commit;
