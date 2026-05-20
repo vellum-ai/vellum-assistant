@@ -7,54 +7,51 @@ import { Dropdown } from "@vellum/design-library";
 
 import { storePendingInitialMessage } from "@/domains/chat/lib/initial-message-launch.js";
 import { routes } from "@/utils/routes.js";
-import { getBrowserTimezone } from "@/domains/logs/lib/browser-timezone.js";
+import { formatCost, formatTokens } from "@/domains/logs/format.js";
+import { getBrowserTimezone } from "@/domains/logs/browser-timezone.js";
 import {
   buildCallSiteMetadataMap,
   fetchUsageCallSiteCatalog,
-} from "@/domains/logs/lib/call-site-metadata.js";
-import { decorateUsageBreakdownGroups } from "@/domains/logs/lib/group-labels.js";
-import { fetchUsageProfileMetadata } from "@/domains/logs/lib/profile-metadata.js";
+} from "@/domains/logs/call-site-metadata.js";
+import { decorateUsageBreakdownGroups } from "@/domains/logs/group-labels.js";
+import { fetchUsageProfileMetadata } from "@/domains/logs/profile-metadata.js";
 import type {
   UsageBreakdownResponse,
   UsageGroupBreakdown,
   UsageGroupBy,
   UsageTimeRange,
   UsageTotals,
-} from "@/domains/logs/lib/usage-types.js";
+} from "@/domains/logs/usage-types.js";
 import {
   fetchUsageBreakdown,
   fetchUsageDaily,
   fetchUsageSeries,
   fetchUsageTotals,
-} from "@/domains/logs/lib/usage-api.js";
+} from "@/domains/logs/usage-api.js";
 import {
   formatBreakdownTokens,
   formatBreakdownTokensShort,
-} from "@/domains/logs/lib/usage-breakdown-format.js";
+} from "@/domains/logs/usage-breakdown-format.js";
 import {
   decorateUsageSeriesGroups,
   seriesFromDailyBuckets,
-} from "@/domains/logs/lib/usage-series.js";
+} from "@/domains/logs/usage-series.js";
 import {
   DEFAULT_USAGE_GROUP_BY,
   FALLBACK_USAGE_GROUP_BY,
   resolveEffectiveUsageGranularity,
+  resolveRangeWindow,
+  resolveUsageGranularity,
   shouldFallbackUsageGroupBy,
   shouldFetchUsageSeries,
   shouldRetryUsageGroupQuery,
   trendTitle,
   USAGE_GROUP_BY_OPTIONS,
-} from "@/domains/logs/lib/usage-tab-state.js";
+} from "@/domains/logs/usage-tab-state.js";
 import {
   UsageTrendChart,
   UsageTrendSkeleton,
 } from "@/domains/logs/components/usage-trend-chart.js";
-import {
-  formatCost,
-  formatTokens,
-  resolveRangeWindow,
-  resolveUsageGranularity,
-} from "@/domains/logs/lib/utils.js";
 
 interface UsageTabProps {
   assistantId: string;
@@ -535,7 +532,6 @@ function TotalsGrid({ totals }: { totals: UsageTotals }) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-baseline justify-between gap-4">
         <div className="flex flex-col gap-1">
-          {/* eslint-disable-next-line no-restricted-syntax */}
           <span
             style={{
               fontSize: "30px",

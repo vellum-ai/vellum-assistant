@@ -1,11 +1,11 @@
-import type { UsageGroupLabelMetadata } from "@/domains/logs/lib/group-labels.js";
-import { resolveUsageGroupLabel } from "@/domains/logs/lib/group-labels.js";
+import type { UsageGroupLabelMetadata } from "./group-labels.js";
+import { resolveUsageGroupLabel } from "./group-labels.js";
 import type {
   UsageGroupBreakdown,
   UsageSeriesBucket,
   UsageSeriesGroupBy,
   UsageSeriesGroupValue,
-} from "@/domains/logs/lib/usage-types.js";
+} from "./usage-types.js";
 
 const VISIBLE_LEGEND_ITEM_LIMIT = 6;
 
@@ -43,7 +43,7 @@ export function sortUsageSeriesBuckets(
 }
 
 export function seriesFromDailyBuckets(
-  buckets: readonly import("@/domains/logs/lib/usage-types.js").UsageDayBucket[],
+  buckets: readonly import("./usage-types.js").UsageDayBucket[],
 ): UsageSeriesBucket[] {
   return buckets.map((bucket) => ({
     bucketId: bucket.bucketId,

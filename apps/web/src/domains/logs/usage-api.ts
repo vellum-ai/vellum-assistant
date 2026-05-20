@@ -10,7 +10,7 @@ import { client } from "@/generated/api/client.gen.js";
 import {
   isLlmUsageDimension,
   toDaemonGroupBy,
-} from "@/domains/logs/lib/llm-dimension.js";
+} from "./llm-dimension.js";
 import type {
   UsageBreakdownResponse,
   UsageDailyResponse,
@@ -19,7 +19,7 @@ import type {
   UsageSeriesGroupBy,
   UsageSeriesResponse,
   UsageTotals,
-} from "@/domains/logs/lib/usage-types.js";
+} from "./usage-types.js";
 
 export class UsageRequestError extends Error {
   status: number;

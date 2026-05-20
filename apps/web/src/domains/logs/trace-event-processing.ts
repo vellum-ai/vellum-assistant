@@ -1,9 +1,3 @@
-/**
- * Formatting utilities shared by the Logs and Usage tabs. Mirrors the
- * formatting behavior of the macOS LogsAndUsagePanel so numbers render the
- * same across platforms.
- */
-
 import {
   ArrowRight,
   Brain,
@@ -27,104 +21,7 @@ import type {
   TraceEventKind,
   TraceEventRow,
   TraceEventStatus,
-} from "@/domains/logs/lib/trace-events-types.js";
-import type {
-  UsageGranularity,
-  UsageTimeRange,
-} from "@/domains/logs/lib/usage-types.js";
-
-export function formatTimestamp(timestampMs: number): string {
-  if (!Number.isFinite(timestampMs)) {
-    return "";
-  }
-  const d = new Date(timestampMs);
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-export function formatTimelineTimestamp(timestampMs: number): string {
-  if (!Number.isFinite(timestampMs)) {
-    return "";
-  }
-  const d = new Date(timestampMs);
-  const hh = d.getHours().toString().padStart(2, "0");
-  const mm = d.getMinutes().toString().padStart(2, "0");
-  const ss = d.getSeconds().toString().padStart(2, "0");
-  const ms = d.getMilliseconds().toString().padStart(3, "0");
-  return `${hh}:${mm}:${ss}.${ms}`;
-}
-
-export function formatTokens(count: number): string {
-  if (!Number.isFinite(count)) {
-    return "0";
-  }
-  return Math.round(count).toLocaleString();
-}
-
-export function formatTokensCombined(input: number, output: number): string {
-  const total = (input ?? 0) + (output ?? 0);
-  if (total >= 1000) {
-    return `${(total / 1000).toFixed(1)}k`;
-  }
-  return total.toLocaleString();
-}
-
-export function formatLatency(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) {
-    return "--";
-  }
-  if (ms >= 1000) {
-    return `${(ms / 1000).toFixed(1)}s`;
-  }
-  return `${Math.round(ms)}ms`;
-}
-
-export function formatCost(usd: number): string {
-  if (!Number.isFinite(usd) || usd === 0) {
-    return "$0.00";
-  }
-  return `$${usd.toFixed(2)}`;
-}
-
-const RANGE_START_DAY_OFFSETS: Record<Exclude<UsageTimeRange, "all">, number> =
-  {
-    today: 0,
-    "7d": 6,
-    "30d": 29,
-    "90d": 89,
-  };
-
-export function resolveRangeWindow(
-  range: UsageTimeRange,
-  now: Date | number = Date.now(),
-): {
-  from: number;
-  to: number;
-} {
-  const to = typeof now === "number" ? now : now.getTime();
-  if (range === "all") {
-    return { from: 0, to };
-  }
-  const localNow = new Date(to);
-  const dayOffset = RANGE_START_DAY_OFFSETS[range];
-  const from = new Date(
-    localNow.getFullYear(),
-    localNow.getMonth(),
-    localNow.getDate() - dayOffset,
-  ).getTime();
-  return { from, to };
-}
-
-export function resolveUsageGranularity(
-  range: UsageTimeRange,
-): UsageGranularity {
-  return range === "today" ? "hourly" : "daily";
-}
+} from "./trace-events-types.js";
 
 export type RequestGroupStatus =
   | "active"
@@ -150,6 +47,12 @@ export const EMPTY_METRICS: ConversationMetrics = {
   averageLlmLatencyMs: 0,
   toolFailureCount: 0,
 };
+
+export interface EventGroup {
+  requestId: string;
+  firstSequence: number;
+  events: TraceEventRow[];
+}
 
 function readNumberAttribute(
   event: TraceEventRow,
@@ -238,12 +141,6 @@ export function determineGroupStatus(
     return "error";
   }
   return "active";
-}
-
-export interface EventGroup {
-  requestId: string;
-  firstSequence: number;
-  events: TraceEventRow[];
 }
 
 export function groupEventsByRequest(
@@ -346,7 +243,7 @@ export function stringifyAttributeValue(
   value: string | number | boolean | null | undefined,
 ): string {
   if (value === null || value === undefined) {
-    return "—";
+    return "\u2014";
   }
   if (typeof value === "string") {
     return value;

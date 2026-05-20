@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useState, type MouseEvent } from "react";
 
+import { formatCost } from "@/domains/logs/format.js";
 import {
   buildUsageSeriesLegend,
   sortUsageSeriesBuckets,
   type UsageSeriesLegendItem,
-} from "@/domains/logs/lib/usage-series.js";
-import { formatCost } from "@/domains/logs/lib/utils.js";
-import type { UsageSeriesBucket } from "@/domains/logs/lib/usage-types.js";
+} from "@/domains/logs/usage-series.js";
+import type { UsageSeriesBucket } from "@/domains/logs/usage-types.js";
 
 const BAR_CHART_HEIGHT = 140;
 const DAILY_BAR_WIDTH = 40;

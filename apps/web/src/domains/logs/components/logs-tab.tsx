@@ -18,22 +18,24 @@ import {
   loadLastViewedConversationKey,
   saveLastViewedConversationKey,
 } from "@/domains/chat/lib/lastViewedConversationStorage.js";
-import { fetchTraceEvents } from "@/domains/logs/lib/trace-events-api.js";
-import type { TraceEventRow } from "@/domains/logs/lib/trace-events-types.js";
 import {
-  calculateMetrics,
-  determineGroupStatus,
   formatLatency,
   formatTimelineTimestamp,
   formatTokens,
   formatTokensCombined,
+} from "@/domains/logs/format.js";
+import { fetchTraceEvents } from "@/domains/logs/trace-events-api.js";
+import type { TraceEventRow } from "@/domains/logs/trace-events-types.js";
+import {
+  calculateMetrics,
+  determineGroupStatus,
   getGroupStatusMeta,
   getIconForKind,
   getStatusColor,
   groupEventsByRequest,
   stringifyAttributeValue,
   type ConversationMetrics,
-} from "@/domains/logs/lib/utils.js";
+} from "@/domains/logs/trace-event-processing.js";
 
 interface LogsTabProps {
   assistantId: string;

@@ -7,7 +7,7 @@
 
 import { client } from "@/generated/api/client.gen.js";
 
-import type { TraceEventsListResponse } from "@/domains/logs/lib/trace-events-types.js";
+import type { TraceEventsListResponse } from "./trace-events-types.js";
 
 export class TraceEventsRequestError extends Error {
   status: number;
