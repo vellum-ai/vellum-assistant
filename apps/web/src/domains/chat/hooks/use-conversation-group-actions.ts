@@ -5,6 +5,8 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import {
   appendGroupInCache,
+  chatContextQueryKey,
+  conversationGroupsQueryKey,
   deleteGroupAndResetConversationsInCache,
   patchGroupInCache,
   removeGroupFromCache,
@@ -38,7 +40,8 @@ export function patchGroup(
  *
  * Each action applies an optimistic update against the TanStack Query
  * groups cache before hitting the API. On failure, create/rename roll back
- * optimistically; delete refetches the full conversation list for accuracy.
+ * optimistically; delete invalidates both the chat-context and groups
+ * caches so subscribers refetch for accuracy.
  *
  * @returns Stable callbacks: `handleCreateGroup`, `handleRenameGroup`,
  *   `handleDeleteGroup`.
@@ -46,13 +49,11 @@ export function patchGroup(
 interface UseConversationGroupActionsParams {
   assistantId: string | null;
   conversationGroups: ConversationGroup[];
-  refreshConversations: () => Promise<void>;
 }
 
 export function useConversationGroupActions({
   assistantId,
   conversationGroups,
-  refreshConversations,
 }: UseConversationGroupActionsParams) {
   const queryClient = useQueryClient();
 
@@ -118,15 +119,20 @@ export function useConversationGroupActions({
         await deleteGroup(assistantId, groupId);
       } catch (err) {
         // Rollback is imprecise — we can't distinguish conversations that
-        // already had no groupId from those we just cleared — so refetch
-        // both groups and conversations for accuracy.
-        refreshConversations();
+        // already had no groupId from those we just cleared — so invalidate
+        // both caches and let subscribers refetch for accuracy.
+        void queryClient.invalidateQueries({
+          queryKey: chatContextQueryKey(assistantId),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: conversationGroupsQueryKey(assistantId),
+        });
         Sentry.captureException(err, {
           tags: { context: "deleteGroup" },
         });
       }
     },
-    [assistantId, refreshConversations, queryClient],
+    [assistantId, queryClient],
   );
 
   return {

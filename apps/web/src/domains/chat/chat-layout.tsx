@@ -21,6 +21,7 @@ import {
   useConversationListQuery,
 } from "@/domains/conversations/conversation-list-queries.js";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking.js";
+import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
@@ -148,6 +149,16 @@ export function ChatLayout() {
     assistantId: lifecycle.assistantId,
     assistantStateKind: lifecycle.assistantState.kind,
   });
+
+  // Group CRUD handlers live at the layout level since the sidebar's
+  // create/rename/delete affordances are rendered here, not in ChatPage.
+  // The hook is self-sufficient (cache invalidation handles rollback), so
+  // it can live wherever the sidebar lives.
+  const { handleCreateGroup, handleRenameGroup, handleDeleteGroup } =
+    useConversationGroupActions({
+      assistantId: lifecycle.assistantId,
+      conversationGroups,
+    });
 
   // --- Layout slot state for child route content ---
   const [topBarCenter, setTopBarCenter] = useState<ReactNode>(null);
@@ -386,6 +397,9 @@ export function ChatLayout() {
         onOpenIntelligence={handleOpenHome}
         isLibraryActive={isLibraryActive}
         onOpenLibrary={handleOpenLibrary}
+        onCreateGroup={handleCreateGroup}
+        onRenameGroup={handleRenameGroup}
+        onDeleteGroup={handleDeleteGroup}
         footerAction={
           <PreferencesMenu
             assistantId={lifecycle.assistantId}
@@ -407,6 +421,9 @@ export function ChatLayout() {
       attentionKeys,
       handleSelectConversation,
       handleStartNewConversation,
+      handleCreateGroup,
+      handleRenameGroup,
+      handleDeleteGroup,
       isHomeActive,
       handleOpenHome,
       isLibraryActive,
