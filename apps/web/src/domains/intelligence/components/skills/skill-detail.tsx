@@ -181,7 +181,7 @@ export function SkillDetail({
                   key={entry.path}
                   type="button"
                   onClick={() => setSelectedPath(entry.path)}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-body-medium-lighter transition-colors hover:bg-[var(--ghost-hover)]"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
                   style={{
                     color: isActive
                       ? "var(--primary-base)"

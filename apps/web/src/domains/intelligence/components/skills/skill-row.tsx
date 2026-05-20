@@ -43,7 +43,7 @@ export function SkillRow({
         tabIndex={0}
         onClick={onSelect}
         onKeyDown={handleRowKeyDown}
-        className="flex cursor-pointer items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-[var(--ghost-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+        className="flex cursor-pointer items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
       >
       <div className="flex h-10 w-10 shrink-0 items-center justify-center text-2xl">
         {skill.emoji ?? "🧩"}
