@@ -5,8 +5,6 @@ import { describe, expect, mock, test } from "bun:test";
 let mockConnectedProviders = new Set<string>();
 
 mock.module("../../oauth/oauth-store.js", () => ({
-  isProviderConnected: async (provider: string) =>
-    mockConnectedProviders.has(provider),
   listProviders: () => [
     { provider: "google" },
     { provider: "slack" },
@@ -14,6 +12,11 @@ mock.module("../../oauth/oauth-store.js", () => ({
     { provider: "linear" },
     { provider: "github" },
   ],
+}));
+
+mock.module("../../schedule/integration-status.js", () => ({
+  isOAuthProviderConnected: async (provider: string) =>
+    mockConnectedProviders.has(provider),
 }));
 
 mock.module("../../util/logger.js", () => ({

@@ -15,7 +15,8 @@
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { isProviderConnected, listProviders } from "../oauth/oauth-store.js";
+import { listProviders } from "../oauth/oauth-store.js";
+import { isOAuthProviderConnected } from "../schedule/integration-status.js";
 import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { getConfiguredProvider } from "../providers/provider-send-message.js";
@@ -115,6 +116,21 @@ export async function getSuggestedPrompts(): Promise<SuggestedPrompt[]> {
 }
 
 /**
+ * Drops the in-memory LLM suggestion cache so the next call to
+ * `getSuggestedPrompts()` returns only the fresh deterministic list (and
+ * a follow-up background refresh repopulates the LLM half).
+ *
+ * Called from OAuth connect/disconnect paths so a freshly-connected
+ * provider stops surfacing as a "Connect X" pill within one reload — the
+ * 30-minute TTL would otherwise pin a stale suggestion until the next
+ * periodic refresh.
+ */
+export function invalidateAssistantSuggestedPromptsCache(): void {
+  cachedLLMPrompts = [];
+  cachedLLMPromptsAt = 0;
+}
+
+/**
  * Generate LLM-based suggestion prompts and write them to the in-memory
  * cache. No-ops when the cache is still fresh. Intended for background
  * invocation (daemon startup / periodic refresh), not the GET path.
@@ -148,7 +164,7 @@ async function getDeterministicPrompts(): Promise<SuggestedPrompt[]> {
     const meta = CONNECT_PROMPT_META[provider.provider];
     if (!meta) continue;
 
-    const connected = await isProviderConnected(provider.provider);
+    const connected = await isOAuthProviderConnected(provider.provider);
 
     if (!connected) {
       prompts.push({

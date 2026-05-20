@@ -10,7 +10,9 @@ import {
  * Check whether a provider has an active connection, handling both BYO
  * (local SQLite) and managed (platform) modes.
  */
-async function isOAuthProviderConnected(provider: string): Promise<boolean> {
+export async function isOAuthProviderConnected(
+  provider: string,
+): Promise<boolean> {
   const providerRow = getProvider(provider);
   const managedKey = providerRow?.managedServiceConfigKey;
 
