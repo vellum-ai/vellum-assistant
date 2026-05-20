@@ -335,6 +335,56 @@ function friendlyToolName(name: string): string {
   return TOOL_FRIENDLY_NAMES[name] ?? name.replace(/_/g, " ");
 }
 
+/**
+ * Status text shown to the client while a web search is in flight.
+ * Surfaces the actual query so the loading state is meaningful instead of
+ * a generic "Searching the web". Used for both Anthropic native server-tool
+ * starts and non-native `web_search` tool starts.
+ */
+export function formatSearchStatusText(
+  toolName: string,
+  query: string,
+): string {
+  if (toolName !== "web_search") return `Running ${toolName}`;
+  const trimmed = query.trim();
+  if (!trimmed) return "Searching the web";
+  const truncated =
+    trimmed.length > 60 ? trimmed.slice(0, 57) + "..." : trimmed;
+  return `Searching "${truncated}"`;
+}
+
+/**
+ * Status text shown to the client while a web fetch is in flight.
+ * Surfaces the domain so users can tell what page is being read.
+ */
+export function formatFetchStatusText(url: unknown): string {
+  if (typeof url !== "string") return "Reading a page";
+  const domain = extractDomain(url);
+  if (!domain) return "Reading a page";
+  return `Reading ${domain}`;
+}
+
+function computeToolUseStatusText(
+  name: string,
+  input: Record<string, unknown>,
+): string {
+  if (name === "web_search") {
+    const query = typeof input.query === "string" ? input.query : "";
+    return formatSearchStatusText("web_search", query);
+  }
+  if (name === "web_fetch") {
+    return formatFetchStatusText(input.url);
+  }
+  if (
+    name === "skill_execute" &&
+    typeof input.activity === "string" &&
+    input.activity.length > 0
+  ) {
+    return input.activity;
+  }
+  return `Running ${friendlyToolName(name)}`;
+}
+
 // ── Individual Handlers ──────────────────────────────────────────────
 
 function handleTextDelta(
@@ -416,12 +466,7 @@ export function handleToolUse(
   state.toolCallTimestamps.set(event.id, { startedAt: Date.now() });
   state.currentToolUseId = event.id;
   state.currentTurnToolUseIds.push(event.id);
-  const statusText =
-    event.name === "skill_execute" &&
-    typeof event.input.activity === "string" &&
-    event.input.activity.length > 0
-      ? event.input.activity
-      : `Running ${friendlyToolName(event.name)}`;
+  const statusText = computeToolUseStatusText(event.name, event.input);
   deps.ctx.emitActivityState(
     "tool_running",
     "tool_use_start",
@@ -1258,10 +1303,9 @@ export async function dispatchAgentEvent(
         handleToolResult(state, deps, event);
         break;
       case "server_tool_start": {
-        const friendlyNames: Record<string, string> = {
-          web_search: "Searching the web",
-        };
-        const statusText = friendlyNames[event.name] ?? `Running ${event.name}`;
+        const query =
+          typeof event.input.query === "string" ? event.input.query : "";
+        const statusText = formatSearchStatusText(event.name, query);
         deps.ctx.emitActivityState(
           "tool_running",
           "tool_use_start",
