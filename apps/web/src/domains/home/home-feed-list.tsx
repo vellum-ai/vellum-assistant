@@ -36,15 +36,19 @@ export function HomeFeedList({
   const visible = items.filter((item) => item.status !== "dismissed");
   const eligible = excludeHighUrgency(visible);
   const presentCategories = getPresentCategories(eligible);
-  const filtered = filterByCategory(eligible, activeFilter);
+  const effectiveFilter =
+    activeFilter && presentCategories.includes(activeFilter)
+      ? activeFilter
+      : null;
+  const filtered = filterByCategory(eligible, effectiveFilter);
   const sorted = sortFeedItems(filtered);
   const grouped = groupByTime(sorted);
 
   return (
-    <div className="flex flex-col gap-[var(--app-spacing-lg)]">
+    <div className="flex flex-col gap-[var(--app-spacing-sm)]">
       <HomeFeedFilterBar
         categories={presentCategories}
-        activeFilter={activeFilter}
+        activeFilter={effectiveFilter}
         onFilterChange={setActiveFilter}
       />
 
@@ -53,7 +57,7 @@ export function HomeFeedList({
           variant="body-medium-lighter"
           className="py-[var(--app-spacing-xl)] text-center text-[var(--content-disabled)]"
         >
-          {activeFilter
+          {effectiveFilter
             ? "No items match the selected filter."
             : "No items to show."}
         </Typography>

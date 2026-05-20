@@ -52,7 +52,7 @@ export function HomeRecapRow({ item, onSelect, onDismiss }: HomeRecapRowProps) {
           <Icon width={12} height={12} style={{ color: style.strong }} />
         </span>
         {isUnread && (
-          <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[var(--system-mid-strong)]" />
+          <span className="absolute -left-0.5 -top-0.5 h-2 w-2 rounded-full bg-[var(--system-mid-strong)]" />
         )}
       </span>
 

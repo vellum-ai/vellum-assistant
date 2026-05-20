@@ -150,7 +150,7 @@ export function HomePage({
     return (
       <ResizablePanel
         storageKey="homeDetailPanelWidth"
-        defaultLeftWidth={600}
+        defaultLeftPercent={50}
         minLeftWidth={400}
         minRightWidth={320}
         left={

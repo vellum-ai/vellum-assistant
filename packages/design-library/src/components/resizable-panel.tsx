@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ComponentProps,
@@ -16,6 +17,8 @@ export interface ResizablePanelProps extends Omit<ComponentProps<"div">, "childr
   right: ReactNode;
   /** Initial width of the left pane in px (default 400). */
   defaultLeftWidth?: number;
+  /** Initial width of the left pane as a percentage of the container (0–100). Resolved via useLayoutEffect on mount. */
+  defaultLeftPercent?: number;
   /** Minimum left pane width in px (default 300). */
   minLeftWidth?: number;
   /** Minimum right pane width in px (default 300). */
@@ -36,6 +39,7 @@ export function ResizablePanel({
   left,
   right,
   defaultLeftWidth = 400,
+  defaultLeftPercent,
   minLeftWidth = 300,
   minRightWidth = 300,
   onWidthChange,
@@ -124,6 +128,24 @@ export function ResizablePanel({
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [clamp]);
+
+  // Resolve percentage-based default on mount (before paint) when no stored
+  // preference exists. This prevents a visible flash from the pixel fallback.
+  useLayoutEffect(() => {
+    if (defaultLeftPercent == null) return;
+    if (storageKey && typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem(storageKey);
+        if (stored != null) return;
+      } catch {
+        // localStorage access can throw — fall through to percentage resolution.
+      }
+    }
+    const container = containerRef.current;
+    if (!container) return;
+    const target = (container.offsetWidth * defaultLeftPercent) / 100;
+    setLeftWidth(clamp(target));
+  }, [defaultLeftPercent, storageKey, clamp]);
 
   return (
     <div
