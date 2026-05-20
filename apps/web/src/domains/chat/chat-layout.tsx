@@ -16,6 +16,8 @@ import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecy
 import type { AssistantContextValue } from "@/domains/chat/assistant-context.js";
 
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationListInit } from "@/domains/conversations/use-conversation-list-init.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 
 import { OfflineBanner } from "@/components/offline-banner.js";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
@@ -111,6 +113,16 @@ export function ChatLayout() {
     isRetired: false,
     isNonProduction: false,
     onRedirect: navigate,
+  });
+
+  // Hydrate the sidebar conversation list at the layout level so every
+  // chat-layout child route (home, library, contacts, identity, chat)
+  // inherits a populated sidebar on direct navigation — not just /assistant.
+  const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
+  useConversationListInit({
+    assistantId: lifecycle.assistantId,
+    assistantStateKind: lifecycle.assistantState.kind,
+    conversationGroupsUI,
   });
 
   const assistantContext = useMemo<AssistantContextValue>(

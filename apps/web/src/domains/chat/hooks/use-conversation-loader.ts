@@ -37,9 +37,12 @@ import {
   type HistoryPaginationSnapshot,
 } from "@/domains/chat/hooks/use-conversation-history.js";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking.js";
+import { useQueryClient } from "@tanstack/react-query";
+
 import { getChatContext } from "@/domains/chat/api/assistant.js";
 import { ApiError } from "@/domains/chat/api/client.js";
 import { type Conversation, fetchGroups, listConversations } from "@/domains/chat/api/conversations.js";
+import { chatContextQueryKey } from "@/domains/conversations/use-conversation-list-init.js";
 
 // Re-export for consumers that import from this module
 export {
@@ -228,6 +231,7 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const refreshConversationsRef = useRef<() => Promise<void>>(async () => {});
   const hydratedAssistantIdRef = useRef<string | null>(null);
+  const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
   // refreshConversations -- fetch conversation list + groups
@@ -306,7 +310,19 @@ export function useConversationLoader({
 
     const init = async () => {
       try {
-        const ctx = await getChatContext();
+        // Conversations + groups are hydrated by `useConversationListInit`
+        // in `ChatLayout` so the sidebar populates on every chat-layout
+        // route, not just `/assistant`. Reuse that cached query result
+        // here for the chat-specific active-key resolution; only fall
+        // back to a direct fetch if the cache is somehow cold (e.g.
+        // ChatPage mounted without a parent layout in a test).
+        const cached = queryClient.getQueryData<Awaited<ReturnType<typeof getChatContext>>>(
+          chatContextQueryKey(assistantId),
+        );
+        const ctx = cached ?? (await queryClient.fetchQuery({
+          queryKey: chatContextQueryKey(assistantId),
+          queryFn: getChatContext,
+        }));
         if (!ctx || cancelled) return;
 
         const qpKey = searchParams.get("conversationKey");
@@ -332,20 +348,6 @@ export function useConversationLoader({
         setError((prev) =>
           prev?.code === CHAT_CONTEXT_LOAD_FAILED_CODE ? null : prev,
         );
-        useConversationListStore.getState().setConversations(ctx.conversations);
-
-        if (conversationGroupsUI) {
-          fetchGroups(ctx.assistantId)
-            .then((groups) => {
-              if (!cancelled) useConversationListStore.getState().setGroups(groups);
-            })
-            .catch((err) => {
-              Sentry.captureException(err, {
-                level: "warning",
-                tags: { context: "fetchGroups.init" },
-              });
-            });
-        }
 
         useConversationListStore.getState().setActiveKey(key);
       } catch (err) {
