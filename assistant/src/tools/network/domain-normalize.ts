@@ -80,6 +80,23 @@ export function normalizeDomain(input: string): DomainInfo | null {
   };
 }
 
+/**
+ * Best-effort host extractor for URLs surfaced in tool activity metadata
+ * (web-search result items, web-fetch metadata). Returns the lowercased
+ * host portion of `rawUrl`, or `""` when the input cannot be parsed.
+ *
+ * Distinct from {@link normalizeDomain} above: callers here only need a
+ * stable display string, not a registrable-domain analysis. We return ""
+ * (rather than null) so consumers can treat the result as a plain string.
+ */
+export function extractDomain(rawUrl: string): string {
+  try {
+    return new URL(rawUrl).host.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
 function isIPAddress(hostname: string): boolean {
   // IPv4
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return true;
