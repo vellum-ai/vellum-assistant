@@ -19,7 +19,7 @@ import {
  */
 const options: BrowserOptions = {
   dsn: import.meta.env.VITE_SENTRY_DSN,
-  environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "production",
+  environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "development",
   tracesSampleRate: 0,
   // Attach a synthetic JS stack to `Sentry.captureMessage` calls so events
   // emitted without a thrown exception still resolve to a source location

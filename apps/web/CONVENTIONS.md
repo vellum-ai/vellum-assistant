@@ -218,6 +218,15 @@ dependency, it belongs in `utils/`.
 
 Reference: [Bulletproof React — `lib/` directory](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md)
 
+#### `lib/` vs `runtime/`
+
+Both contain infrastructure code, but they serve different purposes:
+
+- **`lib/`** — wraps *external* third-party services and SDKs (Sentry, HeyAPI, LaunchDarkly, allauth). These are vendor integrations the app consumes.
+- **`runtime/`** — adapts the app to its *host environment* (Capacitor native bridges, route adapters, platform detection). These handle differences between web, iOS, and macOS without third-party SDK dependencies.
+
+If the code imports a third-party SDK and configures it → `lib/`. If it bridges between the app and the native platform or framework runtime → `runtime/`.
+
 ### No barrel files
 
 Do not use barrel files (`index.ts` that re-export siblings). Import
