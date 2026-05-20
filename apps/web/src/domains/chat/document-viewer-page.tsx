@@ -12,10 +12,15 @@ import { useNavigate, useParams } from "react-router";
 import { Loader2 } from "lucide-react";
 import { Typography } from "@vellum/design-library";
 
+import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { getEditChatKey, setEditChatKey } from "@/domains/chat/utils/edit-chat-session.js";
+import { useViewerStore } from "@/stores/viewer-store.js";
+import { routes } from "@/utils/routes.js";
 import {
   type DocumentContent,
   exportDocumentPDF,
   fetchDocumentContent,
+  linkDocumentConversation,
 } from "./api/documents.js";
 import { useDocumentCommentEvents } from "./hooks/use-document-comment-events.js";
 import { subscribeChatEvents } from "./api/stream.js";
@@ -25,19 +30,13 @@ import {
 } from "./components/document-viewer-container.js";
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Default assistant ID — matches the platform single-assistant model. */
-const DEFAULT_ASSISTANT_ID = "default";
-
-// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export function DocumentViewerPage() {
   const { surfaceId } = useParams<{ surfaceId: string }>();
   const navigate = useNavigate();
+  const { assistantId } = useAssistantContext();
 
   const [doc, setDoc] = useState<DocumentContent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -46,8 +45,8 @@ export function DocumentViewerPage() {
   const viewerRef = useRef<DocumentViewerContainerHandle>(null);
 
   useEffect(() => {
-    if (!surfaceId) {
-      setError("No document ID provided.");
+    if (!surfaceId || !assistantId) {
+      setError(!surfaceId ? "No document ID provided." : "No assistant loaded.");
       setLoading(false);
       return;
     }
@@ -56,7 +55,7 @@ export function DocumentViewerPage() {
     void (async () => {
       try {
         const result = await fetchDocumentContent(
-          DEFAULT_ASSISTANT_ID,
+          assistantId,
           surfaceId,
         );
         if (cancelled) return;
@@ -95,10 +94,10 @@ export function DocumentViewerPage() {
   });
 
   useEffect(() => {
-    if (!surfaceId) return;
+    if (!surfaceId || !assistantId) return;
 
     const stream = subscribeChatEvents(
-      DEFAULT_ASSISTANT_ID,
+      assistantId,
       null,
       handleSseEvent,
       () => {
@@ -110,7 +109,7 @@ export function DocumentViewerPage() {
     return () => {
       stream.cancel();
     };
-  }, [surfaceId, handleSseEvent]);
+  }, [surfaceId, assistantId, handleSseEvent]);
 
   // -------------------------------------------------------------------------
   // Navigation & export
@@ -120,9 +119,44 @@ export function DocumentViewerPage() {
     navigate(-1);
   }, [navigate]);
 
+  const handleSubmitFeedback = useCallback(async () => {
+    if (!doc || !assistantId || !surfaceId) return;
+
+    // Prefer the document's original conversation — the document is already
+    // linked there, so the injector will surface the comments automatically.
+    // Fall back to session-cached conversation key for repeated feedback.
+    const conversationKey =
+      doc.conversationId
+      || getEditChatKey(assistantId, surfaceId)
+      || (typeof globalThis.crypto?.randomUUID === "function"
+        ? globalThis.crypto.randomUUID()
+        : `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+    setEditChatKey(assistantId, surfaceId, conversationKey);
+
+    if (conversationKey !== doc.conversationId) {
+      try {
+        await linkDocumentConversation(assistantId, surfaceId, conversationKey);
+      } catch {
+        // Best-effort — fails if the daemon doesn't have the route yet.
+      }
+    }
+
+    useViewerStore.getState().openDocument();
+    useViewerStore.getState().setLoadedDocument({
+      surfaceId: doc.surfaceId,
+      conversationId: conversationKey,
+      documentName: doc.title,
+      content: doc.content,
+    });
+
+    const prompt = `Please review and address my comments on "${doc.title}".`;
+    navigate(`${routes.conversation(conversationKey)}?prompt=${encodeURIComponent(prompt)}`);
+  }, [doc, assistantId, surfaceId, navigate]);
+
   const handleExport = useCallback(async () => {
-    if (!doc) return;
-    const blob = await exportDocumentPDF(DEFAULT_ASSISTANT_ID, doc.surfaceId);
+    if (!doc || !assistantId) return;
+    const blob = await exportDocumentPDF(assistantId, doc.surfaceId);
     if (!blob) return;
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement("a"), {
@@ -131,7 +165,7 @@ export function DocumentViewerPage() {
     });
     a.click();
     URL.revokeObjectURL(url);
-  }, [doc]);
+  }, [doc, assistantId]);
 
   // -------------------------------------------------------------------------
   // Render
@@ -149,7 +183,7 @@ export function DocumentViewerPage() {
     );
   }
 
-  if (error || !doc) {
+  if (error || !doc || !assistantId) {
     return (
       <div className="flex h-full items-center justify-center">
         <Typography
@@ -165,12 +199,13 @@ export function DocumentViewerPage() {
   return (
     <DocumentViewerContainer
       surfaceId={doc.surfaceId}
-      assistantId={DEFAULT_ASSISTANT_ID}
+      assistantId={assistantId}
       conversationId={doc.conversationId}
       documentName={doc.title}
       content={doc.content}
       onClose={handleClose}
       onExport={handleExport}
+      onSubmitFeedback={handleSubmitFeedback}
       handleRef={viewerRef}
     />
   );

@@ -7,7 +7,7 @@ import {
   useState,
   type Ref,
 } from "react";
-import { MessageSquareText, X } from "lucide-react";
+import { MessageSquareText, Send, X } from "lucide-react";
 import { Button, Tag, Typography } from "@vellum/design-library";
 
 import type { DocumentComment } from "@/domains/chat/api/document-comments.js";
@@ -35,6 +35,7 @@ export interface DocumentCommentPanelProps {
   conversationId: string;
   onClose: () => void;
   onCommentSelect?: (comment: DocumentComment) => void;
+  onSubmitFeedback?: () => void;
   /** Imperative handle for SSE-driven refresh triggers. */
   handleRef?: Ref<DocumentCommentPanelHandle>;
 }
@@ -54,6 +55,7 @@ export function DocumentCommentPanel({
   conversationId,
   onClose,
   onCommentSelect,
+  onSubmitFeedback,
   handleRef,
 }: DocumentCommentPanelProps) {
   const [comments, setComments] = useState<DocumentComment[]>([]);
@@ -162,6 +164,11 @@ export function DocumentCommentPanel({
 
   const commentCount = topLevelComments.length;
 
+  const hasOpenComments = useMemo(
+    () => comments.some((c) => c.status === "open"),
+    [comments],
+  );
+
   return (
     <div className="flex h-full w-80 flex-col border-l border-[var(--border-base)] bg-[var(--surface-overlay)]">
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-base)] px-4 py-3">
@@ -228,11 +235,22 @@ export function DocumentCommentPanel({
         )}
       </div>
 
-      <div className="shrink-0 border-t border-[var(--border-base)] p-4">
+      <div className="flex shrink-0 flex-col gap-3 border-t border-[var(--border-base)] p-4">
         <DocumentCommentForm
           onSubmit={handleCreate}
           placeholder="Add a comment…"
         />
+        {onSubmitFeedback && hasOpenComments ? (
+          <Button
+            variant="primary"
+            size="compact"
+            leftIcon={<Send />}
+            onClick={onSubmitFeedback}
+            className="w-full"
+          >
+            Submit Feedback
+          </Button>
+        ) : null}
       </div>
     </div>
   );

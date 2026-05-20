@@ -257,11 +257,13 @@ export function generateEditorHTML(content: string): string {
     var start = preRange.toString().length;
     var end = start + text.length;
 
+    var rect = range.getBoundingClientRect();
     window.parent.postMessage({
       type: "text_selected",
       start: start,
       end: end,
-      text: text
+      text: text,
+      rect: { top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right, width: rect.width, height: rect.height }
     }, "*");
   }
 

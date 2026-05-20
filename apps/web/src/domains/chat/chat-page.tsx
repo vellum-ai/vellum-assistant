@@ -539,6 +539,15 @@ export function ChatPage() {
     await baseHandleStopGenerating();
   }, [baseHandleStopGenerating]);
 
+  // Auto-send a message when navigated to with ?prompt= (e.g. Submit Feedback)
+  const promptConsumedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prompt = searchParams.get("prompt");
+    if (!prompt || !activeConversationKey || promptConsumedRef.current === prompt) return;
+    promptConsumedRef.current = prompt;
+    void sendMessage(prompt);
+  }, [searchParams, activeConversationKey, sendMessage]);
+
   // Clear question prompt when conversation changes
   useEffect(() => {
     useInteractionStore.getState().dismissQuestion();

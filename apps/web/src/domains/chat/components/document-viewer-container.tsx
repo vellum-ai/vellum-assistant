@@ -28,7 +28,7 @@ import {
   Download,
   FileText,
   MessageSquareText,
-  Plus,
+  X,
 } from "lucide-react";
 import { Button, Typography } from "@vellum/design-library";
 
@@ -58,6 +58,7 @@ export interface DocumentViewerContainerProps {
   content: string;
   onClose: () => void;
   onExport?: () => void;
+  onSubmitFeedback?: () => void;
   /** Imperative handle ref for SSE-driven refresh triggers. */
   handleRef?: Ref<DocumentViewerContainerHandle>;
 }
@@ -66,10 +67,20 @@ export interface DocumentViewerContainerProps {
 // Internal types
 // ---------------------------------------------------------------------------
 
+interface SelectionRect {
+  top: number;
+  left: number;
+  bottom: number;
+  right: number;
+  width: number;
+  height: number;
+}
+
 interface TextSelection {
   start: number;
   end: number;
   text: string;
+  rect?: SelectionRect;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +95,7 @@ export function DocumentViewerContainer({
   content,
   onClose,
   onExport,
+  onSubmitFeedback,
   handleRef,
 }: DocumentViewerContainerProps) {
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
@@ -110,10 +122,11 @@ export function DocumentViewerContainer({
       }
 
       if (data.type === "text_selected") {
-        const { start, end, text } = data as {
+        const { start, end, text, rect } = data as {
           start: unknown;
           end: unknown;
           text: unknown;
+          rect: unknown;
         };
         if (
           typeof start === "number" &&
@@ -121,7 +134,8 @@ export function DocumentViewerContainer({
           typeof text === "string" &&
           text.trim().length > 0
         ) {
-          setTextSelection({ start, end, text });
+          const selRect = rect && typeof rect === "object" ? rect as SelectionRect : undefined;
+          setTextSelection({ start, end, text, rect: selRect });
         }
       }
     }
@@ -177,7 +191,7 @@ export function DocumentViewerContainer({
       const anchors: CommentAnchor[] = comments
         .filter(
           (c): c is DocumentComment & { anchorStart: number; anchorEnd: number } =>
-            c.anchorStart != null && c.anchorEnd != null,
+            c.status === "open" && c.anchorStart != null && c.anchorEnd != null,
         )
         .map((c) => ({
           commentId: c.id,
@@ -210,17 +224,20 @@ export function DocumentViewerContainer({
   // Inline comment creation
   // -------------------------------------------------------------------------
 
-  const handleAddInlineComment = useCallback(async () => {
-    if (!textSelection) return;
+  const [inlineCommentDraft, setInlineCommentDraft] = useState("");
+
+  const handleSubmitInlineComment = useCallback(async () => {
+    if (!textSelection || !inlineCommentDraft.trim()) return;
     setAddingInlineComment(true);
     try {
       await createComment(assistantId, surfaceId, {
-        content: `Comment on: "${textSelection.text}"`,
+        content: inlineCommentDraft.trim(),
         conversationId,
         anchorStart: textSelection.start,
         anchorEnd: textSelection.end,
         anchorText: textSelection.text,
       });
+      setInlineCommentDraft("");
       setTextSelection(null);
       await refreshComments();
     } finally {
@@ -231,8 +248,14 @@ export function DocumentViewerContainer({
     surfaceId,
     conversationId,
     textSelection,
+    inlineCommentDraft,
     refreshComments,
   ]);
+
+  const handleDismissInlinePopover = useCallback(() => {
+    setTextSelection(null);
+    setInlineCommentDraft("");
+  }, []);
 
   // -------------------------------------------------------------------------
   // Toggle handler
@@ -331,20 +354,68 @@ export function DocumentViewerContainer({
             style={{ background: "transparent" }}
           />
 
-          {/* Floating "Add Comment" button near selection */}
+          {/* Floating inline comment popover anchored to selection */}
           {commentsPanelOpen && textSelection ? (
-            <div className="absolute right-4 bottom-4 z-10">
-              <Button
-                variant="primary"
-                size="compact"
-                leftIcon={<Plus />}
-                onClick={handleAddInlineComment}
-                disabled={addingInlineComment}
-              >
-                {addingInlineComment
-                  ? "Adding..."
-                  : "Add Inline Comment"}
-              </Button>
+            <div
+              className="absolute z-10 w-72 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] shadow-lg"
+              style={
+                textSelection.rect && iframeRef.current
+                  ? (() => {
+                      const iframeRect = iframeRef.current.getBoundingClientRect();
+                      const containerRect = iframeRef.current.parentElement!.getBoundingClientRect();
+                      const top = textSelection.rect!.bottom + (iframeRect.top - containerRect.top) + 8;
+                      const left = Math.max(8, Math.min(
+                        textSelection.rect!.left + (iframeRect.left - containerRect.left),
+                        containerRect.width - 288 - 8,
+                      ));
+                      return { top, left };
+                    })()
+                  : { right: 16, bottom: 16 }
+              }
+            >
+              <div className="flex items-start gap-2 border-b border-[var(--border-base)] px-3 py-2">
+                <Typography
+                  variant="label-small-default"
+                  className="min-w-0 flex-1 truncate text-[var(--content-tertiary)]"
+                >
+                  &ldquo;{textSelection.text.length > 60
+                    ? textSelection.text.slice(0, 60) + "…"
+                    : textSelection.text}&rdquo;
+                </Typography>
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  iconOnly={<X className="h-3 w-3" />}
+                  aria-label="Dismiss"
+                  onClick={handleDismissInlinePopover}
+                />
+              </div>
+              <div className="p-3">
+                <textarea
+                  className="w-full resize-none rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] px-2 py-1.5 text-sm text-[var(--content-emphasised)] placeholder:text-[var(--content-tertiary)] focus:border-[var(--border-focus)] focus:outline-none"
+                  rows={2}
+                  placeholder="Add your feedback…"
+                  value={inlineCommentDraft}
+                  onChange={(e) => setInlineCommentDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      void handleSubmitInlineComment();
+                    }
+                  }}
+                  autoFocus
+                />
+                <div className="mt-2 flex justify-end">
+                  <Button
+                    variant="primary"
+                    size="compact"
+                    onClick={() => void handleSubmitInlineComment()}
+                    disabled={addingInlineComment || !inlineCommentDraft.trim()}
+                  >
+                    {addingInlineComment ? "Adding…" : "Comment"}
+                  </Button>
+                </div>
+              </div>
             </div>
           ) : null}
         </div>
@@ -357,6 +428,7 @@ export function DocumentViewerContainer({
             conversationId={conversationId}
             onClose={() => setCommentsPanelOpen(false)}
             onCommentSelect={handleCommentSelect}
+            onSubmitFeedback={onSubmitFeedback}
             handleRef={commentPanelRef}
           />
         ) : null}
