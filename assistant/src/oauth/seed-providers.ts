@@ -751,8 +751,6 @@ export const PROVIDER_SEED_DATA: Record<
     provider: "sanity",
     authorizeUrl: "urn:manual-token",
     tokenExchangeUrl: "urn:manual-token",
-    pingUrl: "https://api.sanity.io/v2021-06-07/projects",
-    pingMethod: "GET",
     baseUrl: "https://api.sanity.io",
     displayLabel: "Sanity",
     description: "Content management platform",
