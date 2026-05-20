@@ -145,7 +145,14 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
                   >
                     Try Again
                   </Button>
-                ) : null}
+                ) : (
+                  <Button
+                    variant="outlined"
+                    onClick={() => mutation.reset()}
+                  >
+                    Edit &amp; Retry
+                  </Button>
+                )}
                 <Button variant="outlined" onClick={handleGoBack}>
                   Back to Chat
                 </Button>
