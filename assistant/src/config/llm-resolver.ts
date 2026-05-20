@@ -108,10 +108,19 @@ function effectiveDefault(
   if (dflt == null) return undefined;
   const targetProfile =
     dflt.profile != null ? llm.profiles?.[dflt.profile] : undefined;
-  const stripProfile =
-    hasOverrideProfile ||
-    (dflt.profile != null &&
-      (targetProfile == null || targetProfile.status === "disabled"));
+  const profileUnavailable =
+    dflt.profile != null &&
+    (targetProfile == null || targetProfile.status === "disabled");
+
+  if (profileUnavailable && !hasOverrideProfile) {
+    const customKey = `custom-${dflt.profile}`;
+    const customProfile = llm.profiles?.[customKey];
+    if (customProfile != null && customProfile.status !== "disabled") {
+      return { ...dflt, profile: customKey };
+    }
+  }
+
+  const stripProfile = hasOverrideProfile || profileUnavailable;
   if (stripProfile) {
     const { profile: _profile, ...rest } = dflt;
     return Object.keys(rest).length > 0 ? rest : undefined;
