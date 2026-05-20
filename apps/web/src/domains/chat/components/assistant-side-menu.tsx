@@ -50,7 +50,7 @@ import {
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 
 import { buildMoveToGroupTargets, groupConversations, isConversationPinned } from "@/domains/chat/utils/groupConversations.js";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
@@ -180,7 +180,7 @@ export function AssistantSideMenu({
   onShareFeedback,
   onInspect,
 }: AssistantSideMenuProps) {
-  const { conversationGroupsUI } = useAppFeatureFlags();
+  const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
 
   const { pinned, scheduled, background, slack, recents, customGroups } =
     groupConversations(conversations, {

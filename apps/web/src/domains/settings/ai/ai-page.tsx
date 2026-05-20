@@ -42,7 +42,7 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen.js";
 import { reportError } from "@/lib/errors/report.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import {
   type LlmCatalogModel,
   PROVIDER_DISPLAY_NAMES,
@@ -855,7 +855,7 @@ interface EmailServiceCardProps {
 function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { emailRootDomain } = useAppFeatureFlags();
+  const emailRootDomain = useFeatureFlagStore.use.emailRootDomain();
   const [mode, setMode] = useState<ServiceMode>(
     () => getLocalSetting(LS_EMAIL_MODE, "managed") as ServiceMode,
   );

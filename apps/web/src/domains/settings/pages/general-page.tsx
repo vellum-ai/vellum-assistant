@@ -22,7 +22,7 @@ import {
 } from "@/domains/settings/components/assistant-status-panel.js";
 
 import { useAuthStore } from "@/stores/auth-store.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import {
   applyThemePreference,
   normalizeThemePreference,
@@ -36,7 +36,7 @@ import {
 } from "@/domains/settings/local-settings.js";
 
 function ThemeCard() {
-  const { velvet } = useAppFeatureFlags();
+  const velvet = useFeatureFlagStore.use.velvet();
   const [theme, setTheme] = useState<ThemePreference>(() =>
     readStoredThemePreference({ velvetEnabled: velvet }),
   );
@@ -133,8 +133,9 @@ function TimezoneCard() {
 export function GeneralPage() {
   const { assistant, assistantLoading, healthz, healthzLoading, refetch } =
     useAssistantWithHealthz();
-  const { accountDeletion, multiPlatformAssistant, settingsSleepPolicy } =
-    useAppFeatureFlags();
+  const accountDeletion = useFeatureFlagStore.use.accountDeletion();
+  const multiPlatformAssistant = useFeatureFlagStore.use.multiPlatformAssistant();
+  const settingsSleepPolicy = useFeatureFlagStore.use.settingsSleepPolicy();
   const isLoggedIn = useAuthStore.use.isLoggedIn();
 
   const platformAssistant = assistant?.is_local ? null : assistant;

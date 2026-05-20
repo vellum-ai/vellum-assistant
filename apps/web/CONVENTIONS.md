@@ -893,7 +893,20 @@ If bypassing, add a comment explaining why.
 
 ## Testing
 
-- **Test framework:** `bun:test` (`describe`, `it`, `expect`, `mock`).
+- **Test framework:** [Bun's test runner](https://bun.sh/docs/test)
+  (`describe`, `it`, `expect`, `mock`).
+- **DOM environment:**
+  [happy-dom](https://github.com/nicedoc/happy-dom) provides
+  `window`, `document`, `localStorage`, `sessionStorage`, and `fetch`
+  via a preload script (`test-setup.ts`, referenced in `bunfig.toml`).
+  Component and hook tests can render to the DOM without a real
+  browser.
+- **Component rendering:** Use
+  [`@testing-library/react`](https://testing-library.com/docs/react-testing-library/intro/)
+  `render` for component tests.
+  [`renderToStaticMarkup`](https://react.dev/reference/react-dom/server/renderToStaticMarkup)
+  is SSR-only and does not support Zustand store subscriptions — avoid
+  it for tests that rely on store state.
 - **Colocate tests with source.** `message-handlers.test.ts` lives
   alongside `message-handlers.ts`.
 - **Test reducers and pure functions in isolation.** They are pure
@@ -902,7 +915,17 @@ If bypassing, add a comment explaining why.
 - **Mock at the right boundary.** Mock API clients (`client.get`,
   `client.post`), not `globalThis.fetch`. This catches request-building
   bugs that fetch-level mocks miss.
-- **Run tests:** `bun test src/path/to/file.test.ts`
+- **`mock.module()` is process-global.** Bun's
+  [`mock.module()`](https://bun.sh/docs/test/mocking#mock-module)
+  replaces the module for the entire process — mocks leak across test
+  files. Files pass individually but may fail in a full `bun test` run.
+  CI uses `bun run test:ci` (each file in its own subprocess) to
+  guarantee isolation.
+- **Run tests:**
+  ```bash
+  bun test src/path/to/file.test.ts  # single file (fast)
+  bun run test:ci                    # all files, isolated (CI)
+  ```
 - **Test Zustand stores via their non-React API.** Use `.getState()`
   and `.setState()` directly — no React rendering needed. Reset the
   store in `beforeEach` with `useStore.setState(initialState, true)`
