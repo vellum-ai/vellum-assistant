@@ -712,7 +712,7 @@ interface RenderInjectionBlockResult {
  * the agent into wasted reads.
  */
 const INJECTION_HEADER =
-  "**CRITICAL:** These are page summaries. Read the page file if it looks relevant.";
+  "**CRITICAL:** These are page summaries. Read full page files at the paths below with file_read if you want more information.";
 
 /**
  * Render the inner content of the `<memory>` block for a list of slugs.
@@ -747,7 +747,7 @@ const INJECTION_HEADER =
  * after the skills under `### CLI Commands You Can Use`. The leading
  * `**CRITICAL:**` line tells the agent how to read the block.
  *
- *   **CRITICAL:** These are page summaries. Read the page file if it looks relevant.
+ *   **CRITICAL:** These are page summaries. Read full page files at the paths below with file_read if you want more information.
  *
  *   # memory/concepts/<concept-slug-1>.md
  *   <summary-1>

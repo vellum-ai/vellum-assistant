@@ -743,7 +743,7 @@ describe("injectMemoryV2Block", () => {
 
     expect(result.block).not.toBeNull();
     expect(result.block).toContain(
-      "**CRITICAL:** These are page summaries. Read the page file if it looks relevant.",
+      "**CRITICAL:** These are page summaries. Read full page files at the paths below with file_read if you want more information.",
     );
     expect(result.block).toContain(
       "# memory/concepts/summarized-page.md\nA short prose description",
