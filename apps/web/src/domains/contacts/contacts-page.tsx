@@ -7,7 +7,7 @@ import { toast } from "@vellum/design-library/components/toast";
 import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
-} from "@/domains/intelligence/components/mobile-sidebar-drawer.js";
+} from "@/components/mobile-sidebar-drawer.js";
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail.js";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view.js";
 import { ConnectAssistantDialog } from "@/domains/contacts/components/connect-assistant-dialog.js";
@@ -62,6 +62,7 @@ export function ContactsPage() {
 
   return (
     <ContactsPageInner
+      key={assistantId}
       assistantId={assistantId}
       onStartSetupConversation={(prompt) => {
         void navigate(`${routes.assistant}?prompt=${encodeURIComponent(prompt)}`);
