@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -15,49 +15,6 @@ export type VoiceRecordingState =
   | { phase: "processing" }
   | { phase: "done" }
   | { phase: "error"; code: string };
-
-// ---------------------------------------------------------------------------
-// Actions & Reducer (exported for testing)
-// ---------------------------------------------------------------------------
-
-export type VoiceRecordingAction =
-  | { type: "START_RECORDING" }
-  | { type: "STOP_RECORDING" }
-  | { type: "FINALIZE" }
-  | { type: "FAIL"; code: string }
-  | { type: "RESET" }
-  | { type: "DONE_TIMEOUT" };
-
-/**
- * Pure reducer for voice recording state transitions.
- *
- * Transitions:
- *   idle → recording  (START_RECORDING)
- *   recording → processing  (STOP_RECORDING)
- *   processing → done  (FINALIZE)
- *   done → idle  (DONE_TIMEOUT, auto after 800 ms)
- *   any → error  (FAIL)
- *   any → idle  (RESET)
- */
-export function voiceRecordingReducer(
-  state: VoiceRecordingState,
-  action: VoiceRecordingAction,
-): VoiceRecordingState {
-  switch (action.type) {
-    case "START_RECORDING":
-      return { phase: "recording" };
-    case "STOP_RECORDING":
-      return { phase: "processing" };
-    case "FINALIZE":
-      return { phase: "done" };
-    case "FAIL":
-      return { phase: "error", code: action.code };
-    case "RESET":
-      return { phase: "idle" };
-    case "DONE_TIMEOUT":
-      return { phase: "idle" };
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -85,65 +42,71 @@ export interface UseVoiceRecordingStateReturn {
 /**
  * Manages voice-recording state transitions.
  *
+ * State machine:
+ *   idle → recording  (startRecording)
+ *   recording → processing  (stopRecording)
+ *   processing → done  (finalize)
+ *   done → idle  (auto after 800 ms)
+ *   any → error  (fail)
+ *   any → idle  (reset)
+ *
  * On entering `done`, sets an 800 ms timeout that auto-transitions back to
  * `idle` (matching macOS `showDoneAndDismiss`). Clears the timeout on unmount
  * or if another transition fires first.
  */
 export function useVoiceRecordingState(): UseVoiceRecordingStateReturn {
-  const [state, dispatch] = useReducer(voiceRecordingReducer, {
-    phase: "idle",
-  });
+  const [state, setState] = useState<VoiceRecordingState>({ phase: "idle" });
 
-  const doneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const clearDoneTimer = useCallback(() => {
-    if (doneTimerRef.current !== null) {
-      clearTimeout(doneTimerRef.current);
-      doneTimerRef.current = null;
+  const clearTimer = useCallback(() => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
   }, []);
 
   const startRecording = useCallback(() => {
-    clearDoneTimer();
-    dispatch({ type: "START_RECORDING" });
-  }, [clearDoneTimer]);
+    clearTimer();
+    setState({ phase: "recording" });
+  }, [clearTimer]);
 
   const stopRecording = useCallback(() => {
-    clearDoneTimer();
-    dispatch({ type: "STOP_RECORDING" });
-  }, [clearDoneTimer]);
+    clearTimer();
+    setState({ phase: "processing" });
+  }, [clearTimer]);
 
   const finalize = useCallback(() => {
-    clearDoneTimer();
-    dispatch({ type: "FINALIZE" });
-    doneTimerRef.current = setTimeout(() => {
-      doneTimerRef.current = null;
-      dispatch({ type: "DONE_TIMEOUT" });
+    clearTimer();
+    setState({ phase: "done" });
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      setState({ phase: "idle" });
     }, DONE_DISMISS_MS);
-  }, [clearDoneTimer]);
+  }, [clearTimer]);
 
   const fail = useCallback(
     (code: string) => {
-      clearDoneTimer();
-      dispatch({ type: "FAIL", code });
-      doneTimerRef.current = setTimeout(() => {
-        doneTimerRef.current = null;
-        dispatch({ type: "RESET" });
+      clearTimer();
+      setState({ phase: "error", code });
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        setState({ phase: "idle" });
       }, ERROR_DISMISS_MS);
     },
-    [clearDoneTimer],
+    [clearTimer],
   );
 
   const reset = useCallback(() => {
-    clearDoneTimer();
-    dispatch({ type: "RESET" });
-  }, [clearDoneTimer]);
+    clearTimer();
+    setState({ phase: "idle" });
+  }, [clearTimer]);
 
   useEffect(() => {
     return () => {
-      clearDoneTimer();
+      clearTimer();
     };
-  }, [clearDoneTimer]);
+  }, [clearTimer]);
 
   return { state, startRecording, stopRecording, finalize, fail, reset };
 }
