@@ -537,6 +537,55 @@ function formatOrphanedWebSearchResultAsText(block: {
  *
  * Builds a fresh result array without mutating the input.
  */
+/**
+ * Find the start index of the active tool-use continuation span at the tail
+ * of the formatted message array. Messages from this index onward may contain
+ * thinking blocks that must be preserved for Anthropic's tool-use protocol.
+ *
+ * The active span is the trailing sequence of alternating
+ * assistant(tool_use) → user(tool_result) messages. Everything before it is
+ * a completed historical turn whose thinking blocks can be safely stripped.
+ *
+ * Returns `messages.length` when there is no active tool-use continuation
+ * (i.e. all messages are historical — strip thinking from everything).
+ */
+function findActiveToolUseContinuationStart(
+  messages: Anthropic.MessageParam[],
+): number {
+  // Walk backwards from the end. The tail pattern we're looking for is:
+  //   ... assistant(tool_use) user(tool_result) [assistant(tool_use) user(tool_result)]* ...
+  // The last message is typically a user message (the new prompt), so if it
+  // doesn't contain tool_result blocks, there's no active continuation.
+  let i = messages.length - 1;
+
+  while (i >= 0) {
+    const msg = messages[i];
+    if (msg.role === "user") {
+      const content = Array.isArray(msg.content) ? msg.content : [];
+      const hasToolResult = content.some(
+        (b) => typeof b !== "string" && isToolResultBlock(b),
+      );
+      if (!hasToolResult) break;
+      // This user message has tool_result — the preceding assistant message
+      // should have the matching tool_use and its thinking blocks preserved.
+      i--;
+    } else if (msg.role === "assistant") {
+      const content = Array.isArray(msg.content) ? msg.content : [];
+      const hasToolUse = content.some(
+        (b) => typeof b !== "string" && isToolUseBlock(b),
+      );
+      if (!hasToolUse) break;
+      // This assistant message has tool_use — it's part of the active span.
+      // Check if the preceding user message continues the chain.
+      i--;
+    } else {
+      break;
+    }
+  }
+
+  return i + 1;
+}
+
 function ensureToolPairing(
   messages: Anthropic.MessageParam[],
 ): Anthropic.MessageParam[] {
@@ -925,11 +974,32 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      // Thinking blocks are stripped at rest by DB migration 209 so
-      // historical messages are clean when loaded. Within a turn,
-      // Anthropic-native assistant messages have original thinking with
-      // valid signatures — the API accepts them. Non-Anthropic providers can
-      // emit unsigned thinking blocks, which `toAnthropicBlockSafe` drops.
+      // Strip thinking/redacted_thinking blocks from completed historical
+      // assistant turns. Anthropic only requires these blocks for active
+      // tool-use continuation (the tail span where assistant tool_use is
+      // followed by user tool_result). Replaying stale thinking blocks from
+      // earlier turns causes 400 errors when the signature is no longer
+      // valid (e.g. after a provider/model/profile switch).
+      const activeToolUseStart =
+        findActiveToolUseContinuationStart(formatted);
+      for (let i = 0; i < activeToolUseStart; i++) {
+        const msg = formatted[i];
+        if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+        const stripped = (
+          msg.content as Anthropic.ContentBlockParam[]
+        ).filter(
+          (b) =>
+            typeof b === "string" ||
+            (b.type !== "thinking" && b.type !== "redacted_thinking"),
+        );
+        if (stripped.length === 0) {
+          stripped.push({
+            type: "text" as const,
+            text: PLACEHOLDER_BLOCKS_OMITTED,
+          });
+        }
+        formatted[i] = { ...msg, content: stripped };
+      }
 
       sentMessages = ensureToolPairing(
         repairOrphanedServerToolBlocks(formatted),
