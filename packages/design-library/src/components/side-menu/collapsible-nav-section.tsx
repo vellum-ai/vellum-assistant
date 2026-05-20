@@ -89,6 +89,7 @@ function CollapsibleNavSectionSection({
   return (
     <Accordion.Item
       ref={ref}
+      data-slot="collapsible-nav-section-section"
       value={value}
       className={cn("flex flex-col", className)}
       {...itemProps}

@@ -114,7 +114,7 @@ const ROOT_OVERLAY_CLASSES = [
 ].join(" ");
 
 const RAIL_TRANSITION_MS = 150;
-const ROOT_RAIL_TRANSITION = `transition-[width,padding] duration-[${RAIL_TRANSITION_MS}ms] ease-in-out`;
+const ROOT_RAIL_TRANSITION = "transition-[width,padding] duration-[150ms] ease-in-out";
 
 function rootChromeClasses(variant: SideMenuVariant, collapsed: boolean): string {
   if (variant === "overlay") return ROOT_OVERLAY_CLASSES;
@@ -454,7 +454,10 @@ function SideMenuItem({
   const ariaCurrent = active ? ("page" as const) : undefined;
 
   if (href) {
-    const anchorProps = rest as SharedAnchorProps;
+    const {
+      onClick: anchorOnClick,
+      ...anchorProps
+    } = rest as SharedAnchorProps;
     return (
       <a
         ref={ref as Ref<HTMLAnchorElement>}
@@ -464,7 +467,7 @@ function SideMenuItem({
         aria-current={ariaCurrent}
         className={rowClasses}
         onClick={(event) => {
-          anchorProps.onClick?.(event);
+          anchorOnClick?.(event);
           if (!event.defaultPrevented) {
             onSelect?.();
           }
