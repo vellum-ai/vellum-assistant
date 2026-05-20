@@ -1,4 +1,8 @@
 import { getConfig } from "../../config/loader.js";
+import type {
+  WebSearchMetadata,
+  WebSearchResultItem,
+} from "../../daemon/message-types/web-activity.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
@@ -12,6 +16,7 @@ import {
 } from "../../util/retry.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import { extractDomain } from "./domain-normalize.js";
 
 const log = getLogger("web-search");
 
@@ -201,6 +206,76 @@ function formatTavilyResults(
   return lines.join("\n");
 }
 
+function buildBraveMetadata(
+  results: BraveSearchResult[],
+  query: string,
+  durationMs: number,
+): WebSearchMetadata {
+  const items: WebSearchResultItem[] = results.map((r, i) => ({
+    rank: i + 1,
+    title: r.title,
+    url: r.url,
+    domain: extractDomain(r.url),
+    snippet: r.description,
+    age: r.age,
+  }));
+  return {
+    query,
+    provider: "brave",
+    resultCount: items.length,
+    durationMs,
+    results: items,
+  };
+}
+
+function buildPerplexityMetadata(
+  data: PerplexityResponse,
+  query: string,
+  durationMs: number,
+): WebSearchMetadata {
+  const citations = data.citations ?? [];
+  const items: WebSearchResultItem[] = citations.map((url, i) => ({
+    rank: i + 1,
+    title: "",
+    url,
+    domain: extractDomain(url),
+  }));
+  return {
+    query,
+    provider: "perplexity",
+    resultCount: items.length,
+    durationMs,
+    results: items,
+  };
+}
+
+function buildTavilyMetadata(
+  data: TavilySearchResponse,
+  query: string,
+  durationMs: number,
+): WebSearchMetadata {
+  const results = data.results ?? [];
+  const items: WebSearchResultItem[] = results.map((r, i) => {
+    const url = r.url ?? "";
+    return {
+      rank: i + 1,
+      title: r.title ?? url,
+      url,
+      domain: extractDomain(url),
+      faviconUrl: r.favicon,
+      snippet: r.content,
+      score: r.score,
+    };
+  });
+  return {
+    query,
+    provider: "tavily",
+    resultCount: items.length,
+    durationMs,
+    results: items,
+  };
+}
+
 function tavilyTimeRangeForFreshness(
   freshness: string | undefined,
 ): "day" | "week" | "month" | "year" | undefined {
@@ -216,6 +291,28 @@ function tavilyTimeRangeForFreshness(
     default:
       return undefined;
   }
+}
+
+function errorResult(
+  query: string,
+  provider: WebSearchProvider,
+  startedAt: number,
+  errorMessage: string,
+): ToolExecutionResult {
+  return {
+    content: `Error: ${errorMessage}`,
+    isError: true,
+    activityMetadata: {
+      webSearch: {
+        query,
+        provider,
+        resultCount: 0,
+        durationMs: Date.now() - startedAt,
+        results: [],
+        errorMessage,
+      },
+    },
+  };
 }
 
 async function executeBraveSearch(
@@ -238,6 +335,7 @@ async function executeBraveSearch(
   }
 
   const url = `${BRAVE_API_URL}?${params.toString()}`;
+  const startedAt = Date.now();
 
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
     const response = await fetch(url, {
@@ -252,6 +350,7 @@ async function executeBraveSearch(
     if (response.ok) {
       const data = (await response.json()) as BraveSearchResponse;
       const results = data.web?.results ?? [];
+      const durationMs = Date.now() - startedAt;
       return {
         content:
           wrapUntrustedContent(formatBraveResults(results, query), {
@@ -259,16 +358,21 @@ async function executeBraveSearch(
             sourceDetail: "brave",
           }) + CITATION_INSTRUCTION,
         isError: false,
+        activityMetadata: {
+          webSearch: buildBraveMetadata(results, query, durationMs),
+        },
       };
     }
 
     await response.text();
 
     if (response.status === 401 || response.status === 403) {
-      return {
-        content: "Error: Invalid or expired Brave Search API key",
-        isError: true,
-      };
+      return errorResult(
+        query,
+        "brave",
+        startedAt,
+        "Invalid or expired Brave Search API key",
+      );
     }
 
     if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
@@ -286,24 +390,22 @@ async function executeBraveSearch(
     }
 
     log.warn({ status: response.status }, "Brave Search API error");
-    if (response.status === 429) {
-      return {
-        content:
-          "Error: Brave Search rate limit exceeded after retries. Try again shortly.",
-        isError: true,
-      };
-    }
-    return {
-      content: `Error: Brave Search API returned status ${response.status}`,
-      isError: true,
-    };
+    return errorResult(
+      query,
+      "brave",
+      startedAt,
+      response.status === 429
+        ? "Brave Search rate limit exceeded after retries. Try again shortly."
+        : `Brave Search API returned status ${response.status}`,
+    );
   }
 
-  return {
-    content:
-      "Error: Brave Search rate limit exceeded after retries. Try again shortly.",
-    isError: true,
-  };
+  return errorResult(
+    query,
+    "brave",
+    startedAt,
+    "Brave Search rate limit exceeded after retries. Try again shortly.",
+  );
 }
 
 async function executePerplexitySearch(
@@ -311,6 +413,7 @@ async function executePerplexitySearch(
   apiKey: string,
   signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
+  const startedAt = Date.now();
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
     const response = await fetch(PERPLEXITY_API_URL, {
       method: "POST",
@@ -327,6 +430,7 @@ async function executePerplexitySearch(
 
     if (response.ok) {
       const data = (await response.json()) as PerplexityResponse;
+      const durationMs = Date.now() - startedAt;
       return {
         content:
           wrapUntrustedContent(formatPerplexityResults(data, query), {
@@ -334,16 +438,21 @@ async function executePerplexitySearch(
             sourceDetail: "perplexity",
           }) + CITATION_INSTRUCTION,
         isError: false,
+        activityMetadata: {
+          webSearch: buildPerplexityMetadata(data, query, durationMs),
+        },
       };
     }
 
     await response.text();
 
     if (response.status === 401 || response.status === 403) {
-      return {
-        content: "Error: Invalid or expired Perplexity API key",
-        isError: true,
-      };
+      return errorResult(
+        query,
+        "perplexity",
+        startedAt,
+        "Invalid or expired Perplexity API key",
+      );
     }
 
     if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
@@ -361,24 +470,22 @@ async function executePerplexitySearch(
     }
 
     log.warn({ status: response.status }, "Perplexity API error");
-    if (response.status === 429) {
-      return {
-        content:
-          "Error: Perplexity rate limit exceeded after retries. Try again shortly.",
-        isError: true,
-      };
-    }
-    return {
-      content: `Error: Perplexity API returned status ${response.status}`,
-      isError: true,
-    };
+    return errorResult(
+      query,
+      "perplexity",
+      startedAt,
+      response.status === 429
+        ? "Perplexity rate limit exceeded after retries. Try again shortly."
+        : `Perplexity API returned status ${response.status}`,
+    );
   }
 
-  return {
-    content:
-      "Error: Perplexity rate limit exceeded after retries. Try again shortly.",
-    isError: true,
-  };
+  return errorResult(
+    query,
+    "perplexity",
+    startedAt,
+    "Perplexity rate limit exceeded after retries. Try again shortly.",
+  );
 }
 
 async function executeTavilySearch(
@@ -398,6 +505,8 @@ async function executeTavilySearch(
     body.time_range = timeRange;
   }
 
+  const startedAt = Date.now();
+
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
     const response = await fetch(TAVILY_API_URL, {
       method: "POST",
@@ -412,6 +521,7 @@ async function executeTavilySearch(
 
     if (response.ok) {
       const data = (await response.json()) as TavilySearchResponse;
+      const durationMs = Date.now() - startedAt;
       return {
         content:
           wrapUntrustedContent(formatTavilyResults(data, query), {
@@ -419,16 +529,21 @@ async function executeTavilySearch(
             sourceDetail: "tavily",
           }) + CITATION_INSTRUCTION,
         isError: false,
+        activityMetadata: {
+          webSearch: buildTavilyMetadata(data, query, durationMs),
+        },
       };
     }
 
     await response.text();
 
     if (response.status === 401 || response.status === 403) {
-      return {
-        content: "Error: Invalid or expired Tavily API key",
-        isError: true,
-      };
+      return errorResult(
+        query,
+        "tavily",
+        startedAt,
+        "Invalid or expired Tavily API key",
+      );
     }
 
     if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
@@ -446,24 +561,22 @@ async function executeTavilySearch(
     }
 
     log.warn({ status: response.status }, "Tavily Search API error");
-    if (response.status === 429) {
-      return {
-        content:
-          "Error: Tavily Search rate limit exceeded after retries. Try again shortly.",
-        isError: true,
-      };
-    }
-    return {
-      content: `Error: Tavily Search API returned status ${response.status}`,
-      isError: true,
-    };
+    return errorResult(
+      query,
+      "tavily",
+      startedAt,
+      response.status === 429
+        ? "Tavily Search rate limit exceeded after retries. Try again shortly."
+        : `Tavily Search API returned status ${response.status}`,
+    );
   }
 
-  return {
-    content:
-      "Error: Tavily Search rate limit exceeded after retries. Try again shortly.",
-    isError: true,
-  };
+  return errorResult(
+    query,
+    "tavily",
+    startedAt,
+    "Tavily Search rate limit exceeded after retries. Try again shortly.",
+  );
 }
 
 // ----------------------------------------------------------------------------
