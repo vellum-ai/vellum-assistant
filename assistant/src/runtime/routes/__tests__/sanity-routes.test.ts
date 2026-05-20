@@ -85,25 +85,30 @@ const connectHandler = findHandler("sanity_connect");
 type FetchReturn = { status: number; json: () => unknown };
 let mockFetchImpl: ((url: string) => FetchReturn) | undefined = undefined;
 
-const originalFetch = global.fetch;
+const originalFetch = globalThis.fetch;
+
+function mockFetch(url: string | URL | Request): Promise<Response> {
+  const urlStr =
+    typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+  if (!mockFetchImpl) throw new Error(`Unexpected fetch: ${urlStr}`);
+  const result = mockFetchImpl(urlStr);
+  return Promise.resolve({
+    ok: result.status >= 200 && result.status < 300,
+    status: result.status,
+    json: async () => result.json(),
+  } as Response);
+}
 
 beforeEach(() => {
   writtenFiles.clear();
   storedToken = undefined;
   mockFetchImpl = undefined;
-  global.fetch = async (url: string) => {
-    if (!mockFetchImpl) throw new Error(`Unexpected fetch: ${url}`);
-    const result = mockFetchImpl(String(url));
-    return {
-      ok: result.status >= 200 && result.status < 300,
-      status: result.status,
-      json: async () => result.json(),
-    } as Response;
-  };
+
+  (globalThis as any).fetch = mockFetch;
 });
 
 afterEach(() => {
-  global.fetch = originalFetch;
+  (globalThis as any).fetch = originalFetch;
 });
 
 // ---------------------------------------------------------------------------
