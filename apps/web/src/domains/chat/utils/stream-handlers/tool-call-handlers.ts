@@ -1,14 +1,10 @@
-import type {
-  ChatMessageToolCall,
-  ToolResultEvent,
-  ToolUseStartEvent,
-} from "@/domains/chat/lib/api.js";
 import { newStableId } from "@/domains/chat/lib/stable-id.js";
 import {
   applyToolResult,
   upsertToolCall,
 } from "@/domains/chat/hooks/stream-message-updaters.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
+import type { ChatMessageToolCall, ToolResultEvent, ToolUseStartEvent } from "@/domains/chat/api/event-types.js";
 
 export function handleToolUseStart(
   event: ToolUseStartEvent,

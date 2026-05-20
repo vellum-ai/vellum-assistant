@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ChatMessageToolCall, RuntimeMessage } from "@/domains/chat/lib/api.js";
 import {
   dedupeDisplayMessages,
   type DisplayMessage,
@@ -9,6 +8,8 @@ import {
 } from "@/domains/chat/lib/reconcile.js";
 import { newStableId } from "@/domains/chat/lib/stable-id.js";
 import { classifySurfaceDisplay, type Surface } from "@/domains/chat/lib/types.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 
 // Test factory that produces DisplayMessages with a stableId assigned. Every
 // DisplayMessage construction site in production code assigns one; tests

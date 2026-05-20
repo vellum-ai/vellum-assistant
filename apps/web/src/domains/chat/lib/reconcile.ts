@@ -1,9 +1,10 @@
-import type { ChatMessageToolCall, RuntimeMessage } from "@/domains/chat/lib/api.js";
 import { prepareServerMessage } from "@/domains/chat/lib/map-runtime-message.js";
 import { dedupeDisplayMessages, mergeLatestHistoryMessage, messagesEqual } from "@/domains/chat/lib/message-merge.js";
 import { sortByTimestamp, sortedByTimestamp, timestampToMs } from "@/domains/chat/lib/message-sorting.js";
 import { newStableId } from "@/domains/chat/lib/stable-id.js";
 import type { DisplayMessage } from "@/domains/chat/lib/types.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 
 // Re-export public types and utilities so existing consumers that import
 // from `./reconcile` continue to work without changes.

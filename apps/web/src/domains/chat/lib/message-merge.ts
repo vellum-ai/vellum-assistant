@@ -1,5 +1,5 @@
-import type { ChatMessageToolCall } from "@/domains/chat/lib/api.js";
 import type { DisplayMessage, Surface } from "@/domains/chat/lib/types.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
 
 export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean {
   if (a.length !== b.length) return false;

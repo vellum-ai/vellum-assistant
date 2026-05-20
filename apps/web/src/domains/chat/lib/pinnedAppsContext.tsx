@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 
-import type { AppSummary } from "@/domains/chat/lib/apps.js";
+import type { AppSummary } from "@/domains/chat/api/apps.js";
 import {
   loadPinnedApps,
   pinApp,

@@ -7,7 +7,7 @@ import {
   client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/lib/client.js";
+} from "@/domains/chat/api/client.js";
 
 export async function submitSurfaceAction(
   assistantId: string,

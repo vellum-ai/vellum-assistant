@@ -3,12 +3,12 @@ import type {
   MutableRefObject,
   SetStateAction,
 } from "react";
-import type { ChatEventStream } from "@/domains/chat/lib/api.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import type { TurnActions, TurnState } from "@/domains/messaging/turn-store.js";
 import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
 import type { ChatError, PendingQuestionState } from "@/domains/chat/types.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 
 export type { PendingQuestionState };
 

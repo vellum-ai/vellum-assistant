@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { Surface } from "@/domains/chat/lib/types.js";
 
-mock.module("@/domains/chat/lib/apps", () => ({
+mock.module("@/domains/chat/api/apps", () => ({
   getCachedAppHtml: () => Promise.resolve("<html></html>"),
 }));
 

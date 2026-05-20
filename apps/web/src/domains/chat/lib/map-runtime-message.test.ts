@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { RuntimeMessage } from "@/domains/chat/lib/api.js";
+import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 import {
   mapRuntimeToDisplayMessage,
   prepareServerMessage,

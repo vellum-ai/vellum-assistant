@@ -63,16 +63,6 @@ mock.module("@sentry/nextjs", () => ({
 }));
 
 import {
-  normalizeContentOrder,
-  normalizeTextSegments,
-  parseAssistantEvent,
-  parseConversation,
-  postChatMessage,
-  subscribeChatEvents,
-  toDisplayAttachments,
-  type ChatStreamReconnectCause,
-} from "@/domains/chat/lib/api.js";
-import {
   getChatDiagnosticsEvents,
   recordChatDiagnostic,
 } from "@/domains/chat/lib/diagnostics.js";
@@ -83,6 +73,10 @@ import {
   isSending,
 } from "@/domains/messaging/turn-store.js";
 import { SYNC_TAGS } from "@/lib/sync/types.js";
+import { parseConversation } from "@/domains/chat/api/conversations.js";
+import { parseAssistantEvent, toDisplayAttachments } from "@/domains/chat/api/event-parser.js";
+import { normalizeContentOrder, normalizeTextSegments, postChatMessage } from "@/domains/chat/api/messages.js";
+import { subscribeChatEvents, type ChatStreamReconnectCause } from "@/domains/chat/api/stream.js";
 
 describe("parseAssistantEvent", () => {
   test("parses assistant_text_delta", () => {
@@ -1345,7 +1339,7 @@ describe("envelope format parsing", () => {
 describe("RuntimeMessage metadata types", () => {
   test("RuntimeMessage interface accepts optional metadata fields", () => {
     // Type-level test: ensure RuntimeMessage can carry metadata
-    const msg: import("./api.js").RuntimeMessage = {
+    const msg: import("./messages.js").RuntimeMessage = {
       id: "msg-1",
       role: "assistant",
       content: "Hello",
@@ -1372,7 +1366,7 @@ describe("RuntimeMessage metadata types", () => {
   });
 
   test("RuntimeMessage works without metadata fields", () => {
-    const msg: import("./api.js").RuntimeMessage = {
+    const msg: import("./messages.js").RuntimeMessage = {
       id: "msg-2",
       role: "user",
       content: "Hi",
@@ -1384,7 +1378,7 @@ describe("RuntimeMessage metadata types", () => {
   });
 
   test("ChatMessage interface accepts optional metadata fields", () => {
-    const msg: import("./api.js").ChatMessage = {
+    const msg: import("./event-types.js").ChatMessage = {
       id: "msg-3",
       role: "assistant",
       content: "With metadata",

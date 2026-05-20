@@ -9,15 +9,10 @@
  * @see https://react.dev/reference/react/useState#updating-state-based-on-the-previous-state
  */
 
-import type {
-  AllowlistOption,
-  ChatMessageToolCall,
-  DirectoryScopeOption,
-  ScopeOption,
-} from "@/domains/chat/lib/api.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/lib/reconcile.js";
 import type { Surface } from "@/domains/chat/lib/types.js";
 import { newStableId } from "@/domains/chat/lib/stable-id.js";
+import type { AllowlistOption, ChatMessageToolCall, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers

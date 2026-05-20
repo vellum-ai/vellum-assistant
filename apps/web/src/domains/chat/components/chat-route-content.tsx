@@ -57,14 +57,13 @@ import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/
 import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel.js";
 
 import { Link } from "react-router";
-import type { AssistantIdentity, ChatEventStream, Conversation } from "@/domains/chat/lib/api.js";
 import type { ConversationStarter } from "@/domains/chat/lib/conversation-starters.js";
 import { recordChatDiagnostic, summarizeDisplayMessages } from "@/domains/chat/lib/diagnostics.js";
 import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/lib/edit-app-empty-state.js";
 import { pickRandomPlaceholder } from "@/domains/chat/lib/empty-state-constants.js";
 import { useEmptyStateGreeting } from "@/domains/chat/lib/use-empty-state-greeting.js";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/lib/error-classification.js";
-import { fetchOlderHistoryPage } from "@/domains/chat/lib/history.js";
+import { fetchOlderHistoryPage } from "@/domains/chat/api/history.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/lib/reconcile.js";
@@ -74,7 +73,6 @@ import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, typ
 import { isSurfaceInteractive } from "@/domains/chat/lib/types.js";
 
 import type { MainView, OpenedAppState, OpenedDocumentState, ViewerState } from "@/stores/viewer-store.js";
-import { submitQuestionResponse } from "@/domains/chat/lib/api.js";
 import { useActiveProfileModel } from "@/domains/chat/lib/use-active-profile-model.js";
 import { modelSupportsVision } from "@/domains/assistant/model-capabilities.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
@@ -84,10 +82,14 @@ import { isChannelConversation as _isChannelConversation } from "@/domains/chat/
 import { getDiskPressureChatBlockReason } from "@/domains/assistant/disk-pressure.js";
 import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
-import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/lib/event-types.js";
+import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types.js";
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button.js";
+import type { AssistantIdentity } from "@/domains/chat/api/assistant.js";
+import type { Conversation } from "@/domains/chat/api/conversations.js";
+import { submitQuestionResponse } from "@/domains/chat/api/interactions.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 
 // ---------------------------------------------------------------------------
 // Types

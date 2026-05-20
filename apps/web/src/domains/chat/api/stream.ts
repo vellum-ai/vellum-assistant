@@ -8,10 +8,10 @@
 
 import * as Sentry from "@sentry/browser";
 
-import { client, SDK_BASE_OPTIONS } from "@/domains/chat/lib/client.js";
+import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client.js";
 import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/lib/diagnostics.js";
-import { parseAssistantEvent, readEventConversationKey } from "@/domains/chat/lib/event-parser.js";
-import type { AssistantEvent } from "@/domains/chat/lib/event-types.js";
+import { parseAssistantEvent, readEventConversationKey } from "@/domains/chat/api/event-parser.js";
+import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
 
 // ---------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ConversationGroup } from "@/domains/chat/lib/api.js";
 
 import { patchGroup } from "@/domains/chat/hooks/use-conversation-group-actions.js";
+import type { ConversationGroup } from "@/domains/chat/api/conversations.js";
 
 const groups: ConversationGroup[] = [
   { id: "g1", name: "Work", sortPosition: 0, isSystemGroup: false },

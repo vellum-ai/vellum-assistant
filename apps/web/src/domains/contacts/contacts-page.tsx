@@ -40,7 +40,7 @@ import type {
   ContactSelection,
 } from "@/domains/contacts/types.js";
 import { useAssistantContext } from "@/domains/chat/assistant-context.js";
-import { fetchAssistantIdentity } from "@/domains/chat/lib/assistant.js";
+import { fetchAssistantIdentity } from "@/domains/chat/api/assistant.js";
 import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
 import { routes } from "@/utils/routes.js";
 

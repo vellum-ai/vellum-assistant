@@ -19,16 +19,6 @@ import {
 } from "react";
 
 import {
-  type ChatEventStream,
-  type Conversation,
-  type RuntimeMessage,
-  cancelGeneration,
-  fetchConversationMessages,
-  getPendingInteractions,
-  postChatMessage,
-  pollForResponse,
-} from "@/domains/chat/lib/api.js";
-import {
   type DisplayAttachment,
   type DisplayMessage,
   reconcileMessages,
@@ -59,6 +49,10 @@ import {
   stopStreamingAndClearConfirmations,
 } from "@/domains/chat/hooks/send-message-utils.js";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue.js";
+import { type Conversation, cancelGeneration } from "@/domains/chat/api/conversations.js";
+import { getPendingInteractions } from "@/domains/chat/api/interactions.js";
+import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 
 // Re-export pure utilities so existing consumers don't break.
 export {

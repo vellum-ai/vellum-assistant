@@ -50,16 +50,11 @@ import {
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { usePinnedAppsOptional } from "@/domains/chat/lib/pinnedAppsContext.js";
-import {
-  canMarkRead,
-  canMarkUnread,
-  type Conversation,
-  type ConversationGroup,
-} from "@/domains/chat/lib/api.js";
 import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
 
 import { buildMoveToGroupTargets, groupConversations, isConversationPinned } from "@/domains/chat/lib/groupConversations.js";
 import { isChannelConversation } from "@/domains/chat/lib/conversation-channel.js";
+import { canMarkRead, canMarkUnread, type Conversation, type ConversationGroup } from "@/domains/chat/api/conversations.js";
 
 /**
  * Maximum number of conversation entries rendered under expanded Slack and
