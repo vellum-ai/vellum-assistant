@@ -18,13 +18,13 @@ import {
 import {
   fetchSkillFileContent,
   fetchSkillFiles,
-} from "@/domains/intelligence/lib/skills/api.js";
+} from "@/domains/intelligence/skills/api.js";
 import {
   isAvailableSkill,
   isRemovableSkill,
   type SkillFileEntry,
   type SkillInfo,
-} from "@/domains/intelligence/lib/skills/types.js";
+} from "@/domains/intelligence/skills/types.js";
 
 interface SkillDetailProps {
   assistantId: string;

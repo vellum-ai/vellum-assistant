@@ -38,14 +38,14 @@ import {
   fetchSkills,
   installSkill,
   uninstallSkill,
-} from "@/domains/intelligence/lib/skills/api.js";
-import { inferCategory } from "@/domains/intelligence/lib/skills/category.js";
+} from "@/domains/intelligence/skills/api.js";
+import { inferCategory } from "@/domains/intelligence/skills/category.js";
 import {
   isInstalledSkill,
   type SkillCategory,
   type SkillFilter,
   type SkillInfo,
-} from "@/domains/intelligence/lib/skills/types.js";
+} from "@/domains/intelligence/skills/types.js";
 
 interface SkillsTabProps {
   assistantId: string;

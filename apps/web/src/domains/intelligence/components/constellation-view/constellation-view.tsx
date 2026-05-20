@@ -19,9 +19,9 @@ import {
 } from "react";
 
 import { Button } from "@vellum/design-library";
-import { inferCategory } from "@/domains/intelligence/lib/skills/category.js";
+import { inferCategory } from "@/domains/intelligence/skills/category.js";
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
-import type { SkillInfo } from "@/domains/intelligence/lib/skills/types.js";
+import type { SkillInfo } from "@/domains/intelligence/skills/types.js";
 
 import {
   buildGroups,

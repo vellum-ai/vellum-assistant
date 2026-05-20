@@ -1,4 +1,4 @@
-import type { SkillCategory } from "@/domains/intelligence/lib/skills/types.js";
+import type { SkillCategory } from "@/domains/intelligence/skills/types.js";
 
 export interface CategoryConfig {
   displayName: string;

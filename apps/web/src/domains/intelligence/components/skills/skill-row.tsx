@@ -7,7 +7,7 @@ import {
   isAvailableSkill,
   isRemovableSkill,
   type SkillInfo,
-} from "@/domains/intelligence/lib/skills/types.js";
+} from "@/domains/intelligence/skills/types.js";
 
 interface SkillRowProps {
   skill: SkillInfo;

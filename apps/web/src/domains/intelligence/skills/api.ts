@@ -12,7 +12,7 @@ import {
   client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/intelligence/lib/client.js";
+} from "@/domains/intelligence/client.js";
 
 import type {
   SkillFileContentResponse,
