@@ -1,8 +1,8 @@
 /**
  * Zustand store for viewer UI state.
  *
- * Manages panel navigation, app/document viewer lifecycle, and
- * share/deploy operations as direct named actions.
+ * Manages panel navigation and the app/document viewer lifecycle as
+ * direct named actions.
  *
  * **State managed:**
  * - `mainView` — which top-level panel is displayed
@@ -13,7 +13,8 @@
  * - `assetsRefreshKey` — counter bumped to force asset re-fetches
  * - `viewBeforeDocument` / `viewBeforeSubagentDetail` — previous view for restoration
  * - `activeSubagentId` — subagent detail panel
- * - Share/deploy in-flight state
+ *
+ * App share/deploy lifecycle lives in `domains/chat/deploy-store.ts`.
  *
  * Reference: {@link https://zustand.docs.pmnd.rs/}
  */
@@ -44,11 +45,6 @@ export interface OpenedDocumentState {
   content: string;
 }
 
-export interface ComplexDeployApp {
-  appId: string;
-  name: string;
-}
-
 // ---------------------------------------------------------------------------
 // State & Actions
 // ---------------------------------------------------------------------------
@@ -64,11 +60,6 @@ export interface ViewerState {
   viewBeforeDocument: Exclude<MainView, "document" | "subagent-detail">;
   activeSubagentId: string | null;
   viewBeforeSubagentDetail: Exclude<MainView, "document" | "subagent-detail">;
-  isSharing: boolean;
-  isDeploying: boolean;
-  isTokenDialogOpen: boolean;
-  pendingDeployAppId: string | null;
-  complexDeployApp: ComplexDeployApp | null;
 }
 
 export interface ViewerActions {
@@ -99,15 +90,6 @@ export interface ViewerActions {
   // --- Assets ---
   refreshAssets: () => void;
 
-  // --- Share / Deploy ---
-  startSharing: () => void;
-  finishSharing: () => void;
-  startDeploying: () => void;
-  finishDeploying: (clearPendingAppId?: boolean) => void;
-  showTokenDialog: (pendingAppId: string) => void;
-  hideTokenDialog: () => void;
-  setComplexDeployApp: (app: ComplexDeployApp | null) => void;
-
   // --- Reset ---
   reset: () => void;
 }
@@ -129,11 +111,6 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeDocument: "chat",
   activeSubagentId: null,
   viewBeforeSubagentDetail: "chat",
-  isSharing: false,
-  isDeploying: false,
-  isTokenDialogOpen: false,
-  pendingDeployAppId: null,
-  complexDeployApp: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -272,43 +249,6 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   refreshAssets: () => {
     set({ assetsRefreshKey: get().assetsRefreshKey + 1 });
-  },
-
-  // --- Share / Deploy ---
-
-  startSharing: () => {
-    set({ isSharing: true });
-  },
-
-  finishSharing: () => {
-    set({ isSharing: false });
-  },
-
-  startDeploying: () => {
-    set({ isDeploying: true });
-  },
-
-  finishDeploying: (clearPendingAppId) => {
-    set({
-      isDeploying: false,
-      ...(clearPendingAppId ? { pendingDeployAppId: null } : {}),
-    });
-  },
-
-  showTokenDialog: (pendingAppId) => {
-    set({
-      isTokenDialogOpen: true,
-      pendingDeployAppId: pendingAppId,
-      isDeploying: false,
-    });
-  },
-
-  hideTokenDialog: () => {
-    set({ isTokenDialogOpen: false });
-  },
-
-  setComplexDeployApp: (app) => {
-    set({ complexDeployApp: app });
   },
 
   // --- Reset ---

@@ -286,83 +286,6 @@ describe("refreshAssets", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Share / Deploy
-// ---------------------------------------------------------------------------
-
-describe("startSharing", () => {
-  it("sets isSharing to true", () => {
-    getState().startSharing();
-    expect(getState().isSharing).toBe(true);
-  });
-});
-
-describe("finishSharing", () => {
-  it("sets isSharing to false", () => {
-    useViewerStore.setState({ isSharing: true });
-    getState().finishSharing();
-    expect(getState().isSharing).toBe(false);
-  });
-});
-
-describe("startDeploying", () => {
-  it("sets isDeploying to true", () => {
-    getState().startDeploying();
-    expect(getState().isDeploying).toBe(true);
-  });
-});
-
-describe("finishDeploying", () => {
-  it("sets isDeploying to false and keeps pendingDeployAppId by default", () => {
-    useViewerStore.setState({ isDeploying: true, pendingDeployAppId: "app-1" });
-    getState().finishDeploying();
-    const state = getState();
-    expect(state.isDeploying).toBe(false);
-    expect(state.pendingDeployAppId).toBe("app-1");
-  });
-
-  it("clears pendingDeployAppId when clearPendingAppId is true", () => {
-    useViewerStore.setState({ isDeploying: true, pendingDeployAppId: "app-1" });
-    getState().finishDeploying(true);
-    const state = getState();
-    expect(state.isDeploying).toBe(false);
-    expect(state.pendingDeployAppId).toBeNull();
-  });
-});
-
-describe("showTokenDialog", () => {
-  it("opens dialog, sets pending app, and stops deploying", () => {
-    useViewerStore.setState({ isDeploying: true });
-    getState().showTokenDialog("app-1");
-    const state = getState();
-    expect(state.isTokenDialogOpen).toBe(true);
-    expect(state.pendingDeployAppId).toBe("app-1");
-    expect(state.isDeploying).toBe(false);
-  });
-});
-
-describe("hideTokenDialog", () => {
-  it("closes the dialog", () => {
-    useViewerStore.setState({ isTokenDialogOpen: true });
-    getState().hideTokenDialog();
-    expect(getState().isTokenDialogOpen).toBe(false);
-  });
-});
-
-describe("setComplexDeployApp", () => {
-  it("sets the complex deploy app", () => {
-    const app = { appId: "app-1", name: "My App" };
-    getState().setComplexDeployApp(app);
-    expect(getState().complexDeployApp).toBe(app);
-  });
-
-  it("clears the complex deploy app when null", () => {
-    useViewerStore.setState({ complexDeployApp: { appId: "app-1", name: "My App" } });
-    getState().setComplexDeployApp(null);
-    expect(getState().complexDeployApp).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Reset
 // ---------------------------------------------------------------------------
 
@@ -372,17 +295,11 @@ describe("reset", () => {
       mainView: "app",
       activeAppId: "app-1",
       openedAppState: SAMPLE_APP,
-      isSharing: true,
-      isDeploying: true,
-      isTokenDialogOpen: true,
     });
     getState().reset();
     const state = getState();
     expect(state.mainView).toBe("chat");
     expect(state.activeAppId).toBeNull();
     expect(state.openedAppState).toBeNull();
-    expect(state.isSharing).toBe(false);
-    expect(state.isDeploying).toBe(false);
-    expect(state.isTokenDialogOpen).toBe(false);
   });
 });

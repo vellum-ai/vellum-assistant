@@ -22,6 +22,7 @@ import type {
   OpenedAppState,
 } from "@/stores/viewer-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
+import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { haptic } from "@/utils/haptics.js";
 
@@ -253,7 +254,7 @@ export function useAppViewerActions({
 
   const handleShareApp = useCallback(async () => {
     if (!openedAppState || !assistantId || isSharing) return;
-    useViewerStore.getState().startSharing();
+    useDeployStore.getState().startSharing();
     try {
       await shareApp(assistantId, openedAppState.appId, openedAppState.name);
       toast.success("App exported", { description: `${openedAppState.name}.vellum` });
@@ -262,27 +263,27 @@ export function useAppViewerActions({
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
-      useViewerStore.getState().finishSharing();
+      useDeployStore.getState().finishSharing();
     }
   }, [openedAppState, assistantId, isSharing]);
 
   const handleDeployApp = useCallback(async () => {
     if (!openedAppState || !assistantId || isDeploying) return;
     if (openedAppState.html.includes("vellum.fetch") || openedAppState.html.includes("vellum.sendAction") || openedAppState.html.includes("/v1/x/") || openedAppState.html.includes("/v1/apps/") ) {
-      useViewerStore.getState().setComplexDeployApp({ appId: openedAppState.appId, name: openedAppState.name });
+      useDeployStore.getState().setComplexDeployApp({ appId: openedAppState.appId, name: openedAppState.name });
       return;
     }
-    useViewerStore.getState().startDeploying();
+    useDeployStore.getState().startDeploying();
     try {
       const config = await getVercelConfig(assistantId);
       if (!config.hasToken) {
-        useViewerStore.getState().showTokenDialog(openedAppState.appId);
+        useDeployStore.getState().showTokenDialog(openedAppState.appId);
         return;
       }
       const result = await publishApp(assistantId, openedAppState.appId);
       if (!result.success) {
         if (isCredentialError(result)) {
-          useViewerStore.getState().showTokenDialog(openedAppState.appId);
+          useDeployStore.getState().showTokenDialog(openedAppState.appId);
         } else {
           toast.error("Failed to deploy", { description: result.error });
         }
@@ -302,14 +303,14 @@ export function useAppViewerActions({
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
-      useViewerStore.getState().finishDeploying();
+      useDeployStore.getState().finishDeploying();
     }
   }, [openedAppState, assistantId, isDeploying]);
 
   const handleDeployTokenSaved = useCallback(() => {
-    useViewerStore.getState().hideTokenDialog();
+    useDeployStore.getState().hideTokenDialog();
     if (pendingDeployAppId && assistantId) {
-      useViewerStore.getState().startDeploying();
+      useDeployStore.getState().startDeploying();
       void publishApp(assistantId, pendingDeployAppId)
         .then((result) => {
           if (!result.success) {
@@ -332,7 +333,7 @@ export function useAppViewerActions({
           });
         })
         .finally(() => {
-          useViewerStore.getState().finishDeploying(true);
+          useDeployStore.getState().finishDeploying(true);
         });
     }
   }, [pendingDeployAppId, assistantId]);

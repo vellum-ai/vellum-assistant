@@ -26,6 +26,7 @@ import { useAssistantContext } from "@/domains/chat/assistant-context.js";
 import { useShallow } from "zustand/shallow";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
+import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
@@ -135,11 +136,6 @@ export function ChatPage() {
     viewBeforeDocument: s.viewBeforeDocument,
     activeSubagentId: s.activeSubagentId,
     viewBeforeSubagentDetail: s.viewBeforeSubagentDetail,
-    isSharing: s.isSharing,
-    isDeploying: s.isDeploying,
-    isTokenDialogOpen: s.isTokenDialogOpen,
-    pendingDeployAppId: s.pendingDeployAppId,
-    complexDeployApp: s.complexDeployApp,
   })));
   const subagentState = useSubagentStore(useShallow((s) => ({ byId: s.byId, orderedIds: s.orderedIds })));
   const subagentEntries = useMemo(
@@ -678,7 +674,6 @@ export function ChatPage() {
     activeConversation,
     processingKeys,
     mainView: viewerState.mainView,
-    viewerState,
     openedAppState: viewerState.openedAppState,
     openedDocumentState: viewerState.openedDocumentState,
     editingConversationKey,
@@ -788,10 +783,10 @@ export function ChatPage() {
       useViewerStore.getState().exitAppEditing();
     },
     handleShareApp: () => {
-      useViewerStore.getState().startSharing();
+      useDeployStore.getState().startSharing();
     },
     handleDeployApp: deployToVercel ? () => {
-      useViewerStore.getState().startDeploying();
+      useDeployStore.getState().startDeploying();
     } : undefined,
     handleForkConversation,
     subagentEntries,
