@@ -32,7 +32,7 @@ export function sortUsageSeriesBuckets(
     const lhsOffset = offsetMinutes(lhs.bucketId);
     const rhsOffset = offsetMinutes(rhs.bucketId);
     if (lhsOffset !== rhsOffset) {
-      return rhsOffset - lhsOffset;
+      return lhsOffset - rhsOffset;
     }
 
     if (lhs.bucketId === rhs.bucketId) {
