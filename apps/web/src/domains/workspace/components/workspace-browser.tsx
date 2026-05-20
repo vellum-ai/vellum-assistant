@@ -93,6 +93,7 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
           <WorkspaceFileViewer
             assistantId={assistantId}
             selectedPath={selectedPath}
+            showHidden={showHidden}
             viewMode={viewMode}
             onChangeViewMode={setViewMode}
             onBrowse={() => setDrawerOpen(true)}

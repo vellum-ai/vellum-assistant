@@ -36,6 +36,7 @@ import { PanelItem } from "@vellum/design-library/components/panel-item";
 import { Popover } from "@vellum/design-library/components/popover";
 import { client } from "@/generated/api/client.gen.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
+import { formatFileSize } from "@/domains/workspace/utils/format-file-size.js";
 
 // ---------------------------------------------------------------------------
 // API helpers
@@ -73,17 +74,6 @@ function workspaceTreeRetrieveOptions(opts: {
     },
     queryKey: ["assistantsWorkspaceTreeRetrieve", opts],
   });
-}
-
-// ---------------------------------------------------------------------------
-// Formatting
-// ---------------------------------------------------------------------------
-
-function formatFileSize(bytes: number | null | undefined): string {
-  if (bytes == null) return "";
-  if (bytes < 1024) return `${bytes} bytes`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // ---------------------------------------------------------------------------
@@ -186,7 +176,7 @@ function TreeNode({
     <div>
       <button
         onClick={handleClick}
-        className="group flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-medium-lighter transition-colors hover:bg-[var(--ghost-hover)]"
+        className="group flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
         style={{
           paddingLeft: `${depth * 14 + 8}px`,
           paddingRight: "8px",

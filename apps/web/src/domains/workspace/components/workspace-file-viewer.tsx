@@ -23,6 +23,7 @@ import { Button } from "@vellum/design-library/components/button";
 import { client } from "@/generated/api/client.gen.js";
 import { FileMarkdown, isMarkdown } from "@/domains/intelligence/components/file-markdown.js";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json.js";
+import { formatFileSize } from "@/domains/workspace/utils/format-file-size.js";
 
 import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace-browser.js";
 
@@ -41,31 +42,22 @@ interface WorkspaceFileResponse {
 
 function workspaceFileRetrieveOptions(opts: {
   path: { assistant_id: string };
-  query: { path: string };
+  query: { path: string; showHidden?: boolean };
 }) {
   return queryOptions<WorkspaceFileResponse>({
     queryFn: async () => {
+      const query: Record<string, string> = { path: opts.query.path };
+      if (opts.query.showHidden) query.showHidden = "true";
       const { data, error } = await client.get<WorkspaceFileResponse, unknown>({
         url: "/v1/assistants/{assistant_id}/workspace/file/",
         path: opts.path,
-        query: opts.query,
+        query,
       });
       if (error) throw error;
       return data!;
     },
     queryKey: ["assistantsWorkspaceFileRetrieve", opts],
   });
-}
-
-// ---------------------------------------------------------------------------
-// Formatting
-// ---------------------------------------------------------------------------
-
-function formatFileSize(bytes: number | undefined): string {
-  if (bytes == null) return "Unknown size";
-  if (bytes < 1024) return `${bytes} bytes`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,23 +176,27 @@ function BinaryContentViewer({
   assistantId,
   path,
   mimeType,
+  showHidden,
 }: {
   assistantId: string;
   path: string;
   mimeType: string;
+  showHidden?: boolean;
 }) {
   const { data: blob, isLoading } = useQuery({
     queryFn: async () => {
+      const query: Record<string, string> = { path };
+      if (showHidden) query.showHidden = "true";
       const res = await client.get<Blob, unknown>({
         url: "/v1/assistants/{assistant_id}/workspace/file/content/",
         path: { assistant_id: assistantId },
-        query: { path },
+        query,
         parseAs: "blob",
       });
       if (res.error) throw res.error;
       return res.data!;
     },
-    queryKey: ["assistantsWorkspaceFileContentRetrieve", { assistantId, path }],
+    queryKey: ["assistantsWorkspaceFileContentRetrieve", { assistantId, path, showHidden }],
     enabled: !!path,
   });
 
@@ -424,12 +420,14 @@ function SourcePre({
 export function WorkspaceFileViewer({
   assistantId,
   selectedPath,
+  showHidden,
   viewMode,
   onChangeViewMode,
   onBrowse,
 }: {
   assistantId: string;
   selectedPath: string | null;
+  showHidden?: boolean;
   viewMode: WorkspaceViewMode;
   onChangeViewMode: (mode: WorkspaceViewMode) => void;
   onBrowse?: () => void;
@@ -438,7 +436,7 @@ export function WorkspaceFileViewer({
   const { data, isLoading } = useQuery({
     ...workspaceFileRetrieveOptions({
       path: { assistant_id: assistantId },
-      query: { path: selectedPath ?? "" },
+      query: { path: selectedPath ?? "", showHidden },
     }),
     enabled: !!selectedPath,
   });
@@ -550,7 +548,11 @@ export function WorkspaceFileViewer({
   const name = data.name ?? selectedPath.split("/").pop() ?? selectedPath;
   const markdown = isMarkdown(name, mimeType);
   const json = isJson(name, mimeType);
-  const isText = mimeType.startsWith("text/") && data.content != null;
+  // The backend returns inline `content` for all text-renderable files,
+  // including non-text/* MIME types like application/yaml, application/toml,
+  // application/x-sh. Markdown and JSON are checked first in the rendering
+  // cascade, so this catch-all is safe.
+  const isText = data.content != null && !markdown && !json;
   const readOnly = selectedPath ? isHiddenPath(selectedPath) : true;
 
   const editFooter = isEditing && (
@@ -707,6 +709,7 @@ export function WorkspaceFileViewer({
             assistantId={assistantId}
             path={selectedPath}
             mimeType={mimeType}
+            showHidden={showHidden}
           />
         </div>
       </div>
@@ -746,7 +749,7 @@ export function WorkspaceFileViewer({
               className="text-body-small-default"
               style={{ color: "var(--content-secondary, var(--content-tertiary))" }}
             >
-              {formatFileSize(data.size)}
+              {formatFileSize(data.size, "Unknown size")}
             </p>
             {data.modifiedAt && (
               <p
