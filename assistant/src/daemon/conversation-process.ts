@@ -123,6 +123,9 @@ export interface ProcessConversationContext {
   readonly surfaceActionRequestIds: Set<string>;
   currentActiveSurfaceId?: string;
   currentPage?: string;
+  /** When true, the drain path should inject synthetic tool_result messages
+   *  for any pending tool_use blocks abandoned by a steered abort. */
+  pendingSteerRepair?: boolean;
   /** Cumulative token usage stats for the conversation. */
   readonly usageStats: UsageStats;
   /** Request-scoped skill IDs preactivated via config or programmatic injection. */
@@ -347,6 +350,73 @@ async function buildPassthroughBatch(
   return conversation.queue.shiftN(matched);
 }
 
+// ── Steer repair ────────────────────────────────────────────────────
+
+/**
+ * When a steer-to-message abort interrupts an in-flight tool call, the
+ * conversation history may end with an assistant message containing one
+ * or more `tool_use` blocks that have no corresponding `tool_result`.
+ * LLM providers reject this sequence. This helper scans the tail of the
+ * history and injects synthetic error `tool_result` messages for any
+ * unmatched `tool_use` blocks.
+ */
+function repairPendingToolUseBlocks(
+  conversation: ProcessConversationContext,
+): void {
+  if (!conversation.pendingSteerRepair) return;
+  conversation.pendingSteerRepair = false;
+
+  const messages = conversation.messages;
+  if (messages.length === 0) return;
+
+  // Walk backwards from the tail to find the last assistant message with
+  // tool_use blocks. Collect resolved IDs from any user messages between
+  // the tail and that assistant message, then subtract them.
+  const resolvedToolUseIds = new Set<string>();
+  const pendingToolUseIds: string[] = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role === "user") {
+      for (const block of msg.content) {
+        if (block.type === "tool_result") {
+          resolvedToolUseIds.add(block.tool_use_id);
+        }
+      }
+    } else if (msg.role === "assistant") {
+      for (const block of msg.content) {
+        if (block.type === "tool_use" && !resolvedToolUseIds.has(block.id)) {
+          pendingToolUseIds.push(block.id);
+        }
+      }
+      // Only repair tool_use blocks from the last assistant message that
+      // has them — earlier history should already be consistent.
+      break;
+    }
+  }
+
+  if (pendingToolUseIds.length === 0) return;
+
+  log.info(
+    {
+      conversationId: conversation.conversationId,
+      pendingToolUseCount: pendingToolUseIds.length,
+    },
+    "Injecting synthetic tool_result for pending tool_use blocks after steer",
+  );
+
+  // Build a single user message with tool_result blocks for all pending IDs.
+  const syntheticContent = pendingToolUseIds.map((toolUseId) => ({
+    type: "tool_result" as const,
+    tool_use_id: toolUseId,
+    content: "Tool execution was interrupted by user steering.",
+    is_error: true,
+  }));
+  conversation.messages.push({
+    role: "user",
+    content: syntheticContent,
+  });
+}
+
 // ── drainQueue ───────────────────────────────────────────────────────
 
 /**
@@ -363,6 +433,10 @@ export async function drainQueue(
   conversation: ProcessConversationContext,
   reason: QueueDrainReason = "loop_complete",
 ): Promise<void> {
+  // Repair any pending tool_use blocks left over from a steered abort
+  // before the drain path sends the next message to the LLM.
+  repairPendingToolUseBlocks(conversation);
+
   const batch = await buildPassthroughBatch(conversation);
   if (batch.length === 0) {
     // Head is a slash / verification intent / empty queue. If the queue has

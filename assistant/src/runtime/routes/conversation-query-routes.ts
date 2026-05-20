@@ -15,6 +15,7 @@
  * GET    /v1/messages/:id/llm-context   — LLM request logs for a message
  * GET    /v1/llm-request-logs/:id/payload — raw payload for a single log
  * DELETE /v1/messages/queued/:id        — delete queued message
+ * POST   /v1/messages/queued/:id/steer — steer to a queued message
  */
 
 import { z } from "zod";
@@ -49,7 +50,10 @@ import {
   getMessageContent,
   performConversationSearch,
 } from "../../daemon/handlers/conversation-history.js";
-import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
+import {
+  deleteQueuedMessage,
+  steerToMessage,
+} from "../../daemon/handlers/conversations.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   log,
@@ -915,6 +919,31 @@ function handleDeleteQueuedMessage({
   throw new NotFoundError("Queued message not found");
 }
 
+function handleSteerToMessage({
+  queryParams = {},
+  pathParams = {},
+}: RouteHandlerArgs) {
+  const conversationId = queryParams.conversationId;
+  if (!conversationId) {
+    throw new BadRequestError(
+      "Missing required query parameter: conversationId",
+    );
+  }
+  const result = steerToMessage(conversationId, pathParams.id ?? "");
+  if (result.steered) {
+    return { ok: true, conversationId, requestId: pathParams.id };
+  }
+  if (result.reason === "conversation_not_found") {
+    throw new NotFoundError("Conversation not found");
+  }
+  if (result.reason === "not_processing") {
+    throw new BadRequestError(
+      "Cannot steer: conversation is not currently processing",
+    );
+  }
+  throw new NotFoundError("Queued message not found");
+}
+
 // ---------------------------------------------------------------------------
 // Route definitions (shared HTTP + IPC)
 // ---------------------------------------------------------------------------
@@ -1145,5 +1174,24 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     handler: handleDeleteQueuedMessage,
+  },
+  {
+    operationId: "messages_queued_steer",
+    endpoint: "messages/queued/:id/steer",
+    method: "POST",
+    policyKey: "messages/queued",
+    summary: "Steer to a queued message",
+    description:
+      "Promote a queued message to the head of the queue and abort the current generation so it is processed next.",
+    tags: ["messages"],
+    queryParams: [
+      {
+        name: "conversationId",
+        schema: { type: "string" },
+        required: true,
+        description: "Conversation ID (required)",
+      },
+    ],
+    handler: handleSteerToMessage,
   },
 ];

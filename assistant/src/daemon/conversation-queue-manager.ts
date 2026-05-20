@@ -159,6 +159,20 @@ export class MessageQueue {
   }
 
   /**
+   * Move a queued message to the head of the queue (index 0) by its requestId.
+   * Returns the promoted message, or undefined if not found.
+   * Byte accounting is unchanged — the item stays in the queue, just reordered.
+   */
+  promoteToHead(requestId: string): QueuedMessage | undefined {
+    const idx = this.items.findIndex((m) => m.requestId === requestId);
+    if (idx === -1) return undefined;
+    if (idx === 0) return this.items[0]; // already at head
+    const [promoted] = this.items.splice(idx, 1);
+    this.items.unshift(promoted);
+    return promoted;
+  }
+
+  /**
    * Remove a queued message by its requestId.
    * Returns the removed message, or undefined if not found.
    */

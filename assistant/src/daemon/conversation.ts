@@ -250,6 +250,13 @@ export class Conversation {
   /** @internal */ surfaceActionRequestIds = new Set<string>();
   /** @internal */ approvedViaPromptThisTurn = false;
   /**
+   * Set by `steerToMessage` to signal the drain path that it should inject
+   * synthetic tool_result messages for any pending tool_use blocks abandoned
+   * by the aborted generation. Cleared after repair.
+   * @internal
+   */
+  pendingSteerRepair = false;
+  /**
    * When true, side-effect tools must prompt even if a trust/allow rule
    * would auto-allow. Set by non-interactive callers (e.g. non-guardian
    * phone voice) so their auto-deny handler reliably sees a
