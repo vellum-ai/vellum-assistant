@@ -395,18 +395,9 @@ struct ChatView: View {
             }
 
             if isReadonly {
-                centeredChatColumn(width: layoutMetrics.chatColumnWidth) {
-                    HStack(spacing: VSpacing.xs) {
-                        Spacer(minLength: 0)
-                        VIconView(.eye, size: 14)
-                        Text("Read-only conversation")
-                            .font(VFont.bodySmallDefault)
-                        Spacer(minLength: 0)
-                    }
-                    .foregroundStyle(VColor.contentTertiary)
-                    .padding(.vertical, VSpacing.md)
-                }
-                .animation(nil, value: queuedMessages.isEmpty)
+                readOnlyFooter(width: layoutMetrics.chatColumnWidth)
+                    .animation(nil, value: queuedMessages.isEmpty)
+                    .animation(nil, value: viewModel.isAssistantBusy)
             } else {
                 composerSection(
                     width: layoutMetrics.chatColumnWidth,
@@ -416,6 +407,36 @@ struct ChatView: View {
             }
         }
         .animation(.spring(duration: 0.28, bounce: 0.15), value: queuedMessages.isEmpty)
+    }
+
+    @ViewBuilder
+    private func readOnlyFooter(width: CGFloat) -> some View {
+        centeredChatColumn(width: width) {
+            HStack(spacing: VSpacing.sm) {
+                Spacer(minLength: 0)
+
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.eye, size: 14)
+                    Text("Read-only conversation")
+                        .font(VFont.bodySmallDefault)
+                }
+                .foregroundStyle(VColor.contentTertiary)
+
+                if viewModel.isAssistantBusy {
+                    VButton(
+                        label: "Stop generation",
+                        iconOnly: VIcon.square.rawValue,
+                        style: .primary,
+                        iconSize: 32,
+                        action: { viewModel.stopGenerating() }
+                    )
+                    .vTooltip("Stop generation")
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, VSpacing.md)
+        }
     }
 
     /// Status/notification banners rendered as an overlay at the bottom of
