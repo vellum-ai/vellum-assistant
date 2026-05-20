@@ -119,7 +119,7 @@ const ROOT_RAIL_TRANSITION = "transition-[width,padding] duration-[150ms] ease-i
 function rootChromeClasses(variant: SideMenuVariant, collapsed: boolean): string {
   if (variant === "overlay") return ROOT_OVERLAY_CLASSES;
   const rail = collapsed ? ROOT_RAIL_COLLAPSED_CLASSES : ROOT_RAIL_EXPANDED_CLASSES;
-  return `${rail} ${ROOT_RAIL_TRANSITION}`;
+  return cn(rail, ROOT_RAIL_TRANSITION);
 }
 
 function SideMenuRoot({
