@@ -79,21 +79,21 @@ function HomePageRoute() {
  *   │
  *   /assistant/* — auth-protected app with RootLayout
  *   │  middleware: [authMiddleware] — redirects to login when auth required
- *   │  ├── Onboarding (no ChatLayout chrome)
+ *   │  ├── Onboarding (full-screen, no app chrome)
  *   │  │   ├── PrivacyScreen (/assistant/onboarding/privacy)
  *   │  │   ├── PreChatFlow (/assistant/onboarding/prechat)
  *   │  │   └── HatchingScreen (/assistant/onboarding/hatching)
+ *   │  ├── SettingsLayout (full-screen overlay panel, no ChatLayout sidebar)
+ *   │  │   ├── GeneralPage (/assistant/settings/general)
+ *   │  │   ├── AiPage (/assistant/settings/ai)
+ *   │  │   ├── IntegrationsPage, SchedulesPage, VoicePage, ...
+ *   │  │   ├── BillingPage (/assistant/settings/billing)
+ *   │  │   │   ├── onboarding, upgrade/cancel, upgrade/success
+ *   │  │   └── AdvancedPage, DeveloperPage, DebugPage
  *   │  └── ChatLayout — sidebar rail, drawer, shortcuts
  *   │       ├── ChatPage (index, /assistant)
  *   │       ├── HomePageRoute (/assistant/home)
- *   │       ├── LibraryPage / LibraryDetailPage
- *   │       └── SettingsLayout (/assistant/settings)
- *   │            ├── GeneralPage (/assistant/settings/general)
- *   │            ├── AiPage (/assistant/settings/ai)
- *   │            ├── IntegrationsPage, SchedulesPage, ...
- *   │            ├── BillingPage (/assistant/settings/billing)
- *   │            │   ├── onboarding, upgrade/cancel, upgrade/success
- *   │            └── AdvancedPage, DeveloperPage, DebugPage
+ *   │       └── LibraryPage / LibraryDetailPage
  *
  * References:
  * - React Router data mode routing: https://reactrouter.com/start/data/routing
@@ -131,38 +131,42 @@ export const router = createBrowserRouter([
       { path: "onboarding/prechat", element: <PreChatFlow /> },
       { path: "onboarding/hatching", element: <HatchingScreen /> },
 
+      // Settings routes — full-screen overlay panel (no ChatLayout sidebar).
+      // SettingsShell provides its own layout with back-arrow, sidebar nav,
+      // and content area — the main app sidebar is intentionally hidden.
+      {
+        path: "settings",
+        element: <SettingsLayout />,
+        children: [
+          { index: true, element: <GeneralPage /> },
+          { path: "general", element: <GeneralPage /> },
+          { path: "ai", element: <AiPage /> },
+          { path: "integrations", element: <IntegrationsPage /> },
+          { path: "schedules", element: <SchedulesPage /> },
+          { path: "notifications", element: <NotificationsPage /> },
+          { path: "sounds", element: <SoundsPage /> },
+          { path: "voice", element: <VoicePage /> },
+          { path: "devices", element: <DevicesPage /> },
+          { path: "privacy", element: <PrivacyPage /> },
+          { path: "archive", element: <ArchivePage /> },
+          { path: "billing", element: <BillingPage /> },
+          { path: "billing/onboarding", element: <BillingOnboardingPage /> },
+          { path: "billing/upgrade/cancel", element: <UpgradeCancelPage /> },
+          { path: "billing/upgrade/success", element: <UpgradeSuccessPage /> },
+          { path: "community", element: <CommunityPage /> },
+          { path: "debug", element: <DebugPage /> },
+          { path: "developer", element: <DeveloperPage /> },
+          { path: "advanced", element: <AdvancedPage /> },
+          { path: "danger-zone", element: <DangerZoneRedirectPage /> },
+          { path: "system-events", element: <SystemEventsRedirectPage /> },
+        ],
+      },
+
       {
         element: <ChatLayout />,
         children: [
           { index: true, element: <ChatPage /> },
           { path: "home", element: <HomePageRoute /> },
-          {
-            path: "settings",
-            element: <SettingsLayout />,
-            children: [
-              { index: true, element: <GeneralPage /> },
-              { path: "general", element: <GeneralPage /> },
-              { path: "ai", element: <AiPage /> },
-              { path: "integrations", element: <IntegrationsPage /> },
-              { path: "schedules", element: <SchedulesPage /> },
-              { path: "notifications", element: <NotificationsPage /> },
-              { path: "sounds", element: <SoundsPage /> },
-              { path: "voice", element: <VoicePage /> },
-              { path: "devices", element: <DevicesPage /> },
-              { path: "privacy", element: <PrivacyPage /> },
-              { path: "archive", element: <ArchivePage /> },
-              { path: "billing", element: <BillingPage /> },
-              { path: "billing/onboarding", element: <BillingOnboardingPage /> },
-              { path: "billing/upgrade/cancel", element: <UpgradeCancelPage /> },
-              { path: "billing/upgrade/success", element: <UpgradeSuccessPage /> },
-              { path: "community", element: <CommunityPage /> },
-              { path: "debug", element: <DebugPage /> },
-              { path: "developer", element: <DeveloperPage /> },
-              { path: "advanced", element: <AdvancedPage /> },
-              { path: "danger-zone", element: <DangerZoneRedirectPage /> },
-              { path: "system-events", element: <SystemEventsRedirectPage /> },
-            ],
-          },
           { path: "library", element: <LibraryPage /> },
           { path: "library/:appId", element: <LibraryDetailPage /> },
         ],
