@@ -8,6 +8,7 @@ import { HomePage } from "@/domains/home/home-page.js";
 import { LibraryPage } from "@/domains/library/library-page.js";
 import { LibraryDetailPage } from "@/domains/library/library-detail-page.js";
 import { IdentityPage } from "@/domains/intelligence/identity-page.js";
+import { ConnectPage } from "@/domains/contacts/connect-page.js";
 import { ContactsPage } from "@/domains/contacts/contacts-page.js";
 import { NotFound } from "@/components/not-found.js";
 import { SettingsLayout } from "@/domains/settings/settings-layout.js";
@@ -106,7 +107,8 @@ function HomePageRoute() {
  *   │       ├── ChatPage (index, /assistant)
  *   │       ├── HomePageRoute (/assistant/home)
  *   │       ├── LibraryPage / LibraryDetailPage
- *   │       └── ContactsPage (/assistant/contacts)
+ *   │       ├── ContactsPage (/assistant/contacts)
+ *   │       └── ConnectPage (/assistant/connect)
  *
  * References:
  * - React Router data mode routing: https://reactrouter.com/start/data/routing
@@ -198,6 +200,7 @@ export const router = createBrowserRouter([
           { path: "library/:appId", element: <LibraryDetailPage /> },
           { path: "identity", element: <IdentityPage /> },
           { path: "contacts", element: <ContactsPage /> },
+          { path: "connect", element: <ConnectPage /> },
         ],
       },
 
