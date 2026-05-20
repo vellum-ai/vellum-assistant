@@ -2,13 +2,13 @@ import * as Sentry from "@sentry/react";
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import {
-  findConversationInCache,
-  getConversationsFromCache,
-  markConversationSeenInCache,
+  findConversation,
+  getConversations,
+  markConversationSeenLocal,
   useConversationListQuery,
-} from "@/domains/conversations/conversation-list-queries.js";
+} from "@/domains/conversations/conversation-queries.js";
 import { markConversationSeen } from "@/domains/chat/api/conversations.js";
 import { listConversationKeysWithPendingInteractions } from "@/domains/chat/api/interactions.js";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
@@ -30,7 +30,7 @@ interface UseAttentionTrackingParams {
  *
  * Reads `conversations` from the TanStack Query chat-context cache via
  * `useConversationListQuery`; reads `processingKeys`, `attentionKeys`, and
- * `processingSnapshots` directly from `useConversationListStore`. Mounted
+ * `processingSnapshots` directly from `useConversationStore`. Mounted
  * in `ChatLayout` so the sidebar's processing/attention indicators stay
  * live on every chat-layout route (home, library, contacts, identity,
  * chat) — not only `/assistant`.
@@ -87,9 +87,9 @@ export function useAttentionTracking({
     assistantId,
     assistantStateKind === "active",
   );
-  const activeConversationKey = useConversationListStore.use.activeConversationKey();
-  const processingKeys = useConversationListStore.use.processingKeys();
-  const attentionKeys = useConversationListStore.use.attentionKeys();
+  const activeConversationKey = useConversationStore.use.activeConversationKey();
+  const processingKeys = useConversationStore.use.processingKeys();
+  const attentionKeys = useConversationStore.use.attentionKeys();
 
   const activeConversation = conversations.find(
     (c) => c.conversationKey === activeConversationKey,
@@ -114,7 +114,7 @@ export function useAttentionTracking({
     markConversationSeen(assistantId, activeConversationKey)
       .then(() => {
         if (cancelled) return;
-        markConversationSeenInCache(queryClient, assistantId, activeConversationKey);
+        markConversationSeenLocal(queryClient, assistantId, activeConversationKey);
       })
       .catch((err) => {
         Sentry.captureException(err, {
@@ -141,7 +141,7 @@ export function useAttentionTracking({
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (processingKeys.size === 0) return;
-    const snapshots = useConversationListStore.getState().processingSnapshots;
+    const snapshots = useConversationStore.getState().processingSnapshots;
     const graduatingKeys: string[] = [];
     for (const key of processingKeys) {
       if (key === activeConversationKey) continue;
@@ -168,9 +168,9 @@ export function useAttentionTracking({
       const actions = decideGraduationDispatches(graduatingKeys, pendingKeys);
       for (const action of actions) {
         if (action.type === "ADD_ATTENTION_KEY") {
-          useConversationListStore.getState().addAttentionKey(action.key);
+          useConversationStore.getState().addAttentionKey(action.key);
         } else {
-          useConversationListStore.getState().removeProcessingKey(action.key);
+          useConversationStore.getState().removeProcessingKey(action.key);
         }
       }
     })();
@@ -206,7 +206,7 @@ export function useAttentionTracking({
 
       // Read latest store + cache values inside the tick — the effect captured
       // the sets at scheduling time, which would be stale ten seconds later.
-      const state = useConversationListStore.getState();
+      const state = useConversationStore.getState();
       const currentProcessingKeys = state.processingKeys;
       const currentAttentionKeys = state.attentionKeys;
       const currentSnapshots = state.processingSnapshots;
@@ -218,14 +218,14 @@ export function useAttentionTracking({
         if (key === currentActiveKey) continue;
         if (currentAttentionKeys.has(key)) continue;
         if (pendingKeys.has(key)) {
-          useConversationListStore.getState().addAttentionKey(key);
-          useConversationListStore.getState().removeProcessingKey(key);
+          useConversationStore.getState().addAttentionKey(key);
+          useConversationStore.getState().removeProcessingKey(key);
           continue;
         }
-        const conv = findConversationInCache(queryClient, assistantId, key);
+        const conv = findConversation(queryClient, assistantId, key);
         const snapshot = currentSnapshots.get(key);
         if (conv?.latestAssistantMessageAt && conv.latestAssistantMessageAt !== snapshot) {
-          useConversationListStore.getState().removeProcessingKey(key);
+          useConversationStore.getState().removeProcessingKey(key);
         }
       }
 
@@ -233,7 +233,7 @@ export function useAttentionTracking({
       for (const key of currentAttentionKeys) {
         if (key === currentActiveKey) continue;
         if (!pendingKeys.has(key)) {
-          useConversationListStore.getState().removeAttentionKey(key);
+          useConversationStore.getState().removeAttentionKey(key);
         }
       }
     }, 10_000);
@@ -265,11 +265,11 @@ export function useAttentionTracking({
       if (cancelled || pendingKeys.size === 0) return;
       // Pull the current snapshot from the cache to avoid the closed-over
       // `conversations` capture from the effect's first render.
-      const currentConversations = getConversationsFromCache(queryClient, assistantId);
+      const currentConversations = getConversations(queryClient, assistantId);
       for (const conv of currentConversations) {
         if (conv.conversationKey === activeConversationKey) continue;
         if (pendingKeys.has(conv.conversationKey)) {
-          useConversationListStore.getState().addAttentionKey(conv.conversationKey);
+          useConversationStore.getState().addAttentionKey(conv.conversationKey);
         }
       }
     })();

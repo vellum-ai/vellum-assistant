@@ -540,7 +540,7 @@ describe("WorkspaceGitService", () => {
       // Set up a pre-existing git repo on a feature branch
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
-      execFileSync("git", ["config", "user.email", "test@test.com"], {
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
         cwd: testDir,
       });
       writeFileSync(join(testDir, "file.txt"), "content");
@@ -580,7 +580,7 @@ describe("WorkspaceGitService", () => {
       // Set up a pre-existing git repo then detach HEAD
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
-      execFileSync("git", ["config", "user.email", "test@test.com"], {
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
         cwd: testDir,
       });
       writeFileSync(join(testDir, "file.txt"), "content");
@@ -624,7 +624,7 @@ describe("WorkspaceGitService", () => {
       // This exercises the --discard-changes fallback in ensureOnMainLocked().
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
-      execFileSync("git", ["config", "user.email", "test@test.com"], {
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
         cwd: testDir,
       });
       writeFileSync(join(testDir, "file.txt"), "original content");
@@ -672,7 +672,7 @@ describe("WorkspaceGitService", () => {
       // Set up a pre-existing git repo without our gitignore rules
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
-      execFileSync("git", ["config", "user.email", "test@test.com"], {
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
         cwd: testDir,
       });
       writeFileSync(join(testDir, ".gitignore"), "node_modules/\n");
@@ -701,7 +701,7 @@ describe("WorkspaceGitService", () => {
       // Set up a pre-existing git repo with the OLD broad data/ rule
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
-      execFileSync("git", ["config", "user.email", "test@test.com"], {
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
         cwd: testDir,
       });
       const oldGitignore =
@@ -767,7 +767,7 @@ describe("WorkspaceGitService", () => {
     test("existing repo gets branch guard installed on init", async () => {
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
-      execFileSync("git", ["config", "user.email", "test@test.com"], {
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
         cwd: testDir,
       });
       writeFileSync(join(testDir, "file.txt"), "content");

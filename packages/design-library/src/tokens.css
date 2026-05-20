@@ -17,8 +17,6 @@
  * Source of truth: Figma cCGBcpVDbn22kj3OPU58W8
  *   Light: node 2674:20625
  *   Dark:  node 2674:20730
- *
- * Keep in sync with platform's web/src/app/(app)/appTheme.css.
  * --------------------------------------------------------------------------- */
 
 /* ---------------------------------------------------------------------------
@@ -47,9 +45,104 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
 
-  --font-sans: "Inter", system-ui, sans-serif;
+  /* Moss (cool neutral — synced with macOS Figma tokens) */
+  --color-moss-950: #111214;
+  --color-moss-900: #17191C;
+  --color-moss-800: #1C2024;
+  --color-moss-700: #24292E;
+  --color-moss-600: #2D3339;
+  --color-moss-500: #444D56;
+  --color-moss-400: #71808E;
+  --color-moss-300: #A9B2BB;
+  --color-moss-200: #CFCCC9;
+  --color-moss-100: #E9E6E2;
+  --color-moss-50:  #F6F5F4;
 
-  /* Border-radius scale — matches platform globals.css */
+  /* Stone (warm neutral — synced with macOS Figma tokens; overrides
+   * Tailwind v4's default stone scale to match the assistant palette) */
+  --color-stone-950: #111214;
+  --color-stone-900: #17191C;
+  --color-stone-800: #24292E;
+  --color-stone-700: #5A6672;
+  --color-stone-600: #71808E;
+  --color-stone-500: #8D99A5;
+  --color-stone-400: #A9B2BB;
+  --color-stone-300: #CFCCC9;
+  --color-stone-200: #E9E6E2;
+  --color-stone-100: #F2F0EE;
+  --color-stone-50:  #F6F5F4;
+
+  /* Forest (green accent — synced with macOS system-positive) */
+  --color-forest-950: #0D2818;
+  --color-forest-900: #1C251F;
+  --color-forest-800: #1B5E30;
+  --color-forest-700: #277E41;
+  --color-forest-600: #2E9A4E;
+  --color-forest-500: #3DB85E;
+  --color-forest-400: #6ECF87;
+  --color-forest-300: #A4E2B5;
+  --color-forest-200: #D0F0DA;
+  --color-forest-100: #E9F2EC;
+
+  /* Emerald (success — synced with macOS system-positive; overrides
+   * Tailwind v4's default emerald scale) */
+  --color-emerald-950: #0D2818;
+  --color-emerald-900: #1C251F;
+  --color-emerald-800: #1B5E30;
+  --color-emerald-700: #277E41;
+  --color-emerald-600: #2E9A4E;
+  --color-emerald-500: #3DB85E;
+  --color-emerald-400: #6ECF87;
+  --color-emerald-300: #A4E2B5;
+  --color-emerald-200: #D0F0DA;
+  --color-emerald-100: #E9F2EC;
+
+  /* Danger (error/destructive) */
+  --color-danger-950: #4E281D;
+  --color-danger-900: #803017;
+  --color-danger-800: #AB3F1C;
+  --color-danger-700: #DA491A;
+  --color-danger-600: #E86B40;
+  --color-danger-500: #F39B74;
+  --color-danger-400: #F9C0A2;
+  --color-danger-300: #F7DAC9;
+  --color-danger-200: #FFE4D5;
+  --color-danger-100: #FFF3EE;
+
+  /* Amber (warning — synced with macOS system-mid; overrides Tailwind v4's
+   * default amber scale) */
+  --color-amber-950: #4B3D1E;
+  --color-amber-900: #6B5520;
+  --color-amber-800: #8C7225;
+  --color-amber-700: #C9990F;
+  --color-amber-600: #F1B21E;
+  --color-amber-500: #F5C94E;
+  --color-amber-400: #F9D978;
+  --color-amber-300: #FCE9A0;
+  --color-amber-200: #FCF3DD;
+  --color-amber-100: #FDF8EE;
+
+  /* Font tokens */
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-serif: "Instrument Serif", serif;
+
+  /* App spacing tokens. The `--app-spacing-*` prefix avoids collisions with
+   * Tailwind's `--spacing-*` namespace (which generates the default spacing
+   * scale used by `p-*`, `m-*`, `gap-*`, etc.). Consumed via `var()` in
+   * arbitrary-value utilities like `gap-[var(--app-spacing-sm)]`. */
+  --app-spacing-xxs: 2px;
+  --app-spacing-xs: 4px;
+  --app-spacing-sm: 8px;
+  --app-spacing-md: 12px;
+  --app-spacing-lg: 16px;
+  --app-spacing-xl: 24px;
+  --app-spacing-xxl: 32px;
+  --app-spacing-xxxl: 48px;
+
+  /* Border-radius scale */
   --radius-xs: 2px;
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -57,6 +150,19 @@
   --radius-xl: 16px;
   --radius-xxl: 20px;
   --radius-pill: 999px;
+
+  /* Shadow scale — synced with macOS design system. `--shadow-popover` is
+   * theme-aware (defined per-mode below); the rest are mode-agnostic. */
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.16);
+  --shadow-glow: 0 0 12px rgba(241, 178, 30, 0.3);
+  --shadow-accent-glow: 0 0 8px rgba(39, 126, 65, 0.3);
+
+  /* Layout: shared max-width for the chat surface (transcript + composer +
+   * panel surfaces). The chat column is centered and clamped to this width
+   * while the surrounding scroll container remains full-bleed. */
+  --chat-max-width: 800px;
 }
 
 /* ===== Light mode (default) — Figma node 2674:20625 ===== */
@@ -187,7 +293,10 @@
   /* Shadow */
   --shadow-popover: 0 1px 3px 0 rgba(0, 0, 0, 0.25), 0 4px 12px 0 rgba(0, 0, 0, 0.25);
 
-  /* Derived */
+  /* Derived. Re-declared (rather than inherited from the light block) so
+   * --ring tracks the dark --system-positive-strong even when data-theme is
+   * applied to a non-root ancestor. */
+  --ring: color-mix(in srgb, var(--system-positive-strong) 30%, transparent);
   --border-overlay: var(--border-hover);
   --ghost-hover: var(--border-base);
   --ghost-pressed: var(--primary-active);
@@ -239,6 +348,18 @@
   --system-negative-weak: #3A2024;
   --system-mid-strong: #F1B21E;
   --system-mid-weak: #42321C;
+  --system-info-strong: #467CC8;
+  --system-info-weak: #2A3A50;
+
+  /* Feed identifier — reuses the dark palette; velvet's accent colors
+   * apply at the chrome level (primary, surface) rather than swapping
+   * the feed glyph colors. */
+  --feed-nudge-strong: #DB4B77;
+  --feed-nudge-weak: #432B33;
+  --feed-digest-strong: #0E9B8B;
+  --feed-digest-weak: #293D3B;
+  --feed-thread-strong: #E9C91A;
+  --feed-thread-weak: #464125;
 
   /* Aux */
   --aux-white: #FFFFFF;
@@ -246,7 +367,8 @@
   /* Shadow */
   --shadow-popover: 0 1px 3px 0 rgba(0, 0, 0, 0.25), 0 4px 12px 0 rgba(0, 0, 0, 0.25);
 
-  /* Derived */
+  /* Derived. --ring re-declared so it tracks velvet's positive accent. */
+  --ring: color-mix(in srgb, var(--system-positive-strong) 30%, transparent);
   --border-overlay: var(--border-hover);
   --ghost-hover: var(--border-base);
   --ghost-pressed: var(--primary-active);

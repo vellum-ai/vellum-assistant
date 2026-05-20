@@ -398,6 +398,10 @@ async function runForkBasedRetrospective(
       hintRole: "user",
       skipHintInjection: true,
       suppressAutoCompaction: true,
+      // The fork's title already reads "(Retrospective)", so an empty-body
+      // "Conversation Woke" surface card on top of it would be noise. Suppress
+      // it — clients should display the fork as a normal background conv.
+      suppressWakeSurface: true,
     });
     wakeSucceeded = result.invoked;
     failureReason = result.reason;

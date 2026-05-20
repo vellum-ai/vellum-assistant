@@ -45,6 +45,13 @@ export interface CatalogModel {
   supportsVision?: boolean;
   supportsToolUse?: boolean;
   pricing?: CatalogModelPricing;
+  /**
+   * Upper bound for `reasoning_effort` accepted by this model's upstream API.
+   * Used by providers (e.g. Fireworks) to clamp Vellum's `xhigh`/`max` tiers
+   * down to whatever the model documents. Omit to inherit the provider
+   * default.
+   */
+  maxEffort?: "high" | "xhigh" | "max";
   /** When set, this model is only visible when the named feature flag is enabled. */
   featureFlag?: string;
 }
@@ -589,6 +596,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        maxEffort: "high",
         pricing: {
           inputPer1mTokens: 0.95,
           outputPer1mTokens: 4.0,
@@ -636,10 +644,11 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         displayName: "DeepSeek V4 Pro",
         contextWindowTokens: 1040000,
         maxOutputTokens: 131072,
-        supportsThinking: false,
+        supportsThinking: true,
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: true,
+        maxEffort: "max",
         pricing: { inputPer1mTokens: 1.74, outputPer1mTokens: 3.48 },
       },
     ],

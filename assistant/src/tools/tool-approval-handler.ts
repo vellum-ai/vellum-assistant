@@ -334,9 +334,17 @@ export class ToolApprovalHandler {
       return { allowed: false, result: { content: msg, isError: true } };
     }
 
-    // Gate tools not active for the current turn
-    if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
-      const msg = `Tool "${name}" is not currently active. Load the skill that provides this tool first.`;
+    // Look up the tool before the allowedToolNames gate so a name no skill
+    // provides surfaces as "Unknown tool" (with the real list) instead of
+    // the misleading "load the skill" hint.
+    const tool = getTool(name);
+    if (!tool) {
+      const available = getAllTools()
+        .filter((t) => t.executionMode !== "proxy" || context.proxyToolResolver)
+        .map((t) => t.name)
+        .sort()
+        .join(", ");
+      const msg = `Unknown tool: ${name}. Available tools: ${available}`;
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent({
         type: "error",
@@ -356,15 +364,12 @@ export class ToolApprovalHandler {
       return { allowed: false, result: { content: msg, isError: true } };
     }
 
-    // Resolve the tool from the registry
-    const tool = getTool(name);
-    if (!tool) {
-      const available = getAllTools()
-        .filter((t) => t.executionMode !== "proxy" || context.proxyToolResolver)
-        .map((t) => t.name)
-        .sort()
-        .join(", ");
-      const msg = `Unknown tool: ${name}. Available tools: ${available}`;
+    // Gate tools not active for the current turn
+    if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
+      const loadHint = tool.ownerSkillId
+        ? `Load the "${tool.ownerSkillId}" skill that provides this tool first.`
+        : `Load the skill that provides this tool first.`;
+      const msg = `Tool "${name}" is not currently active. ${loadHint}`;
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent({
         type: "error",

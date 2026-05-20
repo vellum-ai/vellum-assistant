@@ -1,10 +1,10 @@
 /**
- * TanStack Query hooks and cache helpers for the conversation list.
+ * TanStack Query hooks and cache helpers for the conversations domain.
  *
- * The conversation list and conversation groups are server-derived data
- * and therefore live in TanStack Query per `apps/web/CONVENTIONS.md`. The
- * companion `conversation-list-store.ts` keeps only the truly client-side
- * slice — active/editing key, processing keys, attention keys.
+ * Conversations and conversation groups are server-derived data and live
+ * in TanStack Query per `apps/web/docs/STATE_MANAGEMENT.md`. The
+ * companion `conversation-store.ts` keeps only the client-side slice —
+ * active/editing key, processing/attention sets, and snapshots.
  *
  * Two queries cover the surface:
  *
@@ -19,9 +19,9 @@
  *   conditionally behind the `conversationGroupsUI` flag.
  *
  * Mutations (archive/unarchive, rename, pin, group CRUD, draft
- * resolution, SSE-driven title updates) update the cache via the
- * `*InCache` helpers below. Each is a thin wrapper around
- * `queryClient.setQueryData` so call sites stay declarative.
+ * resolution, SSE-driven title updates) update the cache via the named
+ * helpers below. Each is a thin wrapper around `queryClient.setQueryData`
+ * so call sites stay declarative.
  *
  * References:
  * - https://tanstack.com/query/latest/docs/framework/react/guides/queries
@@ -125,26 +125,11 @@ const EMPTY_GROUPS: ConversationGroup[] = [];
 
 // ---------------------------------------------------------------------------
 // Cache helpers — conversations
+//
+// These mutate the chat-context query cache (where conversations live).
+// They are the domain-level "change this conversation locally" operations;
+// `queryClient.setQueryData` is implementation detail.
 // ---------------------------------------------------------------------------
-
-/**
- * Immutably patch the conversation matching `key`, leaving all others
- * untouched. Returns the same array reference when no conversation matches
- * so React Query subscribers can bail out of re-renders.
- */
-export function applyConversationPatch(
-  conversations: Conversation[],
-  key: string,
-  patch: Partial<Conversation>,
-): Conversation[] {
-  let changed = false;
-  const result = conversations.map((c) => {
-    if (c.conversationKey !== key) return c;
-    changed = true;
-    return { ...c, ...patch };
-  });
-  return changed ? result : conversations;
-}
 
 function updateChatContextConversations(
   queryClient: QueryClient,
@@ -167,7 +152,7 @@ function updateChatContextConversations(
  * imperative callers (send pipeline, attention tracking) that need the
  * current value without subscribing to re-renders.
  */
-export function findConversationInCache(
+export function findConversation(
   queryClient: QueryClient,
   assistantId: string | null,
   key: string,
@@ -182,7 +167,7 @@ export function findConversationInCache(
  * Read all conversations from the chat-context query cache. Returns an
  * empty array when the query hasn't populated yet.
  */
-export function getConversationsFromCache(
+export function getConversations(
   queryClient: QueryClient,
   assistantId: string | null,
 ): Conversation[] {
@@ -193,18 +178,34 @@ export function getConversationsFromCache(
   );
 }
 
-export function patchConversationInCache(
+/**
+ * Immutably patch the conversation matching `key`, leaving all others
+ * untouched. No-op when the key is not in the cache.
+ */
+export function patchConversation(
   queryClient: QueryClient,
   assistantId: string | null,
   key: string,
   patch: Partial<Conversation>,
 ): void {
-  updateChatContextConversations(queryClient, assistantId, (conversations) =>
-    applyConversationPatch(conversations, key, patch),
-  );
+  updateChatContextConversations(queryClient, assistantId, (conversations) => {
+    let changed = false;
+    const next = conversations.map((c) => {
+      if (c.conversationKey !== key) return c;
+      changed = true;
+      return { ...c, ...patch };
+    });
+    return changed ? next : conversations;
+  });
 }
 
-export function markConversationSeenInCache(
+/**
+ * Mark the conversation as seen in the local cache. The matching server
+ * call (`markConversationSeen` in `chat/api/conversations.ts`) is fired
+ * separately by callers — keep them independent so the cache update can
+ * run regardless of network success.
+ */
+export function markConversationSeenLocal(
   queryClient: QueryClient,
   assistantId: string | null,
   key: string,
@@ -228,7 +229,7 @@ export function markConversationSeenInCache(
   });
 }
 
-export function prependConversationInCache(
+export function prependConversation(
   queryClient: QueryClient,
   assistantId: string | null,
   conversation: Conversation,
@@ -239,7 +240,7 @@ export function prependConversationInCache(
   ]);
 }
 
-export function removeConversationFromCache(
+export function removeConversation(
   queryClient: QueryClient,
   assistantId: string | null,
   key: string,
@@ -250,7 +251,7 @@ export function removeConversationFromCache(
   });
 }
 
-export function resolveDraftKeyInCache(
+export function resolveDraftKey(
   queryClient: QueryClient,
   assistantId: string | null,
   oldKey: string,
@@ -286,7 +287,7 @@ function updateGroupsCache(
   );
 }
 
-export function appendGroupInCache(
+export function appendGroup(
   queryClient: QueryClient,
   assistantId: string | null,
   group: ConversationGroup,
@@ -300,7 +301,7 @@ export function appendGroupInCache(
   ]);
 }
 
-export function patchGroupInCache(
+export function patchGroup(
   queryClient: QueryClient,
   assistantId: string | null,
   groupId: string,
@@ -317,7 +318,7 @@ export function patchGroupInCache(
   });
 }
 
-export function replaceOptimisticGroupInCache(
+export function replaceOptimisticGroup(
   queryClient: QueryClient,
   assistantId: string | null,
   optimisticId: string,
@@ -334,7 +335,7 @@ export function replaceOptimisticGroupInCache(
   });
 }
 
-export function removeGroupFromCache(
+export function removeGroup(
   queryClient: QueryClient,
   assistantId: string | null,
   groupId: string,
@@ -349,12 +350,12 @@ export function removeGroupFromCache(
  * Atomically delete a group and clear its `groupId` from every affected
  * conversation in the chat-context cache.
  */
-export function deleteGroupAndResetConversationsInCache(
+export function deleteGroupAndResetConversations(
   queryClient: QueryClient,
   assistantId: string | null,
   groupId: string,
 ): void {
-  removeGroupFromCache(queryClient, assistantId, groupId);
+  removeGroup(queryClient, assistantId, groupId);
   updateChatContextConversations(queryClient, assistantId, (conversations) => {
     let changed = false;
     const next = conversations.map((c) => {

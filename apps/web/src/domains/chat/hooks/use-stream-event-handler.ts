@@ -8,7 +8,7 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
@@ -208,7 +208,7 @@ export function useStreamEventHandler(
   /** Remove a conversation key from the processing set and snapshots map. */
   const clearProcessingKey = useCallback((convKey: string) => {
     // `removeProcessingKey` clears the matching snapshot in the same set call.
-    useConversationListStore.getState().removeProcessingKey(convKey);
+    useConversationStore.getState().removeProcessingKey(convKey);
   }, []);
 
   // --- Main event handler ---

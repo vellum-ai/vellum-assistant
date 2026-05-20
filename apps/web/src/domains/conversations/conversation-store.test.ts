@@ -1,16 +1,16 @@
 import { afterEach, describe, it, expect } from "bun:test";
 
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 
 function getState() {
-  return useConversationListStore.getState();
+  return useConversationStore.getState();
 }
 
 afterEach(() => {
   getState().reset();
 });
 
-describe("useConversationListStore", () => {
+describe("useConversationStore", () => {
   // ---------------------------------------------------------------------------
   // Active / editing key
   // ---------------------------------------------------------------------------

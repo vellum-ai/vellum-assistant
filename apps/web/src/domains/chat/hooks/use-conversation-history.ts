@@ -26,7 +26,7 @@ import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import type { SubagentStatus } from "@/domains/chat/api/event-types.js";
 
@@ -245,7 +245,7 @@ export function useConversationHistory({
       // needing attention so the sidebar shows an alert icon.
       const interactionSnapshot = useInteractionStore.getState();
       if (interactionSnapshot.pendingSecret || interactionSnapshot.pendingConfirmation) {
-        useConversationListStore.getState().addAttentionKey(outgoingKey);
+        useConversationStore.getState().addAttentionKey(outgoingKey);
       }
       // Cache outgoing conversation's messages (LRU eviction)
       const outgoingMessages = messagesRef.current;
@@ -396,7 +396,7 @@ export function useConversationHistory({
           }
         }
         if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
-          useConversationListStore.getState().removeAttentionKey(activeConversationKey);
+          useConversationStore.getState().removeAttentionKey(activeConversationKey);
         }
       } catch {
         // Keep attention key on failure -- the prompt wasn't restored.

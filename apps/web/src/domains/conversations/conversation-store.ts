@@ -1,9 +1,9 @@
 /**
- * Zustand store for the client-side slice of the conversation list.
+ * Zustand store for the client-side slice of the conversations domain.
  *
  * Server-derived state (conversations, conversation groups) lives in
- * TanStack Query — see `conversation-list-queries.ts`. This store owns
- * only state that has no server counterpart:
+ * TanStack Query — see `conversation-queries.ts`. This store owns only
+ * state that has no server counterpart:
  *
  * - `activeConversationKey` — URL/navigation-local selection
  * - `editingConversationKey` — UI mode (app-edit-chat target)
@@ -17,7 +17,7 @@
  * - `attentionKeys` — conversations with pending interactions
  *
  * @see https://zustand.docs.pmnd.rs/guides/flux-inspired-practice
- * @see ./conversation-list-queries.ts for the server-state half
+ * @see ./conversation-queries.ts for the server-state half
  */
 
 import { create } from "zustand";
@@ -107,7 +107,7 @@ const INITIAL_STATE: ConversationListState = {
 // Store
 // ---------------------------------------------------------------------------
 
-export const useConversationListStore = createSelectors(
+export const useConversationStore = createSelectors(
   create<ConversationListStore>((set, get) => ({
     ...INITIAL_STATE,
 

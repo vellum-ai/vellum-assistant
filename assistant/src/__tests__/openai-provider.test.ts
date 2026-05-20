@@ -1744,4 +1744,109 @@ describe("OpenAIProvider reasoning_effort", () => {
     });
     expect(lastCreateParams!.reasoning_effort).toBe("medium");
   });
+
+  test('maxReasoningEffort: "max" passes "max" through unclamped', async () => {
+    const uncapped = new OpenAIProvider("test-key", "gpt-5", {
+      maxReasoningEffort: "max",
+    });
+    await uncapped.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "max" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("max");
+    await uncapped.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "xhigh" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("xhigh");
+  });
+});
+
+describe("FireworksProvider reasoning_effort ceiling", () => {
+  beforeEach(() => {
+    fakeChunks = [];
+    lastCreateParams = null;
+  });
+
+  test('DeepSeek V4 Pro accepts "max" unclamped', async () => {
+    const fw = new FireworksProvider(
+      "fw-key",
+      "accounts/fireworks/models/deepseek-v4-pro",
+    );
+    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "max" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("max");
+  });
+
+  test('DeepSeek V4 Pro accepts "xhigh" unclamped', async () => {
+    const fw = new FireworksProvider(
+      "fw-key",
+      "accounts/fireworks/models/deepseek-v4-pro",
+    );
+    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "xhigh" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("xhigh");
+  });
+
+  test('Kimi K2.6 clamps "xhigh"/"max" down to "high"', async () => {
+    const fw = new FireworksProvider(
+      "fw-key",
+      "accounts/fireworks/models/kimi-k2p6",
+    );
+    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "xhigh" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("high");
+    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "max" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("high");
+  });
+
+  test('unknown Fireworks model falls back to "high" ceiling', async () => {
+    const fw = new FireworksProvider(
+      "fw-key",
+      "accounts/fireworks/models/some-future-model",
+    );
+    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "max" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("high");
+  });
+
+  test("effort below ceiling is forwarded verbatim", async () => {
+    const fw = new FireworksProvider(
+      "fw-key",
+      "accounts/fireworks/models/deepseek-v4-pro",
+    );
+    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "medium" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("medium");
+  });
+
+  test('effort: "none" passes through regardless of ceiling', async () => {
+    const fw = new FireworksProvider(
+      "fw-key",
+      "accounts/fireworks/models/kimi-k2p6",
+    );
+    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "none" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("none");
+  });
+
+  test("model override picks ceiling from runtime model, not constructor model", async () => {
+    const fw = new FireworksProvider(
+      "fw-key",
+      "accounts/fireworks/models/kimi-k2p6",
+    );
+    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+      config: {
+        effort: "max",
+        model: "accounts/fireworks/models/deepseek-v4-pro",
+      },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("max");
+  });
 });

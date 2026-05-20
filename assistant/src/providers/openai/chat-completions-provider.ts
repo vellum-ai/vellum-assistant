@@ -66,33 +66,55 @@ export interface OpenAIChatCompletionsProviderOptions {
   extraCreateParams?: Record<string, unknown>;
   /** Upper bound for `reasoning_effort` sent on the wire. Defaults to "xhigh"
    *  (OpenAI's current ceiling). Compatibility providers whose APIs only
-   *  document `low|medium|high` (e.g. Fireworks) should set this to "high" so
-   *  Vellum's `xhigh`/`max` tiers don't 4xx upstream. */
-  maxReasoningEffort?: "high" | "xhigh";
+   *  document `low|medium|high` should set this to "high" so Vellum's
+   *  `xhigh`/`max` tiers don't 4xx upstream. Set to "max" for providers like
+   *  Fireworks DeepSeek V4 that accept the full effort range. Subclasses can
+   *  override {@link OpenAIChatCompletionsProvider.resolveMaxReasoningEffort}
+   *  for per-model ceilings. */
+  maxReasoningEffort?: "high" | "xhigh" | "max";
   /** Parse `<think>...</think>` tags from the content stream into thinking
    *  blocks. MiniMax and similar providers embed reasoning inside XML-style
    *  tags in the regular content field rather than using `reasoning_content`. */
   parseThinkTags?: boolean;
 }
 
-/** Map our internal effort values to OpenAI's reasoning_effort parameter.
- *  OpenAI caps at "xhigh", so our "max" tier collapses to "xhigh". `"none"` is
- *  passed through explicitly because OpenAI defaults `reasoning_effort` to
- *  "medium" when the field is omitted — the user's opt-out is only honored
- *  when we send it on the wire. */
-export const EFFORT_TO_REASONING_EFFORT: Record<
-  string,
-  NonNullable<
-    OpenAI.Chat.Completions.ChatCompletionCreateParams["reasoning_effort"]
-  >
-> = {
+/** Wire-level reasoning_effort values. The OpenAI SDK type doesn't include
+ *  `"max"`, but Fireworks accepts it for DeepSeek V4; the assignment to
+ *  `params.reasoning_effort` casts through this union. */
+type ReasoningEffortWire = "none" | "low" | "medium" | "high" | "xhigh" | "max";
+
+const REASONING_EFFORT_RANK: Record<ReasoningEffortWire, number> = {
+  none: 0,
+  low: 1,
+  medium: 2,
+  high: 3,
+  xhigh: 4,
+  max: 5,
+};
+
+/** Map our internal effort values to a reasoning_effort wire value. `"max"`
+ *  is emitted raw — providers cap it down to their own ceiling
+ *  ({@link OpenAIChatCompletionsProviderOptions.maxReasoningEffort}) at send
+ *  time. `"none"` is passed through explicitly because OpenAI-compatible APIs
+ *  default `reasoning_effort` to `"medium"` when the field is omitted, so the
+ *  user's opt-out is only honored when we send it on the wire. */
+export const EFFORT_TO_REASONING_EFFORT: Record<string, ReasoningEffortWire> = {
   none: "none",
   low: "low",
   medium: "medium",
   high: "high",
   xhigh: "xhigh",
-  max: "xhigh",
+  max: "max",
 };
+
+export function clampReasoningEffort(
+  value: ReasoningEffortWire,
+  ceiling: "high" | "xhigh" | "max",
+): ReasoningEffortWire {
+  return REASONING_EFFORT_RANK[value] > REASONING_EFFORT_RANK[ceiling]
+    ? ceiling
+    : value;
+}
 
 const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
   "image/jpeg",
@@ -122,7 +144,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private model: string;
   private streamTimeoutMs: number;
   private extraCreateParams: Record<string, unknown>;
-  private maxReasoningEffort: "high" | "xhigh";
+  private maxReasoningEffort: "high" | "xhigh" | "max";
   private requestHeaders: Record<string, string>;
   private parseThinkTags: boolean;
 
@@ -187,10 +209,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
         ? EFFORT_TO_REASONING_EFFORT[effort]
         : undefined;
       if (reasoningEffort && typeof nestedReasoningEffort !== "string") {
-        params.reasoning_effort =
-          reasoningEffort === "xhigh" && this.maxReasoningEffort === "high"
-            ? "high"
-            : reasoningEffort;
+        const ceiling = this.resolveMaxReasoningEffort(
+          modelOverride ?? this.model,
+        );
+        params.reasoning_effort = clampReasoningEffort(
+          reasoningEffort,
+          ceiling,
+        ) as OpenAI.Chat.Completions.ChatCompletionCreateParams["reasoning_effort"];
       }
 
       if (tools && tools.length > 0) {
@@ -544,6 +569,18 @@ export class OpenAIChatCompletionsProvider implements Provider {
     _options?: SendMessageOptions,
   ): Record<string, unknown> {
     return this.extraCreateParams;
+  }
+
+  /**
+   * Per-request reasoning_effort ceiling. Defaults to the provider-wide
+   * `maxReasoningEffort` from constructor options. Subclasses (e.g. Fireworks)
+   * override to consult the model catalog so per-model accepted ranges are
+   * respected.
+   */
+  protected resolveMaxReasoningEffort(
+    _model: string,
+  ): "high" | "xhigh" | "max" {
+    return this.maxReasoningEffort;
   }
 
   /** Convert neutral messages + system prompt to OpenAI message format. */

@@ -20,7 +20,7 @@ import type {
 } from "@/stores/viewer-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useDeployStore } from "@/domains/chat/deploy-store.js";
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import { haptic } from "@/utils/haptics.js";
 
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
@@ -164,7 +164,7 @@ export function useAppViewerActions({
 
   const handleCloseApp = useCallback(() => {
     useViewerStore.getState().closeApp();
-    useConversationListStore.getState().setEditingKey(null);
+    useConversationStore.getState().setEditingKey(null);
     useViewerStore.getState().setMainView("chat");
     if (lastConversationKeyRef.current) {
       switchConversationRef.current(lastConversationKeyRef.current);
@@ -203,7 +203,7 @@ export function useAppViewerActions({
         setEditChatKey(assistantId, appId, conversationKey);
       }
 
-      useConversationListStore.getState().setEditingKey(conversationKey);
+      useConversationStore.getState().setEditingKey(conversationKey);
       useViewerStore.getState().enterAppEditing();
       if (activeConversationKey !== conversationKey) {
         navigateToConversationRef.current(conversationKey);
@@ -236,7 +236,7 @@ export function useAppViewerActions({
   );
 
   const handleCloseEditPanel = useCallback(() => {
-    useConversationListStore.getState().setEditingKey(null);
+    useConversationStore.getState().setEditingKey(null);
     useViewerStore.getState().exitAppEditing();
   }, []);
 
@@ -342,7 +342,7 @@ export function useAppViewerActions({
         activeAppId === appId &&
         (mainView === "app" || mainView === "app-editing")
       ) {
-        useConversationListStore.getState().setEditingKey(null);
+        useConversationStore.getState().setEditingKey(null);
       }
     },
     [],

@@ -162,7 +162,7 @@ export function HomePage({
         minLeftWidth={400}
         minRightWidth={320}
         left={
-          <div className="flex h-full flex-col gap-[var(--app-spacing-xl)] overflow-y-auto px-[var(--app-spacing-xl)] py-[var(--app-spacing-2xl)]">
+          <div className="flex h-full flex-col gap-[var(--app-spacing-xl)] overflow-y-auto px-[var(--app-spacing-xl)] py-[var(--app-spacing-xxl)]">
             {feedContent}
           </div>
         }
@@ -180,7 +180,7 @@ export function HomePage({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto w-full max-w-[960px] px-[var(--app-spacing-xl)] py-[var(--app-spacing-2xl)]">
+      <div className="mx-auto w-full max-w-[960px] px-[var(--app-spacing-xl)] py-[var(--app-spacing-xxl)]">
         <div className="flex flex-col gap-[var(--app-spacing-xl)]">
           {feedContent}
         </div>

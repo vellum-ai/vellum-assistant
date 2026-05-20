@@ -17,7 +17,7 @@ import { type Dispatch, type MutableRefObject, type SetStateAction, useCallback,
 import { addTrustRule } from "@/domains/trust-rules/api.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
 
 import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils.js";
@@ -156,7 +156,7 @@ export function useInteractionActions({
         useInteractionStore.getState().submitSecretEnd(true);
         const convKey = activeConversationKeyRef.current;
         if (convKey) {
-          useConversationListStore.getState().removeAttentionKey(convKey);
+          useConversationStore.getState().removeAttentionKey(convKey);
         }
         const savedRequestId = pendingSecret.requestId;
         setTimeout(() => {
@@ -183,7 +183,7 @@ export function useInteractionActions({
     useInteractionStore.getState().dismissSecret();
     const convKey = activeConversationKeyRef.current;
     if (convKey) {
-      useConversationListStore.getState().removeAttentionKey(convKey);
+      useConversationStore.getState().removeAttentionKey(convKey);
     }
     useTurnStore.getState().onStreamError();
   }, []);
@@ -258,7 +258,7 @@ export function useInteractionActions({
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       const convKey = activeConversationKeyRef.current;
       if (convKey) {
-        useConversationListStore.getState().removeAttentionKey(convKey);
+        useConversationStore.getState().removeAttentionKey(convKey);
       }
 
       // Clear inline confirmation from the matched tool call by requestId

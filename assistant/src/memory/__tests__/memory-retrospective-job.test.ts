@@ -33,7 +33,11 @@ let priorRetroMessages: Array<{ role: string; content: string }> = [];
 
 let mockWakeResult: { invoked: boolean; reason?: string } = { invoked: true };
 let mockWakeThrows: Error | null = null;
-let wakeCalls: Array<{ conversationId: string; hint: string }> = [];
+let wakeCalls: Array<{
+  conversationId: string;
+  hint: string;
+  opts: Record<string, unknown>;
+}> = [];
 let bootstrappedConversationId = "bg-conv-new";
 let bootstrapCalls: Array<{ forkParentConversationId?: string }> = [];
 let deletedConversationIds: string[] = [];
@@ -174,11 +178,14 @@ mock.module("../../daemon/trust-context.js", () => ({
 }));
 
 mock.module("../../runtime/agent-wake.js", () => ({
-  wakeAgentForOpportunity: async (opts: {
-    conversationId: string;
-    hint: string;
-  }) => {
-    wakeCalls.push({ conversationId: opts.conversationId, hint: opts.hint });
+  wakeAgentForOpportunity: async (
+    opts: { conversationId: string; hint: string } & Record<string, unknown>,
+  ) => {
+    wakeCalls.push({
+      conversationId: opts.conversationId,
+      hint: opts.hint,
+      opts,
+    });
     if (mockWakeThrows) throw mockWakeThrows;
     return mockWakeResult;
   },
@@ -491,5 +498,20 @@ describe("memoryRetrospectiveJob", () => {
     expect(forkCalls).toHaveLength(1);
     expect(forkCalls[0]!.conversationType).toBe("background");
     expect(forkCalls[0]!.groupId).toBe("system:background");
+  });
+
+  test("fork path: wake opts include suppressWakeSurface so clients don't render an empty wake card on top of the '(Retrospective)' fork", async () => {
+    forkFlagEnabled = true;
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(forkCalls).toHaveLength(1);
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.conversationId).toBe("fork-conv-1");
+    const opts = wakeCalls[0]!.opts;
+    expect(opts.suppressWakeSurface).toBe(true);
+    // Sanity: the other fork-specific opts the handler relies on are still set.
+    expect(opts.skipHintInjection).toBe(true);
+    expect(opts.suppressAutoCompaction).toBe(true);
+    expect(opts.hintRole).toBe("user");
   });
 });

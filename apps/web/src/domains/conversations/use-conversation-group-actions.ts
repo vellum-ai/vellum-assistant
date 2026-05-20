@@ -4,32 +4,17 @@ import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import {
-  appendGroupInCache,
+  appendGroup,
   chatContextQueryKey,
   conversationGroupsQueryKey,
-  deleteGroupAndResetConversationsInCache,
-  patchGroupInCache,
-  removeGroupFromCache,
-  replaceOptimisticGroupInCache,
-} from "@/domains/conversations/conversation-list-queries.js";
+  deleteGroupAndResetConversations,
+  patchGroup,
+  removeGroup,
+  replaceOptimisticGroup,
+} from "@/domains/conversations/conversation-queries.js";
 
 import { haptic } from "@/utils/haptics.js";
 import { type ConversationGroup, createGroup, deleteGroup, updateGroup } from "@/domains/chat/api/conversations.js";
-
-// ---------------------------------------------------------------------------
-// Helpers — pure functions, no React state
-// ---------------------------------------------------------------------------
-
-/**
- * Immutably patch the group matching `id`, leaving all others untouched.
- */
-export function patchGroup(
-  groups: ConversationGroup[],
-  id: string,
-  patch: Partial<ConversationGroup>,
-): ConversationGroup[] {
-  return groups.map((g) => (g.id === id ? { ...g, ...patch } : g));
-}
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -69,13 +54,13 @@ export function useConversationGroupActions({
     if (!trimmed) return;
 
     const optimisticId = `optimistic-${Date.now()}`;
-    appendGroupInCache(queryClient, assistantId, { id: optimisticId, name: trimmed, sortPosition: 0, isSystemGroup: false });
+    appendGroup(queryClient, assistantId, { id: optimisticId, name: trimmed, sortPosition: 0, isSystemGroup: false });
 
     try {
       const created = await createGroup(assistantId, trimmed);
-      replaceOptimisticGroupInCache(queryClient, assistantId, optimisticId, created);
+      replaceOptimisticGroup(queryClient, assistantId, optimisticId, created);
     } catch (err) {
-      removeGroupFromCache(queryClient, assistantId, optimisticId);
+      removeGroup(queryClient, assistantId, optimisticId);
       Sentry.captureException(err, {
         tags: { context: "createGroup" },
       });
@@ -94,12 +79,12 @@ export function useConversationGroupActions({
       const trimmed = next.trim();
       if (!trimmed || trimmed === current) return;
 
-      patchGroupInCache(queryClient, assistantId, groupId, { name: trimmed });
+      patchGroup(queryClient, assistantId, groupId, { name: trimmed });
 
       try {
         await updateGroup(assistantId, groupId, { name: trimmed });
       } catch (err) {
-        patchGroupInCache(queryClient, assistantId, groupId, { name: current });
+        patchGroup(queryClient, assistantId, groupId, { name: current });
         Sentry.captureException(err, {
           tags: { context: "renameGroup" },
         });
@@ -113,7 +98,7 @@ export function useConversationGroupActions({
       if (!assistantId) return;
       haptic.medium();
 
-      deleteGroupAndResetConversationsInCache(queryClient, assistantId, groupId);
+      deleteGroupAndResetConversations(queryClient, assistantId, groupId);
 
       try {
         await deleteGroup(assistantId, groupId);

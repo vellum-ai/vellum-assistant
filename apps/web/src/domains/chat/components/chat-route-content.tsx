@@ -82,7 +82,7 @@ import { haptic } from "@/utils/haptics.js";
 import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
 import { getDiskPressureChatBlockReason } from "@/domains/assistant/disk-pressure.js";
 import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
-import { type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
+import { isSending, type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
 import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types.js";
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
@@ -565,6 +565,8 @@ export function ChatRouteContent({
   };
 
   const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
+  const canStopGenerating =
+    isSending(turnState) && turnState.phase !== "awaiting_user_input";
 
   const diskPressureChatBlockReason = getDiskPressureChatBlockReason({
     monitorEnabled: diskPressure.diskPressureMonitorEnabled,
@@ -1331,6 +1333,7 @@ export function ChatRouteContent({
             onRetryRefresh={handleRetryRefreshFromPill}
             genericChatError={genericChatError}
             isChannelReadonly={isChannelReadonly}
+            canStopGenerating={canStopGenerating}
             questionPromptSlot={questionPromptSlot}
             startersSlot={startersSlot}
           />
@@ -1375,6 +1378,7 @@ export function ChatRouteContent({
       onRetryRefresh={handleRetryRefreshFromPill}
       genericChatError={genericChatError}
       isChannelReadonly={isChannelReadonly}
+      canStopGenerating={canStopGenerating}
       bannerSlot={mainBannerSlot}
       queuedDrawerSlot={mainQueuedDrawerSlot}
       questionPromptSlot={questionPromptSlot}
