@@ -10,6 +10,27 @@ import {
 
 import { cn } from "../utils/cn.js";
 
+/**
+ * Read a persisted pixel width from localStorage, validating both shape
+ * and finiteness. Returns `null` for unset/malformed entries or when
+ * storage access throws (strict-privacy contexts, quota errors, SSR).
+ */
+function readStoredWidth(
+  storageKey: string | undefined,
+  minLeftWidth: number,
+): number | null {
+  if (!storageKey || typeof window === "undefined") return null;
+  try {
+    const stored = localStorage.getItem(storageKey);
+    if (stored == null) return null;
+    const parsed = Number(stored);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.max(minLeftWidth, parsed);
+  } catch {
+    return null;
+  }
+}
+
 export interface ResizablePanelProps extends Omit<ComponentProps<"div">, "children"> {
   /** Content for the left pane. */
   left: ReactNode;
@@ -49,20 +70,9 @@ export function ResizablePanel({
 }: ResizablePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const [leftWidth, setLeftWidth] = useState<number>(() => {
-    if (storageKey) {
-      try {
-        const stored = localStorage.getItem(storageKey);
-        if (stored != null) {
-          const parsed = Number(stored);
-          if (Number.isFinite(parsed)) return Math.max(minLeftWidth, parsed);
-        }
-      } catch {
-        // localStorage access can throw under strict-privacy contexts.
-      }
-    }
-    return defaultLeftWidth;
-  });
+  const [leftWidth, setLeftWidth] = useState<number>(
+    () => readStoredWidth(storageKey, minLeftWidth) ?? defaultLeftWidth,
+  );
 
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -129,23 +139,18 @@ export function ResizablePanel({
     return () => window.removeEventListener("resize", onResize);
   }, [clamp]);
 
-  // Resolve percentage-based default on mount (before paint) when no stored
-  // preference exists. This prevents a visible flash from the pixel fallback.
+  // Resolve percentage-based default on mount (before paint) when no valid
+  // persisted preference exists. Runs in useLayoutEffect so the resolved
+  // width is committed before the browser paints, preventing a single-frame
+  // flash of the `defaultLeftWidth` pixel fallback.
   useLayoutEffect(() => {
     if (defaultLeftPercent == null) return;
-    if (storageKey && typeof window !== "undefined") {
-      try {
-        const stored = localStorage.getItem(storageKey);
-        if (stored != null) return;
-      } catch {
-        // localStorage access can throw — fall through to percentage resolution.
-      }
-    }
+    if (readStoredWidth(storageKey, minLeftWidth) !== null) return;
     const container = containerRef.current;
     if (!container) return;
     const target = (container.offsetWidth * defaultLeftPercent) / 100;
     setLeftWidth(clamp(target));
-  }, [defaultLeftPercent, storageKey, clamp]);
+  }, [defaultLeftPercent, storageKey, minLeftWidth, clamp]);
 
   return (
     <div

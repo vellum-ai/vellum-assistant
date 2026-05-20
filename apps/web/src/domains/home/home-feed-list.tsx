@@ -40,6 +40,18 @@ export function HomeFeedList({
     activeFilter && presentCategories.includes(activeFilter)
       ? activeFilter
       : null;
+
+  // Reset stale activeFilter during render when its category disappears
+  // from the feed. Without this, the previously-selected filter would
+  // silently re-activate if the category later reappears (e.g. a new
+  // notification of that category arrives). React bails out when the
+  // next state equals the current, so this is safe and preferable to a
+  // synchronization Effect.
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  if (activeFilter !== effectiveFilter) {
+    setActiveFilter(effectiveFilter);
+  }
+
   const filtered = filterByCategory(eligible, effectiveFilter);
   const sorted = sortFeedItems(filtered);
   const grouped = groupByTime(sorted);
