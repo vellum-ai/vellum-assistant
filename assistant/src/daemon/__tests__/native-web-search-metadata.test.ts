@@ -64,7 +64,7 @@ type ToolResultEvent = Extract<ServerMessage, { type: "tool_result" }>;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function createCollectorDeps(): {
+function createCollectorDeps(providerName = "anthropic"): {
   deps: EventHandlerDeps;
   events: ServerMessage[];
 } {
@@ -72,7 +72,7 @@ function createCollectorDeps(): {
   const deps = {
     ctx: {
       conversationId: "conv-native-meta",
-      provider: { name: "anthropic" },
+      provider: { name: providerName },
       traceEmitter: { emit: () => {} },
       streamThinking: false,
       emitActivityState: () => {},
@@ -152,6 +152,11 @@ describe("native server_tool_complete metadata", () => {
     expect(meta?.results[1]?.rank).toBe(2);
     expect(meta?.durationMs).toBeGreaterThanOrEqual(0);
 
+    // Favicons are synthesized from the result domain so clients can render
+    // a per-result icon without an extra round-trip.
+    expect(meta?.results[0]?.faviconUrl).toContain("google.com/s2/favicons");
+    expect(meta?.results[1]?.faviconUrl).toContain("google.com/s2/favicons");
+
     // Back-compat: result text must be byte-identical to the legacy format.
     expect(toolResultEvent?.result).toBe(
       "X\nhttps://www.cnn.com/a\n\nY\nhttps://www.nbcnews.com/b",
@@ -160,6 +165,166 @@ describe("native server_tool_complete metadata", () => {
     // Per-toolUseId scratch maps must be cleaned up after completion.
     expect(state.serverToolStartedAt.has(toolUseId)).toBe(false);
     expect(state.serverToolInputs.has(toolUseId)).toBe(false);
+  });
+
+  test("prefers `resolvedInput.query` over the input captured at server_tool_start", async () => {
+    // Mirrors the live Anthropic flow: server_tool_start fires with `input: {}`
+    // because the SDK streams server-tool input via `input_json_delta`, then
+    // the provider populates `resolvedInput` on `server_tool_complete` from
+    // the accumulated JSON. Without this plumb-through, `meta.query` is empty.
+    const { deps, events } = createCollectorDeps();
+    const toolUseId = "tu_resolved";
+
+    await dispatchAgentEvent(state, deps, {
+      type: "server_tool_start",
+      name: "web_search",
+      toolUseId,
+      input: {},
+    });
+
+    await dispatchAgentEvent(state, deps, {
+      type: "server_tool_complete",
+      toolUseId,
+      isError: false,
+      resolvedInput: { query: "OpenAI Dev Day recap" },
+      content: [
+        {
+          type: "web_search_result",
+          title: "Recap",
+          url: "https://example.com/a",
+        },
+      ],
+    });
+
+    const toolResultEvent = events.find(
+      (e): e is ToolResultEvent => e.type === "tool_result",
+    );
+    expect(toolResultEvent?.activityMetadata?.webSearch?.query).toBe(
+      "OpenAI Dev Day recap",
+    );
+  });
+
+  test("fires per-toolUseId for parallel server tool calls with independent queries and timings", async () => {
+    const { deps, events } = createCollectorDeps();
+
+    await dispatchAgentEvent(state, deps, {
+      type: "server_tool_start",
+      name: "web_search",
+      toolUseId: "tu_a",
+      input: { query: "alpha" },
+    });
+    await dispatchAgentEvent(state, deps, {
+      type: "server_tool_start",
+      name: "web_search",
+      toolUseId: "tu_b",
+      input: { query: "beta" },
+    });
+
+    // Hold long enough that the two completions can't share a duration.
+    await new Promise((r) => setTimeout(r, 20));
+
+    await dispatchAgentEvent(state, deps, {
+      type: "server_tool_complete",
+      toolUseId: "tu_a",
+      isError: false,
+      content: [
+        {
+          type: "web_search_result",
+          title: "A1",
+          url: "https://a.example.com/1",
+        },
+      ],
+    });
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    await dispatchAgentEvent(state, deps, {
+      type: "server_tool_complete",
+      toolUseId: "tu_b",
+      isError: false,
+      content: [
+        {
+          type: "web_search_result",
+          title: "B1",
+          url: "https://b.example.com/1",
+        },
+      ],
+    });
+
+    const toolResults = events.filter(
+      (e): e is ToolResultEvent => e.type === "tool_result",
+    );
+    expect(toolResults).toHaveLength(2);
+
+    const byId = new Map(
+      toolResults.map((r) => [r.toolUseId, r] as const),
+    );
+    expect(byId.get("tu_a")?.activityMetadata?.webSearch?.query).toBe("alpha");
+    expect(byId.get("tu_b")?.activityMetadata?.webSearch?.query).toBe("beta");
+
+    const durA = byId.get("tu_a")?.activityMetadata?.webSearch?.durationMs ?? 0;
+    const durB = byId.get("tu_b")?.activityMetadata?.webSearch?.durationMs ?? 0;
+    // Each duration is computed against its own startedAt — tu_b should run
+    // longer because we slept once more between its start and its complete.
+    expect(durB).toBeGreaterThanOrEqual(durA);
+  });
+
+  test("forwards provider error codes instead of generic 'Search failed'", async () => {
+    const { deps, events } = createCollectorDeps();
+    const toolUseId = "tu_err_code";
+
+    await dispatchAgentEvent(state, deps, {
+      type: "server_tool_start",
+      name: "web_search",
+      toolUseId,
+      input: { query: "over the limit" },
+    });
+
+    await dispatchAgentEvent(state, deps, {
+      type: "server_tool_complete",
+      toolUseId,
+      isError: true,
+      errorCode: "max_uses_exceeded",
+      content: [],
+    });
+
+    const toolResultEvent = events.find(
+      (e): e is ToolResultEvent => e.type === "tool_result",
+    );
+    expect(toolResultEvent?.activityMetadata?.webSearch?.errorMessage).toBe(
+      "max_uses_exceeded",
+    );
+  });
+
+  test("does NOT emit activityMetadata for non-Anthropic providers", async () => {
+    // OpenAI's responses provider shares `server_tool_start`/`server_tool_complete`
+    // for `web_search_call`, but its results live inside the assistant text
+    // stream — emitting "anthropic-native" metadata for an OpenAI search would
+    // mis-label the provider and ship an empty `results` array.
+    const { deps, events } = createCollectorDeps("openai");
+    const toolUseId = "tu_openai";
+
+    await dispatchAgentEvent(state, deps, {
+      type: "server_tool_start",
+      name: "web_search",
+      toolUseId,
+      input: {},
+    });
+
+    await dispatchAgentEvent(state, deps, {
+      type: "server_tool_complete",
+      toolUseId,
+      isError: false,
+    });
+
+    const toolResultEvent = events.find(
+      (e): e is ToolResultEvent => e.type === "tool_result",
+    );
+    expect(toolResultEvent).toBeDefined();
+    expect(toolResultEvent?.activityMetadata).toBeUndefined();
+    // The back-compat `result: string` channel still fires (empty for OpenAI
+    // since the results are woven into the text stream, not structured).
+    expect(toolResultEvent?.result).toBe("");
   });
 
   test("sets errorMessage when the search errored", async () => {

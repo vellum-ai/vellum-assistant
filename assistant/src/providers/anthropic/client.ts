@@ -1274,6 +1274,19 @@ export class AnthropicProvider implements Provider {
         let lastInputJsonEmitMs = 0;
         let pendingInputJsonFlush: ReturnType<typeof setTimeout> | undefined;
 
+        // Anthropic streams `server_tool_use` block input via `input_json_delta`
+        // events (the block's own `input` field is `{}` at content_block_start).
+        // We accumulate the JSON separately from regular `tool_use` blocks so
+        // the daemon can read the resolved query when the paired
+        // `web_search_tool_result` arrives — without this, downstream activity
+        // metadata sees an empty query.
+        let currentServerToolUseId: string | undefined;
+        let accumulatedServerToolInputJson = "";
+        const resolvedServerToolInputs = new Map<
+          string,
+          Record<string, unknown>
+        >();
+
         stream.on("streamEvent", (event) => {
           // Reset the text sentinel buffer at each content-block boundary.
           // A new block starts fresh; at the end of a block, flush any
@@ -1300,6 +1313,8 @@ export class AnthropicProvider implements Provider {
             event.type === "content_block_start" &&
             event.content_block.type === "server_tool_use"
           ) {
+            currentServerToolUseId = event.content_block.id;
+            accumulatedServerToolInputJson = "";
             onEvent?.({
               type: "server_tool_start",
               name: event.content_block.name,
@@ -1315,11 +1330,21 @@ export class AnthropicProvider implements Provider {
           ) {
             const block = event.content_block as {
               tool_use_id: string;
-              content?: { type: "web_search_tool_result_error" } | unknown[];
+              content?:
+                | { type: "web_search_tool_result_error"; error_code?: string }
+                | unknown[];
             };
             const isError =
               !Array.isArray(block.content) &&
               block.content?.type === "web_search_tool_result_error";
+            const errorCode =
+              isError && !Array.isArray(block.content)
+                ? block.content?.error_code
+                : undefined;
+            const resolvedInput = resolvedServerToolInputs.get(
+              block.tool_use_id,
+            );
+            resolvedServerToolInputs.delete(block.tool_use_id);
             onEvent?.({
               type: "server_tool_complete",
               toolUseId: block.tool_use_id,
@@ -1327,6 +1352,8 @@ export class AnthropicProvider implements Provider {
               ...(Array.isArray(block.content)
                 ? { content: block.content }
                 : {}),
+              ...(resolvedInput ? { resolvedInput } : {}),
+              ...(errorCode ? { errorCode } : {}),
             });
           }
           if (event.type === "content_block_stop") {
@@ -1345,6 +1372,25 @@ export class AnthropicProvider implements Provider {
             currentStreamingToolName = undefined;
             currentStreamingToolUseId = undefined;
             accumulatedInputJson = "";
+            // Finalize the resolved input for a `server_tool_use` block (e.g.
+            // the actual web-search query) so the paired `web_search_tool_result`
+            // emits `server_tool_complete` with `resolvedInput` populated.
+            if (currentServerToolUseId && accumulatedServerToolInputJson) {
+              try {
+                const parsed = JSON.parse(accumulatedServerToolInputJson);
+                if (parsed && typeof parsed === "object") {
+                  resolvedServerToolInputs.set(
+                    currentServerToolUseId,
+                    parsed as Record<string, unknown>,
+                  );
+                }
+              } catch {
+                // Malformed partial JSON — drop silently; downstream falls
+                // back to whatever was captured at server_tool_start.
+              }
+            }
+            currentServerToolUseId = undefined;
+            accumulatedServerToolInputJson = "";
             // Flush residual text buffer unless it's exactly a sentinel.
             if (textBuffer.length > 0 && !isCompleteSentinel(textBuffer)) {
               onEvent?.({ type: "text_delta", text: textBuffer });
@@ -1354,6 +1400,13 @@ export class AnthropicProvider implements Provider {
         });
 
         stream.on("inputJson", (partialJson) => {
+          if (currentServerToolUseId) {
+            // Server-tool input (e.g. `web_search` query) — accumulate without
+            // emitting `input_json_delta`; the daemon only consumes the
+            // finalized value from `server_tool_complete.resolvedInput`.
+            accumulatedServerToolInputJson += partialJson;
+            return;
+          }
           if (!currentStreamingToolName) return;
           accumulatedInputJson += partialJson;
           const now = Date.now();

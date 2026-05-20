@@ -137,6 +137,22 @@ export type ProviderEvent =
       toolUseId: string;
       isError: boolean;
       content?: unknown[];
+      /**
+       * Finalized input for the server tool call (e.g. the actual query).
+       * Anthropic streams `server_tool_use` block input via `input_json_delta`
+       * events, so consumers reading the input at `server_tool_start` see `{}`.
+       * The provider accumulates the JSON and surfaces it here once the block
+       * stops, so downstream handlers can build accurate activity metadata.
+       */
+      resolvedInput?: Record<string, unknown>;
+      /**
+       * Provider-specific error code when `isError` is true (e.g. Anthropic's
+       * `max_uses_exceeded`, `query_too_long`). Surfaced so user-facing
+       * messages can be specific instead of a generic "Search failed".
+       */
+      errorCode?: string;
+      /** Optional human-readable error message from the provider. */
+      errorMessage?: string;
     };
 
 export interface SendMessageConfig {

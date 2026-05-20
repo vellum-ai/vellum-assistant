@@ -163,6 +163,17 @@ export type AgentEvent =
       toolUseId: string;
       isError: boolean;
       content?: unknown[];
+      /**
+       * Finalized input for the server tool (e.g. the actual web-search
+       * query). Carried through so the daemon can populate accurate activity
+       * metadata; Anthropic streams server-tool input via deltas that aren't
+       * resolved at `server_tool_start` time.
+       */
+      resolvedInput?: Record<string, unknown>;
+      /** Provider-specific error code (e.g. `max_uses_exceeded`). */
+      errorCode?: string;
+      /** Optional human-readable error message from the provider. */
+      errorMessage?: string;
     }
   | { type: "error"; error: Error }
   | {
@@ -693,6 +704,13 @@ export class AgentLoop {
                   toolUseId: event.toolUseId,
                   isError: event.isError,
                   ...(event.content ? { content: event.content } : {}),
+                  ...(event.resolvedInput
+                    ? { resolvedInput: event.resolvedInput }
+                    : {}),
+                  ...(event.errorCode ? { errorCode: event.errorCode } : {}),
+                  ...(event.errorMessage
+                    ? { errorMessage: event.errorMessage }
+                    : {}),
                 });
               }
             },
