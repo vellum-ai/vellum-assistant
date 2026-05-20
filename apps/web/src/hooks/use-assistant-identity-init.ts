@@ -1,0 +1,91 @@
+/**
+ * Initial assistant-identity hydration for the chat-layout sidebar.
+ *
+ * The sidebar header (rendered by `ChatLayout`) shows the assistant's
+ * name on every route under `/assistant/*` — chat, home, library,
+ * contacts, identity. Its data lives in the Zustand
+ * `useAssistantIdentityStore`.
+ *
+ * Without this hook, the store is hydrated only by `ChatPage`'s
+ * identity fetch, so direct navigation to any non-chat route (or
+ * navigating away from a conversation) leaves the sidebar header
+ * showing the "Your Assistant" fallback. This hook fixes that by
+ * fetching identity at the layout level so every sibling route
+ * inherits a populated sidebar.
+ *
+ * Lives in top-level `hooks/` (not under `domains/`) because the
+ * assistant identity is consumed by multiple domains — chat sidebar,
+ * intelligence/identity tab, library, contacts — with no single
+ * domain owner. See CONVENTIONS.md → Top-level shared directories.
+ *
+ * Pattern (server state in TanStack Query, synced into Zustand for
+ * cross-component subscriptions) is the same one `useConversationListInit`
+ * uses for the conversation list (LUM-1732).
+ *
+ * References:
+ * - https://tanstack.com/query/latest/docs/framework/react/guides/queries
+ */
+import { useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+
+import { fetchAssistantIdentity } from "@/domains/chat/api/assistant.js";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
+import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+
+export const ASSISTANT_IDENTITY_QUERY_KEY = "assistant-identity" as const;
+
+export function assistantIdentityQueryKey(assistantId: string | null) {
+  return [ASSISTANT_IDENTITY_QUERY_KEY, assistantId ?? ""] as const;
+}
+
+interface UseAssistantIdentityInitParams {
+  assistantId: string | null;
+  assistantStateKind: AssistantState["kind"];
+}
+
+export function useAssistantIdentityInit({
+  assistantId,
+  assistantStateKind,
+}: UseAssistantIdentityInitParams) {
+  const isActive = assistantStateKind === "active" && Boolean(assistantId);
+
+  const identityQuery = useQuery({
+    queryKey: assistantIdentityQueryKey(assistantId),
+    queryFn: () => fetchAssistantIdentity(assistantId as string),
+    enabled: isActive,
+    staleTime: 30_000,
+  });
+
+  // Clear the store whenever the assistant context changes (tenant
+  // switch, logout, lifecycle leaves "active") so the previous
+  // assistant's name doesn't linger if the new assistant's identity
+  // fetch returns null (runtime initializing/unreachable).
+  const lastWrittenForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isActive) {
+      if (lastWrittenForRef.current !== null) {
+        useAssistantIdentityStore.getState().clearIdentity();
+        lastWrittenForRef.current = null;
+      }
+      return;
+    }
+    if (lastWrittenForRef.current !== assistantId) {
+      useAssistantIdentityStore.getState().clearIdentity();
+      lastWrittenForRef.current = null;
+    }
+  }, [isActive, assistantId]);
+
+  useEffect(() => {
+    const data = identityQuery.data;
+    // `fetchAssistantIdentity` returns null on transient failures
+    // (initializing assistant, unreachable runtime). Don't clobber a
+    // good cached name with a transient null on the same assistant —
+    // cross-assistant clears are handled by the effect above.
+    if (!data) return;
+    useAssistantIdentityStore.getState().setIdentity(
+      data.name ?? null,
+      data.version ?? null,
+    );
+    lastWrittenForRef.current = assistantId;
+  }, [identityQuery.data, assistantId]);
+}

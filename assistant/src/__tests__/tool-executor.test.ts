@@ -846,6 +846,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
 // Import the real buildSanitizedEnv (not mocked) for baseline credential tests
 const {
   buildSanitizedEnv,
+  KATA_INJECTED_ENV_VARS,
   KATA_SAFE_ENV_VARS,
   SAFE_ENV_VARS,
   ALWAYS_INJECTED_ENV_VARS,
@@ -910,6 +911,7 @@ describe("buildSanitizedEnv — baseline: credential exclusion", () => {
     const allowed: string[] = [
       ...SAFE_ENV_VARS,
       ...KATA_SAFE_ENV_VARS,
+      ...KATA_INJECTED_ENV_VARS,
       ...ALWAYS_INJECTED_ENV_VARS,
     ];
     const env = buildSanitizedEnv();

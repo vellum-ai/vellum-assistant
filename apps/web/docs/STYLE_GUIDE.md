@@ -363,6 +363,48 @@ const messageCount = messages.length;
 const COMPACTION_CIRCUIT_OPEN_MS = 30_000;
 ```
 
+### No migration-history comments
+
+Comments and docstrings describe **what the code is and does now**, not
+what it replaced, the bug that motivated it, or how it used to be
+written. Migration narrative belongs in the PR description and commit
+message — it rots immediately and adds nothing for a future reader who
+never saw the prior code.
+
+```ts
+// Avoid — migration narrative; useless once the prior code is gone
+/**
+ * Zustand store for stream lifecycle. Codifies what was previously an
+ * implicit state machine spread across use-event-stream.ts,
+ * use-message-reconciliation.ts, and use-stream-event-handler.ts —
+ * together with the four shared refs those hooks mutated.
+ */
+
+// Avoid — references files/refs that no longer exist
+/**
+ * Monotonic counter bumped on every open attempt. Replaces the old
+ * `streamEpochRef`.
+ */
+epoch: number;
+
+// Avoid — comments that frame current behavior as "the fix for X"
+// The pre-existing bug was a 1s clock-based dedup race; here the
+// state alone gates the transition.
+
+// Good — describes the current invariant
+/**
+ * Monotonic counter bumped on every open attempt. Stream callbacks
+ * tag themselves with the epoch at open time so stale `OPEN_SUCCESS`
+ * / `OPEN_FAILURE` events (e.g. a slow fetch that resolves after the
+ * caller has moved on) are dropped by the reducer.
+ */
+epoch: number;
+```
+
+Same rule for test comments: explain the behavior the test asserts in
+terms of the current code, not the bug it was originally written to
+catch.
+
 ---
 
 ## Formatting

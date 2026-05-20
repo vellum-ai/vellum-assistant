@@ -600,19 +600,20 @@ export function ChatPage() {
   // Sync assistant identity to the global store (read by ChatLayout)
   // -------------------------------------------------------------------------
   useEffect(() => {
+    // Identity is hoisted to the layout via `useAssistantIdentityInit`
+    // (LUM-1747) so the sidebar keeps the correct name on sibling
+    // routes (Library, Identity, Contacts). ChatPage still writes
+    // when it has fresher local state (e.g. after an SSE
+    // `identity_changed` refresh), and only when non-null — clearing
+    // on assistant context change (tenant switch, logout) is owned
+    // by `useAssistantIdentityInit`, not by route transitions.
     if (assistantIdentity) {
       useAssistantIdentityStore.getState().setIdentity(
         assistantIdentity.name ?? null,
         assistantIdentity.version ?? null,
       );
-    } else {
-      useAssistantIdentityStore.getState().clearIdentity();
     }
   }, [assistantIdentity]);
-
-  useEffect(() => {
-    return () => { useAssistantIdentityStore.getState().clearIdentity(); };
-  }, []);
 
   // -------------------------------------------------------------------------
   // Conversation actions (archive, pin, rename, etc.)

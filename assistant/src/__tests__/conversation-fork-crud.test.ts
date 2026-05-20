@@ -49,6 +49,7 @@ import {
   getRetrospectiveState,
   upsertRetrospectiveState,
 } from "../memory/memory-retrospective-state.js";
+import { rawGet, rawRun } from "../memory/raw-query.js";
 import {
   activationState,
   channelInboundEvents,
@@ -659,6 +660,58 @@ describe("forkConversation", () => {
 
     expect(await hydrateActivationState(db, fork.id)).toBeNull();
     expect(loadGraphMemoryState(fork.id)).toBeNull();
+  });
+
+  test("defaults conversationType to standard and inherits the parent's group", async () => {
+    const source = createConversation("Default inheritance thread");
+    await addMessage(source.id, "user", "first message", undefined, {
+      skipIndexing: true,
+    });
+    rawRun(
+      "UPDATE conversations SET group_id = ? WHERE id = ?",
+      "system:pinned",
+      source.id,
+    );
+
+    const fork = forkConversation({ conversationId: source.id });
+    const row = getDb()
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, fork.id))
+      .get();
+    const groupIdRow = rawGet<{ group_id: string | null }>(
+      "SELECT group_id FROM conversations WHERE id = ?",
+      fork.id,
+    );
+
+    expect(row?.conversationType).toBe("standard");
+    expect(groupIdRow?.group_id).toBe("system:pinned");
+  });
+
+  test("honors conversationType and groupId overrides on the fork", async () => {
+    const source = createConversation("Override thread");
+    await addMessage(source.id, "user", "first message", undefined, {
+      skipIndexing: true,
+    });
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      conversationType: "background",
+      groupId: "system:background",
+    });
+
+    const row = getDb()
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, fork.id))
+      .get();
+    const groupIdRow = rawGet<{ group_id: string | null }>(
+      "SELECT group_id FROM conversations WHERE id = ?",
+      fork.id,
+    );
+
+    expect(row?.conversationType).toBe("background");
+    expect(groupIdRow?.group_id).toBe("system:background");
   });
 
   test("copies memory state when throughMessageId points at the last message", async () => {
