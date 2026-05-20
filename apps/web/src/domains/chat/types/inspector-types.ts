@@ -71,6 +71,7 @@ export interface LLMRequestLogEntry {
   summary?: LLMCallSummary | null;
   requestSections?: LLMContextSection[] | null;
   responseSections?: LLMContextSection[] | null;
+  agentLoopExitReason?: string | null;
 }
 
 /**
