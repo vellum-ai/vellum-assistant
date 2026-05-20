@@ -1,13 +1,101 @@
-import { useParams } from "react-router";
+import { Loader2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router";
+
+import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { openApp, shareApp } from "@/domains/chat/lib/apps.js";
+import { AppViewerContainer } from "@/domains/intelligence/components/apps/app-viewer-container.js";
+import { routes } from "@/utils/routes.js";
+
+interface LoadedApp {
+  appId: string;
+  dirName?: string;
+  name: string;
+  html: string;
+}
 
 export function LibraryDetailPage() {
   const { appId } = useParams<{ appId: string }>();
+  const { assistantId } = useAssistantContext();
+  const navigate = useNavigate();
+
+  const [app, setApp] = useState<LoadedApp | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isSharing, setIsSharing] = useState(false);
+  const requestRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!assistantId || !appId) return;
+    requestRef.current = appId;
+    setApp(null);
+    setError(null);
+
+    openApp(assistantId, appId)
+      .then((result) => {
+        if (requestRef.current !== appId) return;
+        setApp({
+          appId: result.appId,
+          dirName: result.dirName,
+          name: result.name,
+          html: result.html,
+        });
+      })
+      .catch((err) => {
+        if (requestRef.current !== appId) return;
+        setError(err instanceof Error ? err.message : "Failed to open app");
+      });
+  }, [assistantId, appId]);
+
+  const handleClose = useCallback(() => {
+    void navigate(routes.library.root);
+  }, [navigate]);
+
+  const handleShare = useCallback(async () => {
+    if (!assistantId || !app || isSharing) return;
+    setIsSharing(true);
+    try {
+      await shareApp(assistantId, app.appId, app.name);
+    } finally {
+      setIsSharing(false);
+    }
+  }, [assistantId, app, isSharing]);
+
+  if (!assistantId || !appId) return null;
+
+  if (error) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4">
+        <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
+          {error}
+        </p>
+        <button
+          type="button"
+          onClick={handleClose}
+          className="text-body-medium-default text-[var(--primary-base)] underline"
+        >
+          Back to Library
+        </button>
+      </div>
+    );
+  }
+
+  if (!app) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
+      </div>
+    );
+  }
+
   return (
-    <section>
-      <h2>Library item</h2>
-      <p>
-        Placeholder for library item <code>{appId}</code>.
-      </p>
-    </section>
+    <AppViewerContainer
+      appId={app.appId}
+      appName={app.name}
+      html={app.html}
+      assistantId={assistantId}
+      onClose={handleClose}
+      onShare={handleShare}
+      isSharing={isSharing}
+    />
   );
 }
