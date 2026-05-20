@@ -28,8 +28,14 @@ import {
   getConnection,
   listConnections,
   MANAGED_CONNECTION_NAMES,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   updateConnection,
 } from "../../providers/inference/connections.js";
+import {
+  isPrivateOrLocalHost,
+  resolveHostAddresses,
+  resolveRequestAddress,
+} from "../../tools/network/url-safety.js";
 import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -59,10 +65,26 @@ function rejectDisabledOpenAICompatibleProvider(provider: string): void {
 // Custom provider field parsing (openai-compatible base_url + models)
 // ---------------------------------------------------------------------------
 
-function parseCustomProviderFields(body: Record<string, unknown>): {
+/**
+ * Parse and validate `base_url` and `models` from the request body.
+ *
+ * `base_url` is only accepted for providers in
+ * `PROVIDERS_REQUIRING_BASE_URL_AND_MODELS` (currently `openai-compatible`).
+ * For all other providers, supplying `base_url` returns a 400. This prevents
+ * API-key exfiltration: an attacker cannot create an `anthropic` connection
+ * with a `base_url` pointing to their own server, which would redirect all
+ * LLM calls (and the API key) to the attacker.
+ *
+ * Even for `openai-compatible`, the `base_url` must not point to private
+ * networks or cloud metadata endpoints (SSRF protection).
+ */
+async function parseCustomProviderFields(
+  body: Record<string, unknown>,
+  provider: string,
+): Promise<{
   baseUrl?: string | null;
   models?: ConnectionModel[] | null;
-} {
+}> {
   const out: {
     baseUrl?: string | null;
     models?: ConnectionModel[] | null;
@@ -70,11 +92,24 @@ function parseCustomProviderFields(body: Record<string, unknown>): {
 
   if ("base_url" in body) {
     const raw = body.base_url;
+
+    // Gate: base_url is only valid for openai-compatible providers.
+    if (
+      raw !== null &&
+      raw !== undefined &&
+      !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)
+    ) {
+      throw new BadRequestError(
+        `base_url is only valid for openai-compatible providers. Remove base_url or use the openai-compatible provider type.`,
+      );
+    }
+
     if (raw === null) {
       out.baseUrl = null;
     } else if (typeof raw === "string" && raw.length > 0) {
+      let parsed: URL;
       try {
-        const parsed = new URL(raw);
+        parsed = new URL(raw);
         if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
           throw new BadRequestError(`Invalid base_url: must be an http(s) URL`);
         }
@@ -84,6 +119,27 @@ function parseCustomProviderFields(body: Record<string, unknown>): {
           `Invalid base_url: must be a valid http(s) URL`,
         );
       }
+
+      // SSRF protection: reject private IPs, localhost, cloud metadata endpoints.
+      const hostname = parsed.hostname;
+      if (isPrivateOrLocalHost(hostname)) {
+        throw new BadRequestError(
+          `Invalid base_url: must not point to a private or local network address.`,
+        );
+      }
+
+      // DNS resolution check: hostname may resolve to a private IP.
+      const resolved = await resolveRequestAddress(
+        hostname,
+        resolveHostAddresses,
+        /* allowPrivateNetwork */ false,
+      );
+      if (resolved.blockedAddress) {
+        throw new BadRequestError(
+          `Invalid base_url: hostname resolves to a private network address.`,
+        );
+      }
+
       out.baseUrl = raw;
     } else {
       throw new BadRequestError(
@@ -145,7 +201,7 @@ function handleGetConnection({ pathParams = {} }: RouteHandlerArgs) {
   return conn;
 }
 
-function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
+async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
   const name = body.name;
   const provider = body.provider;
   const auth = body.auth;
@@ -186,7 +242,7 @@ function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  const customFields = parseCustomProviderFields(body);
+  const customFields = await parseCustomProviderFields(body, providerResult.data);
 
   const result = createConnection(getDb(), {
     name,
@@ -224,7 +280,7 @@ function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
   return result.connection;
 }
 
-function handleUpdateConnection({
+async function handleUpdateConnection({
   pathParams = {},
   body = {},
 }: RouteHandlerArgs) {
@@ -278,7 +334,7 @@ function handleUpdateConnection({
     );
   }
 
-  const customFields = parseCustomProviderFields(body);
+  const customFields = await parseCustomProviderFields(body, existing.provider);
 
   const result = updateConnection(getDb(), name, {
     auth: authResult.data,

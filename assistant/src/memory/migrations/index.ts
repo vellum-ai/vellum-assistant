@@ -228,6 +228,7 @@ export {
   migrateMemoryV2InjectionEvents,
 } from "./256-memory-v2-injection-events.js";
 export { migrateConversationLastNotifiedProfile } from "./253-conversation-last-notified-profile.js";
+export { migrateStripBaseUrlNonOpenaiCompatible } from "./257-strip-base-url-non-openai-compatible.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

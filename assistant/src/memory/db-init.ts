@@ -179,6 +179,7 @@ import {
   migrateSchemaIndexesAndColumns,
   migrateScrubCorruptedImageAttachments,
   migrateSlackCompactionWatermark,
+  migrateStripBaseUrlNonOpenaiCompatible,
   migrateStripIntegrationPrefixFromProviderKeys,
   migrateStripPlaceholderSentinelsFromMessages,
   migrateStripThinkingFromConsolidated,
@@ -446,6 +447,7 @@ export function initializeDb(): void {
     migrateChannelInboundDeliveryAttempts,
     migrateMemoryV2InjectionEvents,
     migrateConversationLastNotifiedProfile,
+    migrateStripBaseUrlNonOpenaiCompatible,
   ];
 
   // Run each migration step, catching and logging individual failures so one

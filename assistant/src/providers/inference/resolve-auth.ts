@@ -14,7 +14,11 @@ import {
   resolveManagedProxyContext,
 } from "../../providers/platform-proxy/context.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
+import { getLogger } from "../../util/logger.js";
 import type { Auth, ResolvedAuth } from "./auth.js";
+import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "./connections.js";
+
+const log = getLogger("resolve-auth");
 
 export type ResolveAuthError =
   | { code: "credential_not_found"; credential: string }
@@ -28,6 +32,19 @@ export async function resolveAuth(
 ): Promise<
   { ok: true; resolved: ResolvedAuth } | { ok: false; error: ResolveAuthError }
 > {
+  // Defense-in-depth: strip baseUrl for providers that should not accept one.
+  // The route layer rejects base_url for non-openai-compatible providers, but
+  // this guard catches any code path that bypasses route validation (e.g.
+  // corrupted DB rows, direct calls from internal code).
+  let safeBaseUrl = opts.baseUrl;
+  if (safeBaseUrl && !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
+    log.warn(
+      { provider, baseUrl: safeBaseUrl },
+      `Stripping baseUrl for provider "${provider}" — base_url is only valid for openai-compatible providers.`,
+    );
+    safeBaseUrl = null;
+  }
+
   switch (auth.type) {
     case "api_key": {
       const value = await getSecureKeyAsync(auth.credential);
@@ -42,7 +59,7 @@ export async function resolveAuth(
         resolved: {
           kind: "header",
           headers: { Authorization: `Bearer ${value}` },
-          ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
+          ...(safeBaseUrl ? { baseUrl: safeBaseUrl } : {}),
         },
       };
     }
