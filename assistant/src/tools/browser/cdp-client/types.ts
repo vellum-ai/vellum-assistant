@@ -110,6 +110,19 @@ export interface ScopedCdpClient extends CdpClient {
   readonly kind: CdpClientKind;
   /** Stable conversation id this client is bound to. */
   readonly conversationId: string;
+  /**
+   * Re-target follow-on CDP commands at a specific tab/target. Calling
+   * this updates the underlying client's `cdpSessionId`. This is used by
+   * the navigator executor after `Vellum.createTab` returns to ensure the
+   * subsequent `Page.navigate` and all follow-on commands on this
+   * conversation route to the newly-created tab instead of the
+   * previously-active tab.
+   *
+   * If the underlying client doesn't implement this method (e.g., local
+   * or cdp-inspect clients), the call is silently ignored via optional
+   * chaining.
+   */
+  setCdpSessionId(cdpSessionId: string): void;
 }
 
 /**

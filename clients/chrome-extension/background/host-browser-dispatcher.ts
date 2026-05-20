@@ -338,6 +338,9 @@ export function createHostBrowserDispatcher(
       // `resolveTarget()`.
       if (envelope.cdpMethod === 'Vellum.createTab') {
         if (!deps.createTab) {
+          // Honour the cancel contract: don't post an error envelope
+          // for a request that's already been cancelled.
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
           await deps.postResult({
             requestId,
             content: JSON.stringify({
@@ -352,6 +355,8 @@ export function createHostBrowserDispatcher(
           const newTarget = await deps.createTab();
           if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
           if (newTarget.tabId === undefined) {
+            // Honour the cancel contract: don't post an error for a cancelled request.
+            if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
             await deps.postResult({
               requestId,
               content: JSON.stringify({

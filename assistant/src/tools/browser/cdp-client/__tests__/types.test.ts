@@ -88,6 +88,7 @@ describe("cdp-client re-exports", () => {
           throw new CdpError("disposed", "stub");
         },
         dispose: () => {},
+        setCdpSessionId: () => {},
       };
       expect(scoped.kind).toBe(kind);
       expect(scoped.conversationId).toBe("conv-123");
