@@ -96,6 +96,22 @@ export const noCrossDomainImports = {
       ExportNamedDeclaration(node) {
         if (node.source) check(node, node.source.value);
       },
+      // TypeScript inline type imports: `type T = import("@/domains/x/y").Z`.
+      // Distinct AST node from `ImportExpression` (which is the runtime
+      // dynamic-import form) — @typescript-eslint emits this for the
+      // type-position variant.
+      TSImportType(node) {
+        const arg = node.argument;
+        if (arg?.type === "Literal" && typeof arg.value === "string") {
+          check(node, arg.value);
+        } else if (
+          arg?.type === "TSLiteralType" &&
+          arg.literal?.type === "Literal" &&
+          typeof arg.literal.value === "string"
+        ) {
+          check(node, arg.literal.value);
+        }
+      },
     };
   },
 };

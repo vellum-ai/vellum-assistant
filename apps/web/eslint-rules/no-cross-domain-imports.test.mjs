@@ -11,6 +11,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RuleTester } from "eslint";
+import tseslint from "typescript-eslint";
 
 import { noCrossDomainImports } from "./no-cross-domain-imports.mjs";
 
@@ -19,6 +20,15 @@ const WEB_ROOT = path.resolve(__dirname, "..");
 
 const ruleTester = new RuleTester({
   languageOptions: {
+    ecmaVersion: "latest",
+    sourceType: "module",
+  },
+});
+
+// Separate tester for TypeScript-specific syntax (TSImportType).
+const tsRuleTester = new RuleTester({
+  languageOptions: {
+    parser: tseslint.parser,
     ecmaVersion: "latest",
     sourceType: "module",
   },
@@ -101,6 +111,25 @@ ruleTester.run("no-cross-domain-imports", noCrossDomainImports, {
     {
       filename: fixtureUnder("account"),
       code: `import { y } from "../onboarding/y.js";`,
+      errors: [{ messageId: "crossDomain" }],
+    },
+  ],
+});
+
+// TSImportType is only parsed by the TS parser, so it gets its own tester.
+tsRuleTester.run("no-cross-domain-imports (TSImportType)", noCrossDomainImports, {
+  valid: [
+    // Same-domain inline type query is fine.
+    {
+      filename: fixtureUnder("account"),
+      code: `type T = import("@/domains/account/foo.js").Foo;`,
+    },
+  ],
+  invalid: [
+    // Cross-domain inline type query is a violation.
+    {
+      filename: fixtureUnder("account"),
+      code: `type T = import("@/domains/onboarding/foo.js").Foo;`,
       errors: [{ messageId: "crossDomain" }],
     },
   ],
