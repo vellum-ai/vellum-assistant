@@ -39,7 +39,7 @@ export function SignupPage() {
   if (error) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-[var(--content-secondary)]">{error}</p>
+        <p className="text-[var(--system-negative-strong)]">{error}</p>
       </div>
     );
   }

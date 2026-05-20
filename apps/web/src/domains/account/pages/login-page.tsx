@@ -84,7 +84,7 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
     <NativeSplash>
       <div className="z-10 mt-8 flex w-full max-w-[320px] flex-col items-center gap-3">
         {errorMessage && (
-          <p className="text-body-small-default max-w-[280px] text-center text-[var(--content-secondary)]">
+          <p className="text-body-small-default max-w-[280px] text-center text-[var(--system-negative-strong)]">
             {errorMessage}
           </p>
         )}
@@ -150,7 +150,7 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
               Sign in to Vellum
             </h1>
             {errorMessage && (
-              <p className="text-body-small-default text-center text-[var(--content-secondary)]">
+              <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
                 {errorMessage}
               </p>
             )}

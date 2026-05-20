@@ -49,7 +49,7 @@ export function AccountPage() {
           subtitle="Sign in to get started."
         />
         {errorMessage && (
-          <p className="text-center text-sm text-[var(--content-secondary)]">
+          <p className="text-center text-sm text-[var(--system-negative-strong)]">
             {errorMessage}
           </p>
         )}
