@@ -92,7 +92,7 @@ Do not use JavaScript (`scrollHeight`, `offsetHeight`, `el.style.height = …`) 
 
 **Use the CSS Grid hidden-mirror technique instead.** Place an invisible `<div>` that mirrors the textarea content in the same CSS Grid cell. The grid auto-sizes to `max(mirror_height, textarea_intrinsic_height)`, and the textarea stretches to fill the cell — no JS measurement or DOM mutation needed. The chat composer is the canonical implementation in this repo.
 
-When browser support allows (iOS 18.2+, Chrome 123+, Firefox 130+), CSS [`field-sizing: content`](https://developer.mozilla.org/docs/Web/CSS/field-sizing) is an even simpler alternative that eliminates the mirror div entirely.
+Once browser support is broad enough across your target matrix, CSS [`field-sizing: content`](https://developer.mozilla.org/docs/Web/CSS/field-sizing) is an even simpler alternative that eliminates the mirror div entirely — check the MDN compatibility table before adopting since iOS Safari support is recent.
 
 References:
 - CSS-Tricks — [The Cleanest Trick for Autogrowing Textareas](https://css-tricks.com/the-cleanest-trick-for-autogrowing-textareas/)
