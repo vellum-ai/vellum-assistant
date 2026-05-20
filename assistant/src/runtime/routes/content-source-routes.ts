@@ -66,7 +66,7 @@ function handleContentSource(args: RouteHandlerArgs): Record<string, unknown> {
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "content_source_set",
-    endpoint: "/v1/content-source",
+    endpoint: "content-source",
     method: "POST",
     policyKey: "secrets",
     summary: "Validate and persist a content source URL",

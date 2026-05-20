@@ -137,7 +137,7 @@ async function handleConnect(
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "sanity_discover",
-    endpoint: "/v1/sanity/discover",
+    endpoint: "sanity/discover",
     method: "POST",
     policyKey: "secrets",
     summary: "Discover Sanity projects and datasets using the stored API token",
@@ -146,7 +146,7 @@ export const ROUTES: RouteDefinition[] = [
   },
   {
     operationId: "sanity_connect",
-    endpoint: "/v1/sanity/connect",
+    endpoint: "sanity/connect",
     method: "POST",
     policyKey: "secrets",
     summary: "Finalise Sanity connection and write sidecar file",

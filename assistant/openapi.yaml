@@ -33,283 +33,6 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/acp/{id}/cancel:
-    post:
-      operationId: acp_by_id_cancel_post
-      summary: Cancel ACP session
-      description: Cancel an active ACP session.
-      tags:
-        - acp
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  acpSessionId:
-                    type: string
-                  cancelled:
-                    type: boolean
-                required:
-                  - acpSessionId
-                  - cancelled
-                additionalProperties: false
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-  /v1/acp/{id}/close:
-    post:
-      operationId: acp_by_id_close_post
-      summary: Close ACP session
-      description: Close a completed ACP session.
-      tags:
-        - acp
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  acpSessionId:
-                    type: string
-                  closed:
-                    type: boolean
-                required:
-                  - acpSessionId
-                  - closed
-                additionalProperties: false
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-  /v1/acp/{id}/steer:
-    post:
-      operationId: acp_by_id_steer_post
-      summary: Steer ACP session
-      description: Send a steering instruction to an active ACP session.
-      tags:
-        - acp
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  acpSessionId:
-                    type: string
-                  steered:
-                    type: boolean
-                required:
-                  - acpSessionId
-                  - steered
-                additionalProperties: false
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                instruction:
-                  type: string
-              required:
-                - instruction
-              additionalProperties: false
-  /v1/acp/sessions:
-    delete:
-      operationId: acp_sessions_delete
-      summary: Bulk-clear terminal ACP sessions
-      description: Remove every terminal-state row (completed/failed/cancelled) from the persisted acp_session_history table.
-      tags:
-        - acp
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  deleted:
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                required:
-                  - deleted
-                additionalProperties: false
-      parameters:
-        - name: status
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Must be 'completed'. Shorthand for all terminal statuses (completed/failed/cancelled).
-    get:
-      operationId: acp_sessions_get
-      summary: List ACP sessions
-      description:
-        Return the merged set of in-memory and persisted ACP sessions, newest first. In-memory sessions take
-        precedence on id collision.
-      tags:
-        - acp
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  sessions:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        agentId:
-                          type: string
-                        acpSessionId:
-                          type: string
-                        parentConversationId:
-                          type: string
-                        status:
-                          type: string
-                        startedAt:
-                          type: number
-                        completedAt:
-                          anyOf:
-                            - type: number
-                            - type: "null"
-                        error:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        stopReason:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        eventLog:
-                          type: array
-                          items: {}
-                      required:
-                        - id
-                        - agentId
-                        - acpSessionId
-                        - status
-                        - startedAt
-                      additionalProperties: false
-                    description: Merged in-memory and persisted ACP sessions.
-                required:
-                  - sessions
-                additionalProperties: false
-      parameters:
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-          description: Maximum number of sessions to return (default 50, max 500).
-        - name: conversationId
-          in: query
-          required: false
-          schema:
-            type: string
-          description: Filter to sessions whose parentConversationId matches this value.
-  /v1/acp/sessions/{id}:
-    delete:
-      operationId: acp_sessions_by_id_delete
-      summary: Delete ACP session from history
-      description:
-        Remove a persisted ACP session row. Rejects with 409 when the session is still active in memory; idempotent
-        for unknown ids.
-      tags:
-        - acp
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  deleted:
-                    type: boolean
-                required:
-                  - deleted
-                additionalProperties: false
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-  /v1/acp/spawn:
-    post:
-      operationId: acp_spawn_post
-      summary: Spawn ACP session
-      description: Start a new Agent Communication Protocol session.
-      tags:
-        - acp
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  acpSessionId:
-                    type: string
-                  protocolSessionId:
-                    type: string
-                  agent:
-                    type: string
-                required:
-                  - acpSessionId
-                  - protocolSessionId
-                  - agent
-                additionalProperties: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                agent:
-                  type: string
-                  description: Agent name
-                task:
-                  type: string
-                  description: Task description
-                conversationId:
-                  type: string
-                cwd:
-                  type: string
-                  description: Working directory
-              required:
-                - agent
-                - task
-                - conversationId
-              additionalProperties: false
   /v1/admin/rollback-migrations:
     post:
       operationId: admin_rollbackmigrations_post
@@ -4218,6 +3941,27 @@ paths:
                   type: string
                 limit:
                   type: number
+              additionalProperties: false
+  /v1/content-source:
+    post:
+      operationId: contentsource_post
+      summary: Validate and persist a content source URL
+      tags:
+        - content-source
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+              required:
+                - url
               additionalProperties: false
   /v1/conversation-starters:
     get:
@@ -12517,6 +12261,49 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/sanity/connect:
+    post:
+      operationId: sanity_connect_post
+      summary: Finalise Sanity connection and write sidecar file
+      tags:
+        - sanity
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                projectId:
+                  type: string
+                dataset:
+                  type: string
+              required:
+                - projectId
+                - dataset
+              additionalProperties: false
+  /v1/sanity/discover:
+    post:
+      operationId: sanity_discover_post
+      summary: Discover Sanity projects and datasets using the stored API token
+      tags:
+        - sanity
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                projectId:
+                  type: string
+              additionalProperties: false
   /v1/schedules:
     get:
       operationId: schedules_get
