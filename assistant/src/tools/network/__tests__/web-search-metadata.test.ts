@@ -244,6 +244,54 @@ describe("web_search activity metadata", () => {
     expect(meta.results[0].domain).toBe("example.net");
   });
 
+  test("Tavily falls back to url for empty string title", async () => {
+    mockWebSearchProvider = "tavily";
+    mockTavilySecureKey = "tvly-key";
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: "",
+              url: "https://example.net/empty-title",
+              content: "Empty title",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as any;
+
+    const result = await execute({ query: "empty title" });
+    const meta = result.activityMetadata?.webSearch;
+    expect(meta).toBeDefined();
+    expect(meta.results[0].title).toBe("https://example.net/empty-title");
+  });
+
+  test("Tavily falls back to url for whitespace-only title", async () => {
+    mockWebSearchProvider = "tavily";
+    mockTavilySecureKey = "tvly-key";
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: "   ",
+              url: "https://example.net/whitespace-title",
+              content: "Whitespace title",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as any;
+
+    const result = await execute({ query: "whitespace title" });
+    const meta = result.activityMetadata?.webSearch;
+    expect(meta).toBeDefined();
+    expect(meta.results[0].title).toBe(
+      "https://example.net/whitespace-title",
+    );
+  });
+
   test("Tavily populates errorMessage on auth failure", async () => {
     mockWebSearchProvider = "tavily";
     mockTavilySecureKey = "bad-key";
@@ -257,5 +305,42 @@ describe("web_search activity metadata", () => {
     expect(meta.resultCount).toBe(0);
     expect(meta.results).toEqual([]);
     expect(meta.errorMessage).toContain("Invalid or expired Tavily");
+  });
+
+  // ---- Top-level error paths ---------------------------------------------
+
+  test("top-level catch populates activityMetadata with errorMessage", async () => {
+    mockWebSearchProvider = "perplexity";
+    mockPerplexitySecureKey = "pplx-key";
+    globalThis.fetch = (async () => {
+      throw new Error("network down");
+    }) as any;
+
+    const result = await execute({ query: "catch query" });
+    expect(result.isError).toBe(true);
+    const meta = result.activityMetadata?.webSearch;
+    expect(meta).toBeDefined();
+    expect(meta.provider).toBe("perplexity");
+    expect(meta.query).toBe("catch query");
+    expect(meta.resultCount).toBe(0);
+    expect(meta.results).toEqual([]);
+    expect(meta.errorMessage).toContain("network down");
+    expect(typeof meta.durationMs).toBe("number");
+  });
+
+  test("no-API-key branch populates activityMetadata with errorMessage", async () => {
+    mockWebSearchProvider = "perplexity";
+    // All provider keys remain undefined from beforeEach.
+
+    const result = await execute({ query: "no key query" });
+    expect(result.isError).toBe(true);
+    const meta = result.activityMetadata?.webSearch;
+    expect(meta).toBeDefined();
+    expect(meta.provider).toBe("perplexity");
+    expect(meta.query).toBe("no key query");
+    expect(meta.resultCount).toBe(0);
+    expect(meta.results).toEqual([]);
+    expect(meta.errorMessage).toContain("No web search API key configured");
+    expect(typeof meta.durationMs).toBe("number");
   });
 });
