@@ -14,7 +14,7 @@ import {
 import {
   formatGraceDate,
   getEffectiveCancelDate,
-} from "@/domains/settings/lib/billing/use-billing-portal-session.js";
+} from "@/domains/settings/hooks/use-billing-portal-session.js";
 
 /**
  * PlanCard — top-of-billing-settings summary of the org's current plan.

@@ -13,8 +13,8 @@ import { useAppRootContainer } from "@/components/app-root-context.js";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
-import { updateTrustRule } from "@/domains/settings/lib/trust-rules/api.js";
-import type { TrustRuleItem, TrustRuleRisk } from "@/domains/settings/lib/trust-rules/types.js";
+import { updateTrustRule } from "@/domains/settings/api/trust-rules.js";
+import type { TrustRuleItem, TrustRuleRisk } from "@/domains/settings/types/trust-rules.js";
 
 const TOOL_OPTIONS = [
   "bash",

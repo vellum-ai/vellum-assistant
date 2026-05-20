@@ -35,7 +35,7 @@ import {
   SNOOZE_OPTIONS,
   formatRelativeDate,
   isSnoozed,
-} from "@/domains/settings/lib/notifications/utils.js";
+} from "@/domains/settings/utils/notification-utils.js";
 
 interface SnoozeMenuProps {
   notificationId: string;

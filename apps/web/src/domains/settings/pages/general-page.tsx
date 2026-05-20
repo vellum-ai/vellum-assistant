@@ -29,7 +29,7 @@ import {
   readStoredThemePreference,
   type ThemePreference,
   writeStoredThemePreference,
-} from "@/domains/settings/lib/theme-preferences.js";
+} from "@/domains/settings/utils/theme-preferences.js";
 import {
   getLocalSetting,
   setLocalSetting,

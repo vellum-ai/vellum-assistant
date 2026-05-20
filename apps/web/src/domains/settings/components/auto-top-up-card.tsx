@@ -11,7 +11,7 @@ import {
   organizationsBillingAutoTopUpUpdateMutation,
 } from "@/generated/api/@tanstack/react-query.gen.js";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen.js";
-import { brandLabel, formatBrandLast4 } from "@/domains/settings/lib/billing/payment-method-brand.js";
+import { brandLabel, formatBrandLast4 } from "@/domains/settings/utils/payment-method-brand.js";
 
 import {
   AutoTopUpForm,

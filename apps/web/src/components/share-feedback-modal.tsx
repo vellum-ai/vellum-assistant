@@ -457,7 +457,7 @@ export function ShareFeedbackModal({
         },
         bodySerializer: (body) => {
           const form = new FormData();
-          for (const [key, value] of Object.entries(body)) {
+          for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
             if (value == null) continue;
             if (key === "attachments" && Array.isArray(value)) {
               for (const file of value) form.append("attachments", file as Blob);

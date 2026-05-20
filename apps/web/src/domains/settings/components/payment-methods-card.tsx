@@ -18,7 +18,7 @@ import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen.js";
 
 import { DISABLED_CONFIG } from "@/domains/settings/components/auto-top-up-card.js";
 import { AutoTopUpPaymentMethodModal } from "@/domains/settings/components/auto-top-up-payment-method-modal.js";
-import { brandLabel } from "@/domains/settings/lib/billing/payment-method-brand.js";
+import { brandLabel } from "@/domains/settings/utils/payment-method-brand.js";
 
 // ---------------------------------------------------------------------------
 // PaymentMethodsCard — manages exactly the auto-top-up payment method.

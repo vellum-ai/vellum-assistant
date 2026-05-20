@@ -36,7 +36,7 @@ import {
   startOAuthAppConnect,
   type OAuthApp,
   type OAuthAppConnection,
-} from "@/domains/settings/lib/assistants/oauth-apps.js";
+} from "@/domains/settings/api/oauth-apps.js";
 
 import { IntegrationIcon } from "@/domains/settings/components/integration-icon.js";
 

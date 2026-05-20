@@ -17,7 +17,7 @@ import {
   normaliseSoundsConfig,
   validateSoundFilename,
   type SoundsConfig,
-} from "@/domains/settings/lib/sounds/types.js";
+} from "@/domains/settings/types/sounds.js";
 
 const CONFIG_PATH = "data/sounds/config.json";
 const SOUNDS_DIR = "data/sounds";

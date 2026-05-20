@@ -9,12 +9,12 @@
  * default Tink.
  */
 
-import { fetchSoundFile } from "@/domains/settings/lib/sounds/api.js";
+import { fetchSoundFile } from "@/domains/settings/api/sounds.js";
 import {
   type SoundEventId,
   type SoundsConfig,
   validateSoundFilename,
-} from "@/domains/settings/lib/sounds/types.js";
+} from "@/domains/settings/types/sounds.js";
 
 interface CachedSound {
   url: string;

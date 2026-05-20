@@ -18,7 +18,7 @@ import type {
   Schedule,
   ScheduleRunsResponse,
   SchedulesListResponse,
-} from "@/domains/settings/lib/schedules/types.js";
+} from "@/domains/settings/types/schedules.js";
 
 export { ApiError };
 
@@ -75,7 +75,7 @@ export async function fetchScheduleRuns(
   assistantId: string,
   scheduleId: string,
   limit = 10,
-): Promise<import("@/domains/settings/lib/schedules/types.js").ScheduleRun[]> {
+): Promise<import("@/domains/settings/types/schedules.js").ScheduleRun[]> {
   const { data, error, response } = await client.get<
     ScheduleRunsResponse,
     unknown
@@ -155,7 +155,7 @@ export async function runScheduleNow(
 export async function fetchHeartbeatRuns(
   assistantId: string,
   limit = 10,
-): Promise<import("@/domains/settings/lib/schedules/types.js").ScheduleRun[]> {
+): Promise<import("@/domains/settings/types/schedules.js").ScheduleRun[]> {
   const { data, error, response } = await client.get<
     HeartbeatRunsResponse,
     unknown

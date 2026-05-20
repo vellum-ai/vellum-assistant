@@ -22,7 +22,7 @@ import { type Assistant, getAssistant } from "@/domains/assistant/api.js";
 import {
   fetchOAuthProviders,
   type OAuthProviderSummary,
-} from "@/domains/settings/lib/assistants/oauth-providers.js";
+} from "@/domains/settings/api/oauth-providers.js";
 import { reportError } from "@/lib/errors/report.js";
 import { routes } from "@/utils/routes.js";
 

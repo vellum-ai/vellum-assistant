@@ -29,7 +29,7 @@ import {
   runHeartbeatNow,
   runScheduleNow,
   toggleSchedule,
-} from "@/domains/settings/lib/schedules/api.js";
+} from "@/domains/settings/api/schedules.js";
 import { reportError } from "@/lib/errors/report.js";
 import {
   assistantScheduleRunsQueryKey,
@@ -44,7 +44,7 @@ import type {
   Schedule,
   ScheduleRun,
   SystemTaskKind,
-} from "@/domains/settings/lib/schedules/types.js";
+} from "@/domains/settings/types/schedules.js";
 import type { TagTone } from "@vellum/design-library/components/tag";
 
 // ---------------------------------------------------------------------------

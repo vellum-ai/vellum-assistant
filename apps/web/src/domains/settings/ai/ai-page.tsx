@@ -99,10 +99,8 @@ export const TOKEN_SLIDER_MIN_TOKENS = 1_000;
 export const TOKEN_SLIDER_STEP_TOKENS = 1_000;
 export const DEFAULT_CONTEXT_WINDOW_BUDGET_TOKENS = 200_000;
 
-// Web-search provider list, display names, and key placeholders are derived
-// from `web/src/lib/generated/web-search-provider-catalog.json` via the
-// `sync:web-search-provider-catalog` codegen step. Edit that JSON to add a
-// new provider; `bun run lint` enforces the `.gen.ts` is in sync.
+// Web-search provider list, display names, and key placeholders live in
+// `domains/assistant/generated/web-search-provider-catalog.gen.ts`.
 
 // ---------------------------------------------------------------------------
 // TTS / STT provider catalogs — mirror the macOS client catalogs and the

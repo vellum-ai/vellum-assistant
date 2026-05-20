@@ -11,8 +11,8 @@ import {
   listAvailableSounds,
   saveSoundsConfig,
   type AvailableSound,
-} from "@/domains/settings/lib/sounds/api.js";
-import { getSoundManager } from "@/domains/settings/lib/sounds/sound-manager.js";
+} from "@/domains/settings/api/sounds.js";
+import { getSoundManager } from "@/domains/settings/utils/sound-manager.js";
 import {
   defaultSoundsConfig,
   displayLabelForFilename,
@@ -21,7 +21,7 @@ import {
   type SoundEventConfig,
   type SoundEventId,
   type SoundsConfig,
-} from "@/domains/settings/lib/sounds/types.js";
+} from "@/domains/settings/types/sounds.js";
 import {
   assistantSoundsAvailableQueryKey,
   assistantSoundsConfigQueryKey,

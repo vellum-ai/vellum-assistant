@@ -11,7 +11,7 @@ import {
   formatGraceDate,
   getEffectiveCancelDate,
   useBillingPortalSession,
-} from "@/domains/settings/lib/billing/use-billing-portal-session.js";
+} from "@/domains/settings/hooks/use-billing-portal-session.js";
 
 /**
  * In-flow banner shown on the billing settings surface when the org's Pro

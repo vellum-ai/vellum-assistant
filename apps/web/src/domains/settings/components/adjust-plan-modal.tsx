@@ -23,7 +23,7 @@ import {
   formatGraceDate,
   getEffectiveCancelDate,
   useBillingPortalSession,
-} from "@/domains/settings/lib/billing/use-billing-portal-session.js";
+} from "@/domains/settings/hooks/use-billing-portal-session.js";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser.js";
 import { WWW_DOMAIN } from "@/lib/domains.js";
 

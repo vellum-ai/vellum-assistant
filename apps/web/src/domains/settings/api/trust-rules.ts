@@ -17,7 +17,7 @@ import type {
   TrustRuleOrigin,
   TrustRulesListResponse,
   UpdateTrustRuleBody,
-} from "@/domains/settings/lib/trust-rules/types.js";
+} from "@/domains/settings/types/trust-rules.js";
 
 export { ApiError };
 

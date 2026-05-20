@@ -13,7 +13,7 @@ import {
   formatGraceDate,
   type PortalReturnSnapshot,
   readPortalReturnSnapshot,
-} from "@/domains/settings/lib/billing/use-billing-portal-session.js";
+} from "@/domains/settings/hooks/use-billing-portal-session.js";
 import { routes } from "@/utils/routes.js";
 
 const POLL_INTERVAL_MS = 1000;
