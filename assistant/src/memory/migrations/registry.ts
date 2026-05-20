@@ -50,7 +50,7 @@ import { downToolInvocationsMatchedRuleId } from "./236-tool-invocations-matched
 import { downHeartbeatRuns } from "./237-heartbeat-runs.js";
 import { downNormalizeSlackExternalContent } from "./249-normalize-slack-external-content.js";
 import { downA2ATasks } from "./251-a2a-tasks.js";
-import { downExternalConversationBindingChatName } from "./253-external-conversation-binding-chat-name.js";
+import { downExternalConversationBindingChatName } from "./254-external-conversation-binding-chat-name.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
