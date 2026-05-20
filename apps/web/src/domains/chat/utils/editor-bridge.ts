@@ -304,6 +304,10 @@ export function generateEditorHTML(content: string): string {
 
     while (walker.nextNode()) {
       var node = walker.currentNode;
+      if (node.parentNode && node.parentNode.nodeName === "MARK") {
+        offset += node.textContent.length;
+        continue;
+      }
       var nodeLen = node.textContent.length;
       var nodeStart = offset;
       var nodeEnd = offset + nodeLen;

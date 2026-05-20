@@ -35,7 +35,7 @@ const listQuerySchema = z.object({
 
 const createBodySchema = z.object({
   content: z.string().min(1).describe("Comment text content"),
-  author: z.string().optional().default("user").describe("Comment author"),
+  author: z.literal("user").optional().default("user").describe("Comment author"),
   anchorStart: z
     .number()
     .nullable()

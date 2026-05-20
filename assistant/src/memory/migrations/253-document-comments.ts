@@ -30,7 +30,8 @@ export function migrateCreateDocumentComments(database: DrizzleDb): void {
       resolved_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      FOREIGN KEY (surface_id) REFERENCES documents(surface_id) ON DELETE CASCADE
+      FOREIGN KEY (surface_id) REFERENCES documents(surface_id) ON DELETE CASCADE,
+      FOREIGN KEY (parent_comment_id) REFERENCES document_comments(id) ON DELETE CASCADE
     )
   `);
 

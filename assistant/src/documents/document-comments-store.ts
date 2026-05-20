@@ -216,11 +216,7 @@ export function updateCommentContent(id: string, content: string): boolean {
 }
 
 export function deleteComment(id: string): boolean {
-  // Delete child replies first so they are not orphaned.
-  rawRun(
-    /*sql*/ `DELETE FROM document_comments WHERE parent_comment_id = ?`,
-    id,
-  );
+  // Replies cascade-delete via the self-referential FK on parent_comment_id.
   const changes = rawRun(
     /*sql*/ `DELETE FROM document_comments WHERE id = ?`,
     id,
