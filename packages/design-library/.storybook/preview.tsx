@@ -108,7 +108,6 @@ export default definePreview({
     }),
   ],
   parameters: {
-    layout: "centered",
     controls: {
       expanded: true,
       matchers: {
