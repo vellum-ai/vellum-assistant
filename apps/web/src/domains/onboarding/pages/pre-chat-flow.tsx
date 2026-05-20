@@ -241,6 +241,7 @@ export function PreChatFlow() {
       });
     }
     clearPrivacyConsent();
+    try { sessionStorage.removeItem("prechat_native_screen"); } catch {}
     void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
   }
 
