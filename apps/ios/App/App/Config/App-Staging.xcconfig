@@ -1,0 +1,9 @@
+// App-Staging.xcconfig — staging target overrides.
+
+#include "Base.xcconfig"
+
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Staging
+ASSOCIATED_DOMAIN = staging-assistant.vellum.ai
+BUNDLE_DISPLAY_NAME = Vellum Staging
+BUNDLE_URL_SCHEME = vellum-assistant-staging
+PRODUCT_BUNDLE_IDENTIFIER = ai.vocify-inc.vellum-assistant-ios.staging

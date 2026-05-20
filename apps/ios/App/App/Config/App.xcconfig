@@ -1,0 +1,9 @@
+// App.xcconfig — production target overrides.
+
+#include "Base.xcconfig"
+
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
+ASSOCIATED_DOMAIN = www.vellum.ai
+BUNDLE_DISPLAY_NAME = Vellum
+BUNDLE_URL_SCHEME = vellum-assistant
+PRODUCT_BUNDLE_IDENTIFIER = ai.vocify-inc.vellum-assistant-ios
