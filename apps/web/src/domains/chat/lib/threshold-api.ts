@@ -5,8 +5,6 @@ import {
   extractErrorMessage,
 } from "@/lib/api-errors.js";
 
-import "@/lib/api-client.js";
-
 const SDK_BASE_OPTIONS =
   typeof window === "undefined"
     ? ({ baseUrl: "http://localhost" } as const)

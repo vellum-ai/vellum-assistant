@@ -20,7 +20,6 @@
     "@capacitor/filesystem": "8.1.2",
     "@capacitor/local-notifications": "8.2.0",
     "@capacitor/share": "8.0.1",
-    "@hey-api/client-fetch": "0.13.1",
     "@radix-ui/react-popover": "1.1.15",
     "@radix-ui/react-slot": "1.2.4",
     "@sentry/browser": "10.53.1",

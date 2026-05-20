@@ -1,7 +1,5 @@
 import { client } from "@/generated/api/client.gen.js";
 
-import "@/lib/api-client.js";
-
 // `/v1/dictation` is not yet in the OpenAPI schema, so we fall through to
 // the low-level HeyAPI client until it's generated.
 const SDK_BASE_OPTIONS =
