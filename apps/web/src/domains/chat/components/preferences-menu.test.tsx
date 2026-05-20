@@ -1,13 +1,11 @@
 /**
  * Tests for `PreferencesMenu`.
  *
- * Verifies:
- *   - Renders nothing when not logged in
- *   - Renders a "Preferences" trigger when logged in
- *   - Desktop uses Popover surface, mobile uses BottomSheet
- *   - Admin row only appears for staff users
- *   - Credits row appears when billing summary has a balance
- *   - Earn credits row appears when referralCodes flag is enabled
+ * Uses `renderToStaticMarkup` (SSR) so only the trigger and top-level
+ * structure are exercisable — Radix Popover/BottomSheet content is not
+ * rendered when `open={false}`. Interactive content tests (menu items,
+ * admin visibility, credits row) would require a DOM environment with
+ * React Testing Library.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -97,32 +95,15 @@ describe("PreferencesMenu", () => {
     expect(html).toContain("Preferences");
   });
 
-  test("desktop render uses Popover (no BottomSheet)", () => {
+  test("desktop renders trigger (Popover surface)", () => {
     isMobileRef.value = false;
     const html = renderToStaticMarkup(createElement(PreferencesMenu));
     expect(html).toContain("Preferences");
-    // Popover trigger should be in the markup
-    expect(html).not.toBe("");
   });
 
-  test("mobile render uses BottomSheet", () => {
+  test("mobile renders trigger (BottomSheet surface)", () => {
     isMobileRef.value = true;
     const html = renderToStaticMarkup(createElement(PreferencesMenu));
     expect(html).toContain("Preferences");
-  });
-});
-
-describe("PreferencesMenuContent (via SSR)", () => {
-  test("renders standard menu items: Settings, Usage, Share Feedback, Log Out", () => {
-    const html = renderToStaticMarkup(createElement(PreferencesMenu));
-    // Menu content is inside Popover which is closed by default,
-    // so items won't appear in SSR. Only the trigger renders.
-    expect(html).toContain("Preferences");
-  });
-
-  test("does not render Admin row for non-staff users", () => {
-    authRef.user = { ...authRef.user, isStaff: false };
-    const html = renderToStaticMarkup(createElement(PreferencesMenu));
-    expect(html).not.toContain("Admin");
   });
 });
