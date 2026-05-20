@@ -212,17 +212,15 @@ describe("OPEN_REQUEST", () => {
     expect(next.epoch).toBe(waiting.epoch + 1);
   });
 
-  test("from reconciling: open with same context is a no-op (let reconcile complete first)", () => {
+  test("from reconciling: OPEN_REQUEST overrides pending reconcile and transitions to opening", () => {
     const reconciling = reconcilingState();
     const next = streamLifecycleReducer(reconciling, {
       type: "OPEN_REQUEST",
       context: ctxA,
     });
-    // Different context would force a switch — same context, however,
-    // should NOT short-circuit reconcile. The dedup guard only fires
-    // for `opening` / `open`, so reconciling falls through and we
-    // transition to `opening` (epoch bumped). This is the documented
-    // behavior: explicit open overrides any pending reconcile.
+    // The dedup guard only fires for `opening` / `open`, so reconciling
+    // falls through and we transition to `opening` (epoch bumped). An
+    // explicit open overrides any pending reconcile.
     expect(next.phase).toBe("opening");
     expect(next.epoch).toBe(reconciling.epoch + 1);
   });

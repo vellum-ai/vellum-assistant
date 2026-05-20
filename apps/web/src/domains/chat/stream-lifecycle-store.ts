@@ -302,7 +302,7 @@ const useStreamLifecycleStoreBase = create<StreamLifecycleStore>()((set) => ({
 
   // ----- Close -----
 
-  requestClose: () =>
+  requestClose: (_source) =>
     set({
       phase: "closed",
       context: null,
