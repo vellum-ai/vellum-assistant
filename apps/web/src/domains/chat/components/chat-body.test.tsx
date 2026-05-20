@@ -217,6 +217,20 @@ describe("ChatBody — startersSlot rendering", () => {
     );
     expect(html).not.toContain("STARTER_CHIPS");
   });
+
+  test("hides starters when keyboard is open", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...withEmptyState({
+          isKeyboardOpen: true,
+          startersSlot: (
+            <div data-testid="starters">STARTER_CHIPS</div>
+          ),
+        })}
+      />,
+    );
+    expect(html).not.toContain("STARTER_CHIPS");
+  });
 });
 
 describe("ChatBody — read-only cancellation", () => {
