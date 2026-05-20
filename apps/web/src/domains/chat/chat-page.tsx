@@ -1107,11 +1107,14 @@ export function ChatPage() {
   };
 
   // -------------------------------------------------------------------------
-  // Mobile overlay portal
+  // Mobile overlay portal — resolve after DOM commit (CONVENTIONS.md §SSR)
   // -------------------------------------------------------------------------
-  const overlayTarget = isMobile
-    ? document.getElementById("viewport-overlays")
-    : null;
+  const [overlayTarget, setOverlayTarget] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setOverlayTarget(
+      isMobile ? document.getElementById("viewport-overlays") : null,
+    );
+  }, [isMobile]);
 
   return (
     <>
