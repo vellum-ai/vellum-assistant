@@ -106,6 +106,9 @@ export function normalizeOnboardingContext(
       ? deriveGoogleServices(ctx.googleScopes)
       : undefined,
     cohort: ctx.cohort,
-    websiteUrl: ctx.websiteUrl?.trim().replace(/[\r\n\t]/g, "") || undefined,
+    websiteUrl:
+      typeof ctx.websiteUrl === "string"
+        ? ctx.websiteUrl.trim().replace(/[\r\n\t]/g, "") || undefined
+        : undefined,
   };
 }
