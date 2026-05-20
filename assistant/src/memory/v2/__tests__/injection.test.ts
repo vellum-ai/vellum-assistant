@@ -743,7 +743,7 @@ describe("injectMemoryV2Block", () => {
 
     expect(result.block).not.toBeNull();
     expect(result.block).toContain(
-      "**CRITICAL:** These are page summaries. Read full page files at the paths below with file_read if you want more information.",
+      'Use `file_read("memory/concepts/path/to/file.md")` to read the full pages for any of the injected memory summaries you want more information on.',
     );
     expect(result.block).toContain(
       "# memory/concepts/summarized-page.md\nA short prose description",
@@ -776,11 +776,13 @@ describe("injectMemoryV2Block", () => {
     });
 
     expect(result.block).not.toBeNull();
-    // CRITICAL header appears exactly once.
-    const criticalCount = (
-      result.block!.match(/\*\*CRITICAL:\*\* These are page summaries\./g) ?? []
+    // Header appears exactly once.
+    const headerCount = (
+      result.block!.match(
+        /Use `file_read\("memory\/concepts\/path\/to\/file\.md"\)` to read/g,
+      ) ?? []
     ).length;
-    expect(criticalCount).toBe(1);
+    expect(headerCount).toBe(1);
     // summarized-page → short form (path + summary, no body, no frontmatter).
     expect(result.block).toContain("# memory/concepts/summarized-page.md\nA");
     expect(result.block).not.toContain("Long-form body content");
