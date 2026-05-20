@@ -11,7 +11,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { useAppRootContainer } from "@/components/app-root-context.js";
 import { Button } from "@vellum/design-library";
 import { Typography } from "@vellum/design-library";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
@@ -82,7 +81,6 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   onKeyDown,
 }) => {
   const isMobile = useIsMobile();
-  const portalTarget = useAppRootContainer();
   const overlayRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -239,10 +237,6 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
     );
   }
 
-  if (!portalTarget) {
-    return null;
-  }
-
   return createPortal(
     <div
       ref={overlayRef}
@@ -258,6 +252,6 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
         {resultsList}
       </div>
     </div>,
-    portalTarget,
+    document.body,
   );
 };

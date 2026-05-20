@@ -4,7 +4,6 @@ import type { FC, KeyboardEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { useAppRootContainer } from "@/components/app-root-context.js";
 import { Button } from "@vellum/design-library";
 import { Typography } from "@vellum/design-library";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";
@@ -63,7 +62,6 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   attachment,
   assistantId,
 }) => {
-  const portalTarget = useAppRootContainer();
   const overlayRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
@@ -166,7 +164,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     await saveFile(effectiveUrl, attachment.filename);
   }, [effectiveUrl, attachment.filename]);
 
-  if (!open || !portalTarget) {
+  if (!open) {
     return null;
   }
 
@@ -336,6 +334,6 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         />
       </div>
     </div>,
-    portalTarget,
+    document.body,
   );
 };

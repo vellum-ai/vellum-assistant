@@ -2,7 +2,6 @@ import { Pencil, ShieldCheck, Trash2 } from "lucide-react";
 import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { useAppRootContainer } from "@/components/app-root-context.js";
 import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { Toggle } from "@vellum/design-library/components/toggle";
@@ -62,7 +61,6 @@ export interface TrustRulesModalProps {
 }
 
 export function TrustRulesModal({ assistantId, onClose }: TrustRulesModalProps) {
-  const portalTarget = useAppRootContainer();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [rules, setRules] = useState<TrustRuleItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -152,8 +150,6 @@ export function TrustRulesModal({ assistantId, onClose }: TrustRulesModalProps) 
     },
     [onClose],
   );
-
-  if (!portalTarget) return null;
 
   return createPortal(
     <>
@@ -291,6 +287,6 @@ export function TrustRulesModal({ assistantId, onClose }: TrustRulesModalProps) 
         onCancel={() => setRuleToDelete(null)}
       />
     </>,
-    portalTarget,
+    document.body,
   );
 }
