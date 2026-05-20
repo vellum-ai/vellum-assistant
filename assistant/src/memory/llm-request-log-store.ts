@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { AssistantError, ProviderError } from "../util/errors.js";
@@ -186,6 +186,31 @@ function selectLogsByMessageIds(messageIds: string[]): LogRow[] {
     .from(llmRequestLogs)
     .where(inArray(llmRequestLogs.messageId, messageIds))
     .orderBy(llmRequestLogs.createdAt)
+    .all();
+}
+
+/**
+ * Query every LLM request log recorded for a conversation, ordered by
+ * creation time. Conversation-scoped inspector views intentionally do
+ * not apply turn recovery: the `conversation_id` column already includes
+ * linked, unlinked, and orphaned rows for the full conversation.
+ */
+export function getRequestLogsByConversationId(conversationId: string): LogRow[] {
+  const db = getDb();
+  return db
+    .select({
+      id: llmRequestLogs.id,
+      conversationId: llmRequestLogs.conversationId,
+      messageId: llmRequestLogs.messageId,
+      provider: llmRequestLogs.provider,
+      requestPayload: llmRequestLogs.requestPayload,
+      responsePayload: llmRequestLogs.responsePayload,
+      createdAt: llmRequestLogs.createdAt,
+      agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+    })
+    .from(llmRequestLogs)
+    .where(eq(llmRequestLogs.conversationId, conversationId))
+    .orderBy(asc(llmRequestLogs.createdAt), asc(llmRequestLogs.id))
     .all();
 }
 

@@ -63,6 +63,7 @@ import {
   getConversation,
   getMessageById,
 } from "../../memory/conversation-crud.js";
+import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { getDb } from "../../memory/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
@@ -229,6 +230,46 @@ function applyStoredProviderToLlmContextResult(
     : { provider };
   const summary = attachEstimatedCost(mergedSummary as LlmContextSummary);
   return { ...normalized, summary };
+}
+
+function normalizeLlmContextLog(log: LogRow): LlmContextRouteResult & {
+  id: string;
+  requestPayload: null;
+  responsePayload: null;
+  createdAt: number;
+  agentLoopExitReason: string | null;
+} {
+  let requestPayload: unknown;
+  try {
+    requestPayload = JSON.parse(log.requestPayload);
+  } catch {
+    requestPayload = log.requestPayload;
+  }
+  let responsePayload: unknown;
+  try {
+    responsePayload = JSON.parse(log.responsePayload);
+  } catch {
+    responsePayload = log.responsePayload;
+  }
+  const normalized = normalizeLlmContextPayloads({
+    requestPayload,
+    responsePayload,
+    createdAt: log.createdAt,
+  });
+  const result = applyStoredProviderToLlmContextResult(normalized, log.provider);
+  return {
+    id: log.id,
+    requestPayload: null,
+    responsePayload: null,
+    createdAt: log.createdAt,
+    // Agent-loop exit reason for the iteration that produced this call,
+    // stamped onto the most-recent unstamped log by
+    // `conversation-agent-loop-handlers.ts` after the loop yields. Only the
+    // terminal call in each loop iteration carries a value; non-terminal calls
+    // land here as `null`.
+    agentLoopExitReason: log.agentLoopExitReason ?? null,
+    ...result,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -831,44 +872,74 @@ async function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
     messageId,
     conversationKind,
     conversationTotalEstimatedCostUsd,
-    logs: logs.map((log) => {
-      let requestPayload: unknown;
-      try {
-        requestPayload = JSON.parse(log.requestPayload);
-      } catch {
-        requestPayload = log.requestPayload;
-      }
-      let responsePayload: unknown;
-      try {
-        responsePayload = JSON.parse(log.responsePayload);
-      } catch {
-        responsePayload = log.responsePayload;
-      }
-      const normalized = normalizeLlmContextPayloads({
-        requestPayload,
-        responsePayload,
-        createdAt: log.createdAt,
-      });
-      const result = applyStoredProviderToLlmContextResult(
-        normalized,
-        log.provider,
-      );
-      return {
-        id: log.id,
-        requestPayload: null,
-        responsePayload: null,
-        createdAt: log.createdAt,
-        // Agent-loop exit reason for the iteration that produced this
-        // call, stamped onto the most-recent unstamped log by
-        // `conversation-agent-loop-handlers.ts` after the loop yields.
-        // Only the terminal call in each loop iteration carries a value;
-        // non-terminal calls land here as `null`.
-        agentLoopExitReason: log.agentLoopExitReason ?? null,
-        ...result,
-      };
-    }),
+    logs: logs.map(normalizeLlmContextLog),
     memoryRecall: memoryRecallLog ?? null,
     memoryV2Activation: memoryV2Activation ?? null,
+  };
+}
+
+async function handleGetConversationLlmContext({
+  queryParams = {},
+}: RouteHandlerArgs) {
+  const conversationKey = queryParams.conversationKey;
+  const requestedConversationId = queryParams.conversationId;
+
+  let conversationId = requestedConversationId;
+  if (!conversationId && conversationKey) {
+    const mapping = getConversationByKey(conversationKey);
+    conversationId = mapping?.conversationId;
+  }
+
+  if (!conversationId) {
+    if (conversationKey) {
+      return {
+        conversationKey,
+        conversationId: null,
+        conversationKind: "user",
+        conversationTotalEstimatedCostUsd: null,
+        logs: [],
+        memoryRecall: null,
+        memoryV2Activation: null,
+      };
+    }
+    throw new BadRequestError(
+      "conversationKey or conversationId query parameter is required",
+    );
+  }
+
+  const conversation = getConversation(conversationId);
+  if (!conversation) {
+    if (conversationKey) {
+      return {
+        conversationKey,
+        conversationId,
+        conversationKind: "user",
+        conversationTotalEstimatedCostUsd: null,
+        logs: [],
+        memoryRecall: null,
+        memoryV2Activation: null,
+      };
+    }
+    throw new NotFoundError(`Conversation ${conversationId} not found`);
+  }
+
+  const source = await getLlmRequestLogSource();
+  const logs = await source.getRequestLogsByConversationId(conversation.id);
+  const conversationKind = resolveConversationKind(
+    conversation.source,
+    conversation.conversationType,
+  );
+  const conversationTotalEstimatedCostUsd =
+    conversation.totalEstimatedCost ?? null;
+
+  return {
+    conversationKey: conversationKey ?? null,
+    conversationId: conversation.id,
+    conversationKind,
+    conversationTotalEstimatedCostUsd,
+    logs: logs.map(normalizeLlmContextLog),
+    memoryRecall: null,
+    memoryV2Activation: null,
   };
 }
 
@@ -1125,6 +1196,52 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     handler: handleGetMessageContent,
+  },
+  {
+    operationId: "conversations_llm_context_get",
+    endpoint: "conversations/llm-context",
+    method: "GET",
+    policyKey: "conversations/llm-context",
+    summary: "Get LLM context for a conversation",
+    description:
+      "Returns normalized LLM request/response logs for an entire conversation.",
+    tags: ["conversations"],
+    queryParams: [
+      {
+        name: "conversationKey",
+        required: false,
+        schema: { type: "string" },
+        description: "Stable external conversation key.",
+      },
+      {
+        name: "conversationId",
+        required: false,
+        schema: { type: "string" },
+        description: "Internal conversation identifier.",
+      },
+    ],
+    responseSchema: {
+      type: "object",
+      properties: {
+        conversationKey: { type: ["string", "null"] },
+        conversationId: { type: ["string", "null"] },
+        conversationKind: { type: "string" },
+        conversationTotalEstimatedCostUsd: { type: ["number", "null"] },
+        logs: { type: "array", items: { type: "object" } },
+        memoryRecall: { type: ["object", "null"] },
+        memoryV2Activation: { type: ["object", "null"] },
+      },
+      required: [
+        "conversationId",
+        "conversationKind",
+        "conversationTotalEstimatedCostUsd",
+        "logs",
+        "memoryRecall",
+        "memoryV2Activation",
+      ],
+      additionalProperties: true,
+    },
+    handler: handleGetConversationLlmContext,
   },
   {
     operationId: "messages_llm_context_get",
