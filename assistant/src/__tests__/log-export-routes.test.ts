@@ -1,8 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -18,11 +24,22 @@ mock.module("../util/secure-keys.js", () => ({
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { llmUsageEvents } from "../memory/schema.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES } from "../runtime/routes/log-export-routes.js";
 
 initializeDb();
 
 const exportRoute = ROUTES.find((r) => r.endpoint === "export")!;
+
+function clearConnectedClients(): void {
+  for (const client of assistantEventHub.listClients()) {
+    assistantEventHub.disposeClient(client.clientId);
+  }
+}
+
+beforeEach(() => {
+  clearConnectedClients();
+});
 
 async function extractArchive(bytes: Uint8Array): Promise<string> {
   const extractDir = mkdtempSync(join(tmpdir(), "log-export-routes-"));
@@ -38,6 +55,86 @@ async function extractArchive(bytes: Uint8Array): Promise<string> {
 
   return extractDir;
 }
+
+describe("POST /v1/export - connected clients", () => {
+  test("includes current `assistant clients list --json` output", async () => {
+    const subscription = assistantEventHub.subscribe({
+      type: "client",
+      clientId: "client-list-export-test",
+      interfaceId: "macos",
+      capabilities: ["host_bash", "host_file"],
+      machineName: "test-macbook",
+      callback: () => {},
+    });
+
+    try {
+      const result = await exportRoute.handler({ body: {} });
+      expect(result).toBeInstanceOf(Uint8Array);
+
+      const dir = await extractArchive(result as Uint8Array);
+      try {
+        const clientsList = JSON.parse(
+          readFileSync(join(dir, "clients-list.json"), "utf-8"),
+        ) as {
+          clients: Array<{
+            clientId: string;
+            interfaceId: string;
+            capabilities: string[];
+            machineName?: string;
+            connectedAt: string;
+            lastActiveAt: string;
+          }>;
+        };
+
+        expect(clientsList.clients).toHaveLength(1);
+        expect(clientsList.clients[0]).toMatchObject({
+          clientId: "client-list-export-test",
+          interfaceId: "macos",
+          capabilities: ["host_bash", "host_file"],
+          machineName: "test-macbook",
+        });
+        expect(new Date(clientsList.clients[0].connectedAt).toISOString()).toBe(
+          clientsList.clients[0].connectedAt,
+        );
+        expect(
+          new Date(clientsList.clients[0].lastActiveAt).toISOString(),
+        ).toBe(clientsList.clients[0].lastActiveAt);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    } finally {
+      subscription.dispose();
+    }
+  });
+
+  test("writes a non-blocking error artifact when client listing fails", async () => {
+    const originalListClients = assistantEventHub.listClients;
+    assistantEventHub.listClients = () => {
+      throw new Error("client list unavailable");
+    };
+
+    try {
+      const result = await exportRoute.handler({ body: {} });
+      expect(result).toBeInstanceOf(Uint8Array);
+
+      const dir = await extractArchive(result as Uint8Array);
+      try {
+        expect(existsSync(join(dir, "clients-list.json"))).toBe(false);
+        const errorArtifact = JSON.parse(
+          readFileSync(join(dir, "clients-list-error.json"), "utf-8"),
+        ) as { error: string; collectedAt: string };
+        expect(errorArtifact.error).toBe("client list unavailable");
+        expect(new Date(errorArtifact.collectedAt).toISOString()).toBe(
+          errorArtifact.collectedAt,
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    } finally {
+      assistantEventHub.listClients = originalListClients;
+    }
+  });
+});
 
 describe("POST /v1/export - LLM usage events", () => {
   test("full export includes usage attribution columns", async () => {

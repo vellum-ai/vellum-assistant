@@ -36,6 +36,7 @@ import {
   getWorkspaceConfigPath,
 } from "../../util/platform.js";
 import { APP_VERSION, COMMIT_SHA } from "../../version.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import { createTarGz } from "./archive-utils.js";
 import { InternalError } from "./errors.js";
 import { collectWorkspaceData } from "./log-export/workspace-allowlist.js";
@@ -267,6 +268,44 @@ async function handleExport({
         join(staging, "config-snapshot.json"),
         JSON.stringify(configSnapshot, null, 2),
         "utf-8",
+      );
+    }
+
+    // --- Connected clients (`assistant clients list --json`) ---
+    try {
+      const clients = assistantEventHub.listClients();
+      const clientsList = {
+        clients: clients.map((c) => ({
+          clientId: c.clientId,
+          interfaceId: c.interfaceId,
+          capabilities: c.capabilities,
+          machineName: c.machineName,
+          connectedAt: c.connectedAt.toISOString(),
+          lastActiveAt: c.lastActiveAt.toISOString(),
+        })),
+      };
+      writeFileSync(
+        join(staging, "clients-list.json"),
+        JSON.stringify(clientsList, null, 2),
+        "utf-8",
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      writeFileSync(
+        join(staging, "clients-list-error.json"),
+        JSON.stringify(
+          {
+            error: message,
+            collectedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      );
+      log.warn(
+        { err },
+        "Failed to collect connected clients list, continuing without it",
       );
     }
 
