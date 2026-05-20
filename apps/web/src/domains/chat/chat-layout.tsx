@@ -375,7 +375,7 @@ export function ChatLayout() {
       <OfflineBanner />
 
       {isMobile ? (
-        <main className="relative flex min-w-0 flex-1 min-h-0 overflow-y-auto">
+        <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
           <Outlet context={assistantContext} />
           {drawerVisible ? (
             <div
@@ -411,7 +411,7 @@ export function ChatLayout() {
           ) : null}
         </main>
       ) : (
-        <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden">
+        <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden flex-col md:flex-row">
           <aside
             id="chat-side-menu"
             className="shrink-0"
@@ -419,10 +419,7 @@ export function ChatLayout() {
           >
             {renderSideMenu({ collapsed, variant: "rail" })}
           </aside>
-          <main
-            className="min-w-0 flex-1 overflow-y-auto"
-            style={{ flex: 1 }}
-          >
+          <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
             <Outlet context={assistantContext} />
           </main>
         </div>
