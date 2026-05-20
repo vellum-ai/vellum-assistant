@@ -86,6 +86,13 @@ export function HomePage({
     [feedQuery.updateStatus, selectedItem?.id],
   );
 
+  const handleRestoreItem = useCallback(
+    (itemId: string) => {
+      feedQuery.updateStatus.mutate({ itemId, status: "seen" });
+    },
+    [feedQuery.updateStatus],
+  );
+
   const handleUpdateStatus = useCallback(
     (itemId: string, status: FeedItemStatus) => {
       feedQuery.updateStatus.mutate({ itemId, status });
@@ -129,6 +136,7 @@ export function HomePage({
         items={feedQuery.data?.items ?? []}
         onSelectItem={handleSelectItem}
         onDismissItem={handleDismissItem}
+        onRestoreItem={handleRestoreItem}
       />
     </>
   );

@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "@vellum/design-library";
@@ -12,17 +12,28 @@ function resolveStyle(category?: FeedItemCategory) {
   return CATEGORY_STYLES.system;
 }
 
+export type HomeRecapRowTrailingAction = "dismiss" | "restore";
+
 export interface HomeRecapRowProps {
   item: FeedItem;
   onSelect: (item: FeedItem) => void;
   onDismiss: (itemId: string) => void;
+  trailingAction?: HomeRecapRowTrailingAction;
 }
 
-export function HomeRecapRow({ item, onSelect, onDismiss }: HomeRecapRowProps) {
+export function HomeRecapRow({
+  item,
+  onSelect,
+  onDismiss,
+  trailingAction = "dismiss",
+}: HomeRecapRowProps) {
   const [isHovering, setIsHovering] = useState(false);
   const style = resolveStyle(item.category);
   const Icon = style.icon;
   const isUnread = item.status === "new";
+  const isRestore = trailingAction === "restore";
+  const TrailingIcon = isRestore ? RotateCcw : X;
+  const trailingLabel = isRestore ? "Restore" : "Dismiss";
 
   return (
     <button
@@ -69,7 +80,7 @@ export function HomeRecapRow({ item, onSelect, onDismiss }: HomeRecapRowProps) {
         <span
           role="button"
           tabIndex={0}
-          aria-label="Dismiss"
+          aria-label={trailingLabel}
           onClick={(e) => {
             e.stopPropagation();
             onDismiss(item.id);
@@ -86,8 +97,8 @@ export function HomeRecapRow({ item, onSelect, onDismiss }: HomeRecapRowProps) {
             "text-[var(--content-disabled)]",
           )}
         >
-          <X width={7} height={7} aria-hidden="true" />
-          <span className="text-body-small-default">Dismiss</span>
+          <TrailingIcon width={7} height={7} aria-hidden="true" />
+          <span className="text-body-small-default">{trailingLabel}</span>
         </span>
       ) : null}
     </button>

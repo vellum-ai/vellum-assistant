@@ -15,6 +15,17 @@ import VellumAssistantShared
 /// resolves the innermost tappable first. The timestamp uses a fixed
 /// width so the title doesn't reflow when the dismiss affordance appears.
 struct HomeRecapRow: View {
+    /// Hover-only trailing affordance. `.dismiss` is the default (X icon,
+    /// "Dismiss" label); `.restore` is used by the Dismissed disclosure
+    /// to bring a row back into the active feed.
+    enum TrailingAction {
+        case dismiss
+        case restore
+
+        var icon: VIcon { self == .restore ? .rotateCcw : .x }
+        var label: String { self == .restore ? "Restore" : "Dismiss" }
+    }
+
     let icon: VIcon
     /// Foreground color for the icon glyph. Callers pass one of the
     /// feed identifier tokens (e.g. `VColor.feedNudgeStrong`,
@@ -40,6 +51,7 @@ struct HomeRecapRow: View {
     /// feed rows (`FeedItem.fromAssistant == true`) so the surface reads
     /// as "your assistant sent this" rather than a generic system bell.
     var showsPersonaAvatar: Bool = false
+    var trailingAction: TrailingAction = .dismiss
     let onDismiss: () -> Void
     let onTap: () -> Void
 
@@ -90,14 +102,14 @@ struct HomeRecapRow: View {
                     .accessibilityHidden(true)
 
                 if isHovering {
-                    // Wrapping the dismiss in its own Button keeps the tap
-                    // from bubbling to the outer row Button — SwiftUI
-                    // resolves the innermost tappable first.
+                    // Wrapping the trailing affordance in its own Button
+                    // keeps the tap from bubbling to the outer row Button —
+                    // SwiftUI resolves the innermost tappable first.
                     Button(action: onDismiss) {
                         HStack(spacing: VSpacing.xs) {
-                            VIconView(.x, size: 7)
+                            VIconView(trailingAction.icon, size: 7)
                                 .foregroundStyle(VColor.contentDisabled)
-                            Text("Dismiss")
+                            Text(trailingAction.label)
                                 .font(VFont.bodySmallDefault)
                                 .foregroundStyle(VColor.contentDisabled)
                         }
@@ -105,7 +117,7 @@ struct HomeRecapRow: View {
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
-                    .accessibilityLabel(Text("Dismiss"))
+                    .accessibilityLabel(Text(trailingAction.label))
                 }
             }
             .contentShape(Rectangle())
@@ -120,7 +132,7 @@ struct HomeRecapRow: View {
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(isUrgent ? "Urgent, \(title)" : title))
-        .accessibilityAction(named: Text("Dismiss"), onDismiss)
+        .accessibilityAction(named: Text(trailingAction.label), onDismiss)
     }
 
     /// 26pt leading slot: persona avatar for assistant-initiated rows,
