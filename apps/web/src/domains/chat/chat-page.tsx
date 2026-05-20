@@ -269,7 +269,6 @@ export function ChatPage() {
     showPrimer: _showPrimer,
     handleVoiceBeforeStart,
     handleVoiceTranscript,
-    handleVoiceRecordingChange,
     setVoiceInterim,
     handleRetryMicPermission,
   } = useVoiceInput({ assistantId, inputRef, setInput });
@@ -1005,7 +1004,6 @@ export function ChatPage() {
       setVoiceError,
       handleVoiceBeforeStart,
       handleVoiceTranscript,
-      handleVoiceRecordingChange,
       setVoiceInterim,
       handleRetryMicPermission,
     },

@@ -130,7 +130,6 @@ export interface VoiceInputHandlers {
   setVoiceError: (e: string | null) => void;
   handleVoiceBeforeStart: () => boolean | Promise<boolean>;
   handleVoiceTranscript: (rawText: string) => void;
-  handleVoiceRecordingChange: (isRecording: boolean) => void;
   setVoiceInterim: (text: string) => void;
   handleRetryMicPermission: () => void;
 }
@@ -450,7 +449,6 @@ export function ChatRouteContent({
     setVoiceError: _setVoiceError,
     handleVoiceBeforeStart,
     handleVoiceTranscript,
-    handleVoiceRecordingChange,
     setVoiceInterim,
     handleRetryMicPermission,
   } = voice;
@@ -1214,7 +1212,6 @@ export function ChatRouteContent({
     voiceInterim: voiceInterim ?? undefined,
     onVoiceTranscript: (rawText: string) => handleVoiceTranscript(rawText),
     onVoiceInterimTranscript: setVoiceInterim,
-    onVoiceRecordingChange: handleVoiceRecordingChange,
     onVoiceError: _setVoiceError,
     onVoiceBeforeStart: handleVoiceBeforeStart,
     onStopGenerating: handleStopGenerating,
