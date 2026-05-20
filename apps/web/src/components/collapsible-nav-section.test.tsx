@@ -1,5 +1,5 @@
 /**
- * Tests for the CollapsibleNavSection primitive.
+ * Tests for the CollapsibleNavSection component.
  *
  * Renders to static markup via `react-dom/server` and asserts on the
  * emitted HTML. Radix's interactive behavior is covered by Radix's

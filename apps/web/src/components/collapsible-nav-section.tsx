@@ -7,7 +7,7 @@ import {
   type Ref,
 } from "react";
 
-import { cn } from "../../utils/cn.js";
+import { cn } from "@vellum/design-library";
 
 /**
  * Collapsible navigation section — a Radix-backed accordion item with a
@@ -37,7 +37,7 @@ import { cn } from "../../utils/cn.js";
  *   </CollapsibleNavSection.Root>
  *
  * Animations use Radix's `--radix-accordion-content-height` variable —
- * the keyframes are defined in `tokens.css` so they stay out of Tailwind's
+ * the keyframes are defined in `index.css` so they stay out of Tailwind's
  * JIT output.
  */
 
