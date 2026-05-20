@@ -49,7 +49,7 @@ import {
 } from "@vellum/design-library";
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { usePinnedAppsOptional } from "@/domains/chat/lib/pinnedAppsContext.js";
+import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store.js";
 import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
 
 import { buildMoveToGroupTargets, groupConversations, isConversationPinned } from "@/domains/chat/utils/groupConversations.js";
@@ -188,7 +188,7 @@ export function AssistantSideMenu({
       customGroupsEnabled: conversationGroupsUI,
     });
 
-  const pinnedApps = usePinnedAppsOptional()?.pinnedApps ?? [];
+  const pinnedApps = usePinnedAppsStore.use.pinnedApps();
 
   const [showAllRecents, setShowAllRecents] = useState(false);
   const hasAttentionBeyondLimit = !showAllRecents

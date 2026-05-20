@@ -25,7 +25,7 @@ import {
 } from "@/domains/chat/api/apps.js";
 import { listDocuments } from "@/domains/chat/api/documents.js";
 import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/api/publish.js";
-import { usePinnedApps } from "@/domains/chat/lib/pinnedAppsContext.js";
+import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store.js";
 import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
 import { AppPreviewThumbnail } from "@/domains/chat/components/app-card.js";
 import {
@@ -219,7 +219,8 @@ export function LibraryView({
   onEditApp,
 }: LibraryViewProps) {
   const { deployToVercel } = useAppFeatureFlags();
-  const { pinnedAppIds, togglePin } = usePinnedApps();
+  const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
+  const togglePin = usePinnedAppsStore.use.togglePin();
   const [apps, setApps] = useState<AppSummary[]>([]);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [loading, setLoading] = useState(true);

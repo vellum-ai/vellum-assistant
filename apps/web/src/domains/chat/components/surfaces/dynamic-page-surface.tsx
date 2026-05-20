@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { client } from "@/generated/api/client.gen.js";
 import { AppCard } from "@/domains/chat/components/app-card.js";
 import { clearAppHtmlCache, getCachedAppHtml } from "@/domains/chat/api/apps.js";
-import { usePinnedAppsOptional } from "@/domains/chat/lib/pinnedAppsContext.js";
+import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store.js";
 import type { Surface } from "@/domains/chat/lib/types.js";
 import { getDynamicPageAppId } from "@/domains/chat/components/surfaces/dynamic-page-app-id.js";
 
@@ -191,7 +191,8 @@ export function DynamicPageSurface({
   onOpenApp,
   isToolCallComplete = true,
 }: DynamicPageSurfaceProps) {
-  const pinned = usePinnedAppsOptional();
+  const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
+  const togglePin = usePinnedAppsStore.use.togglePin();
   const data = surface.data as unknown as DynamicPageSurfaceData;
   const appId = getDynamicPageAppId(surface);
   const inlineHtml = typeof data.html === "string" && data.html.length > 0
@@ -361,10 +362,10 @@ export function DynamicPageSurface({
   // Always show AppCard for dynamic_page surfaces with preview data
   if (data.preview && !expanded) {
     const cardName = data.preview.title || surface.title || "App";
-    const isPinned = appId ? (pinned?.isPinned(appId) ?? false) : false;
-    const onPin = pinned && appId
+    const isPinned = appId ? pinnedAppIds.has(appId) : false;
+    const onPin = appId
       ? () =>
-          pinned.togglePin({
+          togglePin({
             id: appId,
             name: cardName,
             icon: data.preview?.icon,

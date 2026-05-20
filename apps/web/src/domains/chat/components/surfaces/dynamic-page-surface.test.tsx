@@ -7,9 +7,25 @@ mock.module("@/domains/chat/api/apps", () => ({
   getCachedAppHtml: () => Promise.resolve("<html></html>"),
 }));
 
-mock.module("@/domains/chat/lib/pinnedAppsContext", () => ({
-  usePinnedAppsOptional: () => null,
-}));
+mock.module("@/domains/chat/pinned-apps-store", () => {
+  const emptyStore = {
+    use: {
+      pinnedApps: () => [],
+      pinnedAppIds: () => new Set<string>(),
+      togglePin: () => () => {},
+      isPinned: () => () => false,
+      onUnpin: () => () => () => {},
+    },
+    getState: () => ({
+      pinnedApps: [],
+      pinnedAppIds: new Set<string>(),
+      togglePin: () => {},
+      isPinned: () => false,
+      onUnpin: () => () => {},
+    }),
+  };
+  return { usePinnedAppsStore: emptyStore };
+});
 
 import { DynamicPageSurface } from "@/domains/chat/components/surfaces/dynamic-page-surface.js";
 
