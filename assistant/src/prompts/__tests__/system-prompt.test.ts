@@ -97,54 +97,37 @@ describe("maybeReseedBootstrapForCohort — content-automation template", () => 
     expect(content).toContain("action `prompt`");
   });
 
-  test("contains all four path options", () => {
+  test("routes to website scrape path when Website URL is in user context", () => {
     const content = reseedAndRead();
-    expect(content).toContain("I have a Sanity account");
-    expect(content).toContain("I want to try Sanity");
-    expect(content).toContain("website or blog");
-    expect(content).toContain("somewhere else");
+    expect(content).toContain("Website URL in user context");
+    expect(content).toContain("Website scrape path");
   });
 
-  test("does NOT contain the old three-question pattern", () => {
-    const content = reseedAndRead();
-    // Old pattern batched three ask_question calls for separate fields
-    expect(content).not.toContain("Batch three");
-    expect(content).not.toContain("one question per field");
-    expect(content).not.toContain("Project ID (options:");
-    expect(content).not.toContain("Dataset name (options:");
-    expect(content).not.toContain('API token (options: "I have one ready"');
-  });
-
-  test("references data/sanity-connection.json for project/dataset state", () => {
+  test("routes to Sanity path when sanity-connection.json sidecar exists", () => {
     const content = reseedAndRead();
     expect(content).toContain("data/sanity-connection.json");
+    expect(content).toContain("Sanity path");
   });
 
-  test("references data/content-source.json for URL-import sidecar detection", () => {
+  test("routes to website scrape path when content-source.json sidecar exists", () => {
     const content = reseedAndRead();
     expect(content).toContain("data/content-source.json");
+    expect(content).toContain("Website scrape path");
   });
 
-  test("instructs to skip triage when sanity-connection.json sidecar exists", () => {
+  test("website scrape path includes web_fetch instructions for homepage, blog, and posts", () => {
     const content = reseedAndRead();
-    // The preamble check must instruct skipping triage when the sidecar is present
-    expect(content).toContain("data/sanity-connection.json");
-    expect(content).toContain("Skip the triage question");
+    expect(content).toContain("Scrape homepage");
+    expect(content).toContain("web_fetch");
+    expect(content).toContain("scrape blog index");
+    expect(content).toContain("Scrape top content pages");
   });
 
-  test("instructs to skip triage when content-source.json sidecar exists", () => {
+  test("website scrape path infers topics and voice to VOICE.md", () => {
     const content = reseedAndRead();
-    expect(content).toContain("data/content-source.json");
-    expect(content).toContain("Skip the triage question");
-  });
-
-  test("still contains four-option triage as fallback when no sidecars exist", () => {
-    const content = reseedAndRead();
-    // The "If neither exists" path must still present the four-option triage
-    expect(content).toContain("I have a Sanity account");
-    expect(content).toContain("I want to try Sanity");
-    expect(content).toContain("website or blog");
-    expect(content).toContain("somewhere else");
+    expect(content).toContain("## Topics");
+    expect(content).toContain("## Style");
+    expect(content).toContain("## Audience");
   });
 
   test("references assistant oauth request --provider sanity for authenticated API calls", () => {
