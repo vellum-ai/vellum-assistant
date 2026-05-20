@@ -306,6 +306,7 @@ export const VoiceInputButton = forwardRef<
         }
       }
       releaseStream();
+      useVoiceRecordingStore.getState().reset();
     };
   }, [releaseStream, stopSpeechRecognition]);
 
@@ -424,6 +425,9 @@ export const VoiceInputButton = forwardRef<
 
     recorder.onstop = () => {
       mediaRecorderRef.current = null;
+      if (useVoiceRecordingStore.getState().phase === "recording") {
+        vsStopRecording();
+      }
       releaseStream();
       stopSpeechRecognition();
       onInterimTranscriptRef.current?.("");
