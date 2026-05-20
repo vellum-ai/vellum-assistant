@@ -686,6 +686,7 @@ export class HeartbeatService {
       callSite: "heartbeatAgent",
       timeoutMs: HEARTBEAT_TIMEOUT_MS,
       origin: "heartbeat",
+      deferNotifications: true,
       onConversationCreated: (newConversationId) => {
         conversationId = newConversationId;
         this.deps.onConversationCreated?.({

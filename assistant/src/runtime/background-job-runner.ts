@@ -24,6 +24,11 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { addMessage } from "../memory/conversation-crud.js";
 import type { TitleOrigin } from "../memory/conversation-title-service.js";
+import {
+  commitDeferredConversation,
+  discardDeferredConversation,
+  registerDeferredConversation,
+} from "../notifications/deferred-emit.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { AttentionHints } from "../notifications/signal.js";
 import { getLogger } from "../util/logger.js";
@@ -121,6 +126,11 @@ export interface RunBackgroundJobOptions {
    * the `assistant` role and cannot override the action prompt.
    */
   assistantSandwich?: { preamble: string; content: string; postamble: string };
+  /**
+   * Buffer in-band `notifications send` calls and only flush them after the
+   * run completes successfully. See `notifications/deferred-emit.ts`.
+   */
+  deferNotifications?: boolean;
 }
 
 export interface RunBackgroundJobResult {
@@ -205,6 +215,10 @@ export async function runBackgroundJob(
       ...(opts.scheduleJobId ? { scheduleJobId: opts.scheduleJobId } : {}),
     });
 
+    if (opts.deferNotifications) {
+      registerDeferredConversation(conversation.id);
+    }
+
     // Fire the sidebar-creation callback synchronously after bootstrap so
     // connected clients (macOS sidebar, etc.) see the conversation appear
     // immediately rather than after `processMessage` returns. Wrapped so a
@@ -273,6 +287,9 @@ export async function runBackgroundJob(
     });
 
     await Promise.race([work, timeout]);
+    if (opts.deferNotifications) {
+      await commitDeferredConversation(conversation.id);
+    }
     return { conversationId: conversation.id, ok: true };
   } catch (err) {
     const errorKind = classifyError(err);
@@ -280,6 +297,10 @@ export async function runBackgroundJob(
     // Bootstrap can fail before `conversation` is assigned; fall back to ""
     // so the structured failure result still flows to the caller.
     const conversationId = conversation?.id ?? "";
+
+    if (opts.deferNotifications && conversationId) {
+      discardDeferredConversation(conversationId);
+    }
 
     log.error(
       {

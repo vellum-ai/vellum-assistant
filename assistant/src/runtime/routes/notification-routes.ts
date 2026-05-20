@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getDb } from "../../memory/db-connection.js";
 import { notificationDeliveries } from "../../memory/schema.js";
+import { bufferIfDeferred } from "../../notifications/deferred-emit.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { listEvents } from "../../notifications/events-store.js";
 import type { AttentionHints } from "../../notifications/signal.js";
@@ -78,6 +79,9 @@ const EmitSignalParams = z.object({
   conversationAffinityHint: z.record(z.string(), z.string()).optional(),
   dedupeKey: z.string().optional(),
   throwOnError: z.boolean().optional(),
+  // Conversation that originated this signal — used by `deferred-emit` to
+  // buffer notifications during in-band background-job tool calls.
+  originatingConversationId: z.string().optional(),
 });
 
 const ListNotificationEventsParams = z.object({
@@ -89,7 +93,7 @@ const ListNotificationEventsParams = z.object({
 
 async function handleEmitSignal({ body = {} }: RouteHandlerArgs) {
   const validated = EmitSignalParams.parse(body);
-  const result = await emitNotificationSignal({
+  const params = {
     sourceEventName: validated.sourceEventName,
     sourceChannel: validated.sourceChannel,
     sourceContextId: validated.sourceContextId,
@@ -99,7 +103,20 @@ async function handleEmitSignal({ body = {} }: RouteHandlerArgs) {
     conversationAffinityHint: validated.conversationAffinityHint,
     dedupeKey: validated.dedupeKey,
     throwOnError: validated.throwOnError,
-  });
+  };
+  const buffered = bufferIfDeferred(
+    validated.originatingConversationId,
+    params,
+  );
+  if (buffered) {
+    return {
+      signalId: buffered.signalId,
+      dispatched: buffered.dispatched,
+      deduplicated: buffered.deduplicated,
+      reason: buffered.reason,
+    };
+  }
+  const result = await emitNotificationSignal(params);
   return {
     signalId: result.signalId,
     dispatched: result.dispatched,
