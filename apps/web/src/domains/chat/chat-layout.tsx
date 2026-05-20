@@ -322,7 +322,7 @@ export function ChatLayout() {
     (key: string) => {
       haptic.light();
       setActiveKey(key);
-      navigate(routes.assistant);
+      navigate(routes.conversation(key));
       setDrawerOpen(false);
     },
     [setActiveKey, navigate],

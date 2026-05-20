@@ -354,6 +354,16 @@ export function useConversationLoader({
         }
 
         useConversationListStore.getState().setActiveKey(key);
+
+        // Ensure the URL reflects the active conversation so the page is
+        // deep-linkable from the moment it loads.  `replace` avoids a
+        // spurious history entry. This also moves ChatPage from the index
+        // route (where it renders inside ConversationKeyRedirect) to the
+        // canonical conversations/:key route before any user interaction,
+        // preventing a remount when draft keys resolve during sendMessage.
+        if (key) {
+          void navigate(routes.conversation(key), { replace: true });
+        }
       } catch (err) {
         if (cancelled) return;
         if (err instanceof ApiError && err.status === 401) {
@@ -390,6 +400,7 @@ export function useConversationLoader({
     assistantStateKind,
     urlConversationKey,
     searchParams,
+    navigate,
     reachabilityReadyEpoch,
     refreshEpoch,
     assistantIdRef,
