@@ -460,7 +460,7 @@ function FilterDropdown({
           type="button"
           aria-haspopup="listbox"
           aria-expanded={open}
-          className="inline-flex w-40 items-center justify-between gap-2 rounded-lg border bg-[var(--surface-active)] px-3 py-2 text-body-medium-lighter transition-colors hover:bg-[var(--ghost-hover)]"
+          className="inline-flex w-40 items-center justify-between gap-2 rounded-lg border bg-[var(--surface-active)] px-3 py-2 text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
           style={{
             borderColor: "var(--border-base)",
             color: "var(--content-default)",
@@ -541,7 +541,7 @@ function FilterGroup({
                 onClick={() => onSelect(option.value)}
                 role="option"
                 aria-selected={isSelected}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-medium-lighter transition-colors hover:bg-[var(--ghost-hover)]"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
                 style={{
                   color: isSelected
                     ? "var(--primary-base)"
