@@ -308,13 +308,6 @@ export function PreChatFlow() {
       if (trimmedAssistant) {
         setPendingAssistantName(trimmedAssistant);
       }
-      if (screenStorageKey) {
-        try {
-          sessionStorage.removeItem(screenStorageKey);
-        } catch {
-          // ignore — see initial-state comment.
-        }
-      }
       void navigate(routes.onboarding.privacy);
     };
     return (
