@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ChevronDown } from "lucide-react";
 
@@ -76,6 +77,9 @@ import { ConversationAssetsPill } from "@/domains/chat/components/conversation-a
 import { CommandPalette } from "@/components/command-palette/command-palette.js";
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout.js";
 import { abortSubagent } from "@/domains/chat/api/conversations.js";
+import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay.js";
+import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay.js";
+import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay.js";
 import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
 import type { AssistantIdentity } from "@/domains/chat/api/assistant.js";
@@ -158,6 +162,8 @@ export function ChatPage() {
     viewBeforeSubagentDetail: s.viewBeforeSubagentDetail,
   })));
   const subagentState = useSubagentStore(useShallow((s) => ({ byId: s.byId, orderedIds: s.orderedIds })));
+  const isSharing = useDeployStore.use.isSharing();
+  const isDeploying = useDeployStore.use.isDeploying();
   const subagentEntries = useMemo(
     () => subagentState.orderedIds.map((id) => subagentState.byId[id]!).filter(Boolean),
     [subagentState.byId, subagentState.orderedIds],
@@ -1100,6 +1106,13 @@ export function ChatPage() {
     isChannelReadonly,
   };
 
+  // -------------------------------------------------------------------------
+  // Mobile overlay portal
+  // -------------------------------------------------------------------------
+  const overlayTarget = isMobile
+    ? document.getElementById("viewport-overlays")
+    : null;
+
   return (
     <>
       <ChatRouteContent {...chatRouteProps} />
@@ -1114,6 +1127,69 @@ export function ChatPage() {
         onItemSelect={handleItemSelect}
         onKeyDown={commandPalette.handleKeyDown}
       />
+      {overlayTarget &&
+        createPortal(
+          <>
+            <MobileAppOverlay
+              openedAppState={
+                viewerState.mainView === "app" ? viewerState.openedAppState : null
+              }
+              isAppMinimized={viewerState.isAppMinimized}
+              assistantId={assistantId}
+              onToggleMinimized={() => {
+                useViewerStore.getState().toggleAppMinimized();
+              }}
+              onClose={() => {
+                useViewerStore.getState().closeApp();
+                useViewerStore.getState().setMainView("chat");
+              }}
+              onShare={() => {
+                useDeployStore.getState().startSharing();
+              }}
+              isSharing={isSharing}
+              onDeploy={
+                deployToVercel
+                  ? () => {
+                      useDeployStore.getState().startDeploying();
+                    }
+                  : undefined
+              }
+              isDeploying={isDeploying}
+            />
+            <MobileDocumentOverlay
+              openedDocumentState={
+                viewerState.mainView === "document"
+                  ? viewerState.openedDocumentState
+                  : null
+              }
+              assistantId={assistantId}
+              onClose={() => {
+                useViewerStore.getState().closeDocument();
+              }}
+            />
+            <MobileSubagentDetailOverlay
+              entry={
+                viewerState.mainView === "subagent-detail" &&
+                viewerState.activeSubagentId
+                  ? subagentState.byId[viewerState.activeSubagentId] ?? null
+                  : null
+              }
+              onClose={() => {
+                useViewerStore.getState().closeSubagentDetail();
+              }}
+              onStop={async (subagentId: string) => {
+                if (!assistantId || !activeConversationKey) return;
+                try {
+                  await abortSubagent(assistantId, activeConversationKey, subagentId);
+                } catch {
+                  // Best-effort — the daemon may have already completed
+                }
+              }}
+              onRequestDetail={async () => {}}
+            />
+          </>,
+          overlayTarget,
+        )}
     </>
   );
 }
