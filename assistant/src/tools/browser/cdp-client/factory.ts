@@ -11,6 +11,7 @@ import { getConfig } from "../../../config/loader.js";
 import { HostBrowserProxy } from "../../../daemon/host-browser-proxy.js";
 import { getLogger } from "../../../util/logger.js";
 import type { ToolContext } from "../../types.js";
+import { getPinnedTab } from "../pinned-tabs.js";
 import { createCdpInspectClient } from "./cdp-inspect-client.js";
 import { CdpError } from "./errors.js";
 import { createExtensionCdpClient } from "./extension-cdp-client.js";
@@ -222,7 +223,7 @@ export function buildPinnedCandidateList(
             const client = createExtensionCdpClient(
               hostBrowserProxy,
               conversationId,
-              undefined,
+              getPinnedTab(conversationId),
               sourceActorPrincipalId,
               targetClientId,
             );
@@ -333,7 +334,7 @@ export function buildCandidateList(context: ToolContext, targetClientId?: string
           const client = createExtensionCdpClient(
             hostBrowserProxy,
             conversationId,
-            undefined,
+            getPinnedTab(conversationId),
             sourceActorPrincipalId,
             targetClientId,
           );
@@ -358,7 +359,7 @@ export function buildCandidateList(context: ToolContext, targetClientId?: string
         const client = createExtensionCdpClient(
           hostBrowserProxy,
           conversationId,
-          undefined,
+          getPinnedTab(conversationId),
           sourceActorPrincipalId,
           targetClientId,
         );

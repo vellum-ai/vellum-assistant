@@ -27,6 +27,7 @@ let cdpSendHandler: (
   params?: Record<string, unknown>,
 ) => unknown = () => ({});
 let cdpDisposed = false;
+let cdpSetSessionIdCalls: string[] = [];
 
 function makeFakeCdp(kind: "local" | "extension", conversationId: string) {
   return {
@@ -42,6 +43,12 @@ function makeFakeCdp(kind: "local" | "extension", conversationId: string) {
     },
     dispose() {
       cdpDisposed = true;
+    },
+    // Mirrors the optional method on the real CdpClient interface so
+    // the --new-tab path can be exercised end-to-end. Recorded for
+    // per-test assertions.
+    setCdpSessionId(cdpSessionId: string) {
+      cdpSetSessionIdCalls.push(cdpSessionId);
     },
   };
 }
@@ -135,6 +142,7 @@ mock.module("../tools/network/url-safety.js", () => ({
 }));
 
 import { executeBrowserNavigate } from "../tools/browser/browser-execution.js";
+import { __resetPinnedTabsForTests } from "../tools/browser/pinned-tabs.js";
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {
@@ -212,6 +220,7 @@ function resetCdp() {
   cdpSendCalls = [];
   cdpDisposed = false;
   cdpSendHandler = defaultCdpHandler;
+  cdpSetSessionIdCalls = [];
 }
 
 describe("executeBrowserNavigate", () => {
@@ -223,6 +232,7 @@ describe("executeBrowserNavigate", () => {
     resolveResult = {};
     resetMockPage();
     resetCdp();
+    __resetPinnedTabsForTests();
   });
 
   // ── Input validation ───────────────────────────────────────────
@@ -662,6 +672,127 @@ describe("executeBrowserNavigate", () => {
     expect(result.content).toContain("Final URL resolved to a local/private");
     expect(result.content).toContain("allow_private_network=true");
     expect(cdpDisposed).toBe(true);
+  });
+
+  // ── --new-tab flag (extension path only) ──────────────────────
+
+  test("extension path with new_tab: true opens a fresh tab and pins it before Page.navigate", async () => {
+    parseUrlResult = new URL("https://example.com/page");
+    mockExtensionAvailable = true;
+
+    cdpSendHandler = (method, params) => {
+      if (method === "Vellum.createTab") return { tabId: "999" };
+      return defaultCdpHandler(method, params);
+    };
+
+    const result = await executeBrowserNavigate(
+      { url: "https://example.com/page", new_tab: true },
+      { ...ctx },
+    );
+
+    expect(result.isError).toBe(false);
+
+    // Vellum.createTab fired and fired BEFORE Page.navigate.
+    const createIdx = cdpSendCalls.findIndex(
+      (c) => c.method === "Vellum.createTab",
+    );
+    const navIdx = cdpSendCalls.findIndex((c) => c.method === "Page.navigate");
+    expect(createIdx).toBeGreaterThanOrEqual(0);
+    expect(navIdx).toBeGreaterThanOrEqual(0);
+    expect(createIdx).toBeLessThan(navIdx);
+
+    // setCdpSessionId was invoked with the returned tabId so the
+    // follow-on commands on this client route to the new tab.
+    expect(cdpSetSessionIdCalls).toContain("999");
+  });
+
+  test("new_tab: true on extension path with createTab failure aborts with a clear error", async () => {
+    parseUrlResult = new URL("https://example.com/page");
+    mockExtensionAvailable = true;
+
+    cdpSendHandler = (method, params) => {
+      if (method === "Vellum.createTab") {
+        throw new Error("createTab returned no tabId");
+      }
+      return defaultCdpHandler(method, params);
+    };
+
+    const result = await executeBrowserNavigate(
+      { url: "https://example.com/page", new_tab: true },
+      { ...ctx },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Failed to open a new tab");
+    // Page.navigate must NOT fire — that's exactly what --new-tab is
+    // supposed to prevent in the failure case (silent fallback to
+    // active-tab clobbering would defeat the purpose of the flag).
+    expect(cdpSendCalls.some((c) => c.method === "Page.navigate")).toBe(false);
+    // The createTab-failure path early-returns BEFORE the main
+    // try/finally that wraps the navigate flow, so the executor has to
+    // dispose the CDP client manually. Verifying here so future edits
+    // to that early-return don't silently regress the cleanup.
+    expect(cdpDisposed).toBe(true);
+  });
+
+  test("new_tab: true on extension path with no tabId in response surfaces no setCdpSessionId but still continues", async () => {
+    // Defensive: dispatcher returns success but no tabId. The
+    // executor logs a warn and proceeds with the active-tab default;
+    // the navigate still runs (degraded behaviour but not a hard
+    // failure — there's no point hard-erroring on a malformed reply).
+    parseUrlResult = new URL("https://example.com/page");
+    mockExtensionAvailable = true;
+
+    cdpSendHandler = (method, params) => {
+      if (method === "Vellum.createTab") return {}; // no tabId
+      return defaultCdpHandler(method, params);
+    };
+
+    const result = await executeBrowserNavigate(
+      { url: "https://example.com/page", new_tab: true },
+      { ...ctx },
+    );
+
+    expect(result.isError).toBe(false);
+    // No pin was set because no tabId came back.
+    expect(cdpSetSessionIdCalls).toEqual([]);
+    // Page.navigate still ran.
+    expect(cdpSendCalls.some((c) => c.method === "Page.navigate")).toBe(true);
+  });
+
+  test("new_tab: true on LOCAL path is a no-op (Playwright manages its own isolated browser)", async () => {
+    parseUrlResult = new URL("https://example.com/page");
+    mockExtensionAvailable = false; // local path
+
+    const result = await executeBrowserNavigate(
+      { url: "https://example.com/page", new_tab: true },
+      { ...ctx },
+    );
+
+    expect(result.isError).toBe(false);
+    // No Vellum.createTab was issued on the local path — the flag is
+    // silently ignored because Playwright opens its own browser and
+    // there's no user-tab to disturb.
+    expect(cdpSendCalls.some((c) => c.method === "Vellum.createTab")).toBe(
+      false,
+    );
+    expect(cdpSetSessionIdCalls).toEqual([]);
+  });
+
+  test("absence of new_tab leaves extension path untouched (no Vellum.createTab)", async () => {
+    parseUrlResult = new URL("https://example.com/page");
+    mockExtensionAvailable = true;
+
+    const result = await executeBrowserNavigate(
+      { url: "https://example.com/page" }, // no new_tab key at all
+      { ...ctx },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(cdpSendCalls.some((c) => c.method === "Vellum.createTab")).toBe(
+      false,
+    );
+    expect(cdpSetSessionIdCalls).toEqual([]);
   });
 
   // ── Defense-in-depth: post-navigation final URL check ─────────

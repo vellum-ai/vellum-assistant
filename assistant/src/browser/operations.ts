@@ -177,13 +177,28 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         description: "Allow navigation to localhost/private-network hosts.",
         required: false,
       },
+      {
+        name: "new_tab",
+        type: "boolean",
+        description:
+          "Open the URL in a new browser tab and pin subsequent operations on this session to it. Extension backend only; ignored on other backends.",
+        required: false,
+      },
     ],
     helpText: `Loads the given URL and waits for the page to reach a stable state.
 Returns the page title on success.
 
+By default on the Chrome extension backend, navigate attaches the
+debugger to whichever tab is currently active. Pass --new-tab to
+open a fresh tab instead and pin this session's subsequent
+operations to it — useful when the active tab is one you don't
+want disturbed (for example, the tab you're chatting with the
+assistant from).
+
 Examples:
   $ assistant browser navigate --url https://example.com
   $ assistant browser navigate --url http://localhost:3000 --allow-private-network
+  $ assistant browser navigate --url https://github.com --new-tab
   $ assistant browser --session s1 navigate --url https://github.com`,
   },
   {

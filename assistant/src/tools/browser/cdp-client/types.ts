@@ -34,6 +34,19 @@ export interface CdpClient {
    * is allowed but should surface as an error.
    */
   dispose(): void;
+
+  /**
+   * Update the `cdpSessionId` used on subsequent {@link CdpClient.send}
+   * calls. Backends that don't multiplex commands across multiple
+   * targets (local Playwright, cdp-inspect) may implement this as a
+   * no-op. The extension backend uses this after opening a new tab
+   * (via the `Vellum.createTab` pseudo-CDP method) to route
+   * follow-on commands to the freshly-created tab instead of the
+   * currently-active one.
+   *
+   * Optional — callers should null-check before invoking.
+   */
+  setCdpSessionId?(cdpSessionId: string): void;
 }
 
 /**

@@ -148,6 +148,14 @@ interface DispatcherTestHarness {
   forwardSessionInvalidatedImpl?: (
     event: HostBrowserSessionInvalidatedEnvelope,
   ) => void;
+  /**
+   * Optional override that supplies a `createTab` dependency to the
+   * dispatcher. When omitted, the dispatcher's `deps.createTab` is
+   * undefined and Vellum.createTab routes report "not supported".
+   * Recorded call count + return values for assertions.
+   */
+  createTabImpl?: () => Promise<{ tabId?: number; targetId?: string }>;
+  createTabCalls: number;
 }
 
 function createHarness(options: MockCdpProxyOptions = {}): DispatcherTestHarness {
@@ -171,6 +179,7 @@ function createHarness(options: MockCdpProxyOptions = {}): DispatcherTestHarness
     postResultImpl: async (result) => {
       results.push(result);
     },
+    createTabCalls: 0,
   };
 
   harness.dispatcher = createHostBrowserDispatcher({
@@ -195,6 +204,22 @@ function createHarness(options: MockCdpProxyOptions = {}): DispatcherTestHarness
         return;
       }
       forwardedInvalidations.push(event);
+    },
+    // Wire createTab through only when the test provides an impl, so
+    // that tests covering the "not supported" path can simulate the
+    // absence of the dep. The arrow function captures `harness` by
+    // reference, so a late-assigned `createTabImpl` (set after
+    // createHarness returns) is honoured. When no impl is set the
+    // dep behaves as not-provided by throwing a sentinel error that
+    // the dispatcher's standard error path surfaces; tests using the
+    // "not supported" path should leave createTabImpl unset and
+    // assert on the resulting error envelope.
+    createTab: async () => {
+      if (!harness.createTabImpl) {
+        throw new Error("createTab not supported in this test harness");
+      }
+      harness.createTabCalls++;
+      return harness.createTabImpl();
     },
   });
 
@@ -1542,6 +1567,99 @@ describe('createHostBrowserDispatcher', () => {
         requestId: 'req-2',
       });
       expect(harness.proxy.attachCalls.length).toBe(2);
+    });
+  });
+
+  // ── Synthetic Vellum.createTab ──────────────────────────────────
+
+  describe('Vellum.createTab — synthetic new-tab command', () => {
+    test('opens a new tab and returns its tabId as a string', async () => {
+      harness = createHarness();
+      harness.createTabImpl = async () => ({ tabId: 99 });
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'createTab-1',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.createTab',
+      };
+
+      await harness.dispatcher.handle(request);
+
+      expect(harness.createTabCalls).toBe(1);
+      // proxy.attach + proxy.send NOT called — Vellum.createTab is synthetic
+      // and pre-resolution. The follow-on Page.navigate that actually
+      // attaches the debugger happens on a separate envelope.
+      expect(harness.proxy.attachCalls.length).toBe(0);
+      expect(harness.proxy.sendCalls.length).toBe(0);
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].requestId).toBe('createTab-1');
+      expect(harness.results[0].isError).toBe(false);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.tabId).toBe('99'); // string, not number, for cdpSessionId routing
+    });
+
+    test('reports error when createTab returns no tabId', async () => {
+      harness = createHarness();
+      harness.createTabImpl = async () => ({ tabId: undefined });
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'createTab-noid',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.createTab',
+      };
+
+      await harness.dispatcher.handle(request);
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(true);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.message).toContain('no tabId');
+    });
+
+    test('surfaces createTab failures as a CDP error envelope', async () => {
+      harness = createHarness();
+      harness.createTabImpl = async () => {
+        throw new Error(
+          'Failed to create a new tab for navigation (active tab was on a privileged URL)',
+        );
+      };
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'createTab-fail',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.createTab',
+      };
+
+      await harness.dispatcher.handle(request);
+
+      expect(harness.results.length).toBe(1);
+      expect(harness.results[0].isError).toBe(true);
+      const payload = JSON.parse(harness.results[0].content);
+      expect(payload.code).toBe(-32000);
+      expect(payload.message).toContain('privileged URL');
+    });
+
+    test('does NOT invoke resolveTarget (pre-resolution)', async () => {
+      harness = createHarness();
+      harness.createTabImpl = async () => ({ tabId: 7 });
+
+      const request: HostBrowserRequestEnvelope = {
+        type: 'host_browser_request',
+        requestId: 'createTab-presolve',
+        conversationId: 'conv-1',
+        cdpMethod: 'Vellum.createTab',
+      };
+
+      await harness.dispatcher.handle(request);
+
+      // Vellum.createTab must run BEFORE resolveTarget — otherwise a
+      // minimised browser with no active tab would fail before we
+      // could create a new one.
+      expect(harness.resolveTargetCalls.length).toBe(0);
     });
   });
 
