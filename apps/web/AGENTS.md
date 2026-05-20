@@ -39,6 +39,7 @@ cd apps/web && bunx tsc --noEmit      # Type-check
 cd apps/web && bun run lint           # Lint
 cd apps/web && bun run build          # Production build
 cd apps/web && bun test src/path/to/file.test.ts  # Run specific tests
+cd apps/web && bun run test:ci       # Run all tests (isolated, CI)
 ```
 
 ## Migration status
