@@ -698,8 +698,12 @@ export function ChatPage() {
       navigateToSettings,
     });
 
+  // Guard: command palette should only be togglable once the page is fully loaded
+  const isPageReady = !authLoading && assistantState.kind !== "loading" && assistantState.kind !== "error";
+
   // Ctrl/Cmd+K shortcut for command palette
   useEffect(() => {
+    if (!isPageReady) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (!shouldHandleShortcut(event, document.activeElement, "k")) return;
       event.preventDefault();
@@ -707,13 +711,14 @@ export function ChatPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => { window.removeEventListener("keydown", onKeyDown); };
-  }, [commandPalette.toggle]);
+  }, [commandPalette.toggle, isPageReady]);
 
   // Register command palette toggle as the search callback for the layout
   useEffect(() => {
+    if (!isPageReady) return;
     setOnSearchClick(commandPalette.toggle);
     return () => { setOnSearchClick(null); };
-  }, [commandPalette.toggle, setOnSearchClick]);
+  }, [commandPalette.toggle, setOnSearchClick, isPageReady]);
 
   // -------------------------------------------------------------------------
   // Layout header slot registration — topBarCenter + topBarRightSlot
