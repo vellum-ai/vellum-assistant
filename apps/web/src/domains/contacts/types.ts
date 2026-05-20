@@ -98,16 +98,11 @@ export interface TwilioPhoneNumber {
   friendlyName: string;
 }
 
-export interface ConnectAssistantInput {
-  guardianHandle: string;
-  gatewayUrl: string;
-}
-
-export interface ConnectAssistantResponse {
-  success: boolean;
-  contactId: string;
-  alreadyConnected?: boolean;
-  error?: string;
+export interface CreateA2AInviteResponse {
+  inviteId: string;
+  token: string;
+  expiresAt: number;
+  senderGatewayUrl: string;
 }
 
 export type ContactSelection =

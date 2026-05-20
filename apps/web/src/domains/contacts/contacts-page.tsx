@@ -10,7 +10,7 @@ import {
 } from "@/components/mobile-sidebar-drawer.js";
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail.js";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view.js";
-import { ConnectAssistantDialog } from "@/domains/contacts/components/connect-assistant-dialog.js";
+import { GenerateInviteLinkDialog } from "@/domains/contacts/components/generate-invite-link-dialog.js";
 import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-dialog.js";
 import { ContactsList } from "@/domains/contacts/components/contacts-list.js";
 import { GuardianDetailView } from "@/domains/contacts/components/guardian-detail-view.js";
@@ -91,7 +91,7 @@ function ContactsPageInner({
   });
   const [pendingChannelKey, setPendingChannelKey] =
     useState<AssistantChannelState["key"] | null>(null);
-  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
@@ -344,17 +344,13 @@ function ContactsPageInner({
   }, [createMutation]);
 
   const handleAddAssistant = useCallback(() => {
-    setConnectDialogOpen(true);
+    setInviteDialogOpen(true);
   }, []);
 
-  const handleConnectSuccess = useCallback(
-    (contactId: string) => {
-      setConnectDialogOpen(false);
-      invalidateContacts();
-      setSelection({ kind: "contact", contactId });
-    },
-    [invalidateContacts],
-  );
+  const handleInviteClose = useCallback(() => {
+    setInviteDialogOpen(false);
+    invalidateContacts();
+  }, [invalidateContacts]);
 
   const handleAssistantSetup = useCallback(
     (channelKey: AssistantChannelState["key"]) => {
@@ -376,7 +372,7 @@ function ContactsPageInner({
   const handleContactSetupChannel = useCallback(
     (type: string) => {
       if (type === "a2a") {
-        setConnectDialogOpen(true);
+        setInviteDialogOpen(true);
         return;
       }
       if (!onStartSetupConversation) {
@@ -561,11 +557,10 @@ function ContactsPageInner({
         />
       ) : null}
 
-      <ConnectAssistantDialog
-        open={connectDialogOpen}
+      <GenerateInviteLinkDialog
+        open={inviteDialogOpen}
         assistantId={assistantId}
-        onSuccess={handleConnectSuccess}
-        onClose={() => setConnectDialogOpen(false)}
+        onClose={handleInviteClose}
       />
     </div>
   );
