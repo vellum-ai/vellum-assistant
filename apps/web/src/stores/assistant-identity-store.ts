@@ -1,15 +1,14 @@
 /**
  * Zustand store for the active assistant's identity (name, version).
  *
- * `ChatPage` writes to this store when it fetches the assistant identity
- * from the daemon. `ChatLayout` reads from it to display the assistant
- * name in the sidebar header and pass the version to `PreferencesMenu`.
+ * `ChatLayout` writes via `useAssistantIdentityInit` (first load and
+ * assistant-context changes) and reads name/version for the sidebar
+ * header and `PreferencesMenu`. `ChatPage` also writes from its own
+ * local state when the daemon pushes a fresher identity (SSE
+ * `identity_changed`) — idempotent with the layout write.
  *
- * This store bridges the layout↔page boundary: `ChatLayout` owns the
- * sidebar and header chrome but the identity fetch lives in `ChatPage`
- * (which owns the full chat lifecycle). A Zustand store avoids prop
- * drilling through the React Router outlet context for simple scalar
- * values.
+ * A Zustand store avoids prop drilling through the React Router
+ * outlet context for simple scalar values.
  *
  * @see {@link https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components}
  */

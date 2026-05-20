@@ -138,6 +138,21 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
   );
 }
 
+/**
+ * True when a message's persisted metadata explicitly flags it as hidden.
+ * Used to suppress internal scaffolding messages from UI history while
+ * leaving them in the LLM-side context.
+ */
+function isHiddenMessage(metadata: string | null): boolean {
+  if (!metadata) return false;
+  try {
+    const meta = JSON.parse(metadata) as { hidden?: unknown };
+    return meta?.hidden === true;
+  } catch {
+    return false;
+  }
+}
+
 function buildSlackHistoryMessage(
   slackMeta: SlackMessageMetadata | null,
 ): RuntimeMessagePayload["slackMessage"] | undefined {
@@ -458,6 +473,13 @@ export function handleListMessages({
   } else {
     rawMessages = getMessages(resolvedConversationId);
   }
+
+  // Drop messages flagged as hidden in metadata (e.g. internal scaffolding
+  // like retrospective instructions). The LLM-side history loader
+  // (`getMessages` in memory/conversation-crud.ts) intentionally does not
+  // filter — hidden messages remain in agent context but are suppressed from
+  // the UI list.
+  rawMessages = rawMessages.filter((m) => !isHiddenMessage(m.metadata));
 
   // During streaming, tool_use (assistant) and tool_result (user) events are
   // assembled client-side into a single assistant ChatMessage. On reload, they

@@ -229,6 +229,15 @@ export interface WakeOptions {
    * forked conversation before waking). When `true`, `hint` is ignored.
    */
   skipHintInjection?: boolean;
+  /**
+   * Skip injection of the "Conversation Woke" `ui_surface` card into the
+   * first assistant tail message and the corresponding live
+   * `onWakeProducedOutput` broadcast. Default false (existing behavior).
+   * Used by callers whose conversation context already makes it obvious
+   * that the agent's output came from a wake (e.g. fork-based memory
+   * retrospectives whose conversation title already says "(Retrospective)").
+   */
+  suppressWakeSurface?: boolean;
 }
 
 /**
@@ -728,26 +737,28 @@ export async function wakeAgentForOpportunity(
     const goLive = (currentHistory: Message[]): void => {
       if (mode === "live") return;
       if (!surfaceInjected) {
-        const tailStart = baselineLength + wakeHintMessageCount;
-        const tail = currentHistory.slice(tailStart);
-        const firstAssistant = tail.find((m) => m.role === "assistant");
-        if (firstAssistant && Array.isArray(firstAssistant.content)) {
-          firstAssistant.content.unshift({
-            type: "ui_surface",
-            surfaceId: wakeSurfaceId,
-            surfaceType: "card",
-            title: "Conversation Woke",
-            data: {
+        if (!opts.suppressWakeSurface) {
+          const tailStart = baselineLength + wakeHintMessageCount;
+          const tail = currentHistory.slice(tailStart);
+          const firstAssistant = tail.find((m) => m.role === "assistant");
+          if (firstAssistant && Array.isArray(firstAssistant.content)) {
+            firstAssistant.content.unshift({
+              type: "ui_surface",
+              surfaceId: wakeSurfaceId,
+              surfaceType: "card",
               title: "Conversation Woke",
-              body: hint,
-              metadata: [{ label: "Source", value: source }],
-            },
-            display: "inline",
-          } as never);
+              data: {
+                title: "Conversation Woke",
+                body: hint,
+                metadata: [{ label: "Source", value: source }],
+              },
+              display: "inline",
+            } as never);
+          }
         }
         surfaceInjected = true;
       }
-      if (target.onWakeProducedOutput) {
+      if (!opts.suppressWakeSurface && target.onWakeProducedOutput) {
         try {
           target.onWakeProducedOutput(source, hint, wakeSurfaceId);
         } catch (err) {
@@ -973,6 +984,7 @@ export async function wakeAgentForOpportunity(
 
       const durationMs = nowFn() - startedAt;
       const suppressAutoCompaction = opts.suppressAutoCompaction === true;
+      const suppressWakeSurface = opts.suppressWakeSurface === true;
       if (runError) {
         log.error(
           {
@@ -980,6 +992,7 @@ export async function wakeAgentForOpportunity(
             source,
             durationMs,
             suppressAutoCompaction,
+            suppressWakeSurface,
             hintRole,
             err: runError,
           },
@@ -992,6 +1005,7 @@ export async function wakeAgentForOpportunity(
             conversationId,
             durationMs,
             suppressAutoCompaction,
+            suppressWakeSurface,
             hintRole,
             producedToolCalls: false,
             toolNamesCalled: [],
@@ -1005,6 +1019,7 @@ export async function wakeAgentForOpportunity(
             conversationId,
             durationMs,
             suppressAutoCompaction,
+            suppressWakeSurface,
             hintRole,
             producedToolCalls,
             toolNamesCalled: toolUseNames,
