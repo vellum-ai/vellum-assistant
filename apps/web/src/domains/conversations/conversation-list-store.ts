@@ -8,6 +8,12 @@
  * - `activeConversationKey` — URL/navigation-local selection
  * - `editingConversationKey` — UI mode (app-edit-chat target)
  * - `processingKeys` — in-flight assistant responses
+ * - `processingSnapshots` — `latestAssistantMessageAt` snapshot taken when
+ *   each key was added to `processingKeys`; the attention-tracking
+ *   graduation logic compares the current value against this snapshot to
+ *   detect when the assistant has finished responding. Entries are added
+ *   by `addProcessingKey` and cleared by every action that removes from
+ *   `processingKeys`, so the two collections stay in sync.
  * - `attentionKeys` — conversations with pending interactions
  *
  * @see https://zustand.docs.pmnd.rs/guides/flux-inspired-practice
@@ -19,8 +25,9 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors.js";
 
 // ---------------------------------------------------------------------------
-// Set helpers — return the same reference when the mutation is a no-op so
-// Zustand's shallow equality check can bail out of unnecessary re-renders.
+// Set / Map helpers — return the same reference when the mutation is a
+// no-op so Zustand's shallow equality check can bail out of unnecessary
+// re-renders.
 // ---------------------------------------------------------------------------
 
 function addToSet<T>(prev: Set<T>, key: T): Set<T> {
@@ -45,6 +52,13 @@ function removeMultipleFromSet<T>(prev: Set<T>, keys: T[]): Set<T> {
   return next;
 }
 
+function deleteFromMap<K, V>(prev: Map<K, V>, key: K): Map<K, V> {
+  if (!prev.has(key)) return prev;
+  const next = new Map(prev);
+  next.delete(key);
+  return next;
+}
+
 // ---------------------------------------------------------------------------
 // State & Actions
 // ---------------------------------------------------------------------------
@@ -53,14 +67,6 @@ export interface ConversationListState {
   activeConversationKey: string | null;
   editingConversationKey: string | null;
   processingKeys: Set<string>;
-  /**
-   * Per-conversation snapshot of `latestAssistantMessageAt` at the moment the
-   * key was added to `processingKeys`. The attention-tracking graduation logic
-   * compares the current `latestAssistantMessageAt` against this snapshot to
-   * detect when the assistant has finished responding. Entries are added by
-   * `addProcessingKey` and cleared by every action that removes from
-   * `processingKeys`, so the two collections stay in sync.
-   */
   processingSnapshots: Map<string, string | undefined>;
   attentionKeys: Set<string>;
 }
@@ -70,7 +76,7 @@ export interface ConversationListActions {
   setActiveKey: (key: string | null) => void;
   setEditingKey: (key: string | null) => void;
 
-  // --- Processing keys ---
+  // --- Processing keys (and their snapshots, kept atomic) ---
   addProcessingKey: (key: string, snapshot?: string) => void;
   removeProcessingKey: (key: string) => void;
   removeMultipleProcessingKeys: (keys: string[]) => void;
@@ -96,18 +102,6 @@ const INITIAL_STATE: ConversationListState = {
   processingSnapshots: new Map(),
   attentionKeys: new Set(),
 };
-
-/**
- * Return a new Map with the given key removed, or the same reference if the
- * key wasn't present — lets Zustand's shallow equality bail out of
- * unnecessary re-renders.
- */
-function deleteFromMap<K, V>(prev: Map<K, V>, key: K): Map<K, V> {
-  if (!prev.has(key)) return prev;
-  const next = new Map(prev);
-  next.delete(key);
-  return next;
-}
 
 // ---------------------------------------------------------------------------
 // Store
