@@ -865,11 +865,11 @@ export function ChatPage() {
         refreshKey={assetsRefreshKey}
         onOpenApp={(appId) => {
           haptic.light();
-          useViewerStore.getState().openApp(appId);
+          if (assistantId) void useViewerStore.getState().loadApp(assistantId, appId);
         }}
-        onOpenDocument={() => {
+        onOpenDocument={(surfaceId) => {
           haptic.light();
-          useViewerStore.getState().openDocument();
+          if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
         }}
       />
     );

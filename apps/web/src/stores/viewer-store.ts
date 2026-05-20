@@ -56,6 +56,7 @@ export interface ViewerState {
   mainView: MainView;
   activeAppId: string | null;
   openedAppState: OpenedAppState | null;
+  activeDocumentSurfaceId: string | null;
   openedDocumentState: OpenedDocumentState | null;
   isAppMinimized: boolean;
   intelligenceTab: IntelligenceTab;
@@ -109,6 +110,7 @@ const INITIAL_STATE: ViewerState = {
   mainView: "chat",
   activeAppId: null,
   openedAppState: null,
+  activeDocumentSurfaceId: null,
   openedDocumentState: null,
   isAppMinimized: false,
   intelligenceTab: "identity",
@@ -260,14 +262,15 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         : (state.mainView as Exclude<MainView, "document" | "subagent-detail">);
     set({
       mainView: "document",
+      activeDocumentSurfaceId: documentSurfaceId,
       openedDocumentState: null,
       viewBeforeDocument,
     });
     try {
       const result = await fetchDocumentContent(assistantId, documentSurfaceId);
-      if (get().mainView !== "document") return;
+      if (get().activeDocumentSurfaceId !== documentSurfaceId) return;
       if (!result) {
-        set({ mainView: viewBeforeDocument, openedDocumentState: null });
+        set({ mainView: viewBeforeDocument, activeDocumentSurfaceId: null, openedDocumentState: null });
         return;
       }
       set({
@@ -279,8 +282,8 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         },
       });
     } catch {
-      if (get().mainView !== "document") return;
-      set({ mainView: viewBeforeDocument, openedDocumentState: null });
+      if (get().activeDocumentSurfaceId !== documentSurfaceId) return;
+      set({ mainView: viewBeforeDocument, activeDocumentSurfaceId: null, openedDocumentState: null });
     }
   },
 
@@ -291,6 +294,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   handleDocumentLoadFailed: () => {
     set({
       mainView: get().viewBeforeDocument,
+      activeDocumentSurfaceId: null,
       openedDocumentState: null,
     });
   },
@@ -298,6 +302,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   closeDocument: () => {
     set({
       mainView: get().viewBeforeDocument,
+      activeDocumentSurfaceId: null,
       openedDocumentState: null,
     });
   },
