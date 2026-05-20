@@ -1,114 +1,36 @@
+/**
+ * Discord-nudge public API.
+ *
+ * Backed by `useNudgeStore`; this file exposes the Discord-specific derived
+ * state, click handlers, and prerequisite checks (account age, GitHub-nudge
+ * cascade, conversation count).
+ */
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
 
-import {
-  computeNudgeSidebarVisible,
-  readBooleanPref,
-  writeBooleanPref,
-  readNumberPref,
-  writeNumberPref,
-} from "@/domains/nudges/nudge-prefs.js";
-
+import { computeNudgeSidebarVisible } from "@/domains/nudges/nudge-prefs.js";
+import { useNudgeStore } from "@/domains/nudges/nudge-store.js";
 import {
   readGitHubNudgeStarred,
   readGitHubBannerDismissedAt,
 } from "@/domains/nudges/github-prefs.js";
-
-import {
-  KEY_GITHUB_NUDGE_BANNER_DISMISSED,
-  KEY_GITHUB_NUDGE_SIDEBAR_DISMISSED,
-} from "@/domains/nudges/github-constants.js";
-
 import {
   DISCORD_INVITE_URL,
   DISCORD_MIN_CONVERSATION_COUNT,
   DISCORD_MIN_ACCOUNT_AGE_MS,
   DISCORD_GITHUB_DISMISS_COOLDOWN_MS,
-  KEY_DISCORD_NUDGE_JOINED,
-  KEY_DISCORD_NUDGE_BANNER_DISMISSED,
-  KEY_DISCORD_NUDGE_SIDEBAR_DISMISSED,
-  KEY_DISCORD_NUDGE_FIRST_SEEN_AT,
 } from "@/domains/nudges/discord-constants.js";
-
-// ---------------------------------------------------------------------------
-// External-store subscription (same pattern as github-nudge/prefs.ts)
-// ---------------------------------------------------------------------------
-
-type PrefChangeEvent = CustomEvent<{ key: string; value: string | null }>;
-
-const subscribeCache = new Map<
-  string,
-  (listener: () => void) => () => void
->();
-const snapshotCache = new Map<string, () => boolean>();
-
-function getSubscribeForKey(
-  key: string,
-): (listener: () => void) => () => void {
-  let cached = subscribeCache.get(key);
-  if (!cached) {
-    cached = (listener) => {
-      if (typeof window === "undefined") {
-        return () => {};
-      }
-      const handleSameTab = (event: Event) => {
-        const detail = (event as PrefChangeEvent).detail;
-        if (detail?.key === key) {
-          listener();
-        }
-      };
-      const handleCrossTab = (event: StorageEvent) => {
-        if (event.key === key) {
-          listener();
-        }
-      };
-      window.addEventListener("vellum:pref-changed", handleSameTab);
-      window.addEventListener("storage", handleCrossTab);
-      return () => {
-        window.removeEventListener("vellum:pref-changed", handleSameTab);
-        window.removeEventListener("storage", handleCrossTab);
-      };
-    };
-    subscribeCache.set(key, cached);
-  }
-  return cached;
-}
-
-function getSnapshotForKey(key: string): () => boolean {
-  let cached = snapshotCache.get(key);
-  if (!cached) {
-    cached = () => readBooleanPref(key, false);
-    snapshotCache.set(key, cached);
-  }
-  return cached;
-}
-
-const SERVER_DEFAULT_FALSE = () => false;
-
-function useBooleanPref(key: string): boolean {
-  return useSyncExternalStore(
-    getSubscribeForKey(key),
-    getSnapshotForKey(key),
-    SERVER_DEFAULT_FALSE,
-  );
-}
 
 // ---------------------------------------------------------------------------
 // First-seen timestamp
 // ---------------------------------------------------------------------------
 
 export function ensureFirstSeenAt(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  const existing = readNumberPref(KEY_DISCORD_NUDGE_FIRST_SEEN_AT, 0);
-  if (existing === 0) {
-    writeNumberPref(KEY_DISCORD_NUDGE_FIRST_SEEN_AT, Date.now());
-  }
+  useNudgeStore.getState().ensureDiscordFirstSeenAt();
 }
 
 export function readFirstSeenAt(): number {
-  return readNumberPref(KEY_DISCORD_NUDGE_FIRST_SEEN_AT, 0);
+  return useNudgeStore.getState().discordFirstSeenAt;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,13 +38,11 @@ export function readFirstSeenAt(): number {
 // ---------------------------------------------------------------------------
 
 function isGitHubNudgeResolved(): boolean {
-  const starred = readGitHubNudgeStarred();
-  if (starred) {
+  if (readGitHubNudgeStarred()) {
     return true;
   }
-  const bannerDismissed = readBooleanPref(KEY_GITHUB_NUDGE_BANNER_DISMISSED, false);
-  const sidebarDismissed = readBooleanPref(KEY_GITHUB_NUDGE_SIDEBAR_DISMISSED, false);
-  return bannerDismissed && sidebarDismissed;
+  const state = useNudgeStore.getState();
+  return state.githubBannerDismissed && state.githubSidebarDismissed;
 }
 
 function isGitHubDismissCooldownElapsed(): boolean {
@@ -148,47 +68,29 @@ export function areDiscordPrerequisitesMet(
   platformNudgeResolved: boolean,
   conversationCount: number,
 ): boolean {
-  if (!platformNudgeResolved) {
-    return false;
-  }
-  if (!isGitHubNudgeResolved()) {
-    return false;
-  }
-  if (!isAccountAgeEligible()) {
-    return false;
-  }
-  if (conversationCount < DISCORD_MIN_CONVERSATION_COUNT) {
-    return false;
-  }
-  if (!isGitHubDismissCooldownElapsed()) {
-    return false;
-  }
+  if (!platformNudgeResolved) return false;
+  if (!isGitHubNudgeResolved()) return false;
+  if (!isAccountAgeEligible()) return false;
+  if (conversationCount < DISCORD_MIN_CONVERSATION_COUNT) return false;
+  if (!isGitHubDismissCooldownElapsed()) return false;
   return true;
 }
 
 // ---------------------------------------------------------------------------
-// Public readers / writers
+// Public readers
 // ---------------------------------------------------------------------------
 
 export function readDiscordNudgeJoined(): boolean {
-  return readBooleanPref(KEY_DISCORD_NUDGE_JOINED, false);
+  return useNudgeStore.getState().discordJoined;
 }
 
-function writeDiscordNudgeJoined(): void {
-  writeBooleanPref(KEY_DISCORD_NUDGE_JOINED, true);
-}
+// ---------------------------------------------------------------------------
+// Join flow
+// ---------------------------------------------------------------------------
 
 export function joinDiscord(): void {
   openDiscordInvite();
-  writeDiscordNudgeJoined();
-}
-
-function writeDiscordBannerDismissed(): void {
-  writeBooleanPref(KEY_DISCORD_NUDGE_BANNER_DISMISSED, true);
-}
-
-function writeDiscordSidebarDismissed(): void {
-  writeBooleanPref(KEY_DISCORD_NUDGE_SIDEBAR_DISMISSED, true);
+  useNudgeStore.getState().markDiscordJoined();
 }
 
 // ---------------------------------------------------------------------------
@@ -217,9 +119,9 @@ export function useDiscordNudgeState(
   platformNudgeResolved: boolean,
   conversationCount: number,
 ): DiscordNudgeState {
-  const joined = useBooleanPref(KEY_DISCORD_NUDGE_JOINED);
-  const bannerDismissed = useBooleanPref(KEY_DISCORD_NUDGE_BANNER_DISMISSED);
-  const sidebarDismissed = useBooleanPref(KEY_DISCORD_NUDGE_SIDEBAR_DISMISSED);
+  const joined = useNudgeStore.use.discordJoined();
+  const bannerDismissed = useNudgeStore.use.discordBannerDismissed();
+  const sidebarDismissed = useNudgeStore.use.discordSidebarDismissed();
 
   const prerequisitesMet = areDiscordPrerequisitesMet(
     platformNudgeResolved,
@@ -228,24 +130,26 @@ export function useDiscordNudgeState(
 
   const handleJoin = useCallback(() => {
     openDiscordInvite();
-    writeDiscordNudgeJoined();
+    useNudgeStore.getState().markDiscordJoined();
   }, []);
 
   const handleBannerDismiss = useCallback(() => {
-    writeDiscordBannerDismissed();
+    useNudgeStore.getState().dismissDiscordBanner();
   }, []);
 
   const handleSidebarDismiss = useCallback(() => {
-    writeDiscordSidebarDismissed();
+    useNudgeStore.getState().dismissDiscordSidebar();
   }, []);
 
   return {
     bannerShouldShow: prerequisitesMet && !joined && !bannerDismissed,
-    sidebarEntryVisible: prerequisitesMet && computeNudgeSidebarVisible({
-      converted: joined,
-      bannerDismissed,
-      sidebarDismissed,
-    }),
+    sidebarEntryVisible:
+      prerequisitesMet &&
+      computeNudgeSidebarVisible({
+        converted: joined,
+        bannerDismissed,
+        sidebarDismissed,
+      }),
     handleJoin,
     handleBannerDismiss,
     handleSidebarDismiss,
@@ -257,21 +161,6 @@ export function useDiscordNudgeState(
 // ---------------------------------------------------------------------------
 
 export function openDiscordInvite(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
+  if (typeof window === "undefined") return;
   window.open(DISCORD_INVITE_URL, "_blank", "noopener,noreferrer");
 }
-
-// ---------------------------------------------------------------------------
-// Internals exported for tests only. Not part of the public API.
-// ---------------------------------------------------------------------------
-
-export const __testing = {
-  writeDiscordNudgeJoined,
-  writeDiscordBannerDismissed,
-  writeDiscordSidebarDismissed,
-  isGitHubNudgeResolved,
-  isGitHubDismissCooldownElapsed,
-  isAccountAgeEligible,
-};
