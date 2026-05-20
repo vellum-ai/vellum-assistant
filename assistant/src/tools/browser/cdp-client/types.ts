@@ -44,9 +44,15 @@ export interface CdpClient {
    * follow-on commands to the freshly-created tab instead of the
    * currently-active one.
    *
+   * Pass `undefined` to clear an existing pinned session and revert
+   * to default routing (i.e. dispatcher resolves the active tab).
+   * Used in the `Vellum.createTab` no-tabId fallback path to avoid
+   * sending follow-on commands to a stale/dead tab when the previous
+   * pin is no longer valid.
+   *
    * Optional — callers should null-check before invoking.
    */
-  setCdpSessionId?(cdpSessionId: string): void;
+  setCdpSessionId?(cdpSessionId: string | undefined): void;
 }
 
 /**
@@ -118,11 +124,15 @@ export interface ScopedCdpClient extends CdpClient {
    * conversation route to the newly-created tab instead of the
    * previously-active tab.
    *
+   * Pass `undefined` to clear an existing pinned session on the chained
+   * client and on the underlying client (if it supports the method).
+   * Used in the `Vellum.createTab` no-tabId fallback path.
+   *
    * If the underlying client doesn't implement this method (e.g., local
    * or cdp-inspect clients), the call is silently ignored via optional
    * chaining.
    */
-  setCdpSessionId(cdpSessionId: string): void;
+  setCdpSessionId(cdpSessionId: string | undefined): void;
 }
 
 /**

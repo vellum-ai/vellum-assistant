@@ -657,15 +657,22 @@ export async function executeBrowserNavigate(
             : undefined;
       if (!tabId) {
         // Malformed createTab response (no tabId). We're nominally falling
-        // back to active-tab routing — but the extension client was built
-        // with whatever pin was in scope for this conversation, so any
-        // stale pin would keep targeting the old tab (or fail with
-        // cdp_session_not_found if it's dead). Clear the pin so the
-        // fallback actually targets the active tab.
+        // back to active-tab routing — but the live `cdp` instance was
+        // already constructed with whatever pin was in scope for this
+        // conversation, AND the pin store still holds it for future
+        // client construction. Clear both: the pin store (so the next
+        // executeBrowserNavigate builds a clean client) AND the current
+        // cdp instance's session (so the Page.navigate that runs in a
+        // few lines targets the active tab rather than the stale pin).
+        // Without the setCdpSessionId(undefined) call, the warn message
+        // is a lie: navigation would still route to the dead tab via the
+        // already-injected cdpSessionId and likely fail with
+        // cdp_session_not_found.
         clearPinnedTab(context.conversationId);
+        cdp.setCdpSessionId?.(undefined);
         log.warn(
           { conversationId: context.conversationId, result },
-          "Vellum.createTab returned no tabId; cleared stale pin and falling back to active-tab routing",
+          "Vellum.createTab returned no tabId; cleared stale pin and live session, falling back to active-tab routing",
         );
       } else {
         cdp.setCdpSessionId?.(tabId);

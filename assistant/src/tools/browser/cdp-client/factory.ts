@@ -625,7 +625,7 @@ export function buildChainedClient(
      *   in the `onEstablished` callback when the first send walks
      *   the candidate list.
      */
-    setCdpSessionId(cdpSessionId: string): void {
+    setCdpSessionId(cdpSessionId: string | undefined): void {
       if (active?.client.setCdpSessionId) {
         active.client.setCdpSessionId(cdpSessionId);
         return;

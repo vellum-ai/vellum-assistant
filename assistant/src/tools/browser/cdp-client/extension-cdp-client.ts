@@ -193,7 +193,7 @@ export class ExtensionCdpClient implements ScopedCdpClient {
    * the freshly-created tab instead of the user's currently-active
    * tab.
    */
-  setCdpSessionId(cdpSessionId: string): void {
+  setCdpSessionId(cdpSessionId: string | undefined): void {
     this.cdpSessionId = cdpSessionId;
   }
 }
