@@ -160,7 +160,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
 
   const handleDownload = useCallback(async () => {
     if (!effectiveUrl) return;
-    const { saveFile } = await import("@/lib/native-file.js");
+    const { saveFile } = await import("@/runtime/native-file.js");
     await saveFile(effectiveUrl, attachment.filename);
   }, [effectiveUrl, attachment.filename]);
 

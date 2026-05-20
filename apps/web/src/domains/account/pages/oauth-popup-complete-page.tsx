@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
-import { oauthCompletionStorageKey } from "@/lib/oauth-popup.js";
+import { oauthCompletionStorageKey } from "@/lib/auth/oauth-popup.js";
 import {
   buildOAuthCompleteDeepLink,
   getNativeUrlSchemeForHost,

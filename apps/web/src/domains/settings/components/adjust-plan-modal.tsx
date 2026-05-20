@@ -25,7 +25,7 @@ import {
   useBillingPortalSession,
 } from "@/domains/settings/hooks/use-billing-portal-session.js";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser.js";
-import { WWW_DOMAIN } from "@/lib/domains.js";
+import { WWW_DOMAIN } from "@/utils/domains.js";
 
 const DOCS_URL = `https://${WWW_DOMAIN}/docs`;
 
