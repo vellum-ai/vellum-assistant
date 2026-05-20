@@ -5,7 +5,7 @@
  * `useSendMessage` and suitable for direct unit testing.
  */
 
-import { isSurfaceInteractive } from "@/domains/chat/lib/types.js";
+import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 
 import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat-utils.js";

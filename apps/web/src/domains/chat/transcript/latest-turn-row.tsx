@@ -3,7 +3,7 @@ import { Fragment, memo, type ReactNode } from "react";
 
 import { SubagentProgressCard } from "@/domains/chat/components/subagent-progress-card.js";
 import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
-import type { MessageItem, TranscriptItem } from "@/domains/chat/lib/transcript/types.js";
+import type { MessageItem, TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row.js";
 import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";

@@ -11,7 +11,7 @@
 //
 // Shape on disk: { [conversationKey]: string[] }, keyed per assistant.
 
-import type { DisplayMessage } from "@/domains/chat/lib/types.js";
+import type { DisplayMessage } from "@/domains/chat/types/types.js";
 
 const STORAGE_KEY_PREFIX = "vellum:dismissed-surfaces:";
 const MAX_ENTRIES_PER_ASSISTANT = 200;

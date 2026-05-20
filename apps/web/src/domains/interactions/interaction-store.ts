@@ -19,7 +19,7 @@ import type {
   PendingConfirmationState,
   PendingContactRequestState,
   PendingQuestionState,
-} from "@/domains/chat/lib/chat-ui-types.js";
+} from "@/domains/chat/types/chat-ui-types.js";
 
 // ---------------------------------------------------------------------------
 // State

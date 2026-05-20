@@ -22,7 +22,7 @@ import {
   recordChatDiagnostic,
   summarizeDisplayMessages,
 } from "@/domains/chat/utils/diagnostics.js";
-import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
+import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";

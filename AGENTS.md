@@ -4,7 +4,7 @@
 
 Bun + TypeScript monorepo with multiple packages:
 
-- `apps/` — End-user app surfaces (web, iOS, macOS/Electron, Chrome extension). Scaffolding-only today; surfaces will move here in follow-up PRs. See `apps/AGENTS.md`.
+- `apps/` — End-user app surfaces. Currently hosts `apps/web/` (Vite + React Router v7 SPA, mid-migration from `vellum-assistant-platform/web/`) and `apps/ios/` (Capacitor iOS shell that loads the web app in a WKWebView). Future homes for macOS/Electron and the Chrome extension. See `apps/AGENTS.md`.
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
 - `clients/` — Client apps (macOS, browser extension, etc). See `clients/AGENTS.md` and platform docs like `clients/macos/AGENTS.md`.
@@ -63,7 +63,9 @@ We do **not** pin: `apt-get` packages (Debian rotates), `brew install` formulae 
 
 ### iOS release dispatch
 
-`dev-release.yaml` / `release.yml` fire a `repository_dispatch` to [`vellum-assistant-platform`](https://github.com/vellum-ai/vellum-assistant-platform)'s [`release-ios.yaml`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/.github/workflows/release-ios.yaml) with `{ environment, version }`. Full mapping: [`web/ios/README.md`](https://github.com/vellum-ai/vellum-assistant-platform/blob/main/web/ios/README.md#ci--release-pipeline).
+The Capacitor iOS source-of-truth lives in [`apps/ios/`](./apps/ios/) and is built locally from `apps/web/` via `bun run ios:open`. See [`apps/ios/README.md`](./apps/ios/README.md) for the local build flow and full release pipeline mapping.
+
+Until the deployment cutover, TestFlight builds still come from `vellum-assistant-platform/web/ios/`: `dev-release.yaml` / `release.yml` fire a `repository_dispatch` to [`vellum-assistant-platform`](https://github.com/vellum-ai/vellum-assistant-platform)'s `release-ios.yaml` with `{ environment, version }`. When the pipeline is migrated, the dispatch becomes a same-repo `needs:` and the platform copy is decommissioned.
 
 ## Testing
 
@@ -82,6 +84,7 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 - **Multi-step efforts.** Use a parent issue with [sub-issues](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues) or sibling issues when the effort has multiple phases. Link intermediate PRs with `Part of #N` or `Related to #N` (no auto-close). Issues earn their keep here — they're the tracking artifact across multiple PRs.
 - **Branch name**: include the issue number when one exists, e.g. `123-fix-stale-approvals`.
 - **Human attention comments**: After creating a PR with non-routine changes (architectural decisions, security, complex logic, deletions, low confidence), leave a `gh pr comment` highlighting where to focus review and the risk level. Skip for routine changes.
+- **Open-source hygiene**: This repo is public. Before opening a PR, review your diff for internal URLs, hardcoded credentials, proprietary infrastructure details, or references to internal services that should not be publicly visible. Generated files (OpenAPI specs, API clients) must be regenerated from committed sources — verify with `bun run generate:openapi` in `assistant/`.
 
 ### Notes for Vellum team members
 

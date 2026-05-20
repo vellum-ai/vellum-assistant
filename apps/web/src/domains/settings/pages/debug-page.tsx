@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router";
 import { AssistantTerminalPanel } from "@/domains/settings/components/panels/assistant-terminal-panel.js";
 import { DebugControlsPanel } from "@/domains/settings/components/panels/debug-controls-panel.js";
 import { DoctorPanel } from "@/domains/settings/components/panels/doctor-panel.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { cn } from "@/utils/misc.js";
 
 const ALL_TABS = [
@@ -17,7 +17,7 @@ type DebugTabId = (typeof ALL_TABS)[number]["id"];
 
 export function DebugPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { doctor: doctorEnabled } = useAppFeatureFlags();
+  const doctorEnabled = useFeatureFlagStore.use.doctor();
 
   const tabs = useMemo(
     () => ALL_TABS.filter((tab) => tab.id !== "doctor" || doctorEnabled),

@@ -2,7 +2,7 @@ import { prepareServerMessage } from "@/domains/chat/utils/map-runtime-message.j
 import { dedupeDisplayMessages, mergeLatestHistoryMessage, messagesEqual } from "@/domains/chat/utils/message-merge.js";
 import { sortByTimestamp, sortedByTimestamp, timestampToMs } from "@/domains/chat/utils/message-sorting.js";
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
-import type { DisplayMessage } from "@/domains/chat/lib/types.js";
+import type { DisplayMessage } from "@/domains/chat/types/types.js";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
 import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 
@@ -10,7 +10,7 @@ import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 // from `./reconcile` continue to work without changes.
 export { dedupeDisplayMessages, messagesEqual } from "@/domains/chat/utils/message-merge.js";
 export { sortByTimestamp, sortedByTimestamp, timestampToMs } from "@/domains/chat/utils/message-sorting.js";
-export type { DisplayAttachment, DisplayMessage } from "@/domains/chat/lib/types.js";
+export type { DisplayAttachment, DisplayMessage } from "@/domains/chat/types/types.js";
 
 const STREAMING_ASSISTANT_FALLBACK_MAX_TIMESTAMP_DELTA_MS = 10 * 60 * 1000;
 const STRONG_STREAMING_ASSISTANT_PREFIX_CHARS = 16;

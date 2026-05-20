@@ -23,7 +23,7 @@ import {
   useState,
 } from "react";
 
-import type { TranscriptItem } from "@/domains/chat/lib/transcript/types.js";
+import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript.js";
 

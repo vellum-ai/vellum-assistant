@@ -7,7 +7,7 @@
  */
 
 import type { DiskPressureStatus } from "@/domains/assistant/types.js";
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
 
 /** Data needed to render an inline permission prompt inside a ToolCallChip. */
