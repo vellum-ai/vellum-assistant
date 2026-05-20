@@ -31,6 +31,7 @@ import {
   type EffectiveContextWindow,
   resolveEffectiveContextWindow,
 } from "../config/llm-context-resolution.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
@@ -223,6 +224,10 @@ import {
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import type { TrustContext } from "./trust-context.js";
+import {
+  classifyQueryComplexity,
+  complexityTierToProfileKey,
+} from "./query-complexity-router.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
@@ -700,15 +705,38 @@ export async function runAgentLoopImpl(
   // spawned subagent's background conversation) wins over the row read
   // so the agent loop's own background-skip rule doesn't zero out an
   // explicitly inherited override.
-  const readCurrentOverrideProfile = (): string | undefined =>
-    options?.overrideProfile ??
-    getConversationOverrideProfileFromRow(getConversation(ctx.conversationId));
-
-  const turnOverrideProfile =
+  const userExplicitOverride =
     options?.overrideProfile ??
     getConversationOverrideProfileFromRow(turnStartConversation);
 
   const config = getConfig();
+
+  // Query complexity routing: when no explicit user override is set and the
+  // feature flag is enabled, classify the query and route to the appropriate
+  // profile for this turn. The override is ephemeral (not persisted).
+  let turnOverrideProfile = userExplicitOverride;
+  if (
+    !userExplicitOverride &&
+    turnCallSite === "mainAgent" &&
+    isAssistantFeatureFlagEnabled("query-complexity-routing", config)
+  ) {
+    const tier = await classifyQueryComplexity(content);
+    if (tier && tier !== "balanced") {
+      const routedProfile = complexityTierToProfileKey(tier);
+      if (config.llm.profiles?.[routedProfile]) {
+        turnOverrideProfile = routedProfile;
+      }
+    }
+  }
+
+  // Falls through to auto-routed profile so mid-turn profile refresh
+  // doesn't revert the routing when the conversation row has no explicit
+  // override set.
+  const readCurrentOverrideProfile = (): string | undefined =>
+    options?.overrideProfile ??
+    getConversationOverrideProfileFromRow(getConversation(ctx.conversationId)) ??
+    turnOverrideProfile;
+
   const effectiveContextWindow = resolveEffectiveContextWindow({
     llm: config.llm,
     callSite: turnCallSite,

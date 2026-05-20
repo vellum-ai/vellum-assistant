@@ -314,6 +314,13 @@ const CATALOG_RECORD: CatalogRecord = {
       "Generates contextual conversation-starter suggestions for the Home page.",
     domain: "ui",
   },
+  queryComplexityRouter: {
+    id: "queryComplexityRouter",
+    displayName: "Query Complexity Router",
+    description:
+      "Classifies user message complexity to route to the appropriate inference profile.",
+    domain: "agentLoop",
+  },
 };
 
 // Source of truth for call-site display metadata. API responses and usage

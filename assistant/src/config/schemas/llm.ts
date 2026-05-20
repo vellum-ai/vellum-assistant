@@ -78,6 +78,7 @@ export const LLMCallSiteEnum = z.enum([
   "proactiveArtifactBuild",
   "homeGreeting",
   "homeSuggestedPrompts",
+  "queryComplexityRouter",
 ]);
 export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
 

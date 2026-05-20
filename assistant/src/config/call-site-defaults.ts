@@ -115,4 +115,10 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
+  queryComplexityRouter: {
+    profile: "cost-optimized",
+    maxTokens: 16,
+    effort: "low",
+    thinking: { enabled: false },
+  },
 };
