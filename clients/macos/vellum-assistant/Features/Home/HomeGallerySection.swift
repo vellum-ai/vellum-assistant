@@ -255,6 +255,7 @@ struct HomeGallerySection: View {
                 VCard(background: VColor.surfaceBase) {
                     HomeGreetingHeader(
                         onStartNewChat: {},
+                        greeting: nil,
                         name: "Example Assistant"
                     ) {
                         if let image = NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil) {

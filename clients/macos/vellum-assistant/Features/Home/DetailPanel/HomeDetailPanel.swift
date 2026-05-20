@@ -162,31 +162,42 @@ struct HomeDetailPanel<Content: View>: View {
 
     /// Overflow menu behind a vertical ellipsis button, containing
     /// mark-read/unread and dismiss actions.
+    ///
+    /// The outlined chrome is painted on a `RoundedRectangle` sibling that
+    /// sits *outside* the `Menu`. SwiftUI's `.borderlessButton` menu style
+    /// flattens any shape modifiers nested inside the label, so the border
+    /// has to live on a wrapping view to survive.
     private var overflowMenu: some View {
-        Menu {
-            if let onMarkReadUnread {
-                Button(action: onMarkReadUnread) {
-                    Label(
-                        isRead ? "Mark as unread" : "Mark as read",
-                        systemImage: isRead ? "envelope.badge" : "envelope.open"
-                    )
+        RoundedRectangle(cornerRadius: VRadius.md)
+            .stroke(VColor.borderElement, lineWidth: 1)
+            .frame(width: 32, height: 32)
+            .overlay {
+                Menu {
+                    if let onMarkReadUnread {
+                        Button(action: onMarkReadUnread) {
+                            Label(
+                                isRead ? "Mark as unread" : "Mark as read",
+                                systemImage: isRead ? "envelope.badge" : "envelope.open"
+                            )
+                        }
+                    }
+                    if let onDismissItem {
+                        Button(action: onDismissItem) {
+                            Label("Dismiss", systemImage: "xmark.circle")
+                        }
+                    }
+                } label: {
+                    VIconView(.ellipsis, size: 16)
+                        .foregroundStyle(VColor.primaryBase)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
                 }
-            }
-            if let onDismissItem {
-                Button(action: onDismissItem) {
-                    Label("Dismiss", systemImage: "xmark.circle")
-                }
-            }
-        } label: {
-            VIconView(.ellipsis, size: 16)
-                .foregroundStyle(VColor.primaryBase)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(width: 32)
-        .accessibilityLabel("More options")
+            }
+            .pointerCursor()
+            .accessibilityLabel("More options")
     }
 
     /// 32pt persona avatar rendered into the header's leading slot for
