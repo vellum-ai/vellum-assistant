@@ -168,10 +168,22 @@ Think of domains like database tables, not nested documents. Split by
   different developer without merge conflicts.
 - **Same domain if:** two things always change together, share the same
   store, and splitting them would create circular cross-imports.
-- **Cross-domain imports are normal.** `messages/` importing types from
-  `conversations/` is expected. The rule is: **no circular
-  dependencies** between domains. If A imports from B AND B imports
-  from A, either merge them or hoist the shared code to `types/`.
+- **Avoid cross-domain imports.** If a piece of code is consumed by
+  two or more domains, that's a signal it doesn't belong inside any
+  single domain — lift it to the appropriate top-level shared
+  directory (`hooks/`, `stores/`, `utils/`, `types/`, `components/`)
+  per [Top-level shared directories](#top-level-shared-directories).
+  Aligns with the bulletproof-react rule: *"if one feature uses it, it
+  lives in that feature; once two or more features need it, it moves
+  up to the shared layer."* This is stricter than the previous
+  permissive policy and is the direction we're moving toward — see
+  [LUM-1753](https://linear.app/vellum/issue/LUM-1753) for the
+  tracking initiative to bring existing violations into compliance.
+- **No circular dependencies.** If A imports from B AND B imports
+  from A, either merge them or hoist the shared code to a top-level
+  directory.
+
+Reference: [bulletproof-react — Project Structure (Cross-Feature Access)](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md#cross-feature-access)
 
 Examples of correct splits:
 - `messages/` vs `conversations/`: messages are created, streamed,
@@ -188,6 +200,22 @@ Examples of correct splits:
 Code used across multiple domains lives in top-level shared
 directories. If something is domain-specific, it belongs inside
 `domains/<name>/`.
+
+**Decision rule for hooks/stores/utils:**
+
+1. Used by exactly one domain → live inside that domain
+   (`domains/<x>/hooks/`, `domains/<x>/<x>-store.ts`, etc.).
+2. Used by two or more domains → lift to the top-level shared dir
+   (`hooks/`, `stores/`, `utils/`). Cross-domain imports between
+   `domains/` peers are a smell.
+3. Foundational/cross-cutting concerns with no single domain owner
+   (auth, viewer identity, SSE connectivity, feature flags) → always
+   top-level, even if currently consumed by one domain.
+
+Example: `useAssistantIdentityInit` and `assistant-identity-store`
+live at `hooks/` and `stores/` because the assistant identity is
+consumed by chat, intelligence, library, contacts — no single domain
+owns it.
 
 | Folder | Purpose | Example contents |
 |---|---|---|
@@ -323,8 +351,12 @@ Consumers use `.use.field()` in render bodies and `.getState()` in
 callbacks — see
 [Reading state: `.use.*` vs `.getState()`](#reading-state-use-vs-getstate).
 
-Keep store definitions in their domain folder — adding or removing a
-domain means adding or removing a folder.
+Keep domain-specific store definitions in their domain folder —
+adding or removing a domain means adding or removing a folder.
+Cross-domain stores (consumed by two or more domains, or with no
+single domain owner — auth, viewer, feature flags, assistant
+identity) live in top-level `stores/`. See the
+[Decision rule for hooks/stores/utils](#top-level-shared-directories).
 
 References:
 - [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
