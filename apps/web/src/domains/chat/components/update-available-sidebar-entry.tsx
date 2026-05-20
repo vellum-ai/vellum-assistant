@@ -271,10 +271,11 @@ export function UpdateAvailableSidebarEntry({
         </button>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex min-w-0 gap-2">
         <Button
           variant="primary"
           size="compact"
+          className="min-w-0 flex-1"
           onClick={() => void handleUpgradeNow()}
           disabled={isUpgrading}
           leftIcon={
@@ -288,6 +289,7 @@ export function UpdateAvailableSidebarEntry({
         <Button
           variant="outlined"
           size="compact"
+          className="min-w-0 flex-1"
           onClick={handleDismiss}
           disabled={isUpgrading}
         >
