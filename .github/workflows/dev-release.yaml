@@ -759,6 +759,10 @@ jobs:
   notify-dev-release:
     needs: [compute-version, register-release]
     runs-on: ubuntu-latest
+    # A Slack outage must not fail the release run: that would both mar the run
+    # conclusion (poisoning notify-releases' first-failure detection) and is
+    # purely a notification concern. Mirrors notify-releases below.
+    continue-on-error: true
     timeout-minutes: 5
     permissions:
       contents: read
@@ -782,11 +786,27 @@ jobs:
             exit 0
           fi
 
-          # Find the previous successful dev-release run so we can diff against
-          # the commit it shipped. Excludes the current (in-progress) run.
-          PREV_SHA=$(gh api \
-            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=success&per_page=20&exclude_pull_requests=true" \
-            --jq "[.workflow_runs[] | select(.id != ${RUN_ID}) | .head_sha] | .[0] // empty")
+          # Find the SHA of the last actually-released dev build to diff against.
+          # We key off the register-release JOB conclusion, not the overall run
+          # conclusion: register-release runs before downstream jobs (build-macos,
+          # upload-sparkle, …), so a later failure leaves a real release on a run
+          # whose conclusion is "failure". Keying off the run would then diff from
+          # an older SHA and re-announce already-released commits. Walk recent
+          # completed runs newest-first and pick the first whose register-release
+          # job succeeded.
+          PREV_SHA=""
+          while read -r rid rsha; do
+            [ -z "$rid" ] && continue
+            CONCL=$(gh api "repos/${REPO}/actions/runs/${rid}/jobs" \
+              --jq '[.jobs[] | select(.name == "register-release") | .conclusion] | .[0] // empty')
+            if [ "$CONCL" = "success" ]; then
+              PREV_SHA="$rsha"
+              break
+            fi
+          done < <(gh api \
+            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=30&exclude_pull_requests=true" \
+            --jq ".workflow_runs[] | select(.id != ${RUN_ID}) | \"\(.id) \(.head_sha)\"")
+
           echo "Previous dev release SHA: ${PREV_SHA:-<none>}"
           echo "Current SHA: ${HEAD_SHA}"
 
