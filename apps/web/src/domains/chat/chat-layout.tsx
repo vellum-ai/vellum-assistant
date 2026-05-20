@@ -167,7 +167,7 @@ export function ChatLayout() {
     navigate(1);
   }, [navigate]);
 
-  const isHomeActive = location.pathname === "/home";
+  const isHomeActive = location.pathname === routes.home;
 
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
@@ -301,15 +301,23 @@ export function ChatLayout() {
   const activeConversationKey = useConversationListStore.use.activeConversationKey();
   const processingKeys = useConversationListStore.use.processingKeys();
   const attentionKeys = useConversationListStore.use.attentionKeys();
+  const setActiveKey = useConversationListStore.use.setActiveKey();
 
   const handleSelectConversation = useCallback(
     (key: string) => {
       haptic.light();
-      navigate(routes.conversation(key));
+      setActiveKey(key);
+      navigate(routes.assistant);
       setDrawerOpen(false);
     },
-    [navigate],
+    [setActiveKey, navigate],
   );
+
+  const handleOpenLibrary = useCallback(() => {
+    navigate(routes.library.root);
+  }, [navigate]);
+
+  const isLibraryActive = location.pathname.startsWith("/assistant/library");
 
   const renderSideMenu = useCallback(
     (args: SideMenuRenderArgs): ReactNode => (
@@ -324,6 +332,10 @@ export function ChatLayout() {
         attentionConversationKeys={attentionKeys}
         onSelectConversation={handleSelectConversation}
         onStartNewConversation={handleStartNewConversation}
+        isIntelligenceActive={isHomeActive}
+        onOpenIntelligence={handleOpenHome}
+        isLibraryActive={isLibraryActive}
+        onOpenLibrary={handleOpenLibrary}
         onClose={args.onClose}
         onSearchClick={args.onSearch}
       />
@@ -337,6 +349,10 @@ export function ChatLayout() {
       attentionKeys,
       handleSelectConversation,
       handleStartNewConversation,
+      isHomeActive,
+      handleOpenHome,
+      isLibraryActive,
+      handleOpenLibrary,
     ],
   );
 
