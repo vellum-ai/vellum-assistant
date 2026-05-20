@@ -51,11 +51,18 @@ describe("faviconUrlForDomain", () => {
     expect(faviconUrlForDomain("192.168.1.1")).toBeUndefined();
   });
 
-  test("returns undefined for raw IP literals (we don't reverse-lookup, so any IP is private-equivalent for our purposes)", () => {
-    // isPrivateOrLocalHost rejects raw IP literals because we can't tell from
-    // the host alone whether they belong to a routable public host. Skipping
-    // favicons for them avoids leaking internal IPs.
+  test("returns undefined for any raw IPv4 literal — private or public", () => {
+    // We can't tell from the host alone whether an IP belongs to a routable
+    // public host or an internal one, so all IP literals are rejected to avoid
+    // leaking the address to Google when the client renders the icon.
     expect(faviconUrlForDomain("172.16.0.1")).toBeUndefined();
+    expect(faviconUrlForDomain("8.8.8.8")).toBeUndefined();
+    expect(faviconUrlForDomain("1.1.1.1")).toBeUndefined();
+  });
+
+  test("returns undefined for raw IPv6 literals (bracketed or bare)", () => {
+    expect(faviconUrlForDomain("2001:db8::1")).toBeUndefined();
+    expect(faviconUrlForDomain("[2001:db8::1]")).toBeUndefined();
   });
 
   test("strips :port before the private-host check (host:port → undefined for private)", () => {
