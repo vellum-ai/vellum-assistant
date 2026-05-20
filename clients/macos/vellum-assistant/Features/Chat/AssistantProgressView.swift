@@ -317,7 +317,6 @@ struct AssistantProgressView: View {
         }
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .animation(VAnimation.fast, value: isExpanded)
         .onChange(of: toolCalls) { _, newToolCalls in
             handleToolCallsChange(newToolCalls)
         }
@@ -436,9 +435,7 @@ struct AssistantProgressView: View {
                     reason: "auto_expand:completed_steps_flag group=\(model.groupId) phase=\(newPhase) expand_flag=true completed=\(model.completedToolCount)/\(model.totalToolCount) pending_confirm=\(model.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
                     toolCallCount: model.totalToolCount
                 ))
-                withAnimation(VAnimation.fast) {
-                    isExpanded = true
-                }
+                isExpanded = true
             }
         }
     }
@@ -468,9 +465,7 @@ struct AssistantProgressView: View {
                 reason: "auto_expand:pending_confirmation",
                 toolCallCount: model.totalToolCount
             ))
-            withAnimation(VAnimation.fast) {
-                isExpanded = true
-            }
+            isExpanded = true
         }
     }
 
@@ -494,9 +489,7 @@ struct AssistantProgressView: View {
                     reason: "auto_expand:pending_confirmation_on_appear",
                     toolCallCount: model.totalToolCount
                 ))
-                withAnimation(VAnimation.fast) {
-                    isExpanded = true
-                }
+                isExpanded = true
             }
 
             if shouldRehydrateOnAppear {
@@ -633,6 +626,7 @@ struct AssistantProgressView: View {
             if model.hasTools {
                 VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
                     .foregroundStyle(VColor.contentTertiary)
+                    .animation(VAnimation.fast, value: isExpanded)
             }
         }
     }
@@ -781,6 +775,11 @@ struct AssistantProgressView: View {
                 }
             }
         }
+        // Suppress animation on the expanded tool-call rows. The parent's
+        // .transaction { $0.animation = nil } on MessageTranscriptStack covers
+        // the normal path; explicit suppression here guards against any future
+        // re-introduction of animation at an intermediate level.
+        .transaction { $0.animation = nil }
     }
 
     // MARK: - Inline Permission Chips (Collapsed Header)
