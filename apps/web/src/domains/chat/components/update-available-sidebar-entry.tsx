@@ -10,7 +10,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, X } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@vellum/design-library";
 import { toast } from "@vellum/design-library/components/toast";
@@ -26,6 +26,7 @@ import { AvatarRenderer } from "@/components/avatar-renderer.js";
 
 const DISMISS_STORAGE_KEY = "updateBannerDismissed";
 const POLL_INTERVAL_MS = 3000;
+const POLL_TIMEOUT_MS = 60_000;
 
 interface DismissRecord {
   version: string;
@@ -53,15 +54,45 @@ function writeDismissRecord(version: string): void {
 
 interface UpdateAvailableSidebarEntryProps {
   assistantId: string;
+  onVisibilityChange?: (visible: boolean) => void;
+}
+
+export function useIsUpdateBannerVisible(assistantId: string | null): boolean {
+  const { data: assistant } = useQuery({
+    ...assistantsRetrieveOptions({ path: { id: assistantId ?? "" } }),
+    enabled: !!assistantId,
+  });
+
+  const { data: releases } = useQuery(
+    releasesListOptions({ query: { stable: true } }),
+  );
+
+  const currentVersion = assistant?.current_release_version ?? null;
+  const latestRelease =
+    releases?.find((r) => r.is_stable !== false) ?? releases?.[0];
+  const latestVersion = latestRelease?.version ?? null;
+
+  return useMemo(() => {
+    if (!latestVersion || !currentVersion) return false;
+    const latest = parseSemver(latestVersion);
+    const current = parseSemver(currentVersion);
+    if (!latest || !current) return latestVersion !== currentVersion;
+    const upgradeAvailable = compareParsed(latest, current) > 0;
+    if (!upgradeAvailable) return false;
+    const record = readDismissRecord();
+    return record?.version !== latestVersion;
+  }, [latestVersion, currentVersion]);
 }
 
 export function UpdateAvailableSidebarEntry({
   assistantId,
+  onVisibilityChange,
 }: UpdateAvailableSidebarEntryProps) {
   const queryClient = useQueryClient();
   const [dismissed, setDismissed] = useState(false);
   const [isPollingUpgrade, setIsPollingUpgrade] = useState(false);
   const targetVersionRef = useRef<string | null>(null);
+  const pollStartedAtRef = useRef<number>(0);
 
   const { data: assistant } = useQuery(
     assistantsRetrieveOptions({ path: { id: assistantId } }),
@@ -76,7 +107,17 @@ export function UpdateAvailableSidebarEntry({
       queueMicrotask(() => {
         setIsPollingUpgrade(false);
         targetVersionRef.current = null;
+        pollStartedAtRef.current = 0;
         toast.success("Update complete — assistant is healthy.");
+      });
+      return false as const;
+    }
+    if (Date.now() - pollStartedAtRef.current > POLL_TIMEOUT_MS) {
+      queueMicrotask(() => {
+        setIsPollingUpgrade(false);
+        targetVersionRef.current = null;
+        pollStartedAtRef.current = 0;
+        toast.error("Update is taking longer than expected. Please check Settings.");
       });
       return false as const;
     }
@@ -115,6 +156,10 @@ export function UpdateAvailableSidebarEntry({
     return record?.version === latestVersion;
   }, [latestVersion]);
 
+  useEffect(() => {
+    setDismissed(false);
+  }, [latestVersion]);
+
   const avatar = useAssistantAvatar(assistantId);
 
   const upgradeMutation = useMutation({
@@ -142,6 +187,7 @@ export function UpdateAvailableSidebarEntry({
         result.detail ??
           `Update to ${result.version ?? latestVersion ?? "latest"} initiated.`,
       );
+      pollStartedAtRef.current = Date.now();
       setIsPollingUpgrade(true);
       queryClient.invalidateQueries({
         queryKey: assistantsRetrieveQueryKey({
@@ -158,9 +204,16 @@ export function UpdateAvailableSidebarEntry({
       writeDismissRecord(latestVersion);
     }
     setDismissed(true);
-  }, [latestVersion]);
+    onVisibilityChange?.(false);
+  }, [latestVersion, onVisibilityChange]);
 
-  if (!upgradeAvailable || dismissed || isDismissedForVersion) {
+  const isVisible = upgradeAvailable && !dismissed && !isDismissedForVersion;
+
+  useEffect(() => {
+    onVisibilityChange?.(isVisible);
+  }, [isVisible, onVisibilityChange]);
+
+  if (!isVisible) {
     return null;
   }
 

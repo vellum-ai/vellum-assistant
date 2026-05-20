@@ -19,7 +19,10 @@ import { useConversationListStore } from "@/domains/conversations/conversation-l
 
 import { OfflineBanner } from "@/components/offline-banner.js";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
-import { UpdateAvailableSidebarEntry } from "@/domains/chat/components/update-available-sidebar-entry.js";
+import {
+  UpdateAvailableSidebarEntry,
+  useIsUpdateBannerVisible,
+} from "@/domains/chat/components/update-available-sidebar-entry.js";
 import { ChatLayoutHeader } from "./chat-layout-header.js";
 
 /**
@@ -320,13 +323,28 @@ export function ChatLayout() {
 
   const isLibraryActive = location.pathname.startsWith("/assistant/library");
 
-  const updateBanner = useMemo(
-    () =>
-      lifecycle.assistantId ? (
-        <UpdateAvailableSidebarEntry assistantId={lifecycle.assistantId} />
-      ) : null,
-    [lifecycle.assistantId],
+  const isUpdateBannerVisible = useIsUpdateBannerVisible(
+    lifecycle.assistantId ?? null,
   );
+  const [updateBannerDismissed, setUpdateBannerDismissed] = useState(false);
+
+  useEffect(() => {
+    setUpdateBannerDismissed(false);
+  }, [lifecycle.assistantId]);
+
+  const handleUpdateBannerVisibility = useCallback((visible: boolean) => {
+    if (!visible) {
+      setUpdateBannerDismissed(true);
+    }
+  }, []);
+
+  const updateBanner =
+    lifecycle.assistantId && isUpdateBannerVisible && !updateBannerDismissed ? (
+      <UpdateAvailableSidebarEntry
+        assistantId={lifecycle.assistantId}
+        onVisibilityChange={handleUpdateBannerVisibility}
+      />
+    ) : undefined;
 
   const renderSideMenu = useCallback(
     (args: SideMenuRenderArgs): ReactNode => (
