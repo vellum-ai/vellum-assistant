@@ -1,5 +1,6 @@
 
 import * as Sentry from "@sentry/react";
+import { useViewerStore } from "@/stores/viewer-store.js";
 
 import {
   type Dispatch,
@@ -482,6 +483,7 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const switchConversation = useCallback(
     (key: string) => {
+      useViewerStore.getState().setMainView("chat");
       if (key === activeConversationKey) return;
       const params = new URLSearchParams(searchParams.toString());
       params.set("conversationKey", key);
@@ -496,6 +498,7 @@ export function useConversationLoader({
   const startNewConversation = useCallback(
     ({ silent, initialMessage }: { silent?: boolean; initialMessage?: string } = {}) => {
       if (!silent) haptic.light();
+      useViewerStore.getState().setMainView("chat");
       const draftKey = createDraftConversationKey();
       if (initialMessage) {
         pendingInitialMessageRef.current = { conversationKey: draftKey, content: initialMessage };

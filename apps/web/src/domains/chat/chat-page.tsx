@@ -783,6 +783,7 @@ export function ChatPage() {
     },
     handleCloseApp: () => {
       useViewerStore.getState().closeApp();
+      useViewerStore.getState().setMainView("chat");
     },
     handleCloseEditPanel: () => {
       useViewerStore.getState().exitAppEditing();
