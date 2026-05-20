@@ -1,29 +1,32 @@
 /**
  * Zustand store for chat state shared across deeply-nested components.
  *
+ * Wrapped with `createSelectors` for auto-generated per-field hooks.
  * Selector-based subscriptions let each consumer re-render only when
  * its slice changes — critical during streaming where `messages`
  * updates at ~50 ms cadence.
  *
- * **Primary API** — selector-based (finest granularity):
+ * **Primary API** — per-field selectors (finest granularity):
  * ```ts
- * const messages = useChatStore((s) => s.messages);
+ * const messages = useChatStore.use.messages();
  * ```
  *
- * **Convenience hooks** — grouped slices for common patterns:
- * - `useChatState()` — state slice (messages, conversation key, assistant ID)
- * - `useChatActions()` — stable action refs (sendMessage)
+ * **Non-React code** — use `.getState()` in callbacks, effects, handlers:
+ * ```ts
+ * const { messages } = useChatStore.getState();
+ * ```
  *
  * Interaction state lives in its own store (`useInteractionStore`).
  * Turn state lives in its own store (`useTurnStore`).
  *
- * Reference: {@link https://zustand.docs.pmnd.rs/}
+ * @see {@link https://zustand.docs.pmnd.rs/}
+ * @see {@link https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors}
  */
 
 import { useEffect } from "react";
 import { create } from "zustand";
-import { useShallow } from "zustand/shallow";
 
+import { createSelectors } from "@/utils/create-selectors.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 
 // ---------------------------------------------------------------------------
@@ -52,12 +55,14 @@ export type ChatStore = ChatState & ChatActions;
 
 const NOOP_SEND: ChatActions["sendMessage"] = async () => {};
 
-export const useChatStore = create<ChatStore>()(() => ({
+const useChatStoreBase = create<ChatStore>()(() => ({
   messages: [],
   activeConversationKey: null,
   assistantId: null,
   sendMessage: NOOP_SEND,
 }));
+
+export const useChatStore = createSelectors(useChatStoreBase);
 
 // ---------------------------------------------------------------------------
 // Sync hook — bridges parent-owned state into the store
@@ -98,41 +103,4 @@ export function useSyncChatStore(props: ChatStoreSyncProps): void {
   }, [sendMessage]);
 }
 
-// ---------------------------------------------------------------------------
-// Consumer hooks
-// ---------------------------------------------------------------------------
 
-/**
- * Read-only chat state (messages, active conversation, assistant ID).
- * Re-renders only when one of these three values changes.
- * Use `useChatActions()` if you only need to dispatch.
- */
-export function useChatState(): ChatState {
-  return useChatStore(
-    useShallow((s) => ({
-      messages: s.messages,
-      activeConversationKey: s.activeConversationKey,
-      assistantId: s.assistantId,
-    })),
-  );
-}
-
-/**
- * Stable action refs (sendMessage).
- * Does **not** re-render when messages or active conversation change.
- */
-export function useChatActions(): ChatActions {
-  return useChatStore(
-    useShallow((s) => ({
-      sendMessage: s.sendMessage,
-    })),
-  );
-}
-
-/**
- * Full store snapshot. Prefer `useChatState()` or `useChatActions()`
- * to minimize re-renders — this hook re-renders on any store change.
- */
-export function useChatSnapshot(): ChatStore {
-  return useChatStore(useShallow((s) => s));
-}

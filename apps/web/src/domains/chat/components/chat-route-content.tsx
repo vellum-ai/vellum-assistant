@@ -82,7 +82,7 @@ import { haptic } from "@/utils/haptics.js";
 import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
 import { getDiskPressureChatBlockReason } from "@/domains/assistant/disk-pressure.js";
 import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
-import { useTurnStore } from "@/domains/messaging/turn-store.js";
+import { type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
 import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types.js";
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
@@ -504,7 +504,13 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
   // Turn state (read from Zustand store)
   // -------------------------------------------------------------------------
-  const turnState = useTurnStore();
+  const phase = useTurnStore.use.phase();
+  const pendingQueuedCount = useTurnStore.use.pendingQueuedCount();
+  const activeToolCallCount = useTurnStore.use.activeToolCallCount();
+  const activeTurnId = useTurnStore.use.activeTurnId();
+  const lastTerminalReason = useTurnStore.use.lastTerminalReason();
+  const statusText = useTurnStore.use.statusText();
+  const turnState: TurnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText };
 
   // -------------------------------------------------------------------------
   // Deploy / share state (from Zustand store)

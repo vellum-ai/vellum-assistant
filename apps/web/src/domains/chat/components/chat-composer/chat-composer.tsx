@@ -23,7 +23,7 @@ import {
   VoiceInputButton,
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button.js";
-import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
+import { type TurnPhase, useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude.js";
@@ -357,9 +357,9 @@ export function ChatComposer({
     [emojiState, input, inputRef, setInput, onTextChange],
   );
 
-  const turnState = useTurnStore();
+  const phase: TurnPhase = useTurnStore.use.phase();
   const isGenerating =
-    isSending(turnState) && turnState.phase !== "awaiting_user_input";
+    phase === "queued" || phase === "thinking" || phase === "streaming";
 
   const ghostSuffix = useMemo(
     () =>
