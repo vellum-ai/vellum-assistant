@@ -1334,7 +1334,11 @@ export async function dispatchAgentEvent(
           "Thinking",
         );
 
-        const inputForCall = state.serverToolInputs.get(event.toolUseId);
+        // Prefer `resolvedInput` (Anthropic's accumulated server-tool input,
+        // populated on content_block_stop) over the input captured at
+        // server_tool_start, which is `{}` on Anthropic until the deltas land.
+        const inputForCall =
+          event.resolvedInput ?? state.serverToolInputs.get(event.toolUseId);
         const query =
           typeof inputForCall?.query === "string" ? inputForCall.query : "";
         const startedAt =
@@ -1363,14 +1367,28 @@ export async function dispatchAgentEvent(
             };
           });
 
-        const metadata: WebSearchMetadata = {
-          query,
-          provider: "anthropic-native",
-          resultCount: results.length,
-          durationMs,
-          results,
-          ...(event.isError ? { errorMessage: "Search failed" } : {}),
-        };
+        // Only Anthropic produces structured `web_search_tool_result` blocks
+        // that map cleanly onto `WebSearchMetadata` (provider-tagged
+        // "anthropic-native"). Other providers (e.g. OpenAI's responses
+        // `web_search_call`) share this event channel but their results are
+        // woven into the text stream — emitting "anthropic-native" metadata
+        // for them would mis-label the provider and ship empty results.
+        const isAnthropicNative = deps.ctx.provider.name === "anthropic";
+
+        const errorMessage = event.isError
+          ? (event.errorMessage ?? event.errorCode ?? "Search failed")
+          : undefined;
+
+        const metadata: WebSearchMetadata | undefined = isAnthropicNative
+          ? {
+              query,
+              provider: "anthropic-native",
+              resultCount: results.length,
+              durationMs,
+              results,
+              ...(errorMessage ? { errorMessage } : {}),
+            }
+          : undefined;
 
         const resultText = results
           .map((r) => `${r.title}\n${r.url}`)
@@ -1383,7 +1401,7 @@ export async function dispatchAgentEvent(
           isError: event.isError,
           conversationId: deps.ctx.conversationId,
           toolUseId: event.toolUseId,
-          activityMetadata: { webSearch: metadata },
+          ...(metadata ? { activityMetadata: { webSearch: metadata } } : {}),
         });
         break;
       }
