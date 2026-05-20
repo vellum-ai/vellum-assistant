@@ -9,6 +9,7 @@ import type { WebFetchMetadata } from "../../daemon/message-types/web-activity.j
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
+import { faviconUrlForDomain } from "../../util/favicon.js";
 import { getLogger } from "../../util/logger.js";
 import { safeStringSlice } from "../../util/unicode.js";
 import { registerTool } from "../registry.js";
@@ -562,6 +563,7 @@ export async function executeWebFetch(
     const safeFinalUrl = meta.finalUrl
       ? sanitizeUrlStringForOutput(meta.finalUrl)
       : safeUrl;
+    const domain = extractDomain(safeFinalUrl);
     return {
       content: errorMessage,
       isError: true,
@@ -574,7 +576,8 @@ export async function executeWebFetch(
           byteCount: 0,
           charCount: 0,
           truncated: false,
-          domain: extractDomain(safeFinalUrl),
+          domain,
+          faviconUrl: faviconUrlForDomain(domain),
           redirectCount: meta.redirectCount ?? 0,
           durationMs: Date.now() - startedAt,
           errorMessage,
@@ -910,6 +913,7 @@ export async function executeWebFetch(
 
     const truncated = body.truncated || safeEnd < processed.length;
     const parsedTitle = html ? parseHtmlTitle(body.text) : undefined;
+    const finalDomain = extractDomain(currentUrl.href);
     const meta: WebFetchMetadata = {
       url: safeRequestedUrl,
       finalUrl: sanitizeUrlForOutput(currentUrl),
@@ -919,8 +923,8 @@ export async function executeWebFetch(
       charCount: sliced.length,
       truncated,
       title: parsedTitle,
-      domain: extractDomain(currentUrl.href),
-      // faviconUrl intentionally omitted — added by PR 5.
+      domain: finalDomain,
+      faviconUrl: faviconUrlForDomain(finalDomain),
       redirectCount,
       durationMs: Date.now() - startedAt,
     };
