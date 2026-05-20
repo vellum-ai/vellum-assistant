@@ -234,6 +234,20 @@ describe("composeConversationSeed", () => {
       expect(seed).toBe("Reminder");
     });
 
+    test("falls back to title when body is whitespace-only", () => {
+      const signal = makeSignal();
+      const copy = makeCopy({ title: "Reminder", body: "   " });
+      const seed = composeConversationSeed(
+        signal,
+        "vellum" as NotificationChannel,
+        copy,
+      );
+      // Whitespace-only bodies must be treated as empty — otherwise the
+      // title would be suppressed (header dedupe) and the seed would
+      // render as a blank bubble.
+      expect(seed).toBe("Reminder");
+    });
+
     test('appends "Action required." when requiresAction is true', () => {
       const signal = makeSignal({
         attentionHints: {
