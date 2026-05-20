@@ -255,9 +255,10 @@ describe("document-comments injector", () => {
     for (let i = 5; i < 15; i++) {
       expect(block!.text).toContain(`Comment #comment-${i}`);
     }
-    // Earlier comments should be excluded
+    // Earlier comments should be excluded (use exact line match to avoid
+    // substring collisions like "comment-1" matching "comment-10")
     for (let i = 0; i < 5; i++) {
-      expect(block!.text).not.toContain(`Comment #comment-${i}`);
+      expect(block!.text).not.toContain(`Comment #comment-${i} (`);
     }
   });
 

@@ -33,283 +33,6 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/acp/{id}/cancel:
-    post:
-      operationId: acp_by_id_cancel_post
-      summary: Cancel ACP session
-      description: Cancel an active ACP session.
-      tags:
-        - acp
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  acpSessionId:
-                    type: string
-                  cancelled:
-                    type: boolean
-                required:
-                  - acpSessionId
-                  - cancelled
-                additionalProperties: false
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-  /v1/acp/{id}/close:
-    post:
-      operationId: acp_by_id_close_post
-      summary: Close ACP session
-      description: Close a completed ACP session.
-      tags:
-        - acp
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  acpSessionId:
-                    type: string
-                  closed:
-                    type: boolean
-                required:
-                  - acpSessionId
-                  - closed
-                additionalProperties: false
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-  /v1/acp/{id}/steer:
-    post:
-      operationId: acp_by_id_steer_post
-      summary: Steer ACP session
-      description: Send a steering instruction to an active ACP session.
-      tags:
-        - acp
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  acpSessionId:
-                    type: string
-                  steered:
-                    type: boolean
-                required:
-                  - acpSessionId
-                  - steered
-                additionalProperties: false
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                instruction:
-                  type: string
-              required:
-                - instruction
-              additionalProperties: false
-  /v1/acp/sessions:
-    delete:
-      operationId: acp_sessions_delete
-      summary: Bulk-clear terminal ACP sessions
-      description: Remove every terminal-state row (completed/failed/cancelled) from the persisted acp_session_history table.
-      tags:
-        - acp
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  deleted:
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                required:
-                  - deleted
-                additionalProperties: false
-      parameters:
-        - name: status
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Must be 'completed'. Shorthand for all terminal statuses (completed/failed/cancelled).
-    get:
-      operationId: acp_sessions_get
-      summary: List ACP sessions
-      description:
-        Return the merged set of in-memory and persisted ACP sessions, newest first. In-memory sessions take
-        precedence on id collision.
-      tags:
-        - acp
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  sessions:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        agentId:
-                          type: string
-                        acpSessionId:
-                          type: string
-                        parentConversationId:
-                          type: string
-                        status:
-                          type: string
-                        startedAt:
-                          type: number
-                        completedAt:
-                          anyOf:
-                            - type: number
-                            - type: "null"
-                        error:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        stopReason:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        eventLog:
-                          type: array
-                          items: {}
-                      required:
-                        - id
-                        - agentId
-                        - acpSessionId
-                        - status
-                        - startedAt
-                      additionalProperties: false
-                    description: Merged in-memory and persisted ACP sessions.
-                required:
-                  - sessions
-                additionalProperties: false
-      parameters:
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-          description: Maximum number of sessions to return (default 50, max 500).
-        - name: conversationId
-          in: query
-          required: false
-          schema:
-            type: string
-          description: Filter to sessions whose parentConversationId matches this value.
-  /v1/acp/sessions/{id}:
-    delete:
-      operationId: acp_sessions_by_id_delete
-      summary: Delete ACP session from history
-      description:
-        Remove a persisted ACP session row. Rejects with 409 when the session is still active in memory; idempotent
-        for unknown ids.
-      tags:
-        - acp
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  deleted:
-                    type: boolean
-                required:
-                  - deleted
-                additionalProperties: false
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-  /v1/acp/spawn:
-    post:
-      operationId: acp_spawn_post
-      summary: Spawn ACP session
-      description: Start a new Agent Communication Protocol session.
-      tags:
-        - acp
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  acpSessionId:
-                    type: string
-                  protocolSessionId:
-                    type: string
-                  agent:
-                    type: string
-                required:
-                  - acpSessionId
-                  - protocolSessionId
-                  - agent
-                additionalProperties: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                agent:
-                  type: string
-                  description: Agent name
-                task:
-                  type: string
-                  description: Task description
-                conversationId:
-                  type: string
-                cwd:
-                  type: string
-                  description: Working directory
-              required:
-                - agent
-                - task
-                - conversationId
-              additionalProperties: false
   /v1/admin/rollback-migrations:
     post:
       operationId: admin_rollbackmigrations_post
@@ -6614,6 +6337,268 @@ paths:
           required: true
           schema:
             type: string
+  /v1/documents/{id}/comments:
+    get:
+      operationId: documents_by_id_comments_get
+      summary: List comments for a document
+      description: Return comments for a document, optionally filtered by status.
+      tags:
+        - documents
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  comments:
+                    type: array
+                    items: {}
+                    description: Comment records
+                required:
+                  - comments
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - open
+              - resolved
+              - all
+          description: "Filter by comment status (default: all)"
+    post:
+      operationId: documents_by_id_comments_post
+      summary: Create a comment on a document
+      description: Add a new comment to a document.
+      tags:
+        - documents
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  surfaceId:
+                    type: string
+                  conversationId:
+                    type: string
+                  author:
+                    type: string
+                  content:
+                    type: string
+                  status:
+                    type: string
+                  createdAt:
+                    type: number
+                  updatedAt:
+                    type: number
+                required:
+                  - id
+                  - surfaceId
+                  - conversationId
+                  - author
+                  - content
+                  - status
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+                  description: Comment text content
+                author:
+                  default: user
+                  description: Comment author
+                  type: string
+                  const: user
+                anchorStart:
+                  description: Selection start offset
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                anchorEnd:
+                  description: Selection end offset
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                anchorText:
+                  description: Anchored text snippet
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                parentCommentId:
+                  description: Parent comment ID for replies
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                conversationId:
+                  type: string
+                  description: Owning conversation ID
+              required:
+                - content
+                - conversationId
+              additionalProperties: false
+  /v1/documents/{id}/comments/{commentId}:
+    delete:
+      operationId: documents_by_id_comments_by_commentId_delete
+      summary: Delete a document comment
+      description: Permanently delete a comment.
+      tags:
+        - documents
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                required:
+                  - success
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+    patch:
+      operationId: documents_by_id_comments_by_commentId_patch
+      summary: Update a document comment
+      description: Update the status or content of a comment.
+      tags:
+        - documents
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  surfaceId:
+                    type: string
+                  content:
+                    type: string
+                  status:
+                    type: string
+                  updatedAt:
+                    type: number
+                required:
+                  - id
+                  - surfaceId
+                  - content
+                  - status
+                  - updatedAt
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  description: New comment status
+                  type: string
+                  enum:
+                    - open
+                    - resolved
+                content:
+                  description: Updated comment text
+                  type: string
+                  minLength: 1
+                resolvedBy:
+                  description: Who resolved the comment
+                  type: string
+              additionalProperties: false
+  /v1/documents/{id}/conversations:
+    post:
+      operationId: documents_by_id_conversations_post
+      summary: Link a document to a conversation
+      description: Associate a document with a conversation so the assistant sees it as context.
+      tags:
+        - documents
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                required:
+                  - success
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  description: Conversation to link
+              required:
+                - conversationId
+              additionalProperties: false
   /v1/documents/{id}/pdf:
     get:
       operationId: documents_by_id_pdf_get
