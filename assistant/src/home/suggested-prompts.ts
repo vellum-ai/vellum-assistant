@@ -16,11 +16,11 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { listProviders } from "../oauth/oauth-store.js";
-import { isOAuthProviderConnected } from "../schedule/integration-status.js";
 import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { getConfiguredProvider } from "../providers/provider-send-message.js";
 import { runBtwSidechain } from "../runtime/btw-sidechain.js";
+import { isOAuthProviderConnected } from "../schedule/integration-status.js";
 import { getLogger } from "../util/logger.js";
 import type { SuggestedPrompt } from "./feed-types.js";
 
