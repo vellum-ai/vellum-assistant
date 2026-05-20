@@ -1,120 +1,27 @@
+/**
+ * GitHub-nudge public API.
+ *
+ * Backed by `useNudgeStore`; this file just exposes the GitHub-specific
+ * derived state, click handlers, and a few non-React readers used by the
+ * Discord-nudge prerequisite checks.
+ */
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
 
-import {
-  computeNudgeSidebarVisible,
-  readBooleanPref,
-  writeBooleanPref,
-  writeNumberPref,
-  readNumberPref,
-} from "@/domains/nudges/nudge-prefs.js";
-
-import {
-  GITHUB_REPO_URL,
-  KEY_GITHUB_NUDGE_BANNER_DISMISSED,
-  KEY_GITHUB_NUDGE_BANNER_DISMISSED_AT,
-  KEY_GITHUB_NUDGE_SIDEBAR_DISMISSED,
-  KEY_GITHUB_NUDGE_STARRED,
-} from "@/domains/nudges/github-constants.js";
+import { computeNudgeSidebarVisible } from "@/domains/nudges/nudge-prefs.js";
+import { useNudgeStore } from "@/domains/nudges/nudge-store.js";
+import { GITHUB_REPO_URL } from "@/domains/nudges/github-constants.js";
 
 // ---------------------------------------------------------------------------
-// External-store subscription
-// ---------------------------------------------------------------------------
-//
-// `setLocalSetting` (the underlying writer behind `writeBooleanPref`)
-// dispatches a synthetic `vellum:pref-changed` CustomEvent on `window`
-// after every same-tab write, and the browser dispatches a native
-// `storage` event on cross-tab writes. Both are bridged into
-// `useSyncExternalStore` so every consumer of a given pref key re-renders
-// the instant the flag flips on any surface or tab.
-//
-// The subscribe callback filters on `detail.key` (same-tab) and
-// `event.key` (cross-tab) so unrelated pref flips do not trigger
-// spurious re-renders.
-//
-// `subscribe` and `getSnapshot` are cached at module scope per pref key.
-// `useSyncExternalStore` compares `subscribe` by reference and
-// re-subscribes whenever it receives a fresh function — see
-// https://react.dev/reference/react/useSyncExternalStore#parameters —
-// so creating a new closure on every render would tear down and re-add
-// listeners every render. Same convention as `useIsMobile.ts`.
-
-type PrefChangeEvent = CustomEvent<{ key: string; value: string | null }>;
-
-const subscribeCache = new Map<
-  string,
-  (listener: () => void) => () => void
->();
-const snapshotCache = new Map<string, () => boolean>();
-
-function getSubscribeForKey(
-  key: string,
-): (listener: () => void) => () => void {
-  let cached = subscribeCache.get(key);
-  if (!cached) {
-    cached = (listener) => {
-      if (typeof window === "undefined") return () => {};
-      const handleSameTab = (event: Event) => {
-        const detail = (event as PrefChangeEvent).detail;
-        if (detail?.key === key) listener();
-      };
-      const handleCrossTab = (event: StorageEvent) => {
-        if (event.key === key) listener();
-      };
-      window.addEventListener("vellum:pref-changed", handleSameTab);
-      window.addEventListener("storage", handleCrossTab);
-      return () => {
-        window.removeEventListener("vellum:pref-changed", handleSameTab);
-        window.removeEventListener("storage", handleCrossTab);
-      };
-    };
-    subscribeCache.set(key, cached);
-  }
-  return cached;
-}
-
-function getSnapshotForKey(key: string): () => boolean {
-  let cached = snapshotCache.get(key);
-  if (!cached) {
-    cached = () => readBooleanPref(key, false);
-    snapshotCache.set(key, cached);
-  }
-  return cached;
-}
-
-const SERVER_DEFAULT_FALSE = () => false;
-
-function useBooleanPref(key: string): boolean {
-  return useSyncExternalStore(
-    getSubscribeForKey(key),
-    getSnapshotForKey(key),
-    SERVER_DEFAULT_FALSE,
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Public readers / writers
+// Public readers (non-React, for cross-module prerequisite checks)
 // ---------------------------------------------------------------------------
 
 export function readGitHubNudgeStarred(): boolean {
-  return readBooleanPref(KEY_GITHUB_NUDGE_STARRED, false);
-}
-
-function writeGitHubNudgeStarred(): void {
-  writeBooleanPref(KEY_GITHUB_NUDGE_STARRED, true);
-}
-
-function writeGitHubBannerDismissed(): void {
-  writeBooleanPref(KEY_GITHUB_NUDGE_BANNER_DISMISSED, true);
-  writeNumberPref(KEY_GITHUB_NUDGE_BANNER_DISMISSED_AT, Date.now());
+  return useNudgeStore.getState().githubStarred;
 }
 
 export function readGitHubBannerDismissedAt(): number {
-  return readNumberPref(KEY_GITHUB_NUDGE_BANNER_DISMISSED_AT, 0);
-}
-
-function writeGitHubSidebarDismissed(): void {
-  writeBooleanPref(KEY_GITHUB_NUDGE_SIDEBAR_DISMISSED, true);
+  return useNudgeStore.getState().githubBannerDismissedAt;
 }
 
 // ---------------------------------------------------------------------------
@@ -140,21 +47,21 @@ export interface GitHubNudgeState {
 }
 
 export function useGitHubNudgeState(): GitHubNudgeState {
-  const starred = useBooleanPref(KEY_GITHUB_NUDGE_STARRED);
-  const bannerDismissed = useBooleanPref(KEY_GITHUB_NUDGE_BANNER_DISMISSED);
-  const sidebarDismissed = useBooleanPref(KEY_GITHUB_NUDGE_SIDEBAR_DISMISSED);
+  const starred = useNudgeStore.use.githubStarred();
+  const bannerDismissed = useNudgeStore.use.githubBannerDismissed();
+  const sidebarDismissed = useNudgeStore.use.githubSidebarDismissed();
 
   const handleStar = useCallback(() => {
     openGitHubRepo();
-    writeGitHubNudgeStarred();
+    useNudgeStore.getState().markGitHubStarred();
   }, []);
 
   const handleBannerDismiss = useCallback(() => {
-    writeGitHubBannerDismissed();
+    useNudgeStore.getState().dismissGitHubBanner();
   }, []);
 
   const handleSidebarDismiss = useCallback(() => {
-    writeGitHubSidebarDismissed();
+    useNudgeStore.getState().dismissGitHubSidebar();
   }, []);
 
   return {
@@ -178,14 +85,3 @@ export function openGitHubRepo(): void {
   if (typeof window === "undefined") return;
   window.open(GITHUB_REPO_URL, "_blank", "noopener,noreferrer");
 }
-
-// ---------------------------------------------------------------------------
-// Internals exported for tests only. Not part of the public API.
-// ---------------------------------------------------------------------------
-
-export const __testing = {
-  writeGitHubNudgeStarred,
-  writeGitHubBannerDismissed,
-  writeGitHubSidebarDismissed,
-  readGitHubBannerDismissedAt,
-};

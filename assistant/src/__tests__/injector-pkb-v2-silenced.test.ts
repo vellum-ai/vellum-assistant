@@ -3,8 +3,8 @@
  *
  * When `getConfig().memory.v2.enabled` is true:
  *   - `pkb-context` silences itself (concept pages own retrieval).
- *   - `pkb-reminder` still fires (its body is generic recall/remember
- *     guidance) but skips the PKB-search hints — those name PKB paths.
+ *   - `pkb-reminder` silences itself (the v2 static `<memory>` block
+ *     supplants the generic recall/remember nudge).
  *   - `now-md` fires unchanged (workspace state, independent of PKB).
  *
  * Mocks `getConfig` at the module level so each test can flip the effective
@@ -85,7 +85,7 @@ describe("PKB injector v2 cutover behavior", () => {
     expect(texts.some((t) => t.includes("<NOW.md"))).toBe(true);
   });
 
-  test("v2 active → pkb-context silenced; pkb-reminder + now-md still fire", async () => {
+  test("v2 active → pkb-context and pkb-reminder silenced; now-md still fires", async () => {
     v2Active = true;
     const result = await applyRuntimeInjections(RUN_MESSAGES, {
       turnContext: makeTurnContext(),
@@ -99,29 +99,8 @@ describe("PKB injector v2 cutover behavior", () => {
 
     const texts = tailTexts(result.messages);
     expect(texts.some((t) => t.includes("<knowledge_base>"))).toBe(false);
-    expect(texts.some((t) => t.includes("<system_reminder>"))).toBe(true);
+    expect(texts.some((t) => t.includes("<system_reminder>"))).toBe(false);
     expect(texts.some((t) => t.includes("<NOW.md"))).toBe(true);
     expect(texts).toContain("What next?");
-  });
-
-  test("v2 active → pkb-reminder body fires without the hybrid-search hints", async () => {
-    v2Active = true;
-    const result = await applyRuntimeInjections(RUN_MESSAGES, {
-      turnContext: makeTurnContext(),
-      pkbActive: true,
-      pkbScopeId: "scope-default",
-      pkbRoot: "/tmp/pkb",
-      pkbConversation: { messages: [] },
-      // Provide a query vector so the v1 path WOULD have called searchPkbFiles
-      // and rendered hints. Under v2, the call is skipped and the reminder
-      // is rendered with empty hints — i.e. no "files look especially
-      // relevant" line.
-      pkbQueryVector: [0.1, 0.2, 0.3],
-    });
-
-    const texts = tailTexts(result.messages);
-    const reminder = texts.find((t) => t.includes("<system_reminder>"));
-    expect(reminder).toBeDefined();
-    expect(reminder).not.toContain("files look especially relevant");
   });
 });

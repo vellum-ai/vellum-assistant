@@ -133,12 +133,11 @@ const diskPressureWarningInjector: Injector = {
 };
 
 /**
- * v2 read-side cutover guard. The `pkb-context` injector silences itself
- * under v2 because the `<knowledge_base>` block surfaces PKB content the v2
- * activation block already covers. The `pkb-reminder` injector still fires
- * (its body is generic recall/remember guidance) but skips the hybrid-search
- * hints — those name PKB paths v2 is moving away from. NOW.md is workspace
- * state independent of PKB and fires unchanged.
+ * v2 read-side cutover guard. Under v2 both `pkb-context` and `pkb-reminder`
+ * silence themselves entirely — the `<knowledge_base>` content and the
+ * generic recall/remember nudge are both supplanted by the v2 static
+ * `<memory>` block. NOW.md is workspace state independent of PKB and fires
+ * unchanged.
  */
 function isPkbInjectionSilencedByV2(): boolean {
   return getConfig().memory.v2.enabled;
@@ -287,9 +286,8 @@ const pkbReminderInjector: Injector = {
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
     if (!inputs.pkbActive) return null;
-    const reminder = isPkbInjectionSilencedByV2()
-      ? buildPkbReminder([])
-      : await buildPkbReminderWithHints(inputs);
+    if (isPkbInjectionSilencedByV2()) return null;
+    const reminder = await buildPkbReminderWithHints(inputs);
     return {
       id: "pkb-reminder",
       text: reminder,
