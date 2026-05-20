@@ -7,7 +7,7 @@
  */
 
 import type { ChatMessage, ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 import {
   assertHasResponse,
   client,

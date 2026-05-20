@@ -26,7 +26,7 @@ import type {
   SubagentStatus,
   UISurfaceShowEvent,
 } from "@/domains/chat/api/event-types.js";
-import type { DisplayAttachment } from "@/domains/chat/lib/types.js";
+import type { DisplayAttachment } from "@/domains/chat/types/types.js";
 import type { SyncInvalidationTag } from "@/lib/sync/types.js";
 
 export function readEventConversationKey(

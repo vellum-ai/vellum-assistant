@@ -1,6 +1,6 @@
 /**
  * Chat route content — renders the chat-specific UI (main chat, document panel,
- * app-editing side panel) within the `AssistantShell` layout.
+ * app-editing side panel) inside `ChatLayout`.
  *
  * Extracted from `AssistantPageClient` as Phase 1 of route-level component
  * splitting. This component owns:
@@ -61,19 +61,20 @@ import type { ConversationStarter } from "@/domains/chat/utils/conversation-star
 import { recordChatDiagnostic, summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics.js";
 import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state.js";
 import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants.js";
-import { useEmptyStateGreeting } from "@/domains/chat/lib/use-empty-state-greeting.js";
+import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting.js";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
 import { fetchOlderHistoryPage } from "@/domains/chat/api/history.js";
+import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { buildTranscriptItems } from "@/domains/chat/lib/transcript/build-items.js";
-import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
+import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
+import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/chat/utils/turn-selectors.js";
-import { isSurfaceInteractive } from "@/domains/chat/lib/types.js";
+import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
 
-import type { MainView, OpenedAppState, OpenedDocumentState, ViewerState } from "@/stores/viewer-store.js";
-import { useActiveProfileModel } from "@/domains/chat/lib/use-active-profile-model.js";
+import type { MainView, OpenedAppState, OpenedDocumentState } from "@/stores/viewer-store.js";
+import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model.js";
 import { modelSupportsVision } from "@/domains/assistant/model-capabilities.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import { routes } from "@/utils/routes.js";
@@ -271,7 +272,6 @@ export interface ChatRouteContentProps {
 
   // Viewer
   mainView: MainView;
-  viewerState: ViewerState;
   openedAppState: OpenedAppState | null;
   openedDocumentState: OpenedDocumentState | null;
   editingConversationKey: string | null;
@@ -386,7 +386,6 @@ export function ChatRouteContent({
   activeConversation,
   processingKeys,
   mainView,
-  viewerState,
   openedAppState,
   openedDocumentState,
   editingConversationKey,
@@ -506,6 +505,13 @@ export function ChatRouteContent({
   // Turn state (read from Zustand store)
   // -------------------------------------------------------------------------
   const turnState = useTurnStore();
+
+  // -------------------------------------------------------------------------
+  // Deploy / share state (from Zustand store)
+  // -------------------------------------------------------------------------
+
+  const isSharing = useDeployStore.use.isSharing();
+  const isDeploying = useDeployStore.use.isDeploying();
 
   // -------------------------------------------------------------------------
   // Interaction state (from Zustand store)
@@ -1337,9 +1343,9 @@ export function ChatRouteContent({
             onClose={handleCloseApp}
             onEdit={handleCloseEditPanel}
             onShare={handleShareApp}
-            isSharing={viewerState.isSharing}
+            isSharing={isSharing}
             onDeploy={deployToVercel ? handleDeployApp : undefined}
-            isDeploying={viewerState.isDeploying}
+            isDeploying={isDeploying}
             isEditing
           />
         }

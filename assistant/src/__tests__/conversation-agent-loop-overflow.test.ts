@@ -301,6 +301,7 @@ mock.module("../daemon/history-repair.js", () => ({
 }));
 
 const recordUsageMock = mock((..._args: unknown[]) => {});
+const setAgentLoopExitReasonOnLatestLogMock = mock(() => {});
 mock.module("../daemon/conversation-usage.js", () => ({
   recordUsage: recordUsageMock,
 }));
@@ -349,12 +350,23 @@ mock.module("../workspace/git-service.js", () => ({
 }));
 
 mock.module("../daemon/conversation-error.js", () => ({
-  classifyConversationError: (_err: unknown, _ctx: unknown) => ({
-    code: "CONVERSATION_PROCESSING_FAILED",
-    userMessage: "Something went wrong processing your message.",
-    retryable: false,
-    errorCategory: "processing_failed",
-  }),
+  classifyConversationError: (err: unknown, _ctx: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/context.?length.?exceeded/i.test(message)) {
+      return {
+        code: "CONTEXT_TOO_LARGE",
+        userMessage: "Context too large.",
+        retryable: false,
+        errorCategory: "context_too_large",
+      };
+    }
+    return {
+      code: "CONVERSATION_PROCESSING_FAILED",
+      userMessage: "Something went wrong processing your message.",
+      retryable: false,
+      errorCategory: "processing_failed",
+    };
+  },
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
     if (!ctx.aborted) return false;
     if (err instanceof DOMException && err.name === "AbortError") return true;
@@ -394,6 +406,7 @@ mock.module("../agent/message-types.js", () => ({
 mock.module("../memory/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
+  setAgentLoopExitReasonOnLatestLog: setAgentLoopExitReasonOnLatestLogMock,
 }));
 
 mock.module("../memory/archive-store.js", () => ({
@@ -616,6 +629,7 @@ beforeEach(() => {
   mockOverflowAction = "fail_gracefully";
   mockApplyRuntimeInjections = (msgs) => msgs;
   recordUsageMock.mockClear();
+  setAgentLoopExitReasonOnLatestLogMock.mockClear();
   // Reset the plugin registry and re-register every default so the
   // orchestrator's pipelines (`overflowReduce`, `persistence`, …) dispatch to
   // the default middleware, which in turn hits the mocked collaborators
@@ -1907,6 +1921,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     // After exhausting mid-loop attempts, the convergence loop should
     // have been triggered (contextTooLargeDetected set to true)
     expect(convergenceReducerCalled).toBe(true);
+    expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
+      "test-conv",
+      "context_too_large",
+    );
   });
 
   // ── Test 9 ────────────────────────────────────────────────────────
@@ -2068,6 +2086,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
     // Agent loop: 1 initial + 3 mid-loop re-entries + 2 convergence re-runs = 6 calls
     expect(agentLoopCallCount).toBe(6);
+    expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
+      "test-conv",
+      "context_too_large",
+    );
   });
 
   // ── Test 8 ────────────────────────────────────────────────────────

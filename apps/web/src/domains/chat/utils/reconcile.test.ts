@@ -7,7 +7,7 @@ import {
   reconcileMessages,
 } from "@/domains/chat/utils/reconcile.js";
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
-import { classifySurfaceDisplay, type Surface } from "@/domains/chat/lib/types.js";
+import { classifySurfaceDisplay, type Surface } from "@/domains/chat/types/types.js";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
 import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 

@@ -6,7 +6,7 @@ import { client } from "@/generated/api/client.gen.js";
 import { AppCard } from "@/domains/chat/components/app-card.js";
 import { clearAppHtmlCache, getCachedAppHtml } from "@/domains/chat/api/apps.js";
 import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store.js";
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 import { getDynamicPageAppId } from "@/domains/chat/components/surfaces/dynamic-page-app-id.js";
 
 // ---------------------------------------------------------------------------

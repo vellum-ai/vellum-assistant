@@ -3,7 +3,7 @@ import { queryOptions, useQuery } from "@tanstack/react-query";
 
 import { client } from "@/generated/api/client.gen.js";
 
-import type { LlmContextResponse } from "@/domains/chat/lib/inspector-types.js";
+import type { LlmContextResponse } from "@/domains/chat/types/inspector-types.js";
 
 /**
  * Query helpers for the conversation LLM context inspector. Web port

@@ -13,7 +13,7 @@ import {
 } from "@/domains/assistant/api.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { reportError } from "@/lib/errors/report.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 
 const CURRENT_ASSISTANT_QUERY_KEY = ["currentAssistant"] as const;
 
@@ -99,7 +99,7 @@ export function AssistantStatusPanel({
   healthz,
   healthzLoading,
 }: AssistantStatusPanelProps) {
-  const { isNonProduction } = useAppFeatureFlags();
+  const isNonProduction = useFeatureFlagStore.use.isNonProduction();
   const user = useAuthStore.use.user();
   const email = user?.email;
 

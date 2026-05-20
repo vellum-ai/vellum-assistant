@@ -15,7 +15,7 @@ import {
   updateConnection,
 } from "@/domains/settings/ai/provider-connections-client.js";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -57,7 +57,7 @@ export function ManageProvidersModal({
   assistantId,
   onClose,
 }: ManageProvidersModalProps) {
-  const { openAICompatibleEndpoints } = useAppFeatureFlags();
+  const openAICompatibleEndpoints = useFeatureFlagStore.use.openAICompatibleEndpoints();
   const [connections, setConnections] = useState<ProviderConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);

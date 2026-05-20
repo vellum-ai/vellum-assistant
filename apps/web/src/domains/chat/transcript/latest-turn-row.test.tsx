@@ -46,7 +46,7 @@ import type {
   MessageItem,
   ThinkingItem,
   TranscriptItem,
-} from "@/domains/chat/lib/transcript/types.js";
+} from "@/domains/chat/transcript/types.js";
 
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row.js";
 

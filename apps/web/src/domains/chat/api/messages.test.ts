@@ -10,7 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { client } from "@/domains/chat/api/client.js";
-import { postChatMessage } from "@/domains/chat/api/messages.js";
+import { normalizeContentOrder, normalizeTextSegments, postChatMessage } from "@/domains/chat/api/messages.js";
 
 // ---------------------------------------------------------------------------
 // Spy setup — replace client.post per-test, restore after
@@ -91,5 +91,118 @@ describe("postChatMessage — onboarding wire format", () => {
 
     expect(capturedBody).not.toBeNull();
     expect((capturedBody as Record<string, unknown>).onboarding).toBeUndefined();
+  });
+});
+
+describe("normalizeContentOrder", () => {
+  test("converts string-format entries to objects", () => {
+    const result = normalizeContentOrder(["text:0", "tool:1", "surface:2"]);
+    expect(result).toEqual([
+      { type: "text", id: "0" },
+      { type: "tool", id: "1" },
+      { type: "surface", id: "2" },
+    ]);
+  });
+
+  test("passes through already-object entries unchanged", () => {
+    const input = [
+      { type: "text", id: "0" },
+      { type: "toolCall", id: "abc-123" },
+    ];
+    const result = normalizeContentOrder(input);
+    expect(result).toEqual(input);
+  });
+
+  test("handles mixed string and object entries", () => {
+    const result = normalizeContentOrder([
+      "text:0",
+      { type: "toolCall", id: "tc-1" },
+      "tool:1",
+    ]);
+    expect(result).toEqual([
+      { type: "text", id: "0" },
+      { type: "toolCall", id: "tc-1" },
+      { type: "tool", id: "1" },
+    ]);
+  });
+
+  test("handles thinking entries", () => {
+    const result = normalizeContentOrder(["thinking:0", "text:0"]);
+    expect(result).toEqual([
+      { type: "thinking", id: "0" },
+      { type: "text", id: "0" },
+    ]);
+  });
+
+  test("returns undefined for empty or missing input", () => {
+    expect(normalizeContentOrder(undefined)).toBeUndefined();
+    expect(normalizeContentOrder([])).toBeUndefined();
+  });
+
+  test("skips malformed entries", () => {
+    const result = normalizeContentOrder([
+      "text:0",
+      "nocolon",
+      42 as unknown as string,
+      null as unknown as string,
+      { type: 123, id: "bad" } as unknown as { type: string; id: string },
+      "tool:1",
+    ]);
+    expect(result).toEqual([
+      { type: "text", id: "0" },
+      { type: "tool", id: "1" },
+    ]);
+  });
+});
+
+describe("normalizeTextSegments", () => {
+  test("converts plain strings to text segment objects", () => {
+    const result = normalizeTextSegments(["Hello world", "Second segment"]);
+    expect(result).toEqual([
+      { type: "text", content: "Hello world" },
+      { type: "text", content: "Second segment" },
+    ]);
+  });
+
+  test("passes through already-object segments unchanged", () => {
+    const input = [
+      { type: "text", content: "Hello" },
+      { type: "markdown", content: "# Header" },
+    ];
+    const result = normalizeTextSegments(input);
+    expect(result).toEqual(input);
+  });
+
+  test("defaults type to text when object has content but no type", () => {
+    const result = normalizeTextSegments([
+      { content: "no type field" } as unknown as string,
+    ]);
+    expect(result).toEqual([{ type: "text", content: "no type field" }]);
+  });
+
+  test("handles mixed string and object entries", () => {
+    const result = normalizeTextSegments([
+      "plain string",
+      { type: "text", content: "object form" },
+    ]);
+    expect(result).toEqual([
+      { type: "text", content: "plain string" },
+      { type: "text", content: "object form" },
+    ]);
+  });
+
+  test("returns undefined for empty or missing input", () => {
+    expect(normalizeTextSegments(undefined)).toBeUndefined();
+    expect(normalizeTextSegments([])).toBeUndefined();
+  });
+
+  test("skips entries without content", () => {
+    const result = normalizeTextSegments([
+      "valid",
+      { type: "text" } as unknown as string,
+      42 as unknown as string,
+      null as unknown as string,
+    ]);
+    expect(result).toEqual([{ type: "text", content: "valid" }]);
   });
 });

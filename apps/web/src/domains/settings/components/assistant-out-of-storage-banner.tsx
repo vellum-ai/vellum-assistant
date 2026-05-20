@@ -6,7 +6,7 @@ import { Button } from "@vellum/design-library/components/button";
 import { Notice } from "@vellum/design-library/components/notice";
 import { assistantsConnectionStatus } from "@/generated/api/sdk.gen.js";
 import type { AssistantsConnectionStatusResponse } from "@/generated/api/types.gen.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 
 const REFETCH_INTERVAL_MS = 30_000;
@@ -27,7 +27,7 @@ interface AssistantOutOfStorageBannerProps {
 export function AssistantOutOfStorageBanner({
   assistantId,
 }: AssistantOutOfStorageBannerProps) {
-  const { doctor: doctorEnabled } = useAppFeatureFlags();
+  const doctorEnabled = useFeatureFlagStore.use.doctor();
 
   const { data } = useQuery({
     queryKey: ["assistant-out-of-storage", assistantId] as const,

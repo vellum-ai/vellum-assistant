@@ -80,7 +80,7 @@ export function HomeSuggestionPillBar({
                 style={{ width: 26, height: 26 }}
                 aria-hidden="true"
               >
-                <Icon className="size-[9px]" />
+                <Icon className="size-[18px]" />
               </span>
               <span className="text-body-small-default">
                 {suggestion.label}

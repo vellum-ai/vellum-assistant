@@ -35,7 +35,7 @@ import type { MutableRefObject } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
-import type { PaginatedHistoryResult } from "@/domains/chat/lib/transcript/types.js";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocked daemon clients. `mock.module` is process-global in bun:test, so we

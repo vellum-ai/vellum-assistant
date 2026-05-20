@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Card, CardBody, CardFooter, CardHeader, CardRoot } from "./card.js";
 
 const meta: Meta<typeof Card> = {
+  title: "Components/Card",
   component: Card,
   argTypes: {
     padding: { control: "select", options: ["sm", "md", "lg"] },

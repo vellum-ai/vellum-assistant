@@ -17,7 +17,7 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-import type { TranscriptItem } from "@/domains/chat/lib/transcript/types.js";
+import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 import {
   classifyScrollPosition,
   decideItemsChangeAction,

@@ -8,6 +8,7 @@ import { HomePage } from "@/domains/home/home-page.js";
 import { LibraryPage } from "@/domains/library/library-page.js";
 import { LibraryDetailPage } from "@/domains/library/library-detail-page.js";
 import { IdentityPage } from "@/domains/intelligence/identity-page.js";
+import { ConnectPage } from "@/domains/contacts/connect-page.js";
 import { ContactsPage } from "@/domains/contacts/contacts-page.js";
 import { NotFound } from "@/components/not-found.js";
 import { SettingsLayout } from "@/domains/settings/settings-layout.js";
@@ -68,51 +69,13 @@ function HomePageRoute() {
   );
 }
 
-/**
- * Route hierarchy (no basename — routes are absolute browser paths):
- *
- *   /account/*   — standalone auth pages, no app chrome
- *   │  ├── AccountPage (/account)
- *   │  ├── LoginPage (/account/login)
- *   │  ├── SignupPage (/account/signup)
- *   │  ├── ProviderCallbackPage (/account/provider/callback)
- *   │  ├── ProviderSignupPage (/account/provider/signup)
- *   │  ├── OAuthPopupCompletePage (/account/oauth/popup-complete)
- *   │  ├── DesktopOAuthCompletePage (/account/oauth/desktop-complete)
- *   │  ├── PasswordResetPage (/account/password/reset → redirects to login)
- *   │  └── PasswordResetPage (/account/password/reset/key/:key → redirects to login)
- *   │
- *   /logout        — standalone logout (calls API, redirects to login)
- *   │
- *   /assistant/* — auth-protected app with RootLayout
- *   │  middleware: [authMiddleware] — redirects to login when auth required
- *   │  ├── Onboarding (full-screen, no app chrome)
- *   │  │   ├── PrivacyScreen (/assistant/onboarding/privacy)
- *   │  │   ├── PreChatFlow (/assistant/onboarding/prechat)
- *   │  │   └── HatchingScreen (/assistant/onboarding/hatching)
- *   │  ├── SettingsLayout (full-screen overlay panel, no ChatLayout sidebar)
- *   │  │   ├── GeneralPage (/assistant/settings/general)
- *   │  │   ├── AiPage (/assistant/settings/ai)
- *   │  │   ├── IntegrationsPage, SchedulesPage, VoicePage, ...
- *   │  │   ├── BillingPage (/assistant/settings/billing)
- *   │  │   │   ├── onboarding, upgrade/cancel, upgrade/success
- *   │  │   └── AdvancedPage, DeveloperPage, DebugPage
- *   │  ├── LogsLayout (full-screen overlay panel, like SettingsLayout)
- *   │  │   ├── TracePage (/assistant/logs/trace)
- *   │  │   ├── UsagePage (/assistant/logs/usage)
- *   │  │   ├── SystemEventsPage (/assistant/logs/system-events)
- *   │  │   └── EmailsPage (/assistant/logs/emails)
- *   │  └── ChatLayout — sidebar rail, drawer, shortcuts
- *   │       ├── ChatPage (index, /assistant)
- *   │       ├── HomePageRoute (/assistant/home)
- *   │       ├── LibraryPage / LibraryDetailPage
- *   │       └── ContactsPage (/assistant/contacts)
- *
- * References:
- * - React Router data mode routing: https://reactrouter.com/start/data/routing
- * - React Router prefix routes: https://reactrouter.com/start/data/routing#prefix-route
- * - React Router middleware: https://reactrouter.com/how-to/middleware
- */
+// Route tree — no basename, routes are absolute browser paths.
+// To view the full hierarchy at a glance:
+//   grep -n 'path:' apps/web/src/routes.tsx
+//
+// References:
+// - React Router data mode routing: https://reactrouter.com/start/data/routing
+// - React Router middleware: https://reactrouter.com/how-to/middleware
 export const router = createBrowserRouter([
   // Account routes — standalone auth pages, no app chrome
   {
@@ -198,6 +161,7 @@ export const router = createBrowserRouter([
           { path: "library/:appId", element: <LibraryDetailPage /> },
           { path: "identity", element: <IdentityPage /> },
           { path: "contacts", element: <ContactsPage /> },
+          { path: "connect", element: <ConnectPage /> },
         ],
       },
 

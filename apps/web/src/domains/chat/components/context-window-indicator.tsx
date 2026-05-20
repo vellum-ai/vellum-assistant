@@ -2,8 +2,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { useAppRootContainer } from "@/components/app-root-context.js";
-
 export interface ContextWindowUsage {
   tokens: number;
   maxTokens: number | null;
@@ -39,7 +37,6 @@ function formatTokens(count: number): string {
 }
 
 export function ContextWindowIndicator({ usage }: ContextWindowIndicatorProps) {
-  const appRootContainer = useAppRootContainer();
   const [isHovered, setIsHovered] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number } | null>(
     null,
@@ -141,11 +138,8 @@ export function ContextWindowIndicator({ usage }: ContextWindowIndicatorProps) {
           style={{ transition: "stroke-dashoffset 250ms ease-out, stroke 250ms ease-out" }}
         />
       </svg>
-      {isHovered && appRootContainer &&
+      {isHovered &&
         createPortal(
-          // Portal into the `.app-root` element so appTheme.css tokens like
-          // `--surface-lift` resolve. `document.body` would render outside the
-          // theme scope and the background would paint transparent.
           <div
             ref={tooltipRef}
             role="tooltip"
@@ -176,7 +170,7 @@ export function ContextWindowIndicator({ usage }: ContextWindowIndicatorProps) {
               compacts its context.
             </div>
           </div>,
-          appRootContainer,
+          document.body,
         )}
     </div>
   );

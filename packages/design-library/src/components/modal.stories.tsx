@@ -71,6 +71,32 @@ export const WithIcon: Story = {
   ),
 };
 
+export const NoCloseButton: Story = {
+  render: () => (
+    <Modal.Root>
+      <Modal.Trigger asChild>
+        <Button>Open (no close button)</Button>
+      </Modal.Trigger>
+      <Modal.Content hideCloseButton>
+        <Modal.Header>
+          <Modal.Title>Confirm Action</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Modal.Description>
+            This modal has no close button — dismiss via the footer buttons.
+          </Modal.Description>
+        </Modal.Body>
+        <Modal.Footer>
+          <Modal.Close asChild>
+            <Button variant="outlined">Cancel</Button>
+          </Modal.Close>
+          <Button variant="primary">Confirm</Button>
+        </Modal.Footer>
+      </Modal.Content>
+    </Modal.Root>
+  ),
+};
+
 export const Sizes: Story = {
   render: function SizesStory() {
     const [size, setSize] = useState<"sm" | "md" | "lg" | "xl">("md");
@@ -111,30 +137,4 @@ export const Sizes: Story = {
       </div>
     );
   },
-};
-
-export const NoCloseButton: Story = {
-  render: () => (
-    <Modal.Root>
-      <Modal.Trigger asChild>
-        <Button>Open (no close button)</Button>
-      </Modal.Trigger>
-      <Modal.Content hideCloseButton>
-        <Modal.Header>
-          <Modal.Title>Confirm Action</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <Modal.Description>
-            This modal has no close button — dismiss via the footer buttons.
-          </Modal.Description>
-        </Modal.Body>
-        <Modal.Footer>
-          <Modal.Close asChild>
-            <Button variant="outlined">Cancel</Button>
-          </Modal.Close>
-          <Button variant="primary">Confirm</Button>
-        </Modal.Footer>
-      </Modal.Content>
-    </Modal.Root>
-  ),
 };

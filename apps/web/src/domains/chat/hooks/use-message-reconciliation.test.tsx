@@ -92,7 +92,7 @@ mock.module("@/domains/chat/api/messages", () => ({
 // Subject under test (imported AFTER module mocks).
 // ---------------------------------------------------------------------------
 
-import type { useMessageReconciliation } from "@/domains/chat/lib/use-message-reconciliation.js";
+import type { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation.js";
 import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 
 type HookReturn = ReturnType<typeof useMessageReconciliation>;

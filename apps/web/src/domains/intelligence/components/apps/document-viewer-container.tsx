@@ -148,7 +148,8 @@ export function DocumentViewerContainer({
   const [wordCount, setWordCount] = useState(() => countWords(content));
   const [isExportingPDF, setIsExportingPDF] = useState(false);
 
-  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  const theme = typeof document !== "undefined" ? document.documentElement.dataset.theme : undefined;
+  const isDark = theme === "dark" || theme === "velvet";
 
   const srcdoc = useMemo(
     () => generateEditorHTML(documentName, content, isDark),

@@ -10,13 +10,15 @@ export type SurfaceType =
   | "confirmation"
   | "dynamic_page"
   | "file_upload"
-  | "document_preview";
+  | "document_preview"
+  | "task_preferences";
 
 export const INTERACTIVE_SURFACE_TYPES: SurfaceType[] = [
   "form",
   "confirmation",
   "dynamic_page",
   "file_upload",
+  "task_preferences",
 ];
 
 export interface SurfaceAction {

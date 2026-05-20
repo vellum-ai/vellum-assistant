@@ -10,7 +10,7 @@
  */
 
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
 import type { AllowlistOption, ChatMessageToolCall, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
 

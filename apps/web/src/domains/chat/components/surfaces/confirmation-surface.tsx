@@ -2,7 +2,7 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
 

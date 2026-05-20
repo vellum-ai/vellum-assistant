@@ -1,7 +1,7 @@
 
 import { CheckCircle, XCircle } from "lucide-react";
 
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 
 import { BrowserViewSurface } from "@/domains/chat/components/surfaces/browser-view-surface.js";
 import { CallSummarySurface } from "@/domains/chat/components/surfaces/call-summary-surface.js";

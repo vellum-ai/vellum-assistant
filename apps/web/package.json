@@ -10,10 +10,12 @@
     "preview": "vite preview",
     "lint": "eslint",
     "typecheck": "bunx tsc --noEmit",
-    "postinstall": "rm -rf ../../packages/design-library/node_modules/@types/react ../../packages/design-library/node_modules/@types/react-dom 2>/dev/null; for pkg in react react-dom; do rm -rf ../../packages/design-library/node_modules/$pkg && ln -sf \"$(cd ../.. && pwd)/apps/web/node_modules/$pkg\" ../../packages/design-library/node_modules/$pkg; done 2>/dev/null; true && test -d src/generated || bun run openapi-ts",
+    "postinstall": "mkdir -p ../../packages/design-library/node_modules && rm -rf ../../packages/design-library/node_modules/@types/react ../../packages/design-library/node_modules/@types/react-dom 2>/dev/null; for pkg in react react-dom; do rm -rf ../../packages/design-library/node_modules/$pkg && ln -sf \"$(cd ../.. && pwd)/apps/web/node_modules/$pkg\" ../../packages/design-library/node_modules/$pkg; done 2>/dev/null; true && test -d src/generated || bun run openapi-ts",
     "openapi-ts": "openapi-ts",
     "ios:setup": "bunx cap sync ios && cd ../ios/App && xcodegen generate --spec project.yml",
-    "ios:open": "bun run ios:setup && open ../ios/App/App.xcodeproj"
+    "ios:open": "bun run ios:setup && open ../ios/App/App.xcodeproj",
+    "test": "bun test",
+    "test:ci": "bun scripts/run-tests.ts"
   },
   "dependencies": {
     "@capacitor/app": "8.1.0",
@@ -68,6 +70,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "8.3.4",
+    "@happy-dom/global-registrator": "18.0.1",
     "@hey-api/openapi-ts": "0.97.1",
     "@sentry/vite-plugin": "3.4.0",
     "@tailwindcss/vite": "4.1.8",
@@ -76,6 +79,7 @@
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.1",
     "eslint": "10.2.0",
+    "happy-dom": "18.0.1",
     "tailwindcss": "4.1.8",
     "typescript": "5.9.3",
     "typescript-eslint": "8.58.1",

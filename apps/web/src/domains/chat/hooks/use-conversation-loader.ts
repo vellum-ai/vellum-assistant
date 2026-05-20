@@ -23,7 +23,7 @@ import {
   loadLastViewedConversationKey,
   saveLastViewedConversationKey,
 } from "@/domains/chat/utils/lastViewedConversationStorage.js";
-import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
+import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 
 

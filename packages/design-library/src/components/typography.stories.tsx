@@ -4,6 +4,7 @@ import type { TypographyVariant } from "./typography.js";
 import { Typography } from "./typography.js";
 
 const meta: Meta<typeof Typography> = {
+  title: "Components/Typography",
   component: Typography,
   argTypes: {
     variant: {

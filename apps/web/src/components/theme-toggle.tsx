@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 import { cn, SegmentControl } from "@vellum/design-library";
 
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import {
   applyThemePreference,
   normalizeThemePreference,
@@ -33,7 +33,7 @@ const VELVET_THEME_OPTION = {
 };
 
 export function ThemeToggle({ className }: { className?: string } = {}) {
-  const { velvet } = useAppFeatureFlags();
+  const velvet = useFeatureFlagStore.use.velvet();
   const [theme, setTheme] = useState<ThemePreference>(() =>
     readStoredThemePreference({ velvetEnabled: velvet }),
   );

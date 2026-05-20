@@ -105,6 +105,12 @@ export interface CreateA2AInviteResponse {
   senderGatewayUrl: string;
 }
 
+export interface AcceptA2AInviteResponse {
+  success: boolean;
+  contactId?: string;
+  alreadyConnected?: boolean;
+}
+
 export type ContactSelection =
   | { kind: "assistant" }
   | { kind: "contact"; contactId: string };

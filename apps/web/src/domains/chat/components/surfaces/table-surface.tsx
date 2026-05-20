@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { sfSymbolToLucideName } from "@/domains/chat/components/surfaces/sf-symbol-map.js";
 
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container.js";
 

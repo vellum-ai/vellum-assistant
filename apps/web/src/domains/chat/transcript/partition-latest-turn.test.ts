@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
-import { partitionLatestTurn } from "@/domains/chat/lib/transcript/partition-latest-turn.js";
+import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn.js";
 import type {
   ErrorItem,
   MessageItem,
   ThinkingItem,
   TranscriptItem,
-} from "@/domains/chat/lib/transcript/types.js";
+} from "@/domains/chat/transcript/types.js";
 
 function makeMessage(
   overrides: Omit<DisplayMessage, "stableId"> & { stableId?: string },

@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Loader2, Lock, Send, Shield } from "lucide-r
 import { type FormEvent, useCallback, useMemo, useState } from "react";
 
 import { Toggle } from "@vellum/design-library";
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
 
