@@ -2,13 +2,13 @@ import * as Sentry from "@sentry/react";
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-store.js";
 import {
-  findConversationInCache,
-  getConversationsFromCache,
-  markConversationSeenInCache,
+  findConversation,
+  getConversations,
+  markConversationSeenLocal,
   useConversationListQuery,
-} from "@/domains/conversations/conversation-list-queries.js";
+} from "@/domains/conversations/conversation-queries.js";
 import { markConversationSeen } from "@/domains/chat/api/conversations.js";
 import { listConversationKeysWithPendingInteractions } from "@/domains/chat/api/interactions.js";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
@@ -114,7 +114,7 @@ export function useAttentionTracking({
     markConversationSeen(assistantId, activeConversationKey)
       .then(() => {
         if (cancelled) return;
-        markConversationSeenInCache(queryClient, assistantId, activeConversationKey);
+        markConversationSeenLocal(queryClient, assistantId, activeConversationKey);
       })
       .catch((err) => {
         Sentry.captureException(err, {
@@ -222,7 +222,7 @@ export function useAttentionTracking({
           useConversationListStore.getState().removeProcessingKey(key);
           continue;
         }
-        const conv = findConversationInCache(queryClient, assistantId, key);
+        const conv = findConversation(queryClient, assistantId, key);
         const snapshot = currentSnapshots.get(key);
         if (conv?.latestAssistantMessageAt && conv.latestAssistantMessageAt !== snapshot) {
           useConversationListStore.getState().removeProcessingKey(key);
@@ -265,7 +265,7 @@ export function useAttentionTracking({
       if (cancelled || pendingKeys.size === 0) return;
       // Pull the current snapshot from the cache to avoid the closed-over
       // `conversations` capture from the effect's first render.
-      const currentConversations = getConversationsFromCache(queryClient, assistantId);
+      const currentConversations = getConversations(queryClient, assistantId);
       for (const conv of currentConversations) {
         if (conv.conversationKey === activeConversationKey) continue;
         if (pendingKeys.has(conv.conversationKey)) {

@@ -3,20 +3,19 @@ import { describe, expect, it } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
 import {
-  appendGroupInCache,
-  applyConversationPatch,
+  appendGroup,
   chatContextQueryKey,
   conversationGroupsQueryKey,
-  deleteGroupAndResetConversationsInCache,
-  markConversationSeenInCache,
-  patchConversationInCache,
-  patchGroupInCache,
-  prependConversationInCache,
-  removeConversationFromCache,
-  removeGroupFromCache,
-  replaceOptimisticGroupInCache,
-  resolveDraftKeyInCache,
-} from "@/domains/conversations/conversation-list-queries.js";
+  deleteGroupAndResetConversations,
+  markConversationSeenLocal,
+  patchConversation,
+  patchGroup,
+  prependConversation,
+  removeConversation,
+  removeGroup,
+  replaceOptimisticGroup,
+  resolveDraftKey,
+} from "@/domains/conversations/conversation-queries.js";
 import type {
   Conversation,
   ConversationGroup,
@@ -73,52 +72,30 @@ function getGroups(qc: QueryClient): ConversationGroup[] {
 }
 
 // ---------------------------------------------------------------------------
-// applyConversationPatch
-// ---------------------------------------------------------------------------
-
-describe("applyConversationPatch", () => {
-  it("patches the matching conversation by key", () => {
-    const convs = [
-      makeConversation("a", { title: "old" }),
-      makeConversation("b", { title: "keep" }),
-    ];
-    const result = applyConversationPatch(convs, "a", { title: "new" });
-    expect(result[0]!.title).toBe("new");
-    expect(result[1]!.title).toBe("keep");
-  });
-
-  it("returns the same array reference when key does not match", () => {
-    const convs = [makeConversation("a")];
-    const result = applyConversationPatch(convs, "missing", { title: "x" });
-    expect(result).toBe(convs);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Conversation cache helpers
 // ---------------------------------------------------------------------------
 
-describe("patchConversationInCache", () => {
+describe("patchConversation", () => {
   it("patches the matching conversation in the chat context cache", () => {
     const qc = new QueryClient();
     seedChatContext(qc, [
       makeConversation("a", { title: "old" }),
       makeConversation("b"),
     ]);
-    patchConversationInCache(qc, ASSISTANT_ID, "a", { title: "new" });
+    patchConversation(qc, ASSISTANT_ID, "a", { title: "new" });
     expect(getConversations(qc)[0]!.title).toBe("new");
   });
 
   it("is a no-op when no chat context is cached", () => {
     const qc = new QueryClient();
-    patchConversationInCache(qc, ASSISTANT_ID, "a", { title: "x" });
+    patchConversation(qc, ASSISTANT_ID, "a", { title: "x" });
     expect(
       qc.getQueryData<ChatContext | null>(chatContextQueryKey(ASSISTANT_ID)),
     ).toBeUndefined();
   });
 });
 
-describe("markConversationSeenInCache", () => {
+describe("markConversationSeenLocal", () => {
   it("clears the unseen flag and stamps lastSeenAssistantMessageAt", () => {
     const qc = new QueryClient();
     seedChatContext(qc, [
@@ -127,7 +104,7 @@ describe("markConversationSeenInCache", () => {
         latestAssistantMessageAt: "2024-01-01T00:00:00Z",
       }),
     ]);
-    markConversationSeenInCache(qc, ASSISTANT_ID, "a");
+    markConversationSeenLocal(qc, ASSISTANT_ID, "a");
     expect(getConversations(qc)[0]!.hasUnseenLatestAssistantMessage).toBe(
       false,
     );
@@ -141,18 +118,18 @@ describe("markConversationSeenInCache", () => {
     seedChatContext(qc, [
       makeConversation("a", { hasUnseenLatestAssistantMessage: true }),
     ]);
-    markConversationSeenInCache(qc, ASSISTANT_ID, "a", "2024-06-01T00:00:00Z");
+    markConversationSeenLocal(qc, ASSISTANT_ID, "a", "2024-06-01T00:00:00Z");
     expect(getConversations(qc)[0]!.lastSeenAssistantMessageAt).toBe(
       "2024-06-01T00:00:00Z",
     );
   });
 });
 
-describe("prependConversationInCache", () => {
+describe("prependConversation", () => {
   it("adds to the front of the list", () => {
     const qc = new QueryClient();
     seedChatContext(qc, [makeConversation("b")]);
-    prependConversationInCache(qc, ASSISTANT_ID, makeConversation("a"));
+    prependConversation(qc, ASSISTANT_ID, makeConversation("a"));
     expect(getConversations(qc).map((c) => c.conversationKey)).toEqual([
       "a",
       "b",
@@ -160,20 +137,20 @@ describe("prependConversationInCache", () => {
   });
 });
 
-describe("removeConversationFromCache", () => {
+describe("removeConversation", () => {
   it("removes the matching conversation", () => {
     const qc = new QueryClient();
     seedChatContext(qc, [makeConversation("a"), makeConversation("b")]);
-    removeConversationFromCache(qc, ASSISTANT_ID, "a");
+    removeConversation(qc, ASSISTANT_ID, "a");
     expect(getConversations(qc).map((c) => c.conversationKey)).toEqual(["b"]);
   });
 });
 
-describe("resolveDraftKeyInCache", () => {
+describe("resolveDraftKey", () => {
   it("remaps the conversation key and clears the draft flag", () => {
     const qc = new QueryClient();
     seedChatContext(qc, [makeConversation("draft-1", { draft: true })]);
-    resolveDraftKeyInCache(qc, ASSISTANT_ID, "draft-1", "real-1");
+    resolveDraftKey(qc, ASSISTANT_ID, "draft-1", "real-1");
     expect(getConversations(qc)[0]!.conversationKey).toBe("real-1");
     expect(getConversations(qc)[0]!.draft).toBe(false);
   });
@@ -183,14 +160,14 @@ describe("resolveDraftKeyInCache", () => {
 // Group cache helpers
 // ---------------------------------------------------------------------------
 
-describe("appendGroupInCache", () => {
+describe("appendGroup", () => {
   it("auto-computes sortPosition from the current group count", () => {
     const qc = new QueryClient();
     qc.setQueryData<ConversationGroup[]>(
       conversationGroupsQueryKey(ASSISTANT_ID),
       [makeGroup("g1", "First", { sortPosition: 0 })],
     );
-    appendGroupInCache(
+    appendGroup(
       qc,
       ASSISTANT_ID,
       makeGroup("g2", "Second", { sortPosition: 0 }),
@@ -201,19 +178,19 @@ describe("appendGroupInCache", () => {
   });
 });
 
-describe("patchGroupInCache", () => {
+describe("patchGroup", () => {
   it("patches the matching group", () => {
     const qc = new QueryClient();
     qc.setQueryData<ConversationGroup[]>(
       conversationGroupsQueryKey(ASSISTANT_ID),
       [makeGroup("g1", "Old")],
     );
-    patchGroupInCache(qc, ASSISTANT_ID, "g1", { name: "New" });
+    patchGroup(qc, ASSISTANT_ID, "g1", { name: "New" });
     expect(getGroups(qc)[0]!.name).toBe("New");
   });
 });
 
-describe("replaceOptimisticGroupInCache", () => {
+describe("replaceOptimisticGroup", () => {
   it("swaps the optimistic group with the real one", () => {
     const qc = new QueryClient();
     qc.setQueryData<ConversationGroup[]>(
@@ -221,24 +198,24 @@ describe("replaceOptimisticGroupInCache", () => {
       [makeGroup("opt-1", "Temp")],
     );
     const real = makeGroup("real-1", "Real");
-    replaceOptimisticGroupInCache(qc, ASSISTANT_ID, "opt-1", real);
+    replaceOptimisticGroup(qc, ASSISTANT_ID, "opt-1", real);
     expect(getGroups(qc)[0]).toEqual(real);
   });
 });
 
-describe("removeGroupFromCache", () => {
+describe("removeGroup", () => {
   it("removes the matching group", () => {
     const qc = new QueryClient();
     qc.setQueryData<ConversationGroup[]>(
       conversationGroupsQueryKey(ASSISTANT_ID),
       [makeGroup("g1", "A"), makeGroup("g2", "B")],
     );
-    removeGroupFromCache(qc, ASSISTANT_ID, "g1");
+    removeGroup(qc, ASSISTANT_ID, "g1");
     expect(getGroups(qc).map((g) => g.id)).toEqual(["g2"]);
   });
 });
 
-describe("deleteGroupAndResetConversationsInCache", () => {
+describe("deleteGroupAndResetConversations", () => {
   it("removes the group and clears groupId on affected conversations", () => {
     const qc = new QueryClient();
     seedChatContext(qc, [
@@ -249,7 +226,7 @@ describe("deleteGroupAndResetConversationsInCache", () => {
       conversationGroupsQueryKey(ASSISTANT_ID),
       [makeGroup("g1", "G1"), makeGroup("g2", "G2")],
     );
-    deleteGroupAndResetConversationsInCache(qc, ASSISTANT_ID, "g1");
+    deleteGroupAndResetConversations(qc, ASSISTANT_ID, "g1");
     expect(getGroups(qc).map((g) => g.id)).toEqual(["g2"]);
     expect(getConversations(qc)[0]!.groupId).toBeUndefined();
     expect(getConversations(qc)[1]!.groupId).toBe("g2");

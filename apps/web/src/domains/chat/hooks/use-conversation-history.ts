@@ -26,7 +26,7 @@ import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import type { SubagentStatus } from "@/domains/chat/api/event-types.js";
 

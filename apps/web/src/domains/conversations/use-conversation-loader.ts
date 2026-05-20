@@ -27,7 +27,7 @@ import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 
 
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-store.js";
 import { haptic } from "@/utils/haptics.js";
 import { routes } from "@/utils/routes.js";
 import type { NavigateFunction } from "react-router";
@@ -46,7 +46,7 @@ import { type Conversation } from "@/domains/chat/api/conversations.js";
 import {
   chatContextQueryKey,
   conversationGroupsQueryKey,
-} from "@/domains/conversations/conversation-list-queries.js";
+} from "@/domains/conversations/conversation-queries.js";
 
 // Re-export for consumers that import from this module
 export {

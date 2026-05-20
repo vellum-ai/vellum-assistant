@@ -1,59 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-
-import { applyConversationPatch } from "@/domains/conversations/conversation-list-queries.js";
-import { resolveUnpinGroupId } from "@/domains/chat/hooks/use-conversation-actions.js";
+import { resolveUnpinGroupId } from "@/domains/conversations/use-conversation-actions.js";
 import type { Conversation } from "@/domains/chat/api/conversations.js";
-
-// ---------------------------------------------------------------------------
-// applyConversationPatch
-// ---------------------------------------------------------------------------
 
 function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
   return { conversationKey: "conv-1", ...overrides };
 }
-
-describe("applyConversationPatch", () => {
-  test("patches the matching conversation by key", () => {
-    const convs = [
-      makeConversation({ conversationKey: "a", title: "old" }),
-      makeConversation({ conversationKey: "b", title: "keep" }),
-    ];
-    const result = applyConversationPatch(convs, "a", { title: "new" });
-    expect(result[0]!.title).toBe("new");
-    expect(result[1]!.title).toBe("keep");
-  });
-
-  test("returns a new array (immutable)", () => {
-    const convs = [makeConversation()];
-    const result = applyConversationPatch(convs, "conv-1", { title: "x" });
-    expect(result).not.toBe(convs);
-    expect(result[0]).not.toBe(convs[0]);
-  });
-
-  test("leaves all conversations unchanged when key does not match", () => {
-    const convs = [
-      makeConversation({ conversationKey: "a", title: "keep" }),
-    ];
-    const result = applyConversationPatch(convs, "no-match", { title: "nope" });
-    expect(result[0]!.title).toBe("keep");
-  });
-
-  test("applies multiple fields at once", () => {
-    const convs = [makeConversation({ conversationKey: "a" })];
-    const result = applyConversationPatch(convs, "a", {
-      isPinned: true,
-      groupId: "system:pinned",
-    });
-    expect(result[0]!.isPinned).toBe(true);
-    expect(result[0]!.groupId).toBe("system:pinned");
-  });
-
-  test("handles empty array", () => {
-    const result = applyConversationPatch([], "a", { title: "x" });
-    expect(result).toEqual([]);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // resolveUnpinGroupId

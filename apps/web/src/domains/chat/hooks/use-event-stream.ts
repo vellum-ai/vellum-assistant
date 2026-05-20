@@ -48,7 +48,7 @@ import type {
   WebSyncRouter,
 } from "@/lib/sync/web-sync-router.js";
 
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-store.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 import { type ChatEventStream, subscribeChatEvents } from "@/domains/chat/api/stream.js";

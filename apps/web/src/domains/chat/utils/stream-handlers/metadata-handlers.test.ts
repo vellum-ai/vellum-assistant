@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
-import { chatContextQueryKey } from "@/domains/conversations/conversation-list-queries.js";
+import { chatContextQueryKey } from "@/domains/conversations/conversation-queries.js";
 import type { Conversation } from "@/domains/chat/api/conversations.js";
 import type { ChatContext } from "@/domains/chat/api/assistant.js";
 import {

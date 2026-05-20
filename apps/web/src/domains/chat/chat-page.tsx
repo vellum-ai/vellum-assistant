@@ -26,11 +26,11 @@ import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantContext } from "@/domains/chat/assistant-context.js";
 import { useShallow } from "zustand/shallow";
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationListStore } from "@/domains/conversations/conversation-store.js";
 import {
   useConversationGroupsQuery,
   useConversationListQuery,
-} from "@/domains/conversations/conversation-list-queries.js";
+} from "@/domains/conversations/conversation-queries.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
@@ -58,8 +58,8 @@ import { useAssistantReachability } from "@/domains/assistant/use-assistant-reac
 import { useDiskPressureMonitor } from "@/domains/assistant/use-disk-pressure-monitor.js";
 import { getDiskPressureChatBlockReason } from "@/domains/assistant/disk-pressure.js";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges.js";
-import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loader.js";
-import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions.js";
+import { useConversationLoader } from "@/domains/conversations/use-conversation-loader.js";
+import { useConversationActions } from "@/domains/conversations/use-conversation-actions.js";
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions.js";
 import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections.js";
 import { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation.js";
