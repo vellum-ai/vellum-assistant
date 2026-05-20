@@ -129,7 +129,10 @@ public struct FeedItem: Codable, Sendable, Identifiable {
     public let actions: [FeedAction]?
     /// Visual urgency treatment — controls badge color independently of sort priority.
     public let urgency: FeedItemUrgency?
-    /// Optional conversation this feed item is associated with.
+    /// Source conversation that emitted this notification, when known. Used
+    /// by the "Go to Thread" affordance in the detail panel. Nil when the
+    /// source context is not a navigable conversation (scheduler job ids,
+    /// watcher event ids, CLI tool-call ids).
     public let conversationId: String?
     /// Server-driven detail panel descriptor; when present, the client opens this panel kind.
     public let detailPanel: FeedItemDetailPanel?

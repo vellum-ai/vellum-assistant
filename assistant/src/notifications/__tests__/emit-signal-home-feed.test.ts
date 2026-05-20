@@ -159,7 +159,10 @@ describe("emitNotificationSignal home-feed wire-up", () => {
     expect(appended.id).toBe(`notif:${result.signalId}`);
     expect(appended.title).toBe("Background job done");
     expect(appended.summary).toBe("Summary of what happened.");
-    expect(appended.conversationId).toBe("conv-vellum-1");
+    // The feed item's conversationId points to the source conversation
+    // that emitted the signal, not the conversation the notification
+    // pipeline spawned to handle it.
+    expect(appended.conversationId).toBe("conv-source-1");
   });
 
   test("interactive standard conversation does NOT trigger appendFeedItem", async () => {

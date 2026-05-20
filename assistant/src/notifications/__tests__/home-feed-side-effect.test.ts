@@ -2,10 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { FeedItem } from "../../home/feed-types.js";
 import type { NotificationSignal } from "../signal.js";
-import type {
-  NotificationDecision,
-  NotificationDeliveryResult,
-} from "../types.js";
+import type { NotificationDecision } from "../types.js";
 
 // ── Module mocks ───────────────────────────────────────────────────────
 //
@@ -97,7 +94,7 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, decision, []);
+    const item = await writeHomeFeedItemForSignal(signal, decision);
 
     expect(conversationLookups).toEqual(["conv-source-1"]);
     expect(item).not.toBeNull();
@@ -114,6 +111,10 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appended.title).toBe("Background job done");
     expect(appended.summary).toBe("Summary of what happened.");
     expect(appended.urgency).toBe("medium");
+    // The button in the home detail panel navigates to the source
+    // conversation that emitted the notification, not the conversation the
+    // notification pipeline spawned to handle it.
+    expect(appended.conversationId).toBe("conv-source-1");
     expect(typeof appended.timestamp).toBe("string");
     expect(appended.createdAt).toBe(appended.timestamp);
   });
@@ -129,15 +130,16 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item).toBeNull();
     expect(appendCalls).toHaveLength(0);
   });
 
   test("isAsyncBackground hint writes even when sourceContextId does not resolve", async () => {
-    // No conversation row matches; the conversation lookup is bypassed
-    // entirely because the hint short-circuits the filter.
+    // Source lookup throws — treated as non-navigable, so the item lands
+    // without a `conversationId` and the "Go to Thread" button hides on the
+    // client. The async-background hint still forces the mirror.
     conversationLookupShouldThrow = true;
     const signal = makeSignal({
       sourceContextId: "not-a-conversation-id",
@@ -154,21 +156,22 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, decision, []);
+    const item = await writeHomeFeedItemForSignal(signal, decision);
 
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
     expect(appendCalls[0]!.urgency).toBe("high");
-    // The async-background short-circuit must not consult the conversation store.
-    expect(conversationLookups).toHaveLength(0);
+    expect(appendCalls[0]!.conversationId).toBeUndefined();
+    expect(conversationLookups).toEqual(["not-a-conversation-id"]);
   });
 
   test("assistant_tool source mirrors to the home feed even without a background conversation or async hint", async () => {
     // Regression: the `notifications send` CLI/skill emits with
     // `sourceChannel: "assistant_tool"`, a synthetic `cli-<ts>` source
     // context id that does not resolve to a conversation, and
-    // `isAsyncBackground: false`. Before the fix, `shouldMirrorToHomeFeed`
-    // returned `false` for this shape and the Inbox stayed empty.
+    // `isAsyncBackground: false`. The assistant_tool channel forces the
+    // mirror; the source-id lookup misses so the item lands without a
+    // `conversationId` and the "Go to Thread" button hides on the client.
     conversationRow = null;
     const signal = makeSignal({
       sourceChannel: "assistant_tool",
@@ -188,47 +191,42 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, decision, []);
+    const item = await writeHomeFeedItemForSignal(signal, decision);
 
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
     expect(appendCalls[0]!.title).toBe("Shared from CLI");
     expect(appendCalls[0]!.noteworthy).toBe(true);
-    // The assistant_tool short-circuit must not consult the conversation store.
-    expect(conversationLookups).toHaveLength(0);
+    expect(appendCalls[0]!.conversationId).toBeUndefined();
+    expect(conversationLookups).toEqual(["cli-12345"]);
   });
 
-  test("vellum delivery result conversationId propagates onto the feed item", async () => {
-    conversationRow = { conversationType: "background" };
-    const signal = makeSignal();
+  test("source conversation id does not propagate when the lookup misses", async () => {
+    // When `sourceContextId` does not resolve to a real conversation row
+    // (e.g. scheduler job id, watcher event id), the item is still mirrored
+    // via the `isAsyncBackground` hint but `conversationId` stays undefined
+    // so the client hides the "Go to Thread" affordance.
+    conversationRow = null;
+    const signal = makeSignal({
+      sourceContextId: "scheduler-job-42",
+      attentionHints: {
+        requiresAction: false,
+        urgency: "medium",
+        isAsyncBackground: true,
+        visibleInSourceNow: false,
+      },
+    });
     const decision = makeDecision({
       renderedCopy: {
         vellum: { title: "Routed title", body: "Routed body" },
       },
     });
-    const deliveryResults: NotificationDeliveryResult[] = [
-      {
-        channel: "telegram",
-        destination: "chat-1",
-        status: "sent",
-        conversationId: "conv-telegram-1",
-      },
-      {
-        channel: "vellum",
-        destination: "vellum-client",
-        status: "sent",
-        conversationId: "conv-vellum-1",
-      },
-    ];
 
-    const item = await writeHomeFeedItemForSignal(
-      signal,
-      decision,
-      deliveryResults,
-    );
+    const item = await writeHomeFeedItemForSignal(signal, decision);
 
-    expect(item?.conversationId).toBe("conv-vellum-1");
-    expect(appendCalls[0]!.conversationId).toBe("conv-vellum-1");
+    expect(item?.conversationId).toBeUndefined();
+    expect(appendCalls[0]!.conversationId).toBeUndefined();
+    expect(conversationLookups).toEqual(["scheduler-job-42"]);
   });
 
   test("returns null and does not write when no rendered copy or payload title/body is present", async () => {
@@ -238,7 +236,7 @@ describe("writeHomeFeedItemForSignal", () => {
       contextPayload: {},
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item).toBeNull();
     expect(appendCalls).toHaveLength(0);
@@ -251,7 +249,7 @@ describe("writeHomeFeedItemForSignal", () => {
       contextPayload: { title: "Real title" },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item).toBeNull();
     expect(appendCalls).toHaveLength(0);
@@ -268,7 +266,7 @@ describe("writeHomeFeedItemForSignal", () => {
       contextPayload: { body: "Real body" },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
@@ -294,7 +292,7 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, decision, []);
+    const item = await writeHomeFeedItemForSignal(signal, decision);
 
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
@@ -314,7 +312,7 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, decision, []);
+    const item = await writeHomeFeedItemForSignal(signal, decision);
 
     expect(item).toBeNull();
     expect(appendCalls).toHaveLength(0);
@@ -340,7 +338,7 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, decision, []);
+    const item = await writeHomeFeedItemForSignal(signal, decision);
 
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
@@ -372,7 +370,7 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, decision, []);
+    const item = await writeHomeFeedItemForSignal(signal, decision);
 
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
@@ -400,7 +398,7 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, decision, []);
+    const item = await writeHomeFeedItemForSignal(signal, decision);
 
     expect(item).toBeNull();
     expect(appendCalls).toHaveLength(0);
@@ -423,7 +421,7 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
@@ -438,7 +436,7 @@ describe("writeHomeFeedItemForSignal", () => {
       contextPayload: { title: "Payload title", body: "Payload body" },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item).not.toBeNull();
     expect(item?.title).toBe("Payload title");
@@ -456,7 +454,7 @@ describe("writeHomeFeedItemForSignal", () => {
       contextPayload: { title: "Tool share", body: "Body" },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item?.noteworthy).toBe(true);
     expect(appendCalls[0]!.noteworthy).toBe(true);
@@ -470,7 +468,7 @@ describe("writeHomeFeedItemForSignal", () => {
       contextPayload: { title: "Tool share", body: "Body" },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item?.fromAssistant).toBe(true);
     expect(appendCalls[0]!.fromAssistant).toBe(true);
@@ -484,7 +482,7 @@ describe("writeHomeFeedItemForSignal", () => {
       contextPayload: { title: "Reminder", body: "Time to do thing" },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item?.fromAssistant).toBe(false);
     expect(appendCalls[0]!.fromAssistant).toBe(false);
@@ -498,7 +496,7 @@ describe("writeHomeFeedItemForSignal", () => {
       contextPayload: { title: "Reminder", body: "Time to do thing" },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item?.noteworthy).toBe(false);
     expect(appendCalls[0]!.noteworthy).toBe(false);
@@ -512,7 +510,7 @@ describe("writeHomeFeedItemForSignal", () => {
       contextPayload: { title: "Question", body: "Approve?" },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item?.noteworthy).toBe(true);
     expect(appendCalls[0]!.noteworthy).toBe(true);
@@ -532,7 +530,7 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item?.noteworthy).toBe(true);
     expect(appendCalls[0]!.noteworthy).toBe(true);
@@ -552,7 +550,7 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item?.noteworthy).toBe(false);
     expect(appendCalls[0]!.noteworthy).toBe(false);
@@ -578,7 +576,7 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item?.noteworthy).toBe(false);
     expect(appendCalls[0]!.noteworthy).toBe(false);
@@ -600,7 +598,7 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item?.noteworthy).toBe(true);
     expect(appendCalls[0]!.noteworthy).toBe(true);
@@ -614,7 +612,7 @@ describe("writeHomeFeedItemForSignal", () => {
       contextPayload: { title: "Credential expired", body: "Reconnect" },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, makeDecision(), []);
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
 
     expect(item?.noteworthy).toBe(true);
     expect(appendCalls[0]!.noteworthy).toBe(true);
