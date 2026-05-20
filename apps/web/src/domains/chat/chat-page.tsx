@@ -18,7 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ChevronDown } from "lucide-react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
@@ -96,6 +96,7 @@ export function ChatPage() {
   const isNative = useIsNativePlatform();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { conversationKey: urlConversationKey } = useParams<{ conversationKey?: string }>();
   const {
     assistantId,
     assistantState,
@@ -216,11 +217,6 @@ export function ChatPage() {
     (url: string) => { void navigate(url); },
     [navigate],
   );
-  const replaceUrl = useCallback(
-    (url: string) => { void navigate(url, { replace: true }); },
-    [navigate],
-  );
-
   // -------------------------------------------------------------------------
   // Reachability
   // -------------------------------------------------------------------------
@@ -316,8 +312,9 @@ export function ChatPage() {
     assistantId,
     assistantStateKind: assistantState.kind,
     activeConversationKey,
+    urlConversationKey: urlConversationKey ?? null,
     searchParams,
-    pushRoute,
+    navigate,
     conversations,
     activeConversation,
     processingKeys,
@@ -533,7 +530,7 @@ export function ChatPage() {
     cancelReconciliation,
     refreshConversations,
 
-    replaceUrl,
+    navigate,
   });
 
   const handleStopGenerating = useCallback(async () => {

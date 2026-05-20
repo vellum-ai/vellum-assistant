@@ -5,10 +5,6 @@
  * These are the "utility" actions surfaced in the conversation header chevron
  * menu and sidebar context menu. The primary CRUD-like actions (archive,
  * unarchive, pin, rename, mark read/unread) live in `useConversationActions`.
- *
- * Framework-agnostic: Next.js routing is abstracted behind the `pushRoute` /
- * `pushConversationKeyParam` adapters so this hook can move to a Vite + React
- * Router SPA without changes.
  */
 
 import * as Sentry from "@sentry/react";
@@ -40,9 +36,9 @@ export interface UseConversationSecondaryActionsParams {
   refreshConversations: () => void;
   switchConversation: (key: string) => void;
   setError: (error: ChatError | null) => void;
-  /** Navigate to a conversation key (sets `?conversationKey=<key>` in URL). */
-  pushConversationKeyParam: (key: string) => void;
-  /** Generic route push — framework adapter for `router.push`. */
+  /** Navigate to a conversation by key (path-based routing). */
+  navigateToConversation: (key: string) => void;
+  /** Generic route push for non-conversation navigation. */
   pushRoute: (url: string) => void;
 }
 
@@ -75,7 +71,7 @@ export function useConversationSecondaryActions({
   refreshConversations,
   switchConversation,
   setError,
-  pushConversationKeyParam,
+  navigateToConversation,
   pushRoute,
 }: UseConversationSecondaryActionsParams): UseConversationSecondaryActionsReturn {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -94,14 +90,14 @@ export function useConversationSecondaryActions({
           throughMessageId,
         );
         refreshConversations();
-        pushConversationKeyParam(newConversationId);
+        navigateToConversation(newConversationId);
       } catch (err) {
         Sentry.captureException(err, {
           tags: { context: "fork_conversation" },
         });
       }
     },
-    [activeConversationKey, assistantId, refreshConversations, pushConversationKeyParam],
+    [activeConversationKey, assistantId, refreshConversations, navigateToConversation],
   );
 
   const handleForkConversationFromMenu = useCallback(() => {
@@ -138,9 +134,7 @@ export function useConversationSecondaryActions({
 
   const handleOpenInNewWindow = useCallback(
     (conversation: Conversation) => {
-      const params = new URLSearchParams(window.location.search);
-      params.set("conversationKey", conversation.conversationKey);
-      window.open(`${window.location.pathname}?${params.toString()}`, "_blank");
+      window.open(routes.conversation(conversation.conversationKey), "_blank");
     },
     [],
   );

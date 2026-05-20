@@ -17,6 +17,8 @@ import {
   type SetStateAction,
   useCallback,
 } from "react";
+import type { NavigateFunction } from "react-router";
+import { routes } from "@/utils/routes.js";
 
 import {
   type DisplayAttachment,
@@ -111,7 +113,7 @@ interface UseSendMessageParams {
   refreshConversations: () => Promise<void>;
 
   // Routing adapter
-  replaceUrl: (url: string) => void;
+  navigate: NavigateFunction;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +150,7 @@ export function useSendMessage({
   startReconciliationLoop,
   cancelReconciliation,
   refreshConversations,
-  replaceUrl,
+  navigate,
 }: UseSendMessageParams) {
   // -------------------------------------------------------------------------
   // Queue management (delegated to useMessageQueue)
@@ -545,9 +547,7 @@ export function useSendMessage({
             draftKeyResolutionRef.current = true;
             previousConversationKeyRef.current = newKey;
             useConversationListStore.getState().setActiveKey(newKey);
-            const params = new URLSearchParams(window.location.search);
-            params.set("conversationKey", newKey);
-            replaceUrl(`?${params.toString()}`);
+            void navigate(routes.conversation(newKey), { replace: true });
           }
         }
 
