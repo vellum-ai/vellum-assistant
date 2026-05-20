@@ -222,24 +222,14 @@ export function UpdateAvailableSidebarEntry({
   return (
     <div
       data-slot="update-available-sidebar-entry"
-      className="group relative overflow-hidden rounded-lg border"
+      className="flex flex-col gap-2 overflow-hidden rounded-lg border px-3 py-3"
       style={{
         background: "var(--surface-overlay)",
         borderColor: "var(--border-base)",
         animation: "fadeInUp 0.25s ease-out both",
       }}
     >
-      <button
-        type="button"
-        className="absolute right-1.5 top-1.5 flex size-5 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-70"
-        style={{ color: "var(--content-tertiary)" }}
-        onClick={handleDismiss}
-        aria-label="Dismiss update banner"
-      >
-        <X size={12} aria-hidden />
-      </button>
-
-      <div className="flex gap-3 px-3 py-3">
+      <div className="flex items-center gap-3">
         {avatar.components ? (
           <AvatarRenderer
             components={avatar.components}
@@ -262,39 +252,47 @@ export function UpdateAvailableSidebarEntry({
           />
         )}
 
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <p
-            className="truncate text-body-small-default leading-tight pr-4"
-            style={{ color: "var(--content-default)" }}
-            title={`New version — ${latestVersion}`}
-          >
-            New version — {latestVersion}
-          </p>
+        <p
+          className="min-w-0 flex-1 truncate text-body-small-default leading-tight"
+          style={{ color: "var(--content-default)" }}
+          title={`New version — ${latestVersion}`}
+        >
+          New version — {latestVersion}
+        </p>
 
-          <div className="flex gap-2">
-            <Button
-              variant="primary"
-              size="compact"
-              onClick={() => void handleUpgradeNow()}
-              disabled={isUpgrading}
-              leftIcon={
-                isUpgrading ? (
-                  <Loader2 className="animate-spin" />
-                ) : undefined
-              }
-            >
-              {isUpgrading ? "Updating…" : "Upgrade now"}
-            </Button>
-            <Button
-              variant="outlined"
-              size="compact"
-              onClick={handleDismiss}
-              disabled={isUpgrading}
-            >
-              Upgrade later
-            </Button>
-          </div>
-        </div>
+        <button
+          type="button"
+          className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-md transition-opacity hover:opacity-70"
+          style={{ color: "var(--content-tertiary)" }}
+          onClick={handleDismiss}
+          aria-label="Dismiss update banner"
+        >
+          <X size={12} aria-hidden />
+        </button>
+      </div>
+
+      <div className="flex gap-2">
+        <Button
+          variant="primary"
+          size="compact"
+          onClick={() => void handleUpgradeNow()}
+          disabled={isUpgrading}
+          leftIcon={
+            isUpgrading ? (
+              <Loader2 className="animate-spin" />
+            ) : undefined
+          }
+        >
+          {isUpgrading ? "Updating…" : "Upgrade now"}
+        </Button>
+        <Button
+          variant="outlined"
+          size="compact"
+          onClick={handleDismiss}
+          disabled={isUpgrading}
+        >
+          Upgrade later
+        </Button>
       </div>
     </div>
   );
