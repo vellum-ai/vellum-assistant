@@ -5,8 +5,6 @@ import { describe, expect, mock, test } from "bun:test";
 let mockConnectedProviders = new Set<string>();
 
 mock.module("../../oauth/oauth-store.js", () => ({
-  isProviderConnected: async (provider: string) =>
-    mockConnectedProviders.has(provider),
   listProviders: () => [
     { provider: "google" },
     { provider: "slack" },
@@ -16,11 +14,44 @@ mock.module("../../oauth/oauth-store.js", () => ({
   ],
 }));
 
+mock.module("../../schedule/integration-status.js", () => ({
+  isOAuthProviderConnected: async (provider: string) =>
+    mockConnectedProviders.has(provider),
+}));
+
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
+}));
+
+mock.module("../../config/loader.js", () => ({
+  getConfig: () => ({ llm: {} }),
+}));
+
+mock.module("../../config/llm-resolver.js", () => ({
+  resolveCallSiteConfig: () => ({ provider: "mock" }),
+}));
+
+mock.module("../../providers/provider-send-message.js", () => ({
+  getConfiguredProvider: async () => ({}),
+}));
+
+mock.module("../../prompts/persona-resolver.js", () => ({
+  resolvePersonaContext: () => ({
+    userPersona: null,
+    userSlug: null,
+    channelPersona: null,
+  }),
+}));
+
+mock.module("../../prompts/system-prompt.js", () => ({
+  buildSystemPrompt: () => "mock system prompt",
+}));
+
+mock.module("../../runtime/btw-sidechain.js", () => ({
+  runBtwSidechain: async () => ({ text: "" }),
 }));
 
 const { getSuggestedPrompts } = await import("../suggested-prompts.js");

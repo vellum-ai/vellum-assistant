@@ -6,11 +6,21 @@
  *
  * Two sources of prompts:
  *   - **Deterministic** — derived from missing OAuth connections.
+ *     Computed inline (read-only, safe for GET).
  *   - **Assistant-generated** — contextual suggestions from the LLM
- *     (placeholder; not yet implemented).
+ *     based on what's relevant to the user. Read from an in-memory
+ *     cache in the GET path; generation runs in the background via
+ *     `refreshAssistantSuggestedPrompts`.
  */
 
-import { isProviderConnected, listProviders } from "../oauth/oauth-store.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import { getConfig } from "../config/loader.js";
+import { listProviders } from "../oauth/oauth-store.js";
+import { resolvePersonaContext } from "../prompts/persona-resolver.js";
+import { buildSystemPrompt } from "../prompts/system-prompt.js";
+import { getConfiguredProvider } from "../providers/provider-send-message.js";
+import { runBtwSidechain } from "../runtime/btw-sidechain.js";
+import { isOAuthProviderConnected } from "../schedule/integration-status.js";
 import { getLogger } from "../util/logger.js";
 import type { SuggestedPrompt } from "./feed-types.js";
 
@@ -72,25 +82,72 @@ const CONNECT_PROMPT_META: Record<
   },
 };
 
+const LLM_SUGGESTIONS_TIMEOUT_MS = 5_000;
+const LLM_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+// ---------------------------------------------------------------------------
+// In-memory cache for LLM-generated suggestions
+// ---------------------------------------------------------------------------
+
+let cachedLLMPrompts: SuggestedPrompt[] = [];
+let cachedLLMPromptsAt = 0;
+
 /**
- * Produce deterministic suggested prompts based on missing OAuth
- * connections and (in the future) assistant-generated conversation
- * starters.
+ * Produce suggested prompts from both deterministic and cached LLM sources.
+ * Deterministic prompts always come first; cached LLM-generated prompts are
+ * appended when available. No LLM calls happen in this path — safe for GET.
  */
 export async function getSuggestedPrompts(): Promise<SuggestedPrompt[]> {
   const prompts: SuggestedPrompt[] = [];
 
+  let deterministicPrompts: SuggestedPrompt[] = [];
   try {
-    const deterministicPrompts = await getDeterministicPrompts();
+    deterministicPrompts = await getDeterministicPrompts();
     prompts.push(...deterministicPrompts);
   } catch (err) {
     log.warn({ err }, "Failed to compute deterministic suggested prompts");
   }
 
-  // Placeholder: assistant-generated prompts will be added here once
-  // the LLM producer is implemented.
+  if (Date.now() - cachedLLMPromptsAt < LLM_CACHE_TTL_MS) {
+    prompts.push(...cachedLLMPrompts);
+  }
 
   return prompts;
+}
+
+/**
+ * Drops the in-memory LLM suggestion cache so the next call to
+ * `getSuggestedPrompts()` returns only the fresh deterministic list (and
+ * a follow-up background refresh repopulates the LLM half).
+ *
+ * Called from OAuth connect/disconnect paths so a freshly-connected
+ * provider stops surfacing as a "Connect X" pill within one reload — the
+ * 30-minute TTL would otherwise pin a stale suggestion until the next
+ * periodic refresh.
+ */
+export function invalidateAssistantSuggestedPromptsCache(): void {
+  cachedLLMPrompts = [];
+  cachedLLMPromptsAt = 0;
+}
+
+/**
+ * Generate LLM-based suggestion prompts and write them to the in-memory
+ * cache. No-ops when the cache is still fresh. Intended for background
+ * invocation (daemon startup / periodic refresh), not the GET path.
+ */
+export async function refreshAssistantSuggestedPrompts(): Promise<void> {
+  if (Date.now() - cachedLLMPromptsAt < LLM_CACHE_TTL_MS) {
+    return;
+  }
+
+  try {
+    const deterministicPrompts = await getDeterministicPrompts();
+    const llmPrompts = await generateAssistantPrompts(deterministicPrompts);
+    cachedLLMPrompts = llmPrompts;
+    cachedLLMPromptsAt = Date.now();
+  } catch (err) {
+    log.warn({ err }, "Failed to refresh assistant suggested prompts");
+  }
 }
 
 /**
@@ -107,7 +164,7 @@ async function getDeterministicPrompts(): Promise<SuggestedPrompt[]> {
     const meta = CONNECT_PROMPT_META[provider.provider];
     if (!meta) continue;
 
-    const connected = await isProviderConnected(provider.provider);
+    const connected = await isOAuthProviderConnected(provider.provider);
 
     if (!connected) {
       prompts.push({
@@ -134,4 +191,99 @@ async function getDeterministicPrompts(): Promise<SuggestedPrompt[]> {
   }
 
   return prompts;
+}
+
+// ---------------------------------------------------------------------------
+// LLM-generated suggestions
+// ---------------------------------------------------------------------------
+
+interface LLMSuggestion {
+  label: string;
+  prompt: string;
+}
+
+/**
+ * Ask the LLM to generate contextual conversation-starter suggestions
+ * based on the assistant's persona and the user's connected services.
+ * Returns an empty array on failure so deterministic prompts still show.
+ */
+async function generateAssistantPrompts(
+  deterministicPrompts: SuggestedPrompt[],
+): Promise<SuggestedPrompt[]> {
+  const config = getConfig();
+  const resolved = resolveCallSiteConfig("homeSuggestedPrompts", config.llm);
+
+  const provider = await getConfiguredProvider("homeSuggestedPrompts");
+  if (!provider) {
+    return [];
+  }
+
+  const { userPersona, userSlug, channelPersona } = resolvePersonaContext(
+    undefined,
+    undefined,
+  );
+
+  const systemPrompt = buildSystemPrompt({
+    excludeBootstrap: true,
+    excludeCustomPrefix: true,
+    userPersona,
+    channelPersona,
+    userSlug,
+  });
+
+  const existingLabels = deterministicPrompts.map((p) => p.label).join(", ");
+  const contextNote = existingLabels
+    ? `The user already has these suggestions: ${existingLabels}. Do NOT duplicate them.`
+    : "";
+
+  const result = await runBtwSidechain({
+    content:
+      "Suggest 2-3 short, actionable conversation starters for the home page. " +
+      "Each should be something specific and helpful you can do for the user right now. " +
+      `${contextNote} ` +
+      'Return ONLY a JSON array of objects with "label" (max 5 words) and "prompt" (the full message to send). ' +
+      "No markdown fences, no explanation.",
+    provider,
+    systemPrompt,
+    messages: [],
+    tools: [],
+    callSite: "homeSuggestedPrompts",
+    maxTokens: resolved.maxTokens,
+    timeoutMs: LLM_SUGGESTIONS_TIMEOUT_MS,
+  });
+
+  const text = result.text.trim();
+  if (!text) {
+    return [];
+  }
+
+  const parsed = parseLLMSuggestions(text);
+  return parsed.map((s, i) => ({
+    id: `assistant-${i}-${s.label.toLowerCase().replace(/\s+/g, "-")}`,
+    label: s.label,
+    prompt: s.prompt,
+    source: "assistant" as const,
+  }));
+}
+
+function parseLLMSuggestions(text: string): LLMSuggestion[] {
+  try {
+    const cleaned = text
+      .replace(/^```(?:json)?\n?/m, "")
+      .replace(/\n?```$/m, "");
+    const parsed = JSON.parse(cleaned);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter(
+      (item): item is LLMSuggestion =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof item.label === "string" &&
+        typeof item.prompt === "string",
+    );
+  } catch {
+    log.warn("Failed to parse LLM suggestions response");
+    return [];
+  }
 }

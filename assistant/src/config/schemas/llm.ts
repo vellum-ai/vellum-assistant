@@ -76,6 +76,8 @@ export const LLMCallSiteEnum = z.enum([
   "trustRuleSuggestion",
   "proactiveArtifactDecision",
   "proactiveArtifactBuild",
+  "homeGreeting",
+  "homeSuggestedPrompts",
 ]);
 export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
 
