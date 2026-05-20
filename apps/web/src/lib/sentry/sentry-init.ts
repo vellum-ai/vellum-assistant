@@ -4,6 +4,7 @@ import {
   installSentryControlListeners,
   syncSentryClient,
 } from "@/lib/sentry/sentry-control.js";
+import { sanitizeUrl } from "@/lib/sentry/url-sanitize.js";
 
 /**
  * Browser-side Sentry initialization, gated on the user's Share Diagnostics
@@ -15,7 +16,14 @@ import {
  * here must never match errors raised from `src/` — fix those at the call
  * site so real regressions are not hidden.
  *
+ * `beforeBreadcrumb` strips auth codes, invite tokens, and OAuth fragment
+ * tokens from URLs the browser SDK records on navigation / fetch / XHR.
+ * Regex-based scrubbing of CC/SSN/password patterns is handled by
+ * Sentry's server-side Advanced Data Scrubbing (configured per-project
+ * in the dashboard), per Sentry's recommended layering.
+ *
  * Reference: https://docs.sentry.io/platforms/javascript/configuration/filtering/
+ * Reference: https://docs.sentry.io/security-legal-pii/scrubbing/
  */
 const options: BrowserOptions = {
   dsn: import.meta.env.VITE_SENTRY_DSN,
@@ -26,6 +34,16 @@ const options: BrowserOptions = {
   // after sourcemap upload.
   // Reference: https://docs.sentry.io/platforms/javascript/configuration/options/#attach-stacktrace
   attachStacktrace: true,
+  beforeBreadcrumb(breadcrumb) {
+    const data = breadcrumb.data;
+    if (!data || typeof data !== "object") return breadcrumb;
+    const next: Record<string, unknown> = { ...data };
+    for (const key of ["url", "to", "from"] as const) {
+      const value = next[key];
+      if (typeof value === "string") next[key] = sanitizeUrl(value);
+    }
+    return { ...breadcrumb, data: next };
+  },
   ignoreErrors: [
     // Chrome/Safari Translate mutates text nodes after a React commit;
     // the reconciler fails to reconcile against the rewritten DOM.
