@@ -97,22 +97,19 @@ describe("maybeReseedBootstrapForCohort — content-automation template", () => 
     expect(content).toContain("action `prompt`");
   });
 
-  test("contains all four path options", () => {
+  test("collects Sanity credentials via batch ask_question when no sidecar or URL exists", () => {
     const content = reseedAndRead();
-    expect(content).toContain("I have a Sanity account");
-    expect(content).toContain("I want to try Sanity");
-    expect(content).toContain("website or blog");
-    expect(content).toContain("somewhere else");
+    expect(content).toContain("batch three");
+    expect(content).toContain("one question per field");
+    expect(content).toContain("Project ID");
+    expect(content).toContain("Dataset name");
+    expect(content).toContain("API token");
   });
 
-  test("does NOT contain the old three-question pattern", () => {
+  test("skips Sanity when website URL is in user context", () => {
     const content = reseedAndRead();
-    // Old pattern batched three ask_question calls for separate fields
-    expect(content).not.toContain("Batch three");
-    expect(content).not.toContain("one question per field");
-    expect(content).not.toContain("Project ID (options:");
-    expect(content).not.toContain("Dataset name (options:");
-    expect(content).not.toContain('API token (options: "I have one ready"');
+    expect(content).toContain("Website URL");
+    expect(content).toContain("skip straight to the website scrape path");
   });
 
   test("references data/sanity-connection.json for project/dataset state", () => {
@@ -138,13 +135,10 @@ describe("maybeReseedBootstrapForCohort — content-automation template", () => 
     expect(content).toContain("Skip the triage question");
   });
 
-  test("still contains four-option triage as fallback when no sidecars exist", () => {
+  test("falls back to website URL when user has no Sanity", () => {
     const content = reseedAndRead();
-    // The "If neither exists" path must still present the four-option triage
-    expect(content).toContain("I have a Sanity account");
-    expect(content).toContain("I want to try Sanity");
-    expect(content).toContain("website or blog");
-    expect(content).toContain("somewhere else");
+    expect(content).toContain("fall back immediately");
+    expect(content).toContain("ask for their website URL");
   });
 
   test("references assistant oauth request --provider sanity for authenticated API calls", () => {
