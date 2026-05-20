@@ -315,7 +315,8 @@ export function ChatLayout() {
 
   const conversations = useConversationListStore.use.conversations();
   const conversationGroups = useConversationListStore.use.conversationGroups();
-  const activeConversationKey = useConversationListStore.use.activeConversationKey();
+  const activeConversationKey =
+    useConversationListStore.use.activeConversationKey();
   const processingKeys = useConversationListStore.use.processingKeys();
   const attentionKeys = useConversationListStore.use.attentionKeys();
   const setActiveKey = useConversationListStore.use.setActiveKey();
@@ -360,6 +361,7 @@ export function ChatLayout() {
           <PreferencesMenu
             assistantId={lifecycle.assistantId}
             assistantVersion={assistantVersion}
+            activeConversationKey={activeConversationKey}
           />
         }
         onClose={args.onClose}
@@ -449,7 +451,11 @@ export function ChatLayout() {
             className="shrink-0"
             aria-label="Navigation"
           >
-            {renderSideMenu({ collapsed, variant: "rail", onSearch: () => onSearchClickRef.current?.() })}
+            {renderSideMenu({
+              collapsed,
+              variant: "rail",
+              onSearch: () => onSearchClickRef.current?.(),
+            })}
           </aside>
           <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
             <Outlet context={assistantContext} />

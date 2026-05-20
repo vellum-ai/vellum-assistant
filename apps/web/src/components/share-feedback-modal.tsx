@@ -48,14 +48,37 @@ interface ReasonOption {
 }
 
 const REASON_OPTIONS: ReasonOption[] = [
-  { value: "bug_report", label: "Bug Report", icon: Bug, includesLogsByDefault: true },
-  { value: "feature_request", label: "Feature Request", icon: Lightbulb, includesLogsByDefault: false },
-  { value: "other", label: "Other", icon: MessageCircle, includesLogsByDefault: false },
+  {
+    value: "bug_report",
+    label: "Bug Report",
+    icon: Bug,
+    includesLogsByDefault: true,
+  },
+  {
+    value: "feature_request",
+    label: "Feature Request",
+    icon: Lightbulb,
+    includesLogsByDefault: false,
+  },
+  {
+    value: "other",
+    label: "Other",
+    icon: MessageCircle,
+    includesLogsByDefault: false,
+  },
 ];
 
-const TIME_RANGES: { value: TimeRange; label: string; cutoffMs: number | null }[] = [
+const TIME_RANGES: {
+  value: TimeRange;
+  label: string;
+  cutoffMs: number | null;
+}[] = [
   { value: "past_hour", label: "Past hour", cutoffMs: 60 * 60 * 1000 },
-  { value: "past_24_hours", label: "Past 24 hours", cutoffMs: 24 * 60 * 60 * 1000 },
+  {
+    value: "past_24_hours",
+    label: "Past 24 hours",
+    cutoffMs: 24 * 60 * 60 * 1000,
+  },
   { value: "all_time", label: "All time", cutoffMs: null },
 ];
 
@@ -68,7 +91,16 @@ const ALLOWED_MIME_TYPES = new Set([
   "video/quicktime",
   "video/webm",
 ]);
-const ALLOWED_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "mp4", "mov", "webm"]);
+const ALLOWED_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "mp4",
+  "mov",
+  "webm",
+]);
 const MAX_ATTACHMENTS = 10;
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
@@ -134,18 +166,11 @@ function buildTarEntry(filename: string, data: Uint8Array): Uint8Array {
   return buffer;
 }
 
-function isUuid(value: string | null | undefined): value is string {
-  return (
-    typeof value === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
-  );
-}
-
 async function fetchPlatformLogs(
   assistantId: string,
   opts: {
-    window: LogExportWindow;
-    activeConversationKey?: string | null;
+    window?: LogExportWindow;
+    conversationId?: string | null;
   },
 ): Promise<Uint8Array | null> {
   try {
@@ -162,12 +187,12 @@ async function fetchPlatformLogs(
       headers["Vellum-Organization-Id"] = orgId;
     }
     const body: Record<string, unknown> = {};
-    if (opts.window.startTime != null) {
+    if (opts.window?.startTime != null) {
       body.startTime = opts.window.startTime;
       body.endTime = opts.window.endTime;
     }
-    if (isUuid(opts.activeConversationKey)) {
-      body.conversationId = opts.activeConversationKey;
+    if (opts.conversationId) {
+      body.conversationId = opts.conversationId;
     }
     const res = await fetch(`/v1/assistants/${assistantId}/logs/export/`, {
       method: "POST",
@@ -189,6 +214,10 @@ async function buildClientLogsFile(
   assistantId: string | null,
   activeConversationKey: string | null,
   diagnosticsProvider?: FeedbackDiagnosticsProvider,
+  opts: {
+    includeDiagnostics?: boolean;
+    includeCurrentConversation?: boolean;
+  } = {},
 ): Promise<File | null> {
   if (typeof CompressionStream === "undefined") {
     return null;
@@ -198,13 +227,19 @@ async function buildClientLogsFile(
   const endTime = now.getTime();
   const startTime = range?.cutoffMs != null ? endTime - range.cutoffMs : null;
   const cutoff = startTime != null ? new Date(startTime).toISOString() : null;
+  const includeDiagnostics = opts.includeDiagnostics ?? true;
+  const includeCurrentConversation = opts.includeCurrentConversation ?? false;
   let currentChatState: Record<string, unknown> | null = null;
-  try {
-    currentChatState = diagnosticsProvider?.() ?? null;
-  } catch {
-    currentChatState = null;
+  if (includeDiagnostics) {
+    try {
+      currentChatState = diagnosticsProvider?.() ?? null;
+    } catch {
+      currentChatState = null;
+    }
   }
-  const chatDiagnostics = buildChatDiagnosticsSnapshot(currentChatState);
+  const chatDiagnostics = includeDiagnostics
+    ? buildChatDiagnosticsSnapshot(currentChatState)
+    : null;
   const payload = {
     collected_at: now.toISOString(),
     time_range: timeRange,
@@ -215,16 +250,26 @@ async function buildClientLogsFile(
     },
     assistant_id: assistantId,
     active_conversation_key: activeConversationKey,
+    include_diagnostics: includeDiagnostics,
+    include_current_conversation: includeCurrentConversation,
+    has_active_conversation_key: Boolean(activeConversationKey),
     user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
     language: typeof navigator !== "undefined" ? navigator.language : "",
     platform: typeof navigator !== "undefined" ? navigator.platform : "",
     url: typeof window !== "undefined" ? window.location.href : "",
-    viewport: typeof window !== "undefined" ? { width: window.innerWidth, height: window.innerHeight } : null,
-    screen: typeof screen !== "undefined" ? { width: screen.width, height: screen.height } : null,
+    viewport:
+      typeof window !== "undefined"
+        ? { width: window.innerWidth, height: window.innerHeight }
+        : null,
+    screen:
+      typeof screen !== "undefined"
+        ? { width: screen.width, height: screen.height }
+        : null,
     connection:
       typeof navigator !== "undefined" && "connection" in navigator
         ? {
-            effectiveType: (navigator.connection as { effectiveType?: string }).effectiveType,
+            effectiveType: (navigator.connection as { effectiveType?: string })
+              .effectiveType,
             downlink: (navigator.connection as { downlink?: number }).downlink,
             rtt: (navigator.connection as { rtt?: number }).rtt,
           }
@@ -236,20 +281,40 @@ async function buildClientLogsFile(
     hardwareConcurrency:
       typeof navigator !== "undefined" ? navigator.hardwareConcurrency : null,
   };
-  const contextBytes = new TextEncoder().encode(JSON.stringify(payload, null, 2));
-  const diagnosticsBytes = new TextEncoder().encode(JSON.stringify(chatDiagnostics, null, 2));
+  const contextBytes = new TextEncoder().encode(
+    JSON.stringify(payload, null, 2),
+  );
   const tarParts: Uint8Array[] = [
     buildTarEntry("web-client-context.json", contextBytes),
-    buildTarEntry("web-chat-diagnostics.json", diagnosticsBytes),
   ];
 
-  if (assistantId) {
+  if (chatDiagnostics) {
+    const diagnosticsBytes = new TextEncoder().encode(
+      JSON.stringify(chatDiagnostics, null, 2),
+    );
+    tarParts.push(buildTarEntry("web-chat-diagnostics.json", diagnosticsBytes));
+  }
+
+  if (assistantId && includeDiagnostics) {
     const platformLogsData = await fetchPlatformLogs(assistantId, {
       window: { startTime, endTime },
-      activeConversationKey,
     });
     if (platformLogsData) {
       tarParts.push(buildTarEntry("platform-logs.tar.gz", platformLogsData));
+    }
+  }
+
+  if (assistantId && includeCurrentConversation && activeConversationKey) {
+    const currentConversationData = await fetchPlatformLogs(assistantId, {
+      conversationId: activeConversationKey,
+    });
+    if (currentConversationData) {
+      tarParts.push(
+        buildTarEntry(
+          "current-conversation-export.tar.gz",
+          currentConversationData,
+        ),
+      );
     }
   }
 
@@ -300,13 +365,18 @@ export function ShareFeedbackModal({
   const messageRef = useRef<HTMLTextAreaElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
 
-  const [selectedReason, setSelectedReason] = useState<Reason>(initialReason ?? "bug_report");
+  const [selectedReason, setSelectedReason] = useState<Reason>(
+    initialReason ?? "bug_report",
+  );
   const [message, setMessage] = useState("");
   const [email, setEmail] = useState("");
   const [includeLogs, setIncludeLogs] = useState<boolean>(
-    REASON_OPTIONS.find((r) => r.value === (initialReason ?? "bug_report"))?.includesLogsByDefault ?? true,
+    REASON_OPTIONS.find((r) => r.value === (initialReason ?? "bug_report"))
+      ?.includesLogsByDefault ?? true,
   );
   const [hasManuallyToggledLogs, setHasManuallyToggledLogs] = useState(false);
+  const [includeCurrentConversation, setIncludeCurrentConversation] =
+    useState(false);
   const [logTimeRange, setLogTimeRange] = useState<TimeRange>("past_hour");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -321,6 +391,9 @@ export function ShareFeedbackModal({
     () => message.trim().length > 0 && email.trim().length > 0,
     [message, email],
   );
+  const canIncludeCurrentConversation = Boolean(
+    assistantId && activeConversationKey,
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -328,8 +401,12 @@ export function ShareFeedbackModal({
     setSelectedReason(reason);
     setMessage("");
     setEmail(authEmail ?? "");
-    setIncludeLogs(REASON_OPTIONS.find((r) => r.value === reason)?.includesLogsByDefault ?? true);
+    setIncludeLogs(
+      REASON_OPTIONS.find((r) => r.value === reason)?.includesLogsByDefault ??
+        true,
+    );
     setHasManuallyToggledLogs(false);
+    setIncludeCurrentConversation(false);
     setLogTimeRange("past_hour");
     setAttachments([]);
     setSubmitError(null);
@@ -357,7 +434,10 @@ export function ShareFeedbackModal({
   const handleSelectReason = (reason: Reason) => {
     setSelectedReason(reason);
     if (!hasManuallyToggledLogs) {
-      setIncludeLogs(REASON_OPTIONS.find((r) => r.value === reason)?.includesLogsByDefault ?? false);
+      setIncludeLogs(
+        REASON_OPTIONS.find((r) => r.value === reason)?.includesLogsByDefault ??
+          false,
+      );
     }
   };
 
@@ -410,7 +490,8 @@ export function ShareFeedbackModal({
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files?.length) addFiles(Array.from(e.dataTransfer.files));
+    if (e.dataTransfer.files?.length)
+      addFiles(Array.from(e.dataTransfer.files));
   };
 
   const onDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -433,15 +514,21 @@ export function ShareFeedbackModal({
     setSubmitError(null);
     setIsBuildingLogs(true);
     try {
-      const logsFile =
-        includeLogs && selectedReason !== "feature_request"
-          ? await buildClientLogsFile(
-              logTimeRange,
-              assistantId ?? null,
-              activeConversationKey ?? null,
-              getDiagnosticsSnapshot,
-            )
-          : null;
+      const shouldAttachLogs =
+        selectedReason !== "feature_request" &&
+        (includeLogs || includeCurrentConversation);
+      const logsFile = shouldAttachLogs
+        ? await buildClientLogsFile(
+            logTimeRange,
+            assistantId ?? null,
+            activeConversationKey ?? null,
+            getDiagnosticsSnapshot,
+            {
+              includeDiagnostics: includeLogs,
+              includeCurrentConversation,
+            },
+          )
+        : null;
       await mutation.mutateAsync({
         headers: { "Content-Type": null },
         body: {
@@ -457,10 +544,13 @@ export function ShareFeedbackModal({
         },
         bodySerializer: (body) => {
           const form = new FormData();
-          for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+          for (const [key, value] of Object.entries(
+            body as Record<string, unknown>,
+          )) {
             if (value == null) continue;
             if (key === "attachments" && Array.isArray(value)) {
-              for (const file of value) form.append("attachments", file as Blob);
+              for (const file of value)
+                form.append("attachments", file as Blob);
               continue;
             }
             if (value instanceof Blob) {
@@ -475,7 +565,11 @@ export function ShareFeedbackModal({
       onSubmitted?.();
       onClose();
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Failed to submit feedback. Please try again.");
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : "Failed to submit feedback. Please try again.",
+      );
     } finally {
       setIsBuildingLogs(false);
     }
@@ -505,7 +599,10 @@ export function ShareFeedbackModal({
         }}
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 id={titleId} className="!m-0 text-title-small text-[var(--content-default)]">
+          <h2
+            id={titleId}
+            className="!m-0 text-title-small text-[var(--content-default)]"
+          >
             Share Feedback
           </h2>
           <Button
@@ -518,7 +615,9 @@ export function ShareFeedbackModal({
           />
         </div>
 
-        <div className={`flex flex-col gap-4 overflow-y-auto ${isSubmitting ? "pointer-events-none opacity-60" : ""}`}>
+        <div
+          className={`flex flex-col gap-4 overflow-y-auto ${isSubmitting ? "pointer-events-none opacity-60" : ""}`}
+        >
           {shouldShowEmail && (
             <Input
               id={`${titleId}-email`}
@@ -561,39 +660,54 @@ export function ShareFeedbackModal({
           />
 
           {selectedReason !== "feature_request" && (
-            <div className="flex flex-wrap items-center gap-3">
-              <Toggle
-                checked={includeLogs}
-                onChange={handleToggleLogs}
-                aria-label="Include browser diagnostics"
-              />
-              <span className="text-body-medium-lighter text-[var(--content-default)]">
-                Include diagnostics
-              </span>
-              {includeLogs && (
-                <select
-                  value={logTimeRange}
-                  onChange={(e) => setLogTimeRange(e.target.value as TimeRange)}
-                  className="rounded-lg border px-2 py-1 text-body-medium-lighter outline-none"
-                  style={{
-                    borderColor: "var(--border-base)",
-                    backgroundColor: "var(--surface-base)",
-                    color: "var(--content-default)",
-                  }}
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <Toggle
+                  checked={includeLogs}
+                  onChange={handleToggleLogs}
+                  aria-label="Include browser diagnostics"
+                />
+                <span className="text-body-medium-lighter text-[var(--content-default)]">
+                  Include diagnostics
+                </span>
+                {includeLogs && (
+                  <select
+                    value={logTimeRange}
+                    onChange={(e) =>
+                      setLogTimeRange(e.target.value as TimeRange)
+                    }
+                    className="rounded-lg border px-2 py-1 text-body-medium-lighter outline-none"
+                    style={{
+                      borderColor: "var(--border-base)",
+                      backgroundColor: "var(--surface-base)",
+                      color: "var(--content-default)",
+                    }}
+                  >
+                    {TIME_RANGES.map((r) => (
+                      <option key={r.value} value={r.value}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <span
+                  title="Diagnostics include browser context, assistant logs, and timestamps — never passwords or credentials."
+                  className="inline-flex h-4 w-4 items-center justify-center text-[var(--content-secondary)]"
                 >
-                  {TIME_RANGES.map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <span
-                title="Diagnostics include browser context, assistant logs, and timestamps — never passwords or credentials."
-                className="inline-flex h-4 w-4 items-center justify-center text-[var(--content-secondary)]"
-              >
-                <Info className="h-3.5 w-3.5" />
-              </span>
+                  <Info className="h-3.5 w-3.5" />
+                </span>
+              </div>
+              <Toggle
+                checked={includeCurrentConversation}
+                onChange={setIncludeCurrentConversation}
+                disabled={!canIncludeCurrentConversation}
+                label="Include current conversation"
+                helperText={
+                  canIncludeCurrentConversation
+                    ? "Adds the selected conversation record, transcript messages, and LLM request logs."
+                    : "Open a conversation before including conversation logs."
+                }
+              />
             </div>
           )}
 
@@ -705,7 +819,11 @@ function ReasonCard({
     >
       <Icon
         className="h-4 w-4 shrink-0"
-        style={{ color: isSelected ? "var(--primary-base)" : "var(--content-secondary)" }}
+        style={{
+          color: isSelected
+            ? "var(--primary-base)"
+            : "var(--content-secondary)",
+        }}
       />
       <span className="flex-1 text-body-medium-lighter text-[var(--content-default)]">
         {option.label}
@@ -714,7 +832,9 @@ function ReasonCard({
         aria-hidden
         className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border"
         style={{
-          borderColor: isSelected ? "var(--primary-base)" : "var(--border-base)",
+          borderColor: isSelected
+            ? "var(--primary-base)"
+            : "var(--border-base)",
           borderWidth: 1.5,
         }}
       >
@@ -729,7 +849,13 @@ function ReasonCard({
   );
 }
 
-function AttachmentThumbnail({ file, onRemove }: { file: File; onRemove: () => void }) {
+function AttachmentThumbnail({
+  file,
+  onRemove,
+}: {
+  file: File;
+  onRemove: () => void;
+}) {
   const isImage = file.type.startsWith("image/");
   const previewUrl = useMemo(
     () => (isImage ? URL.createObjectURL(file) : null),
@@ -747,7 +873,11 @@ function AttachmentThumbnail({ file, onRemove }: { file: File; onRemove: () => v
       title={file.name}
     >
       {isImage && previewUrl ? (
-        <img src={previewUrl} alt={file.name} className="h-full w-full object-cover" />
+        <img
+          src={previewUrl}
+          alt={file.name}
+          className="h-full w-full object-cover"
+        />
       ) : (
         <Paperclip className="h-5 w-5 text-[var(--content-secondary)]" />
       )}

@@ -24,6 +24,7 @@ import { z } from "zod";
 
 import { getDb } from "../../memory/db-connection.js";
 import {
+  conversations,
   llmRequestLogs,
   llmUsageEvents,
   messages,
@@ -102,6 +103,28 @@ async function handleExport({
 
     // --- Conversation data tables ---
     if (conversationId || full) {
+      const conversationRows = db
+        .select()
+        .from(conversations)
+        .where(
+          and(
+            conversationId ? eq(conversations.id, conversationId) : undefined,
+            !conversationId && startTime
+              ? gte(conversations.createdAt, startTime)
+              : undefined,
+            !conversationId && endTime
+              ? lte(conversations.createdAt, endTime)
+              : undefined,
+          ),
+        )
+        .orderBy(conversations.createdAt)
+        .all();
+      writeFileSync(
+        join(staging, "conversations.json"),
+        JSON.stringify(conversationRows, null, 2),
+        "utf-8",
+      );
+
       const conversationFilter = conversationId
         ? [eq(messages.conversationId, conversationId)]
         : [];
@@ -475,7 +498,7 @@ const exportRequestBody = z.object({
     .boolean()
     .optional()
     .describe(
-      "Full export — include messages, LLM request logs, and usage events for all conversations.",
+      "Full export — include conversations, messages, LLM request logs, and usage events for all conversations.",
     ),
   startTime: z.number().optional().describe("Lower bound epoch ms"),
   endTime: z.number().optional().describe("Upper bound epoch ms"),

@@ -23,7 +23,12 @@ mock.module("../util/secure-keys.js", () => ({
 
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { llmUsageEvents } from "../memory/schema.js";
+import {
+  conversations,
+  llmRequestLogs,
+  llmUsageEvents,
+  messages,
+} from "../memory/schema.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES } from "../runtime/routes/log-export-routes.js";
 
@@ -39,6 +44,12 @@ function clearConnectedClients(): void {
 
 beforeEach(() => {
   clearConnectedClients();
+
+  const db = getDb();
+  db.delete(llmUsageEvents).run();
+  db.delete(llmRequestLogs).run();
+  db.delete(messages).run();
+  db.delete(conversations).run();
 });
 
 async function extractArchive(bytes: Uint8Array): Promise<string> {
@@ -140,7 +151,6 @@ describe("POST /v1/export - LLM usage events", () => {
   test("full export includes usage attribution columns", async () => {
     const db = getDb();
     const eventId = "usage-attribution-export-test";
-    db.delete(llmUsageEvents).run();
     db.insert(llmUsageEvents)
       .values({
         id: eventId,
@@ -178,6 +188,110 @@ describe("POST /v1/export - LLM usage events", () => {
         callSite: "conversationTitle",
         inferenceProfile: "balanced",
         inferenceProfileSource: "active",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("POST /v1/export - conversation scoping", () => {
+  test("exports conversation rows, messages, and LLM request logs for a conversation id", async () => {
+    const db = getDb();
+    const selectedConversationId = "slack-thread:C123:1700000000.000000";
+    const otherConversationId = "conv-other-internal";
+
+    db.insert(conversations)
+      .values([
+        {
+          id: selectedConversationId,
+          title: "Selected conversation",
+          createdAt: 1700000000000,
+          updatedAt: 1700000001000,
+        },
+        {
+          id: otherConversationId,
+          title: "Other conversation",
+          createdAt: 1700000002000,
+          updatedAt: 1700000003000,
+        },
+      ])
+      .run();
+
+    db.insert(messages)
+      .values([
+        {
+          id: "message-selected",
+          conversationId: selectedConversationId,
+          role: "user",
+          content: "selected message",
+          createdAt: 1700000000100,
+        },
+        {
+          id: "message-other",
+          conversationId: otherConversationId,
+          role: "user",
+          content: "other message",
+          createdAt: 1700000000200,
+        },
+      ])
+      .run();
+
+    db.insert(llmRequestLogs)
+      .values([
+        {
+          id: "llm-log-selected",
+          conversationId: selectedConversationId,
+          messageId: "message-selected",
+          provider: "anthropic",
+          requestPayload: JSON.stringify({ prompt: "selected" }),
+          responsePayload: JSON.stringify({ text: "selected response" }),
+          createdAt: 1700000000300,
+          agentLoopExitReason: "final_message",
+        },
+        {
+          id: "llm-log-other",
+          conversationId: otherConversationId,
+          messageId: "message-other",
+          provider: "anthropic",
+          requestPayload: JSON.stringify({ prompt: "other" }),
+          responsePayload: JSON.stringify({ text: "other response" }),
+          createdAt: 1700000000400,
+          agentLoopExitReason: "final_message",
+        },
+      ])
+      .run();
+
+    const result = await exportRoute.handler({
+      body: { conversationId: selectedConversationId },
+    });
+    expect(result).toBeInstanceOf(Uint8Array);
+
+    const dir = await extractArchive(result as Uint8Array);
+    try {
+      const conversationRows = JSON.parse(
+        readFileSync(join(dir, "conversations.json"), "utf-8"),
+      ) as Array<Record<string, unknown>>;
+      expect(conversationRows.map((row) => row.id)).toEqual([
+        selectedConversationId,
+      ]);
+
+      const messageRows = JSON.parse(
+        readFileSync(join(dir, "messages.json"), "utf-8"),
+      ) as Array<Record<string, unknown>>;
+      expect(messageRows.map((row) => row.id)).toEqual(["message-selected"]);
+
+      const requestLogRows = JSON.parse(
+        readFileSync(join(dir, "llm-request-logs.json"), "utf-8"),
+      ) as Array<Record<string, unknown>>;
+      expect(requestLogRows.map((row) => row.id)).toEqual(["llm-log-selected"]);
+
+      const manifest = JSON.parse(
+        readFileSync(join(dir, "export-manifest.json"), "utf-8"),
+      ) as Record<string, unknown>;
+      expect(manifest).toMatchObject({
+        type: "conversation-export",
+        conversationId: selectedConversationId,
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });
