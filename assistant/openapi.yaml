@@ -7026,10 +7026,13 @@ paths:
                   minimum: -9007199254740991
                   maximum: 9007199254740991
                 conversationId:
-                  description: Scope to a single conversation
+                  description: Scope to a single internal conversation ID
+                  type: string
+                conversationKey:
+                  description: Scope to a single opaque client conversation key; resolved to the internal conversation ID.
                   type: string
                 full:
-                  description: Full export — include messages, LLM request logs, and usage events for all conversations.
+                  description: Full export — include conversations, messages, LLM request logs, and usage events for all conversations.
                   type: boolean
                 startTime:
                   description: Lower bound epoch ms
@@ -10313,10 +10316,13 @@ paths:
                   minimum: -9007199254740991
                   maximum: 9007199254740991
                 conversationId:
-                  description: Scope to a single conversation
+                  description: Scope to a single internal conversation ID
+                  type: string
+                conversationKey:
+                  description: Scope to a single opaque client conversation key; resolved to the internal conversation ID.
                   type: string
                 full:
-                  description: Full export — include messages, LLM request logs, and usage events for all conversations.
+                  description: Full export — include conversations, messages, LLM request logs, and usage events for all conversations.
                   type: boolean
                 startTime:
                   description: Lower bound epoch ms
