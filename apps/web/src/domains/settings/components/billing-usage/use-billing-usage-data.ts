@@ -10,12 +10,12 @@ import type {
   OrganizationsBillingUsageSeriesRetrieveData,
   OrganizationsBillingUsageTotalsRetrieveData,
 } from "@/generated/api/types.gen.js";
-import { getBrowserTimezone } from "@/lib/usage/browser-timezone.js";
+import { getBrowserTimezone } from "@/utils/browser-timezone.js";
 import {
   DEFAULT_LLM_USAGE_DIMENSION,
   type LlmUsageDimension,
   toBillingGroupBy,
-} from "@/lib/usage/llm-dimension.js";
+} from "@/utils/llm-dimension.js";
 
 export function getDefaultDateRange(): DateRange {
   const today = new Date();

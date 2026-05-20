@@ -7,7 +7,7 @@ import { AppleLogo } from "@/components/icons/apple-logo.js";
 import { GoogleLogo } from "@/components/icons/google-logo.js";
 import { NativeSplash } from "@/components/native-splash.js";
 import { LoginBackground } from "@/domains/account/components/login-background.js";
-import { PROVIDER_ID, buildProviderCallbackUrl } from "@/lib/account/login-flow.js";
+import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow.js";
 import {
   startAuthFlow,
   startNativeLogin,
@@ -84,7 +84,7 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
     <NativeSplash>
       <div className="z-10 mt-8 flex w-full max-w-[320px] flex-col items-center gap-3">
         {errorMessage && (
-          <p className="text-body-small-default max-w-[280px] text-center text-[var(--content-secondary)]">
+          <p className="text-body-small-default max-w-[280px] text-center text-[var(--system-negative-strong)]">
             {errorMessage}
           </p>
         )}
@@ -113,28 +113,32 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
  * `LoginBackground` — the web login screen is always dark per Figma.
  */
 function WebLoginForm({ returnTo }: { returnTo: string | null }) {
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
   const callbackUrl = buildProviderCallbackUrl(returnTo);
   const signUpHref = returnTo
     ? `${routes.account.signup}?returnTo=${encodeURIComponent(returnTo)}`
     : routes.account.signup;
 
-  const handleApple = () => {
-    void startAuthFlow(PROVIDER_ID, callbackUrl, {
-      providerHint: "AppleOAuth",
-      returnTo,
-    });
+  const handleProvider = async (providerHint?: string) => {
+    setErrorMessage(null);
+    setLoading(true);
+    try {
+      await startAuthFlow(PROVIDER_ID, callbackUrl, {
+        ...(providerHint ? { providerHint } : {}),
+        returnTo,
+      });
+    } catch (err) {
+      console.error("[web-login] auth flow failed:", err);
+      setErrorMessage("Something went wrong. Please try again.");
+      setLoading(false);
+    }
   };
 
-  const handleGoogle = () => {
-    void startAuthFlow(PROVIDER_ID, callbackUrl, {
-      providerHint: "GoogleOAuth",
-      returnTo,
-    });
-  };
-
-  const handleEmail = () => {
-    void startAuthFlow(PROVIDER_ID, callbackUrl, { returnTo });
-  };
+  const handleApple = () => void handleProvider("AppleOAuth");
+  const handleGoogle = () => void handleProvider("GoogleOAuth");
+  const handleEmail = () => void handleProvider();
 
   return (
     <div className="dark">
@@ -145,12 +149,18 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
             <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
               Sign in to Vellum
             </h1>
+            {errorMessage && (
+              <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
+                {errorMessage}
+              </p>
+            )}
             <div className="flex flex-col items-center gap-3">
               <Button
                 type="button"
                 variant="outlined"
                 fullWidth
                 onClick={handleApple}
+                disabled={loading}
                 leftIcon={<AppleLogo />}
                 className="max-w-[300px] gap-3"
               >
@@ -161,6 +171,7 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
                 variant="outlined"
                 fullWidth
                 onClick={handleGoogle}
+                disabled={loading}
                 leftIcon={<GoogleLogo />}
                 className="max-w-[300px] gap-3"
               >
@@ -171,6 +182,7 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
                 variant="outlined"
                 fullWidth
                 onClick={handleEmail}
+                disabled={loading}
                 leftIcon={<Mail />}
                 className="max-w-[300px] gap-3"
               >

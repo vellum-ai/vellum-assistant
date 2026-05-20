@@ -1,7 +1,7 @@
 import { afterEach, describe, it, expect } from "bun:test";
 
-import type { Conversation, ConversationGroup } from "@/domains/chat/lib/api.js";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import type { Conversation, ConversationGroup } from "@/domains/chat/api/conversations.js";
 
 function makeConversation(key: string, overrides?: Partial<Conversation>): Conversation {
   return { conversationKey: key, ...overrides } as Conversation;

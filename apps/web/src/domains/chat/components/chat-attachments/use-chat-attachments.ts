@@ -1,12 +1,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { uploadChatAttachment } from "@/domains/chat/api/messages.js";
 import {
   IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES,
   isAutoResizableImage,
   prepareImageAttachmentForUpload,
 } from "@/domains/chat/components/chat-attachments/attachment-image-resize.js";
-import { uploadChatAttachment } from "@/domains/chat/lib/api.js";
 
 /**
  * Size limit enforced on the client before we attempt an upload. The Django

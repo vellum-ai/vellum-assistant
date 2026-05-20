@@ -10,7 +10,7 @@ import {
   type Conversation,
   listConversations,
   unarchiveConversation,
-} from "@/domains/chat/lib/conversations.js";
+} from "@/domains/chat/api/conversations.js";
 import { reportError } from "@/lib/errors/report.js";
 
 function formatConversationDate(timestamp: string | undefined): string {

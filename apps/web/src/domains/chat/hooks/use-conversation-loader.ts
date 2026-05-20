@@ -1,7 +1,7 @@
 
 import * as Sentry from "@sentry/react";
-import type { ViewSelection } from "@/domains/chat/lib/navigation-history.js";
-import type { MainView } from "@/stores/viewer-store.js";
+import { useViewerStore } from "@/stores/viewer-store.js";
+
 import {
   type Dispatch,
   type MutableRefObject,
@@ -12,30 +12,25 @@ import {
   useRef,
 } from "react";
 
-import {
-  ApiError,
-  type Conversation,
-  fetchGroups,
-  getChatContext,
-  listConversations,
-} from "@/domains/chat/lib/api.js";
 import { toast } from "@vellum/design-library";
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import {
   createDraftConversationKey,
   resolveBootstrappedConversationKey,
-} from "@/domains/chat/lib/conversation-selection.js";
-import { loadContextWindowUsageMap } from "@/domains/chat/lib/contextWindowStorage.js";
+} from "@/domains/chat/utils/conversation-selection.js";
+import { loadContextWindowUsageMap } from "@/domains/chat/utils/contextWindowStorage.js";
 import {
   loadLastViewedConversationKey,
   saveLastViewedConversationKey,
-} from "@/domains/chat/lib/lastViewedConversationStorage.js";
-import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
+} from "@/domains/chat/utils/lastViewedConversationStorage.js";
+import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 
 
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { haptic } from "@/utils/haptics.js";
+import { routes } from "@/utils/routes.js";
+import type { NavigateFunction } from "react-router";
 
 import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
 import type { AssistantStateKind, ChatError } from "@/domains/chat/types.js";
@@ -43,7 +38,12 @@ import {
   useConversationHistory,
   type HistoryPaginationSnapshot,
 } from "@/domains/chat/hooks/use-conversation-history.js";
-import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking.js";
+import { useQueryClient } from "@tanstack/react-query";
+
+import { getChatContext } from "@/domains/chat/api/assistant.js";
+import { ApiError } from "@/domains/chat/api/client.js";
+import { type Conversation, fetchGroups, listConversations } from "@/domains/chat/api/conversations.js";
+import { chatContextQueryKey } from "@/domains/conversations/use-conversation-list-init.js";
 
 // Re-export for consumers that import from this module
 export {
@@ -59,11 +59,7 @@ export {
 const CONVERSATION_LIST_INVALIDATED_DEBOUNCE_MS = 250;
 const CHAT_CONTEXT_LOAD_FAILED_CODE = "CHAT_CONTEXT_LOAD_FAILED";
 
-/**
- * Minimal URL search-params reader — accepts any object that supports
- * `get` and `toString`. Both Next.js `ReadonlyURLSearchParams` and the
- * standard `URLSearchParams` satisfy this.
- */
+/** Minimal URL search-params reader (subset of `URLSearchParams`). */
 interface SearchParamsLike {
   get: (key: string) => string | null;
   toString: () => string;
@@ -74,15 +70,14 @@ interface UseConversationLoaderParams {
   assistantId: string | null;
   assistantStateKind: AssistantStateKind;
   activeConversationKey: string | null;
+  /** Conversation key from the URL path param (e.g. `/assistant/conversations/:key`). */
+  urlConversationKey: string | null;
   searchParams: SearchParamsLike;
-  /** Navigate to a URL string. Callers wire this to their framework router. */
-  pushRoute: (url: string) => void;
+  /** React Router navigate function for path-based routing. */
+  navigate: NavigateFunction;
 
   // Collections
   conversations: Conversation[];
-  activeConversation: Conversation | undefined;
-  processingKeys: Set<string>;
-  attentionKeys: Set<string>;
   transcriptPagination: Omit<TranscriptPaginationState, "items">;
 
   // Feature flags / epochs
@@ -102,7 +97,6 @@ interface UseConversationLoaderParams {
   inputRef: MutableRefObject<HTMLTextAreaElement | null>;
   draftsRef: MutableRefObject<Map<string, string>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  conversationsRef: MutableRefObject<Conversation[]>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   needsNewBubbleRef: MutableRefObject<boolean>;
@@ -111,7 +105,6 @@ interface UseConversationLoaderParams {
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  processingSnapshotsRef: MutableRefObject<Map<string, string | undefined>>;
   refreshSettleRef: MutableRefObject<RefreshSettleHandle | null>;
   lastSuggestionMsgIdRef: MutableRefObject<string | null>;
   autoGreetRef: MutableRefObject<boolean>;
@@ -133,12 +126,12 @@ interface UseConversationLoaderParams {
   setSuggestion: Dispatch<SetStateAction<string | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
   setInput: Dispatch<SetStateAction<string>>;
-  setMainView: Dispatch<SetStateAction<MainView>>;
+
 
   // Callbacks
   resetChatAttachments: () => void;
   syncNeedsNewBubbleFromMessages: (nextMessages: DisplayMessage[]) => void;
-  navPush: (selection: ViewSelection) => void;
+
   /**
    * Fires after a non-empty saved draft is restored into the composer on a
    * conversation switch. Receives the conversation key the draft belongs to.
@@ -168,18 +161,19 @@ interface UseConversationLoaderParams {
  *
  * Delegates to:
  * - `useConversationHistory` -- conversation switch, cache, and history loading
- * - `useAttentionTracking` -- processing/attention key lifecycle and polling
+ *
+ * Attention/processing-key tracking is now owned by `useAttentionTracking`,
+ * mounted in `ChatLayout` so its 10s polling loop covers every chat-layout
+ * route (home/library/contacts/identity), not only `/assistant`.
  */
 export function useConversationLoader({
   assistantId,
   assistantStateKind,
   activeConversationKey,
+  urlConversationKey,
   searchParams,
-  pushRoute,
+  navigate,
   conversations,
-  activeConversation,
-  processingKeys,
-  attentionKeys,
   transcriptPagination,
   conversationGroupsUI,
   refreshEpoch,
@@ -193,7 +187,6 @@ export function useConversationLoader({
   inputRef,
   draftsRef,
   messagesRef,
-  conversationsRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   needsNewBubbleRef,
@@ -202,7 +195,6 @@ export function useConversationLoader({
   requestIdToStableIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
-  processingSnapshotsRef,
   refreshSettleRef,
   lastSuggestionMsgIdRef,
   autoGreetRef,
@@ -222,10 +214,8 @@ export function useConversationLoader({
   setSuggestion,
   setCompactionCircuitOpenUntil,
   setInput,
-  setMainView,
   resetChatAttachments,
   syncNeedsNewBubbleFromMessages,
-  navPush,
   onDraftRestored,
   shouldSuppressGenericChatErrorNotice,
 }: UseConversationLoaderParams) {
@@ -234,6 +224,7 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const refreshConversationsRef = useRef<() => Promise<void>>(async () => {});
   const hydratedAssistantIdRef = useRef<string | null>(null);
+  const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
   // refreshConversations -- fetch conversation list + groups
@@ -312,17 +303,33 @@ export function useConversationLoader({
 
     const init = async () => {
       try {
-        const ctx = await getChatContext();
+        // Always fetch (not just read cache): this effect re-runs when
+        // `refreshEpoch` or `reachabilityReadyEpoch` changes, and those
+        // changes specifically signal "treat any cached data as stale
+        // and pick up server-side changes" (pull-to-refresh, pod
+        // recovery, conversation removal, etc.). `fetchQuery` with
+        // `staleTime: 0` forces a fresh request and writes through to
+        // the same cache that `useConversationListInit` (mounted in
+        // `ChatLayout`) subscribes to — so the sidebar refreshes too,
+        // and concurrent fetches on initial mount dedup via the
+        // shared query key.
+        // https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientfetchquery
+        const ctx = await queryClient.fetchQuery({
+          queryKey: chatContextQueryKey(assistantId),
+          queryFn: getChatContext,
+          staleTime: 0,
+        });
         if (!ctx || cancelled) return;
 
-        const qpKey = searchParams.get("conversationKey");
+        // Path param is the canonical source; fall back to legacy search param.
+        const explicitKey = urlConversationKey ?? searchParams.get("conversationKey");
         let onboardingDraftConversationKey: string | null = null;
         if (searchParams.get("onboarding") === "1") {
           onboardingDraftConversationKeyRef.current ??= createDraftConversationKey();
           onboardingDraftConversationKey = onboardingDraftConversationKeyRef.current;
         }
         const key = resolveBootstrappedConversationKey({
-          queryParamKey: qpKey,
+          queryParamKey: explicitKey,
           onboardingDraftConversationKey,
           currentConversationKey: activeConversationKeyRef.current,
           currentAssistantId: assistantIdRef.current,
@@ -338,22 +345,24 @@ export function useConversationLoader({
         setError((prev) =>
           prev?.code === CHAT_CONTEXT_LOAD_FAILED_CODE ? null : prev,
         );
+
+        // Set conversations and activeKey atomically so consumers of
+        // `useConversationListStore` never observe an active key with
+        // an empty conversations list (which would render `undefined`
+        // for the active conversation on this commit). Idempotent with
+        // the matching write in `useConversationListInit`'s effect.
         useConversationListStore.getState().setConversations(ctx.conversations);
-
-        if (conversationGroupsUI) {
-          fetchGroups(ctx.assistantId)
-            .then((groups) => {
-              if (!cancelled) useConversationListStore.getState().setGroups(groups);
-            })
-            .catch((err) => {
-              Sentry.captureException(err, {
-                level: "warning",
-                tags: { context: "fetchGroups.init" },
-              });
-            });
-        }
-
         useConversationListStore.getState().setActiveKey(key);
+
+        // Ensure the URL reflects the active conversation so the page is
+        // deep-linkable from the moment it loads.  `replace` avoids a
+        // spurious history entry. This also moves ChatPage from the index
+        // route (where it renders inside ConversationKeyRedirect) to the
+        // canonical conversations/:key route before any user interaction,
+        // preventing a remount when draft keys resolve during sendMessage.
+        if (key) {
+          void navigate(routes.conversation(key), { replace: true });
+        }
       } catch (err) {
         if (cancelled) return;
         if (err instanceof ApiError && err.status === 401) {
@@ -388,7 +397,9 @@ export function useConversationLoader({
     // manual reload.
   }, [
     assistantStateKind,
+    urlConversationKey,
     searchParams,
+    navigate,
     reachabilityReadyEpoch,
     refreshEpoch,
     assistantIdRef,
@@ -466,32 +477,15 @@ export function useConversationLoader({
   });
 
   // -------------------------------------------------------------------------
-  // Delegate: attention tracking and processing key lifecycle
-  // -------------------------------------------------------------------------
-  useAttentionTracking({
-    assistantId,
-    assistantStateKind,
-    activeConversationKey,
-    conversations,
-    activeConversation,
-    processingKeys,
-    attentionKeys,
-    conversationsRef,
-    processingSnapshotsRef,
-  });
-
-  // -------------------------------------------------------------------------
   // switchConversation
   // -------------------------------------------------------------------------
   const switchConversation = useCallback(
     (key: string) => {
-      setMainView("chat");
+      useViewerStore.getState().setMainView("chat");
       if (key === activeConversationKey) return;
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("conversationKey", key);
-      pushRoute(`?${params.toString()}`);
+      void navigate(routes.conversation(key));
     },
-    [activeConversationKey, pushRoute, searchParams, setMainView],
+    [activeConversationKey, navigate],
   );
 
   // -------------------------------------------------------------------------
@@ -500,18 +494,15 @@ export function useConversationLoader({
   const startNewConversation = useCallback(
     ({ silent, initialMessage }: { silent?: boolean; initialMessage?: string } = {}) => {
       if (!silent) haptic.light();
-      setMainView("chat");
+      useViewerStore.getState().setMainView("chat");
       const draftKey = createDraftConversationKey();
       if (initialMessage) {
         pendingInitialMessageRef.current = { conversationKey: draftKey, content: initialMessage };
       }
       useConversationListStore.getState().setActiveKey(draftKey);
-      navPush({ type: "conversation", key: draftKey });
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("conversationKey", draftKey);
-      pushRoute(`?${params.toString()}`);
+      void navigate(routes.conversation(draftKey));
     },
-    [pushRoute, searchParams, navPush, setMainView, pendingInitialMessageRef],
+    [navigate, pendingInitialMessageRef],
   );
 
   return {

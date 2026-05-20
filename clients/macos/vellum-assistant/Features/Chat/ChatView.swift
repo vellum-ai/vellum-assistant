@@ -398,6 +398,7 @@ struct ChatView: View {
                 readOnlyFooter(width: layoutMetrics.chatColumnWidth)
                     .animation(nil, value: queuedMessages.isEmpty)
                     .animation(nil, value: viewModel.isAssistantBusy)
+                    .animation(nil, value: viewModel.activePendingRequestId)
             } else {
                 composerSection(
                     width: layoutMetrics.chatColumnWidth,
@@ -422,7 +423,7 @@ struct ChatView: View {
                 }
                 .foregroundStyle(VColor.contentTertiary)
 
-                if viewModel.isAssistantBusy {
+                if viewModel.isAssistantBusy && viewModel.activePendingRequestId == nil {
                     VButton(
                         label: "Stop generation",
                         iconOnly: VIcon.square.rawValue,

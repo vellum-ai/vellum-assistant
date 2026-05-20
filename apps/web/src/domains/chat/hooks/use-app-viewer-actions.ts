@@ -1,11 +1,8 @@
 /**
  * App and document viewer action handlers.
  *
- * Consolidates the app/document lifecycle operations previously inlined in
- * `AssistantPageClient`: open, close, share, deploy, edit, navigate
- * (back/forward), and deep-link auto-open. All framework-specific routing
- * is delegated to adapter callbacks (`pushConversationKeyParam`) so the hook
- * stays portable for the Vite + React Router v7 migration.
+ * Consolidates the app/document lifecycle operations: open, close, share,
+ * deploy, edit, and deep-link auto-open.
  *
  * @see stores/viewer-store.ts — Zustand store for viewer UI state
  */
@@ -14,21 +11,20 @@ import * as Sentry from "@sentry/react";
 import { type MutableRefObject, type RefObject, useCallback, useEffect, useRef } from "react";
 
 import { toast } from "@vellum/design-library";
-import { openApp, shareApp } from "@/domains/chat/lib/apps.js";
-import { fetchDocumentContent } from "@/domains/chat/lib/documents.js";
-import { getEditChatKey, setEditChatKey } from "@/domains/chat/lib/edit-chat-session.js";
-import type { ViewSelection } from "@/domains/chat/lib/navigation-history.js";
-import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/lib/publish.js";
+import { openApp, shareApp } from "@/domains/chat/api/apps.js";
+import { fetchDocumentContent } from "@/domains/chat/api/documents.js";
+import { getEditChatKey, setEditChatKey } from "@/domains/chat/utils/edit-chat-session.js";
+import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/api/publish.js";
 import type {
-  MainView,
   OpenedAppState,
 } from "@/stores/viewer-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
-import type { Conversation } from "@/domains/chat/lib/api.js";
+import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { haptic } from "@/utils/haptics.js";
 
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
+import type { Conversation } from "@/domains/chat/api/conversations.js";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -45,17 +41,8 @@ export interface UseAppViewerActionsParams {
   lastConversationKeyRef: MutableRefObject<string | null>;
   deepLinkAppId: RefObject<string | undefined>;
   switchConversation: (key: string) => void;
-  setMainView: (view: MainView) => void;
-  navPush: (selection: ViewSelection) => void;
-  navGoBack: () => ViewSelection | null;
-  navGoForward: () => ViewSelection | null;
-  /**
-   * Framework adapter: set the `conversationKey` URL search parameter.
-   *
-   * In Next.js this is wired to `router.push(`?${params.toString()}`)`; in
-   * React Router v7 it will map to `setSearchParams`.
-   */
-  pushConversationKeyParam: (key: string) => void;
+  /** Navigate to a conversation by key (path-based routing). */
+  navigateToConversation: (key: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,7 +54,6 @@ export interface UseAppViewerActionsParams {
  *
  * Owns:
  * - Core loaders (`loadApp`, `loadDocument`) with concurrent-request guards
- * - Navigation back/forward via `applyViewSelection`
  * - Open/close/minimize/edit handlers for the app and document viewers
  * - Share-to-file and deploy-to-Vercel flows (including the token dialog)
  * - Deep-link auto-open on mount
@@ -86,18 +72,14 @@ export function useAppViewerActions({
   lastConversationKeyRef,
   deepLinkAppId,
   switchConversation,
-  setMainView,
-  navPush,
-  navGoBack,
-  navGoForward,
-  pushConversationKeyParam,
+  navigateToConversation,
 }: UseAppViewerActionsParams) {
   // Ref-stabilize unstable callbacks so consuming useCallbacks keep stable identity.
   const switchConversationRef = useRef(switchConversation);
   switchConversationRef.current = switchConversation;
 
-  const pushConversationKeyParamRef = useRef(pushConversationKeyParam);
-  pushConversationKeyParamRef.current = pushConversationKeyParam;
+  const navigateToConversationRef = useRef(navigateToConversation);
+  navigateToConversationRef.current = navigateToConversation;
 
   // Tracks the appId / documentSurfaceId of the most recent open request so
   // concurrent calls don't let a late-arriving response overwrite the latest.
@@ -154,57 +136,15 @@ export function useAppViewerActions({
   );
 
   // ---------------------------------------------------------------------------
-  // Navigation (back/forward history)
-  // ---------------------------------------------------------------------------
-
-  /** Apply a navigation history ViewSelection without recording a new push. */
-  const applyViewSelection = useCallback(
-    (selection: ViewSelection) => {
-      switch (selection.type) {
-        case "conversation":
-          switchConversationRef.current(selection.key);
-          break;
-        case "home":
-          setMainView("home");
-          break;
-        case "intelligence":
-          setMainView("intelligence");
-          break;
-        case "library":
-          setMainView("library");
-          break;
-        case "app":
-          void loadApp(selection.appId);
-          break;
-        case "document":
-          void loadDocument(selection.surfaceId);
-          break;
-      }
-    },
-    [setMainView, loadApp, loadDocument],
-  );
-
-  const handleGoBack = useCallback(() => {
-    const dest = navGoBack();
-    if (dest) applyViewSelection(dest);
-  }, [navGoBack, applyViewSelection]);
-
-  const handleGoForward = useCallback(() => {
-    const dest = navGoForward();
-    if (dest) applyViewSelection(dest);
-  }, [navGoForward, applyViewSelection]);
-
-  // ---------------------------------------------------------------------------
   // Open / close handlers
   // ---------------------------------------------------------------------------
 
   const handleOpenApp = useCallback(
     async (appId: string) => {
       haptic.light();
-      navPush({ type: "app", appId });
       await loadApp(appId);
     },
-    [navPush, loadApp],
+    [loadApp],
   );
 
   const handleOpenDocument = useCallback(
@@ -216,22 +156,18 @@ export function useAppViewerActions({
   );
 
   const handleCloseDocument = useCallback(() => {
-    const prev = useViewerStore.getState().viewBeforeDocument;
     useViewerStore.getState().closeDocument();
-    if (prev !== "library" && prev !== "intelligence") {
-      if (lastConversationKeyRef.current) {
-        switchConversationRef.current(lastConversationKeyRef.current);
-      }
+    if (lastConversationKeyRef.current) {
+      switchConversationRef.current(lastConversationKeyRef.current);
     }
   }, [lastConversationKeyRef]);
 
   const handleCloseApp = useCallback(() => {
     useViewerStore.getState().closeApp();
     useConversationListStore.getState().setEditingKey(null);
+    useViewerStore.getState().setMainView("chat");
     if (lastConversationKeyRef.current) {
       switchConversationRef.current(lastConversationKeyRef.current);
-    } else {
-      useViewerStore.getState().setMainView("chat");
     }
   }, [lastConversationKeyRef]);
 
@@ -270,7 +206,7 @@ export function useAppViewerActions({
       useConversationListStore.getState().setEditingKey(conversationKey);
       useViewerStore.getState().enterAppEditing();
       if (activeConversationKey !== conversationKey) {
-        pushConversationKeyParamRef.current(conversationKey);
+        navigateToConversationRef.current(conversationKey);
       }
     },
     [
@@ -310,7 +246,7 @@ export function useAppViewerActions({
 
   const handleShareApp = useCallback(async () => {
     if (!openedAppState || !assistantId || isSharing) return;
-    useViewerStore.getState().startSharing();
+    useDeployStore.getState().startSharing();
     try {
       await shareApp(assistantId, openedAppState.appId, openedAppState.name);
       toast.success("App exported", { description: `${openedAppState.name}.vellum` });
@@ -319,27 +255,27 @@ export function useAppViewerActions({
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
-      useViewerStore.getState().finishSharing();
+      useDeployStore.getState().finishSharing();
     }
   }, [openedAppState, assistantId, isSharing]);
 
   const handleDeployApp = useCallback(async () => {
     if (!openedAppState || !assistantId || isDeploying) return;
     if (openedAppState.html.includes("vellum.fetch") || openedAppState.html.includes("vellum.sendAction") || openedAppState.html.includes("/v1/x/") || openedAppState.html.includes("/v1/apps/") ) {
-      useViewerStore.getState().setComplexDeployApp({ appId: openedAppState.appId, name: openedAppState.name });
+      useDeployStore.getState().setComplexDeployApp({ appId: openedAppState.appId, name: openedAppState.name });
       return;
     }
-    useViewerStore.getState().startDeploying();
+    useDeployStore.getState().startDeploying();
     try {
       const config = await getVercelConfig(assistantId);
       if (!config.hasToken) {
-        useViewerStore.getState().showTokenDialog(openedAppState.appId);
+        useDeployStore.getState().showTokenDialog(openedAppState.appId);
         return;
       }
       const result = await publishApp(assistantId, openedAppState.appId);
       if (!result.success) {
         if (isCredentialError(result)) {
-          useViewerStore.getState().showTokenDialog(openedAppState.appId);
+          useDeployStore.getState().showTokenDialog(openedAppState.appId);
         } else {
           toast.error("Failed to deploy", { description: result.error });
         }
@@ -359,14 +295,14 @@ export function useAppViewerActions({
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
-      useViewerStore.getState().finishDeploying();
+      useDeployStore.getState().finishDeploying();
     }
   }, [openedAppState, assistantId, isDeploying]);
 
   const handleDeployTokenSaved = useCallback(() => {
-    useViewerStore.getState().hideTokenDialog();
+    useDeployStore.getState().hideTokenDialog();
     if (pendingDeployAppId && assistantId) {
-      useViewerStore.getState().startDeploying();
+      useDeployStore.getState().startDeploying();
       void publishApp(assistantId, pendingDeployAppId)
         .then((result) => {
           if (!result.success) {
@@ -389,7 +325,7 @@ export function useAppViewerActions({
           });
         })
         .finally(() => {
-          useViewerStore.getState().finishDeploying(true);
+          useDeployStore.getState().finishDeploying(true);
         });
     }
   }, [pendingDeployAppId, assistantId]);
@@ -432,8 +368,6 @@ export function useAppViewerActions({
   return {
     loadApp,
     loadDocument,
-    handleGoBack,
-    handleGoForward,
     handleOpenApp,
     handleOpenDocument,
     handleCloseDocument,

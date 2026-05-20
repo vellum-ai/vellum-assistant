@@ -79,6 +79,29 @@ bun run typecheck  # bunx tsc --noEmit
 bun run lint       # eslint
 ```
 
+## Testing
+
+```bash
+bun test                         # run all tests (single process, fast)
+bun test src/path/to/file.test.ts  # run one file
+bun run test:ci                  # run each file in its own process (CI)
+```
+
+Tests use [Bun's built-in test runner](https://bun.sh/docs/test) with
+[happy-dom](https://github.com/nicedoc/happy-dom) providing browser
+globals (`window`, `document`, `localStorage`, `fetch`, etc.) so
+component and hook tests run without a real browser.
+
+### Why `test:ci`?
+
+Bun's
+[`mock.module()`](https://bun.sh/docs/test/mocking#mock-module)
+mutates a process-global module registry — mocks set in one test file
+leak into every subsequent file in the same process. `bun run test:ci`
+runs each file in its own subprocess for full isolation. Use it when
+the standard `bun test` shows cross-file contamination, or in CI where
+deterministic results are required.
+
 ## Architecture
 
 See [`CONVENTIONS.md`](./CONVENTIONS.md) for code organization

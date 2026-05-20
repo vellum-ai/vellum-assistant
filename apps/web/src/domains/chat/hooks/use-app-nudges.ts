@@ -1,6 +1,6 @@
 import { type MutableRefObject, useEffect, useState } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { useIsIOSWeb } from "@/domains/nudges/ios-app-platform.js";
 import {
   readIOSAssistantTurnsSeen,

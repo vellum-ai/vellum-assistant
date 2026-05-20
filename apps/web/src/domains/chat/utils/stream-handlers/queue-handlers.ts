@@ -1,16 +1,11 @@
-import type {
-  MessageDequeuedEvent,
-  MessageQueuedDeletedEvent,
-  MessageQueuedEvent,
-  MessageRequestCompleteEvent,
-} from "@/domains/chat/lib/api.js";
-import { deleteQueuedMessage } from "@/domains/chat/lib/api.js";
 import {
   clearQueueStatus,
   removeQueuedMessage,
   setQueuePosition,
 } from "@/domains/chat/hooks/stream-message-updaters.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
+import type { MessageDequeuedEvent, MessageQueuedDeletedEvent, MessageQueuedEvent, MessageRequestCompleteEvent } from "@/domains/chat/api/event-types.js";
+import { deleteQueuedMessage } from "@/domains/chat/api/messages.js";
 
 export function handleMessageQueued(
   event: MessageQueuedEvent,

@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 
 import type { MaintenanceMode } from "@/generated/api/types.gen.js";
 import { useTerminalSession } from "@/domains/terminal/use-terminal-session.js";
+import { useTerminalStore } from "@/domains/terminal/terminal-store.js";
 import { TerminalConsole } from "@/domains/terminal/components/terminal-console.js";
 import { TerminalToolbar } from "@/domains/terminal/components/terminal-toolbar.js";
 
@@ -29,11 +30,14 @@ export function TerminalPanel({
     }
   }, []);
 
-  const { terminalState, connect, close, sendInput, sendResize, reconnect } =
+  const { connect, close, sendInput, sendResize, reconnect } =
     useTerminalSession({ assistantId, onData: handleData, service });
 
+  const status = useTerminalStore.use.status();
+  const errorMessage = useTerminalStore.use.errorMessage();
+  const reconnectAttempts = useTerminalStore.use.reconnectAttempts();
+
   const handleConnect = useCallback(() => {
-    const { status, reconnectAttempts } = terminalState;
     if (
       status === "error" ||
       status === "reconnecting" ||
@@ -43,7 +47,7 @@ export function TerminalPanel({
     } else {
       connect();
     }
-  }, [terminalState, connect, reconnect]);
+  }, [status, reconnectAttempts, connect, reconnect]);
 
   const handleConsoleData = useCallback(
     (data: string) => {
@@ -63,7 +67,7 @@ export function TerminalPanel({
     writeToTerminalRef.current?.("\x1b[2J\x1b[H");
   }, []);
 
-  const isReadOnly = terminalState.status !== "connected";
+  const isReadOnly = status !== "connected";
   const isMaintenanceActive = maintenanceMode?.enabled === true;
 
   return (
@@ -76,7 +80,7 @@ export function TerminalPanel({
         .join(" ")}
     >
       <TerminalToolbar
-        status={terminalState.status}
+        status={status}
         onConnect={handleConnect}
         onDisconnect={close}
         onClear={handleClear}
@@ -90,9 +94,9 @@ export function TerminalPanel({
         </div>
       )}
 
-      {terminalState.status === "error" && terminalState.errorMessage && (
+      {status === "error" && errorMessage && (
         <div className="border-b border-[var(--border-base)] bg-[var(--system-negative-weak)] px-3 py-2 text-body-small-default text-[var(--system-negative-strong)]">
-          {terminalState.errorMessage}
+          {errorMessage}
         </div>
       )}
 

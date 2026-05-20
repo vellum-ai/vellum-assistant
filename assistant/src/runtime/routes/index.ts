@@ -33,6 +33,7 @@ import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
 import { ROUTES as CONSOLIDATION_ROUTES } from "./consolidation-routes.js";
 import { CONTACT_PROMPT_ROUTES } from "./contact-prompt-routes.js";
 import { ROUTES as CONTACT_ROUTES } from "./contact-routes.js";
+import { ROUTES as CONTENT_SOURCE_ROUTES } from "./content-source-routes.js";
 import { ROUTES as CONVERSATION_ANALYSIS_ROUTES } from "./conversation-analysis-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
 import { ROUTES as CONVERSATION_CLI_ROUTES } from "./conversation-cli-routes.js";
@@ -101,6 +102,7 @@ import { ROUTES as PUBLISH_ROUTES } from "./publish-routes.js";
 import { ROUTES as QUESTION_ROUTES } from "./question-routes.js";
 import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
+import { ROUTES as SANITY_ROUTES } from "./sanity-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
 import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
@@ -153,6 +155,7 @@ export const ROUTES: RouteDefinition[] = [
   ...BTW_ROUTES,
   ...BRAIN_GRAPH_ROUTES,
   ...CLIENT_ROUTES,
+  ...CONTENT_SOURCE_ROUTES,
   ...CONTACT_PROMPT_ROUTES,
   ...CONTACT_ROUTES,
   ...CONVERSATION_ANALYSIS_ROUTES,
@@ -219,6 +222,7 @@ export const ROUTES: RouteDefinition[] = [
   ...RECORDING_ROUTES,
   ...RENAME_CONVERSATION_ROUTES,
   ...SCHEDULE_ROUTES,
+  ...SANITY_ROUTES,
   ...SECRET_ROUTES,
   ...SETTINGS_ROUTES,
   ...SKILL_ROUTES,

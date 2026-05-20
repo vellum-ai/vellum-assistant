@@ -8,6 +8,7 @@ Read these before making changes:
 
 - **[`CONVENTIONS.md`](./CONVENTIONS.md)** — Architecture, code organization, state management, component patterns, framework strategy, data fetching, testing.
 - **[`STYLE_GUIDE.md`](./STYLE_GUIDE.md)** — Naming, imports, TypeScript, component authoring, formatting.
+- **[`CAPACITOR.md`](./CAPACITOR.md)** — Capacitor / iOS patterns: lazy plugin imports, native auth, deep links, autogrowing textareas, streaming watchdogs, OS permission UI, capability detection, keyboard-only affordances. Mandatory reading if any code path you're touching might run inside the iOS WKWebView shell.
 
 ## Stack
 
@@ -38,6 +39,7 @@ cd apps/web && bunx tsc --noEmit      # Type-check
 cd apps/web && bun run lint           # Lint
 cd apps/web && bun run build          # Production build
 cd apps/web && bun test src/path/to/file.test.ts  # Run specific tests
+cd apps/web && bun run test:ci       # Run all tests (isolated, CI)
 ```
 
 ## Migration status

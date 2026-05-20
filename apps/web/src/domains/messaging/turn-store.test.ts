@@ -6,7 +6,7 @@ import {
   shouldShowAssistantBubble,
   isSendDisabled,
   type UIContext,
-} from "@/domains/chat/lib/turn-selectors.js";
+} from "@/domains/chat/utils/turn-selectors.js";
 import {
   type TurnState,
   type DomainEvent,

@@ -25,7 +25,7 @@ import {
   Menu,
   PanelItem,
 } from "@vellum/design-library";
-import type { MoveToGroupTarget } from "@/domains/chat/lib/groupConversations.js";
+import type { MoveToGroupTarget } from "@/domains/chat/utils/groupConversations.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 
 /**

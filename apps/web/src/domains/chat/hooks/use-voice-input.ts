@@ -1,5 +1,5 @@
 
-import { type Dispatch, type SetStateAction, useCallback, useRef, useState } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from "react";
 
 import {
   type VoiceInputButtonHandle,
@@ -10,6 +10,7 @@ import {
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { postDictation } from "@/domains/voice/dictation-api.js";
 import { usePushToTalk } from "@/domains/voice/use-push-to-talk.js";
+import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 
 // ---------------------------------------------------------------------------
@@ -51,11 +52,7 @@ export interface UseVoiceInputReturn {
    * start.
    */
   handleVoiceTranscript: (rawText: string) => Promise<void>;
-  /**
-   * Called when recording starts or stops. Captures cursor position on
-   * start; clears interim text on stop.
-   */
-  handleVoiceRecordingChange: (recording: boolean) => void;
+
   /** Set interim transcript (passed to `VoiceInputButton.onInterimTranscript`). */
   setVoiceInterim: (text: string) => void;
   /** Continue from the mic-permission primer dialog. */
@@ -158,17 +155,14 @@ export function useVoiceInput({
     [assistantId, inputRef, setInput],
   );
 
-  const handleVoiceRecordingChange = useCallback(
-    (recording: boolean) => {
-      if (recording) {
-        // Capture cursor position at session start for splice insertion.
-        voiceCursorPosRef.current = inputRef.current?.selectionStart ?? null;
-      } else {
-        setVoiceInterim("");
-      }
-    },
-    [inputRef],
-  );
+  const isRecording = useVoiceRecordingStore.use.phase() === "recording";
+  useEffect(() => {
+    if (isRecording) {
+      voiceCursorPosRef.current = inputRef.current?.selectionStart ?? null;
+    } else {
+      setVoiceInterim("");
+    }
+  }, [isRecording, inputRef]);
 
   const handlePrimerContinue = useCallback(() => {
     setShowPrimer(false);
@@ -231,7 +225,6 @@ export function useVoiceInput({
     showPrimer,
     handleVoiceBeforeStart,
     handleVoiceTranscript,
-    handleVoiceRecordingChange,
     setVoiceInterim,
     handlePrimerContinue,
     handlePrimerCancel,

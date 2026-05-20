@@ -52,7 +52,7 @@ mock.module("@vellum/design-library", () => ({
   PanelItem: mockPanelItem,
 }));
 
-import type { Conversation } from "@/domains/chat/lib/conversations.js";
+import type { Conversation } from "@/domains/chat/api/conversations.js";
 import { CollapsedConversationsButton } from "@/domains/chat/components/collapsed-conversations-button.js";
 
 function makeConversation(overrides: Partial<Conversation> & { conversationKey: string }): Conversation {

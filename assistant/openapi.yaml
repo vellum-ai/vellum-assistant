@@ -4219,6 +4219,27 @@ paths:
                 limit:
                   type: number
               additionalProperties: false
+  /v1/content-source:
+    post:
+      operationId: contentsource_post
+      summary: Validate and persist a content source URL
+      tags:
+        - content-source
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+              required:
+                - url
+              additionalProperties: false
   /v1/conversation-starters:
     get:
       operationId: conversationstarters_get
@@ -9720,6 +9741,18 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/integrations/a2a/invite/accept:
+    post:
+      operationId: integrations_a2a_invite_accept_post
+      summary: Accept A2A invite (self-hosted broker)
+      description:
+        Orchestrate cross-daemon invite acceptance for self-hosted deployments. Calls the sender's invite/complete,
+        then creates a local contact via invite/redeem.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
   /v1/integrations/a2a/invite/complete:
     post:
       operationId: integrations_a2a_invite_complete_post
@@ -12519,6 +12552,49 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/sanity/connect:
+    post:
+      operationId: sanity_connect_post
+      summary: Finalise Sanity connection and write sidecar file
+      tags:
+        - sanity
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                projectId:
+                  type: string
+                dataset:
+                  type: string
+              required:
+                - projectId
+                - dataset
+              additionalProperties: false
+  /v1/sanity/discover:
+    post:
+      operationId: sanity_discover_post
+      summary: Discover Sanity projects and datasets using the stored API token
+      tags:
+        - sanity
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                projectId:
+                  type: string
+              additionalProperties: false
   /v1/schedules:
     get:
       operationId: schedules_get

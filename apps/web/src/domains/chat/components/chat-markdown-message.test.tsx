@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { shouldOpenMarkdownLinkInOAuthPopup } from "@/domains/chat/lib/oauth-popup-links.js";
+import { shouldOpenMarkdownLinkInOAuthPopup } from "@/domains/chat/utils/oauth-popup-links.js";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
 

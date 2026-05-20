@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
-import { PROVIDER_CALLBACK_URL, PROVIDER_ID } from "@/lib/account/login-flow.js";
+import { PROVIDER_CALLBACK_URL, PROVIDER_ID } from "@/domains/account/login-flow.js";
 import { startAuthFlow } from "@/runtime/native-auth.js";
 
 /**
@@ -16,6 +16,7 @@ import { startAuthFlow } from "@/runtime/native-auth.js";
 export function SignupPage() {
   const didRedirect = useRef(false);
   const [searchParams] = useSearchParams();
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (didRedirect.current) return;
@@ -26,11 +27,22 @@ export function SignupPage() {
       ? `${PROVIDER_CALLBACK_URL}?returnTo=${encodeURIComponent(returnTo)}`
       : PROVIDER_CALLBACK_URL;
 
-    void startAuthFlow(PROVIDER_ID, callbackUrl, {
+    startAuthFlow(PROVIDER_ID, callbackUrl, {
       intent: "signup",
       returnTo,
+    }).catch((err) => {
+      console.error("[signup] auth flow failed:", err);
+      setError("Something went wrong. Please try again.");
     });
   }, [searchParams]);
+
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-[var(--system-negative-strong)]">{error}</p>
+      </div>
+    );
+  }
 
   return null;
 }

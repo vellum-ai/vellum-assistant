@@ -6,7 +6,7 @@ import { Button } from "@vellum/design-library";
 import { Menu } from "@vellum/design-library";
 import { Typography } from "@vellum/design-library";
 
-import { exportDocumentPDF } from "@/domains/chat/lib/documents.js";
+import { exportDocumentPDF } from "@/domains/chat/api/documents.js";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -168,7 +168,8 @@ export function DocumentViewerContainer({
   const [wordCount, setWordCount] = useState(() => countWords(content));
   const [isExportingPDF, setIsExportingPDF] = useState(false);
 
-  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  const theme = typeof document !== "undefined" ? document.documentElement.dataset.theme : undefined;
+  const isDark = theme === "dark" || theme === "velvet";
 
   const srcdoc = useMemo(
     () => generateEditorHTML(documentName, content, isDark),

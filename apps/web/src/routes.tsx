@@ -1,4 +1,4 @@
-import { createBrowserRouter, useNavigate } from "react-router";
+import { createBrowserRouter, Navigate, useNavigate, useSearchParams } from "react-router";
 
 import { authMiddleware } from "@/lib/auth/auth-middleware.js";
 import { RootLayout } from "@/components/layout/root-layout.js";
@@ -8,6 +8,9 @@ import { HomePage } from "@/domains/home/home-page.js";
 import { LibraryPage } from "@/domains/library/library-page.js";
 import { LibraryDetailPage } from "@/domains/library/library-detail-page.js";
 import { IdentityPage } from "@/domains/intelligence/identity-page.js";
+import { ConnectPage } from "@/domains/contacts/connect-page.js";
+import { ContactsPage } from "@/domains/contacts/contacts-page.js";
+import { WorkspacePage } from "@/domains/workspace/workspace-page.js";
 import { NotFound } from "@/components/not-found.js";
 import { SettingsLayout } from "@/domains/settings/settings-layout.js";
 import { GeneralPage } from "@/domains/settings/pages/general-page.js";
@@ -43,7 +46,29 @@ import { useAssistantContext } from "@/domains/chat/assistant-context.js";
 import { HatchingScreen } from "@/domains/onboarding/pages/hatching-screen.js";
 import { PreChatFlow } from "@/domains/onboarding/pages/pre-chat-flow.js";
 import { PrivacyScreen } from "@/domains/onboarding/pages/privacy-screen.js";
+import { LogsLayout } from "@/domains/logs/logs-layout.js";
+import { TracePage } from "@/domains/logs/pages/trace-page.js";
+import { UsagePage } from "@/domains/logs/pages/usage-page.js";
+import { SystemEventsPage } from "@/domains/logs/pages/system-events-page.js";
+import { EmailsPage } from "@/domains/logs/pages/emails-page.js";
 import { routes } from "@/utils/routes.js";
+
+/**
+ * Handles the `/assistant` index route. If a legacy `?conversationKey=` search
+ * param is present, redirects to the canonical path-based conversation URL.
+ * Otherwise renders `ChatPage` (new/default conversation).
+ */
+function ConversationKeyRedirect() {
+  const [searchParams] = useSearchParams();
+  const conversationKey = searchParams.get("conversationKey");
+  if (conversationKey) {
+    const remaining = new URLSearchParams(searchParams);
+    remaining.delete("conversationKey");
+    const qs = remaining.toString();
+    return <Navigate to={`${routes.conversation(conversationKey)}${qs ? `?${qs}` : ""}`} replace />;
+  }
+  return <ChatPage />;
+}
 
 function HomePageRoute() {
   const navigate = useNavigate();
@@ -62,45 +87,13 @@ function HomePageRoute() {
   );
 }
 
-/**
- * Route hierarchy (no basename — routes are absolute browser paths):
- *
- *   /account/*   — standalone auth pages, no app chrome
- *   │  ├── AccountPage (/account)
- *   │  ├── LoginPage (/account/login)
- *   │  ├── SignupPage (/account/signup)
- *   │  ├── ProviderCallbackPage (/account/provider/callback)
- *   │  ├── ProviderSignupPage (/account/provider/signup)
- *   │  ├── OAuthPopupCompletePage (/account/oauth/popup-complete)
- *   │  ├── DesktopOAuthCompletePage (/account/oauth/desktop-complete)
- *   │  ├── PasswordResetPage (/account/password/reset → redirects to login)
- *   │  └── PasswordResetPage (/account/password/reset/key/:key → redirects to login)
- *   │
- *   /logout        — standalone logout (calls API, redirects to login)
- *   │
- *   /assistant/* — auth-protected app with RootLayout
- *   │  middleware: [authMiddleware] — redirects to login when auth required
- *   │  ├── Onboarding (full-screen, no app chrome)
- *   │  │   ├── PrivacyScreen (/assistant/onboarding/privacy)
- *   │  │   ├── PreChatFlow (/assistant/onboarding/prechat)
- *   │  │   └── HatchingScreen (/assistant/onboarding/hatching)
- *   │  ├── SettingsLayout (full-screen overlay panel, no ChatLayout sidebar)
- *   │  │   ├── GeneralPage (/assistant/settings/general)
- *   │  │   ├── AiPage (/assistant/settings/ai)
- *   │  │   ├── IntegrationsPage, SchedulesPage, VoicePage, ...
- *   │  │   ├── BillingPage (/assistant/settings/billing)
- *   │  │   │   ├── onboarding, upgrade/cancel, upgrade/success
- *   │  │   └── AdvancedPage, DeveloperPage, DebugPage
- *   │  └── ChatLayout — sidebar rail, drawer, shortcuts
- *   │       ├── ChatPage (index, /assistant)
- *   │       ├── HomePageRoute (/assistant/home)
- *   │       └── LibraryPage / LibraryDetailPage
- *
- * References:
- * - React Router data mode routing: https://reactrouter.com/start/data/routing
- * - React Router prefix routes: https://reactrouter.com/start/data/routing#prefix-route
- * - React Router middleware: https://reactrouter.com/how-to/middleware
- */
+// Route tree — no basename, routes are absolute browser paths.
+// To view the full hierarchy at a glance:
+//   grep -n 'path:' apps/web/src/routes.tsx
+//
+// References:
+// - React Router data mode routing: https://reactrouter.com/start/data/routing
+// - React Router middleware: https://reactrouter.com/how-to/middleware
 export const router = createBrowserRouter([
   // Account routes — standalone auth pages, no app chrome
   {
@@ -163,14 +156,32 @@ export const router = createBrowserRouter([
         ],
       },
 
+      // Logs routes — full-screen overlay panel (like SettingsLayout).
+      // LogsLayout reuses SettingsShell for visual consistency.
+      {
+        path: "logs",
+        element: <LogsLayout />,
+        children: [
+          { index: true, element: <TracePage /> },
+          { path: "trace", element: <TracePage /> },
+          { path: "usage", element: <UsagePage /> },
+          { path: "system-events", element: <SystemEventsPage /> },
+          { path: "emails", element: <EmailsPage /> },
+        ],
+      },
+
       {
         element: <ChatLayout />,
         children: [
-          { index: true, element: <ChatPage /> },
+          { index: true, element: <ConversationKeyRedirect /> },
+          { path: "conversations/:conversationKey", element: <ChatPage /> },
           { path: "home", element: <HomePageRoute /> },
           { path: "library", element: <LibraryPage /> },
           { path: "library/:appId", element: <LibraryDetailPage /> },
           { path: "identity", element: <IdentityPage /> },
+          { path: "workspace", element: <WorkspacePage /> },
+          { path: "contacts", element: <ContactsPage /> },
+          { path: "connect", element: <ConnectPage /> },
         ],
       },
 

@@ -1,13 +1,11 @@
 /**
  * Zustand organization store.
  *
- * Replaces the React Context-based OrganizationProvider with a store
- * readable from anywhere — middleware, loaders, API interceptors — via
- * `useOrganizationStore.getState()`.
- *
- * Fetches the organization list via the generated SDK client (not React
- * Query) so the store is self-contained and usable outside the React tree.
- * Persists the active organization to sessionStorage so page refreshes
+ * Owns the organization list and the active-organization selection.
+ * Fetches the list via the generated SDK client (not React Query) so
+ * middleware, loaders, and API interceptors can read state synchronously
+ * via `useOrganizationStore.getState()` outside the React tree. The
+ * active organization is persisted to sessionStorage so page refreshes
  * and new tabs preserve the selection.
  *
  * Lifecycle (auth subscription + focus/visibility refetch) is registered
@@ -176,9 +174,8 @@ export function clearOrganization(): void {
  * 1. Auth subscription — fetches orgs when the user logs in or switches
  *    accounts (including cross-tab via BroadcastChannel).
  * 2. Window focus / visibility — refetches the org list when the tab
- *    regains focus, but only if data is stale (older than STALE_TIME_MS).
- *    Matches the old React Query `refetchOnWindowFocus` + `staleTime`
- *    behavior from `createQueryClient({ staleTime: 10_000 })`.
+ *    regains focus, but only if data is older than STALE_TIME_MS so
+ *    rapid focus events on fresh data don't trigger redundant fetches.
  */
 export function setupOrganizationStore(): () => void {
   const STALE_TIME_MS = 10_000;

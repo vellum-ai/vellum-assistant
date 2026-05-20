@@ -16,7 +16,7 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/domains/assistant/lifecycle.js";
-import { resolveOnboardingRedirect } from "@/lib/onboarding/gate.js";
+import { resolveOnboardingRedirect } from "@/domains/onboarding/gate.js";
 import { routes } from "@/utils/routes.js";
 
 const POLL_INTERVAL_MS = 3000;

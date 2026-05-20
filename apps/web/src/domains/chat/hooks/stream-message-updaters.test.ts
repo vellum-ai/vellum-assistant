@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 
 import {
   appendTextDelta,

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Conversation } from "@/domains/chat/lib/api.js";
 
 import { applyConversationPatch } from "@/domains/conversations/conversation-list-store.js";
 import { resolveUnpinGroupId } from "@/domains/chat/hooks/use-conversation-actions.js";
+import type { Conversation } from "@/domains/chat/api/conversations.js";
 
 // ---------------------------------------------------------------------------
 // applyConversationPatch

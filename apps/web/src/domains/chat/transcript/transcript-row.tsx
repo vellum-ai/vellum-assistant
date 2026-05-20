@@ -4,10 +4,10 @@ import { memo, type ReactNode } from "react";
 
 import { Notice } from "@vellum/design-library";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/index.js";
-import type { ConfirmationDecision } from "@/domains/chat/lib/api.js";
-import type { TranscriptItem } from "@/domains/chat/lib/transcript/types.js";
+import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body.js";
+import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";
 
 /**
  * Thin dispatcher: render one `TranscriptItem` using the matching existing
@@ -45,9 +45,9 @@ export interface TranscriptRowProps {
     riskLevel?: string;
     riskReason?: string;
     input?: Record<string, unknown>;
-    allowlistOptions: import("@/domains/chat/lib/api.js").AllowlistOption[];
-    scopeOptions: import("@/domains/chat/lib/api.js").ScopeOption[];
-    directoryScopeOptions: import("@/domains/chat/lib/api.js").DirectoryScopeOption[];
+    allowlistOptions: import("@/domains/chat/api/event-types.js").AllowlistOption[];
+    scopeOptions: import("@/domains/chat/api/event-types.js").ScopeOption[];
+    directoryScopeOptions: import("@/domains/chat/api/event-types.js").DirectoryScopeOption[];
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;

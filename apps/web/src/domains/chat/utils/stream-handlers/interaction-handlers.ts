@@ -1,14 +1,8 @@
-import type {
-  ConfirmationRequestEvent,
-  ContactRequestEvent,
-  QuestionRequestEvent,
-  SecretRequestEvent,
-} from "@/domains/chat/lib/api.js";
-import { normalizeQuestionRequest } from "@/domains/chat/lib/api.js";
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat-utils.js";
 import type { PendingConfirmationState } from "@/domains/chat/types.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
+import { type ConfirmationRequestEvent, type ContactRequestEvent, type QuestionRequestEvent, type SecretRequestEvent, normalizeQuestionRequest } from "@/domains/chat/api/event-types.js";
 
 export function handleSecretRequest(
   event: SecretRequestEvent,

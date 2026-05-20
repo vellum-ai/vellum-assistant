@@ -2236,6 +2236,66 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     expect(backfillThreadMock).not.toHaveBeenCalled();
   });
 
+  test("threaded Slack DMs use thread backfill instead of whole-DM backfill", async () => {
+    const dmChannelId = "D0HTTPAPPTHREAD";
+    const threadTs = "1700000000.000100";
+    const inboundTs = "1700000000.000300";
+    seedHttpActiveMember(dmChannelId);
+    backfillDmMock.mockImplementation(async () => {
+      throw new Error("whole-DM backfill should not run for threaded DMs");
+    });
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: threadTs,
+        conversationId: dmChannelId,
+        text: "app DM thread root",
+        sender: { id: HTTP_SLACK_USER_ID, name: HTTP_SLACK_DISPLAY_NAME },
+      }),
+      makeBackfillMessage({
+        id: "1700000000.000200",
+        conversationId: dmChannelId,
+        text: "app DM thread context",
+        threadId: threadTs,
+        sender: { id: HTTP_SLACK_USER_ID, name: HTTP_SLACK_DISPLAY_NAME },
+      }),
+    ]);
+
+    const processMessage = async (
+      conversationId: string,
+      content: string,
+      _attachmentIds?: string[],
+      options?: SlackInboundProcessOptions,
+    ): Promise<{ messageId: string }> => ({
+      messageId: persistSlackInboundFromProcessMessage(
+        conversationId,
+        content,
+        options,
+      ),
+    });
+    setAdapterProcessMessage(processMessage);
+
+    const resp = await handleChannelInbound(
+      buildSlackDmRequest(dmChannelId, inboundTs, {
+        sourceMetadata: {
+          messageId: inboundTs,
+          threadId: threadTs,
+          chatType: "im",
+        },
+      }),
+      processMessage,
+      TEST_BEARER_TOKEN,
+    );
+
+    expect(resp.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(backfillDmMock).not.toHaveBeenCalled();
+    expect(backfillThreadMock.mock.calls.length).toBeGreaterThanOrEqual(1);
+    const [calledChannel, calledThread] = backfillThreadMock.mock.calls[0];
+    expect(calledChannel).toBe(dmChannelId);
+    expect(calledThread).toBe(threadTs);
+  });
+
   test("second thread reply within the TTL window can fetch a newer bounded gap", async () => {
     backfillThreadMock.mockImplementation(async () => [
       makeBackfillMessage({ id: "5678.0", text: "parent" }),

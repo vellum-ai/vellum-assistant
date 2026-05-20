@@ -8,7 +8,7 @@ import { Modal } from "@vellum/design-library/components/modal";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
 import { client } from "@/generated/api/client.gen.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 
 import { type ProfileEntry } from "@/domains/settings/ai/ai-page.js";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal.js";
@@ -94,7 +94,7 @@ export function ManageProfilesModal({
   onClose,
   onProfilesChanged,
 }: ManageProfilesModalProps) {
-  const { openAICompatibleEndpoints } = useAppFeatureFlags();
+  const openAICompatibleEndpoints = useFeatureFlagStore.use.openAICompatibleEndpoints();
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   // Provider connections, fetched alongside the modal so ProfileEditorModal can

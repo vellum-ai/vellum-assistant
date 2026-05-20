@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ProgressBar } from "./progress-bar.js";
 
 const meta: Meta<typeof ProgressBar> = {
+  title: "Components/ProgressBar",
   component: ProgressBar,
   argTypes: {
     value: { control: { type: "range", min: 0, max: 1, step: 0.01 } },

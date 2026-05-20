@@ -16,29 +16,29 @@ import { TaskToneSelectionScreen } from "@/domains/onboarding/screens/task-tone-
 import { ToolSelectionScreen } from "@/domains/onboarding/screens/tool-selection-screen.js";
 import { VibeStepScreen } from "@/domains/onboarding/screens/vibe-step-screen.js";
 import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
-import { usePrefilledInput } from "@/lib/hooks/use-prefilled-input.js";
+import { usePrefilledInput } from "@/hooks/use-prefilled-input.js";
 import {
   setPendingAssistantName,
   setPendingPreChatContext,
   type PreChatOnboardingContext,
-} from "@/lib/onboarding/prechat.js";
+} from "@/domains/onboarding/prechat.js";
 import {
   DEFAULT_GROUP_ID,
   sampleSuggestionNames,
-} from "@/lib/onboarding/prechat-names.js";
+} from "@/domains/onboarding/prechat-names.js";
 import {
   GOOGLE_TOOL_IDS,
   stripOtherPrefix,
-} from "@/lib/onboarding/prechat-tools.js";
+} from "@/domains/onboarding/prechat-tools.js";
 import {
   readOnboardingCompleted,
   readTosAccepted,
   useOnboardingCompleted,
-} from "@/lib/onboarding/prefs.js";
+} from "@/domains/onboarding/prefs.js";
 import {
   clearPrivacyConsent,
   hasRecentPrivacyConsent,
-} from "@/lib/onboarding/signals.js";
+} from "@/domains/onboarding/signals.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";

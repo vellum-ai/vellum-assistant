@@ -12,8 +12,8 @@ import {
 } from "lucide-react";
 import { type ChangeEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { AppSummary } from "@/domains/chat/lib/apps.js";
-import type { DocumentSummary } from "@/domains/chat/lib/documents.js";
+import type { AppSummary } from "@/domains/chat/api/apps.js";
+import type { DocumentSummary } from "@/domains/chat/api/documents.js";
 import {
   deleteApp,
   getCachedAppHtml,
@@ -22,11 +22,11 @@ import {
   openApp,
   primeAppHtmlCache,
   shareApp,
-} from "@/domains/chat/lib/apps.js";
-import { listDocuments } from "@/domains/chat/lib/documents.js";
-import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/lib/publish.js";
-import { usePinnedApps } from "@/domains/chat/lib/pinnedAppsContext.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+} from "@/domains/chat/api/apps.js";
+import { listDocuments } from "@/domains/chat/api/documents.js";
+import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/api/publish.js";
+import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { AppPreviewThumbnail } from "@/domains/chat/components/app-card.js";
 import {
   BottomSheet,
@@ -218,8 +218,9 @@ export function LibraryView({
   onOpenDocument,
   onEditApp,
 }: LibraryViewProps) {
-  const { deployToVercel } = useAppFeatureFlags();
-  const { pinnedAppIds, togglePin } = usePinnedApps();
+  const deployToVercel = useFeatureFlagStore.use.deployToVercel();
+  const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
+  const togglePin = usePinnedAppsStore.use.togglePin();
   const [apps, setApps] = useState<AppSummary[]>([]);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [loading, setLoading] = useState(true);

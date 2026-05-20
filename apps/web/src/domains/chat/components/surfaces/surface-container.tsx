@@ -2,7 +2,7 @@
 import { CheckCircle, Loader2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 
 interface SurfaceContainerProps {
   surface: Surface;

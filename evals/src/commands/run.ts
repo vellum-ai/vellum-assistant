@@ -4,7 +4,7 @@ import type { Command } from "commander";
 import { runEvalOnce } from "../lib/runner/run-once";
 import {
   createConsoleReporter,
-  noopEvalProgressReporter,
+  createSummaryOnlyReporter,
 } from "../lib/runner/progress";
 import { loadProfile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
@@ -63,7 +63,7 @@ export function registerRunCommand(program: Command): void {
     )
     .option(
       "--quiet",
-      "Suppress per-step progress output (only emit the final JSON result)",
+      "Suppress per-step progress (still surfaces the final result and any errors)",
     )
     .option(
       "--serve",
@@ -90,8 +90,13 @@ export function registerRunCommand(program: Command): void {
         if (tests.length === 0)
           throw new Error("--tests is empty after splitting on commas");
 
+        // `--quiet` still lets the per-run `result` summary and any
+        // `status: "error"` events through so operators get one line per
+        // run telling them what happened. Without the filter, a silent
+        // failure could hide behind `--quiet` with no signal on stdout
+        // or stderr.
         const progress = opts.quiet
-          ? noopEvalProgressReporter
+          ? createSummaryOnlyReporter()
           : createConsoleReporter();
 
         // Stamp every execution in this invocation with the same session id
@@ -105,7 +110,7 @@ export function registerRunCommand(program: Command): void {
           for (const test of tests) {
             const id = runId(profile.id, test.id, timestampSuffix());
             try {
-              const result = await runEvalOnce({
+              await runEvalOnce({
                 profile,
                 test,
                 runId: id,
@@ -114,26 +119,18 @@ export function registerRunCommand(program: Command): void {
                 maxTurns: opts.maxTurns,
                 progress,
               });
-              console.log(JSON.stringify(result));
-            } catch (err) {
+              // No stdout dump: the runner has already emitted the
+              // `result` progress event with per-metric scores in the
+              // same timestamped/labeled format as every other step.
+            } catch {
               // Per-test isolation: a crash in one combination (e.g. the
               // user simulator returning unparseable content) shouldn't
               // take down the rest of the suite. The run-once layer has
               // already written status:"failed" + error to the run's
-              // metadata; emit a matching JSON line here and keep going.
+              // metadata and emitted a red `status: "error"` progress
+              // event with diagnostic details, so we just flip the
+              // exit-code flag and move on.
               anyFailed = true;
-              const message = err instanceof Error ? err.message : String(err);
-              console.log(
-                JSON.stringify({
-                  runId: id,
-                  sessionId: session,
-                  sessionLabel,
-                  profileId: profile.id,
-                  testId: test.id,
-                  status: "failed",
-                  error: message,
-                }),
-              );
             }
           }
         }

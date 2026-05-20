@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { AccountHeading } from "@/components/account/account-form.js";
 import { AccountShell } from "@/components/account/account-shell.js";
-import { sanitizeReturnTo } from "@/lib/account/return-to.js";
+import { sanitizeReturnTo } from "@/domains/account/return-to.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
 

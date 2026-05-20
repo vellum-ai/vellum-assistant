@@ -1,14 +1,11 @@
-import type {
-  ConversationErrorEvent,
-  StreamErrorEvent,
-} from "@/domains/chat/lib/api.js";
-import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/lib/error-classification.js";
+import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
 import {
   handleConversationError,
   stopStreaming,
 } from "@/domains/chat/hooks/stream-message-updaters.js";
 import { ERROR_MESSAGES } from "@/domains/chat/utils/chat-utils.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
+import type { ConversationErrorEvent, StreamErrorEvent } from "@/domains/chat/api/event-types.js";
 
 export function handleStreamError(
   event: StreamErrorEvent,

@@ -12,7 +12,7 @@ import {
 
 import { Button } from "@vellum/design-library/components/button";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout.js";
-import { PRECHAT_TASKS } from "@/lib/onboarding/prechat-tasks.js";
+import { PRECHAT_TASKS } from "@/domains/onboarding/prechat-tasks.js";
 
 const TASK_ICONS = {
   wrench: Wrench,

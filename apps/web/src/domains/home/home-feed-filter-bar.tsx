@@ -111,7 +111,7 @@ export function HomeFeedFilterBar({
     categories.includes(c),
   );
 
-  if (presentCategories.length === 0) return null;
+  if (presentCategories.length <= 1) return null;
 
   return (
     <div className="flex items-center gap-[var(--app-spacing-sm)] overflow-x-auto">

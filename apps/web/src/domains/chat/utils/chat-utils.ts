@@ -1,13 +1,7 @@
-import type {
-  AllowlistOption,
-  AssistantEvent,
-  AssistantIdentity,
-  Conversation,
-  DirectoryScopeOption,
-  PendingToolConfirmation,
-  ScopeOption,
-} from "@/domains/chat/lib/api.js";
-import type { DisplayMessage } from "@/domains/chat/lib/types.js";
+import type { DisplayMessage } from "@/domains/chat/types/types.js";
+import type { AssistantIdentity } from "@/domains/chat/api/assistant.js";
+import type { Conversation } from "@/domains/chat/api/conversations.js";
+import type { AllowlistOption, AssistantEvent, DirectoryScopeOption, PendingToolConfirmation, ScopeOption } from "@/domains/chat/api/event-types.js";
 
 export const ERROR_MESSAGES: Record<string, string> = {
   rate_limit_exceeded:

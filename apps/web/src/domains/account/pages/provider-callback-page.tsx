@@ -4,8 +4,8 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { AccountHeading } from "@/components/account/account-form.js";
 import { AccountShell } from "@/components/account/account-shell.js";
 import { getSession } from "@/lib/auth/allauth-client.js";
-import { resolvePostLoginDestination } from "@/lib/account/login-flow.js";
-import { classifyCallbackFlows } from "@/lib/account/social-auth.js";
+import { resolvePostLoginDestination } from "@/domains/account/login-flow.js";
+import { classifyCallbackFlows } from "@/domains/account/social-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
 

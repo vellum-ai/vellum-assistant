@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers.js";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
-import type { Conversation } from "@/domains/chat/lib/api.js";
+import type { Conversation } from "@/domains/chat/api/conversations.js";
 import {
   handleUsageUpdate,
   handleConversationListInvalidated,

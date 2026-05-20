@@ -2,7 +2,7 @@ import { ChevronDown, Download, FileText, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button, Menu, Typography } from "@vellum/design-library";
-import { exportDocumentPDF } from "@/domains/chat/lib/documents.js";
+import { exportDocumentPDF } from "@/domains/chat/api/documents.js";
 
 export interface DocumentViewerContainerProps {
   documentName: string;
@@ -148,7 +148,8 @@ export function DocumentViewerContainer({
   const [wordCount, setWordCount] = useState(() => countWords(content));
   const [isExportingPDF, setIsExportingPDF] = useState(false);
 
-  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  const theme = typeof document !== "undefined" ? document.documentElement.dataset.theme : undefined;
+  const isDark = theme === "dark" || theme === "velvet";
 
   const srcdoc = useMemo(
     () => generateEditorHTML(documentName, content, isDark),

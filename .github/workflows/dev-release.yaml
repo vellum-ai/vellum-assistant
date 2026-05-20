@@ -740,6 +740,188 @@ jobs:
             fi
           done
 
+  # ── Notify #dev-releases with the commit changelog ─────────────────────
+  # Posts a summary to Slack once the release is registered, then drops the
+  # full ordered commit list (author + message) into a thread reply so the
+  # channel stays tidy even when a release spans many commits.
+  #
+  # MANUAL SETUP (one-time): this job no-ops until SLACK_BOT_TOKEN exists, so
+  # merging it will not break the hourly release before setup is done.
+  #   1. Create (or reuse) a Slack app with the `chat:write` bot scope and
+  #      install it to the workspace.
+  #   2. Invite the bot to the channel: `/invite @<your-app>` in #dev-releases.
+  #   3. Add the bot token as a repo Actions secret named SLACK_BOT_TOKEN
+  #      (Settings → Secrets and variables → Actions → New repository secret).
+  #   4. (Optional) Override the target channel with a repo Actions variable
+  #      DEV_RELEASES_SLACK_CHANNEL (defaults to #dev-releases). A channel ID
+  #      (e.g. C0123ABCD) is more robust than a #name.
+
+  notify-dev-release:
+    needs: [compute-version, register-release]
+    runs-on: ubuntu-latest
+    # A Slack outage must not fail the release run: that would both mar the run
+    # conclusion (poisoning notify-releases' first-failure detection) and is
+    # purely a notification concern. Mirrors notify-releases below.
+    continue-on-error: true
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Post dev release notification to Slack
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ vars.DEV_RELEASES_SLACK_CHANNEL || '#dev-releases' }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ needs.compute-version.outputs.version }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SLACK_BOT_TOKEN:-}" ]; then
+            echo "::warning::SLACK_BOT_TOKEN is not set — skipping #dev-releases notification. See the MANUAL SETUP note in dev-release.yaml."
+            exit 0
+          fi
+
+          # Find the SHA of the last actually-released dev build to diff against.
+          # We key off the register-release JOB conclusion, not the overall run
+          # conclusion: register-release runs before downstream jobs (build-macos,
+          # upload-sparkle, …), so a later failure leaves a real release on a run
+          # whose conclusion is "failure". Keying off the run would then diff from
+          # an older SHA and re-announce already-released commits. Walk recent
+          # completed runs newest-first and pick the first whose register-release
+          # job succeeded.
+          PREV_SHA=""
+          while read -r rid rsha; do
+            [ -z "$rid" ] && continue
+            CONCL=$(gh api "repos/${REPO}/actions/runs/${rid}/jobs" \
+              --jq '[.jobs[] | select(.name == "register-release") | .conclusion] | .[0] // empty')
+            if [ "$CONCL" = "success" ]; then
+              PREV_SHA="$rsha"
+              break
+            fi
+          done < <(gh api \
+            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=30&exclude_pull_requests=true" \
+            --jq ".workflow_runs[] | select(.id != ${RUN_ID}) | \"\(.id) \(.head_sha)\"")
+
+          echo "Previous dev release SHA: ${PREV_SHA:-<none>}"
+          echo "Current SHA: ${HEAD_SHA}"
+
+          # Each line: "<first line of commit message> — @<author>", oldest first.
+          # Escape Slack mrkdwn metacharacters in the message text.
+          ESCAPE='gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;")'
+
+          if [ -n "$PREV_SHA" ] && [ "$PREV_SHA" != "$HEAD_SHA" ]; then
+            COMPARE_URL="https://github.com/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}"
+            TOTAL=$(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --jq '.total_commits')
+            mapfile -t LINES < <(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --paginate \
+              --jq ".commits[] | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE}) — @\(.author.login // .commit.author.name)\"")
+          else
+            # First tracked release (or no new commits): fall back to HEAD itself.
+            COMPARE_URL="https://github.com/${REPO}/commit/${HEAD_SHA}"
+            if [ "$PREV_SHA" = "$HEAD_SHA" ]; then
+              TOTAL=0
+              LINES=()
+            else
+              TOTAL=1
+              mapfile -t LINES < <(gh api "repos/${REPO}/commits/${HEAD_SHA}" \
+                --jq "\"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE}) — @\(.author.login // .commit.author.name)\"")
+            fi
+          fi
+
+          COUNT=${#LINES[@]}
+          echo "Commits listed: ${COUNT} (total_commits=${TOTAL})"
+
+          COMMIT_WORD="commits"
+          [ "$TOTAL" = "1" ] && COMMIT_WORD="commit"
+          if [ "$COUNT" -eq 0 ]; then
+            HEADER_TEXT="No new commits since the last dev release."
+          else
+            HEADER_TEXT="*${TOTAL} ${COMMIT_WORD}* since the last dev release"
+          fi
+
+          # ── Main channel message ──────────────────────────────────────────
+          MAIN_PAYLOAD=$(jq -n \
+            --arg channel "$SLACK_CHANNEL" \
+            --arg version "$VERSION" \
+            --arg header "$HEADER_TEXT" \
+            --arg run_url "$RUN_URL" \
+            --arg compare_url "$COMPARE_URL" \
+            '{
+              channel: $channel,
+              unfurl_links: false,
+              unfurl_media: false,
+              text: ("Dev Release " + $version),
+              blocks: [
+                { type: "header", text: { type: "plain_text", text: ("🚀 Dev Release " + $version), emoji: true } },
+                { type: "section", text: { type: "mrkdwn", text: $header } },
+                { type: "actions", elements: [
+                  { type: "button", text: { type: "plain_text", text: "View workflow run" }, url: $run_url },
+                  { type: "button", text: { type: "plain_text", text: "View commit diff" }, url: $compare_url }
+                ] }
+              ]
+            }')
+
+          RESP=$(curl -sS -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data "$MAIN_PAYLOAD")
+          if [ "$(echo "$RESP" | jq -r '.ok')" != "true" ]; then
+            echo "::error::Slack chat.postMessage failed: $(echo "$RESP" | jq -r '.error // "unknown"')"
+            echo "$RESP"
+            exit 1
+          fi
+          TS=$(echo "$RESP" | jq -r '.ts')
+          echo "Posted main message (ts=${TS})"
+
+          # ── Threaded commit list ──────────────────────────────────────────
+          post_thread_reply() {
+            local body="$1"
+            local payload
+            payload=$(jq -n --arg channel "$SLACK_CHANNEL" --arg ts "$TS" --arg text "$body" \
+              '{ channel: $channel, thread_ts: $ts, unfurl_links: false, unfurl_media: false,
+                 text: $text, blocks: [ { type: "section", text: { type: "mrkdwn", text: $text } } ] }')
+            local r
+            r=$(curl -sS -X POST https://slack.com/api/chat.postMessage \
+              -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+              -H "Content-Type: application/json; charset=utf-8" \
+              --data "$payload")
+            if [ "$(echo "$r" | jq -r '.ok')" != "true" ]; then
+              echo "::error::Slack thread reply failed: $(echo "$r" | jq -r '.error // "unknown"')"
+              echo "$r"
+              exit 1
+            fi
+            sleep 1  # stay under chat.postMessage rate limits when chunking
+          }
+
+          if [ "$COUNT" -gt 0 ]; then
+            # Chunk the numbered list to stay under Slack's 3000-char section limit.
+            CHUNK=""
+            IDX=0
+            for line in "${LINES[@]}"; do
+              IDX=$((IDX + 1))
+              ENTRY="*${IDX}.* ${line}"
+              if [ -n "$CHUNK" ] && [ $(( ${#CHUNK} + ${#ENTRY} + 1 )) -gt 2800 ]; then
+                post_thread_reply "$CHUNK"
+                CHUNK="$ENTRY"
+              elif [ -z "$CHUNK" ]; then
+                CHUNK="$ENTRY"
+              else
+                CHUNK="${CHUNK}"$'\n'"${ENTRY}"
+              fi
+            done
+            [ -n "$CHUNK" ] && post_thread_reply "$CHUNK"
+
+            if [ "$TOTAL" -gt "$COUNT" ]; then
+              post_thread_reply "_…and $((TOTAL - COUNT)) more commits not shown (GitHub compares are capped at 250 commits). See *View commit diff* above for the full list._"
+            fi
+          fi
+
+          echo "Dev release notification posted to ${SLACK_CHANNEL}."
+
   # ── Chrome Extension ────────────────────────────────────────────────────
 
   build-chrome-extension:

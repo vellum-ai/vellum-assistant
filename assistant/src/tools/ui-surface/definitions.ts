@@ -36,7 +36,8 @@ export const uiShowTool: Tool = {
     '- list: { items: [{ id, title, subtitle?, icon?, selected? }], selectionMode: "single"|"multiple"|"none" }\n' +
     "- confirmation: { message, detail?, confirmLabel?, confirmedLabel?, cancelLabel?, destructive? }\n" +
     "- dynamic_page: { html, width?, height?, preview?: { title, subtitle?, description?, icon?, metrics?: [{ label, value }] } }\n" +
-    "- file_upload: { prompt, acceptedTypes?, maxFiles? }\n\n" +
+    "- file_upload: { prompt, acceptedTypes?, maxFiles? }\n" +
+    "- task_preferences: {} (no data needed — categories are rendered client-side)\n\n" +
     "Proactively show a task_progress card before multi-step or long-running work (web searches, file operations, research). Show it before your first tool call, then update steps as work progresses.",
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
@@ -59,6 +60,7 @@ export const uiShowTool: Tool = {
               "confirmation",
               "dynamic_page",
               "file_upload",
+              "task_preferences",
             ],
             description: "The type of surface to display",
           },

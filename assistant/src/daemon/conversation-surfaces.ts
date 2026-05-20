@@ -1638,7 +1638,12 @@ export async function handleSurfaceAction(
   // One-shot interactive surfaces — auto-complete now that the message has
   // been accepted. Deferred until after rejection check so the surface stays
   // active and retryable if the queue was full.
-  const ONE_SHOT_SURFACE_TYPES = ["form", "confirmation", "file_upload"];
+  const ONE_SHOT_SURFACE_TYPES = [
+    "form",
+    "confirmation",
+    "file_upload",
+    "task_preferences",
+  ];
   if (ONE_SHOT_SURFACE_TYPES.includes(pending.surfaceType)) {
     broadcastMessage({
       type: "ui_surface_complete",

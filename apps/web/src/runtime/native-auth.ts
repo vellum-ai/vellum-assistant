@@ -4,8 +4,8 @@ import { useSyncExternalStore } from "react";
 import {
   type ProviderRedirectOptions,
   startProviderRedirect,
-} from "@/lib/account/social-auth.js";
-import { sanitizeReturnTo } from "@/lib/account/return-to.js";
+} from "@/domains/account/social-auth.js";
+import { sanitizeReturnTo } from "@/domains/account/return-to.js";
 import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric.js";
 import { routes } from "@/utils/routes.js";
 
@@ -163,47 +163,39 @@ export function getSessionTokenFromCookies(): string | null {
  * `startNativeLogin()` (which handles the cookie + navigation
  * internally), otherwise we fall through to the existing web flow.
  *
- * Adding this wrapper means every auth entry point in the app (login,
- * signup, marketing nav, account) gets native routing for free without
- * each having to know about Capacitor.
+ * On the web path, errors propagate to the caller so the UI can display
+ * feedback (e.g. inline error messages on the login form). On the native
+ * path, `USER_CANCELLED` (user tapped cancel on the auth sheet) is
+ * swallowed since it's a routine dismissal, and all other errors are
+ * re-thrown for the caller to handle.
  */
 export async function startAuthFlow(
   providerId: string,
   callbackUrl: string,
   options: ProviderRedirectOptions & { returnTo?: string | null } = {},
 ): Promise<void> {
-  try {
-    if (isNativePlatform()) {
+  if (isNativePlatform()) {
+    try {
       await startNativeLogin({
         returnTo: options.returnTo ?? null,
         loginHint: options.loginHint,
         providerHint: options.providerHint,
       });
-      return;
+    } catch (err) {
+      // Capacitor translates `call.reject(msg, code)` from Swift into a
+      // JS Error whose `message` is the first arg and whose `code` is
+      // the second arg (as an own property, not in `message`). Match the
+      // code exactly rather than substring-matching the message.
+      const errorCode = (err as { code?: unknown } | null | undefined)?.code;
+      if (errorCode === "USER_CANCELLED") return;
+      throw err;
     }
-    // `options` carries an extra `returnTo` field that the web
-    // `startProviderRedirect` doesn't care about — TS's structural typing
-    // accepts the superset, and the web flow plumbs `returnTo` through
-    // `callbackUrl` instead. No need to destructure it out.
-    await startProviderRedirect(providerId, callbackUrl, options);
-  } catch (err) {
-    // USER_CANCELLED is routine (user tapped cancel on the auth sheet);
-    // swallow quietly. Anything else is a real failure — surface it to
-    // the console so it shows up in the Capacitor bridge log and Xcode's
-    // device console, rather than becoming a silent unhandled-rejection.
-    //
-    // Capacitor translates `call.reject(msg, code)` from Swift into a JS
-    // Error whose `message` is the first arg and whose `code` is the
-    // second arg (as an own property, not in `message`). Match the code
-    // exactly rather than substring-matching the message — a substring
-    // check ("cancel") would also swallow unrelated iOS errors that
-    // happen to include the word in their localized description.
-    //
-    // TODO(LUM-1127 follow-up): plumb a visible toast/inline error so
-    // users get feedback on non-cancellation failures.
-    const errorCode = (err as { code?: unknown } | null | undefined)?.code;
-    if (errorCode !== "USER_CANCELLED") {
-      console.error("[native-auth] auth flow failed:", err);
-    }
+    return;
   }
+
+  // Web path: `options` carries an extra `returnTo` field that the web
+  // `startProviderRedirect` doesn't care about — TS's structural typing
+  // accepts the superset, and the web flow plumbs `returnTo` through
+  // `callbackUrl` instead. Errors propagate to the caller.
+  await startProviderRedirect(providerId, callbackUrl, options);
 }

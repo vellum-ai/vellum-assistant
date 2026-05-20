@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createConsoleReporter,
+  createSummaryOnlyReporter,
   formatEvalProgressLine,
   formatProgressTimestamp,
   noopEvalProgressReporter,
@@ -283,5 +284,75 @@ describe("createConsoleReporter", () => {
     expect(file.chunks).toEqual([
       "[2026-05-15 15:31:54] [simulator] ✗ Simulator stalled  turn 3\n",
     ]);
+  });
+});
+
+describe("createSummaryOnlyReporter", () => {
+  // Backs `evals run --quiet`. The reporter must drop every per-step event
+  // (artifacts, hatch, setup, events, simulator, send, metrics, shutdown)
+  // while still letting the per-run `result` summary through and surfacing
+  // any `status: "error"` so silent failures can't hide behind --quiet.
+  function makeReporter() {
+    const stream = new CaptureStream();
+    const reporter = createSummaryOnlyReporter({
+      stream,
+      now: () => new Date(2026, 4, 15, 15, 31, 54).getTime(),
+      color: false,
+    });
+    return { stream, reporter };
+  }
+
+  test("drops per-step start/done events", () => {
+    const { stream, reporter } = makeReporter();
+
+    const droppedSteps: EvalProgressEvent[] = [
+      { step: "artifacts", status: "start", message: "Preparing" },
+      { step: "hatch", status: "done", message: "Hatched" },
+      { step: "setup", status: "done", message: "Setup ok" },
+      { step: "events", status: "start", message: "Subscribed" },
+      { step: "simulator", status: "done", message: "Turn ok", turn: 1 },
+      { step: "send", status: "done", message: "Sent", turn: 1 },
+      { step: "metrics", status: "done", message: "Scored" },
+      { step: "shutdown", status: "done", message: "Shut down" },
+    ];
+    for (const event of droppedSteps) reporter(event);
+
+    expect(stream.chunks).toEqual([]);
+  });
+
+  test("forwards the per-run result summary", () => {
+    const { stream, reporter } = makeReporter();
+
+    reporter({
+      step: "result",
+      status: "done",
+      message: "vellum-bare/timeline-recall",
+      detail: "date-mentioned=1.00, assistant-cost-usd=-0.0001",
+    });
+
+    expect(stream.chunks).toEqual([
+      "[2026-05-15 15:31:54] [result]    ✓ vellum-bare/timeline-recall  date-mentioned=1.00, assistant-cost-usd=-0.0001\n",
+    ]);
+  });
+
+  test("forwards any error event regardless of step", () => {
+    // The runner emits `status: "error"` from whatever step was in flight
+    // at the time of failure (simulator, events, …). All of them must
+    // come through so --quiet operators see the breakdown.
+    const { stream, reporter } = makeReporter();
+
+    reporter({
+      step: "simulator",
+      status: "error",
+      message: "User simulator response had no actionable content",
+      turn: 3,
+      details: ["stop_reason=max_tokens", "parts=[]"],
+    });
+
+    expect(stream.chunks.length).toBe(1);
+    expect(stream.chunks[0]).toContain(
+      "[simulator] ✗ User simulator response had no actionable content",
+    );
+    expect(stream.chunks[0]).toContain("stop_reason=max_tokens");
   });
 });

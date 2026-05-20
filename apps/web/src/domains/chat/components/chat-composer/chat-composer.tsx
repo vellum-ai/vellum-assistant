@@ -23,11 +23,11 @@ import {
   VoiceInputButton,
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button.js";
-import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
+import { type TurnPhase, useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude.js";
-import type { VoiceRecordingState } from "@/domains/voice/voice-recording-state.js";
+import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store.js";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform.js";
 
 import type { EmojiEntry } from "@/domains/chat/components/chat-composer/emoji-catalog.js";
@@ -181,8 +181,6 @@ export interface ChatComposerProps {
   voiceInputRef?: RefObject<VoiceInputButtonHandle | null>;
   onVoiceTranscript?: (text: string) => void;
   onVoiceInterimTranscript?: (text: string) => void;
-  onVoiceRecordingChange?: (recording: boolean) => void;
-  onVoiceStateChange?: (state: VoiceRecordingState) => void;
   /** Live partial transcript shown as ghost text below the waveform while recording. */
   voiceInterim?: string;
   onVoiceError?: (code: string | null) => void;
@@ -242,8 +240,6 @@ export function ChatComposer({
   voiceInputRef,
   onVoiceTranscript,
   onVoiceInterimTranscript,
-  onVoiceRecordingChange,
-  onVoiceStateChange,
   voiceInterim,
   onVoiceError,
   onVoiceBeforeStart,
@@ -257,24 +253,14 @@ export function ChatComposer({
   suggestion,
   modelSupportsVision = true,
 }: ChatComposerProps) {
-  const [isVoiceRecording, setIsVoiceRecording] = useState(false);
-  // Mirror of the VoiceInputButton's full state machine. Tracked locally
-  // (in addition to forwarding through `onVoiceStateChange`) so the strip
-  // below the textarea stays mounted through the `processing` phase —
-  // i.e. while STT and dictation cleanup run after the user clicks stop —
-  // instead of disappearing the instant `recorder.onstop` fires. Mirrors
-  // macOS DictationOverlay's recording → processing → done sequence.
-  const [voiceState, setVoiceState] = useState<VoiceRecordingState>({
-    phase: "idle",
-  });
-  const isVoiceProcessing = voiceState.phase === "processing";
-  const isVoiceActive = isVoiceRecording || isVoiceProcessing;
+  const voicePhase = useVoiceRecordingStore.use.phase();
+  const isVoiceActive = voicePhase === "recording" || voicePhase === "processing";
   // Holds the MediaStream opened by VoiceInputButton so we can reuse it for
   // amplitude analysis rather than opening a second getUserMedia request.
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);
   const { amplitude } = useAudioAmplitude({
-    active: isVoiceRecording,
+    active: voicePhase === "recording",
     stream: voiceStream,
   });
   const showVoiceInput =
@@ -357,9 +343,9 @@ export function ChatComposer({
     [emojiState, input, inputRef, setInput, onTextChange],
   );
 
-  const turnState = useTurnStore();
+  const phase: TurnPhase = useTurnStore.use.phase();
   const isGenerating =
-    isSending(turnState) && turnState.phase !== "awaiting_user_input";
+    phase === "queued" || phase === "thinking" || phase === "streaming";
 
   const ghostSuffix = useMemo(
     () =>
@@ -568,14 +554,14 @@ export function ChatComposer({
               // recording was captured and the transcript is on its way.
               <div
                 className="px-2"
-                aria-label={isVoiceProcessing ? "Transcribing" : "Recording"}
+                aria-label={voicePhase === "processing" ? "Transcribing" : "Recording"}
                 aria-live="polite"
               >
                 <StreamingWaveform
                   amplitude={amplitude}
-                  paused={isVoiceProcessing}
+                  paused={voicePhase === "processing"}
                 />
-                {isVoiceProcessing ? (
+                {voicePhase === "processing" ? (
                   <p className="mt-1 truncate text-[11px] italic text-[var(--content-tertiary)]">
                     Transcribing…
                   </p>
@@ -649,14 +635,6 @@ export function ChatComposer({
                         disabled={typingDisabled}
                         onTranscript={onVoiceTranscript}
                         onInterimTranscript={onVoiceInterimTranscript}
-                        onRecordingChange={(recording: boolean) => {
-                          setIsVoiceRecording(recording);
-                          onVoiceRecordingChange?.(recording);
-                        }}
-                        onStateChange={(state: VoiceRecordingState) => {
-                          setVoiceState(state);
-                          onVoiceStateChange?.(state);
-                        }}
                         onError={onVoiceError}
                         onBeforeStart={onVoiceBeforeStart}
                         onStreamReady={(stream: MediaStream | null) => {

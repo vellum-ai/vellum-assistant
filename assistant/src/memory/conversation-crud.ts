@@ -547,6 +547,20 @@ export function forkConversation(params: {
    * Optional title for the fork. Defaults to `<parent title> (Fork)`.
    */
   title?: string;
+  /**
+   * Override the fork's `conversationType` column. Defaults to `"standard"`.
+   * Used by fork-based memory retrospectives to bucket the fork as a
+   * `"background"` conversation so it doesn't surface in the user's
+   * conversation list.
+   */
+  conversationType?: ConversationCreateType;
+  /**
+   * Override the fork's `groupId`. Defaults to the parent conversation's
+   * group (or `"system:all"` when the parent has none). Used by fork-based
+   * memory retrospectives to route the fork into a dedicated background
+   * group.
+   */
+  groupId?: string;
 }): ConversationRow {
   const { conversationId, throughMessageId } = params;
   const db = getDb();
@@ -610,8 +624,8 @@ export function forkConversation(params: {
   const forkedConversation = db.transaction(() => {
     const fc = createConversation({
       title: forkTitle,
-      conversationType: "standard",
-      groupId: parentGroupId ?? "system:all",
+      conversationType: params.conversationType ?? "standard",
+      groupId: params.groupId ?? parentGroupId ?? "system:all",
       ...(params.source != null ? { source: params.source } : {}),
     });
 
