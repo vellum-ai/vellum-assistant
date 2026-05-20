@@ -516,7 +516,7 @@ export async function verifyContactChannel(
   channelId: string,
 ): Promise<void> {
   const { error, response } = await client.post<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/contact-channels/{channel_id}/verify",
+    url: "/v1/assistants/{assistant_id}/contact-channels/{channel_id}/verify/",
     path: { assistant_id: assistantId, channel_id: channelId },
     throwOnError: false,
   });
