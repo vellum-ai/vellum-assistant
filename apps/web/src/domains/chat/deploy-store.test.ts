@@ -1,0 +1,127 @@
+import { beforeEach, describe, it, expect } from "bun:test";
+
+import { useDeployStore } from "@/domains/chat/deploy-store.js";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function getState() {
+  return useDeployStore.getState();
+}
+
+beforeEach(() => {
+  getState().reset();
+});
+
+// ---------------------------------------------------------------------------
+// Sharing
+// ---------------------------------------------------------------------------
+
+describe("startSharing", () => {
+  it("sets isSharing to true", () => {
+    getState().startSharing();
+    expect(getState().isSharing).toBe(true);
+  });
+});
+
+describe("finishSharing", () => {
+  it("sets isSharing to false", () => {
+    useDeployStore.setState({ isSharing: true });
+    getState().finishSharing();
+    expect(getState().isSharing).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Deploying
+// ---------------------------------------------------------------------------
+
+describe("startDeploying", () => {
+  it("sets isDeploying to true", () => {
+    getState().startDeploying();
+    expect(getState().isDeploying).toBe(true);
+  });
+});
+
+describe("finishDeploying", () => {
+  it("sets isDeploying to false and keeps pendingDeployAppId by default", () => {
+    useDeployStore.setState({ isDeploying: true, pendingDeployAppId: "app-1" });
+    getState().finishDeploying();
+    const state = getState();
+    expect(state.isDeploying).toBe(false);
+    expect(state.pendingDeployAppId).toBe("app-1");
+  });
+
+  it("clears pendingDeployAppId when clearPendingAppId is true", () => {
+    useDeployStore.setState({ isDeploying: true, pendingDeployAppId: "app-1" });
+    getState().finishDeploying(true);
+    const state = getState();
+    expect(state.isDeploying).toBe(false);
+    expect(state.pendingDeployAppId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Token dialog
+// ---------------------------------------------------------------------------
+
+describe("showTokenDialog", () => {
+  it("opens dialog, sets pending app, and stops deploying", () => {
+    useDeployStore.setState({ isDeploying: true });
+    getState().showTokenDialog("app-1");
+    const state = getState();
+    expect(state.isTokenDialogOpen).toBe(true);
+    expect(state.pendingDeployAppId).toBe("app-1");
+    expect(state.isDeploying).toBe(false);
+  });
+});
+
+describe("hideTokenDialog", () => {
+  it("closes the dialog", () => {
+    useDeployStore.setState({ isTokenDialogOpen: true });
+    getState().hideTokenDialog();
+    expect(getState().isTokenDialogOpen).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Complex-deploy app
+// ---------------------------------------------------------------------------
+
+describe("setComplexDeployApp", () => {
+  it("sets the complex deploy app", () => {
+    const app = { appId: "app-1", name: "My App" };
+    getState().setComplexDeployApp(app);
+    expect(getState().complexDeployApp).toBe(app);
+  });
+
+  it("clears the complex deploy app when null", () => {
+    useDeployStore.setState({ complexDeployApp: { appId: "app-1", name: "My App" } });
+    getState().setComplexDeployApp(null);
+    expect(getState().complexDeployApp).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reset
+// ---------------------------------------------------------------------------
+
+describe("reset", () => {
+  it("restores all state to defaults", () => {
+    useDeployStore.setState({
+      isSharing: true,
+      isDeploying: true,
+      isTokenDialogOpen: true,
+      pendingDeployAppId: "app-1",
+      complexDeployApp: { appId: "app-1", name: "My App" },
+    });
+    getState().reset();
+    const state = getState();
+    expect(state.isSharing).toBe(false);
+    expect(state.isDeploying).toBe(false);
+    expect(state.isTokenDialogOpen).toBe(false);
+    expect(state.pendingDeployAppId).toBeNull();
+    expect(state.complexDeployApp).toBeNull();
+  });
+});
