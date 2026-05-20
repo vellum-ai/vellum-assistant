@@ -1,3 +1,6 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+
 import { describe, expect, test } from "bun:test";
 
 import {
@@ -90,5 +93,47 @@ describe("docker egress jail", () => {
     expect(runner.runs[1].args).toContain(
       `ALLOW_HOSTS=${DEFAULT_MODEL_ALLOW_HOSTS.join(",")}`,
     );
+  });
+
+  test("recording mode starts a mitm sidecar and reads NDJSON usage records", async () => {
+    const runner = new FakeRunner();
+    const dir = `.runs/test-recording-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "egress-usage.ndjson"),
+      '{"provider":"anthropic","model":"claude-haiku-4-5","input_tokens":10,"output_tokens":5}\n',
+    );
+
+    const jail = await applyDockerEgressJail(runner, {
+      containerName: "eval-run-3-assistant",
+      allowHosts: ["api.anthropic.com"],
+      recordingDir: dir,
+      recordingImage: "recording:local",
+      recordingDockerfileDir: "/workspace/evals/recording",
+    });
+
+    expect(runner.runs[1]).toEqual({
+      command: "docker",
+      args: ["build", "-t", "recording:local", "/workspace/evals/recording"],
+    });
+    expect(runner.runs[2]?.args).toContain("-d");
+    expect(runner.runs[2]?.args).toContain(
+      "evals.vellum.ai/egress-recording=1",
+    );
+    // recordingDir gets resolved to absolute path in docker-jail
+    const resolvedDir = resolve(dir);
+    const mountArg = runner.runs[2]?.args.find((arg) =>
+      arg?.includes(":/recording"),
+    );
+    expect(mountArg).toBe(`${resolvedDir}:/recording`);
+
+    await expect(jail.readUsageRecords()).resolves.toEqual([
+      {
+        provider: "anthropic",
+        model: "claude-haiku-4-5",
+        input_tokens: 10,
+        output_tokens: 5,
+      },
+    ]);
   });
 });
