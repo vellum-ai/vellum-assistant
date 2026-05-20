@@ -19,6 +19,7 @@ import { useConversationListStore } from "@/domains/conversations/conversation-l
 
 import { OfflineBanner } from "@/components/offline-banner.js";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
+import { UpdateAvailableSidebarEntry } from "@/domains/chat/components/update-available-sidebar-entry.js";
 import { ChatLayoutHeader } from "./chat-layout-header.js";
 
 /**
@@ -319,6 +320,14 @@ export function ChatLayout() {
 
   const isLibraryActive = location.pathname.startsWith("/assistant/library");
 
+  const updateBanner = useMemo(
+    () =>
+      lifecycle.assistantId ? (
+        <UpdateAvailableSidebarEntry assistantId={lifecycle.assistantId} />
+      ) : null,
+    [lifecycle.assistantId],
+  );
+
   const renderSideMenu = useCallback(
     (args: SideMenuRenderArgs): ReactNode => (
       <AssistantSideMenu
@@ -336,6 +345,7 @@ export function ChatLayout() {
         onOpenIntelligence={handleOpenHome}
         isLibraryActive={isLibraryActive}
         onOpenLibrary={handleOpenLibrary}
+        footerBanner={updateBanner}
         onClose={args.onClose}
         onSearchClick={args.onSearch}
       />
@@ -353,6 +363,7 @@ export function ChatLayout() {
       handleOpenHome,
       isLibraryActive,
       handleOpenLibrary,
+      updateBanner,
     ],
   );
 
