@@ -104,20 +104,3 @@ function isIPAddress(hostname: string): boolean {
   if (hostname.startsWith("[") || hostname.includes(":")) return true;
   return false;
 }
-
-/**
- * Extract a lowercased host from a raw URL string for display purposes.
- *
- * Returns `""` for inputs that cannot be parsed as a URL. Unlike
- * `normalizeDomain`, this preserves the full host (including subdomains) and
- * does not reject IPs or localhost — it's intended for UI display of
- * web-search and web-fetch result origins where the bare host is what users
- * recognize (e.g. `www.cnn.com`, not `cnn.com`).
- */
-export function extractDomain(rawUrl: string): string {
-  try {
-    return new URL(rawUrl).host.toLowerCase();
-  } catch {
-    return "";
-  }
-}
