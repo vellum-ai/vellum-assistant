@@ -9,26 +9,23 @@ import {
 } from "../lib/host-image-loader.js";
 
 describe("HOST_IMAGE_LOADER_URL", () => {
-  test("matches the well-known port/path baked into vel's host-image-server", () => {
-    // The URL is hardcoded on both sides — if you change either, change both.
+  test("resolves to the well-known image-loader port/path", () => {
     expect(HOST_IMAGE_LOADER_URL).toBe("http://127.0.0.1:5500/v1/images/load");
   });
 });
 
 describe("isLocalBuildRef", () => {
-  test("recognizes the `vellum-local/` prefix as needing the host loader", () => {
-    expect(
-      isLocalBuildRef("vellum-local/assistant-server:minikube-sha-abc123"),
-    ).toBe(true);
-    expect(isLocalBuildRef("vellum-local/gateway:minikube-sha-def")).toBe(true);
+  test("recognizes the `vellum-local/` prefix as a local build", () => {
+    expect(isLocalBuildRef("vellum-local/assistant-server:sha-abc123")).toBe(
+      true,
+    );
+    expect(isLocalBuildRef("vellum-local/gateway:sha-def")).toBe(true);
   });
 
-  test("treats DockerHub + GCR refs as normal `docker pull` targets", () => {
-    expect(isLocalBuildRef("vellumai/vellum-assistant:v0.8.2")).toBe(false);
+  test("treats external registry refs as pullable", () => {
+    expect(isLocalBuildRef("docker.io/example/image:v0.8.2")).toBe(false);
     expect(
-      isLocalBuildRef(
-        "us-east1-docker.pkg.dev/vellum-prod/assistant@sha256:deadbeef",
-      ),
+      isLocalBuildRef("us-east1-docker.pkg.dev/example/image@sha256:deadbeef"),
     ).toBe(false);
     expect(isLocalBuildRef("postgres:17")).toBe(false);
   });
@@ -64,7 +61,7 @@ describe("loadImageViaHost", () => {
           url: "http://127.0.0.1:5500/v1/images/load",
           body: {
             loaded: true,
-            ref: "vellum-local/assistant:minikube-sha-abc",
+            ref: "vellum-local/assistant:sha-abc",
           },
           status: 200,
         },
@@ -74,7 +71,7 @@ describe("loadImageViaHost", () => {
 
     await loadImageViaHost(
       "http://127.0.0.1:5500/v1/images/load",
-      "vellum-local/assistant:minikube-sha-abc",
+      "vellum-local/assistant:sha-abc",
       silentLog,
       { fetchImpl },
     );
@@ -82,7 +79,7 @@ describe("loadImageViaHost", () => {
     expect(recorded).toHaveLength(1);
     expect(recorded[0].url).toBe("http://127.0.0.1:5500/v1/images/load");
     expect(recorded[0].body).toEqual({
-      ref: "vellum-local/assistant:minikube-sha-abc",
+      ref: "vellum-local/assistant:sha-abc",
     });
   });
 
@@ -139,7 +136,7 @@ describe("loadImageViaHost", () => {
     expect(caught?.message).toContain("docker save failed");
   });
 
-  test("surfaces a vel-up-isn't-running hint on ECONNREFUSED", async () => {
+  test("provides helpful guidance when the loader is unreachable", async () => {
     const fetchImpl: FetchLike = async () => {
       const err = new TypeError("fetch failed") as TypeError & {
         cause?: { code?: string };
@@ -160,7 +157,7 @@ describe("loadImageViaHost", () => {
       caught = err as HostImageLoaderError;
     }
     expect(caught).not.toBeNull();
-    expect(caught?.message).toContain("vel up");
+    expect(caught?.message).toContain("loader running");
     expect(caught?.message).toContain("VELLUM_ASSISTANT_IMAGE");
   });
 

@@ -1,35 +1,31 @@
 /**
- * Client for the host-side image-loader endpoint that the `vel up` watcher
- * runs alongside its minikube watchers. Used by the docker hatch path to
- * acquire image refs that aren't pullable from any external registry.
+ * Client for the host-side image-loader endpoint. Used to acquire image refs
+ * that aren't pullable from any external registry.
  *
- * The endpoint URL is a hardcoded convention — port 5500 on 127.0.0.1,
- * matching the constant baked into the vel package. The OSS CLI calls in
- * whenever it sees an image ref it recognizes as a local build
- * (`vellum-local/*`), since those tags only exist in minikube's internal
- * docker daemon and can't be `docker pull`'d.
+ * The endpoint URL is a well-known convention — port 5500 on 127.0.0.1.
+ * The CLI calls in whenever it sees a ref that starts with `vellum-local/`,
+ * which are image refs that only exist in a local docker daemon and can't be
+ * `docker pull`'d from any external registry.
  *
  * The endpoint contract is intentionally minimal — POST a ref as JSON, get
  * back a 200 once the image is in the host docker daemon, or a non-2xx
- * with a descriptive error message. The CLI doesn't know (or care) what
+ * with a descriptive error message. The client doesn't know (or care) what
  * transport the server uses to put the image there.
  */
 
 /**
- * Well-known URL of the host-side image-loader started by `vel up`. The same
- * port + path are hardcoded in vel's `host-image-server.ts` — keep them in
- * sync if you change either side.
+ * Well-known URL of the host-side image-loader server.
  */
 export const HOST_IMAGE_LOADER_URL = "http://127.0.0.1:5500/v1/images/load";
 
 /**
- * Prefix for image refs that only live in the `vel up` minikube daemon.
+ * Prefix for image refs that only exist in a local docker daemon.
  * These cannot be `docker pull`'d from any external registry; the CLI must
  * route them through the host image-loader instead.
  */
 const LOCAL_BUILD_REF_PREFIX = "vellum-local/";
 
-/** Whether `ref` points at a `vel up`-built image that requires the host loader. */
+/** Whether `ref` points at a local-build image that requires the host loader. */
 export function isLocalBuildRef(ref: string): boolean {
   return ref.startsWith(LOCAL_BUILD_REF_PREFIX);
 }
@@ -108,11 +104,10 @@ export async function loadImageViaHost(
   } catch (err) {
     if (isConnectionRefused(err)) {
       throw new HostImageLoaderError(
-        `Could not reach image-loader at ${url}. The ref \`${ref}\` looks ` +
-          `like a \`vel up\`-local build that needs the host loader. ` +
-          `Is \`vel up\` running? Start it, or set VELLUM_ASSISTANT_IMAGE / ` +
-          `VELLUM_GATEWAY_IMAGE / VELLUM_CREDENTIAL_EXECUTOR_IMAGE to bypass ` +
-          `platform image resolution.`,
+        `Could not reach image-loader at ${url}. The ref \`${ref}\` is a ` +
+          `local-build image that requires the loader. Is the loader running? ` +
+          `Start it, or set VELLUM_ASSISTANT_IMAGE / VELLUM_GATEWAY_IMAGE / ` +
+          `VELLUM_CREDENTIAL_EXECUTOR_IMAGE to bypass image resolution.`,
         url,
         ref,
       );

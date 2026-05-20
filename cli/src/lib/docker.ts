@@ -1067,14 +1067,9 @@ export async function hatchDocker(
         imageSource = "env override";
         log("Using image overrides from environment variables");
       } else {
-        // Ask the platform for the most recently published stable release
-        // rather than pinning to the CLI's bundled package version. This
-        // matches `vellum upgrade --latest` and ensures docker hatch picks
-        // up dev/local builds registered with the platform (e.g. the
-        // `${base}-local.${ts}.${sha}` rows the `vel up` minikube watcher
-        // POSTs to /v1/internal/assistant-image-releases/ on every code
-        // change). If the platform is unreachable, fall back to the CLI's
-        // own version so users on prod/dockerhub env still resolve a tag.
+        // Resolve image refs from a remote source that may have dev/local
+        // builds. If resolution is unavailable, fall back to the CLI's own
+        // version so a default tag can still be resolved.
         log("🔍 Fetching latest stable release...");
         const latestVersion = await fetchLatestStableVersion();
         let versionTag: string;
@@ -1106,11 +1101,9 @@ export async function hatchDocker(
       log(`     credential-executor:  ${imageTags["credential-executor"]}`);
       log("");
 
-      // Per-ref branching: `vellum-local/*` refs only exist in `vel up`'s
-      // minikube docker daemon and need the host image-loader; everything
-      // else gets a normal `docker pull`. The two transports compose
-      // cleanly — a release can mix a local-built assistant ref with a
-      // DockerHub-fallback credential-executor.
+      // Per-ref branching: local-build refs need the image-loader; external
+      // registry refs get a normal `docker pull`. The two transports compose
+      // cleanly — a release can mix different sources for different images.
       log("📦 Acquiring Docker images...");
       for (const service of [
         "assistant",
