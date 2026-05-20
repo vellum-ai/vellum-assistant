@@ -49,7 +49,7 @@ export function CallSummarySurface({
         : Phone;
 
   return (
-    <div className="rounded-lg border border-stone-200 bg-white dark:border-moss-600 dark:bg-moss-700">
+    <div className="rounded-lg border border-stone-200 bg-[var(--surface-lift)] dark:border-moss-600">
       <button
         className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-stone-50 dark:hover:bg-moss-600 rounded-lg"
         onClick={() => setExpanded((v) => !v)}

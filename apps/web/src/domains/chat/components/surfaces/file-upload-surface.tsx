@@ -256,7 +256,7 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
   }, [selectedFiles, onAction, surface.surfaceId]);
 
   return (
-    <div className="rounded-lg border border-stone-200 bg-white p-4 dark:border-moss-600 dark:bg-moss-700">
+    <div className="rounded-lg border border-stone-200 bg-[var(--surface-lift)] p-4 dark:border-moss-600">
       {surface.title && (
         <div className="mb-3 flex items-center gap-2">
           <span className="text-title-small text-stone-800 dark:text-stone-200">

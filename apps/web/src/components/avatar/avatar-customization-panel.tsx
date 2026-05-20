@@ -157,7 +157,7 @@ export function AvatarCustomizationPanel({
         <button
           type="button"
           onClick={handleRandomize}
-          className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-body-medium-default text-stone-600 transition-colors hover:bg-stone-50 dark:border-moss-600 dark:bg-moss-700 dark:text-stone-300 dark:hover:bg-moss-600"
+          className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border border-stone-200 bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-stone-600 transition-colors hover:bg-stone-50 dark:border-moss-600 dark:text-stone-300 dark:hover:bg-moss-600"
         >
           <Dices className="h-4 w-4" />
           Randomize
@@ -175,7 +175,7 @@ export function AvatarCustomizationPanel({
           <button
             type="button"
             onClick={onCancel}
-            className="flex cursor-pointer items-center justify-center rounded-lg border border-stone-200 bg-white px-3 py-2 text-body-medium-default text-stone-600 transition-colors hover:bg-stone-50 dark:border-moss-600 dark:bg-moss-700 dark:text-stone-300 dark:hover:bg-moss-600"
+            className="flex cursor-pointer items-center justify-center rounded-lg border border-stone-200 bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-stone-600 transition-colors hover:bg-stone-50 dark:border-moss-600 dark:text-stone-300 dark:hover:bg-moss-600"
           >
             <X className="h-4 w-4" />
           </button>
@@ -195,7 +195,7 @@ interface CycleRowProps {
 
 function CycleRow({ label, value, colorHex, onPrev, onNext }: CycleRowProps) {
   return (
-    <div className="flex items-center justify-between rounded-lg border border-stone-200 bg-white px-3 py-2 dark:border-moss-600 dark:bg-moss-700">
+    <div className="flex items-center justify-between rounded-lg border border-stone-200 bg-[var(--surface-lift)] px-3 py-2 dark:border-moss-600">
       <span className="text-body-small-default uppercase tracking-wider text-stone-500 dark:text-stone-400">
         {label}
       </span>

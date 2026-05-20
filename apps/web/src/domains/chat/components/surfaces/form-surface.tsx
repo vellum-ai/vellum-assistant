@@ -284,7 +284,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
     : (formData.submitLabel ?? "Submit");
 
   return (
-    <div className="rounded-lg border border-stone-200 bg-white p-4 dark:border-moss-600 dark:bg-moss-700">
+    <div className="rounded-lg border border-stone-200 bg-[var(--surface-lift)] p-4 dark:border-moss-600">
       {surface.title && (
         <div className="mb-3 flex items-center gap-2">
           <span className="text-title-small text-stone-800 dark:text-stone-200">
@@ -335,7 +335,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
                 type="button"
                 onClick={handleBack}
                 disabled={isSubmitting}
-                className="flex items-center gap-1 rounded-lg border border-stone-300 bg-white px-3 py-2 text-body-medium-default text-stone-700 transition-colors hover:bg-stone-50 disabled:opacity-50 dark:border-moss-600 dark:bg-moss-700 dark:text-stone-200 dark:hover:bg-moss-600"
+                className="flex items-center gap-1 rounded-lg border border-stone-300 bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-stone-700 transition-colors hover:bg-stone-50 disabled:opacity-50 dark:border-moss-600 dark:text-stone-200 dark:hover:bg-moss-600"
               >
                 <ChevronLeft className="h-4 w-4" />
                 {backLabel}
