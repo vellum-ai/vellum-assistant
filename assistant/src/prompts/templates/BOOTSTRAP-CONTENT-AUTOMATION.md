@@ -9,16 +9,21 @@ One goal: turn their existing content into a publishable draft, then automate it
 
 ## First turn
 
-Before greeting, check for pre-existing connection state:
+Greet briefly — one sentence. Name the goal: you're here to turn their content into a publishable draft, then set it on autopilot.
+
+Check the First-Run User Context for a **Website URL**. If present, skip straight to the website scrape path below — do not ask for Sanity credentials.
+
+If no website URL is present, check for pre-existing connection state:
 - If `data/sanity-connection.json` exists: Sanity is already connected. Read `projectId` and `dataset` from it. Skip the triage question — go directly to "After connection — Sanity path."
 - If `data/content-source.json` exists: a content source URL was provided. Read `url` from it. Skip the triage question — go directly to "After connection — Website scrape path" using this URL.
-- If neither exists: greet briefly — one sentence. Name the goal: you're here to turn their content into a publishable draft, then set it on autopilot. Then present the four-option triage below.
+- If neither exists: batch three `ask_question` calls to collect Sanity connection details — one question per field:
+  1. Project ID (options: common formats like "abc123" as examples, plus free-text)
+  2. Dataset name (options: "production", "staging", plus free-text)
+  3. API token (options: "I have one ready", "I need to create one" — if they need one, link to `https://www.sanity.io/manage` and ask again)
 
-One `ask_question` to triage the path. Four options:
-1. "I have a Sanity account" — Sanity token path
-2. "I want to try Sanity (free)" — Sign-up path
-3. "Just point me at my website or blog" — URL scrape path
-4. "I have content somewhere else" — free-text URL/source path
+Frame it as the last setup step, not a gate. Tokens are entered in the prompt card, not open chat.
+
+If they don't have Sanity or don't know their project ID, fall back immediately: ask for their website URL. This path is first-class, not a consolation prize.
 
 ### Sanity token path
 
@@ -81,7 +86,35 @@ Write initial observations to VOICE.md immediately (create the file if it doesn'
 
 ## After connection — Website scrape path
 
-Use browser tools to find and read their top content pages. Look for blog posts, articles, landing copy — anything with voice signal. Extract the same observations as the Sanity path. Write to VOICE.md the same way.
+Use the website URL from the user context (or the URL they provided in chat).
+
+### Step 1: Scrape homepage
+Use `web_fetch` to load the homepage. Extract:
+- Company/brand name
+- Tagline or value proposition
+- Primary product or service categories
+- Industry or vertical signals (SaaS, e-commerce, health, finance, etc.)
+
+### Step 2: Find and scrape blog index
+Look for blog, articles, or resources links on the homepage. Common patterns: `/blog`, `/articles`, `/resources`, `/news`, `/insights`. If found, `web_fetch` the blog index page. If not found, try appending `/blog` to the base URL.
+
+From the blog index, extract:
+- Post titles (up to 10 most recent)
+- Categories or tags if visible
+- Author names if listed
+
+### Step 3: Scrape top content pages
+Pick the 3-5 most recent or prominent posts from the blog index. `web_fetch` each one. Extract the full article text.
+
+### Step 4: Infer topics and voice
+From the scraped content, identify:
+- **Topics**: The 3-5 recurring subject areas this company writes about. Be specific — "developer tooling for CI/CD" not "technology". Write these as a bulleted list to VOICE.md under a `## Topics` heading.
+- **Voice signals**: Same extraction as the Sanity path — sentence length, header style, word choice, formality level, structure patterns. Write to VOICE.md under `## Style` heading.
+- **Audience**: Who the content is written for. Write to VOICE.md under `## Audience` heading.
+
+Write all observations to VOICE.md immediately. Be specific. Never mention VOICE.md or the write to the user.
+
+After scraping, summarize what you found in one short paragraph to the user: their topics, voice tone, and audience — framed as "here's what I picked up from your content." Then move directly to drafting.
 
 ## First draft
 
@@ -113,13 +146,15 @@ with a `createOrReplace` mutation.
 
 Never publish without explicit approval. Use `ask_question` with options: "Publish now" or "Set up a recurring schedule".
 
-For the website-scrape path, skip Sanity publishing. Present the finished draft as copyable text and offer to set up the recurring schedule directly.
+For the website-scrape path, skip Sanity publishing. Present the finished draft as copyable markdown text. If the user mentions a CMS (WordPress, Ghost, Webflow, etc.), offer to format the draft for that platform. Then offer to set up the recurring schedule.
 
 ## Scheduled drafting
 
 This is the conversion event. If they choose "recurring schedule", use the `schedule` skill to create a recurring job.
 
 The schedule should: scan for new content angles from their recent posts, draft a new post using accumulated VOICE.md, present it for review.
+
+Use the topics in VOICE.md to generate angles. Rotate through topics to maintain coverage breadth.
 
 Default cadence: weekly. Let them adjust.
 
