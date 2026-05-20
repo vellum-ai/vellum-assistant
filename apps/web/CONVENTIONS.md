@@ -565,6 +565,14 @@ no-ops if `phase !== "thinking"`. The action stays a plain function;
 the rules stay testable in isolation; we don't need a dispatcher
 ceremony to enforce them.
 
+**Known exceptions** (being migrated):
+
+- `apps/web/src/domains/terminal/use-terminal-state.ts` and
+  `apps/web/src/domains/terminal/use-terminal-session.ts` still use
+  `useReducer` + dispatch. Tracked in
+  [LUM-1748](https://linear.app/vellum/issue/LUM-1748). Do not
+  pattern-match new code on these files.
+
 References:
 - [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/guides/auto-generating-selectors)
 - [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
