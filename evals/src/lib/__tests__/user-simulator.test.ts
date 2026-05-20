@@ -203,6 +203,117 @@ describe("UserSimulator", () => {
     ]);
   });
 
+  test("treats empty content with stop_reason=end_turn as implicit end_conversation", async () => {
+    // Regression guard for the real `eval-vellum-bare-timeline-recall-
+    // 20260520135745` turn 2 failure where Haiku returned content=[] +
+    // stop_reason=end_turn. Per SPEC the simulator should have called
+    // end_conversation; the model's end_turn signal carries the same
+    // semantic ("I'm done"), so we honor it instead of throwing and
+    // killing the run before metrics can score the transcript.
+    const test = await makeTestDef();
+
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response(
+        JSON.stringify({ content: [], stop_reason: "end_turn" }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
+    const decision = await simulator.decide({ test, transcript: [] });
+
+    // Single attempt — no retries, no extra API spend.
+    expect(calls).toBe(1);
+    expect(decision.action).toBe("end");
+    if (decision.action === "end") {
+      expect(decision.reason).toContain("empty content");
+      expect(decision.reason).toContain("end_turn");
+      expect(decision.reason).toContain("implicit end_conversation");
+    }
+  });
+
+  test("end_turn with usable text remains a normal send decision", async () => {
+    // Belt-and-braces: an end_turn response WITH usable text is still a
+    // normal "send" decision, not an implicit end. This guards against
+    // accidentally swallowing the final substantive simulator reply.
+    const test = await makeTestDef();
+
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          content: [{ type: "text", text: "Thanks, that helps." }],
+          stop_reason: "end_turn",
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
+    const decision = await simulator.decide({ test, transcript: [] });
+
+    expect(decision).toEqual({
+      action: "send",
+      message: { content: "Thanks, that helps." },
+    });
+  });
+
+  test("whitespace-only text with stop_reason=end_turn is also treated as implicit end_conversation", async () => {
+    const test = await makeTestDef();
+
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          content: [{ type: "text", text: "   \n  " }],
+          stop_reason: "end_turn",
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
+    const decision = await simulator.decide({ test, transcript: [] });
+
+    expect(decision.action).toBe("end");
+  });
+
+  test("unexpected tool calls with stop_reason=end_turn still throw", async () => {
+    const test = await makeTestDef();
+
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          content: [{ type: "tool_use", name: "ask_clarification", input: {} }],
+          stop_reason: "end_turn",
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
+
+    await expect(simulator.decide({ test, transcript: [] })).rejects.toThrow(
+      /parts=\[tool_use\(name=ask_clarification\)\]/,
+    );
+  });
+
+  test("empty content with non-end_turn stop reasons still throws", async () => {
+    // Implicit-end recovery is scoped to the exact end_turn shape. Other
+    // stop reasons (max_tokens, refusal, tool_use without payload, …)
+    // represent genuine failures we want operators to see, not silently
+    // swallow as "the model wanted to end".
+    const test = await makeTestDef();
+
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ content: [], stop_reason: "max_tokens" }), {
+        status: 200,
+      })) as unknown as typeof fetch;
+
+    const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
+
+    await expect(simulator.decide({ test, transcript: [] })).rejects.toThrow(
+      SimulatorParseError,
+    );
+  });
+
   test("parse failure summarizes non-empty content parts", async () => {
     const test = await makeTestDef();
 

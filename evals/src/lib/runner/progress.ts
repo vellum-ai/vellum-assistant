@@ -6,7 +6,12 @@ export type EvalProgressStep =
   | "simulator"
   | "send"
   | "metrics"
-  | "shutdown";
+  | "shutdown"
+  // Emitted once per run after metrics finish. Carries the per-metric score
+  // summary in `detail` so the CLI logs the aggregated outcome inline with
+  // every other step. Replaces the previous `console.log(JSON.stringify(...))`
+  // dump on stdout that mixed run output with JSON noise.
+  | "result";
 
 export interface EvalProgressEvent {
   step: EvalProgressStep;
@@ -47,7 +52,7 @@ const ANSI_RESET = "\u001b[0m";
 const DETAIL_INDENT = "    ";
 
 export interface ConsoleReporterOptions {
-  /** Stream to write to. Defaults to `process.stderr` so stdout stays clean for JSON piping. */
+  /** Stream to write to. Defaults to `process.stderr` so stdout stays reserved for explicit command output. */
   stream?: { write(chunk: string): unknown; isTTY?: boolean };
   /**
    * Clock for the per-line timestamp prefix. Defaults to `Date.now`. Injected
@@ -160,5 +165,24 @@ export function createConsoleReporter(
       color,
     });
     stream.write(`${line}\n`);
+  };
+}
+
+/**
+ * Build a reporter that only surfaces the per-run summary (the `result` step)
+ * and any failure (`status: "error"`). Per-step progress chatter is dropped.
+ *
+ * Backs `evals run --quiet`: operators still want one line per run telling
+ * them whether the profile/test combo succeeded and what scores it produced,
+ * but don't want the artifacts/hatch/setup/events/simulator/send/metrics/
+ * shutdown stream cluttering CI logs. Errors still come through so a silent
+ * failure can never hide behind `--quiet`.
+ */
+export function createSummaryOnlyReporter(
+  options: ConsoleReporterOptions = {},
+): EvalProgressReporter {
+  const inner = createConsoleReporter(options);
+  return (event) => {
+    if (event.step === "result" || event.status === "error") inner(event);
   };
 }
