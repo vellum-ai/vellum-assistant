@@ -59,6 +59,7 @@ export const uiShowTool: Tool = {
               "confirmation",
               "dynamic_page",
               "file_upload",
+              "task_preferences",
             ],
             description: "The type of surface to display",
           },
