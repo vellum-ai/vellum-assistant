@@ -39,9 +39,12 @@ import {
   type HistoryPaginationSnapshot,
 } from "@/domains/chat/hooks/use-conversation-history.js";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking.js";
+import { useQueryClient } from "@tanstack/react-query";
+
 import { getChatContext } from "@/domains/chat/api/assistant.js";
 import { ApiError } from "@/domains/chat/api/client.js";
 import { type Conversation, fetchGroups, listConversations } from "@/domains/chat/api/conversations.js";
+import { chatContextQueryKey } from "@/domains/conversations/use-conversation-list-init.js";
 
 // Re-export for consumers that import from this module
 export {
@@ -229,6 +232,7 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const refreshConversationsRef = useRef<() => Promise<void>>(async () => {});
   const hydratedAssistantIdRef = useRef<string | null>(null);
+  const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
   // refreshConversations -- fetch conversation list + groups
@@ -307,7 +311,22 @@ export function useConversationLoader({
 
     const init = async () => {
       try {
-        const ctx = await getChatContext();
+        // Always fetch (not just read cache): this effect re-runs when
+        // `refreshEpoch` or `reachabilityReadyEpoch` changes, and those
+        // changes specifically signal "treat any cached data as stale
+        // and pick up server-side changes" (pull-to-refresh, pod
+        // recovery, conversation removal, etc.). `fetchQuery` with
+        // `staleTime: 0` forces a fresh request and writes through to
+        // the same cache that `useConversationListInit` (mounted in
+        // `ChatLayout`) subscribes to — so the sidebar refreshes too,
+        // and concurrent fetches on initial mount dedup via the
+        // shared query key.
+        // https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientfetchquery
+        const ctx = await queryClient.fetchQuery({
+          queryKey: chatContextQueryKey(assistantId),
+          queryFn: getChatContext,
+          staleTime: 0,
+        });
         if (!ctx || cancelled) return;
 
         // Path param is the canonical source; fall back to legacy search param.
@@ -334,21 +353,13 @@ export function useConversationLoader({
         setError((prev) =>
           prev?.code === CHAT_CONTEXT_LOAD_FAILED_CODE ? null : prev,
         );
+
+        // Set conversations and activeKey atomically so consumers of
+        // `useConversationListStore` never observe an active key with
+        // an empty conversations list (which would render `undefined`
+        // for the active conversation on this commit). Idempotent with
+        // the matching write in `useConversationListInit`'s effect.
         useConversationListStore.getState().setConversations(ctx.conversations);
-
-        if (conversationGroupsUI) {
-          fetchGroups(ctx.assistantId)
-            .then((groups) => {
-              if (!cancelled) useConversationListStore.getState().setGroups(groups);
-            })
-            .catch((err) => {
-              Sentry.captureException(err, {
-                level: "warning",
-                tags: { context: "fetchGroups.init" },
-              });
-            });
-        }
-
         useConversationListStore.getState().setActiveKey(key);
 
         // Ensure the URL reflects the active conversation so the page is
