@@ -5,6 +5,7 @@ import {
   extractErrorMessage,
 } from "@/lib/api-errors.js";
 import type {
+  AcceptA2AInviteResponse,
   ChannelInfo,
   ChannelReadinessSnapshot,
   ContactPayload,
@@ -15,6 +16,7 @@ import type {
   TwilioConfig,
   TwilioPhoneNumber,
 } from "@/domains/contacts/types.js";
+import type { A2AInviteParams } from "@/domains/contacts/a2a-invite.js";
 
 // These endpoints live on the per-assistant runtime daemon, proxied via
 // /v1/assistants/{assistant_id}/<path>/. They are not in the generated
@@ -529,6 +531,46 @@ export async function createA2AInvite(
     token: data.token,
     expiresAt: data.expiresAt,
     senderGatewayUrl: data.senderGatewayUrl,
+  };
+}
+
+interface DaemonAcceptInviteResponse {
+  success?: boolean;
+  contactId?: string;
+  alreadyConnected?: boolean;
+  error?: string;
+  errorCode?: string;
+}
+
+export async function acceptA2AInvite(
+  assistantId: string,
+  params: A2AInviteParams,
+): Promise<AcceptA2AInviteResponse> {
+  const { data, error, response } = await client.post<
+    DaemonAcceptInviteResponse,
+    unknown
+  >({
+    url: "/v1/assistants/{assistant_id}/integrations/a2a/invite/accept/",
+    path: { assistant_id: assistantId },
+    body: {
+      senderGatewayUrl: params.senderGatewayUrl,
+      senderAssistantId: params.senderAssistantId,
+      token: params.token,
+    },
+    headers: { "Content-Type": "application/json" },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to accept A2A invite");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to accept A2A invite"),
+    );
+  }
+  return {
+    success: data?.success ?? true,
+    contactId: data?.contactId,
+    alreadyConnected: data?.alreadyConnected,
   };
 }
 
