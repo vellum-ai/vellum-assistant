@@ -148,6 +148,7 @@ export function AssistantUpgrades({
 
   const handleUpgrade = async () => {
     setShowConfirmation(false);
+    setSuccessMessage(null);
     const targetVersion = selectedVersion ?? undefined;
     try {
       if (isRollback) {
