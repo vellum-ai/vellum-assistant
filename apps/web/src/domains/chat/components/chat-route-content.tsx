@@ -130,7 +130,6 @@ export interface VoiceInputHandlers {
   setVoiceError: (e: string | null) => void;
   handleVoiceBeforeStart: () => boolean | Promise<boolean>;
   handleVoiceTranscript: (rawText: string) => void;
-  handleVoiceRecordingChange: (isRecording: boolean) => void;
   setVoiceInterim: (text: string) => void;
   handleRetryMicPermission: () => void;
 }
@@ -218,7 +217,6 @@ export interface ChatRouteRefs {
   refreshSettleRef: MutableRefObject<RefreshSettleHandle | null>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
-  processingSnapshotsRef: MutableRefObject<Map<string, string | undefined>>;
   historyLoadedRef: MutableRefObject<boolean>;
   pendingQueuedStableIdsRef: MutableRefObject<string[]>;
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
@@ -450,7 +448,6 @@ export function ChatRouteContent({
     setVoiceError: _setVoiceError,
     handleVoiceBeforeStart,
     handleVoiceTranscript,
-    handleVoiceRecordingChange,
     setVoiceInterim,
     handleRetryMicPermission,
   } = voice;
@@ -491,7 +488,6 @@ export function ChatRouteContent({
     refreshSettleRef,
     streamRef: _streamRef,
     streamEpochRef: _streamEpochRef,
-    processingSnapshotsRef: _processingSnapshotsRef,
     historyLoadedRef: _historyLoadedRef,
     pendingQueuedStableIdsRef: _pendingQueuedStableIdsRef,
     requestIdToStableIdRef: _requestIdToStableIdRef,
@@ -1214,7 +1210,6 @@ export function ChatRouteContent({
     voiceInterim: voiceInterim ?? undefined,
     onVoiceTranscript: (rawText: string) => handleVoiceTranscript(rawText),
     onVoiceInterimTranscript: setVoiceInterim,
-    onVoiceRecordingChange: handleVoiceRecordingChange,
     onVoiceError: _setVoiceError,
     onVoiceBeforeStart: handleVoiceBeforeStart,
     onStopGenerating: handleStopGenerating,
