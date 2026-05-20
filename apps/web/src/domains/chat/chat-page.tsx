@@ -637,7 +637,16 @@ export function ChatPage() {
     [navigate],
   );
 
-  const conversationActions = useConversationActions({
+  const {
+    handleArchiveConversation,
+    handleUnarchiveConversation,
+    handleMarkConversationUnread,
+    handleMarkConversationRead,
+    handleTogglePinConversation,
+    handleMoveToGroup,
+    handleRemoveFromGroup,
+    handleRenameConversation,
+  } = useConversationActions({
     assistantId,
     activeConversationKey,
     conversations,
@@ -647,7 +656,14 @@ export function ChatPage() {
     prePinGroupIdsRef,
   });
 
-  const secondaryActions = useConversationSecondaryActions({
+  const {
+    handleForkConversation,
+    handleForkConversationFromMenu,
+    handleAnalyzeConversation,
+    handleOpenInNewWindow,
+    handleInspectConversation,
+    handleCopyConversation,
+  } = useConversationSecondaryActions({
     assistantId,
     activeConversationKey,
     activeConversation: activeConversation ?? null,
@@ -724,50 +740,50 @@ export function ChatPage() {
         isPinned={isPinned}
         isArchived={isArchived}
         isReadonly={isChannelReadonly}
-        onPinToggle={() => conversationActions.handleTogglePinConversation(activeConversation)}
-        onRename={() => conversationActions.handleRenameConversation(activeConversation)}
-        onArchive={() => conversationActions.handleArchiveConversation(activeConversation)}
-        onUnarchive={() => conversationActions.handleUnarchiveConversation(activeConversation)}
+        onPinToggle={() => handleTogglePinConversation(activeConversation)}
+        onRename={() => handleRenameConversation(activeConversation)}
+        onArchive={() => handleArchiveConversation(activeConversation)}
+        onUnarchive={() => handleUnarchiveConversation(activeConversation)}
         onAnalyze={
           !isChannelReadonly && activeConversation.conversationKey
-            ? () => secondaryActions.handleAnalyzeConversation(activeConversation)
+            ? () => handleAnalyzeConversation(activeConversation)
             : undefined
         }
         onForkConversation={
           !isChannelReadonly && hasPersistedMessage
-            ? secondaryActions.handleForkConversationFromMenu
+            ? handleForkConversationFromMenu
             : undefined
         }
         onOpenInNewWindow={
           activeConversation.conversationKey
-            ? () => secondaryActions.handleOpenInNewWindow(activeConversation)
+            ? () => handleOpenInNewWindow(activeConversation)
             : undefined
         }
         onInspect={
           activeConversation.conversationKey
-            ? () => secondaryActions.handleInspectConversation(activeConversation)
+            ? () => handleInspectConversation(activeConversation)
             : undefined
         }
         onCopyConversation={
           messages.length > 0
-            ? secondaryActions.handleCopyConversation
+            ? handleCopyConversation
             : undefined
         }
         moveToGroups={moveToGroups}
-        onMoveToGroup={(groupId) => conversationActions.handleMoveToGroup(activeConversation, groupId)}
+        onMoveToGroup={(groupId) => handleMoveToGroup(activeConversation, groupId)}
         onRemoveFromGroup={
           activeConversation.groupId && !activeConversation.groupId.startsWith("system:")
-            ? () => conversationActions.handleRemoveFromGroup(activeConversation)
+            ? () => handleRemoveFromGroup(activeConversation)
             : undefined
         }
         onMarkUnread={
           !isChannelReadonly && activeConversation.hasUnseenLatestAssistantMessage === false
-            ? () => conversationActions.handleMarkConversationUnread(activeConversation)
+            ? () => handleMarkConversationUnread(activeConversation)
             : undefined
         }
         onMarkRead={
           activeConversation.hasUnseenLatestAssistantMessage
-            ? () => conversationActions.handleMarkConversationRead(activeConversation)
+            ? () => handleMarkConversationRead(activeConversation)
             : undefined
         }
         side="bottom"
@@ -797,8 +813,19 @@ export function ChatPage() {
     assistantId,
     isChannelReadonly,
     conversationGroups,
-    conversationActions,
-    secondaryActions,
+    handleTogglePinConversation,
+    handleRenameConversation,
+    handleArchiveConversation,
+    handleUnarchiveConversation,
+    handleAnalyzeConversation,
+    handleForkConversationFromMenu,
+    handleOpenInNewWindow,
+    handleInspectConversation,
+    handleCopyConversation,
+    handleMoveToGroup,
+    handleRemoveFromGroup,
+    handleMarkConversationUnread,
+    handleMarkConversationRead,
     hasPersistedMessage,
     messages.length,
   ]);
@@ -894,8 +921,6 @@ export function ChatPage() {
   };
 
   const pushToAiSettings = () => { void navigate(routes.settings.ai); };
-
-  const handleForkConversation = secondaryActions.handleForkConversation;
 
   const chatRouteProps: ChatRouteContentProps = {
     assistantId,
