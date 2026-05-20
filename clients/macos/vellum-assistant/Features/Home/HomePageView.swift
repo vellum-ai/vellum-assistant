@@ -67,6 +67,7 @@ struct HomePageView: View {
 
                 HomeGreetingHeader(
                     onStartNewChat: onStartNewChat,
+                    greeting: feedStore.contextBanner?.greeting,
                     name: store.state?.assistantName
                 ) {
                     greetingAvatar

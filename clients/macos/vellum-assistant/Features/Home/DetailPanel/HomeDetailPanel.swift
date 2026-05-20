@@ -5,13 +5,13 @@ import VellumAssistantShared
 ///
 /// Matches Figma nodes 3216:63021 (email editor) and 3216:63117 (invoice
 /// preview) — a 601pt solid-white chrome with its own 16pt-rounded card
-/// border, a header that hosts an optional icon chip + title + a single
-/// trailing "Go to Thread" action + optional dismiss, and a scrolling
+/// border, a header that hosts an optional icon chip + title + trailing
+/// actions ("Go to Convo" button, overflow menu, close), and a scrolling
 /// content area below a hairline divider.
 ///
 /// The chrome is intentionally solid (not glass) so the panel reads as a
 /// distinct work surface next to the floating glass recap cards on the
-/// Home page. The header "Go to Thread" button uses `VButton.Size.regular`
+/// Home page. The header "Go to Convo" button uses `VButton.Size.regular`
 /// (32pt tall, 8pt corners, 10pt horizontal padding) with the `.outlined`
 /// style — a deliberate break from the fully-pill buttons used inside the
 /// recap cards.
@@ -31,11 +31,22 @@ struct HomeDetailPanel<Content: View>: View {
     /// Optional background fill for the icon chip. Falls back to
     /// `VColor.surfaceBase` when `nil`.
     var iconBackground: Color? = nil
-    /// Tap handler for the trailing "Go to Thread" button in the header.
-    /// Pass `nil` to hide the button (e.g. previews that don't surface a
-    /// thread affordance).
-    var onGoToThread: (() -> Void)? = nil
-    var onDismiss: (() -> Void)? = nil
+    /// Tap handler for the trailing "Go to Convo" button in the header.
+    /// Pass `nil` to hide the button (e.g. when no conversation is
+    /// associated with the feed item).
+    var onGoToConvo: (() -> Void)? = nil
+    /// Toggles the item between read and unread. Shown in the overflow
+    /// menu; pass `nil` to hide the overflow menu entirely.
+    var onMarkReadUnread: (() -> Void)? = nil
+    /// Whether the item is currently in a "read" state (`seen` or
+    /// `actedOn`). Drives the overflow menu label: "Mark as unread"
+    /// when `true`, "Mark as read" when `false`.
+    var isRead: Bool = false
+    /// Dismisses the feed item. Shown in the overflow menu alongside
+    /// mark-read/unread; pass `nil` to omit it from the menu.
+    var onDismissItem: (() -> Void)? = nil
+    /// Closes the detail panel without modifying the feed item.
+    var onClose: (() -> Void)? = nil
     /// When `true` (default), the content area is wrapped in a vertical
     /// `ScrollView` so tall content like invoice images scrolls naturally.
     /// Pass `false` for bodies that want to fill the panel height and
@@ -83,8 +94,9 @@ struct HomeDetailPanel<Content: View>: View {
 
     // MARK: - Header
 
-    /// Header row: optional icon chip + title on the leading edge, and a
-    /// single "Go to Thread" action + optional dismiss on the trailing edge.
+    /// Header row: optional icon chip + title on the leading edge, and
+    /// trailing actions — "Go to Convo" button, an overflow menu (ellipsis)
+    /// with mark-read/unread and dismiss, and a close button.
     private var header: some View {
         HStack(spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
@@ -114,24 +126,29 @@ struct HomeDetailPanel<Content: View>: View {
             Spacer(minLength: 0)
 
             HStack(spacing: VSpacing.sm) {
-                if let onGoToThread {
+                if let onGoToConvo {
                     VButton(
-                        label: "Go to Thread",
+                        label: "Go to Convo",
                         style: .outlined,
                         size: .regular,
-                        action: onGoToThread
+                        action: onGoToConvo
                     )
                 }
 
-                if let onDismiss {
+                if onMarkReadUnread != nil || onDismissItem != nil {
+                    overflowMenu
+                }
+
+                if let onClose {
                     VButton(
-                        label: "Dismiss",
+                        label: "Close",
                         iconOnly: VIcon.x.rawValue,
                         style: .outlined,
                         size: .regular,
                         iconColor: VColor.primaryBase,
-                        action: onDismiss
+                        action: onClose
                     )
+                    .accessibilityLabel("Close detail panel")
                 }
             }
         }
@@ -141,6 +158,35 @@ struct HomeDetailPanel<Content: View>: View {
             bottom: VSpacing.md,
             trailing: VSpacing.lg
         ))
+    }
+
+    /// Overflow menu behind a vertical ellipsis button, containing
+    /// mark-read/unread and dismiss actions.
+    private var overflowMenu: some View {
+        Menu {
+            if let onMarkReadUnread {
+                Button(action: onMarkReadUnread) {
+                    Label(
+                        isRead ? "Mark as unread" : "Mark as read",
+                        systemImage: isRead ? "envelope.badge" : "envelope.open"
+                    )
+                }
+            }
+            if let onDismissItem {
+                Button(action: onDismissItem) {
+                    Label("Dismiss", systemImage: "xmark.circle")
+                }
+            }
+        } label: {
+            VIconView(.ellipsis, size: 16)
+                .foregroundStyle(VColor.primaryBase)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 32)
+        .accessibilityLabel("More options")
     }
 
     /// 32pt persona avatar rendered into the header's leading slot for
