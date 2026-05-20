@@ -297,7 +297,7 @@ describe("acceptA2AInvite", () => {
     });
   });
 
-  test("strips trailing slashes from senderGatewayUrl", async () => {
+  test("strips trailing slashes from senderGatewayUrl in fetch URL and stored metadata", async () => {
     const capture = mockFetchCapture({
       body: {
         success: true,
@@ -309,22 +309,32 @@ describe("acceptA2AInvite", () => {
       },
     });
 
-    await acceptA2AInvite({
+    const result = await acceptA2AInvite({
       senderGatewayUrl: `${SENDER_GATEWAY_URL}///`,
       senderAssistantId: SENDER_ASSISTANT_ID,
       token: "test-token",
     });
 
+    // Fetch URL is normalized
     const call = capture.getCall();
     expect(call!.url).toBe(
       `${SENDER_GATEWAY_URL}/v1/integrations/a2a/invite/complete`,
+    );
+
+    // Stored contact metadata is also normalized (no trailing slashes)
+    expect(result.success).toBe(true);
+    const contact = getContact(result.contactId!);
+    expect(contact).toBeTruthy();
+    const meta = getAssistantContactMetadata(result.contactId!);
+    expect((meta?.metadata as { gatewayUrl?: string } | null)?.gatewayUrl).toBe(
+      SENDER_GATEWAY_URL,
     );
   });
 
   // ── Already connected ───────────────────────────────────────────────
 
-  test("returns alreadyConnected when sender is already a contact", async () => {
-    // First accept
+  test("returns alreadyConnected without calling sender when already a contact", async () => {
+    // First accept — creates the contact
     mockFetchOnce({
       body: {
         success: true,
@@ -342,17 +352,9 @@ describe("acceptA2AInvite", () => {
     });
     expect(first.success).toBe(true);
 
-    // Second accept with same sender
-    mockFetchOnce({
-      body: {
-        success: true,
-        sender: {
-          assistantId: SENDER_ASSISTANT_ID,
-          displayName: "Sender Bot",
-          gatewayUrl: SENDER_GATEWAY_URL,
-        },
-      },
-    });
+    // Second accept — should short-circuit before any outbound call.
+    // No mockFetchOnce here: if fetch is called, it hits the real
+    // (unmocked) fetch and the test would fail or hang.
     const second = await acceptA2AInvite({
       senderGatewayUrl: SENDER_GATEWAY_URL,
       senderAssistantId: SENDER_ASSISTANT_ID,
@@ -379,14 +381,18 @@ describe("acceptA2AInvite", () => {
   });
 
   // ── Sender returns error ────────────────────────────────────────────
+  // The daemon HTTP adapter always converts RouteError throws into the
+  // standard envelope: { error: { code, message } } (see http-errors.ts).
+  // These mocks match the real wire format.
 
-  test("returns complete_failed when sender reports failure", async () => {
+  test("returns complete_failed when sender returns 400 with token error", async () => {
     mockFetchOnce({
       status: 400,
       body: {
-        success: false,
-        error: "not_found",
-        errorCode: "not_found",
+        error: {
+          code: "BAD_REQUEST",
+          message: "Invite token has expired or was already claimed",
+        },
       },
     });
 
@@ -397,16 +403,21 @@ describe("acceptA2AInvite", () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).toBe("not_found");
-    expect(result.errorCode).toBe("not_found");
+    expect(result.error).toBe(
+      "Invite token has expired or was already claimed",
+    );
+    expect(result.errorCode).toBe("complete_failed");
   });
 
-  test("returns complete_failed when sender returns success:false with 200", async () => {
+  test("returns complete_failed when sender returns 400 for validation", async () => {
     mockFetchOnce({
-      status: 200,
+      status: 400,
       body: {
-        success: false,
-        error: "expired",
+        error: {
+          code: "BAD_REQUEST",
+          message:
+            "acceptor must include non-empty assistantId, displayName, and gatewayUrl",
+        },
       },
     });
 
@@ -417,7 +428,24 @@ describe("acceptA2AInvite", () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).toBe("expired");
+    expect(result.error).toContain("acceptor must include");
+    expect(result.errorCode).toBe("complete_failed");
+  });
+
+  test("falls back to generic message when error envelope is malformed", async () => {
+    mockFetchOnce({
+      status: 500,
+      body: { unexpected: "shape" },
+    });
+
+    const result = await acceptA2AInvite({
+      senderGatewayUrl: SENDER_GATEWAY_URL,
+      senderAssistantId: SENDER_ASSISTANT_ID,
+      token: "any-token",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("Invite completion failed");
     expect(result.errorCode).toBe("complete_failed");
   });
 
@@ -455,7 +483,7 @@ describe("acceptA2AInvite", () => {
   test("does not create a contact when sender returns failure", async () => {
     mockFetchOnce({
       status: 400,
-      body: { success: false, error: "invalid" },
+      body: { error: { code: "BAD_REQUEST", message: "Invalid token" } },
     });
 
     await acceptA2AInvite({

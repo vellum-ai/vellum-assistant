@@ -31,6 +31,7 @@ import {
   hashToken,
 } from "../../memory/invite-store.js";
 import { assistantContactMetadata } from "../../memory/schema.js";
+import type { HttpErrorResponse } from "../../runtime/http-errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getAssistantName } from "../identity-helpers.js";
 const log = getLogger("config-a2a");
@@ -306,6 +307,25 @@ export function redeemA2AInvite(params: {
 const ACCEPT_TIMEOUT_MS = 15_000;
 
 /**
+ * Extract a human-readable error message from a daemon HTTP error
+ * response. The daemon always returns `{ error: { code, message } }`
+ * (see `HttpErrorResponse` in `runtime/http-errors.ts`).
+ */
+function extractDaemonErrorMessage(
+  body: Record<string, unknown>,
+): string | undefined {
+  const envelope = body as Partial<HttpErrorResponse>;
+  if (
+    typeof envelope.error === "object" &&
+    envelope.error !== null &&
+    typeof envelope.error.message === "string"
+  ) {
+    return envelope.error.message;
+  }
+  return undefined;
+}
+
+/**
  * Orchestrate cross-daemon A2A invite acceptance for self-hosted
  * deployments. Calls the sender's `invite/complete` endpoint, then
  * creates a local contact via `redeemA2AInvite`.
@@ -321,6 +341,9 @@ export async function acceptA2AInvite(params: {
   senderAssistantId: string;
   token: string;
 }): Promise<AcceptA2AInviteResult> {
+  const senderGatewayUrl = params.senderGatewayUrl.replace(/\/+$/, "");
+
+  // 1. Validate local config
   const displayName = getAssistantName() ?? "Vellum Assistant";
   let localGatewayUrl: string;
   try {
@@ -334,8 +357,18 @@ export async function acceptA2AInvite(params: {
     };
   }
 
-  // 1. Call the sender's invite/complete endpoint
-  const completeUrl = `${params.senderGatewayUrl.replace(/\/+$/, "")}/v1/integrations/a2a/invite/complete`;
+  // 2. Short-circuit if already connected — avoids a network round-trip
+  //    and consuming a token on the sender side.
+  const existing = findContactByAddress("a2a", params.senderAssistantId);
+  if (
+    existing &&
+    existing.channels.some((ch) => ch.type === "a2a" && ch.status === "active")
+  ) {
+    return { success: true, alreadyConnected: true, contactId: existing.id };
+  }
+
+  // 3. Call the sender's invite/complete endpoint
+  const completeUrl = `${senderGatewayUrl}/v1/integrations/a2a/invite/complete`;
   const completeBody = {
     token: params.token,
     senderAssistantId: params.senderAssistantId,
@@ -357,19 +390,19 @@ export async function acceptA2AInvite(params: {
 
     completeData = (await response.json()) as Record<string, unknown>;
 
-    if (!response.ok || !completeData.success) {
-      const error = String(completeData.error ?? "Invite completion failed");
-      const errorCode = String(completeData.errorCode ?? "complete_failed");
+    if (!response.ok) {
+      const error =
+        extractDaemonErrorMessage(completeData) ?? "Invite completion failed";
       log.warn(
-        { senderGatewayUrl: params.senderGatewayUrl, error, errorCode },
-        "Sender invite/complete returned failure",
+        { senderGatewayUrl, status: response.status, error },
+        "Sender invite/complete returned error",
       );
-      return { success: false, error, errorCode };
+      return { success: false, error, errorCode: "complete_failed" };
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn(
-      { senderGatewayUrl: params.senderGatewayUrl, error: message },
+      { senderGatewayUrl, error: message },
       "Failed to reach sender for invite/complete",
     );
     return {
@@ -379,7 +412,7 @@ export async function acceptA2AInvite(params: {
     };
   }
 
-  // 2. Extract sender display name from the complete response; use
+  // 4. Extract sender display name from the complete response; use
   //    invite-link values for assistantId and gatewayUrl (trusted source).
   const senderFromResponse = completeData.sender as
     | { displayName?: string }
@@ -391,10 +424,10 @@ export async function acceptA2AInvite(params: {
       (typeof senderFromResponse?.displayName === "string" &&
         senderFromResponse.displayName) ||
       params.senderAssistantId,
-    gatewayUrl: params.senderGatewayUrl,
+    gatewayUrl: senderGatewayUrl,
   };
 
-  // 3. Create the sender as a local trusted contact
+  // 5. Create the sender as a local trusted contact
   const redeemResult = redeemA2AInvite({ sender: senderIdentity });
   if (!redeemResult.success) {
     log.warn(
