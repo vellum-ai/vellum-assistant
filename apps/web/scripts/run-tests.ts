@@ -18,7 +18,7 @@
 import { Glob } from "bun";
 
 const args = process.argv.slice(2);
-const concurrency = parseInt(process.env.TEST_CONCURRENCY ?? "8", 10);
+const concurrency = Math.max(1, parseInt(process.env.TEST_CONCURRENCY ?? "8", 10) || 8);
 
 // Collect test files — from CLI args or by globbing src/.
 const files =

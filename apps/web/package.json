@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "lint": "eslint",
     "typecheck": "bunx tsc --noEmit",
-    "postinstall": "rm -rf ../../packages/design-library/node_modules/@types/react ../../packages/design-library/node_modules/@types/react-dom 2>/dev/null; for pkg in react react-dom; do rm -rf ../../packages/design-library/node_modules/$pkg && ln -sf \"$(cd ../.. && pwd)/apps/web/node_modules/$pkg\" ../../packages/design-library/node_modules/$pkg; done 2>/dev/null; true && test -d src/generated || bun run openapi-ts",
+    "postinstall": "mkdir -p ../../packages/design-library/node_modules && rm -rf ../../packages/design-library/node_modules/@types/react ../../packages/design-library/node_modules/@types/react-dom 2>/dev/null; for pkg in react react-dom; do rm -rf ../../packages/design-library/node_modules/$pkg && ln -sf \"$(cd ../.. && pwd)/apps/web/node_modules/$pkg\" ../../packages/design-library/node_modules/$pkg; done 2>/dev/null; true && test -d src/generated || bun run openapi-ts",
     "openapi-ts": "openapi-ts",
     "ios:setup": "bunx cap sync ios && cd ../ios/App && xcodegen generate --spec project.yml",
     "ios:open": "bun run ios:setup && open ../ios/App/App.xcodeproj",
