@@ -6,7 +6,6 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
-  useState,
   useSyncExternalStore,
 } from "react";
 
@@ -15,10 +14,7 @@ import {
   postSttTranscribe,
   type SttFailureReason,
 } from "@/domains/voice/stt-api.js";
-import {
-  useVoiceRecordingState,
-  type VoiceRecordingState,
-} from "@/domains/voice/voice-recording-state.js";
+import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store.js";
 
 // ---------------------------------------------------------------------------
 // MIME type selection
@@ -187,8 +183,6 @@ export interface VoiceInputButtonHandle {
 interface VoiceInputButtonProps {
   onTranscript: (text: string) => void | Promise<void>;
   onInterimTranscript?: (text: string) => void;
-  onRecordingChange?: (recording: boolean) => void;
-  onStateChange?: (state: VoiceRecordingState) => void;
   onError?: (error: string | null) => void;
   onStreamReady?: (stream: MediaStream | null) => void;
   assistantId?: string | null;
@@ -207,8 +201,6 @@ export const VoiceInputButton = forwardRef<
   {
     onTranscript,
     onInterimTranscript,
-    onRecordingChange,
-    onStateChange,
     onError,
     onStreamReady,
     assistantId,
@@ -223,7 +215,15 @@ export const VoiceInputButton = forwardRef<
     () => false,
   );
 
-  const [recording, setRecording] = useState(false);
+  const phase = useVoiceRecordingStore.use.phase();
+  const {
+    startRecording: vsStartRecording,
+    stopRecording: vsStopRecording,
+    finalize: vsFinalize,
+    fail: vsFail,
+    reset: vsReset,
+  } = useVoiceRecordingStore.getState();
+  const recording = phase === "recording";
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -243,19 +243,6 @@ export const VoiceInputButton = forwardRef<
   // STT is unavailable (mirrors macOS SFSpeechRecognizer fallback).
   const speechRecRef = useRef<SpeechRecognitionInstance | null>(null);
   const speechAccumulatorRef = useRef("");
-
-  const {
-    state: voiceState,
-    startRecording: vsStartRecording,
-    stopRecording: vsStopRecording,
-    finalize: vsFinalize,
-    fail: vsFail,
-    reset: vsReset,
-  } = useVoiceRecordingState();
-
-  useEffect(() => {
-    onStateChange?.(voiceState);
-  }, [voiceState, onStateChange]);
 
   const onStreamReadyRef = useRef(onStreamReady);
   onStreamReadyRef.current = onStreamReady;
@@ -437,8 +424,6 @@ export const VoiceInputButton = forwardRef<
 
     recorder.onstop = () => {
       mediaRecorderRef.current = null;
-      setRecording(false);
-      onRecordingChange?.(false);
       releaseStream();
       stopSpeechRecognition();
       onInterimTranscriptRef.current?.("");
@@ -521,8 +506,6 @@ export const VoiceInputButton = forwardRef<
     recorder.onerror = () => {
       erroredRef.current = true;
       mediaRecorderRef.current = null;
-      setRecording(false);
-      onRecordingChange?.(false);
       releaseStream();
       stopSpeechRecognition();
       onError?.("audio-capture");
@@ -540,8 +523,6 @@ export const VoiceInputButton = forwardRef<
       // When a future change wires up the WS /v1/stt/stream consumer, the
       // timeslice should come back paired with that consumer.
       recorder.start();
-      setRecording(true);
-      onRecordingChange?.(true);
       vsStartRecording();
       onError?.(null);
     } catch (err) {
@@ -558,7 +539,6 @@ export const VoiceInputButton = forwardRef<
     assistantId,
     onBeforeStart,
     onError,
-    onRecordingChange,
     onTranscript,
     releaseStream,
     stopSpeechRecognition,
@@ -577,12 +557,12 @@ export const VoiceInputButton = forwardRef<
         // Mirrors the visual `disabled` + `aria-busy` state on the button
         // and prevents push-to-talk from silently dropping the in-flight
         // transcript by incrementing the session id mid-flight.
-        if (voiceState.phase === "processing") return;
+        if (useVoiceRecordingStore.getState().phase === "processing") return;
         startRecording();
       },
       stop: stopRecording,
     }),
-    [assistantId, disabled, startRecording, stopRecording, voiceState.phase],
+    [assistantId, disabled, startRecording, stopRecording],
   );
 
   if (!supported || !assistantId) return null;
@@ -595,7 +575,7 @@ export const VoiceInputButton = forwardRef<
   //                 momentarily. The visible motion is the user-facing
   //                 "still working" signal (matches macOS DictationOverlay's
   //                 NSProgressIndicator + "Processing..." label).
-  const processing = voiceState.phase === "processing";
+  const processing = phase === "processing";
   const label = processing
     ? "Transcribing in progress"
     : recording
