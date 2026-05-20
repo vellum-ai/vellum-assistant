@@ -10,7 +10,7 @@ import {
   isConversationPinned,
   type CustomGroup,
 } from "@/domains/chat/lib/groupConversations.js";
-import type { Conversation } from "@/domains/chat/lib/conversations.js";
+import type { Conversation } from "@/domains/chat/api/conversations.js";
 
 /**
  * Collapsed-rail conversations affordance. Renders a small square button

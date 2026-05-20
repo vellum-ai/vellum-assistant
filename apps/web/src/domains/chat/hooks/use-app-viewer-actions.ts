@@ -14,19 +14,19 @@ import * as Sentry from "@sentry/react";
 import { type MutableRefObject, type RefObject, useCallback, useEffect, useRef } from "react";
 
 import { toast } from "@vellum/design-library";
-import { openApp, shareApp } from "@/domains/chat/lib/apps.js";
-import { fetchDocumentContent } from "@/domains/chat/lib/documents.js";
+import { openApp, shareApp } from "@/domains/chat/api/apps.js";
+import { fetchDocumentContent } from "@/domains/chat/api/documents.js";
 import { getEditChatKey, setEditChatKey } from "@/domains/chat/lib/edit-chat-session.js";
-import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/lib/publish.js";
+import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/api/publish.js";
 import type {
   OpenedAppState,
 } from "@/stores/viewer-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
-import type { Conversation } from "@/domains/chat/lib/api.js";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { haptic } from "@/utils/haptics.js";
 
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
+import type { Conversation } from "@/domains/chat/api/conversations.js";
 
 // ---------------------------------------------------------------------------
 // Params

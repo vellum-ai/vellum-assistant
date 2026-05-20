@@ -24,12 +24,12 @@ import {
   useCommandPalette,
   type UseCommandPaletteReturn,
 } from "@/components/command-palette/use-command-palette.js";
-import type { Conversation } from "@/domains/chat/lib/api.js";
-import type { GlobalSearchResponse } from "@/domains/chat/lib/global-search.js";
+import type { GlobalSearchResponse } from "@/domains/chat/api/global-search.js";
 import { haptic } from "@/utils/haptics.js";
 import { routes } from "@/utils/routes.js";
 
 import { formatRelativeTime } from "@/domains/chat/utils/chat-utils.js";
+import type { Conversation } from "@/domains/chat/api/conversations.js";
 
 // ---------------------------------------------------------------------------
 // Helpers — pure functions, no React state

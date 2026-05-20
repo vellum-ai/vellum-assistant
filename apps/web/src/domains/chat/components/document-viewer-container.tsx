@@ -6,7 +6,7 @@ import { Button } from "@vellum/design-library";
 import { Menu } from "@vellum/design-library";
 import { Typography } from "@vellum/design-library";
 
-import { exportDocumentPDF } from "@/domains/chat/lib/documents.js";
+import { exportDocumentPDF } from "@/domains/chat/api/documents.js";
 
 // ---------------------------------------------------------------------------
 // Props

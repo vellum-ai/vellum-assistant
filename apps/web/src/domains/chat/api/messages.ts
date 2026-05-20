@@ -6,14 +6,14 @@
  * / `uploadChatAttachment` / `deleteQueuedMessage` write operations.
  */
 
-import type { ChatMessage, ChatMessageToolCall } from "@/domains/chat/lib/event-types.js";
+import type { ChatMessage, ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
 import type { Surface } from "@/domains/chat/lib/types.js";
 import {
   assertHasResponse,
   client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/lib/client.js";
+} from "@/domains/chat/api/client.js";
 import {
   normalizePreChatOnboardingContext,
   type PreChatOnboardingContext,

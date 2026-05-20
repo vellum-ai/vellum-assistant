@@ -2,7 +2,7 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { Button, Input, Modal, toast, Typography } from "@vellum/design-library";
-import { setVercelToken } from "@/domains/chat/lib/publish.js";
+import { setVercelToken } from "@/domains/chat/api/publish.js";
 
 export interface VercelTokenDialogProps {
   open: boolean;

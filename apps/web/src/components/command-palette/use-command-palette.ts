@@ -1,8 +1,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { GlobalSearchResponse } from "@/domains/chat/lib/global-search.js";
-import { searchGlobal } from "@/domains/chat/lib/global-search.js";
+import type { GlobalSearchResponse } from "@/domains/chat/api/global-search.js";
+import { searchGlobal } from "@/domains/chat/api/global-search.js";
 
 export interface UseCommandPaletteOptions {
   /** Total number of items in the results list, for bounds clamping. Can be a number or a getter function for lazy evaluation to avoid stale closure issues. */

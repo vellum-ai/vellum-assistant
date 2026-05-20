@@ -7,11 +7,11 @@ import {
   useRef,
 } from "react";
 
-import { fetchSurfaceContent } from "@/domains/chat/lib/api.js";
 import {
   filterDismissedSurfaces,
 } from "@/domains/chat/lib/dismissedSurfacesStorage.js";
-import { fetchLatestHistoryPage } from "@/domains/chat/lib/history.js";
+import { fetchLatestHistoryPage } from "@/domains/chat/api/history.js";
+import { fetchSurfaceContent } from "@/domains/chat/api/surfaces.js";
 import {
   type DisplayMessage,
   reconcileDisplayMessagesWithLatestHistory,

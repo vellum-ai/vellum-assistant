@@ -5,7 +5,7 @@ import { ApiError } from "@/lib/api-errors.js";
 import {
   fetchLatestHistoryPage,
   fetchOlderHistoryPage,
-} from "@/domains/chat/lib/history.js";
+} from "@/domains/chat/api/history.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers

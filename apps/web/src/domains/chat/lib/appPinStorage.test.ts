@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
-import type { AppSummary } from "@/domains/chat/lib/apps.js";
+import type { AppSummary } from "@/domains/chat/api/apps.js";
 import {
   isAppPinned,
   loadPinnedApps,

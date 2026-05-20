@@ -10,10 +10,6 @@ import {
 } from "react";
 
 import {
-  fetchSurfaceContent,
-  getPendingInteractions,
-} from "@/domains/chat/lib/api.js";
-import {
   type DisplayMessage,
   reconcileDisplayMessagesWithLatestHistory,
 } from "@/domains/chat/lib/reconcile.js";
@@ -21,7 +17,7 @@ import {
   filterDismissedSurfaces,
   loadDismissedSurfaceIds,
 } from "@/domains/chat/lib/dismissedSurfacesStorage.js";
-import { fetchLatestHistoryPage } from "@/domains/chat/lib/history.js";
+import { fetchLatestHistoryPage } from "@/domains/chat/api/history.js";
 import {
   recordChatDiagnostic,
   summarizeDisplayMessages,
@@ -32,7 +28,7 @@ import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
-import type { SubagentStatus } from "@/domains/chat/lib/event-types.js";
+import type { SubagentStatus } from "@/domains/chat/api/event-types.js";
 
 import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
 import {
@@ -40,6 +36,8 @@ import {
   parsePendingConfirmationData,
 } from "@/domains/chat/hooks/use-send-message.js";
 import type { AssistantStateKind, ChatError } from "@/domains/chat/types.js";
+import { getPendingInteractions } from "@/domains/chat/api/interactions.js";
+import { fetchSurfaceContent } from "@/domains/chat/api/surfaces.js";
 
 // ---------------------------------------------------------------------------
 // Constants

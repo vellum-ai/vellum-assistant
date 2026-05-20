@@ -25,7 +25,7 @@ import type {
   SubagentInnerEvent,
   SubagentStatus,
   UISurfaceShowEvent,
-} from "@/domains/chat/lib/event-types.js";
+} from "@/domains/chat/api/event-types.js";
 import type { DisplayAttachment } from "@/domains/chat/lib/types.js";
 import type { SyncInvalidationTag } from "@/lib/sync/types.js";
 

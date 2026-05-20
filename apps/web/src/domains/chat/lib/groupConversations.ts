@@ -1,3 +1,4 @@
+import type { Conversation, ConversationGroup } from "@/domains/chat/api/conversations.js";
 /**
  * Pure helper for splitting the sidebar's conversation list into system
  * category buckets (`pinned`, `slack`, `scheduled`, `background`, `recents`) and
@@ -25,7 +26,6 @@
  * tested without a DOM and reused by other surfaces if a compact recent-list
  * ever appears elsewhere in the app.
  */
-import type { Conversation, ConversationGroup } from "@/domains/chat/lib/api.js";
 
 export interface CustomGroup {
   id: string;

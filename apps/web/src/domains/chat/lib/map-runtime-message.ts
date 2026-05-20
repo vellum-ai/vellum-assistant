@@ -1,9 +1,8 @@
-import { mapRuntimeToolCalls, normalizeContentOrder, normalizeTextSegments } from "@/domains/chat/lib/api.js";
-import type { RuntimeMessage } from "@/domains/chat/lib/api.js";
 import { runtimeAttachmentsToDisplay } from "@/domains/chat/lib/attachment-mapping.js";
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/lib/parse-attachment-summaries.js";
 import { newStableId } from "@/domains/chat/lib/stable-id.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/lib/types.js";
+import { mapRuntimeToolCalls, normalizeContentOrder, normalizeTextSegments, type RuntimeMessage } from "@/domains/chat/api/messages.js";
 
 /**
  * Intermediate representation of a RuntimeMessage after all server-side fields

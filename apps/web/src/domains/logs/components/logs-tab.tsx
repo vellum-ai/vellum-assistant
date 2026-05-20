@@ -13,7 +13,7 @@ import { Dropdown } from "@vellum/design-library";
 import {
   listConversations,
   type Conversation,
-} from "@/domains/chat/lib/conversations.js";
+} from "@/domains/chat/api/conversations.js";
 import {
   loadLastViewedConversationKey,
   saveLastViewedConversationKey,

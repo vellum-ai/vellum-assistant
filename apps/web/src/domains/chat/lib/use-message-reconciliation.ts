@@ -2,7 +2,6 @@ import { type Dispatch, type RefObject, type SetStateAction, useCallback, useRef
 
 import * as Sentry from "@sentry/browser";
 
-import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/lib/api.js";
 import {
   bucketMessagesAdded,
   recordChatDiagnostic,
@@ -12,6 +11,7 @@ import {
 } from "@/domains/chat/lib/diagnostics.js";
 import { type DisplayMessage, reconcileMessages } from "@/domains/chat/lib/reconcile.js";
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
+import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/api/messages.js";
 
 const RECONCILE_DELAY_MS = 5000;
 const RECONCILE_MAX_MS = 60_000;

@@ -1,9 +1,3 @@
-import type {
-  UISurfaceCompleteEvent,
-  UISurfaceDismissEvent,
-  UISurfaceShowEvent,
-  UISurfaceUpdateEvent,
-} from "@/domains/chat/lib/api.js";
 import {
   classifySurfaceDisplay,
   isSurfaceInteractive,
@@ -17,6 +11,7 @@ import {
   updateSurfaceData,
 } from "@/domains/chat/hooks/stream-message-updaters.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
+import type { UISurfaceCompleteEvent, UISurfaceDismissEvent, UISurfaceShowEvent, UISurfaceUpdateEvent } from "@/domains/chat/api/event-types.js";
 
 export function handleUISurfaceShow(
   event: UISurfaceShowEvent,

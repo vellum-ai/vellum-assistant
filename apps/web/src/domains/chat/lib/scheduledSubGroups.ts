@@ -1,6 +1,6 @@
-import type { Conversation } from "@/domains/chat/lib/api.js";
 import { groupConversationsByKey } from "@/domains/chat/lib/subGroupUtils.js";
 import type { SubGroup } from "@/domains/chat/lib/subGroupUtils.js";
+import type { Conversation } from "@/domains/chat/api/conversations.js";
 
 export type ScheduledSubGroup = SubGroup;
 

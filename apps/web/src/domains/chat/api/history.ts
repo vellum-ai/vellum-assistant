@@ -16,10 +16,10 @@ import {
   summarizeDisplayMessages,
 } from "@/domains/chat/lib/diagnostics.js";
 
-import type { RuntimeMessage, RuntimeSubagentNotification } from "@/domains/chat/lib/api.js";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/lib/map-runtime-message.js";
 import { dedupeDisplayMessages } from "@/domains/chat/lib/reconcile.js";
 import type { PaginatedHistoryResult } from "@/domains/chat/lib/transcript/types.js";
+import type { RuntimeMessage, RuntimeSubagentNotification } from "@/domains/chat/api/messages.js";
 
 const SDK_BASE_OPTIONS =
   typeof window === "undefined"

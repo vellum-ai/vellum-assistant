@@ -17,8 +17,8 @@ mock.module("@/hooks/use-is-mobile.js", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
-import type { Conversation } from "@/domains/chat/lib/api.js";
 
+import type { Conversation } from "@/domains/chat/api/conversations.js";
 import {
   ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT,
   AssistantSideMenu,
