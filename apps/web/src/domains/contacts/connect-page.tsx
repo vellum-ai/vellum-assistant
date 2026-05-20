@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, Loader2, UserPlus, XCircle } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
@@ -63,7 +63,7 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
   }, [inviteParams]);
 
   const handleManualSubmit = useCallback(
-    (e: React.FormEvent) => {
+    (e: FormEvent) => {
       e.preventDefault();
       mutation.mutate({
         senderGatewayUrl: manualGatewayUrl.trim(),
@@ -158,6 +158,16 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
                 </Button>
               </div>
             </div>
+          ) : inviteParams ? (
+            <div
+              className="flex items-center gap-2 py-4"
+              style={{ color: "var(--content-tertiary)" }}
+            >
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <Typography variant="body-medium-lighter">
+                Connecting to assistant…
+              </Typography>
+            </div>
           ) : (
             <ManualEntryForm
               gatewayUrl={manualGatewayUrl}
@@ -195,7 +205,7 @@ function ManualEntryForm({
   token: string;
   onTokenChange: (v: string) => void;
   isValid: boolean;
-  onSubmit: (e: React.FormEvent) => void;
+  onSubmit: (e: FormEvent) => void;
   onCancel: () => void;
 }) {
   return (
