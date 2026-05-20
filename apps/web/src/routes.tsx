@@ -43,6 +43,11 @@ import { useAssistantContext } from "@/domains/chat/assistant-context.js";
 import { HatchingScreen } from "@/domains/onboarding/pages/hatching-screen.js";
 import { PreChatFlow } from "@/domains/onboarding/pages/pre-chat-flow.js";
 import { PrivacyScreen } from "@/domains/onboarding/pages/privacy-screen.js";
+import { LogsLayout } from "@/domains/logs/logs-layout.js";
+import { TracePage } from "@/domains/logs/pages/trace-page.js";
+import { UsagePage } from "@/domains/logs/pages/usage-page.js";
+import { SystemEventsPage } from "@/domains/logs/pages/system-events-page.js";
+import { EmailsPage } from "@/domains/logs/pages/emails-page.js";
 import { routes } from "@/utils/routes.js";
 
 function HomePageRoute() {
@@ -91,6 +96,11 @@ function HomePageRoute() {
  *   │  │   ├── BillingPage (/assistant/settings/billing)
  *   │  │   │   ├── onboarding, upgrade/cancel, upgrade/success
  *   │  │   └── AdvancedPage, DeveloperPage, DebugPage
+ *   │  ├── LogsLayout (full-screen overlay panel, like SettingsLayout)
+ *   │  │   ├── TracePage (/assistant/logs/trace)
+ *   │  │   ├── UsagePage (/assistant/logs/usage)
+ *   │  │   ├── SystemEventsPage (/assistant/logs/system-events)
+ *   │  │   └── EmailsPage (/assistant/logs/emails)
  *   │  └── ChatLayout — sidebar rail, drawer, shortcuts
  *   │       ├── ChatPage (index, /assistant)
  *   │       ├── HomePageRoute (/assistant/home)
@@ -160,6 +170,20 @@ export const router = createBrowserRouter([
           { path: "advanced", element: <AdvancedPage /> },
           { path: "danger-zone", element: <DangerZoneRedirectPage /> },
           { path: "system-events", element: <SystemEventsRedirectPage /> },
+        ],
+      },
+
+      // Logs routes — full-screen overlay panel (like SettingsLayout).
+      // LogsLayout reuses SettingsShell for visual consistency.
+      {
+        path: "logs",
+        element: <LogsLayout />,
+        children: [
+          { index: true, element: <TracePage /> },
+          { path: "trace", element: <TracePage /> },
+          { path: "usage", element: <UsagePage /> },
+          { path: "system-events", element: <SystemEventsPage /> },
+          { path: "emails", element: <EmailsPage /> },
         ],
       },
 
