@@ -310,19 +310,22 @@ export function useConversationLoader({
 
     const init = async () => {
       try {
-        // Conversations + groups are hydrated by `useConversationListInit`
-        // in `ChatLayout` so the sidebar populates on every chat-layout
-        // route, not just `/assistant`. Reuse that cached query result
-        // here for the chat-specific active-key resolution; only fall
-        // back to a direct fetch if the cache is somehow cold (e.g.
-        // ChatPage mounted without a parent layout in a test).
-        const cached = queryClient.getQueryData<Awaited<ReturnType<typeof getChatContext>>>(
-          chatContextQueryKey(assistantId),
-        );
-        const ctx = cached ?? (await queryClient.fetchQuery({
+        // Always fetch (not just read cache): this effect re-runs when
+        // `refreshEpoch` or `reachabilityReadyEpoch` changes, and those
+        // changes specifically signal "treat any cached data as stale
+        // and pick up server-side changes" (pull-to-refresh, pod
+        // recovery, conversation removal, etc.). `fetchQuery` with
+        // `staleTime: 0` forces a fresh request and writes through to
+        // the same cache that `useConversationListInit` (mounted in
+        // `ChatLayout`) subscribes to — so the sidebar refreshes too,
+        // and concurrent fetches on initial mount dedup via the
+        // shared query key.
+        // https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientfetchquery
+        const ctx = await queryClient.fetchQuery({
           queryKey: chatContextQueryKey(assistantId),
           queryFn: getChatContext,
-        }));
+          staleTime: 0,
+        });
         if (!ctx || cancelled) return;
 
         const qpKey = searchParams.get("conversationKey");
@@ -349,6 +352,12 @@ export function useConversationLoader({
           prev?.code === CHAT_CONTEXT_LOAD_FAILED_CODE ? null : prev,
         );
 
+        // Set conversations and activeKey atomically so consumers of
+        // `useConversationListStore` never observe an active key with
+        // an empty conversations list (which would render `undefined`
+        // for the active conversation on this commit). Idempotent with
+        // the matching write in `useConversationListInit`'s effect.
+        useConversationListStore.getState().setConversations(ctx.conversations);
         useConversationListStore.getState().setActiveKey(key);
       } catch (err) {
         if (cancelled) return;
