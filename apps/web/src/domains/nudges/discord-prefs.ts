@@ -123,6 +123,16 @@ export function useDiscordNudgeState(
   const bannerDismissed = useNudgeStore.use.discordBannerDismissed();
   const sidebarDismissed = useNudgeStore.use.discordSidebarDismissed();
 
+  // The Discord prereq cascade reads GitHub nudge state via `getState()`
+  // inside `areDiscordPrerequisitesMet`. Subscribe to those fields here too
+  // so the Discord nudge re-evaluates the moment a GitHub action flips one
+  // of them — otherwise this component would only re-render when one of
+  // its own three Discord fields changes.
+  useNudgeStore.use.githubStarred();
+  useNudgeStore.use.githubBannerDismissed();
+  useNudgeStore.use.githubSidebarDismissed();
+  useNudgeStore.use.discordFirstSeenAt();
+
   const prerequisitesMet = areDiscordPrerequisitesMet(
     platformNudgeResolved,
     conversationCount,
