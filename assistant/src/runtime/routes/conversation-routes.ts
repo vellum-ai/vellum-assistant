@@ -1782,6 +1782,7 @@ export async function handleSendMessage(
       accepted: true,
       queued: true,
       conversationId: mapping.conversationId,
+      requestId,
     };
   }
 
