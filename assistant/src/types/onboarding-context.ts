@@ -8,4 +8,5 @@ export interface OnboardingContext {
   googleScopes?: string[];
   cohort?: string;
   websiteUrl?: string;
+  contentSourceUrl?: string;
 }

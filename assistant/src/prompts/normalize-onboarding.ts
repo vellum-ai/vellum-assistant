@@ -66,6 +66,7 @@ export interface NormalizedOnboarding {
   googleServices?: string[];
   cohort?: string;
   websiteUrl?: string;
+  contentSourceUrl?: string;
 }
 
 const SCOPE_SERVICE_MAP: Record<string, string> = {
@@ -109,6 +110,10 @@ export function normalizeOnboardingContext(
     websiteUrl:
       typeof ctx.websiteUrl === "string"
         ? ctx.websiteUrl.trim().replace(/[\r\n\t]/g, "") || undefined
+        : undefined,
+    contentSourceUrl:
+      typeof ctx.contentSourceUrl === "string"
+        ? ctx.contentSourceUrl.trim().replace(/[\r\n\t]/g, "") || undefined
         : undefined,
   };
 }

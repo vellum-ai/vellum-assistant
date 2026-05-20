@@ -1036,6 +1036,7 @@ export function persistOnboardingArtifacts(onboarding: {
   assistantName?: string;
   cohort?: string;
   websiteUrl?: string;
+  contentSourceUrl?: string;
 }): void {
   writeOnboardingSidecar(onboarding);
 
@@ -1452,9 +1453,11 @@ export async function handleSendMessage(
   // first message is the macOS wake-up greeting, bypass the canned
   // greeting and rewrite the user message to a scan instruction so real
   // LLM inference runs against the URL.
-  const scanUrl =
-    body.onboarding?.websiteUrl?.trim() ||
-    body.onboarding?.contentSourceUrl?.trim();
+  const sanitizeUrl = (u?: string) =>
+    u?.trim().replace(/[\r\n\t]/g, "") || undefined;
+  const websiteUrl = sanitizeUrl(body.onboarding?.websiteUrl);
+  const contentSourceUrl = sanitizeUrl(body.onboarding?.contentSourceUrl);
+  const scanUrl = websiteUrl || contentSourceUrl;
   const isWakeUp = isWakeUpGreeting(
     trimmedContent,
     conversation.getMessages().length,
@@ -1463,9 +1466,9 @@ export async function handleSendMessage(
 
   let effectiveContent: string | undefined;
   if (isScanPath) {
-    const scanVariant = body.onboarding?.contentSourceUrl
-      ? ("content-source" as const)
-      : ("website" as const);
+    const scanVariant = websiteUrl
+      ? ("website" as const)
+      : ("content-source" as const);
     effectiveContent = buildScanFirstMessage(scanUrl, scanVariant);
     // Fall through to normal inference path below
   } else if (isWakeUp) {
@@ -1592,6 +1595,11 @@ export async function handleSendMessage(
     }
   }
 
+  // When the scan path rewrote the first message, prefer the rewritten
+  // content for all downstream consumers (guardian reply, enqueue, agent
+  // loop) so they see the scan instruction rather than the wake-up greeting.
+  const contentAfterScan = effectiveContent ?? content ?? "";
+
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
     : [];
@@ -1611,7 +1619,7 @@ export async function handleSendMessage(
       conversationId: mapping.conversationId,
       sourceChannel,
       sourceInterface,
-      content: content ?? "",
+      content: contentAfterScan,
       attachments,
       conversation,
       onEvent: broadcastMessage,
@@ -1645,7 +1653,7 @@ export async function handleSendMessage(
     // Queue the message so it's processed when the current turn completes
     const requestId = crypto.randomUUID();
     const enqueueResult = conversation.enqueueMessage(
-      content ?? "",
+      contentAfterScan,
       attachments,
       broadcastMessage,
       requestId,
@@ -1764,9 +1772,9 @@ export async function handleSendMessage(
   await conversation.ensureActorScopedHistory();
 
   // Resolve slash commands before persisting or running the agent loop.
-  // When the scan path rewrote the first message, use the rewritten content
-  // so the persisted user message and agent loop see the scan instruction.
-  const rawContent = effectiveContent ?? content ?? "";
+  // `contentAfterScan` already carries the scan-rewritten content when
+  // applicable; reuse it here for consistency.
+  const rawContent = contentAfterScan;
   const slashContext = buildSlashContextForContent(rawContent, {
     conversationId: mapping.conversationId,
     messageCount: conversation.getMessages().length,
