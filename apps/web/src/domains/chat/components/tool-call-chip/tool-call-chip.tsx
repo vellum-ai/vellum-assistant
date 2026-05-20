@@ -1,10 +1,8 @@
 
 import { BusyIndicator } from "@/domains/chat/components/busy-indicator.js";
 import {
-  AlertCircle,
   Camera,
   CheckCircle2,
-  Clock,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -34,7 +32,6 @@ import { useElapsedTime } from "@/domains/chat/lib/use-elapsed-time.js";
 
 import {
   extractInputSummary,
-  friendlyName,
   friendlyRunningLabel,
   friendlyToolIcon,
   friendlyToolLabel,
@@ -341,34 +338,6 @@ export function ToolCallChip({
       })()}
       {embedded && (
         <span className="ml-auto flex items-center gap-1.5 text-[var(--content-tertiary)]">
-          {/* Chip pill — same style as CollapsedPermissionChips, shown per-row when expanded */}
-          {toolCall.riskLevel && !isRunning && !(hasPendingConfirmation && isActiveConfirmation) && (() => {
-            const isTimeout = toolCall.confirmationDecision === "timed_out";
-            const isDenied = toolCall.confirmationDecision === "denied";
-            const chipColor = isDenied
-              ? "var(--system-negative-strong)"
-              : isTimeout
-              ? "var(--content-tertiary)"
-              : "var(--primary-base)";
-            return (
-              <span
-                className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-label-small-default"
-                style={{
-                  color: chipColor,
-                  boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${chipColor} 30%, transparent)`,
-                }}
-              >
-                {isDenied ? (
-                  <AlertCircle className="h-2.5 w-2.5 shrink-0" />
-                ) : isTimeout ? (
-                  <Clock className="h-2.5 w-2.5 shrink-0" />
-                ) : (
-                  <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />
-                )}
-                <span className="max-w-[8rem] truncate">{friendlyName(toolCall.toolName)}</span>
-              </span>
-            );
-          })()}
           {duration && (
             <span className="text-label-small-default">{duration}</span>
           )}

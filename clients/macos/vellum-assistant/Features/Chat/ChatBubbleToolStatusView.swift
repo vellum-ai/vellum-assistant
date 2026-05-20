@@ -166,16 +166,6 @@ extension ChatBubble {
                 .padding(.top, VSpacing.xxs)
                 .transition(.opacity)
             }
-        } else if !effectiveConfirmations.isEmpty, !inlineToolProgressRenderedInContent {
-            // No tool display needed — only show permission chips.
-            // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
-            HStack(alignment: .center, spacing: VSpacing.sm) {
-                ForEach(Array(effectiveConfirmations.enumerated()), id: \.offset) { _, confirmation in
-                    compactPermissionChip(confirmation)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.top, VSpacing.xxs)
         } else if isStreamingContinuation {
             // Assistant is still generating after producing initial text.
             // Show a subtle typing indicator so the user knows more content is coming.
@@ -197,34 +187,4 @@ extension ChatBubble {
         return text
     }
 
-    func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {
-        let isApproved = confirmation.state == .approved
-        let isDenied = confirmation.state == .denied
-        let chipColor: Color = isApproved ? VColor.primaryBase : isDenied ? VColor.systemNegativeStrong : VColor.contentTertiary
-
-        return HStack(spacing: VSpacing.xs) {
-            switch confirmation.state {
-            case .approved:
-                VIconView(.circleCheck, size: 12)
-                    .foregroundStyle(chipColor)
-            case .denied:
-                VIconView(.circleAlert, size: 12)
-                    .foregroundStyle(chipColor)
-            case .timedOut:
-                VIconView(.clock, size: 12)
-                    .foregroundStyle(chipColor)
-            default:
-                EmptyView()
-            }
-
-            Text(isApproved || isDenied ? "\(confirmation.toolCategory)" :
-                 "Timed Out")
-                .font(VFont.labelDefault)
-                .foregroundStyle(chipColor)
-        }
-        .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
-        .overlay(
-            Capsule().stroke(chipColor.opacity(0.3), lineWidth: 1)
-        )
-    }
 }
