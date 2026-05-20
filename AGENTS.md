@@ -65,7 +65,7 @@ We do **not** pin: `apt-get` packages (Debian rotates), `brew install` formulae 
 
 The Capacitor iOS source-of-truth lives in [`apps/ios/`](./apps/ios/) and is built locally from `apps/web/` via `bun run ios:open`. See [`apps/ios/README.md`](./apps/ios/README.md) for the local build flow and full release pipeline mapping.
 
-Until the LUM-1721 cutover, TestFlight builds still come from `vellum-assistant-platform/web/ios/`: `dev-release.yaml` / `release.yml` fire a `repository_dispatch` to [`vellum-assistant-platform`](https://github.com/vellum-ai/vellum-assistant-platform)'s `release-ios.yaml` with `{ environment, version }`. After LUM-1721 lands, the dispatch becomes a same-repo `needs:` and the platform copy is decommissioned.
+Until the deployment cutover, TestFlight builds still come from `vellum-assistant-platform/web/ios/`: `dev-release.yaml` / `release.yml` fire a `repository_dispatch` to [`vellum-assistant-platform`](https://github.com/vellum-ai/vellum-assistant-platform)'s `release-ios.yaml` with `{ environment, version }`. When the pipeline is migrated, the dispatch becomes a same-repo `needs:` and the platform copy is decommissioned.
 
 ## Testing
 

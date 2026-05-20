@@ -7,7 +7,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 //
 // The `/assistant` suffix is deliberate — booting on the bare host lands
 // on the marketing page, whose CTA redirects to `www.vellum.ai/assistant`
-// and bounces non-prod shells off their own host (tracked as LUM-1132).
+// and bounces non-prod shells off their own host.
 const env = process.env.VELLUM_ENVIRONMENT ?? "dev";
 
 const SERVER_URL =

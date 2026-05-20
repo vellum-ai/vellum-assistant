@@ -23,9 +23,8 @@ state) is regenerated from `App/project.yml` by
 [XcodeGen](https://github.com/yonaskolb/XcodeGen) every time you build —
 locally via `bun run ios:setup`, in CI via the `xcodegen generate` step
 in `release-ios.yaml`. **Until the deployment cutover, the release
-pipeline still runs from `vellum-assistant-platform/web/ios/`**; see
-the [Web App Repo Move](https://linear.app/vellum/project/web-app-repo-move-platform-vellum-assistant-1b8cd4f8-49cf-4b7b-b8e9-98b92046d2c3)
-project for the workflow migration follow-up.
+pipeline still runs from `vellum-assistant-platform/web/ios/`** — the
+workflow migration is a separate follow-up.
 
 What _is_ committed and what generates from where:
 
@@ -103,7 +102,7 @@ Apple's reference for the toolbar controls:
 App Store builds get pointed at prod. The `/assistant` suffix is
 deliberate — booting on the bare host lands on the marketing page,
 whose CTA redirects to `www.vellum.ai/assistant` and bounces non-prod
-shells off their own host (tracked as LUM-1132). At launch, the
+shells off their own host. At launch, the
 WebView navigates straight to that URL — the bundled
 `capacitor-shell/index.html` is just a placeholder Capacitor requires
 for `webDir`, never actually shown.
@@ -272,12 +271,11 @@ On first build after pulling:
 ## CI / Release pipeline
 
 > **Migration note**: this directory is the new home for the Capacitor
-> iOS shell. Until the [Web App Repo Move](https://linear.app/vellum/project/web-app-repo-move-platform-vellum-assistant-1b8cd4f8-49cf-4b7b-b8e9-98b92046d2c3)
-> deployment cutover, the actual release pipeline still runs from
-> `vellum-assistant-platform/web/ios/` — that's the copy that gets
-> built and shipped to TestFlight. The description below documents the
-> existing pipeline as it lives in the platform repo; pointing it at
-> this directory is a follow-up task.
+> iOS shell. Until the deployment cutover, the actual release pipeline
+> still runs from `vellum-assistant-platform/web/ios/` — that's the
+> copy that gets built and shipped to TestFlight. The description below
+> documents the existing pipeline as it lives in the platform repo;
+> pointing it at this directory is a follow-up task.
 
 iOS builds are triggered **cross-repo** from
 [`vellum-assistant`](https://github.com/vellum-ai/vellum-assistant) via
