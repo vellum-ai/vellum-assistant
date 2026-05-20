@@ -271,6 +271,54 @@ describe("ToolExecutor allowedToolNames gating", () => {
     expect(result.content).toContain("file_read");
     expect(result.content).toContain("not currently active");
   });
+
+  test("unknown tool name reports 'Unknown tool' even when allowedToolNames is set", async () => {
+    // Regression: a hallucinated tool name with allowedToolNames set used to
+    // hit the "not currently active. Load the skill that provides this tool
+    // first." gate, which sent the model chasing a nonexistent skill. The
+    // registry-lookup gate runs first now so the model sees the real list.
+    const executor = new ToolExecutor(makePrompter());
+    const allowed = new Set(["file_read"]);
+    const result = await executor.execute(
+      "unknown_tool",
+      { foo: "bar" },
+      makeContext({ allowedToolNames: allowed }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Unknown tool: unknown_tool");
+    expect(result.content).not.toContain("not currently active");
+  });
+
+  test("inactive skill tool names the owning skill in the load hint", async () => {
+    const executor = new ToolExecutor(makePrompter());
+    getToolOverride = (name: string) => {
+      if (name !== "skill_tool_x") return undefined;
+      return {
+        name,
+        description: "tool from a skill",
+        category: "skill",
+        defaultRiskLevel: RiskLevel.Low,
+        origin: "skill" as const,
+        ownerSkillId: "my-skill",
+        getDefinition: () => ({
+          name,
+          description: "tool from a skill",
+          input_schema: { type: "object" as const, properties: {} },
+        }),
+        execute: async () => fakeToolResult,
+      };
+    };
+    const allowed = new Set(["file_read"]);
+    const result = await executor.execute(
+      "skill_tool_x",
+      {},
+      makeContext({ allowedToolNames: allowed }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe(
+      'Tool "skill_tool_x" is not currently active. Load the "my-skill" skill that provides this tool first.',
+    );
+  });
 });
 
 describe("ToolExecutor policy context plumbing", () => {
