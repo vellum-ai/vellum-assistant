@@ -5,6 +5,7 @@ import {
   type ButtonHTMLAttributes,
   type CSSProperties,
   type HTMLAttributes,
+  type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
   type Ref,
@@ -340,34 +341,50 @@ function PanelItem({
   }
 
   // ── Button variant ─────────────────────────────────────────────────
+  // Rendered as `<div role="button">` rather than `<button>` because rows
+  // commonly host interactive children (pin toggles, ellipsis menus) in
+  // their `leadingSlot` / `trailingAction` slots. HTML forbids nesting
+  // interactive elements inside `<button>`, which React 19 flags as a
+  // hydration error. The same `Enter`/`Space` activation, tab focus, and
+  // screen-reader semantics are preserved via `role="button"` + `tabIndex`.
   if (onSelect) {
     const {
-      onClick: buttonOnClick,
-      onKeyDown: buttonOnKeyDown,
-      ...buttonProps
-    } = rest as SharedButtonProps;
+      onClick: rowOnClick,
+      onKeyDown: rowOnKeyDown,
+      ...divProps
+    } = rest as HTMLAttributes<HTMLDivElement>;
 
-    const composedOnClick = (event: MouseEvent<HTMLButtonElement>) => {
-      buttonOnClick?.(event);
+    const composedOnClick = (event: MouseEvent<HTMLDivElement>) => {
+      rowOnClick?.(event);
       if (!event.defaultPrevented) {
         onSelect();
       }
     };
 
+    const composedOnKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+      rowOnKeyDown?.(event);
+      if (event.defaultPrevented) return;
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onSelect();
+      }
+    };
+
     return (
-      <button
-        {...buttonProps}
+      <div
+        {...divProps}
         data-slot="panel-item"
-        ref={ref as Ref<HTMLButtonElement>}
-        type="button"
+        ref={ref as Ref<HTMLDivElement>}
+        role="button"
+        tabIndex={0}
         className={rowClasses}
         aria-current={ariaCurrent}
         aria-label={resolvedAriaLabel}
         onClick={composedOnClick}
-        onKeyDown={buttonOnKeyDown}
+        onKeyDown={composedOnKeyDown}
       >
         {innerMarkup}
-      </button>
+      </div>
     );
   }
 
