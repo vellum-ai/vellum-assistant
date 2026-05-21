@@ -347,14 +347,22 @@ function PanelItem({
   // interactive elements inside `<button>`, which React 19 flags as a
   // hydration error. The same `Enter`/`Space` activation, tab focus, and
   // screen-reader semantics are preserved via `role="button"` + `tabIndex`.
+  // `disabled` is honored via `aria-disabled` + skipped activation +
+  // `tabIndex={-1}`, matching native `<button disabled>` behavior since
+  // `disabled` is in the public `SharedButtonProps` surface.
   if (onSelect) {
     const {
       onClick: rowOnClick,
       onKeyDown: rowOnKeyDown,
+      disabled,
       ...divProps
-    } = rest as HTMLAttributes<HTMLDivElement>;
+    } = rest as HTMLAttributes<HTMLDivElement> & { disabled?: boolean };
 
     const composedOnClick = (event: MouseEvent<HTMLDivElement>) => {
+      if (disabled) {
+        event.preventDefault();
+        return;
+      }
       rowOnClick?.(event);
       if (!event.defaultPrevented) {
         onSelect();
@@ -362,6 +370,7 @@ function PanelItem({
     };
 
     const composedOnKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+      if (disabled) return;
       rowOnKeyDown?.(event);
       if (event.defaultPrevented) return;
       if (event.key === "Enter" || event.key === " ") {
@@ -376,7 +385,8 @@ function PanelItem({
         data-slot="panel-item"
         ref={ref as Ref<HTMLDivElement>}
         role="button"
-        tabIndex={0}
+        tabIndex={disabled ? -1 : 0}
+        aria-disabled={disabled || undefined}
         className={rowClasses}
         aria-current={ariaCurrent}
         aria-label={resolvedAriaLabel}
