@@ -3,10 +3,26 @@ import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { cn } from "@vellum/design-library";
+import { openUrl } from "@/runtime/browser.js";
+import { isNativePlatform } from "@/runtime/native-auth.js";
 
 interface HomeMarkdownContentProps {
   content: string;
   className?: string;
+}
+
+// On iOS WKWebView without a `WKUIDelegate createWebViewWith` implementation,
+// `target="_blank"` links silently do nothing — the webview won't open a new
+// "tab". Route through Capacitor's `SFSafariViewController` instead so the
+// user actually sees the destination. Web keeps the default new-tab behavior
+// (right-click → copy link still works because the `href` is preserved).
+function handleAnchorClick(
+  event: React.MouseEvent<HTMLAnchorElement>,
+  href: string | undefined,
+): void {
+  if (!href || !isNativePlatform()) return;
+  event.preventDefault();
+  void openUrl(href);
 }
 
 /**
@@ -36,6 +52,7 @@ const markdownComponents: Components = {
       style={{ color: "var(--content-link)" }}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={(e) => handleAnchorClick(e, href)}
     >
       {children}
     </a>
@@ -68,6 +85,21 @@ const markdownComponents: Components = {
     >
       {children}
     </code>
+  ),
+  // Wraps fenced code blocks. `react-markdown` nests <code> inside <pre>
+  // for ``` blocks, so we override the wrapper here to give the block its
+  // own padding/scroll instead of inheriting the inline-code chip styling.
+  pre: ({ children }) => (
+    <pre
+      className="mb-2 overflow-x-auto rounded p-3 font-mono text-[0.85em]"
+      style={{
+        backgroundColor:
+          "color-mix(in oklab, var(--content-default) 6%, transparent)",
+        color: "var(--content-default)",
+      }}
+    >
+      {children}
+    </pre>
   ),
   h1: ({ children }) => (
     <h1
@@ -104,6 +136,35 @@ const markdownComponents: Components = {
       {children}
     </blockquote>
   ),
+  // GFM tables — without these, browser-default rendering produces unstyled
+  // borders that don't match the rest of the panel. Horizontal scroll keeps
+  // wide tables from blowing out the condensed panel width.
+  table: ({ children }) => (
+    <div className="mb-2 overflow-x-auto">
+      <table
+        className="w-full border-collapse text-body-small-default"
+        style={{ color: "var(--content-secondary)" }}
+      >
+        {children}
+      </table>
+    </div>
+  ),
+  thead: ({ children }) => (
+    <thead style={{ backgroundColor: "var(--surface-lift)" }}>{children}</thead>
+  ),
+  tbody: ({ children }) => <tbody>{children}</tbody>,
+  tr: ({ children }) => (
+    <tr style={{ borderBottom: "1px solid var(--border-base)" }}>{children}</tr>
+  ),
+  th: ({ children }) => (
+    <th
+      className="px-2 py-1.5 text-left font-semibold"
+      style={{ color: "var(--content-default)" }}
+    >
+      {children}
+    </th>
+  ),
+  td: ({ children }) => <td className="px-2 py-1.5 align-top">{children}</td>,
 };
 
 /**
