@@ -261,9 +261,6 @@
   "src/domains/settings/components/risk-tolerance-settings.tsx": [
     "chat"
   ],
-  "src/domains/settings/components/voice-panel.tsx": [
-    "voice"
-  ],
   "src/domains/settings/hooks/use-settings-sync.ts": [
     "chat"
   ],
