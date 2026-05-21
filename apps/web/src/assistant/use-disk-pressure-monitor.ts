@@ -12,6 +12,7 @@ import {
   getDiskPressureMonitorMode,
   type DiskPressureMonitorMode,
 } from "@/assistant/disk-pressure.js";
+import { useEventBusStore } from "@/stores/event-bus-store.js";
 
 export interface UseDiskPressureMonitorOptions {
   assistantId: string | null;
@@ -167,23 +168,18 @@ export function useDiskPressureMonitor({
       void refresh();
     }, cadenceMs);
 
-    const refreshOnFocus = () => {
-      void refresh();
-    };
-
-    const refreshOnVisibility = () => {
-      if (document.visibilityState === "visible") {
+    // The bus's `"app.resume"` channel fans in browser visibility,
+    // Capacitor foreground, and `window.online`, so a single
+    // subscription drives the focus-style refetch.
+    const unsubResume = useEventBusStore
+      .getState()
+      .subscribe("app.resume", () => {
         void refresh();
-      }
-    };
-
-    window.addEventListener("focus", refreshOnFocus);
-    document.addEventListener("visibilitychange", refreshOnVisibility);
+      });
 
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener("focus", refreshOnFocus);
-      document.removeEventListener("visibilitychange", refreshOnVisibility);
+      unsubResume();
     };
   }, [assistantId, cadenceMs, enabled, refresh, refreshKey]);
 
