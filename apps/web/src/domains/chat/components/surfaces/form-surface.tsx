@@ -298,7 +298,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
       )}
 
       {currentPageData.title && isMultiPage && (
-        <h3 className="mb-1 text-title-small text-stone-700 dark:text-stone-300">
+        <h3 className="mb-1 text-title-small text-[var(--content-strong)]">
           {currentPageData.title}
         </h3>
       )}
@@ -313,7 +313,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
       <form onSubmit={handleSubmit} className="space-y-3">
         {currentPageData.fields.map((field) => (
           <div key={field.id}>
-            <label className="mb-1 block text-body-medium-default text-stone-700 dark:text-stone-300">
+            <label className="mb-1 block text-body-medium-default text-[var(--content-strong)]">
               {field.label}
               {field.required && (
                 <span className="ml-0.5 text-danger-500">*</span>
@@ -335,7 +335,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
                 type="button"
                 onClick={handleBack}
                 disabled={isSubmitting}
-                className="flex items-center gap-1 rounded-lg border border-stone-300 bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-stone-700 transition-colors hover:bg-stone-50 disabled:opacity-50 dark:border-moss-600 dark:text-stone-200 dark:hover:bg-moss-600"
+                className="flex items-center gap-1 rounded-lg border border-stone-300 bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-strong)] transition-colors hover:bg-stone-50 disabled:opacity-50 dark:border-moss-600 dark:hover:bg-moss-600"
               >
                 <ChevronLeft className="h-4 w-4" />
                 {backLabel}

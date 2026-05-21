@@ -267,7 +267,7 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
 
       <ChatMarkdownMessage
         content={data.prompt}
-        className="mb-3 text-body-medium-lighter text-stone-600 dark:text-stone-300"
+        className="mb-3 text-body-medium-lighter text-[var(--content-strong)]"
       />
 
       {/* Drop zone */}
@@ -322,7 +322,7 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
               className="flex items-center gap-2 rounded-md bg-stone-50 px-3 py-2 text-body-medium-lighter dark:bg-moss-800"
             >
               <File className="h-4 w-4 shrink-0 text-[var(--content-faint)]" />
-              <span className="min-w-0 flex-1 truncate text-stone-700 dark:text-stone-300">
+              <span className="min-w-0 flex-1 truncate text-[var(--content-strong)]">
                 {sanitizeFilename(sf.file.name)}
               </span>
               <span className="shrink-0 text-body-small-default text-[var(--content-faint)]">

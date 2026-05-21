@@ -55,7 +55,7 @@ export function CallSummarySurface({
         onClick={() => setExpanded((v) => !v)}
       >
         <StatusIcon className="h-4 w-4 shrink-0 text-[var(--content-faint)]" />
-        <span className="flex-1 text-body-medium-lighter text-stone-700 dark:text-stone-300">
+        <span className="flex-1 text-body-medium-lighter text-[var(--content-strong)]">
           <strong>{statusLabel}</strong>
           {durationStr}
           {". "}

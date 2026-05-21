@@ -56,7 +56,7 @@ export function SurfaceContainer({ surface, onAction, children }: SurfaceContain
                 className={
                   action.style === "primary"
                     ? "flex items-center gap-2 rounded-lg bg-forest-600 px-4 py-2 text-body-medium-default text-white transition-colors hover:bg-forest-700 disabled:opacity-50"
-                    : "flex items-center gap-2 rounded-lg border border-stone-300 bg-[var(--surface-lift)] px-4 py-2 text-body-medium-default text-stone-700 transition-colors hover:bg-stone-50 disabled:opacity-50 dark:border-moss-600 dark:text-stone-200 dark:hover:bg-moss-600"
+                    : "flex items-center gap-2 rounded-lg border border-stone-300 bg-[var(--surface-lift)] px-4 py-2 text-body-medium-default text-[var(--content-strong)] transition-colors hover:bg-stone-50 disabled:opacity-50 dark:border-moss-600 dark:hover:bg-moss-600"
                 }
               >
                 {submittingAction === action.id && (
