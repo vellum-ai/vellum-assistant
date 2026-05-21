@@ -14,15 +14,19 @@ import {
   type SegmentControlItem,
 } from "@vellum/design-library/components/segment-control";
 import { Typography } from "@vellum/design-library/components/typography";
-import type { MachineSizeEnum, MachineTierEnum } from "@/generated/api/types.gen.js";
+import type {
+  MachineSizeEnum,
+  MachineTierEnum,
+} from "@/generated/api/types.gen.js";
 import {
   organizationsBillingSubscriptionOnboardingDomainCreateMutation,
   organizationsBillingSubscriptionOnboardingMachineCreateMutation,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
-  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
+  organizationsBillingSubscriptionOnboardingStorageCreateMutation,
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen.js";
+import { SIZE_LABEL, TIER_TO_SIZES } from "@/lib/billing/machine-sizes.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 
@@ -38,14 +42,16 @@ export const DOMAIN_EXIT_DELAY_MS = 800;
  * `GET /v1/organizations/billing/subscription/` until `plan_id === "pro"` or
  * the timeout fires.
  *
- * Step 1 ("pvc-readiness"): Once Pro is confirmed, poll
- * `GET /v1/organizations/billing/subscription/onboarding/` until
- * `pvc_ready === true` or the timeout fires. PVC provisioning typically
- * completes in 10-20 seconds.
+ * Step 1 ("storage"): Once Pro is confirmed, explicitly apply the plan's
+ * included workspace storage to the current (primary) assistant via
+ * `POST /v1/organizations/billing/subscription/onboarding/storage/`. This
+ * triggers a brief assistant restart, so the step warns the user before
+ * acting. The user can skip and apply storage later from general settings.
  *
- * Step 2 ("machine-size"): Pick a default machine size for new assistants,
+ * Step 2 ("machine-size"): Set the compute size for the current assistant,
  * filtered by the org's `max_machine_tier`. Submits to
- * `POST /v1/organizations/billing/subscription/onboarding/machine/`.
+ * `POST /v1/organizations/billing/subscription/onboarding/machine/`. This also
+ * restarts the assistant, so the step carries the same restart warning.
  *
  * Step 3 ("domain"): Optional custom subdomain `<sub>.<emailRootDomain>`
  * (env-aware, e.g. `vellum.me` in prod) registered via
@@ -56,40 +62,19 @@ export const DOMAIN_EXIT_DELAY_MS = 800;
 
 export const PRO_POLL_INTERVAL_MS = 1000;
 export const PRO_POLL_TIMEOUT_MS = 10_000;
-export const PVC_POLL_INTERVAL_MS = 2000;
-export const PVC_POLL_TIMEOUT_MS = 30_000;
 
-const MACHINE_SIZE_ORDER: readonly MachineSizeEnum[] = [
-  "small",
-  "medium",
-  "large",
-  "extra_large",
-];
-
-const TIER_TO_MAX_SIZE_INDEX: Record<MachineTierEnum, number> = {
-  medium: 1, // small, medium
-  large: 2, // small, medium, large
-  xl: 3, // small, medium, large, extra_large
-};
-
-const MACHINE_SIZE_LABEL: Record<MachineSizeEnum, string> = {
-  small: "Small",
-  medium: "Medium",
-  large: "Large",
-  extra_large: "Extra large",
-};
+const RESTART_NOTICE =
+  "Your assistant will briefly restart and be unreachable while this is set up.";
 
 /**
  * Returns the allowed machine sizes for an org's tier, in ascending order.
- * null/unknown tier → fall back to the most restrictive tier (medium).
+ * Delegates to the shared per-tier map (`TIER_TO_SIZES`); null/unknown tier →
+ * fall back to the most restrictive tier (medium).
  */
 export function allowedMachineSizesForTier(
   tier: MachineTierEnum | null | undefined,
 ): MachineSizeEnum[] {
-  const ceilingIdx =
-    TIER_TO_MAX_SIZE_INDEX[tier as MachineTierEnum] ??
-    TIER_TO_MAX_SIZE_INDEX.medium;
-  return MACHINE_SIZE_ORDER.slice(0, ceilingIdx + 1);
+  return TIER_TO_SIZES[tier as string] ?? TIER_TO_SIZES.medium!;
 }
 
 const ONBOARDING_MACHINE_DRF_FIELD_KEYS = [
@@ -143,18 +128,29 @@ export function extractOnboardingErrorMessage(
   return fallback;
 }
 
-type WizardStep =
-  | "confirm-pro"
-  | "pvc-readiness"
-  | "machine-size"
-  | "domain";
+/**
+ * The storage and machine onboarding endpoints return HTTP 202 with a
+ * `failures` count even when the underlying `resize_assistant` apply failed
+ * (a 2xx body, not an error response). React Query's `onSuccess` fires
+ * regardless, so the wizard must inspect `failures` and refuse to advance
+ * when the apply did not actually succeed. A no-op skip (`skipped: 1,
+ * failures: 0`) is still a success.
+ */
+function applyReportedFailure(data: unknown): boolean {
+  if (data && typeof data === "object") {
+    const failures = (data as { failures?: unknown }).failures;
+    return typeof failures === "number" && failures > 0;
+  }
+  return false;
+}
+
+type WizardStep = "confirm-pro" | "storage" | "machine-size" | "domain";
 
 export function BillingOnboardingPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [step, setStep] = useState<WizardStep>("confirm-pro");
   const [proPollExpired, setProPollExpired] = useState(false);
-  const [pvcPollExpired, setPvcPollExpired] = useState(false);
 
   const goToBilling = useCallback(
     () => navigate(routes.settings.billing, { replace: true }),
@@ -191,46 +187,20 @@ export function BillingOnboardingPage() {
   useEffect(() => {
     if (step !== "confirm-pro") return;
     if (subscriptionQuery.data?.plan_id === "pro") {
-      setStep("pvc-readiness");
+      setStep("storage");
     }
   }, [step, subscriptionQuery.data?.plan_id]);
 
-  // ----- Step 1: PVC readiness -----
+  // ----- Steps 1–3 onboarding state -----
+  //
+  // The onboarding state read supplies `selected_storage_gib` (storage step),
+  // `max_machine_tier` (machine step), and `domain_setup_available` (domain
+  // gate). It's no longer polled — storage is applied explicitly by the user.
 
   const onboardingQuery = useQuery({
     ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
-    refetchInterval: (query) => {
-      const ready = query.state.data?.pvc_ready === true;
-      if (ready || pvcPollExpired) return false;
-      return PVC_POLL_INTERVAL_MS;
-    },
-    refetchIntervalInBackground: false,
-    enabled: step === "pvc-readiness",
+    enabled: step !== "confirm-pro",
   });
-
-  useEffect(() => {
-    if (step !== "pvc-readiness") return;
-    const t = setTimeout(() => setPvcPollExpired(true), PVC_POLL_TIMEOUT_MS);
-    return () => clearTimeout(t);
-  }, [step]);
-
-  // Force a fresh onboarding read when we enter the PVC step so we don't
-  // immediately observe a stale cached value.
-  useEffect(() => {
-    if (step !== "pvc-readiness") return;
-    void queryClient.invalidateQueries({
-      queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-    });
-  }, [step, queryClient]);
-
-  // ----- Step 1 → Step 2 transition -----
-
-  useEffect(() => {
-    if (step !== "pvc-readiness") return;
-    if (onboardingQuery.data?.pvc_ready === true) {
-      setStep("machine-size");
-    }
-  }, [step, onboardingQuery.data?.pvc_ready]);
 
   // ----- Step 2 → Step 3 advance -----
   //
@@ -273,24 +243,14 @@ export function BillingOnboardingPage() {
       );
     }
 
-    if (step === "pvc-readiness") {
+    if (step === "storage") {
       if (onboardingQuery.isError) {
         return <FetchErrorState onGoToBilling={goToBilling} />;
       }
-      if (pvcPollExpired) {
-        return (
-          <TimeoutState
-            message="We're still setting up your workspace. Try again from billing in a moment."
-            onGoToBilling={goToBilling}
-          />
-        );
-      }
-      // pvc_ready=true case is handled by the effect that advances to
-      // "machine-size"; render the pending state in the meantime.
       return (
-        <PendingState
-          title="Setting up your workspace…"
-          body="We're provisioning storage for your assistant. This usually takes 10–20 seconds."
+        <StorageStep
+          storageGib={onboardingQuery.data?.selected_storage_gib ?? null}
+          onAdvance={() => setStep("machine-size")}
         />
       );
     }
@@ -318,6 +278,87 @@ export function BillingOnboardingPage() {
   }
 }
 
+function StorageStep({
+  storageGib,
+  onAdvance,
+}: {
+  storageGib: number | null;
+  onAdvance: () => void;
+}) {
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const storageMutation = useMutation(
+    organizationsBillingSubscriptionOnboardingStorageCreateMutation(),
+  );
+
+  const handleApply = () => {
+    if (storageMutation.isPending) return;
+    storageMutation.mutate(
+      {},
+      {
+        onSuccess: (data) => {
+          if (applyReportedFailure(data)) {
+            setErrorMsg("Couldn't apply storage. Please try again.");
+            return;
+          }
+          setErrorMsg(null);
+          onAdvance();
+        },
+        onError: (err) => {
+          setErrorMsg(
+            extractOnboardingErrorMessage(
+              err,
+              "Couldn't apply storage. Please try again.",
+            ),
+          );
+        },
+      },
+    );
+  };
+
+  const amount = storageGib != null ? `${storageGib} GiB` : "additional";
+
+  return (
+    <div className="space-y-5">
+      <div className="space-y-2">
+        <Typography variant="title-small" as="h1">
+          Apply your workspace storage
+        </Typography>
+        <Typography
+          variant="body-medium-lighter"
+          as="p"
+          className="text-[var(--content-secondary)]"
+        >
+          Your Pro plan includes {amount} of workspace storage. Apply it to
+          this assistant now?
+        </Typography>
+      </div>
+
+      <Notice tone="warning">{RESTART_NOTICE}</Notice>
+
+      {errorMsg ? <Notice tone="error">{errorMsg}</Notice> : null}
+
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          variant="outlined"
+          data-testid="onboarding-storage-skip"
+          disabled={storageMutation.isPending}
+          onClick={onAdvance}
+        >
+          Skip for now
+        </Button>
+        <Button
+          variant="primary"
+          data-testid="onboarding-storage-apply"
+          disabled={storageMutation.isPending}
+          onClick={handleApply}
+        >
+          Apply storage
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function MachineSizeStep({
   maxTier,
   onAdvance,
@@ -329,7 +370,7 @@ function MachineSizeStep({
     () =>
       allowedMachineSizesForTier(maxTier).map((size) => ({
         value: size,
-        label: MACHINE_SIZE_LABEL[size],
+        label: SIZE_LABEL[size],
       })),
     [maxTier],
   );
@@ -346,7 +387,11 @@ function MachineSizeStep({
     machineMutation.mutate(
       { body: { machine_size: selected } },
       {
-        onSuccess: () => {
+        onSuccess: (data) => {
+          if (applyReportedFailure(data)) {
+            setErrorMsg("Couldn't update machine size. Please try again.");
+            return;
+          }
           setErrorMsg(null);
           onAdvance();
         },
@@ -373,8 +418,8 @@ function MachineSizeStep({
           as="p"
           className="text-[var(--content-secondary)]"
         >
-          This sets the default size for new assistants. You can change it
-          later in billing settings.
+          Set the compute size for this assistant. You can change it later in
+          billing settings.
         </Typography>
       </div>
 
@@ -384,6 +429,8 @@ function MachineSizeStep({
         onChange={setSelected}
         ariaLabel="Machine size"
       />
+
+      <Notice tone="warning">{RESTART_NOTICE}</Notice>
 
       {errorMsg ? <Notice tone="error">{errorMsg}</Notice> : null}
 

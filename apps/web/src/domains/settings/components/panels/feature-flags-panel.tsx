@@ -105,18 +105,6 @@ const FLAG_DEFINITIONS: Record<string, FlagDefinition> = {
       "Show older versions in the version picker, allowing rollback to previous releases.",
     defaultValue: false,
   },
-  referralCodes: {
-    ldKey: "referral-codes",
-    label: "Referral Codes",
-    description: "Enable referral code functionality.",
-    defaultValue: false,
-  },
-  referralCodesAdmin: {
-    ldKey: "referral-codes-admin",
-    label: "Referral Codes Admin",
-    description: "Enable admin controls for referral codes.",
-    defaultValue: false,
-  },
   safeStorageLimits: {
     ldKey: "safe-storage-limits",
     label: "Safe Storage Limits",

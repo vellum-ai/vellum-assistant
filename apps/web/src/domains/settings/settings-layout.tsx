@@ -52,7 +52,13 @@ export function SettingsLayout() {
       (item) =>
         pathname === item.href || pathname.startsWith(item.href + "/"),
     );
-    return match?.label ?? "Settings";
+    if (match) return match.label;
+    // Index route (/assistant/settings) renders GeneralPage but doesn't
+    // match any sidebar href — use the first sidebar item's label.
+    if (pathname === routes.settings.root) {
+      return SETTINGS_SIDEBAR[0]?.label ?? "Settings";
+    }
+    return "Settings";
   }, [pathname]);
 
   useSettingsSync();
