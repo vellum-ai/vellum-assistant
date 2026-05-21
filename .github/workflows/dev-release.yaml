@@ -1086,10 +1086,11 @@ jobs:
   # blocks, which Slack renders as a collapsible "Show more" element, so the
   # channel stays tidy even when a release spans many commits.
   #
-  # Reuses the existing SLACK_WEBHOOK_URL secret (also used by notify-releases
-  # below) with a per-message channel override, so no extra setup is required.
-  # Optionally override the target channel with a repo Actions variable
-  # DEV_RELEASES_SLACK_CHANNEL (defaults to #dev-releases).
+  # Posts via a #dev-releases incoming webhook stored in the repo secret
+  # SLACK_DEV_RELEASES_WEBHOOK_URL. The channel is baked into the webhook URL
+  # (incoming webhooks ignore a payload `channel` field), so each channel needs
+  # its own webhook — mirroring SLACK_WEBHOOK_URL (#build-alerts) and
+  # SLACK_RELEASES_WEBHOOK_URL (releases). The job no-ops if the secret is unset.
 
   notify-dev-release:
     needs: [compute-version, register-release, register-preview-release]
@@ -1107,8 +1108,7 @@ jobs:
         id: build
         env:
           GH_TOKEN: ${{ github.token }}
-          WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_CHANNEL: ${{ vars.DEV_RELEASES_SLACK_CHANNEL || '#dev-releases' }}
+          WEBHOOK: ${{ secrets.SLACK_DEV_RELEASES_WEBHOOK_URL }}
           REPO: ${{ github.repository }}
           VERSION: ${{ needs.compute-version.outputs.version }}
           HEAD_SHA: ${{ github.sha }}
@@ -1118,7 +1118,7 @@ jobs:
           set -euo pipefail
 
           if [ -z "${WEBHOOK:-}" ]; then
-            echo "::warning::SLACK_WEBHOOK_URL is not set — skipping #dev-releases notification."
+            echo "::warning::SLACK_DEV_RELEASES_WEBHOOK_URL is not set — skipping #dev-releases notification."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -1231,19 +1231,19 @@ jobs:
             fi
           fi
 
+          # No `channel` field: incoming webhooks ignore it and post to the
+          # channel baked into SLACK_DEV_RELEASES_WEBHOOK_URL (#dev-releases).
           jq -n \
-            --arg channel "$SLACK_CHANNEL" \
             --arg version "$VERSION" \
             --argjson blocks "$BLOCKS" \
             '{
-              channel: $channel,
               unfurl_links: false,
               unfurl_media: false,
               text: ("Dev Release " + $version),
               blocks: $blocks
             }' > "${RUNNER_TEMP}/dev-release-slack-payload.json"
 
-          echo "Built Slack payload for ${SLACK_CHANNEL} (${COUNT} commits listed)."
+          echo "Built Slack payload (${COUNT} commits listed)."
 
       - name: Notify Slack
         id: slack
@@ -1251,7 +1251,7 @@ jobs:
         continue-on-error: true
         uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
         with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook: ${{ secrets.SLACK_DEV_RELEASES_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload-file-path: ${{ runner.temp }}/dev-release-slack-payload.json
           errors: true
