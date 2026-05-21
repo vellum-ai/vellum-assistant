@@ -61,9 +61,11 @@ import { buildLazyGetters, type ApiKeyRef, type AssistantIdRef } from "./managed
 import { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "./managed-errors.js";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
+import { importLegacySecureKeys } from "./legacy-secure-key-import.js";
 import { handleCredentialRoute, type CredentialRouteDeps } from "./http/credential-routes.js";
 import { handleLogExportRoute } from "./http/log-export-routes.js";
 import { CES_MIGRATIONS } from "./migrations/registry.js";
+import { apiKeyToCredentialsMigration } from "./migrations/002-api-keys-to-credentials.js";
 import { runCesMigrations } from "./migrations/runner.js";
 
 // ---------------------------------------------------------------------------
@@ -544,6 +546,34 @@ async function main(): Promise<void> {
     process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro";
   const vellumRoot = join(assistantDataMount, ".vellum");
   const secureKeyBackend = createLocalSecureKeyBackend(vellumRoot);
+
+  const legacySecurityDir =
+    process.env["CREDENTIAL_LEGACY_SECURITY_DIR"] ??
+    join(vellumRoot, "protected");
+  const legacyImportSummary = await importLegacySecureKeys({
+    legacySecurityDir,
+    targetBackend: secureKeyBackend,
+  });
+  if (
+    legacyImportSummary.discovered > 0 ||
+    legacyImportSummary.imported > 0 ||
+    legacyImportSummary.unreadable > 0 ||
+    legacyImportSummary.failed > 0
+  ) {
+    log.info(
+      {
+        discovered: legacyImportSummary.discovered,
+        imported: legacyImportSummary.imported,
+        skippedExisting: legacyImportSummary.skippedExisting,
+        unreadable: legacyImportSummary.unreadable,
+        failed: legacyImportSummary.failed,
+      },
+      "CES managed startup: checked legacy secure key store",
+    );
+  }
+  if (legacyImportSummary.discovered > 0) {
+    await apiKeyToCredentialsMigration.run(secureKeyBackend);
+  }
 
   // Run one-time credential store migrations before accepting connections.
   await runCesMigrations(getCesDataRoot("managed"), secureKeyBackend, CES_MIGRATIONS);

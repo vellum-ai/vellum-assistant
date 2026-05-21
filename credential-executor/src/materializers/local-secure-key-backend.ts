@@ -102,8 +102,15 @@ const KEYS_ENC_FILENAME = "keys.enc";
  * When the env var is unset, falls back to `<vellumRoot>/protected/` for
  * backwards compatibility.
  */
-function resolveSecurityDir(vellumRoot: string): string {
-  return process.env.CREDENTIAL_SECURITY_DIR || join(vellumRoot, "protected");
+function resolveSecurityDir(
+  vellumRoot: string,
+  securityDirOverride?: string,
+): string {
+  return (
+    securityDirOverride ||
+    process.env.CREDENTIAL_SECURITY_DIR ||
+    join(vellumRoot, "protected")
+  );
 }
 
 /**
@@ -111,9 +118,9 @@ function resolveSecurityDir(vellumRoot: string): string {
  * Returns the raw 32-byte key buffer, or null if the file is missing,
  * wrong size, or unreadable.
  */
-function readStoreKey(vellumRoot: string): Buffer | null {
+function readStoreKey(securityDir: string): Buffer | null {
   try {
-    const keyPath = join(resolveSecurityDir(vellumRoot), STORE_KEY_FILENAME);
+    const keyPath = join(securityDir, STORE_KEY_FILENAME);
     if (!existsSync(keyPath)) return null;
     const buf = readFileSync(keyPath);
     if (buf.length !== KEY_LENGTH) return null;
@@ -131,11 +138,10 @@ function readStoreKey(vellumRoot: string): Buffer | null {
  * Read or generate the v2 store key. If the key file does not exist,
  * creates a new 32-byte random key and writes it atomically.
  */
-function getOrReadStoreKey(vellumRoot: string): Buffer {
-  const existing = readStoreKey(vellumRoot);
+function getOrReadStoreKey(securityDir: string): Buffer {
+  const existing = readStoreKey(securityDir);
   if (existing) return existing;
 
-  const securityDir = resolveSecurityDir(vellumRoot);
   mkdirSync(securityDir, { recursive: true });
 
   const key = randomBytes(KEY_LENGTH);
@@ -157,14 +163,14 @@ function getOrReadStoreKey(vellumRoot: string): Buffer {
  */
 function getOrCreateStore(
   storePath: string,
-  vellumRoot: string,
+  securityDir: string,
 ): { store: StoreFile; aesKey: Buffer } {
   const existing = readStore(storePath);
   if (existing) {
     if (existing.version === 1) {
       throw new Error("v1 store cannot be auto-initialized");
     }
-    const storeKey = readStoreKey(vellumRoot);
+    const storeKey = readStoreKey(securityDir);
     if (!storeKey) {
       throw new Error("v2 store exists but store.key is missing or corrupt");
     }
@@ -172,7 +178,7 @@ function getOrCreateStore(
   }
 
   // No store exists — create a new empty v2 store
-  const aesKey = getOrReadStoreKey(vellumRoot);
+  const aesKey = getOrReadStoreKey(securityDir);
   const store: StoreFileV2 = { version: 2, entries: {} };
   writeStore(store, storePath);
   return { store, aesKey };
@@ -302,9 +308,17 @@ function readStore(storePath: string): StoreFile | null {
  */
 export function createLocalSecureKeyBackend(
   vellumRoot: string,
-  options?: { entropyOverride?: string; entropyGetter?: () => string | undefined },
+  options?: {
+    entropyOverride?: string;
+    entropyGetter?: () => string | undefined;
+    securityDirOverride?: string;
+  },
 ): SecureKeyBackend {
-  const storePath = join(resolveSecurityDir(vellumRoot), KEYS_ENC_FILENAME);
+  const securityDir = resolveSecurityDir(
+    vellumRoot,
+    options?.securityDirOverride,
+  );
+  const storePath = join(securityDir, KEYS_ENC_FILENAME);
   const staticEntropy = options?.entropyOverride;
   const entropyGetter = options?.entropyGetter;
 
@@ -319,7 +333,7 @@ export function createLocalSecureKeyBackend(
 
         let aesKey: Buffer;
         if (store.version === 2) {
-          const storeKey = readStoreKey(vellumRoot);
+          const storeKey = readStoreKey(securityDir);
           if (!storeKey) return undefined;
           aesKey = storeKey;
         } else {
@@ -346,7 +360,7 @@ export function createLocalSecureKeyBackend(
         let aesKey: Buffer;
 
         try {
-          const result = getOrCreateStore(storePath, vellumRoot);
+          const result = getOrCreateStore(storePath, securityDir);
           store = result.store;
           aesKey = result.aesKey;
         } catch {
