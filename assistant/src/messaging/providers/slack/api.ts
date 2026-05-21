@@ -190,6 +190,83 @@ export async function callSlackApi(
   );
 }
 
+/**
+ * Call a Slack Web API read method with query parameters.
+ */
+async function callSlackApiGet(
+  method: string,
+  params: URLSearchParams,
+): Promise<SlackApiResponse> {
+  const botToken = await resolveBotToken();
+  const query = params.toString();
+  const url = `${SLACK_API_BASE}/${method}${query ? `?${query}` : ""}`;
+
+  let lastError: string | undefined;
+
+  for (let attempt = 0; attempt <= SLACK_MAX_RATE_LIMIT_RETRIES; attempt++) {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${botToken}`,
+      },
+    });
+
+    if (response.status === 429) {
+      if (attempt >= SLACK_MAX_RATE_LIMIT_RETRIES) {
+        throw new Error("Slack rate limit exceeded after retries");
+      }
+      const retryAfter =
+        parseInt(response.headers.get("Retry-After") ?? "", 10) ||
+        SLACK_DEFAULT_RETRY_AFTER_S;
+      log.warn({ method, retryAfter, attempt }, "Slack rate limited, retrying");
+      await new Promise((r) => setTimeout(r, retryAfter * 1000));
+      continue;
+    }
+
+    if (response.status >= 500) {
+      if (attempt >= SLACK_MAX_RATE_LIMIT_RETRIES) {
+        throw new Error(
+          `Slack ${method} failed with status ${response.status} after retries`,
+        );
+      }
+      log.warn(
+        { method, status: response.status, attempt },
+        "Slack 5xx error, retrying",
+      );
+      await new Promise((r) =>
+        setTimeout(r, SLACK_DEFAULT_RETRY_AFTER_S * 1000),
+      );
+      continue;
+    }
+
+    const data = (await response.json()) as SlackApiResponse;
+
+    if (!data.ok) {
+      lastError = data.error;
+      const category = classifySlackError(data.error);
+
+      if (category === "rate_limit" && attempt < SLACK_MAX_RATE_LIMIT_RETRIES) {
+        log.warn(
+          { method, slackError: data.error, attempt },
+          "Slack rate limited (body), retrying",
+        );
+        await new Promise((r) =>
+          setTimeout(r, SLACK_DEFAULT_RETRY_AFTER_S * 1000),
+        );
+        continue;
+      }
+
+      throw new SlackApiError(data.error);
+    }
+
+    return data;
+  }
+
+  throw new Error(
+    `Slack ${method} failed after retries: ${lastError ?? "unknown"}`,
+  );
+}
+
 function normalizeSlackString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -199,9 +276,10 @@ function normalizeSlackString(value: unknown): string | undefined {
 export async function getSlackConversationInfo(
   channelId: string,
 ): Promise<SlackConversationInfo | null> {
-  const data = (await callSlackApi("conversations.info", {
-    channel: channelId,
-  })) as SlackConversationsInfoResponse;
+  const data = (await callSlackApiGet(
+    "conversations.info",
+    new URLSearchParams({ channel: channelId }),
+  )) as SlackConversationsInfoResponse;
 
   const id = normalizeSlackString(data.channel?.id);
   if (!id) return null;

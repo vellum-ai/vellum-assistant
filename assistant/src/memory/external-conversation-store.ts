@@ -175,10 +175,10 @@ export function upsertOutboundBinding(input: {
 export function updateExternalChatName(
   conversationId: string,
   externalChatName: string,
-): ExternalConversationBinding | null {
+): void {
   const db = getDb();
   const trimmedName = externalChatName.trim();
-  if (!trimmedName) return getBindingByConversation(conversationId);
+  if (!trimmedName) return;
 
   db.update(externalConversationBindings)
     .set({
@@ -187,8 +187,6 @@ export function updateExternalChatName(
     })
     .where(eq(externalConversationBindings.conversationId, conversationId))
     .run();
-
-  return getBindingByConversation(conversationId);
 }
 
 /**

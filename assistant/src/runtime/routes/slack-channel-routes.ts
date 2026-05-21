@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import {
+  conversationMetadataSyncTag,
+  SYNC_TAGS,
+} from "../../daemon/message-types/sync.js";
+import {
   getBindingByConversation,
   updateExternalChatName,
 } from "../../memory/external-conversation-store.js";
@@ -8,6 +12,7 @@ import {
   getSlackConversationInfo,
   SlackApiError,
 } from "../../messaging/providers/slack/api.js";
+import { publishSyncInvalidation } from "../sync/sync-publisher.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -120,30 +125,9 @@ async function handleSlackChannelNameResolve({
     };
   }
 
+  let info;
   try {
-    const info = await getSlackConversationInfo(channelId);
-    const channelName = usableResolvedName(
-      channelId,
-      info?.name,
-      info?.nameNormalized,
-    );
-    if (!channelName) {
-      return {
-        channelId,
-        cached: false,
-        resolved: false,
-        reason: "no_name",
-      };
-    }
-
-    updateExternalChatName(conversationId, channelName);
-
-    return {
-      channelId,
-      channelName,
-      cached: false,
-      resolved: true,
-    };
+    info = await getSlackConversationInfo(channelId);
   } catch (err) {
     return {
       channelId,
@@ -152,6 +136,33 @@ async function handleSlackChannelNameResolve({
       reason: reasonForSlackError(err),
     };
   }
+
+  const channelName = usableResolvedName(
+    channelId,
+    info?.name,
+    info?.nameNormalized,
+  );
+  if (!channelName) {
+    return {
+      channelId,
+      cached: false,
+      resolved: false,
+      reason: "no_name",
+    };
+  }
+
+  updateExternalChatName(conversationId, channelName);
+  await publishSyncInvalidation([
+    SYNC_TAGS.conversationsList,
+    conversationMetadataSyncTag(conversationId),
+  ]);
+
+  return {
+    channelId,
+    channelName,
+    cached: false,
+    resolved: true,
+  };
 }
 
 export const ROUTES: RouteDefinition[] = [
