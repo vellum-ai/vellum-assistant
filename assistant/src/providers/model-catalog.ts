@@ -1066,6 +1066,18 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         pricing: { inputPer1mTokens: 0.8, outputPer1mTokens: 3.2 },
       },
+      // Owl (OpenRouter first-party)
+      {
+        id: "openrouter/owl-alpha",
+        displayName: "Owl Alpha",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 262144,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 0, outputPer1mTokens: 0 },
+      },
     ],
     defaultModel: "x-ai/grok-4.20-beta",
     apiKeyUrl: "https://openrouter.ai/keys",

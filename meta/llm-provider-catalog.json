@@ -1120,6 +1120,22 @@
             "inputPer1mTokens": 0.8,
             "outputPer1mTokens": 3.2
           }
+        },
+        {
+          "id": "openrouter/owl-alpha",
+          "displayName": "Owl Alpha",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 262144,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": false,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0,
+            "outputPer1mTokens": 0
+          }
         }
       ]
     },
