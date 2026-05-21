@@ -2657,6 +2657,7 @@ jobs:
     with:
       environment: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
       version: ${{ needs.extract-version.outputs.version }}
+      notify_slack: false
     secrets: inherit
 
   # ci-assistant runs lint/typecheck/test for the assistant service. It also

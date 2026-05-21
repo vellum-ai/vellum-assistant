@@ -11,6 +11,11 @@ on:
         description: "Release version string (e.g. 0.6.0, 0.6.1-staging.1)"
         required: true
         type: string
+      notify_slack:
+        description: "Whether the reusable workflow sends its own Slack alert. Set false when the caller already summarizes iOS status."
+        required: false
+        type: boolean
+        default: true
 
 concurrency:
   group: ios-release-${{ inputs.environment }}
@@ -19,6 +24,7 @@ concurrency:
 jobs:
   build-and-upload:
     runs-on: macos-15
+    environment: ${{ inputs.environment }}
     timeout-minutes: 45
     env:
       KEYCHAIN_NAME: ios-build.keychain
@@ -286,7 +292,7 @@ jobs:
 
   notify-slack:
     needs: [build-and-upload]
-    if: always()
+    if: always() && inputs.notify_slack
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
