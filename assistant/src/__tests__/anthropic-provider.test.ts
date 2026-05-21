@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { Anthropic } from "@anthropic-ai/sdk";
+
 import type { Message, ToolDefinition } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -2582,16 +2584,16 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
     expect(assistantTurns.length).toBeGreaterThanOrEqual(2);
 
     // Historical turn: thinking stripped
-    const historicalBlocks =
-      assistantTurns[0].content as Anthropic.ContentBlockParam[];
+    const historicalBlocks = assistantTurns[0]
+      .content as Anthropic.ContentBlockParam[];
     const historicalThinking = historicalBlocks.filter(
       (b) => typeof b !== "string" && b.type === "thinking",
     );
     expect(historicalThinking).toHaveLength(0);
 
     // Active turn: thinking preserved
-    const activeBlocks =
-      assistantTurns[1].content as Anthropic.ContentBlockParam[];
+    const activeBlocks = assistantTurns[1]
+      .content as Anthropic.ContentBlockParam[];
     const activeThinking = activeBlocks.filter(
       (b) => typeof b !== "string" && b.type === "thinking",
     );
@@ -2622,9 +2624,7 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
     expect(blocks).toHaveLength(1);
     expect((blocks[0] as { type: string; text: string }).type).toBe("text");
     expect(
-      isPlaceholderSentinelText(
-        (blocks[0] as { text: string }).text,
-      ),
+      isPlaceholderSentinelText((blocks[0] as { text: string }).text),
     ).toBe(true);
   });
 
