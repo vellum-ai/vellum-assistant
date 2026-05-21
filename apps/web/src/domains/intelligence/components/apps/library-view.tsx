@@ -14,6 +14,7 @@ import { type ChangeEvent, type MouseEvent, useCallback, useEffect, useMemo, use
 
 import type { AppSummary } from "@/domains/chat/api/apps.js";
 import type { DocumentSummary } from "@/domains/chat/api/documents.js";
+import { ApiError } from "@/lib/api-errors.js";
 import {
   deleteApp,
   getCachedAppHtml,
@@ -269,7 +270,14 @@ export function LibraryView({
             appsResult.status === "rejected" &&
             docsResult.status === "rejected"
           ) {
-            throw appsResult.reason;
+            const isNotFound = (r: PromiseRejectedResult) =>
+              r.reason instanceof ApiError && r.reason.status === 404;
+            if (isNotFound(appsResult) && isNotFound(docsResult)) {
+              setApps([]);
+              setDocuments([]);
+            } else {
+              throw appsResult.reason;
+            }
           }
         }
       } catch (err) {
