@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { client } from "@/generated/api/client.gen.js";
@@ -62,6 +62,14 @@ async function fetchAssistantFlagValues(
 
 export function useAssistantFeatureFlagSync(assistantId: string | null) {
   const enabled = assistantId !== null;
+  const prevAssistantId = useRef(assistantId);
+
+  useEffect(() => {
+    if (prevAssistantId.current !== assistantId) {
+      useAssistantFeatureFlagStore.getState().setFlags(ASSISTANT_FLAG_DEFAULTS);
+      prevAssistantId.current = assistantId;
+    }
+  }, [assistantId]);
 
   const { data } = useQuery({
     queryKey: ["assistant-feature-flag-values", assistantId] as const,
