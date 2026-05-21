@@ -192,6 +192,42 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
     ).toBe(false);
   });
 
+  test("ignores host-proxy resolutions so in-progress tool steps don't clear the processing indicator", () => {
+    useConversationStore.getState().addProcessingKey("conv-host");
+    expect(
+      useConversationStore.getState().processingKeys.has("conv-host"),
+    ).toBe(true);
+
+    renderHook(
+      () =>
+        useAttentionTracking({
+          assistantId: "asst-1",
+          assistantStateKind: "active",
+        }),
+      { wrapper },
+    );
+
+    for (const kind of [
+      "host_bash",
+      "host_file",
+      "host_cu",
+      "host_browser",
+      "host_app_control",
+      "host_transfer",
+    ]) {
+      publishInteractionResolved({
+        requestId: `req-${kind}`,
+        conversationKey: "conv-host",
+        state: "answered",
+        kind,
+      });
+    }
+
+    expect(
+      useConversationStore.getState().processingKeys.has("conv-host"),
+    ).toBe(true);
+  });
+
   test("unsubscribes when assistantId becomes null", () => {
     useConversationStore.getState().addAttentionKey("conv-detach");
 

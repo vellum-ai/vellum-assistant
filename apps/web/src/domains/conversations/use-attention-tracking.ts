@@ -184,10 +184,18 @@ export function useAttentionTracking({
   // event fires for a non-active conversation, drop it from both
   // `attentionKeys` and `processingKeys` — the user has either responded
   // elsewhere or the daemon discarded the prompt.
+  //
+  // Host-proxy kinds (`host_bash`, `host_file`, `host_cu`,
+  // `host_browser`, `host_app_control`, `host_transfer`) resolve as
+  // intermediate tool steps during a turn that is still running, so
+  // they must not clear the processing indicator. Only the
+  // user-facing kinds (confirmation, secret, question,
+  // acp_confirmation) signal that the turn has handed control back.
   // -------------------------------------------------------------------------
   useBusSubscription("sse.event", (event) => {
     if (!assistantId) return;
     if (event.type !== "interaction_resolved") return;
+    if (event.kind.startsWith("host_")) return;
     const key = event.conversationKey;
     if (!key) return;
     const state = useConversationStore.getState();
