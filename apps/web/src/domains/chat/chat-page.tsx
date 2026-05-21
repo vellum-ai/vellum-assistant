@@ -49,7 +49,7 @@ import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
 
 import { Button, ConfirmDialog } from "@vellum/design-library";
-import { VercelTokenDialog } from "@/domains/intelligence/components/apps/vercel-token-dialog.js";
+import { VercelTokenDialog } from "@/components/vercel-token-dialog.js";
 import { useSyncChatStore } from "@/domains/chat/chat-store.js";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input.js";
@@ -1195,16 +1195,18 @@ export function ChatPage() {
         onItemSelect={handleItemSelect}
         onKeyDown={commandPalette.handleKeyDown}
       />
-      <VercelTokenDialog
-        open={isTokenDialogOpen}
-        onOpenChange={(open) => {
-          if (!open) useDeployStore.getState().hideTokenDialog();
-        }}
-        assistantId={assistantId ?? ""}
-        onTokenSaved={() => {
-          if (assistantId) void useDeployStore.getState().deployAfterTokenSaved(assistantId);
-        }}
-      />
+      {assistantId && (
+        <VercelTokenDialog
+          open={isTokenDialogOpen}
+          onOpenChange={(open) => {
+            if (!open) useDeployStore.getState().hideTokenDialog();
+          }}
+          assistantId={assistantId}
+          onTokenSaved={() => {
+            void useDeployStore.getState().deployAfterTokenSaved(assistantId);
+          }}
+        />
+      )}
       <ConfirmDialog
         open={complexDeployApp !== null}
         title="This app needs a full deploy"

@@ -12,7 +12,6 @@
   "src/domains/chat/chat-page.tsx": [
     "avatar",
     "conversations",
-    "intelligence",
     "interactions",
     "onboarding",
     "subagents"
@@ -181,9 +180,6 @@
     "chat"
   ],
   "src/domains/intelligence/components/apps/library-view.tsx": [
-    "chat"
-  ],
-  "src/domains/intelligence/components/apps/vercel-token-dialog.tsx": [
     "chat"
   ],
   "src/domains/intelligence/components/constellation-view/constellation-view.tsx": [
