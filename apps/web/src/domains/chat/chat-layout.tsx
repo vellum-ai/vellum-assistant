@@ -11,10 +11,8 @@ import { Outlet, useLocation, useNavigate } from "react-router";
 import { haptic } from "@/utils/haptics.js";
 import { routes } from "@/utils/routes.js";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 import { useAssistantSyncStream } from "@/domains/chat/hooks/use-assistant-sync-stream.js";
-import { useEventBusInit } from "@/hooks/use-event-bus-init.js";
+import { useRootOutletContext } from "@/root-layout.js";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
 import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
 import { useDynamicFavicon } from "@/domains/avatar/use-dynamic-favicon.js";
@@ -28,7 +26,6 @@ import {
 } from "@/domains/conversations/conversation-queries.js";
 import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking.js";
 import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions.js";
-import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
@@ -121,17 +118,7 @@ interface SideMenuRenderArgs {
 export function ChatLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
-  const authLoading = useAuthStore.use.isLoading();
-  const isNonProduction = useEnvironmentStore.use.isNonProduction();
-
-  const lifecycle = useAssistantLifecycle({
-    isLoggedIn,
-    isLoading: authLoading,
-    isRetired: false,
-    isNonProduction,
-    onRedirect: navigate,
-  });
+  const { lifecycle } = useRootOutletContext();
 
   // Subscribe to the sidebar conversation list at the layout level so every
   // chat-layout child route (home, library, contacts, identity, chat)
@@ -190,19 +177,6 @@ export function ChatLayout() {
     layoutAvatar.components,
     layoutAvatar.traits,
   );
-
-  // Layout-scoped event bus owns the single assistant-scoped SSE
-  // connection and dispatches synthetic app.resume / app.hidden /
-  // app.online / app.offline events from document.visibilitychange,
-  // Capacitor App.appStateChange, and window online/offline. This is
-  // the only place that opens an SSE connection — the daemon dedups
-  // subscribers by `clientId` (assistant-event-hub.ts) and would evict
-  // any second SSE from this same browser tab.
-  useEventBusInit({
-    assistantId: lifecycle.assistantId,
-    isAssistantActive,
-    checkAssistant: lifecycle.checkAssistant,
-  });
 
   // Routes assistant-global sync events from `bus.sse.event` into the
   // avatar / identity / config / sounds / schedules / conversation

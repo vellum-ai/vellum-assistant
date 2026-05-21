@@ -20,7 +20,7 @@
  * For imperative call sites that live outside the React tree (Zustand
  * store bootstraps, middleware), use {@link subscribeBus} instead.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 import {
   type BusEventName,
@@ -32,8 +32,16 @@ export function useBusSubscription<K extends BusEventName>(
   event: K,
   handler: BusHandler<K>,
 ): void {
+  // Update the latest-handler ref in a commit-phase effect so the
+  // subscription callback only ever sees handlers from committed
+  // renders. Mutating the ref during render would let an event
+  // delivered in the render→commit window (or after an aborted
+  // render under concurrent React) invoke a handler whose closures
+  // do not match the rendered UI state.
   const handlerRef = useRef(handler);
-  handlerRef.current = handler;
+  useLayoutEffect(() => {
+    handlerRef.current = handler;
+  });
 
   useEffect(() => {
     return useEventBusStore.getState().subscribe(event, (payload) => {

@@ -2,9 +2,11 @@
  * Typed outlet context for the assistant lifecycle and layout slot
  * registration.
  *
- * `ChatLayout` owns `useAssistantLifecycle` and passes the resolved
- * assistant state to all child routes via React Router's outlet context.
- * Child routes consume it through `useAssistantContext()`.
+ * `RootLayout` owns `useAssistantLifecycle` and passes it down via
+ * outlet context. `ChatLayout` reads it via `useRootOutletContext()`
+ * and re-publishes the chat-scoped slice as `AssistantContextValue`
+ * for its own children, which consume it through
+ * `useAssistantContext()`.
  *
  * Layout slot setters (`setTopBarCenter`, `setTopBarRightSlot`) allow
  * child routes to register content for the header without prop drilling.
