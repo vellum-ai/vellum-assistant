@@ -36,24 +36,45 @@ bun run dev         # Vite dev server on localhost:3000
 The Vite dev server includes a built-in
 [reverse proxy](https://vite.dev/config/server-options#server-proxy)
 that forwards API paths (`/v1/*`, `/_allauth/*`, `/accounts/*`) to the
-Django backend. This keeps all requests same-origin so session cookies
-work automatically — no CORS configuration or HTTPS setup needed.
+backend. This keeps all requests same-origin so session cookies work
+automatically — no CORS configuration or HTTPS setup needed.
 
-By default the proxy targets `http://localhost:8000`. To change it,
-set `API_PROXY_TARGET` in a `.env` file (see
-[`.env.example`](./.env.example)):
+There are two supported local-development backends.
+
+#### Option A — local daemon + gateway (recommended for OSS / self-host work)
+
+Run the assistant daemon and gateway you'd normally use (`vellum hatch`
+/ `vellum wake` — see the [root CONTRIBUTING.md](../../CONTRIBUTING.md)),
+configured with HTTP auth disabled, then point the SPA's proxy at the
+local gateway. Copy [`.env.local.example`](./.env.local.example) to
+`.env.local`:
+
+```bash
+cp .env.local.example .env.local
+```
+
+That file sets `API_PROXY_TARGET=http://localhost:7830` (gateway) and
+`VITE_AUTH_MODE=local`. The SPA boots straight into the app — no
+sign-in screen — and the gateway+daemon serve `/v1/*` directly. This
+is the configuration that does not require any hosted infrastructure.
+
+#### Option B — hosted backend (cloud-replicating development)
+
+To develop against the hosted backend stack (Django + allauth +
+WorkOS sign-in), leave `VITE_AUTH_MODE` unset (it defaults to
+`"cloud"`) and point `API_PROXY_TARGET` at your Django instance:
 
 ```bash
 # .env (not committed)
 API_PROXY_TARGET=http://localhost:8000
 ```
 
-Browse to **http://localhost:3000** and log in normally.
+Then browse to **http://localhost:3000** and sign in normally.
 
 > **Note:** Some API endpoints (avatar, feed, assistant state) return
-> 404 unless the assistant daemon is running. This is expected in
-> frontend-only mode — the core UI and auth flow work without the
-> daemon.
+> 404 unless the assistant daemon is running. In Option B this is
+> expected in frontend-only mode — the core UI and auth flow work
+> without the daemon.
 
 ### How the proxy works
 

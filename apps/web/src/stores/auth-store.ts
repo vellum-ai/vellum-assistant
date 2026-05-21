@@ -19,7 +19,25 @@ import {
   getSession,
   logout as allauthLogout,
 } from "@/lib/auth/allauth-client.js";
+import { isLocalMode } from "@/lib/auth/mode.js";
 import { clearOrganization } from "@/stores/organization-store.js";
+
+/**
+ * Synthetic user for local mode. The SPA never queries identity in
+ * local mode (no IdP, no allauth), but the rest of the app reads
+ * `useAuthStore().user` to decide what to render — so we provide a
+ * stable placeholder identity. Anything that needs a real user id
+ * (telemetry, multi-tenant features) should branch on `isLocalMode()`
+ * rather than reading the synthetic id.
+ */
+const LOCAL_MODE_USER: AuthUser = {
+  id: "local",
+  username: "local",
+  email: null,
+  isStaff: false,
+  firstName: "",
+  lastName: "",
+};
 
 export interface AuthUser {
   id: string | null;
@@ -89,6 +107,13 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
   user: null,
 
   initSession: async () => {
+    if (isLocalMode()) {
+      // No allauth backend in local mode. Boot straight into an
+      // "always signed in as local owner" state and skip the probe.
+      syncOrganizationState(LOCAL_MODE_USER.id);
+      set({ isLoggedIn: true, isLoading: false, user: LOCAL_MODE_USER });
+      return;
+    }
     try {
       const result = await getSession();
       if (result.ok && result.data.user) {
@@ -105,6 +130,10 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
   },
 
   refreshSession: async () => {
+    if (isLocalMode()) {
+      // Local mode has no remote session to refresh against.
+      return true;
+    }
     try {
       const result = await getSession();
       if (result.ok && result.data.user) {
@@ -122,6 +151,12 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
   },
 
   logout: async () => {
+    if (isLocalMode()) {
+      // No remote session to terminate; ignore. (Surfaces in UI as a
+      // no-op; the logout button is hidden in local mode at the view
+      // layer.)
+      return;
+    }
     try {
       await allauthLogout();
     } finally {

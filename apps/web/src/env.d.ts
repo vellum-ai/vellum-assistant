@@ -18,6 +18,13 @@ interface ImportMetaEnv {
   readonly VITE_STRIPE_PUBLISHABLE_KEY?: string;
   /** App version stamp for diagnostic reporting. */
   readonly VITE_APP_VERSION?: string;
+  /**
+   * Auth mode for this build. `"local"` skips the sign-in flow entirely
+   * — the SPA assumes it's pointed at a local-only daemon (e.g. the
+   * gateway running with `DISABLE_HTTP_AUTH=true`). `"cloud"` (default,
+   * also used when unset) runs the normal sign-in flow against allauth.
+   */
+  readonly VITE_AUTH_MODE?: "local" | "cloud";
 }
 
 interface ImportMeta {

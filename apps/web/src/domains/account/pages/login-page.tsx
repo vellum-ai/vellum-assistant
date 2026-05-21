@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, Navigate, useSearchParams } from "react-router";
 import { Mail } from "lucide-react";
 
 import { Button } from "@vellum/design-library";
@@ -8,6 +8,7 @@ import { GoogleLogo } from "@/components/icons/google-logo.js";
 import { NativeSplash } from "@/components/native-splash.js";
 import { LoginBackground } from "@/domains/account/components/login-background.js";
 import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow.js";
+import { isLocalMode } from "@/lib/auth/mode.js";
 import {
   startAuthFlow,
   startNativeLogin,
@@ -207,6 +208,12 @@ export function LoginPage() {
   const [searchParams] = useSearchParams();
   const isNative = useIsNativePlatform();
   const returnTo = searchParams.get("returnTo");
+
+  // Local mode has no sign-in flow. If a deep link or stale redirect
+  // lands a user here, bounce them back into the app.
+  if (isLocalMode()) {
+    return <Navigate to={returnTo || "/"} replace />;
+  }
 
   if (isNative) return <NativeLoginForm returnTo={returnTo} />;
   return <WebLoginForm returnTo={returnTo} />;
