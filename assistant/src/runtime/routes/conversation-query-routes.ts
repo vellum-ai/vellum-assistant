@@ -923,15 +923,20 @@ function handleDeleteQueuedMessage({
 function handleSteerToMessage({
   queryParams = {},
   pathParams = {},
+  body,
 }: RouteHandlerArgs) {
   const config = getConfig();
   if (!isAssistantFeatureFlagEnabled("queue-steering", config)) {
     throw new BadRequestError("Queue steering is not enabled");
   }
-  const conversationId = queryParams.conversationId;
-  if (!conversationId) {
+  const conversationId =
+    queryParams.conversationId ??
+    (body && typeof body === "object" && "conversationId" in body
+      ? (body as Record<string, unknown>).conversationId
+      : undefined);
+  if (!conversationId || typeof conversationId !== "string") {
     throw new BadRequestError(
-      "Missing required query parameter: conversationId",
+      "Missing required parameter: conversationId",
     );
   }
   const result = steerToMessage(conversationId, pathParams.id ?? "");
