@@ -246,7 +246,7 @@ describe("document_find", () => {
     const body = parseResult<FindResultBody>(result);
 
     expect(body.success).toBe(true);
-    expect(body.total_matches).toBe(50);
+    expect(body.total_matches).toBe(100);
     expect(body.matches!.length).toBe(50);
   });
 });
@@ -401,6 +401,36 @@ describe("document_replace_text", () => {
     expect(body.replacements_made).toBe(1);
     expect(body.content_changed).toBe(true);
     expect(getDocumentById("doc-replace")?.content).toBe("qux bar foo baz foo");
+  });
+
+  test("max_replacements with regex backreferences replaces correctly", () => {
+    seedDocument({
+      surfaceId: "doc-regex-limit",
+      conversationId: "conv-current",
+      title: "Regex Limit Test",
+      content: "a@b c@d e@f",
+      updatedAt: 3000,
+    });
+    const result = executeDocumentReplaceText(
+      {
+        surface_id: "doc-regex-limit",
+        find: "(\\w+)@(\\w+)",
+        replace: "$2/$1",
+        regex: true,
+        case_sensitive: true,
+        max_replacements: 2,
+      },
+      makeContext({ sendToClient: () => {} }),
+    );
+    const body = parseResult<{
+      success: boolean;
+      replacements_made: number;
+      content_changed: boolean;
+    }>(result);
+    expect(body.success).toBe(true);
+    expect(body.replacements_made).toBe(2);
+    expect(body.content_changed).toBe(true);
+    expect(getDocumentById("doc-regex-limit")?.content).toBe("b/a d/c e@f");
   });
 
   test("no matches returns success with zero replacements", () => {
