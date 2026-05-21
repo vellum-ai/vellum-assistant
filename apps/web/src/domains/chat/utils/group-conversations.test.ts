@@ -481,3 +481,114 @@ describe("groupConversations · custom group routing", () => {
     expect(result.customGroups[0]?.id).toBe("grp-work");
   });
 });
+
+describe("groupConversations · displayOrder for pinned and custom groups", () => {
+  test("pinned bucket sorts by displayOrder ascending (user-set order)", () => {
+    // Note: input is provided newest-first by lastMessageAt to confirm the
+    // pinned sort overrides recency, matching the bug described in LUM-1619.
+    const result = groupConversations([
+      makeConversation({
+        conversationKey: "b",
+        isPinned: true,
+        displayOrder: 1,
+        lastMessageAt: "2024-01-03T00:00:00.000Z",
+      }),
+      makeConversation({
+        conversationKey: "a",
+        isPinned: true,
+        displayOrder: 0,
+        lastMessageAt: "2024-01-02T00:00:00.000Z",
+      }),
+      makeConversation({
+        conversationKey: "c",
+        isPinned: true,
+        displayOrder: 2,
+        lastMessageAt: "2024-01-01T00:00:00.000Z",
+      }),
+    ]);
+    expect(result.pinned.map((c) => c.conversationKey)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  test("pinned conversations without displayOrder fall back to lastMessageAt desc", () => {
+    const result = groupConversations([
+      makeConversation({
+        conversationKey: "old",
+        isPinned: true,
+        lastMessageAt: "2024-01-01T00:00:00.000Z",
+      }),
+      makeConversation({
+        conversationKey: "new",
+        isPinned: true,
+        lastMessageAt: "2024-01-05T00:00:00.000Z",
+      }),
+    ]);
+    expect(result.pinned.map((c) => c.conversationKey)).toEqual([
+      "new",
+      "old",
+    ]);
+  });
+
+  test("displayOrder rows come before rows without displayOrder", () => {
+    const result = groupConversations([
+      makeConversation({
+        conversationKey: "no-order-newer",
+        isPinned: true,
+        lastMessageAt: "2024-01-10T00:00:00.000Z",
+      }),
+      makeConversation({
+        conversationKey: "ordered-0",
+        isPinned: true,
+        displayOrder: 0,
+        lastMessageAt: "2024-01-01T00:00:00.000Z",
+      }),
+    ]);
+    expect(result.pinned.map((c) => c.conversationKey)).toEqual([
+      "ordered-0",
+      "no-order-newer",
+    ]);
+  });
+
+  test("custom group conversations sort by displayOrder", () => {
+    const groups: ConversationGroup[] = [
+      {
+        id: "grp-work",
+        name: "Work",
+        sortPosition: 0,
+        isSystemGroup: false,
+      },
+    ];
+    const result = groupConversations(
+      [
+        makeConversation({
+          conversationKey: "z",
+          groupId: "grp-work",
+          displayOrder: 2,
+          lastMessageAt: "2024-01-03T00:00:00.000Z",
+        }),
+        makeConversation({
+          conversationKey: "x",
+          groupId: "grp-work",
+          displayOrder: 0,
+          lastMessageAt: "2024-01-01T00:00:00.000Z",
+        }),
+        makeConversation({
+          conversationKey: "y",
+          groupId: "grp-work",
+          displayOrder: 1,
+          lastMessageAt: "2024-01-02T00:00:00.000Z",
+        }),
+      ],
+      { groups, customGroupsEnabled: true },
+    );
+    const work = result.customGroups.find((g) => g.id === "grp-work");
+    expect(work?.conversations.map((c) => c.conversationKey)).toEqual([
+      "x",
+      "y",
+      "z",
+    ]);
+  });
+});

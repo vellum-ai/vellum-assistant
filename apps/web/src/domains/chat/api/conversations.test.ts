@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { parseConversation } from "@/domains/chat/api/conversations.js";
+import { client } from "@/domains/chat/api/client.js";
+import { listConversations, parseConversation } from "@/domains/chat/api/conversations.js";
 
 describe("parseConversation — originChannel plumbing", () => {
   test("returns null for non-object input", () => {
@@ -130,6 +131,135 @@ describe("parseConversation — originChannel plumbing", () => {
 
     expect(parsed?.originChannel).toBe("slack");
     expect(parsed?.channelBinding).toBeUndefined();
+  });
+});
+
+describe("parseConversation — displayOrder", () => {
+  test("captures numeric displayOrder for drag-reordered conversations", () => {
+    const parsed = parseConversation({
+      conversationKey: "conv-pinned",
+      isPinned: true,
+      displayOrder: 3,
+    });
+    expect(parsed?.displayOrder).toBe(3);
+  });
+
+  test("leaves displayOrder undefined when the field is absent", () => {
+    const parsed = parseConversation({ conversationKey: "conv-fresh" });
+    expect(parsed?.displayOrder).toBeUndefined();
+  });
+
+  test("treats non-finite displayOrder as missing", () => {
+    expect(
+      parseConversation({
+        conversationKey: "c1",
+        displayOrder: Number.NaN,
+      })?.displayOrder,
+    ).toBeUndefined();
+    expect(
+      parseConversation({
+        conversationKey: "c2",
+        displayOrder: "0",
+      })?.displayOrder,
+    ).toBeUndefined();
+  });
+});
+
+describe("listConversations — pagination", () => {
+  const originalGet = client.get;
+  type GetOptions = {
+    query?: Record<string, unknown>;
+  };
+
+  type Page = {
+    conversations: Array<{ conversationKey: string }>;
+    hasMore?: boolean;
+  };
+
+  function setupPagedResponses(pages: {
+    foreground: Page[];
+    background?: Page[];
+  }): { calls: Array<{ url: unknown; query: Record<string, unknown> | undefined }> } {
+    const calls: Array<{ url: unknown; query: Record<string, unknown> | undefined }> = [];
+    const foregroundQueue = [...pages.foreground];
+    const backgroundQueue = [...(pages.background ?? [{ conversations: [] }])];
+    client.get = mock(
+      async (options: GetOptions & { url?: unknown }) => {
+        calls.push({ url: options.url, query: options.query });
+        const isBackground = options.query?.conversationType === "background";
+        const queue = isBackground ? backgroundQueue : foregroundQueue;
+        const next = queue.shift() ?? { conversations: [], hasMore: false };
+        return {
+          data: next,
+          error: null,
+          response: new Response(null, { status: 200 }),
+        };
+      },
+    ) as typeof client.get;
+    return { calls };
+  }
+
+  afterEach(() => {
+    client.get = originalGet;
+  });
+
+  test("loops over pages until hasMore is false (>50 conversations preserved)", async () => {
+    const page1Items = Array.from({ length: 50 }, (_, i) => ({
+      conversationKey: `foreground-${i}`,
+    }));
+    const page2Items = Array.from({ length: 30 }, (_, i) => ({
+      conversationKey: `foreground-${50 + i}`,
+    }));
+    const { calls } = setupPagedResponses({
+      foreground: [
+        { conversations: page1Items, hasMore: true },
+        { conversations: page2Items, hasMore: false },
+      ],
+    });
+
+    const result = await listConversations("assistant-1");
+
+    expect(result).toHaveLength(80);
+    expect(result.at(0)?.conversationKey).toBe("foreground-0");
+    expect(result.at(-1)?.conversationKey).toBe("foreground-79");
+    // 2 foreground pages + 1 background page (empty by default). Foreground
+    // and background fetch in parallel via Promise.allSettled, so filter
+    // before asserting page offsets.
+    expect(calls).toHaveLength(3);
+    const foregroundCalls = calls.filter(
+      (c) => c.query?.conversationType === undefined,
+    );
+    expect(foregroundCalls).toHaveLength(2);
+    expect(foregroundCalls[0]?.query).toMatchObject({ limit: 50, offset: 0 });
+    expect(foregroundCalls[1]?.query).toMatchObject({ limit: 50, offset: 50 });
+  });
+
+  test("stops on the first page when hasMore is false or absent", async () => {
+    const { calls } = setupPagedResponses({
+      foreground: [
+        { conversations: [{ conversationKey: "only-one" }] },
+      ],
+    });
+
+    const result = await listConversations("assistant-1");
+
+    expect(result).toHaveLength(1);
+    // 1 foreground + 1 background
+    expect(calls).toHaveLength(2);
+  });
+
+  test("does not loop forever on hasMore=true with empty page", async () => {
+    const { calls } = setupPagedResponses({
+      foreground: [
+        { conversations: [{ conversationKey: "a" }], hasMore: true },
+        { conversations: [], hasMore: true },
+      ],
+    });
+
+    const result = await listConversations("assistant-1");
+
+    expect(result).toHaveLength(1);
+    expect(calls).toHaveLength(3); // 2 foreground + 1 background
   });
 });
 

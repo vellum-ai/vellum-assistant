@@ -37,6 +37,14 @@ export interface Conversation {
   isPinned?: boolean;
   conversationType?: string;
   scheduleJobId?: string;
+  /**
+   * Server-provided sort order for pinned and custom-group buckets. Set when
+   * the user has drag-reordered the conversation; absent for conversations
+   * that have never been reordered. Consumers (see `groupConversations`)
+   * should sort pinned / custom-group buckets by this field so the user's
+   * order is preserved across reloads.
+   */
+  displayOrder?: number;
   channelBinding?: ConversationChannelBinding;
   /**
    * Channel of origin for this conversation, e.g. `"slack"`, `"telegram"`,
@@ -74,6 +82,7 @@ export interface ConversationSlackThread {
 
 interface ListConversationsResponse {
   conversations: Conversation[];
+  hasMore?: boolean;
 }
 
 interface ConversationAttentionPayload {
@@ -233,46 +242,88 @@ export function parseConversation(raw: unknown): Conversation | null {
       typeof record.conversationType === "string" ? record.conversationType : undefined,
     scheduleJobId:
       typeof record.scheduleJobId === "string" ? record.scheduleJobId : undefined,
+    displayOrder:
+      typeof record.displayOrder === "number" && Number.isFinite(record.displayOrder)
+        ? record.displayOrder
+        : undefined,
     channelBinding: parsedChannelBinding,
     originChannel,
   };
 }
 
+/**
+ * Daemon default page size for `/v1/assistants/{id}/conversations/`. Used
+ * as our explicit page size so pagination state is predictable across daemon
+ * versions. See `ConversationListRequest` in
+ * `assistant/src/daemon/message-types/conversations.ts`.
+ */
+const CONVERSATION_LIST_PAGE_SIZE = 50;
+
+/**
+ * Safety cap on the pagination loop. Multiplied by `CONVERSATION_LIST_PAGE_SIZE`
+ * this allows for 10,000 conversations of a single type — far above any
+ * realistic user count, but bounded so a malformed `hasMore` from the server
+ * can't spin forever.
+ */
+const CONVERSATION_LIST_MAX_PAGES = 200;
+
 async function fetchConversationList(
   assistantId: string,
   conversationType?: "background",
 ): Promise<Conversation[]> {
-  const { data, error, response } = await client.get<
-    ListConversationsResponse,
-    unknown
-  >({
-    ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/conversations/",
-    path: { assistant_id: assistantId },
-    query: conversationType ? { conversationType } : undefined,
-    throwOnError: false,
-  });
-  assertHasResponse(response, error, "Failed to list conversations.");
-  if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to list conversations.");
-    throw new ApiError(response.status, msg);
-  }
-  const payload =
-    data && typeof data === "object" && !Array.isArray(data)
-      ? (data as unknown as {
-          conversations?: unknown;
-          sessions?: unknown;
-        })
-      : null;
-  const rawItems = Array.isArray(payload?.conversations)
-    ? payload.conversations
-    : Array.isArray(payload?.sessions)
-      ? payload.sessions
-      : [];
+  const all: Conversation[] = [];
 
-  return rawItems
-    .map((conversation) => parseConversation(conversation))
-    .filter((conversation): conversation is Conversation => conversation !== null);
+  for (let page = 0; page < CONVERSATION_LIST_MAX_PAGES; page++) {
+    const offset = page * CONVERSATION_LIST_PAGE_SIZE;
+    const { data, error, response } = await client.get<
+      ListConversationsResponse,
+      unknown
+    >({
+      ...SDK_BASE_OPTIONS,
+      url: "/v1/assistants/{assistant_id}/conversations/",
+      path: { assistant_id: assistantId },
+      query: {
+        ...(conversationType ? { conversationType } : {}),
+        limit: CONVERSATION_LIST_PAGE_SIZE,
+        offset,
+      },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to list conversations.");
+    if (!response.ok) {
+      const msg = extractErrorMessage(error, response, "Failed to list conversations.");
+      throw new ApiError(response.status, msg);
+    }
+    const payload =
+      data && typeof data === "object" && !Array.isArray(data)
+        ? (data as unknown as {
+            conversations?: unknown;
+            sessions?: unknown;
+            hasMore?: unknown;
+          })
+        : null;
+    const rawItems = Array.isArray(payload?.conversations)
+      ? payload.conversations
+      : Array.isArray(payload?.sessions)
+        ? payload.sessions
+        : [];
+
+    const pageItems = rawItems
+      .map((conversation) => parseConversation(conversation))
+      .filter((conversation): conversation is Conversation => conversation !== null);
+
+    all.push(...pageItems);
+
+    const hasMore =
+      typeof payload?.hasMore === "boolean" ? payload.hasMore : false;
+    if (!hasMore) break;
+
+    // Defensive: a malformed `hasMore: true` with an empty page would loop
+    // forever. Treat an empty page as end-of-list regardless of `hasMore`.
+    if (pageItems.length === 0) break;
+  }
+
+  return all;
 }
 
 /**

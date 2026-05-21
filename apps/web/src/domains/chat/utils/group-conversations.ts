@@ -150,6 +150,25 @@ function parseLastMessageAt(conversation: Conversation): number {
 }
 
 /**
+ * Comparator for buckets where the user can manually drag-reorder rows
+ * (pinned, custom groups). Conversations with a server-provided
+ * `displayOrder` come first in ascending order; ties and rows without
+ * `displayOrder` fall back to `lastMessageAt` newest-first so freshly-pinned
+ * conversations land near the top until the server assigns them an order.
+ */
+function compareByDisplayOrder(a: Conversation, b: Conversation): number {
+  const aOrder = a.displayOrder;
+  const bOrder = b.displayOrder;
+  if (aOrder != null && bOrder != null) {
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return parseLastMessageAt(b) - parseLastMessageAt(a);
+  }
+  if (aOrder != null) return -1;
+  if (bOrder != null) return 1;
+  return parseLastMessageAt(b) - parseLastMessageAt(a);
+}
+
+/**
  * True when a `groupId` refers to a non-system (custom) group.
  * System groups use a `"system:"` prefix (e.g. `"system:pinned"`).
  */
@@ -233,9 +252,16 @@ export function groupConversations(
   const sortedSlack = slack.slice().sort((a, b) => {
     return parseLastMessageAt(b) - parseLastMessageAt(a);
   });
+  // Pinned + custom groups honor `displayOrder` (set when the user
+  // drag-reorders). Any global resort by recency at this level would
+  // override the user's custom order — see LUM-1619.
+  const sortedPinned = pinned.slice().sort(compareByDisplayOrder);
+  for (const bucket of customGroupsList) {
+    bucket.conversations.sort(compareByDisplayOrder);
+  }
 
   return {
-    pinned,
+    pinned: sortedPinned,
     scheduled,
     background,
     slack: sortedSlack,
