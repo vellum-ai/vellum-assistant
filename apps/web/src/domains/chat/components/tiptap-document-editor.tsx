@@ -504,6 +504,7 @@ export function TiptapDocumentEditor({
       {editor ? (
         <BubbleMenu editor={editor} updateDelay={100}>
           <BubbleToolbar
+            key={`${editor.state.selection.from}-${editor.state.selection.to}`}
             editor={editor}
             onCommentSubmit={onCommentSubmit}
             commentSubmitting={commentSubmitting}
