@@ -82,7 +82,6 @@ interface UseConversationLoaderParams {
   previousConversationKeyRef: MutableRefObject<string | null>;
   onboardingDraftConversationKeyRef: MutableRefObject<string | null>;
   activeConversationKeyRef: MutableRefObject<string | null>;
-  messagesRef: MutableRefObject<DisplayMessage[]>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   needsNewBubbleRef: MutableRefObject<boolean>;
@@ -152,7 +151,6 @@ export function useConversationLoader({
   previousConversationKeyRef,
   onboardingDraftConversationKeyRef,
   activeConversationKeyRef,
-  messagesRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   needsNewBubbleRef,
@@ -405,7 +403,6 @@ export function useConversationLoader({
     activeConversationKey,
     draftKeyResolutionRef,
     previousConversationKeyRef,
-    messagesRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     needsNewBubbleRef,

@@ -61,8 +61,12 @@
   "src/domains/chat/hooks/use-conversation-history.ts": [
     "conversations",
     "interactions",
-    "messaging",
     "subagents"
+  ],
+  "src/domains/chat/hooks/use-conversation-switch.ts": [
+    "conversations",
+    "interactions",
+    "messaging"
   ],
   "src/domains/chat/hooks/use-event-stream.ts": [
     "conversations",

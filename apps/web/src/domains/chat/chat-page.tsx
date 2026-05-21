@@ -380,7 +380,6 @@ export function ChatPage() {
     previousConversationKeyRef,
     onboardingDraftConversationKeyRef,
     activeConversationKeyRef,
-    messagesRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     needsNewBubbleRef,
