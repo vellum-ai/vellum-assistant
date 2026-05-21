@@ -1,8 +1,15 @@
-import { Outlet } from "react-router";
+import { Outlet, useNavigate, useOutletContext } from "react-router";
 
 import { useAppTheme } from "@/hooks/use-app-theme.js";
+import { useEventBusInit } from "@/hooks/use-event-bus-init.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport.js";
+import {
+  useAssistantLifecycle,
+  type UseAssistantLifecycleReturn,
+} from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+import { useAuthStore } from "@/stores/auth-store.js";
+import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
@@ -12,12 +19,41 @@ import { useVisibleViewport } from "@/hooks/use-visible-viewport.js";
 const KEYBOARD_OPEN_THRESHOLD_PX = 100;
 
 /**
- * App-level layout route providing safe-area insets and iOS visual-viewport
- * keyboard tracking. All child layout routes (ChatLayout, SettingsLayout,
- * etc.) render inside this shell via `<Outlet />`.
+ * Outlet-context shape provided by `RootLayout`. Child layouts
+ * (`ChatLayout`, `SettingsLayout`, `LogsLayout`, onboarding routes)
+ * consume the lifecycle through `useRootOutletContext()`.
+ */
+export interface RootOutletContext {
+  lifecycle: UseAssistantLifecycleReturn;
+}
+
+/**
+ * Read the assistant lifecycle from the root outlet context. Child
+ * layouts (`ChatLayout`, `SettingsLayout`, `LogsLayout`) call this to
+ * avoid running a duplicate `useAssistantLifecycle` state machine.
+ */
+export function useRootOutletContext(): RootOutletContext {
+  return useOutletContext<RootOutletContext>();
+}
+
+/**
+ * App-level layout route. Owns three cross-route concerns:
+ *
+ * 1. Safe-area insets and iOS visual-viewport keyboard tracking.
+ * 2. The single assistant lifecycle (`useAssistantLifecycle`), passed
+ *    to every child layout via outlet context. Resolving lifecycle here
+ *    means SettingsLayout / LogsLayout / onboarding routes can see the
+ *    current assistant without each layout running its own polling
+ *    state machine.
+ * 3. The event-bus owner (`useEventBusInit`). Bus producers (SSE
+ *    connection, visibility / online / offline listeners, Capacitor
+ *    app-state) need to be alive on every authenticated route — not
+ *    just chat — so cross-tab sync invalidations keep firing while the
+ *    user is on settings, logs, etc.
  *
  * References:
  * - React Router layout routes: https://reactrouter.com/start/data/routing
+ * - React Router outlet context: https://reactrouter.com/start/framework/outlet
  * - env() safe-area-inset: https://developer.mozilla.org/en-US/docs/Web/CSS/env
  * - Visual Viewport API: https://developer.mozilla.org/en-US/docs/Web/API/Visual_Viewport_API
  */
@@ -25,6 +61,24 @@ export function RootLayout() {
   useAppTheme();
   const isMobile = useIsMobile();
   const visibleViewport = useVisibleViewport();
+
+  const navigate = useNavigate();
+  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const authLoading = useAuthStore.use.isLoading();
+  const isNonProduction = useEnvironmentStore.use.isNonProduction();
+  const lifecycle = useAssistantLifecycle({
+    isLoggedIn,
+    isLoading: authLoading,
+    isRetired: false,
+    isNonProduction,
+    onRedirect: navigate,
+  });
+
+  useEventBusInit({
+    assistantId: lifecycle.assistantId,
+    isAssistantActive: lifecycle.assistantState.kind === "active",
+    checkAssistant: lifecycle.checkAssistant,
+  });
 
   const keyboardOpen =
     isMobile &&
@@ -39,6 +93,8 @@ export function RootLayout() {
   const innerTransform = followVisualViewport
     ? `translate3d(${visibleViewport.offsetLeft}px, ${visibleViewport.offsetTop}px, 0)`
     : undefined;
+
+  const outletContext: RootOutletContext = { lifecycle };
 
   return (
     <div
@@ -67,7 +123,7 @@ export function RootLayout() {
           transformOrigin: innerTransform ? "0 0" : undefined,
         }}
       >
-        <Outlet />
+        <Outlet context={outletContext} />
       </div>
 
       {/* Portal target for mobile overlays that use `position: fixed`.
