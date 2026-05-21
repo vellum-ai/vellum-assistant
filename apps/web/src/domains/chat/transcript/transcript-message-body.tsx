@@ -81,6 +81,31 @@ function isSurfaceToolCallComplete(message: DisplayMessage): boolean {
   return message.isStreaming !== true;
 }
 
+function latestMessageActivityTimestamp(
+  message: DisplayMessage,
+): number | undefined {
+  const latestToolTimestamp = message.toolCalls?.reduce<number | undefined>(
+    (latest, toolCall) => {
+      const toolTimestamp = toolCall.completedAt ?? toolCall.startedAt;
+      if (toolTimestamp == null) {
+        return latest;
+      }
+      return latest == null ? toolTimestamp : Math.max(latest, toolTimestamp);
+    },
+    undefined,
+  );
+
+  if (latestToolTimestamp == null) {
+    return message.timestamp;
+  }
+
+  if (message.timestamp == null) {
+    return latestToolTimestamp;
+  }
+
+  return Math.max(message.timestamp, latestToolTimestamp);
+}
+
 export function TranscriptMessageBody({
   message,
   expandedToolCallIds,
@@ -172,6 +197,7 @@ export function TranscriptMessageBody({
   const isSuppressedUiTool = (tc: ChatMessageToolCall) =>
     !tc.pendingConfirmation &&
     (tc.toolName === "ui_show" || tc.toolName === "ui_update" || tc.toolName === "ui_dismiss");
+  const messageTimestamp = latestMessageActivityTimestamp(message);
 
   if (hasInterleavedToolCalls && message.contentOrder) {
     // Group consecutive entries: merge adjacent toolCall/tool entries into a
@@ -305,7 +331,7 @@ export function TranscriptMessageBody({
           <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
             <MessageHoverActions
               content={message.content}
-              timestamp={message.timestamp}
+              timestamp={messageTimestamp}
               role={message.role}
               isStreaming={message.isStreaming}
               onFork={forkHandler}
@@ -433,7 +459,7 @@ export function TranscriptMessageBody({
         <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
           <MessageHoverActions
             content={message.content}
-            timestamp={message.timestamp}
+            timestamp={messageTimestamp}
             role={message.role}
             isStreaming={message.isStreaming}
             onFork={forkHandler}

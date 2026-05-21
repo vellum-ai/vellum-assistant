@@ -68,7 +68,6 @@ export function MessageHoverActions({
 
   const hasCopyableText = content.trim().length > 0;
   const isAssistant = role === "assistant";
-  const hasAnyAction = hasCopyableText || onFork || (onInspect && isAssistant);
 
   useEffect(() => {
     return () => {
@@ -93,7 +92,7 @@ export function MessageHoverActions({
     });
   }, [content]);
 
-  if (!hasAnyAction || isStreaming) {
+  if (isStreaming) {
     return null;
   }
 
