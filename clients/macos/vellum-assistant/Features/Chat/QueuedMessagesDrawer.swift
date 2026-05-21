@@ -14,6 +14,7 @@ struct QueuedMessagesDrawer: View {
     @Bindable var viewModel: ChatViewModel
     @Binding var composerText: String
     @Binding var composerAttachments: [ChatAttachment]
+    @Environment(AssistantFeatureFlagStore.self) private var featureFlagStore: AssistantFeatureFlagStore?
 
     var body: some View {
         // Cache `queuedMessages` and `tailQueuedMessageId` once per render —
@@ -71,6 +72,7 @@ struct QueuedMessagesDrawer: View {
         // the source of truth, but the disabled state gives visual feedback.
         let isComposerEmpty = composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && composerAttachments.isEmpty
+        let showSteer = featureFlagStore?.isEnabled("queue-steering") ?? false
         return VStack(alignment: .leading, spacing: VSpacing.xs) {
             ForEach(Array(queuedMessages.enumerated()), id: \.element.id) { index, message in
                 QueuedMessageRow(
@@ -78,6 +80,10 @@ struct QueuedMessagesDrawer: View {
                     positionLabel: "#\(index + 1)",
                     isTail: message.id == tailId,
                     isComposerEmpty: isComposerEmpty,
+                    showSteer: showSteer,
+                    onSteer: {
+                        viewModel.steerQueuedMessage(messageId: message.id)
+                    },
                     onEdit: {
                         viewModel.editQueuedTail(
                             into: $composerText,

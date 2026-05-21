@@ -973,6 +973,16 @@ extension MessageQueuedDeleted {
     }
 }
 
+/// Notifies client that a queued message was steered (promoted to head of queue).
+/// Backed by generated `MessageSteered`.
+public typealias MessageSteeredMessage = MessageSteered
+
+extension MessageSteered {
+    public init(conversationId: String, requestId: String) {
+        self.init(type: "message_steered", conversationId: conversationId, requestId: requestId)
+    }
+}
+
 /// Client → Server request to delete a specific queued message.
 /// Backed by generated `DeleteQueuedMessage`.
 public typealias DeleteQueuedMessageMessage = DeleteQueuedMessage
@@ -2935,6 +2945,7 @@ public enum ServerMessage: Decodable, Sendable {
     case messageDequeued(MessageDequeuedMessage)
     case messageRequestComplete(MessageRequestCompleteMessage)
     case messageQueuedDeleted(MessageQueuedDeletedMessage)
+    case messageSteered(MessageSteeredMessage)
     case skillsListResponse(SkillsListResponseMessage)
     case skillDetailResponse(SkillDetailResponseMessage)
     case skillStateChanged(SkillStateChangedMessage)
@@ -3221,6 +3232,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "message_queued_deleted":
             let message = try MessageQueuedDeletedMessage(from: decoder)
             self = .messageQueuedDeleted(message)
+        case "message_steered":
+            let message = try MessageSteeredMessage(from: decoder)
+            self = .messageSteered(message)
         case "skills_list_response":
             let message = try SkillsListResponseMessage(from: decoder)
             self = .skillsListResponse(message)
