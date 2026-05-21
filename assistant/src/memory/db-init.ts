@@ -58,6 +58,7 @@ import {
   migrateCanonicalGuardianRequesterChatId,
   migrateCapabilityCardColumns,
   migrateChannelInboundDeliveredSegments,
+  migrateChannelInboundDeliveryAttempts,
   migrateChannelInteractionColumns,
   migrateContactChannelsAccessFields,
   migrateContactChannelsTypeChatIdIndex,
@@ -124,6 +125,7 @@ import {
   migrateMemoryRecallLogsQueryContext,
   migrateMemoryRetrospectiveState,
   migrateMemoryV2ActivationLogs,
+  migrateMemoryV2InjectionEvents,
   migrateMessageBookmarks,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
@@ -440,6 +442,8 @@ export function initializeDb(): void {
     migrateLlmRequestLogAgentLoopExitReason,
     migrateCreateDocumentComments,
     migrateExternalConversationBindingChatName,
+    migrateChannelInboundDeliveryAttempts,
+    migrateMemoryV2InjectionEvents,
   ];
 
   // Run each migration step, catching and logging individual failures so one

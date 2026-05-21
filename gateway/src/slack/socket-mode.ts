@@ -1000,18 +1000,6 @@ export class SlackSocketModeClient {
       this.store.trackThread(threadTs, channelId, ACTIVE_THREAD_TTL_MS);
     }
 
-    if (channelId) {
-      const channelInfo = await Promise.race([
-        resolveSlackChannel(channelId, this.config.botToken),
-        new Promise<undefined>((resolve) =>
-          setTimeout(resolve, SLACK_RESOLVE_TIMEOUT_MS),
-        ),
-      ]);
-      if (channelInfo?.name) {
-        normalized.event.source.channelName = channelInfo.name;
-      }
-    }
-
     // Enrich actor display name if the sync cache missed.
     // resolveSlackUser is fast on cache hit and deduplicates in-flight fetches,
     // so this adds negligible latency on subsequent messages. A 3s timeout

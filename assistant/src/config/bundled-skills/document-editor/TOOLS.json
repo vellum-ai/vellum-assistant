@@ -103,6 +103,74 @@
       "execution_target": "host"
     },
     {
+      "name": "document_find",
+      "description": "Search for text or a regex pattern within a document. Returns matching lines with line numbers and context — like grep. Use this to locate specific content before making targeted edits with document_replace_text.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The document surface ID"
+          },
+          "query": {
+            "type": "string",
+            "description": "Text or regex pattern to search for"
+          },
+          "regex": {
+            "type": "boolean",
+            "description": "Treat query as a regex pattern. Defaults to false (literal match)."
+          },
+          "case_sensitive": {
+            "type": "boolean",
+            "description": "Match case-sensitively. Defaults to false."
+          }
+        },
+        "required": ["surface_id", "query"]
+      },
+      "executor": "tools/document-find.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "document_replace_text",
+      "description": "Find and replace text within a document — like sed. Performs targeted replacements without rewriting the entire document. Supports literal text and regex patterns. Use document_find first to preview what will be matched.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The document surface ID"
+          },
+          "find": {
+            "type": "string",
+            "description": "Text or regex pattern to find"
+          },
+          "replace": {
+            "type": "string",
+            "description": "Replacement text. When using regex, supports backreferences ($1, $2, etc.)."
+          },
+          "regex": {
+            "type": "boolean",
+            "description": "Treat find as a regex pattern. Defaults to false (literal match)."
+          },
+          "case_sensitive": {
+            "type": "boolean",
+            "description": "Match case-sensitively. Defaults to false."
+          },
+          "max_replacements": {
+            "type": "number",
+            "description": "Maximum number of replacements to make. Omit to replace all occurrences."
+          }
+        },
+        "required": ["surface_id", "find", "replace"]
+      },
+      "executor": "tools/document-replace-text.ts",
+      "execution_target": "host"
+    },
+    {
       "name": "comment_list",
       "description": "List open comments on a document. Returns all unresolved comments with their content, anchor text, and thread context so you can address user feedback.",
       "category": "document-editor",

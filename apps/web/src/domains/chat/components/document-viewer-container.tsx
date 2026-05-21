@@ -18,7 +18,6 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
-  useMemo,
   useRef,
   useState,
   type Ref,
@@ -106,9 +105,20 @@ export function DocumentViewerContainer({
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const commentPanelRef = useRef<DocumentCommentPanelHandle>(null);
+  const prevContentRef = useRef(content);
 
-  // Generate the iframe HTML once per content change
-  const editorHTML = useMemo(() => generateEditorHTML(content), [content]);
+  // Generate the iframe HTML once on mount; subsequent updates go via postMessage
+  const [editorHTML] = useState(() => generateEditorHTML(content));
+
+  // Push content updates to the iframe in-place (preserves scroll position)
+  useEffect(() => {
+    if (content === prevContentRef.current) return;
+    prevContentRef.current = content;
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: "set_content", content },
+      "*",
+    );
+  }, [content]);
 
   // -------------------------------------------------------------------------
   // postMessage listener for iframe → parent events

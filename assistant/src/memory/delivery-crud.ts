@@ -314,6 +314,47 @@ export function storePayload(
 }
 
 /**
+ * Persist the assistant reply row generated for an inbound event so callback
+ * delivery retries target that exact response instead of the latest message in
+ * the conversation.
+ */
+export function storeReplyMessageId(
+  eventId: string,
+  replyMessageId: string,
+): void {
+  const db = getDb();
+  const row = db
+    .select({ rawPayload: channelInboundEvents.rawPayload })
+    .from(channelInboundEvents)
+    .where(eq(channelInboundEvents.id, eventId))
+    .get();
+  if (!row?.rawPayload) return;
+
+  let payload: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(row.rawPayload) as unknown;
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      return;
+    }
+    payload = parsed as Record<string, unknown>;
+  } catch {
+    return;
+  }
+
+  db.update(channelInboundEvents)
+    .set({
+      rawPayload: JSON.stringify({ ...payload, replyMessageId }),
+      updatedAt: Date.now(),
+    })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+/**
  * Clear a previously stored payload. Used when the ingress check
  * detects secret-bearing content — the payload must not remain on disk.
  */

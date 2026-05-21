@@ -14,6 +14,10 @@ import {
   extractErrorMessage,
   SDK_BASE_OPTIONS,
 } from "@/domains/chat/api/client.js";
+import {
+  parseSlackMessageLink,
+  type SlackMessageLink,
+} from "@/domains/chat/types/types.js";
 
 // ---------------------------------------------------------------------------
 // Conversations
@@ -33,6 +37,7 @@ export interface Conversation {
   isPinned?: boolean;
   conversationType?: string;
   scheduleJobId?: string;
+  channelBinding?: ConversationChannelBinding;
   /**
    * Channel of origin for this conversation, e.g. `"slack"`, `"telegram"`,
    * `"phone"`, `"vellum"`, or `"notification:*"`. Sourced from the daemon's
@@ -43,6 +48,28 @@ export interface Conversation {
   originChannel?: string;
   /** True for optimistic stubs not yet confirmed by the server. */
   draft?: boolean;
+}
+
+export interface ConversationChannelBinding {
+  sourceChannel: string;
+  externalChatId: string;
+  externalThreadId?: string;
+  externalChatName?: string;
+  slackChannel?: ConversationSlackChannel;
+  slackThread?: ConversationSlackThread;
+}
+
+export interface ConversationSlackChannel {
+  id?: string;
+  channelId?: string;
+  name?: string;
+  link?: string | SlackMessageLink;
+}
+
+export interface ConversationSlackThread {
+  channelId: string;
+  threadTs: string;
+  link?: SlackMessageLink;
 }
 
 interface ListConversationsResponse {
@@ -61,6 +88,83 @@ function normalizeTimestamp(value: unknown): string | undefined {
     return new Date(value).toISOString();
   }
   return undefined;
+}
+
+function parseSlackChannel(raw: unknown): ConversationSlackChannel | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+
+  const record = raw as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id : undefined;
+  const channelId =
+    typeof record.channelId === "string" ? record.channelId : undefined;
+  if (!id && !channelId) return undefined;
+
+  const link =
+    typeof record.link === "string"
+      ? record.link
+      : parseSlackMessageLink(record.link);
+  const hasLink =
+    typeof link === "string" ||
+    (typeof link === "object" && (Boolean(link.appUrl) || Boolean(link.webUrl)));
+
+  return {
+    ...(id ? { id } : {}),
+    ...(channelId ? { channelId } : {}),
+    name: typeof record.name === "string" ? record.name : undefined,
+    ...(hasLink ? { link } : {}),
+  };
+}
+
+function parseSlackThread(raw: unknown): ConversationSlackThread | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+
+  const record = raw as Record<string, unknown>;
+  if (
+    typeof record.channelId !== "string" ||
+    typeof record.threadTs !== "string"
+  ) {
+    return undefined;
+  }
+
+  const link = parseSlackMessageLink(record.link);
+
+  return {
+    channelId: record.channelId,
+    threadTs: record.threadTs,
+    ...(link?.appUrl || link?.webUrl ? { link } : {}),
+  };
+}
+
+function parseChannelBinding(
+  raw: unknown,
+): ConversationChannelBinding | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+
+  const record = raw as Record<string, unknown>;
+  if (
+    typeof record.sourceChannel !== "string" ||
+    typeof record.externalChatId !== "string"
+  ) {
+    return undefined;
+  }
+
+  const slackChannel = parseSlackChannel(record.slackChannel);
+  const slackThread = parseSlackThread(record.slackThread);
+
+  return {
+    sourceChannel: record.sourceChannel,
+    externalChatId: record.externalChatId,
+    externalThreadId:
+      typeof record.externalThreadId === "string"
+        ? record.externalThreadId
+        : undefined,
+    externalChatName:
+      typeof record.externalChatName === "string"
+        ? record.externalChatName
+        : undefined,
+    ...(slackChannel ? { slackChannel } : {}),
+    ...(slackThread ? { slackThread } : {}),
+  };
 }
 
 export function parseConversation(raw: unknown): Conversation | null {
@@ -89,6 +193,7 @@ export function parseConversation(raw: unknown): Conversation | null {
     record.channelBinding && typeof record.channelBinding === "object"
       ? (record.channelBinding as Record<string, unknown>)
       : null;
+  const parsedChannelBinding = parseChannelBinding(channelBinding);
   const bindingSourceChannel =
     channelBinding && typeof channelBinding.sourceChannel === "string"
       ? channelBinding.sourceChannel
@@ -128,6 +233,7 @@ export function parseConversation(raw: unknown): Conversation | null {
       typeof record.conversationType === "string" ? record.conversationType : undefined,
     scheduleJobId:
       typeof record.scheduleJobId === "string" ? record.scheduleJobId : undefined,
+    channelBinding: parsedChannelBinding,
     originChannel,
   };
 }

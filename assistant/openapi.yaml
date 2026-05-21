@@ -4391,6 +4391,51 @@ paths:
               required:
                 - conversationKey
               additionalProperties: false
+  /v1/conversations/{conversationId}/slack-channel/resolve:
+    post:
+      operationId: conversations_by_conversationId_slackchannel_resolve_post
+      summary: Resolve Slack channel name
+      description: Resolve and persist a friendly Slack channel name for an external conversation binding.
+      tags:
+        - conversations
+        - slack
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channelId:
+                    type: string
+                  channelName:
+                    type: string
+                  cached:
+                    type: boolean
+                  resolved:
+                    type: boolean
+                  reason:
+                    type: string
+                    enum:
+                      - auth
+                      - dm
+                      - no_name
+                      - not_found
+                      - permission
+                      - rate_limit
+                      - slack_error
+                required:
+                  - channelId
+                  - cached
+                  - resolved
+                additionalProperties: false
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/conversations/{id}:
     delete:
       operationId: conversations_by_id_delete

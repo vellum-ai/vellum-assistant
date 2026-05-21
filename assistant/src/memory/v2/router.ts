@@ -47,7 +47,8 @@ import type {
   ToolDefinition,
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
-import { getPageIndex } from "./page-index.js";
+import type { PageIndex } from "./page-index.js";
+import { getPageIndex, partitionPageIndex } from "./page-index.js";
 import { resolveRouterPrompt } from "./prompts/router.js";
 import type { EverInjectedEntry } from "./types.js";
 
@@ -130,43 +131,32 @@ interface RunRouterParams {
 }
 
 /**
- * Run the router for one turn. The implementation steps (mirroring
- * `sweep-job.ts` end-to-end):
+ * Run the router for one turn.
  *
- *   1. Build the page index. If the workspace has no concept pages and no
- *      seeded skill entries, abstain immediately with `empty_index`.
- *   2. Resolve the configured provider for the `memoryRouter` call site.
- *      Missing → `no_provider` so the caller can fall back to spreading
- *      activation or an empty injection.
- *   3. Build system + user prompts. The system prompt is the rendered
- *      router template with the page index inlined and gets one ephemeral
- *      breakpoint at the end (the page-index block). The user message is
- *      *two* text blocks: the cached `<now>` block and the uncached
- *      already-injected/last-turn block.
- *   4. Force `tool_choice` so the model can only emit `select_pages_to_inject`.
- *   5. Parse the tool input via Zod. Anything off-shape collapses to
- *      `schema_mismatch`.
- *   6. Map IDs to slugs through the page index, dropping IDs outside
- *      `[1, N]` and truncating at `max_page_ids`.
+ * Top-level orchestration. When `config.memory.v2.router.batch_size` is
+ * `null` (default), the entire page index is sent in one call — bit-
+ * identical to the pre-batching code path so v3's KV cache is preserved.
+ * When set, `partitionPageIndex` splits the index into stable hash-bucketed
+ * batches and we fire one provider call per batch in parallel; the selected
+ * slugs are unioned across batches.
  *
- * Any uncaught throw inside the call (network, provider SDK error, abort)
- * collapses to `api_error` and is logged at warn so callers can keep going
- * without crashing the daemon. `AbortSignal.aborted` errors are *not*
- * special-cased; they propagate as `api_error` because the caller treats
- * "router didn't finish" the same regardless of cause.
+ * Per-batch failure does not abort the turn — as long as at least one batch
+ * returns a usable selection, the union is returned with `failureReason:
+ * null`. Only when EVERY batch fails do we surface a failure; in that case
+ * the first batch's reason is returned for parity with the single-batch
+ * v3 behavior.
+ *
+ * Single batch error semantics, preserved from v3:
+ * - `empty_index` — workspace has no concept pages or skill entries.
+ * - `no_provider` — `getConfiguredProvider("memoryRouter")` returned null.
+ * - `api_error` — any uncaught throw during the provider call (incl. abort).
+ * - `tool_use_missing` — the model returned no `select_pages_to_inject` tool_use.
+ * - `schema_mismatch` — tool input failed Zod validation.
  */
 export async function runRouter(
   params: RunRouterParams,
 ): Promise<RouterResult> {
-  const {
-    workspaceDir,
-    userMessage,
-    assistantMessage,
-    nowText,
-    priorEverInjected,
-    config,
-    signal,
-  } = params;
+  const { workspaceDir, priorEverInjected, config } = params;
 
   const pageIndex = await getPageIndex(workspaceDir);
   if (pageIndex.entries.length === 0) {
@@ -179,31 +169,98 @@ export async function runRouter(
     return emptyResult("no_provider");
   }
 
+  const batchSize = config.memory?.v2?.router?.batch_size ?? null;
+  const batches = partitionPageIndex(pageIndex, batchSize);
+
+  const batchResults = await Promise.all(
+    batches.map((batch) =>
+      runRouterBatch({
+        ...params,
+        batchIndex: batch,
+        priorEverInjected,
+        provider,
+      }),
+    ),
+  );
+
+  const successes = batchResults.filter((r) => r.failureReason === null);
+  if (successes.length === 0) {
+    // For the single-batch (K=null) path this preserves v3's behavior:
+    // one batch, one failure reason surfaces directly.
+    return emptyResult(batchResults[0].failureReason);
+  }
+
+  // Union selected slugs preserving first-seen order across batches; batch
+  // ordering is deterministic (hash bucket index) so the union is stable.
+  const seen = new Set<string>();
+  const selectedSlugs: string[] = [];
+  for (const result of batchResults) {
+    for (const slug of result.selectedSlugs) {
+      if (seen.has(slug)) continue;
+      seen.add(slug);
+      selectedSlugs.push(slug);
+    }
+  }
+  if (successes.length < batchResults.length) {
+    log.warn(
+      {
+        totalBatches: batchResults.length,
+        failedBatches: batchResults.length - successes.length,
+        failureReasons: batchResults
+          .filter((r) => r.failureReason !== null)
+          .map((r) => r.failureReason),
+      },
+      "Some router batches failed; returning union of successful batches",
+    );
+  }
+  return { selectedSlugs, failureReason: null };
+}
+
+interface RunRouterBatchParams extends RunRouterParams {
+  batchIndex: PageIndex;
+  provider: NonNullable<Awaited<ReturnType<typeof getConfiguredProvider>>>;
+}
+
+/**
+ * Route one batch of the page index. Uses batch-local IDs everywhere
+ * (including `<already_injected_ids>`, which is filtered to slugs present
+ * in this batch). Provider is passed in by the orchestrator so we don't
+ * re-resolve it N times for an N-batch turn.
+ */
+async function runRouterBatch(
+  params: RunRouterBatchParams,
+): Promise<RouterResult> {
+  const {
+    workspaceDir,
+    userMessage,
+    assistantMessage,
+    nowText,
+    priorEverInjected,
+    config,
+    signal,
+    batchIndex,
+    provider,
+  } = params;
+
   const systemPrompt = resolveRouterPrompt(
     config.memory?.v2?.router?.router_prompt_path ?? null,
     workspaceDir,
     {
       assistantName: getAssistantName(),
       userName: resolveUserName(workspaceDir),
-      pageIndexBlock: pageIndex.rendered,
+      pageIndexBlock: batchIndex.rendered,
     },
   );
 
-  // Already-injected slugs that map back to a current index ID. Slugs whose
-  // page has been deleted since the prior turn drop out silently — the model
-  // only sees IDs that still resolve.
+  // Filter prior-injected to slugs present in THIS batch and map to
+  // batch-local IDs. The model in batch B can't reference global IDs that
+  // aren't in its prompt, so listing them would just be noise.
   const priorIds: number[] = [];
   for (const entry of priorEverInjected) {
-    const idx = pageIndex.bySlug.get(entry.slug);
-    if (idx) priorIds.push(idx.id);
+    const local = batchIndex.bySlug.get(entry.slug);
+    if (local) priorIds.push(local.id);
   }
 
-  // Cache breakpoint 2 — `<now>` is stable across most turns (NOW.md only
-  // changes when the model rewrites it), so the bulk of the user message
-  // rides the cache. We use a 1h TTL to match the system-prompt breakpoint
-  // and the provider's auto-applied breakpoints. The trailing block has no
-  // `cache_control`; the Anthropic provider auto-applies a 1h breakpoint on
-  // the last text block of a turn-starting user message, which covers it.
   const userMsg: Message = {
     role: "user",
     content: [
@@ -257,8 +314,7 @@ export async function runRouter(
     return emptyResult("schema_mismatch");
   }
 
-  const N = pageIndex.entries.length;
-
+  const N = batchIndex.entries.length;
   const inRangeIds: number[] = [];
   const droppedIds: number[] = [];
   for (const id of parsed.data.page_ids) {
@@ -275,9 +331,8 @@ export async function runRouter(
     );
   }
 
-  // De-duplicate BEFORE applying the cap — otherwise a duplicate-heavy
-  // model output like `[1, 1, 2]` with `max=2` slices to `[1, 1]` and
-  // dedupes to `[1]`, under-filling the cap.
+  // De-duplicate BEFORE applying the cap — `[1, 1, 2]` with max=2 must
+  // yield 2 distinct slugs, not collapse to 1 after slicing duplicates.
   const dedupedIds = Array.from(new Set(inRangeIds));
 
   const truncated = dedupedIds.length > maxPageIds;
@@ -291,7 +346,7 @@ export async function runRouter(
 
   const selectedSlugs: string[] = [];
   for (const id of finalIds) {
-    const entry = pageIndex.byId.get(id);
+    const entry = batchIndex.byId.get(id);
     if (!entry) continue;
     selectedSlugs.push(entry.slug);
   }

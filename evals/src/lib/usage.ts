@@ -87,3 +87,12 @@ function computeCostStatus(input: {
   if (input.pricedRequestCount < input.requestCount) return "partial";
   return "ok";
 }
+
+export function mergeUsageSummaries(
+  ...summaries: UsageSummary[]
+): UsageSummary {
+  const events = summaries.flatMap((summary) =>
+    summary.requests.map((usage) => ({ message: { type: "usage", usage } })),
+  );
+  return summarizeAssistantUsage(events);
+}

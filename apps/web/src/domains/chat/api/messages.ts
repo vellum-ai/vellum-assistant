@@ -7,7 +7,10 @@
  */
 
 import type { ChatMessage, ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
-import type { Surface } from "@/domains/chat/types/types.js";
+import type {
+  SlackRuntimeMessage,
+  Surface,
+} from "@/domains/chat/types/types.js";
 import {
   assertHasResponse,
   client,
@@ -87,11 +90,12 @@ export interface RuntimeMessage {
   textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
   contentOrder?: Array<{ type: string; id: string }>;
   metadata?: Record<string, unknown>;
+  slackMessage?: SlackRuntimeMessage;
   toolCalls?: RuntimeToolCall[];
   /** Structured attachment metadata from the daemon's history endpoint. */
   attachments?: RuntimeAttachment[];
-  /** Server-provided timestamp in milliseconds since epoch. */
-  timestamp?: number;
+  /** Server-provided timestamp as epoch milliseconds or an ISO string. */
+  timestamp?: number | string;
   /** Subagent notification attached to this history message by the daemon. */
   subagentNotification?: RuntimeSubagentNotification;
 }
@@ -281,7 +285,12 @@ export async function getChatHistory(
         if (m.toolCalls && m.toolCalls.length > 0) {
           msg.toolCalls = mapRuntimeToolCalls(m.toolCalls, m.id);
         }
-        if (m.timestamp) msg.timestamp = m.timestamp;
+        if (typeof m.timestamp === "number") {
+          msg.timestamp = m.timestamp;
+        } else if (typeof m.timestamp === "string") {
+          const timestamp = Date.parse(m.timestamp);
+          if (Number.isFinite(timestamp)) msg.timestamp = timestamp;
+        }
         return msg;
       });
 

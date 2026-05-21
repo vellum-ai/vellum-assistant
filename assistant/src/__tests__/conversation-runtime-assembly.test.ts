@@ -337,6 +337,36 @@ describe("injectChannelCapabilityContext", () => {
     expect(text).toContain("emoji reactions");
   });
 
+  test("allows only task_progress ui_show/ui_update guidance for Slack", () => {
+    const caps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain(
+      'Only use ui_show/ui_update for card surfaces with template: "task_progress"',
+    );
+    expect(text).not.toContain("Do NOT use ui_show, ui_update, or app_create");
+  });
+
+  test("keeps blanket ui_show/ui_update prohibition for other non-dynamic channels", () => {
+    const caps: ChannelCapabilities = {
+      channel: "phone",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("Do NOT use ui_show, ui_update, or app_create");
+    expect(text).not.toContain("Only use ui_show/ui_update");
+  });
+
   test("still injects for group chats even when all capabilities are true", () => {
     const caps: ChannelCapabilities = {
       channel: "slack",
@@ -611,7 +641,7 @@ describe("trust-gating via channel capabilities", () => {
   });
 
   test("non-dashboard channel adds constraint rules preventing UI references", () => {
-    const caps = resolveChannelCapabilities("slack");
+    const caps = resolveChannelCapabilities("telegram");
     const message: Message = {
       role: "user",
       content: [{ type: "text", text: "Show me a chart" }],
@@ -1248,6 +1278,24 @@ describe("buildUnifiedTurnContextBlock", () => {
     expect(vellumText).not.toContain("response_discretion:");
     expect(telegramText).toContain("response_discretion:");
     expect(telegramText).toContain("<no_response/>");
+  });
+
+  test("adds task_progress hint only for Slack turns", () => {
+    const slackText = buildUnifiedTurnContextBlock({
+      timestamp: "2026-04-02T12:00:00Z",
+      interfaceName: "slack",
+      channelName: "slack",
+    });
+    const telegramText = buildUnifiedTurnContextBlock({
+      timestamp: "2026-04-02T12:00:00Z",
+      interfaceName: "telegram",
+      channelName: "telegram",
+    });
+
+    expect(slackText).toContain(
+      "if you are going to do work, use task_progress",
+    );
+    expect(telegramText).not.toContain("use task_progress");
   });
 
   test("dedup logic: fields matching canonical_actor_identity are omitted", () => {
