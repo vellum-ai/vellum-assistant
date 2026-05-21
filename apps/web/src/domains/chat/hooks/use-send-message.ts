@@ -226,6 +226,9 @@ export function useSendMessage({
 
       const onboardingContext =
         pendingOnboardingContextRef.current ?? consumePendingPreChatContext();
+      if (onboardingContext && !pendingOnboardingContextRef.current) {
+        pendingOnboardingContextRef.current = onboardingContext;
+      }
       const postResult = await postChatMessage(
         requestAssistantId,
         requestConversationKey,
