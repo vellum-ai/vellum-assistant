@@ -77,6 +77,14 @@ mock.module("../messaging/providers/slack/adapter.js", () => ({
     _account: string | undefined,
     fn: (token: string) => Promise<unknown>,
   ) => fn("test-slack-token"),
+  resolveSlackBotUserId: async (
+    _account: string | undefined,
+    botId: string,
+  ) => {
+    if (botId === "B_ASSISTANT") return "U_BOT";
+    if (botId === "B_OTHER") return "U_OTHER_BOT";
+    return null;
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -1192,6 +1200,35 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     ]);
   });
 
+  test("backfilled bot-id-only assistant text resolves to assistant history", async () => {
+    const conv = createTestConversation();
+
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.0",
+        text: "earlier assistant reply from bot id",
+        threadId: undefined,
+        sender: { id: "B_ASSISTANT", name: "Douglas" },
+        metadata: { isBot: true, slackBotId: "B_ASSISTANT" },
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+    });
+
+    const [persisted] = readPersistedSlackRows(conv.id).filter(
+      (p) => p.channelTs === "1234.0",
+    );
+    expect(persisted).toBeDefined();
+    expect(persisted.role).toBe("assistant");
+    expect(persisted.rawContent).toBe("earlier assistant reply from bot id");
+    expect(persisted.actorExternalUserId).toBe("B_ASSISTANT");
+    expect(persisted.provenanceRequesterIdentifier).toBe("B_ASSISTANT");
+  });
+
   test("backfilled third-party bot-authored text stays user history", async () => {
     const conv = createTestConversation();
 
@@ -1201,7 +1238,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
         text: "deployment bot status update",
         threadId: undefined,
         sender: { id: "U_OTHER_BOT", name: "Deploy Bot" },
-        metadata: { isBot: true },
+        metadata: { isBot: true, slackBotId: "B_OTHER" },
       }),
     ]);
 

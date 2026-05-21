@@ -60,6 +60,22 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
   const method = parsed.pathname.split("/").at(-1);
 
   if (method === "conversations.history") {
+    if (parsed.searchParams.get("channel") === "C_BOT_HISTORY") {
+      return {
+        ok: true,
+        has_more: false,
+        messages: [
+          {
+            type: "message",
+            subtype: "bot_message",
+            ts: "1700000003.000400",
+            bot_id: "B_ASSISTANT",
+            text: "Bot-authored history",
+          },
+        ],
+      };
+    }
+
     return {
       ok: true,
       has_more: false,
@@ -188,6 +204,17 @@ describe("Slack adapter mention rendering", () => {
     expect(messages[0].threadId).toBe("1700000000.000100");
     expect(messages[0].replyCount).toBe(2);
     expect(messages[0].reactions).toEqual([{ name: "eyes", count: 1 }]);
+  });
+
+  test("getHistory preserves bot ids for bot-authored Slack messages", async () => {
+    const messages = await slackProvider.getHistory(undefined, "C_BOT_HISTORY");
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].sender).toEqual({ id: "B_ASSISTANT", name: "unknown" });
+    expect(messages[0].metadata).toEqual({
+      isBot: true,
+      slackBotId: "B_ASSISTANT",
+    });
   });
 
   test("getThreadReplies renders Slack user mentions for model-facing text without changing sender identity", async () => {

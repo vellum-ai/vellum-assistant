@@ -56,7 +56,10 @@ import {
 import { markProcessed } from "../../memory/delivery-status.js";
 import { upsertBinding } from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
-import { withSlackBotToken } from "../../messaging/providers/slack/adapter.js";
+import {
+  resolveSlackBotUserId,
+  withSlackBotToken,
+} from "../../messaging/providers/slack/adapter.js";
 import {
   backfillDm,
   backfillThreadWindowPage,
@@ -1494,7 +1497,10 @@ async function persistBackfilledSlackMessage(params: {
     message,
     params.guardianExternalUserId,
   );
-  const role = isBackfilledSlackAssistantMessage(message)
+  const role = (await isBackfilledSlackAssistantMessage(
+    message,
+    params.account,
+  ))
     ? "assistant"
     : "user";
 
@@ -1628,17 +1634,44 @@ function isBackfilledSlackGuardianMessage(
   return canonicalSender === canonicalGuardian;
 }
 
-function isBackfilledSlackAssistantMessage(message: ProviderMessage): boolean {
+async function isBackfilledSlackAssistantMessage(
+  message: ProviderMessage,
+  account: string | undefined,
+): Promise<boolean> {
   if (message.metadata?.isBot !== true) return false;
 
   const botUserId = getConfig().slack.botUserId.trim();
   const rawSenderId = message.sender?.id?.trim();
-  if (!botUserId || !rawSenderId) return false;
+  if (!botUserId) return false;
 
+  if (rawSenderId && slackIdentityMatches(rawSenderId, botUserId)) return true;
+
+  const rawBotId =
+    typeof message.metadata.slackBotId === "string"
+      ? message.metadata.slackBotId.trim()
+      : "";
+  if (!rawBotId) return false;
+
+  try {
+    const resolvedBotUserId = await resolveSlackBotUserId(account, rawBotId);
+    return (
+      typeof resolvedBotUserId === "string" &&
+      slackIdentityMatches(resolvedBotUserId, botUserId)
+    );
+  } catch (err) {
+    log.warn(
+      { err, slackBotId: rawBotId, channelTs: message.id },
+      "Failed to resolve Slack bot id for backfilled assistant detection",
+    );
+    return false;
+  }
+}
+
+function slackIdentityMatches(left: string, right: string): boolean {
   const canonicalSender =
-    canonicalizeInboundIdentity("slack", rawSenderId) ?? rawSenderId;
+    canonicalizeInboundIdentity("slack", left) ?? left.trim();
   const canonicalBot =
-    canonicalizeInboundIdentity("slack", botUserId) ?? botUserId;
+    canonicalizeInboundIdentity("slack", right) ?? right.trim();
   return canonicalSender === canonicalBot;
 }
 
