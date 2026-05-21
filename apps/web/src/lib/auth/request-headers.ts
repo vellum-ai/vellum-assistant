@@ -1,6 +1,8 @@
 /**
- * Shared header builders for raw `fetch()` calls against the
- * Django-proxied daemon routes (`/v1/assistants/{id}/...`).
+ * **Transitional — do not extend. Slated for deletion.**
+ *
+ * Shared header builders for raw `fetch()` calls against assistant-scoped
+ * routes (`/v1/assistants/{id}/...`).
  *
  * Prefer the generated HeyAPI client (`@/generated/api/client.gen.js`)
  * when possible — its request interceptor at
@@ -10,11 +12,14 @@
  *
  * Anything that handles `Vellum-Organization-Id` or `X-CSRFToken` outside
  * `lib/auth/` and `lib/api-interceptors.ts` should be routed through here.
- * Drift between sites is the failure mode that caused
- * [LUM-1784](https://linear.app/vellum/issue/LUM-1784): a request that
- * skips the header is silently rejected by Django's
- * `MissingVellumOrganizationIDHeaderError`, the wrapper returns null,
- * and the UI degrades to a fallback instead of surfacing the error.
+ * Drift between sites is the failure mode where a request that skips the
+ * header is silently rejected upstream, the wrapper returns null, and the
+ * UI degrades to a fallback instead of surfacing the error.
+ *
+ * **DO NOT add new helpers here.** Auth is moving to a single
+ * gateway-issued session-cookie model where the SPA no longer
+ * hand-attaches these headers — the central interceptor handles both
+ * modes. This whole file is deleted once that lands.
  */
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf.js";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";

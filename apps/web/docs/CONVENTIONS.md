@@ -603,6 +603,81 @@ If bypassing, add a comment explaining why.
 
 ---
 
+## Authentication
+
+The SPA is converging on a single auth design: gateway-issued
+HttpOnly session cookies, applied uniformly across browser, Capacitor
+iOS, and Electron. Until that lands, follow these conventions to keep
+the codebase convergent rather than divergent.
+
+### One HeyAPI client instance
+
+There is exactly one HeyAPI client per app, exported by
+`@/generated/api/client.gen.js`. Hand-written wrappers and call sites
+must import that singleton — they must **not** call `createClient(...)`
+themselves.
+
+This is enforced by an ESLint rule
+(`no-restricted-syntax`/`CallExpression[callee.name='createClient']`).
+A second `createClient(...)` instance does not inherit the request
+interceptors that attach the auth headers, so every request through it
+silently ships unauthenticated. Upstream rejects the request; the
+wrapper returns `null`; the UI degrades to a fallback. The class of bug
+is hard to notice in code review because the second-instance code looks
+correct in isolation. Don't add a second instance.
+
+### Auth-related headers stay inside the auth boundary
+
+The headers `Vellum-Organization-Id`, `X-CSRFToken`, and `X-Session-Token`
+only appear inside `src/lib/auth/` and `src/lib/api-interceptors.ts`.
+Everywhere else, an ESLint rule (`no-restricted-syntax` literal
+selectors) flags string-literal uses of those header names.
+
+If you find yourself wanting to set one of those headers in app code,
+the answer is to use the central interceptor (already installed on the
+singleton client). If you're writing raw `fetch()` for a streaming
+endpoint, use the helpers in `src/lib/auth/request-headers.ts` — but
+do not extend those helpers; the file is transitional and slated for
+deletion.
+
+### No JS-readable storage for tokens or credentials
+
+Do not write anything token-, credential-, secret-, JWT-, bearer-,
+password-, or api-key-shaped to `localStorage` or `sessionStorage`.
+JS-readable storage is XSS-exposed; an injected script can exfiltrate
+the entire store. An ESLint rule blocks `setItem` calls whose key
+literal matches that pattern.
+
+The right storage:
+
+- **Web / Capacitor iOS:** the HttpOnly session cookie issued by the
+  gateway, set automatically by the browser. The SPA never touches it.
+- **Electron:** the same HttpOnly cookie via Electron's session
+  partition. For anything that genuinely needs client-managed storage,
+  `Electron.safeStorage` (Keychain on macOS, libsecret on Linux,
+  DPAPI on Windows).
+- **Capacitor iOS biometric persistence:** Keychain via the existing
+  `native-biometric` plugin (only for opt-in "remember me" persistence;
+  not the primary token store).
+
+### No new `X-Session-Token` users
+
+`X-Session-Token` is a legacy native-bridge artifact from the iOS
+plugin (it forwards a server-side session ID across the JS↔Swift
+boundary). It is being retired once the gateway issues cookies that
+the WKWebView populates directly. New code that mentions this header
+is a lint error.
+
+### Native-platform branching belongs in `lib/auth/`
+
+If you need to write `if (isNativePlatform)` in auth-touching code,
+leave a `TODO` next to it pointing at the planned consolidation. The
+end state has a single native bridge interface (Capacitor today,
+Electron next) so app code shouldn't be branching on which shell is
+wrapping the SPA.
+
+---
+
 ## Testing
 
 - **Test framework:** [Bun's test runner](https://bun.sh/docs/test)
