@@ -614,12 +614,12 @@ async function injectViaRouter(args: {
 
   // Build minimal telemetry rows for the union of router-selected slugs and
   // prior `everInjected` slugs. Router-mode rows zero out every activation
-  // value (no spreading activation runs). Slugs the router picked this turn
-  // get `source: "router"`; prior-everInjected slugs the router did NOT
-  // re-pick get `source: "carry_over"`. The `status` placeholder is
-  // overwritten by `finalizeInjection`.
-  const routerPicked = new Set(routerResult.selectedSlugs);
-  const telemetrySlugs = new Set<string>(routerPicked);
+  // value (no spreading activation runs). Slugs the router picked carry
+  // their batch's tier tag from `routerResult.sourceBySlug` (e.g. `tier1`,
+  // `tier3:2`); prior-everInjected slugs the router did NOT re-pick get
+  // `source: "carry_over"`. The `status` placeholder is overwritten by
+  // `finalizeInjection`.
+  const telemetrySlugs = new Set<string>(routerResult.selectedSlugs);
   for (const entry of priorEverInjected) telemetrySlugs.add(entry.slug);
   const telemetryRows: MemoryV2ConceptRowRecord[] = [...telemetrySlugs].map(
     (slug) => ({
@@ -634,7 +634,7 @@ async function injectViaRouter(args: {
       simAssistantRerankBoost: 0,
       inRerankPool: false,
       spreadContribution: 0,
-      source: routerPicked.has(slug) ? "router" : "carry_over",
+      source: routerResult.sourceBySlug.get(slug) ?? "carry_over",
       status: "not_injected",
     }),
   );
