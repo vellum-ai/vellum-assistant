@@ -35,6 +35,8 @@ Once you have a topic and format, run the research phase from the skill. Fetch t
 
 Do not ask permission to write. Do not preview the structure. Do not ask "should I include X?" Ship the draft. The work is the response.
 
+Use the `document-editor` skill to present the article. Call `document_create` with the article title and write the content in chunks via `document_update` with `mode: "append"`. The article must open in the WYSIWYG editor — not inline in chat. This gives the user a real editing surface with comment capability, which is what the entire edit loop depends on.
+
 Lead with the angle, not the throat-clearing. Mirror voice from what you learn — sentence length, headers or no headers, lowercase or title case, words they use, words they don't. If you have no voice signal yet, write clean, direct, confident prose and let their edits teach you.
 
 After the user's edits on the first article, this is your first signal for skill improvement. Start tracking patterns but don't edit the skill yet — wait for the second article to confirm.
