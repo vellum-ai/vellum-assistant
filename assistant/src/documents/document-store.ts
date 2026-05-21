@@ -241,6 +241,99 @@ export function deleteDocument(surfaceId: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// In-document search (grep)
+// ---------------------------------------------------------------------------
+
+export interface FindMatch {
+  lineNumber: number;
+  lineContent: string;
+  matchStart: number;
+  matchEnd: number;
+  matchText: string;
+}
+
+export interface FindResult {
+  surfaceId: string;
+  totalMatches: number;
+  matches: FindMatch[];
+}
+
+const MAX_FIND_MATCHES = 50;
+
+/**
+ * Search for text or a regex pattern within a document's content.
+ * Returns matching lines with line numbers and match positions.
+ * Results are capped at {@link MAX_FIND_MATCHES} to avoid oversized responses.
+ */
+export function findInDocument(
+  surfaceId: string,
+  query: string,
+  options: { regex?: boolean; caseSensitive?: boolean } = {},
+): FindResult | null {
+  try {
+    const row = rawGet<{ content: string }>(
+      /*sql*/ `SELECT content FROM documents WHERE surface_id = ?`,
+      surfaceId,
+    );
+    if (!row) return null;
+
+    const lines = row.content.split("\n");
+    const matches: FindMatch[] = [];
+    let uncappedTotal = 0;
+
+    if (options.regex) {
+      const flags = options.caseSensitive ? "g" : "gi";
+      const re = new RegExp(query, flags);
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        re.lastIndex = 0;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(line)) !== null) {
+          uncappedTotal++;
+          if (matches.length < MAX_FIND_MATCHES) {
+            matches.push({
+              lineNumber: i + 1,
+              lineContent: line,
+              matchStart: m.index,
+              matchEnd: m.index + m[0].length,
+              matchText: m[0],
+            });
+          }
+          if (m[0].length === 0) re.lastIndex++;
+        }
+      }
+    } else {
+      const needle = options.caseSensitive ? query : query.toLowerCase();
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const haystack = options.caseSensitive ? line : line.toLowerCase();
+        let startPos = 0;
+        while (startPos <= haystack.length) {
+          const idx = haystack.indexOf(needle, startPos);
+          if (idx === -1) break;
+          uncappedTotal++;
+          if (matches.length < MAX_FIND_MATCHES) {
+            matches.push({
+              lineNumber: i + 1,
+              lineContent: line,
+              matchStart: idx,
+              matchEnd: idx + needle.length,
+              matchText: line.slice(idx, idx + needle.length),
+            });
+          }
+          startPos = idx + Math.max(needle.length, 1);
+        }
+      }
+    }
+
+    return { surfaceId, totalMatches: uncappedTotal, matches };
+  } catch (error) {
+    log.error({ err: error, surfaceId }, "Find-in-document error");
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Document persistence
 // ---------------------------------------------------------------------------
 
@@ -290,6 +383,115 @@ export function saveDocument(params: {
     return { success: true, surfaceId: params.surfaceId };
   } catch (error) {
     log.error({ err: error, surfaceId: params.surfaceId }, "Save error");
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Find-and-replace
+// ---------------------------------------------------------------------------
+
+export interface ReplaceInDocumentOptions {
+  regex?: boolean;
+  caseSensitive?: boolean;
+  maxReplacements?: number;
+}
+
+export type ReplaceInDocumentResult =
+  | { success: true; replacements_made: number; content_changed: boolean }
+  | { success: false; error: string };
+
+function escapeRegExpChars(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Find and replace text within a document — like sed.
+ * Supports literal text and regex patterns with optional backreferences.
+ */
+export function replaceInDocument(
+  surfaceId: string,
+  find: string,
+  replace: string,
+  options: ReplaceInDocumentOptions = {},
+): ReplaceInDocumentResult {
+  try {
+    const row = rawGet<{ content: string }>(
+      /*sql*/ `SELECT content FROM documents WHERE surface_id = ?`,
+      surfaceId,
+    );
+    if (!row) {
+      return { success: false, error: "Document not found" };
+    }
+
+    const flags = "g" + (options.caseSensitive === true ? "" : "i");
+    const pattern = options.regex
+      ? new RegExp(find, flags)
+      : new RegExp(escapeRegExpChars(find), flags);
+
+    const totalMatches = [...row.content.matchAll(pattern)].length;
+    if (
+      totalMatches === 0 ||
+      (options.maxReplacements != null && options.maxReplacements <= 0)
+    ) {
+      return { success: true, replacements_made: 0, content_changed: false };
+    }
+
+    let newContent: string;
+    let replacementsMade: number;
+
+    if (
+      options.maxReplacements != null &&
+      options.maxReplacements < totalMatches
+    ) {
+      // Iterative replacement up to maxReplacements using manual exec loop
+      // so backreferences in the replacement string work correctly.
+      const limit = options.maxReplacements;
+      let count = 0;
+      let result = "";
+      let lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = pattern.exec(row.content)) !== null) {
+        if (count >= limit) break;
+        result += row.content.slice(lastIndex, m.index);
+        const singleMatchPattern = new RegExp(
+          pattern.source,
+          pattern.flags.replace("g", ""),
+        );
+        result += m[0].replace(singleMatchPattern, replace);
+        lastIndex = m.index + m[0].length;
+        count++;
+        if (m[0].length === 0) pattern.lastIndex++;
+      }
+      result += row.content.slice(lastIndex);
+      newContent = result;
+      replacementsMade = count;
+    } else {
+      newContent = row.content.replace(pattern, replace);
+      replacementsMade = totalMatches;
+    }
+
+    const wordCount = newContent
+      .split(/\s+/)
+      .filter((w) => w.length > 0).length;
+    rawRun(
+      /*sql*/ `UPDATE documents SET content = ?, word_count = ?, updated_at = ? WHERE surface_id = ?`,
+      newContent,
+      wordCount,
+      Date.now(),
+      surfaceId,
+    );
+    log.info({ surfaceId, replacementsMade }, "Replaced text in document");
+    return {
+      success: true,
+      replacements_made: replacementsMade,
+      content_changed: true,
+    };
+  } catch (error) {
+    log.error({ err: error, surfaceId }, "Replace-in-document error");
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
