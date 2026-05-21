@@ -179,10 +179,9 @@ export function useEventBusInit({
       });
     };
 
-    const teardown = (reason: string) => {
+    const teardown = () => {
       current?.cancel();
       current = null;
-      useEventBusStore.getState().publish("sse.closed", { reason });
     };
 
     open();
@@ -193,7 +192,7 @@ export function useEventBusInit({
     // foregrounding the iOS native shell).
     const unsubHidden = bus.subscribe("app.hidden", () => {
       if (!current) return;
-      teardown("app_hidden");
+      teardown();
     });
     const unsubResume = bus.subscribe("app.resume", () => {
       const now = Date.now();
@@ -206,7 +205,7 @@ export function useEventBusInit({
     const unsubReachabilityRetry = bus.subscribe(
       "reachability.retry-requested",
       () => {
-        teardown("reachability_retry");
+        teardown();
         open();
       },
     );

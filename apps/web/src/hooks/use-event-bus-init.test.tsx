@@ -169,6 +169,25 @@ describe("useEventBusInit — SSE ownership", () => {
     expect(cancelMock).toHaveBeenCalledTimes(1);
   });
 
+  test("does not publish sse.closed for intentional teardowns (app.hidden, reachability retry)", () => {
+    const closedHandler = mock(() => {});
+    useEventBusStore.getState().subscribe("sse.closed", closedHandler);
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+        checkAssistant: () => {},
+      }),
+    );
+    useEventBusStore
+      .getState()
+      .publish("app.hidden", { signal: "visibility" });
+    useEventBusStore
+      .getState()
+      .publish("reachability.retry-requested", {});
+    expect(closedHandler).not.toHaveBeenCalled();
+  });
+
   test("tears down SSE on app.hidden and reopens on app.resume after the dedup window", async () => {
     const checkAssistant = mock(() => {});
     renderHook(() =>
