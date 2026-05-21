@@ -279,12 +279,7 @@ describe("token estimator", () => {
       "not-a-valid-image-header-at-all",
     ).toString("base64");
 
-    for (const providerName of [
-      "anthropic",
-      "openai",
-      "openrouter",
-      "gemini",
-    ]) {
+    for (const providerName of ["anthropic", "openai", "openrouter"]) {
       const tokens = estimateContentBlockTokens(
         {
           type: "image",
@@ -304,11 +299,59 @@ describe("token estimator", () => {
     }
   });
 
+  test("Gemini falls back to its max-tile budget for unparseable / HEIC images", () => {
+    // HEIC/HEIF coming from iOS attachments aren't parsed by
+    // parseImageDimensions, so the estimator sees null dims. The generic
+    // 1,600-token cap would under-count by ~2.5x for a typical iPhone photo
+    // that ends up at Gemini's 16-tile / 4,128-token ceiling. Use the
+    // Gemini-specific cap instead to avoid skipping compaction.
+    for (const mediaType of [
+      "image/heic",
+      "image/heif",
+      "image/png", // corrupted PNG also exercises the fallback
+    ]) {
+      const data = Buffer.from("not-a-valid-image-header-at-all").toString(
+        "base64",
+      );
+      const tokens = estimateContentBlockTokens(
+        {
+          type: "image",
+          source: { type: "base64", media_type: mediaType, data },
+        },
+        { providerName: "gemini" },
+      );
+      // 4128 (16 tiles * 258) + 16 (block overhead) + ceil(mediaType len / 4)
+      expect(tokens).toBeGreaterThanOrEqual(4_128);
+      expect(tokens).toBeLessThan(4_200);
+    }
+  });
+
   test("Gemini image tokens scale with image area via 768x768 tiling", () => {
     // Per Google's docs, Gemini tiles images larger than 384px into 768x768
-    // chunks at 258 tokens each. The Anthropic-style ~1,600 cap under-counts
-    // large images badly enough to skip compaction and overflow context.
-    // 4000x4000 → ceil(4000/768)^2 = 6*6 = 36 tiles → 9,288 image tokens.
+    // chunks at 258 tokens each, after resizing the longest side to ≤3072px.
+    // 3000x3000 (under the cap) → ceil(3000/768)^2 = 4*4 = 16 tiles → 4,128
+    // image tokens.
+    const tokens = estimateContentBlockTokens(
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: makePngBase64(3000, 3000),
+        },
+      },
+      { providerName: "gemini" },
+    );
+    expect(tokens).toBeGreaterThanOrEqual(4_128);
+    expect(tokens).toBeLessThan(4_200);
+  });
+
+  test("Gemini clamps image dimensions to 3072px before tiling", () => {
+    // Google's docs state images are resized to a 3072px max side before
+    // tiling. Without the clamp, a 4000x4000 image would be counted as
+    // ceil(4000/768)^2 = 36 tiles (~9,288 tokens) instead of the actual
+    // ceil(3072/768)^2 = 16 tiles (~4,128 tokens), over-counting by ~2.25x
+    // and triggering spurious compaction.
     const tokens = estimateContentBlockTokens(
       {
         type: "image",
@@ -320,8 +363,8 @@ describe("token estimator", () => {
       },
       { providerName: "gemini" },
     );
-    expect(tokens).toBeGreaterThan(9_000);
-    expect(tokens).toBeLessThan(9_500);
+    expect(tokens).toBeGreaterThanOrEqual(4_128);
+    expect(tokens).toBeLessThan(4_200);
   });
 
   test("Gemini images ≤384px on both sides count as a single 258-token tile", () => {
