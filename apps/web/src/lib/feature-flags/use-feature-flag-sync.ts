@@ -42,7 +42,7 @@ async function fetchClientFlagValues(): Promise<ClientFlagValuesResponse> {
     Record<string, unknown>,
     false
   >({
-    url: "/v1/feature-flags/client-flag-values/" as "/v1/feature-flags/client-flag-values/",
+    url: `/v1/feature-flags/client-flag-values/`,
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch feature flags");
