@@ -241,6 +241,99 @@ export function deleteDocument(surfaceId: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// In-document search (grep)
+// ---------------------------------------------------------------------------
+
+export interface FindMatch {
+  lineNumber: number;
+  lineContent: string;
+  matchStart: number;
+  matchEnd: number;
+  matchText: string;
+}
+
+export interface FindResult {
+  surfaceId: string;
+  totalMatches: number;
+  matches: FindMatch[];
+}
+
+const MAX_FIND_MATCHES = 50;
+
+/**
+ * Search for text or a regex pattern within a document's content.
+ * Returns matching lines with line numbers and match positions.
+ * Results are capped at {@link MAX_FIND_MATCHES} to avoid oversized responses.
+ */
+export function findInDocument(
+  surfaceId: string,
+  query: string,
+  options: { regex?: boolean; caseSensitive?: boolean } = {},
+): FindResult | null {
+  const row = rawGet<{ content: string }>(
+    /*sql*/ `SELECT content FROM documents WHERE surface_id = ?`,
+    surfaceId,
+  );
+  if (!row) return null;
+
+  const lines = row.content.split("\n");
+  const matches: FindMatch[] = [];
+
+  if (options.regex) {
+    const flags = options.caseSensitive ? "g" : "gi";
+    const re = new RegExp(query, flags);
+    for (
+      let i = 0;
+      i < lines.length && matches.length < MAX_FIND_MATCHES;
+      i++
+    ) {
+      const line = lines[i];
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while (
+        (m = re.exec(line)) !== null &&
+        matches.length < MAX_FIND_MATCHES
+      ) {
+        matches.push({
+          lineNumber: i + 1,
+          lineContent: line,
+          matchStart: m.index,
+          matchEnd: m.index + m[0].length,
+          matchText: m[0],
+        });
+        // Prevent infinite loops on zero-length matches
+        if (m[0].length === 0) re.lastIndex++;
+      }
+    }
+  } else {
+    const needle = options.caseSensitive ? query : query.toLowerCase();
+    for (
+      let i = 0;
+      i < lines.length && matches.length < MAX_FIND_MATCHES;
+      i++
+    ) {
+      const line = lines[i];
+      const haystack = options.caseSensitive ? line : line.toLowerCase();
+      let startPos = 0;
+      while (startPos <= haystack.length && matches.length < MAX_FIND_MATCHES) {
+        const idx = haystack.indexOf(needle, startPos);
+        if (idx === -1) break;
+        matches.push({
+          lineNumber: i + 1,
+          lineContent: line,
+          matchStart: idx,
+          matchEnd: idx + needle.length,
+          matchText: line.slice(idx, idx + needle.length),
+        });
+        startPos = idx + Math.max(needle.length, 1);
+      }
+    }
+  }
+
+  return { surfaceId, totalMatches: matches.length, matches };
+}
+
+// ---------------------------------------------------------------------------
 // Document persistence
 // ---------------------------------------------------------------------------
 
