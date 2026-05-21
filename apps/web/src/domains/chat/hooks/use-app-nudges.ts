@@ -1,6 +1,10 @@
-import { type MutableRefObject, useEffect, useState } from "react";
+import { createElement, type MutableRefObject, type ReactNode, useEffect, useMemo, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { DiscordNudgeSidebarEntry } from "@/domains/nudges/components/discord-nudge-sidebar-entry.js";
+import { GitHubNudgeSidebarEntry } from "@/domains/nudges/components/github-nudge-sidebar-entry.js";
+import { MacOSAppSidebarEntry } from "@/domains/nudges/components/macos-app-sidebar-entry.js";
+import { IOSAppSidebarEntry } from "@/domains/nudges/components/ios-app-sidebar-entry.js";
 import { useIsIOSWeb } from "@/domains/nudges/ios-app-platform.js";
 import {
   readIOSAssistantTurnsSeen,
@@ -63,6 +67,9 @@ export interface AppNudgesState {
   discordNudge: DiscordNudgeState;
   showDiscordBanner: boolean;
   showDiscordSidebar: boolean;
+
+  /** Pre-composed sidebar footer banner node, or null when none should show. */
+  sidebarBanner: ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +177,32 @@ export function useAppNudges(
   const showDiscordSidebar =
     !showGitHubSidebar && discordNudge.sidebarEntryVisible;
 
+  const sidebarBanner = useMemo<ReactNode>(() => {
+    if (nudge.sidebarEntryVisible) {
+      return isOnIOS
+        ? createElement(IOSAppSidebarEntry, { onDownload: nudge.handleDownload, onDismiss: nudge.handleSidebarDismiss })
+        : createElement(MacOSAppSidebarEntry, { onDownload: nudge.handleDownload, onDismiss: nudge.handleSidebarDismiss });
+    }
+    if (showGitHubSidebar) {
+      return createElement(GitHubNudgeSidebarEntry, { onStar: githubNudge.handleStar, onDismiss: githubNudge.handleSidebarDismiss });
+    }
+    if (showDiscordSidebar) {
+      return createElement(DiscordNudgeSidebarEntry, { onJoin: discordNudge.handleJoin, onDismiss: discordNudge.handleSidebarDismiss });
+    }
+    return null;
+  }, [
+    isOnIOS,
+    nudge.sidebarEntryVisible,
+    nudge.handleDownload,
+    nudge.handleSidebarDismiss,
+    showGitHubSidebar,
+    githubNudge.handleStar,
+    githubNudge.handleSidebarDismiss,
+    showDiscordSidebar,
+    discordNudge.handleJoin,
+    discordNudge.handleSidebarDismiss,
+  ]);
+
   return {
     isOnIOS,
     isOnMacOS,
@@ -182,5 +215,6 @@ export function useAppNudges(
     discordNudge,
     showDiscordBanner,
     showDiscordSidebar,
+    sidebarBanner,
   };
 }

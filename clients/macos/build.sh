@@ -348,12 +348,14 @@ CERTEOF
                     _cert_ok=false
                 elif ! openssl pkcs12 -export -in "$_CERT_DIR/cert.pem" \
                     -inkey "$_CERT_DIR/key.pem" -out "$_CERT_DIR/cert.p12" \
-                    -passout pass: 2>"$_CERT_DIR/openssl-p12.err"; then
+                    -passout pass:vellum-local-dev \
+                    -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1 \
+                    2>"$_CERT_DIR/openssl-p12.err"; then
                     _cert_step="openssl pkcs12 -export (p12 conversion)"
                     _cert_ok=false
                 elif ! security import "$_CERT_DIR/cert.p12" \
                     -k ~/Library/Keychains/login.keychain-db \
-                    -T /usr/bin/codesign -P "" \
+                    -T /usr/bin/codesign -P "vellum-local-dev" \
                     2>"$_CERT_DIR/security-import.err"; then
                     _cert_step="security import (keychain import)"
                     _cert_ok=false
@@ -390,9 +392,11 @@ CERTEOF
                 fi
                 rm -rf "$_CERT_DIR"
             fi
-            # Pick up the newly-created (or previously-created) cert
-            SIGN_IDENTITY=$(_valid_codesign_identities \
-                | grep "$_CERT_CN" | head -1 \
+            # Pick up the newly-created (or previously-created) cert.
+            # Self-signed certs show as CSSMERR_TP_NOT_TRUSTED which
+            # _valid_codesign_identities excludes, so query without -v.
+            SIGN_IDENTITY=$(security find-identity -p codesigning 2>/dev/null \
+                | grep "$_CERT_CN" | grep -v "valid identities" | head -1 \
                 | sed 's/.*"\(.*\)"/\1/' || true)
         fi
     fi

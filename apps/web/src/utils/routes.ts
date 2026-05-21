@@ -25,11 +25,6 @@ export const routes = {
     emails: r("/assistant/logs/emails"),
     systemEvents: r("/assistant/logs/system-events"),
   },
-  uiGallery: r("/ui-gallery"),
-  login: r("/account/login"),
-  signup: r("/account/signup"),
-  logout: r("/logout"),
-
   account: {
     root: r("/account"),
     login: r("/account/login"),
@@ -63,7 +58,6 @@ export const routes = {
 
   contacts: {
     root: r("/assistant/contacts"),
-    detail: (id: string) => dyn(r("/assistant/contacts"), id),
   },
 
   settings: {
@@ -91,20 +85,6 @@ export const routes = {
 
   admin: {
     root: r("/admin"),
-    assistants: r("/admin/assistants"),
-    assistant: (id: string) => dyn(r("/admin/assistants"), id),
-    users: r("/admin/users"),
-    user: (id: string) => dyn(r("/admin/users"), id),
-    organizations: r("/admin/organizations"),
-    organization: (id: string) => dyn(r("/admin/organizations"), id),
-    feedback: r("/admin/feedback"),
-    feedbackOne: (id: string) => dyn(r("/admin/feedback"), id),
-    referralCodes: r("/admin/referral-codes"),
-    analytics: r("/admin/analytics"),
-    inference: r("/admin/inference"),
-    onboarding: r("/admin/onboarding"),
-    integrations: r("/admin/integrations"),
-    infrastructure: r("/admin/infrastructure"),
   },
 
   docs: {

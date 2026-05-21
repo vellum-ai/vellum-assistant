@@ -197,6 +197,7 @@ export function ChatLayout() {
   // --- Layout slot state for child route content ---
   const [topBarCenter, setTopBarCenter] = useState<ReactNode>(null);
   const [topBarRightSlot, setTopBarRightSlot] = useState<ReactNode>(null);
+  const [footerBanner, setFooterBanner] = useState<ReactNode>(null);
   const onSearchClickRef = useRef<(() => void) | null>(null);
   const setOnSearchClick = useCallback((cb: (() => void) | null) => {
     onSearchClickRef.current = cb;
@@ -218,6 +219,7 @@ export function ChatLayout() {
       setTopBarCenter,
       setTopBarRightSlot,
       setOnSearchClick,
+      setFooterBanner,
     }),
     [
       lifecycle.assistantId,
@@ -228,6 +230,7 @@ export function ChatLayout() {
       lifecycle.setAssistantId,
       lifecycle.autoGreetRef,
       setOnSearchClick,
+      setFooterBanner,
     ],
   );
 
@@ -273,7 +276,11 @@ export function ChatLayout() {
   }, [navigate]);
 
   const isHomeActive = location.pathname === routes.home;
-  const isIdentityActive = location.pathname === routes.identity;
+  const isIdentityActive =
+    location.pathname === routes.identity ||
+    location.pathname === routes.skills ||
+    location.pathname === routes.workspace ||
+    location.pathname.startsWith(routes.contacts.root);
 
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
@@ -443,6 +450,7 @@ export function ChatLayout() {
         onCreateGroup={handleCreateGroup}
         onRenameGroup={handleRenameGroup}
         onDeleteGroup={handleDeleteGroup}
+        footerBanner={footerBanner}
         footerAction={
           <PreferencesMenu
             assistantId={lifecycle.assistantId}
@@ -472,6 +480,7 @@ export function ChatLayout() {
       handleOpenIdentity,
       isLibraryActive,
       handleOpenLibrary,
+      footerBanner,
     ],
   );
 

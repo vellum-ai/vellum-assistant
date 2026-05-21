@@ -71,6 +71,13 @@ import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
 import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input.js";
 
+import { SetupScreen } from "@/domains/chat/components/setup-screen.js";
+import { CleanupScreen } from "@/domains/chat/components/cleanup-screen.js";
+import { PlatformHostedScreen } from "@/domains/chat/components/platform-hosted-screen.js";
+import { SelfHostedScreen } from "@/domains/chat/components/self-hosted-screen.js";
+import { VersionSelectionScreen } from "@/domains/chat/components/version-selection-screen.js";
+import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant.js";
+import { fetchSuggestion } from "@/domains/chat/api/suggestion-api.js";
 import { createWebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import { fetchAssistantIdentity } from "@/assistant/identity.js";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
@@ -113,10 +120,13 @@ export function ChatPage() {
     assistantId,
     assistantState,
     checkAssistant,
+    retryAssistant,
+    hatchVersion,
     setAssistantId,
     setTopBarCenter,
     setTopBarRightSlot,
     setOnSearchClick,
+    setFooterBanner,
   } = useAssistantContext();
   const chatPullToRefresh = useFeatureFlagStore.use.chatPullToRefresh();
   const deployToVercel = useFeatureFlagStore.use.deployToVercel();
@@ -995,6 +1005,39 @@ export function ChatPage() {
   }, [isMobile]);
 
   // -------------------------------------------------------------------------
+  // Ghost-text suggestion: fetch after each completed assistant turn
+  // -------------------------------------------------------------------------
+  const inputSnapshotRef = useRef(input);
+  useEffect(() => { inputSnapshotRef.current = input; }, [input]);
+
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg || lastMsg.role !== "assistant" || lastMsg.isStreaming) return;
+    if (!assistantId || !activeConversationKey) return;
+    const msgId = lastMsg.id ?? null;
+    if (msgId === lastSuggestionMsgIdRef.current) return;
+    lastSuggestionMsgIdRef.current = msgId;
+
+    const controller = new AbortController();
+    void fetchSuggestion(assistantId, activeConversationKey, lastMsg.id, controller.signal)
+      .then((r) => {
+        if (controller.signal.aborted) return;
+        if (inputSnapshotRef.current) return;
+        setSuggestion(r.suggestion);
+      })
+      .catch(() => {});
+    return () => { controller.abort(); };
+  }, [messages, assistantId, activeConversationKey, setSuggestion]);
+
+  // -------------------------------------------------------------------------
+  // Nudge sidebar footer banner — push into the layout via outlet context
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    setFooterBanner(nudges.sidebarBanner);
+    return () => { setFooterBanner(null); };
+  }, [nudges.sidebarBanner, setFooterBanner]);
+
+  // -------------------------------------------------------------------------
   // Derived UI state
   // -------------------------------------------------------------------------
   const hasUncompletedVisibleSurface = useMemo(() => {
@@ -1044,14 +1087,51 @@ export function ChatPage() {
 
   if (assistantState.kind === "error") {
     return (
-      <div className="flex h-full items-center justify-center p-8 text-center">
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
         <p className="text-[var(--text-secondary)]">{assistantState.message}</p>
+        <Button variant="primary" onClick={retryAssistant}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
+  if (assistantState.kind === "initializing") {
+    return <SetupScreen />;
+  }
+
+  if (assistantState.kind === "cleaning_up") {
+    return <CleanupScreen />;
+  }
+
+  if (assistantState.kind === "platform_hosted") {
+    return <PlatformHostedScreen />;
+  }
+
+  if (assistantState.kind === "self_hosted") {
+    return <SelfHostedScreen />;
+  }
+
+  if (assistantState.kind === "awaiting_version_selection") {
+    return <VersionSelectionScreen onHatch={hatchVersion} />;
+  }
+
+  if (assistantState.kind === "retired") {
+    return (
+      <div className="flex h-full flex-col items-center justify-center p-8 text-center">
+        <p className="text-title-medium text-[var(--content-default)]">
+          This assistant has been retired
+        </p>
+        <p className="mt-2 max-w-md text-body-medium-lighter text-[var(--content-tertiary)]">
+          This assistant is no longer active. You can create a new one from the
+          settings page.
+        </p>
       </div>
     );
   }
 
   // -------------------------------------------------------------------------
-  // Props assembly
+  // Props assembly (only reached when assistantState.kind === "active")
   // -------------------------------------------------------------------------
   const handleReviewDiskUsage = () => {
     haptic.light();
@@ -1255,6 +1335,11 @@ export function ChatPage() {
   return (
     <>
       <ChatRouteContent {...chatRouteProps} />
+      <ConnectingToAssistant
+        state={reachability.state}
+        onRetry={() => reachability.probe({ showConnectingImmediately: true })}
+        onDismiss={reachability.reset}
+      />
       <CommandPalette
         isOpen={commandPalette.isOpen}
         onClose={commandPalette.close}

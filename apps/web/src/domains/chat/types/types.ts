@@ -136,6 +136,7 @@ const INHERENTLY_INTERACTIVE_SURFACE_TYPES = [
   "form",
   "confirmation",
   "file_upload",
+  "task_preferences",
 ];
 
 /**
