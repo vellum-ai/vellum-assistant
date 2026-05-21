@@ -85,7 +85,7 @@ export interface RenderedSlackTranscriptMessage {
  * persisted row when rendering the Slack chronological transcript.
  *
  * `text` is intentionally omitted — text content is subsumed into the tag
- * line (e.g. `[11/14/23 14:25 @alice]: ...`) so callers reading the
+ * line (e.g. `[11/14/23 14:25 UTC @alice]: ...`) so callers reading the
  * rendered output see one human-readable line per row rather than a raw
  * text block stripped of thread context.
  *
@@ -131,7 +131,7 @@ const REACTION_TAG_LINE_SUFFIX = /M[0-9a-f]{6}\]$/;
  * reaction-overflow code paths (`renderReaction` / the overflow trailer).
  *
  * Reaction lines already embed the actor attribution inline
- * (`[11/14/23 14:28 @assistant reacted 👍 to M1a2b3c]`), so consumers
+ * (`[11/14/23 14:28 UTC @assistant reacted 👍 to M1a2b3c]`), so consumers
  * that flatten the rendered transcript and re-apply role labels should
  * skip these lines to avoid double-attribution.
  *
@@ -143,7 +143,7 @@ export function isReactionTagLine(text: string): boolean {
 }
 
 /**
- * Format a Slack ts (`"1700000000.000100"`) as `MM/DD/YY HH:MM` (UTC).
+ * Format a Slack ts (`"1700000000.000100"`) as `MM/DD/YY HH:MM UTC`.
  *
  * Slack ts is `<unix-seconds>.<microseconds>`; we treat it as a unix epoch
  * second value for display purposes. Pure — derives only from the ts string.
@@ -155,7 +155,7 @@ function formatSlackTs(channelTs: string): string {
 }
 
 /**
- * Format an epoch millisecond timestamp as `MM/DD/YY HH:MM` (UTC).
+ * Format an epoch millisecond timestamp as `MM/DD/YY HH:MM UTC`.
  */
 function formatEpochMs(ms: number): string {
   if (!Number.isFinite(ms)) return "??/??/?? ??:??";
@@ -165,7 +165,7 @@ function formatEpochMs(ms: number): string {
   const yy = String(d.getUTCFullYear() % 100).padStart(2, "0");
   const hh = String(d.getUTCHours()).padStart(2, "0");
   const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${mo}/${da}/${yy} ${hh}:${mm}`;
+  return `${mo}/${da}/${yy} ${hh}:${mm} UTC`;
 }
 
 function renderSlackFileMarkers(
@@ -235,9 +235,9 @@ function maxNullableSlackTs(a: string | null, b: string | null): string | null {
  * The `role` slot already conveys identity, and the assistant replies
  * ~immediately after the triggering user message so the chronological
  * adjacency carries the same information as a timestamp. Keeping a
- * `[MM/DD/YY HH:MM]:` prefix on the assistant's own past turns caused
+ * `[MM/DD/YY HH:MM UTC]:` prefix on the assistant's own past turns caused
  * the model to mimic the exact format as a literal prefix in new
- * outbound Slack replies (`[04/22/26 21:25]: on it. ...`). Deleted
+ * outbound Slack replies (`[04/22/26 21:25 UTC]: on it. ...`). Deleted
  * assistant rows collapse to the short `[deleted]` sentinel so chronology
  * is preserved without carrying a mimickable timestamp.
  *
@@ -329,8 +329,8 @@ function renderModelBody(msg: RenderableSlackMessage, body: string): string {
 /**
  * Render a single reaction event as one tagged line.
  *
- * `[11/14/23 14:28 @bob reacted 👍 to M1a2b3c]` or
- * `[11/14/23 14:28 @bob removed 👍 from M1a2b3c]`.
+ * `[11/14/23 14:28 UTC @bob reacted 👍 to M1a2b3c]` or
+ * `[11/14/23 14:28 UTC @bob removed 👍 from M1a2b3c]`.
  */
 function renderReaction(msg: RenderableSlackMessage): string | null {
   const meta = msg.metadata;
@@ -347,8 +347,8 @@ function renderReaction(msg: RenderableSlackMessage): string | null {
 /**
  * Build the content blocks for a single non-reaction message.
  *
- * Emits the tag line (`[MM/DD/YY HH:MM @sender ...]: body`) inline at the position of
- * the first `text` block in `contentBlocks`, and preserves any replayable
+ * Emits the tag line (`[MM/DD/YY HH:MM UTC @sender ...]: body`) inline at
+ * the position of the first `text` block in `contentBlocks`, and preserves any replayable
  * blocks (`tool_use`, `tool_result`, `thinking`, `redacted_thinking`,
  * `image`, `file`) in their original order. Non-replayable blocks
  * (`ui_surface`, `server_tool_use`, `web_search_tool_result`, unknown types)
