@@ -48,7 +48,8 @@ import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
 
-import { Button } from "@vellum/design-library";
+import { Button, ConfirmDialog } from "@vellum/design-library";
+import { VercelTokenDialog } from "@/domains/intelligence/components/apps/vercel-token-dialog.js";
 import { useSyncChatStore } from "@/domains/chat/chat-store.js";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input.js";
@@ -181,6 +182,8 @@ export function ChatPage() {
   const subagentState = useSubagentStore(useShallow((s) => ({ byId: s.byId, orderedIds: s.orderedIds })));
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
+  const isTokenDialogOpen = useDeployStore.use.isTokenDialogOpen();
+  const complexDeployApp = useDeployStore.use.complexDeployApp();
   const subagentEntries = useMemo(
     () => subagentState.orderedIds.map((id) => subagentState.byId[id]!).filter(Boolean),
     [subagentState.byId, subagentState.orderedIds],
@@ -1191,6 +1194,30 @@ export function ChatPage() {
         isSearching={commandPalette.isSearching}
         onItemSelect={handleItemSelect}
         onKeyDown={commandPalette.handleKeyDown}
+      />
+      <VercelTokenDialog
+        open={isTokenDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) useDeployStore.getState().hideTokenDialog();
+        }}
+        assistantId={assistantId ?? ""}
+        onTokenSaved={() => {
+          if (assistantId) void useDeployStore.getState().deployAfterTokenSaved(assistantId);
+        }}
+      />
+      <ConfirmDialog
+        open={complexDeployApp !== null}
+        title="This app needs a full deploy"
+        message={`"${complexDeployApp?.name ?? ""}" uses backend services that won't work on a static Vercel page. ${assistantIdentity?.name ?? "Your assistant"} can deploy it properly with serverless functions.`}
+        confirmLabel={`Let ${assistantIdentity?.name ?? "assistant"} handle it`}
+        onConfirm={() => {
+          const appName = useDeployStore.getState().complexDeployApp?.name ?? "this app";
+          useDeployStore.getState().setComplexDeployApp(null);
+          startNewConversation({
+            initialMessage: `Deploy my app "${appName}" to Vercel. It uses backend services that need serverless functions — please use the deploy-fullstack-vercel skill to handle it properly.`,
+          });
+        }}
+        onCancel={() => useDeployStore.getState().setComplexDeployApp(null)}
       />
       {overlayTarget &&
         createPortal(

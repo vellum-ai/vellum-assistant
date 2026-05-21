@@ -12,6 +12,7 @@
   "src/domains/chat/chat-page.tsx": [
     "avatar",
     "conversations",
+    "intelligence",
     "interactions",
     "onboarding",
     "subagents"
