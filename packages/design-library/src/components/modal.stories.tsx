@@ -3,35 +3,60 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Settings } from "lucide-react";
 
 import { Button } from "./button.js";
-import { Modal } from "./modal.js";
+import { Modal, type ModalSize } from "./modal.js";
 
-const meta: Meta = {
+interface ModalStoryArgs {
+  size: ModalSize;
+  hideCloseButton: boolean;
+  title: string;
+  description: string;
+  body: string;
+  showIcon: boolean;
+}
+
+const meta: Meta<ModalStoryArgs> = {
   title: "Components/Modal",
   parameters: {
     layout: "centered",
   },
+  argTypes: {
+    size: { control: "select", options: ["sm", "md", "lg", "xl"] },
+    hideCloseButton: { control: "boolean" },
+    title: { control: "text" },
+    description: { control: "text" },
+    body: { control: "text" },
+    showIcon: { control: "boolean" },
+  },
 };
 
 export default meta;
-type Story = StoryObj;
+type Story = StoryObj<ModalStoryArgs>;
 
 export const Default: Story = {
-  render: () => (
+  args: {
+    size: "md",
+    hideCloseButton: false,
+    title: "Modal Title",
+    description: "This is a description of the modal content.",
+    body: "Modal body content goes here.",
+    showIcon: false,
+  },
+  render: ({ size, hideCloseButton, title, description, body, showIcon }) => (
     <Modal.Root>
       <Modal.Trigger asChild>
         <Button>Open Modal</Button>
       </Modal.Trigger>
-      <Modal.Content>
+      <Modal.Content size={size} hideCloseButton={hideCloseButton}>
         <Modal.Header>
-          <Modal.Title>Modal Title</Modal.Title>
-          <Modal.Description>
-            This is a description of the modal content.
-          </Modal.Description>
+          <Modal.Title icon={showIcon ? Settings : undefined}>
+            {title}
+          </Modal.Title>
+          {description ? (
+            <Modal.Description>{description}</Modal.Description>
+          ) : null}
         </Modal.Header>
         <Modal.Body>
-          <p className="text-body-medium-default">
-            Modal body content goes here.
-          </p>
+          <p className="text-body-medium-default">{body}</p>
         </Modal.Body>
         <Modal.Footer>
           <Modal.Close asChild>
@@ -45,46 +70,45 @@ export const Default: Story = {
 };
 
 export const WithIcon: Story = {
-  render: () => (
-    <Modal.Root>
-      <Modal.Trigger asChild>
-        <Button>Settings</Button>
-      </Modal.Trigger>
-      <Modal.Content>
-        <Modal.Header>
-          <Modal.Title icon={Settings}>Preferences</Modal.Title>
-          <Modal.Description>
-            Configure your account preferences.
-          </Modal.Description>
-        </Modal.Header>
-        <Modal.Body>
-          <p className="text-body-medium-default">Settings form content.</p>
-        </Modal.Body>
-        <Modal.Footer>
-          <Modal.Close asChild>
-            <Button variant="outlined">Cancel</Button>
-          </Modal.Close>
-          <Button variant="primary">Save Changes</Button>
-        </Modal.Footer>
-      </Modal.Content>
-    </Modal.Root>
-  ),
+  args: {
+    size: "md",
+    hideCloseButton: false,
+    title: "Preferences",
+    description: "Configure your account preferences.",
+    body: "Settings form content.",
+    showIcon: true,
+  },
+  render: Default.render,
 };
 
 export const NoCloseButton: Story = {
-  render: () => (
+  args: {
+    size: "md",
+    hideCloseButton: true,
+    title: "Confirm Action",
+    description:
+      "This modal has no close button — dismiss via the footer buttons.",
+    body: "",
+    showIcon: false,
+  },
+  render: ({ size, hideCloseButton, title, description, body, showIcon }) => (
     <Modal.Root>
       <Modal.Trigger asChild>
         <Button>Open (no close button)</Button>
       </Modal.Trigger>
-      <Modal.Content hideCloseButton>
+      <Modal.Content size={size} hideCloseButton={hideCloseButton}>
         <Modal.Header>
-          <Modal.Title>Confirm Action</Modal.Title>
+          <Modal.Title icon={showIcon ? Settings : undefined}>
+            {title}
+          </Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          <Modal.Description>
-            This modal has no close button — dismiss via the footer buttons.
-          </Modal.Description>
+          {description ? (
+            <Modal.Description>{description}</Modal.Description>
+          ) : null}
+          {body ? (
+            <p className="text-body-medium-default">{body}</p>
+          ) : null}
         </Modal.Body>
         <Modal.Footer>
           <Modal.Close asChild>
@@ -98,8 +122,16 @@ export const NoCloseButton: Story = {
 };
 
 export const Sizes: Story = {
-  render: function SizesStory() {
-    const [size, setSize] = useState<"sm" | "md" | "lg" | "xl">("md");
+  args: {
+    size: "md",
+    hideCloseButton: false,
+    title: "Modal",
+    description: "",
+    body: "Click a button to open the modal at that size, or change the size control.",
+    showIcon: false,
+  },
+  render: function SizesStory({ size, hideCloseButton, body, showIcon }) {
+    const [activeSize, setActiveSize] = useState<ModalSize>(size);
     const [open, setOpen] = useState(false);
 
     return (
@@ -110,7 +142,7 @@ export const Sizes: Story = {
             variant="outlined"
             size="compact"
             onClick={() => {
-              setSize(s);
+              setActiveSize(s);
               setOpen(true);
             }}
           >
@@ -118,14 +150,14 @@ export const Sizes: Story = {
           </Button>
         ))}
         <Modal.Root open={open} onOpenChange={setOpen}>
-          <Modal.Content size={size}>
+          <Modal.Content size={activeSize} hideCloseButton={hideCloseButton}>
             <Modal.Header>
-              <Modal.Title>Size: {size}</Modal.Title>
+              <Modal.Title icon={showIcon ? Settings : undefined}>
+                Size: {activeSize}
+              </Modal.Title>
             </Modal.Header>
             <Modal.Body>
-              <p className="text-body-medium-default">
-                This modal is using the &quot;{size}&quot; size preset.
-              </p>
+              <p className="text-body-medium-default">{body}</p>
             </Modal.Body>
             <Modal.Footer>
               <Modal.Close asChild>
