@@ -80,25 +80,25 @@ export function ChatLayoutHeader({
             onClick={toggleSidebar}
           />
         )}
+        {onOpenHome ? (
+          <span className="relative">
+            <Button
+              variant="ghost"
+              iconOnly={<House />}
+              aria-label={hasUnreadHome && !isHomeActive ? "Home (unread notifications)" : "Home"}
+              aria-current={isHomeActive ? "page" : undefined}
+              onClick={onOpenHome}
+            />
+            {hasUnreadHome && !isHomeActive ? (
+              <span
+                className="pointer-events-none absolute right-1 top-1 h-2 w-2 rounded-full bg-[var(--system-negative-strong)]"
+                aria-hidden="true"
+              />
+            ) : null}
+          </span>
+        ) : null}
         {!isMobile ? (
           <>
-            {onOpenHome ? (
-              <span className="relative">
-                <Button
-                  variant="ghost"
-                  iconOnly={<House />}
-                  aria-label={hasUnreadHome && !isHomeActive ? "Home (unread notifications)" : "Home"}
-                  aria-current={isHomeActive ? "page" : undefined}
-                  onClick={onOpenHome}
-                />
-                {hasUnreadHome && !isHomeActive ? (
-                  <span
-                    className="pointer-events-none absolute right-1 top-1 h-2 w-2 rounded-full bg-[var(--system-negative-strong)]"
-                    aria-hidden="true"
-                  />
-                ) : null}
-              </span>
-            ) : null}
             {onSearchClick ? (
               <Button
                 variant="ghost"
