@@ -53,6 +53,14 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
+const APPROVAL_RESPONSES = new Set([
+  "approve",
+  "approve all exec",
+  "approve all future exec commands",
+  "approve_all_exec",
+  "deny",
+]);
+
 type DoctorEvent =
   | { type: "message"; content: string }
   | { type: "message_delta"; content: string }
@@ -296,6 +304,7 @@ function ApprovalBlock({
   const [showDetails, setShowDetails] = useState(false);
 
   const hasDetails = !!toolName || !!description || !!input;
+  const canApproveFutureExecCommands = toolName === "exec_command";
 
   return (
     <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-4">
@@ -316,6 +325,16 @@ function ApprovalBlock({
           >
             Allow once
           </button>
+          {canApproveFutureExecCommands && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onRespond("approve all exec")}
+              className="flex items-center gap-1.5 rounded-md border border-[var(--system-positive-strong)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-small-default text-[var(--system-positive-strong)] transition-colors hover:bg-[var(--system-positive-weak)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Always Allow
+            </button>
+          )}
           <button
             type="button"
             disabled={disabled}
@@ -919,7 +938,7 @@ export function DoctorPanel({
       appendEntry({ kind: "user", content: text });
       setInputValue("");
 
-      if (text.toLowerCase() === "approve" || text.toLowerCase() === "deny") {
+      if (APPROVAL_RESPONSES.has(text.toLowerCase())) {
         setPendingApproval(false);
       }
 
