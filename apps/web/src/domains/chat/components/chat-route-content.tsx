@@ -88,7 +88,7 @@ import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScop
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button.js";
-import type { AssistantIdentity } from "@/domains/chat/api/assistant.js";
+import type { AssistantIdentity } from "@/assistant/identity.js";
 import type { Conversation } from "@/domains/chat/api/conversations.js";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions.js";
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
