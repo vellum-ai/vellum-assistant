@@ -92,6 +92,19 @@ export interface HistorySurface {
   completionSummary?: string;
 }
 
+/**
+ * Positional reference to a file attachment captured while walking the
+ * content array. The index of an entry in `RenderedHistoryContent.attachments`
+ * is what `contentOrder` references as `attachment:N`.
+ */
+export interface HistoryAttachmentRef {
+  /** Stable DB attachment id when persisted on the file block (`_attachmentId`). */
+  attachmentId?: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
 export interface RenderedHistoryContent {
   text: string;
   toolCalls: HistoryToolCall[];
@@ -99,12 +112,18 @@ export interface RenderedHistoryContent {
   toolCallsBeforeText: boolean;
   /** Text segments split by tool-call boundaries. */
   textSegments: string[];
-  /** Content block ordering using "text:N", "tool:N", "surface:N" encoding. */
+  /** Content block ordering using "text:N", "tool:N", "surface:N", "attachment:N" encoding. */
   contentOrder: string[];
   /** UI surfaces (widgets) embedded in the message. */
   surfaces: HistorySurface[];
   /** Thinking segments extracted from thinking blocks. */
   thinkingSegments: string[];
+  /**
+   * File attachments captured in content order. Index `N` matches an
+   * `attachment:N` entry in `contentOrder`. Callers align their DB-sourced
+   * attachment metadata to this ordering for inline placement.
+   */
+  attachments: HistoryAttachmentRef[];
 }
 
 /**
@@ -194,22 +213,42 @@ function clampAttachmentText(text: string): string {
   return `${text.slice(0, HISTORY_ATTACHMENT_TEXT_LIMIT)}<truncated />`;
 }
 
-function renderFileBlockForHistory(block: Record<string, unknown>): string {
+interface FileBlockMetadata {
+  mediaType: string;
+  filename: string;
+  sizeBytes: number;
+}
+
+function extractFileBlockMetadata(
+  block: Record<string, unknown>,
+): FileBlockMetadata {
   const source = isRecord(block.source) ? block.source : null;
-  const mediaType =
-    source && typeof source.media_type === "string"
-      ? source.media_type
-      : "application/octet-stream";
-  const filename =
-    source && typeof source.filename === "string"
-      ? source.filename
-      : "attachment";
-  const sizeBytes =
-    source && typeof source.data === "string"
-      ? estimateBase64Bytes(source.data)
-      : 0;
-  const summaryParts = [`[File attachment] ${filename}`, `type=${mediaType}`];
-  if (sizeBytes > 0) summaryParts.push(`size=${formatBytes(sizeBytes)}`);
+  return {
+    mediaType:
+      source && typeof source.media_type === "string"
+        ? source.media_type
+        : "application/octet-stream",
+    filename:
+      source && typeof source.filename === "string"
+        ? source.filename
+        : "attachment",
+    sizeBytes:
+      source && typeof source.data === "string"
+        ? estimateBase64Bytes(source.data)
+        : 0,
+  };
+}
+
+function renderFileBlockForHistory(
+  block: Record<string, unknown>,
+  meta: FileBlockMetadata,
+): string {
+  const summaryParts = [
+    `[File attachment] ${meta.filename}`,
+    `type=${meta.mediaType}`,
+  ];
+  if (meta.sizeBytes > 0)
+    summaryParts.push(`size=${formatBytes(meta.sizeBytes)}`);
 
   const extractedText =
     typeof block.extracted_text === "string" ? block.extracted_text.trim() : "";
@@ -239,11 +278,13 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       contentOrder: text ? ["text:0"] : [],
       surfaces: [],
       thinkingSegments: [],
+      attachments: [],
     };
   }
 
   const textParts: string[] = [];
   const attachmentParts: string[] = [];
+  const attachments: HistoryAttachmentRef[] = [];
   const toolCalls: HistoryToolCall[] = [];
   const surfaces: HistorySurface[] = [];
   const thinkingSegments: string[] = [];
@@ -353,7 +394,19 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       continue;
     }
     if (block.type === "file") {
-      attachmentParts.push(renderFileBlockForHistory(block));
+      const meta = extractFileBlockMetadata(block);
+      attachmentParts.push(renderFileBlockForHistory(block, meta));
+      finalizeSegment();
+      const ref: HistoryAttachmentRef = {
+        filename: meta.filename,
+        mimeType: meta.mediaType,
+        sizeBytes: meta.sizeBytes,
+      };
+      if (typeof block._attachmentId === "string" && block._attachmentId) {
+        ref.attachmentId = block._attachmentId;
+      }
+      attachments.push(ref);
+      contentOrder.push(`attachment:${attachments.length - 1}`);
       continue;
     }
     if (block.type === "image") {
@@ -540,6 +593,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     contentOrder,
     surfaces,
     thinkingSegments,
+    attachments,
   };
 }
 

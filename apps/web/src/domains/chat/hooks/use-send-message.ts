@@ -109,7 +109,6 @@ interface UseSendMessageParams {
   // State setters
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   setError: Dispatch<SetStateAction<ChatError | null>>;
-  setStreamRetryNonce: Dispatch<SetStateAction<number>>;
   setInput: Dispatch<SetStateAction<string>>;
 
   // Callbacks
@@ -148,7 +147,6 @@ export function useSendMessage({
   confirmationToolCallMapRef,
   setMessages,
   setError,
-  setStreamRetryNonce,
   setInput,
   startReconciliationLoop,
   cancelReconciliation,
@@ -563,9 +561,6 @@ export function useSendMessage({
           }
         }
 
-        if (!streamRef.current) {
-          setStreamRetryNonce((n) => n + 1);
-        }
         await refreshConversations();
       } catch (err) {
         Sentry.captureException(err, {

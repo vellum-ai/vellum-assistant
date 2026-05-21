@@ -13,6 +13,8 @@
  * exported from `prechat-tools.ts`.
  */
 
+import { publicAsset } from "@/lib/public-asset.js";
+
 export interface PreChatPriorAssistantItem {
   id: string;
   label: string;
@@ -21,11 +23,11 @@ export interface PreChatPriorAssistantItem {
 }
 
 export const PRECHAT_PRIOR_ASSISTANTS: PreChatPriorAssistantItem[] = [
-  { id: "chatgpt", label: "ChatGPT", logoSrc: "/images/prior-assistants/chatgpt.svg" },
-  { id: "claude", label: "Claude", logoSrc: "/images/prior-assistants/claude.svg" },
-  { id: "openclaw", label: "OpenClaw", logoSrc: "/images/prior-assistants/openclaw.png" },
-  { id: "hermes", label: "Hermes", logoSrc: "/images/prior-assistants/hermes.png" },
-  { id: "manus", label: "Manus", logoSrc: "/images/prior-assistants/manus.svg" },
-  { id: "gemini", label: "Gemini", logoSrc: "/images/prior-assistants/gemini.svg" },
-  { id: "copilot", label: "Copilot", logoSrc: "/images/prior-assistants/copilot.svg" },
+  { id: "chatgpt", label: "ChatGPT", logoSrc: publicAsset("/images/prior-assistants/chatgpt.svg") },
+  { id: "claude", label: "Claude", logoSrc: publicAsset("/images/prior-assistants/claude.svg") },
+  { id: "openclaw", label: "OpenClaw", logoSrc: publicAsset("/images/prior-assistants/openclaw.png") },
+  { id: "hermes", label: "Hermes", logoSrc: publicAsset("/images/prior-assistants/hermes.png") },
+  { id: "manus", label: "Manus", logoSrc: publicAsset("/images/prior-assistants/manus.svg") },
+  { id: "gemini", label: "Gemini", logoSrc: publicAsset("/images/prior-assistants/gemini.svg") },
+  { id: "copilot", label: "Copilot", logoSrc: publicAsset("/images/prior-assistants/copilot.svg") },
 ];

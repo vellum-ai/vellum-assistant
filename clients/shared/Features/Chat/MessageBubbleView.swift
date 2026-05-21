@@ -218,6 +218,10 @@ public struct MessageBubbleView: View {
                 }
             case .surface(let i):
                 groups.append(.surface(i))
+            case .attachment:
+                // This view doesn't render inline attachments — the bubble's
+                // attachment slot handles them at the trailing position.
+                continue
             }
         }
         return groups

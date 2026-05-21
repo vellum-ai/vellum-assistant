@@ -58,6 +58,7 @@ export interface TranscriptMessageBodyProps {
     data?: Record<string, unknown>,
   ) => void;
   onForkConversation?: (messageId: string) => void;
+  onInspectMessage?: (messageId: string) => void;
   onOpenRuleEditor?: (context: OpenRuleEditorContext) => void;
   /** Tool-call ids whose chip should display the "command not recognized"
    *  nudge. Optional — when undefined no nudge ever shows. */
@@ -180,6 +181,7 @@ export function TranscriptMessageBody({
   expandedCardIds,
   onSurfaceAction,
   onForkConversation,
+  onInspectMessage,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
@@ -211,6 +213,10 @@ export function TranscriptMessageBody({
   const forkMessageId = message.daemonMessageId ?? message.id;
   const forkHandler = forkMessageId && onForkConversation
     ? () => onForkConversation(forkMessageId)
+    : undefined;
+  const inspectMessageId = message.daemonMessageId ?? message.id;
+  const inspectHandler = inspectMessageId && onInspectMessage
+    ? () => onInspectMessage(inspectMessageId)
     : undefined;
   const isToolCallComplete = isSurfaceToolCallComplete(message);
 
@@ -414,6 +420,7 @@ export function TranscriptMessageBody({
               role={message.role}
               isStreaming={message.isStreaming}
               onFork={forkHandler}
+              onInspect={inspectHandler}
             />
           </div>
         </div>
@@ -545,6 +552,7 @@ export function TranscriptMessageBody({
             role={message.role}
             isStreaming={message.isStreaming}
             onFork={forkHandler}
+            onInspect={inspectHandler}
           />
         </div>
       </div>

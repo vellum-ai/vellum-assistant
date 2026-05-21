@@ -34,6 +34,7 @@ export interface TranscriptRowProps {
   onConfirmationDecision: (requestId: string, decision: string) => void;
   onRetryError: () => void;
   onForkConversation?: (messageId: string) => void;
+  onInspectMessage?: (messageId: string) => void;
   /** Render-prop override for `kind: "pendingSecret"`. */
   renderPendingSecret?: (requestId: string) => ReactNode;
   /** Render-prop override for `kind: "pendingConfirmation"`. */
@@ -76,6 +77,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   onConfirmationDecision,
   onRetryError,
   onForkConversation,
+  onInspectMessage,
   renderPendingSecret,
   renderPendingConfirmation,
   renderPendingContactRequest,
@@ -100,6 +102,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           expandedCardIds={expandedCardIds}
           onSurfaceAction={onSurfaceAction}
           onForkConversation={onForkConversation}
+          onInspectMessage={onInspectMessage}
           onOpenRuleEditor={onOpenRuleEditor}
           unknownNudgeToolCallIds={unknownNudgeToolCallIds}
           onDismissUnknownNudge={onDismissUnknownNudge}

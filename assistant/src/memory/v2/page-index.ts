@@ -392,6 +392,52 @@ export function splitTier1(
   return { tier1, rest: buildLocalPageIndex(restEntries, pageIndex) };
 }
 
+/**
+ * Carve the top-M highest-EMA pages into their own batch (tier 2 in the
+ * v4 router architecture). Caller computes `scores` via
+ * `computeInjectionScores`; this function stays pure so unit tests don't
+ * need a database.
+ *
+ * `tier2Size === null` is a no-op. Pages with `score <= 0` (no events in
+ * the read window) are ineligible regardless of `tier2Size` — a stale
+ * page with zero score belongs in tier 3, not in the "useful" pool.
+ * Ordering is score desc, slug-ASCII tiebreak.
+ *
+ * Expected call shape: orchestrator passes the *post-tier-1* `PageIndex`,
+ * so we never re-promote a tier-1 page to tier 2.
+ */
+export function splitTier2(
+  pageIndex: PageIndex,
+  tier2Size: number | null,
+  scores: ReadonlyMap<string, number>,
+): { tier2: PageIndex | null; rest: PageIndex } {
+  if (tier2Size === null || pageIndex.entries.length === 0) {
+    return { tier2: null, rest: pageIndex };
+  }
+  const eligible = pageIndex.entries
+    .map((entry) => ({ entry, score: scores.get(entry.slug) ?? 0 }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score;
+      return a.entry.slug < b.entry.slug
+        ? -1
+        : a.entry.slug > b.entry.slug
+          ? 1
+          : 0;
+    });
+  const tier2Entries = eligible.slice(0, tier2Size).map((x) => x.entry);
+  if (tier2Entries.length === 0) {
+    return { tier2: null, rest: pageIndex };
+  }
+  const tier2Slugs = new Set(tier2Entries.map((e) => e.slug));
+  const restEntries = pageIndex.entries.filter((e) => !tier2Slugs.has(e.slug));
+  const tier2 = buildLocalPageIndex(tier2Entries, pageIndex);
+  if (restEntries.length === 0) {
+    return { tier2, rest: emptyPageIndex() };
+  }
+  return { tier2, rest: buildLocalPageIndex(restEntries, pageIndex) };
+}
+
 function emptyPageIndex(): PageIndex {
   return {
     entries: [],

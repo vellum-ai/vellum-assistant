@@ -44,19 +44,37 @@ export interface MemoryV2ConceptRowRecord {
    *   - `prior_state` — carried over from prior turn's activation state.
    *   - `ann_top50`   — entered via ANN top-K candidate pool.
    *   - `both`        — present in both prior state and ANN pool.
-   *   - `router`      — selected by the Sonnet router (memory-v2 router
-   *     mode). Router-mode rows zero out all activation values
-   *     (`finalActivation`, `ownActivation`, `priorActivation`, channel
-   *     similarities, rerank boosts, `spreadContribution`) because the
-   *     router does not compute spreading-activation scores.
+   *   - `router`      — legacy tag for memory-v2 router selections written
+   *     before tier-aware provenance landed. New rows never use this; old
+   *     activation log rows still carry it and the inspector renders it
+   *     as-is for backward compat.
+   *   - `tier1`       — router-mode, selected by the tier-1 (recently
+   *     modified) batch.
+   *   - `tier2`       — router-mode, selected by the tier-2 (highest EMA)
+   *     batch.
+   *   - `tier3:<N>`   — router-mode, selected by tier-3 batch N (0-indexed).
+   *     A single-batch (no-tier carve-out) workspace produces `tier3:0`.
+   *     The bucket index lets inspector queries attribute selections to
+   *     specific hash-bucketed parallel calls.
    *   - `carry_over`  — router-mode row representing a slug carried over
    *     from `priorEverInjected` that the router did NOT re-pick on this
    *     turn. The cached attachment from a prior turn is still present
-   *     on a prior user message; emitting `source: "router"` for these
+   *     on a prior user message; emitting one of the tier tags for these
    *     rows would overcount router selections in inspector queries.
-   *     Same zeroed activation values as `router`.
+   *
+   * All router-mode rows (`tier*`, `router`, `carry_over`) zero out the
+   * activation values (`finalActivation`, `ownActivation`, etc.) because
+   * the router does not compute spreading-activation scores.
    */
-  source: "prior_state" | "ann_top50" | "both" | "router" | "carry_over";
+  source:
+    | "prior_state"
+    | "ann_top50"
+    | "both"
+    | "router"
+    | "carry_over"
+    | "tier1"
+    | "tier2"
+    | `tier3:${number}`;
   /**
    * Per-turn outcome for this slug:
    *   - `in_context`  — already injected on a prior turn; cached attachment

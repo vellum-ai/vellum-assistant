@@ -67,7 +67,6 @@ export function MessageHoverActions({
   const displayTimestamp = timestamp ?? fallbackTimestamp;
 
   const hasCopyableText = content.trim().length > 0;
-  const isAssistant = role === "assistant";
 
   useEffect(() => {
     return () => {
@@ -135,7 +134,7 @@ export function MessageHoverActions({
         </button>
       )}
 
-      {onInspect && isAssistant && (
+      {onInspect && (
         <button
           type="button"
           onClick={onInspect}

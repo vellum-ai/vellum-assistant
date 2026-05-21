@@ -47,8 +47,15 @@ import type {
   ToolDefinition,
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
+import type { DrizzleDb } from "../db-connection.js";
+import { computeInjectionScores } from "./injection-events.js";
 import type { PageIndex } from "./page-index.js";
-import { getPageIndex, partitionPageIndex, splitTier1 } from "./page-index.js";
+import {
+  getPageIndex,
+  partitionPageIndex,
+  splitTier1,
+  splitTier2,
+} from "./page-index.js";
 import { resolveRouterPrompt } from "./prompts/router.js";
 import type { EverInjectedEntry } from "./types.js";
 
@@ -68,13 +75,27 @@ export type RouterFailureReason =
   | "empty_index";
 
 /**
+ * Tags which batch a router-selected slug came from. Tier 3 carries the
+ * batch index so the inspector can distinguish e.g. `tier3:0` from
+ * `tier3:3` — useful for debugging hash bucketing and batch-quality
+ * regressions per tier 3 bucket.
+ */
+export type RouterSource = "tier1" | "tier2" | `tier3:${number}`;
+
+/**
  * Result of a single router call. `selectedSlugs` preserves the order the
  * model returned and is already capped at `config.memory.v2.router.max_page_ids`
- * with out-of-range IDs dropped.
+ * with out-of-range IDs dropped. `sourceBySlug` attributes each selection
+ * to the batch it came from for inspector display.
  */
 export interface RouterResult {
   /** Selected page slugs in the order the model returned them. */
   selectedSlugs: string[];
+  /**
+   * Per-slug provenance covering every entry in `selectedSlugs`. Empty when
+   * `failureReason !== null` or no batch returned any selections.
+   */
+  sourceBySlug: ReadonlyMap<string, RouterSource>;
   /** `null` on success; one of the failure reasons above otherwise. */
   failureReason: RouterFailureReason | null;
 }
@@ -113,8 +134,24 @@ const RouterResultSchema = z.object({
   page_ids: z.array(z.number().int()),
 });
 
-/** Empty-result helper so call sites don't reconstruct the shape inline. */
+/**
+ * Per-batch internal result. The orchestrator stamps provenance during the
+ * union so individual batches never need to know their own tier tag.
+ */
+interface RouterBatchResult {
+  selectedSlugs: string[];
+  failureReason: RouterFailureReason | null;
+}
+
+/** Empty orchestrator result. */
 function emptyResult(reason: RouterFailureReason | null): RouterResult {
+  return { selectedSlugs: [], sourceBySlug: new Map(), failureReason: reason };
+}
+
+/** Empty batch result — slimmer shape; orchestrator builds provenance. */
+function emptyBatchResult(
+  reason: RouterFailureReason | null,
+): RouterBatchResult {
   return { selectedSlugs: [], failureReason: reason };
 }
 
@@ -128,6 +165,13 @@ interface RunRouterParams {
   priorEverInjected: readonly EverInjectedEntry[];
   config: AssistantConfig;
   signal?: AbortSignal;
+  /**
+   * Database handle for reading EMA scores when `tier2_size` is set. When
+   * absent, tier 2 is silently skipped (pages flow tier 1 → tier 3). The
+   * production caller (`injectViaRouter`) always passes it; tests that
+   * only exercise tier 1 / tier 3 paths can omit it.
+   */
+  database?: DrizzleDb;
 }
 
 /**
@@ -171,25 +215,48 @@ export async function runRouter(
 
   const batchSize = config.memory?.v2?.router?.batch_size ?? null;
   const tier1Size = config.memory?.v2?.router?.tier1_size ?? null;
+  const tier2Size = config.memory?.v2?.router?.tier2_size ?? null;
 
-  // Tier 1 is the "recently modified" pool — its own batch with mtime-desc
-  // ordering. The remainder flows through tier-3 hash bucketing. With
-  // tier1_size=null AND batch_size=null we hit the bit-identical single-
-  // batch path that preserves v3's KV cache.
-  const { tier1, rest } = splitTier1(pageIndex, tier1Size);
-  const tier3Batches = partitionPageIndex(rest, batchSize).filter(
+  // Carve in tier order so each later tier sees only what's left. With
+  // every tier disabled (defaults) we hit the bit-identical single-batch
+  // path that preserves v3's KV cache.
+  const { tier1, rest: afterTier1 } = splitTier1(pageIndex, tier1Size);
+
+  let tier2: PageIndex | null = null;
+  let afterTier2: PageIndex = afterTier1;
+  if (tier2Size !== null && params.database && afterTier1.entries.length > 0) {
+    const slugs = afterTier1.entries.map((e) => e.slug);
+    const scores = computeInjectionScores(params.database, slugs, Date.now());
+    const split = splitTier2(afterTier1, tier2Size, scores);
+    tier2 = split.tier2;
+    afterTier2 = split.rest;
+  } else if (tier2Size !== null && !params.database) {
+    log.warn(
+      "tier2_size set but no database passed to runRouter; skipping tier 2",
+    );
+  }
+
+  const tier3Batches = partitionPageIndex(afterTier2, batchSize).filter(
     (b) => b.entries.length > 0,
   );
-  const batches: PageIndex[] = tier1 ? [tier1, ...tier3Batches] : tier3Batches;
-  if (batches.length === 0) {
+
+  // Tag each batch with its provenance string. Tier 3 batches carry their
+  // bucket index so the inspector can attribute selections per-bucket.
+  const taggedBatches: Array<{ source: RouterSource; index: PageIndex }> = [];
+  if (tier1) taggedBatches.push({ source: "tier1", index: tier1 });
+  if (tier2) taggedBatches.push({ source: "tier2", index: tier2 });
+  tier3Batches.forEach((index, i) => {
+    taggedBatches.push({ source: `tier3:${i}` as const, index });
+  });
+  if (taggedBatches.length === 0) {
     return emptyResult("empty_index");
   }
 
   const batchResults = await Promise.all(
-    batches.map((batch) =>
+    taggedBatches.map(({ index }) =>
       runRouterBatch({
         ...params,
-        batchIndex: batch,
+        batchIndex: index,
         priorEverInjected,
         provider,
       }),
@@ -204,13 +271,17 @@ export async function runRouter(
   }
 
   // Union selected slugs preserving first-seen order across batches; batch
-  // ordering is deterministic (hash bucket index) so the union is stable.
-  const seen = new Set<string>();
+  // ordering is deterministic so the union and provenance map are stable.
+  // First-seen wins if a slug somehow appears in multiple batches (shouldn't
+  // happen — tier 1/2/3 partition is disjoint — but be defensive).
+  const sourceBySlug = new Map<string, RouterSource>();
   const selectedSlugs: string[] = [];
-  for (const result of batchResults) {
+  for (let i = 0; i < batchResults.length; i++) {
+    const result = batchResults[i];
+    const source = taggedBatches[i].source;
     for (const slug of result.selectedSlugs) {
-      if (seen.has(slug)) continue;
-      seen.add(slug);
+      if (sourceBySlug.has(slug)) continue;
+      sourceBySlug.set(slug, source);
       selectedSlugs.push(slug);
     }
   }
@@ -226,7 +297,7 @@ export async function runRouter(
       "Some router batches failed; returning union of successful batches",
     );
   }
-  return { selectedSlugs, failureReason: null };
+  return { selectedSlugs, sourceBySlug, failureReason: null };
 }
 
 interface RunRouterBatchParams extends RunRouterParams {
@@ -242,7 +313,7 @@ interface RunRouterBatchParams extends RunRouterParams {
  */
 async function runRouterBatch(
   params: RunRouterBatchParams,
-): Promise<RouterResult> {
+): Promise<RouterBatchResult> {
   const {
     workspaceDir,
     userMessage,
@@ -306,7 +377,7 @@ async function runRouterBatch(
     );
   } catch (err) {
     log.warn({ err }, "Router provider call threw; treating as api_error");
-    return emptyResult("api_error");
+    return emptyBatchResult("api_error");
   }
 
   const toolBlock = extractToolUse(response);
@@ -315,7 +386,7 @@ async function runRouterBatch(
       { stopReason: response.stopReason },
       "Router model returned no select_pages_to_inject tool_use block",
     );
-    return emptyResult("tool_use_missing");
+    return emptyBatchResult("tool_use_missing");
   }
 
   const parsed = RouterResultSchema.safeParse(toolBlock.input);
@@ -324,7 +395,7 @@ async function runRouterBatch(
       { error: parsed.error.message },
       "Router tool input did not match schema",
     );
-    return emptyResult("schema_mismatch");
+    return emptyBatchResult("schema_mismatch");
   }
 
   const N = batchIndex.entries.length;

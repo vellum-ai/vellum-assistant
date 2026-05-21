@@ -1081,20 +1081,16 @@ jobs:
           done
 
   # ── Notify #dev-releases with the commit changelog ─────────────────────
-  # Posts a summary to Slack once the release is registered, then drops the
-  # full ordered commit list (author + message) into a thread reply so the
+  # Posts a single summary message to Slack once the release is registered.
+  # The full ordered commit list (message + author) goes inside fenced code
+  # blocks, which Slack renders as a collapsible "Show more" element, so the
   # channel stays tidy even when a release spans many commits.
   #
-  # MANUAL SETUP (one-time): this job no-ops until SLACK_BOT_TOKEN exists, so
-  # merging it will not break the hourly release before setup is done.
-  #   1. Create (or reuse) a Slack app with the `chat:write` bot scope and
-  #      install it to the workspace.
-  #   2. Invite the bot to the channel: `/invite @<your-app>` in #dev-releases.
-  #   3. Add the bot token as a repo Actions secret named SLACK_BOT_TOKEN
-  #      (Settings → Secrets and variables → Actions → New repository secret).
-  #   4. (Optional) Override the target channel with a repo Actions variable
-  #      DEV_RELEASES_SLACK_CHANNEL (defaults to #dev-releases). A channel ID
-  #      (e.g. C0123ABCD) is more robust than a #name.
+  # Posts via a #dev-releases incoming webhook stored in the repo secret
+  # SLACK_DEV_RELEASES_WEBHOOK_URL. The channel is baked into the webhook URL
+  # (incoming webhooks ignore a payload `channel` field), so each channel needs
+  # its own webhook — mirroring SLACK_WEBHOOK_URL (#build-alerts) and
+  # SLACK_RELEASES_WEBHOOK_URL (releases). The job no-ops if the secret is unset.
 
   notify-dev-release:
     needs: [compute-version, register-release, register-preview-release]
@@ -1108,11 +1104,11 @@ jobs:
       contents: read
       actions: read
     steps:
-      - name: Post dev release notification to Slack
+      - name: Build Slack payload
+        id: build
         env:
           GH_TOKEN: ${{ github.token }}
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          SLACK_CHANNEL: ${{ vars.DEV_RELEASES_SLACK_CHANNEL || '#dev-releases' }}
+          WEBHOOK: ${{ secrets.SLACK_DEV_RELEASES_WEBHOOK_URL }}
           REPO: ${{ github.repository }}
           VERSION: ${{ needs.compute-version.outputs.version }}
           HEAD_SHA: ${{ github.sha }}
@@ -1121,10 +1117,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "${SLACK_BOT_TOKEN:-}" ]; then
-            echo "::warning::SLACK_BOT_TOKEN is not set — skipping #dev-releases notification. See the MANUAL SETUP note in dev-release.yaml."
+          if [ -z "${WEBHOOK:-}" ]; then
+            echo "::warning::SLACK_DEV_RELEASES_WEBHOOK_URL is not set — skipping #dev-releases notification."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
           # Find the SHA of the last actually-released dev build to diff against.
           # We key off the register-release JOB conclusion, not the overall run
@@ -1183,69 +1181,40 @@ jobs:
             HEADER_TEXT="*${TOTAL} ${COMMIT_WORD}* since the last dev release"
           fi
 
-          # ── Main channel message ──────────────────────────────────────────
-          MAIN_PAYLOAD=$(jq -n \
-            --arg channel "$SLACK_CHANNEL" \
+          # ── Build the message blocks ──────────────────────────────────────
+          # Header, summary line, and the action buttons. The commit list is
+          # appended below as fenced code blocks, which Slack collapses behind
+          # a "Show more" expander when long.
+          BLOCKS=$(jq -n \
             --arg version "$VERSION" \
             --arg header "$HEADER_TEXT" \
             --arg run_url "$RUN_URL" \
             --arg compare_url "$COMPARE_URL" \
-            '{
-              channel: $channel,
-              unfurl_links: false,
-              unfurl_media: false,
-              text: ("Dev Release " + $version),
-              blocks: [
-                { type: "header", text: { type: "plain_text", text: ("🚀 Dev Release " + $version), emoji: true } },
-                { type: "section", text: { type: "mrkdwn", text: $header } },
-                { type: "actions", elements: [
-                  { type: "button", text: { type: "plain_text", text: "View workflow run" }, url: $run_url },
-                  { type: "button", text: { type: "plain_text", text: "View commit diff" }, url: $compare_url }
-                ] }
-              ]
-            }')
+            '[
+              { type: "header", text: { type: "plain_text", text: ("🚀 Dev Release " + $version), emoji: true } },
+              { type: "section", text: { type: "mrkdwn", text: $header } },
+              { type: "actions", elements: [
+                { type: "button", text: { type: "plain_text", text: "View workflow run" }, url: $run_url },
+                { type: "button", text: { type: "plain_text", text: "View commit diff" }, url: $compare_url }
+              ] }
+            ]')
 
-          RESP=$(curl -sS -X POST https://slack.com/api/chat.postMessage \
-            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
-            -H "Content-Type: application/json; charset=utf-8" \
-            --data "$MAIN_PAYLOAD")
-          if [ "$(echo "$RESP" | jq -r '.ok')" != "true" ]; then
-            echo "::error::Slack chat.postMessage failed: $(echo "$RESP" | jq -r '.error // "unknown"')"
-            echo "$RESP"
-            exit 1
-          fi
-          TS=$(echo "$RESP" | jq -r '.ts')
-          echo "Posted main message (ts=${TS})"
-
-          # ── Threaded commit list ──────────────────────────────────────────
-          post_thread_reply() {
-            local body="$1"
-            local payload
-            payload=$(jq -n --arg channel "$SLACK_CHANNEL" --arg ts "$TS" --arg text "$body" \
-              '{ channel: $channel, thread_ts: $ts, unfurl_links: false, unfurl_media: false,
-                 text: $text, blocks: [ { type: "section", text: { type: "mrkdwn", text: $text } } ] }')
-            local r
-            r=$(curl -sS -X POST https://slack.com/api/chat.postMessage \
-              -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
-              -H "Content-Type: application/json; charset=utf-8" \
-              --data "$payload")
-            if [ "$(echo "$r" | jq -r '.ok')" != "true" ]; then
-              echo "::error::Slack thread reply failed: $(echo "$r" | jq -r '.error // "unknown"')"
-              echo "$r"
-              exit 1
-            fi
-            sleep 1  # stay under chat.postMessage rate limits when chunking
+          # Append one collapsible code-block section per chunk of commits.
+          append_code_section() {
+            BLOCKS=$(echo "$BLOCKS" | jq --arg t "$1" \
+              '. + [{ type: "section", text: { type: "mrkdwn", text: ("```\n" + $t + "\n```") } }]')
           }
 
           if [ "$COUNT" -gt 0 ]; then
-            # Chunk the numbered list to stay under Slack's 3000-char section limit.
+            # Chunk the numbered list to stay under Slack's 3000-char section
+            # limit (the ``` fences add a few chars, so cap the body at 2800).
             CHUNK=""
             IDX=0
             for line in "${LINES[@]}"; do
               IDX=$((IDX + 1))
-              ENTRY="*${IDX}.* ${line}"
+              ENTRY="${IDX}. ${line}"
               if [ -n "$CHUNK" ] && [ $(( ${#CHUNK} + ${#ENTRY} + 1 )) -gt 2800 ]; then
-                post_thread_reply "$CHUNK"
+                append_code_section "$CHUNK"
                 CHUNK="$ENTRY"
               elif [ -z "$CHUNK" ]; then
                 CHUNK="$ENTRY"
@@ -1253,14 +1222,47 @@ jobs:
                 CHUNK="${CHUNK}"$'\n'"${ENTRY}"
               fi
             done
-            [ -n "$CHUNK" ] && post_thread_reply "$CHUNK"
+            [ -n "$CHUNK" ] && append_code_section "$CHUNK"
 
             if [ "$TOTAL" -gt "$COUNT" ]; then
-              post_thread_reply "_…and $((TOTAL - COUNT)) more commits not shown (GitHub compares are capped at 250 commits). See *View commit diff* above for the full list._"
+              BLOCKS=$(echo "$BLOCKS" | jq \
+                --arg t "_…and $((TOTAL - COUNT)) more commits not shown (GitHub compares are capped at 250 commits). See *View commit diff* above for the full list._" \
+                '. + [{ type: "context", elements: [{ type: "mrkdwn", text: $t }] }]')
             fi
           fi
 
-          echo "Dev release notification posted to ${SLACK_CHANNEL}."
+          # No `channel` field: incoming webhooks ignore it and post to the
+          # channel baked into SLACK_DEV_RELEASES_WEBHOOK_URL (#dev-releases).
+          jq -n \
+            --arg version "$VERSION" \
+            --argjson blocks "$BLOCKS" \
+            '{
+              unfurl_links: false,
+              unfurl_media: false,
+              text: ("Dev Release " + $version),
+              blocks: $blocks
+            }' > "${RUNNER_TEMP}/dev-release-slack-payload.json"
+
+          echo "Built Slack payload (${COUNT} commits listed)."
+
+      - name: Notify Slack
+        id: slack
+        if: steps.build.outputs.skip != 'true'
+        continue-on-error: true
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_DEV_RELEASES_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload-file-path: ${{ runner.temp }}/dev-release-slack-payload.json
+          errors: true
+
+      - name: Log Slack notification result
+        if: always() && steps.build.outputs.skip != 'true'
+        run: |
+          echo "Slack step outcome: ${{ steps.slack.outcome }}"
+          if [ "${{ steps.slack.outcome }}" != "success" ]; then
+            echo "::warning::#dev-releases notification failed to send."
+          fi
 
   # ── Chrome Extension ────────────────────────────────────────────────────
 

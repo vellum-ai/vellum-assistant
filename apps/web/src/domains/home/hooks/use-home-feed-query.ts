@@ -11,6 +11,7 @@ import type {
   FeedItemStatus,
   HomeFeedResponse,
 } from "../types.js";
+import { useEventBusStore } from "@/stores/event-bus-store.js";
 
 const QUERY_KEY_PREFIX = "home-feed" as const;
 
@@ -21,8 +22,12 @@ function homeFeedQueryKey(assistantId: string) {
 /**
  * React Query hook for the home feed.
  *
- * Tracks time-away via `document.visibilitychange` so the daemon can
- * personalise the greeting and decide which items to surface.
+ * Tracks time-away via the layout-scoped event bus (`"app.hidden"` +
+ * `"app.resume"`) so the daemon can personalise the greeting and decide
+ * which items to surface. The `"online"` resume signal is ignored for
+ * elapsed-time tracking — only visibility / app-state transitions
+ * record a `hiddenAt` mark, so a network blip while the tab is in the
+ * foreground does not synthesise fake time-away.
  */
 export function useHomeFeedQuery(assistantId: string | null) {
   const queryClient = useQueryClient();
@@ -31,27 +36,29 @@ export function useHomeFeedQuery(assistantId: string | null) {
   const timeAwaySecondsRef = useRef(0);
 
   useEffect(() => {
-    function handleVisibilityChange() {
-      if (document.hidden) {
-        hiddenAtRef.current = Date.now();
-      } else if (hiddenAtRef.current !== null) {
-        const elapsed = Math.round(
-          (Date.now() - hiddenAtRef.current) / 1000,
-        );
-        timeAwaySecondsRef.current = elapsed;
-        hiddenAtRef.current = null;
+    const bus = useEventBusStore.getState();
 
-        if (assistantId) {
-          void queryClient.invalidateQueries({
-            queryKey: homeFeedQueryKey(assistantId),
-          });
-        }
+    const unsubHidden = bus.subscribe("app.hidden", () => {
+      hiddenAtRef.current = Date.now();
+    });
+
+    const unsubResume = bus.subscribe("app.resume", ({ signal }) => {
+      if (signal === "online") return;
+      if (hiddenAtRef.current === null) return;
+      const elapsed = Math.round((Date.now() - hiddenAtRef.current) / 1000);
+      timeAwaySecondsRef.current = elapsed;
+      hiddenAtRef.current = null;
+
+      if (assistantId) {
+        void queryClient.invalidateQueries({
+          queryKey: homeFeedQueryKey(assistantId),
+        });
       }
-    }
+    });
 
-    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      unsubHidden();
+      unsubResume();
     };
   }, [assistantId, queryClient]);
 

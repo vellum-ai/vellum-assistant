@@ -300,6 +300,15 @@ export const MemoryV2ConfigSchema = z
           .describe(
             "Pool size for the tier-1 'recently modified' batch. `null` (default) disables tier 1 entirely — all pages flow through tier 3 batching. When set, the top-N concept pages by file mtime become their own dedicated parallel batch with mtime-desc ordering; everything else is partitioned into tier 3 batches by `batch_size`. Synthetic entries (skills, CLI commands) have mtime=0 and naturally rank below real concept pages so they don't crowd tier 1.",
           ),
+        tier2_size: z
+          .number()
+          .int()
+          .min(1)
+          .nullable()
+          .default(null)
+          .describe(
+            "Pool size for the tier-2 'useful' batch. `null` (default) disables tier 2 — pages skip straight from tier 1 to tier 3. When set, the top-M pages by injection-frequency EMA (excluding tier 1) become their own parallel batch ordered by score desc. Pages with score 0 (never selected since EMA tracking began) are ineligible for tier 2 and stay in tier 3 regardless of `tier2_size`. Score is the time-decayed sum `Σ exp(-λ(now - tᵢ))` with 3-day half-life, computed on read from `memory_v2_injection_events`.",
+          ),
       })
       .default({
         enabled: true,
@@ -307,6 +316,7 @@ export const MemoryV2ConfigSchema = z
         router_prompt_path: null,
         batch_size: null,
         tier1_size: null,
+        tier2_size: null,
       })
       .describe(
         "LLM router configuration. When enabled, a single router LLM call replaces spreading activation for per-turn page selection.",

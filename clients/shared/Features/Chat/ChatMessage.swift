@@ -1630,6 +1630,7 @@ public enum ContentBlockRef: Hashable {
     case toolCall(Int)
     case surface(Int)
     case thinking(Int)
+    case attachment(Int)
 }
 
 public struct ChatMessage: Identifiable, Equatable {

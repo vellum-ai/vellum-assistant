@@ -1,48 +1,41 @@
 /**
- * Manages the always-on SSE `/events` stream lifecycle:
+ * Conversation-scoped consumer of the bus-owned SSE stream.
  *
- * 1. **Stream open/close** — opens when the assistant is active and a
- *    server-persisted conversation key exists; closes on cleanup or when
- *    dependencies change.
- * 2. **Reachability retry** — when the reachability probe flips to "ready"
- *    after a stream error, resets turn state and bumps the retry nonce to
- *    re-open the stream. A burst-limiter prevents pathological reconnect
- *    loops.
- * 3. **Visibility / app-resume** — proactively tears down the stream when
- *    the page is hidden (or the Capacitor app backgrounds) and reconciles +
- *    reopens on resume. Deduplicates `visibilitychange` and Capacitor
- *    `appStateChange` signals within a 1 s window.
- * 4. **Unmount cleanup** — cancels the stream, reconciliation loop, and any
- *    pending conversation-list-invalidated timer.
+ * Subscribes to `bus.sse.event` and routes events whose
+ * `conversationKey` matches (or is missing on) the active conversation
+ * to `handleStreamEvent`. Subscribes to `bus.sse.opened` to bump the
+ * conversation epoch and run the pending-reconcile pass — on a
+ * watchdog-driven reopen the reconcile runs unconditionally and the
+ * result is recorded to Sentry so stalled-turn rescues are observable.
+ * Subscribes to `bus.sse.closed` to clear any in-flight `isStreaming`
+ * flag, drop the matching processing key, and bump reachability so
+ * the burst-limited retry below can take over.
  *
- * Shared refs (`streamRef`, `streamEpochRef`, `reconcileAfterNextStreamOpenRef`,
- * `streamContextRef`) are injected by the caller because other hooks
- * (`useMessageReconciliation`, `useStreamEventHandler`, `useSendMessage`)
- * also read/write them. Burst-limiter refs are owned internally.
+ * Reachability retry lives here because the 3-burst limiter is
+ * conversation-scoped. On success it publishes
+ * `bus.reachability.retry-requested` and the bus bounces its SSE
+ * connection; on exhaustion it surfaces a "Connection lost" error so
+ * the user can manually retry.
  *
- * Framework-specific dependencies (auth state, reachability, diagnostics)
- * are injected via the params object so the hook stays framework-agnostic.
+ * Visibility / app-state are owned by `useEventBusInit`. This hook
+ * does not register any `visibilitychange` listener of its own.
  */
 
-import type { PluginListenerHandle } from "@capacitor/core";
 import * as Sentry from "@sentry/react";
 import {
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
-  useCallback,
   useEffect,
   useRef,
 } from "react";
 
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
-import { isExpectedBackgroundStreamEnd } from "@/domains/chat/utils/background-stream-error.js";
 import {
   bucketMessagesAdded,
   recordChatDiagnostic,
   resolvePlatformTag,
 } from "@/domains/chat/utils/diagnostics.js";
-import { isNativePlatform } from "@/runtime/native-auth.js";
 import type {
   ActiveConversationMessagesRefreshResult,
   WebSyncRouter,
@@ -50,8 +43,9 @@ import type {
 
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
-import { type ChatEventStream, subscribeChatEvents } from "@/domains/chat/api/stream.js";
+import { useTurnStore } from "@/domains/messaging/turn-store.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import { useEventBusStore } from "@/stores/event-bus-store.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,7 +62,12 @@ export interface UseEventStreamParams {
   /** Whether the active conversation has been persisted on the server. */
   conversationExistsOnServer: boolean;
 
-  // Shared refs — owned by caller, read/written by multiple hooks
+  // Shared refs — owned by caller, read/written by multiple hooks.
+  // `streamRef` is a presence-bit: holds a sentinel object while the
+  // bus subscription is live for the current conversation context,
+  // and is nulled when the subscription tears down. `use-send-message`
+  // reads it to decide whether SSE will deliver the response or
+  // polling is needed.
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
   reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
@@ -94,27 +93,13 @@ export interface UseEventStreamParams {
   // Error
   setError: Dispatch<SetStateAction<{ message: string; code?: string } | null>>;
 
-  // Stream retry nonce — drives the stream-open effect
-  streamRetryNonce: number;
-  setStreamRetryNonce: Dispatch<SetStateAction<number>>;
-
-  // Refresh epoch — drives the stream-open effect
-  refreshEpoch: number;
-
-  // Sync router ref for watchdog reconnect
+  // Sync router ref for post-reconnect reconcile
   syncRouterRef: MutableRefObject<WebSyncRouter | null>;
 
   // Conversation list invalidated timer ref — cleaned up on unmount
   conversationListInvalidatedTimerRef: MutableRefObject<ReturnType<
     typeof setTimeout
   > | null>;
-
-  // Auth state for visibility handler
-  isLoggedIn: boolean;
-  isLoading: boolean;
-
-  // Assistant health check on resume
-  checkAssistant: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -139,14 +124,8 @@ export function useEventStream({
   reachabilityReset,
   setMessages,
   setError,
-  streamRetryNonce,
-  setStreamRetryNonce,
-  refreshEpoch,
   syncRouterRef,
   conversationListInvalidatedTimerRef,
-  isLoggedIn,
-  isLoading,
-  checkAssistant,
 }: UseEventStreamParams): void {
   // ---- Internal refs (burst-limiter, owned by this hook) ----
   const streamRetryBurstCountRef = useRef(0);
@@ -171,20 +150,14 @@ export function useEventStream({
   const setErrorRef = useRef(setError);
   setErrorRef.current = setError;
 
-  const checkAssistantRef = useRef(checkAssistant);
-  checkAssistantRef.current = checkAssistant;
-
   const cancelReconciliationRef = useRef(cancelReconciliation);
   cancelReconciliationRef.current = cancelReconciliation;
-
-  const setStreamRetryNonceRef = useRef(setStreamRetryNonce);
-  setStreamRetryNonceRef.current = setStreamRetryNonce;
 
   const reachabilityResetRef = useRef(reachabilityReset);
   reachabilityResetRef.current = reachabilityReset;
 
   // --------------------------------------------------------------------------
-  // Effect 1: Always-on /events stream
+  // Effect 1: Subscribe to the bus-owned SSE for the active conversation.
   // --------------------------------------------------------------------------
   useEffect(() => {
     if (
@@ -194,73 +167,100 @@ export function useEventStream({
     ) {
       return;
     }
-
     if (!conversationExistsOnServer) {
       return;
     }
 
-    let cancelled = false;
+    const bus = useEventBusStore.getState();
     const capturedAssistantId = assistantId;
     const capturedConversationKey = activeConversationKey;
 
-    const openStream = () => {
-      streamContextRef.current = {
-        assistantId: capturedAssistantId,
-        conversationKey: capturedConversationKey,
-      };
-      const epoch = ++streamEpochRef.current;
-      recordChatDiagnostic("sse_stream_open_start", {
-        assistantId: capturedAssistantId,
-        conversationKey: capturedConversationKey,
-        epoch,
-        retryNonce: streamRetryNonce,
-      });
+    streamContextRef.current = {
+      assistantId: capturedAssistantId,
+      conversationKey: capturedConversationKey,
+    };
+    // `use-send-message.ts` reads `streamRef.current` as a presence bit
+    // to decide whether SSE will deliver the response. We write a
+    // sentinel whose `cancel()` is a no-op — the real teardown is the
+    // bus unsubscribe in the cleanup function below.
+    const presence: ChatEventStream = { cancel: () => {} };
+    streamRef.current = presence;
 
-      const stream = subscribeChatEvents(
-        capturedAssistantId,
-        capturedConversationKey,
-        (event) => handleStreamEventRef.current(event, epoch),
-        (err) => {
-          if (cancelled || epoch !== streamEpochRef.current) return;
-          recordChatDiagnostic("sse_stream_error", {
-            assistantId: capturedAssistantId,
-            conversationKey: capturedConversationKey,
-            epoch,
-            messageLength: err.message.length,
-          });
-          if (isExpectedBackgroundStreamEnd(err)) {
-            Sentry.addBreadcrumb({
-              category: "sse.stream",
-              level: "warning",
-              message: err.message,
-              data: { context: "background_stream" },
-            });
-          } else {
-            Sentry.captureException(err, {
-              tags: { context: "background_stream" },
-            });
-          }
-          streamRef.current = null;
-          useTurnStore.getState().onSessionError();
-          {
-            const convKey = streamContextRef.current?.conversationKey;
-            if (convKey) {
-              // `removeProcessingKey` clears the matching snapshot atomically.
-              useConversationStore.getState().removeProcessingKey(convKey);
-            }
-          }
-          reachabilityProbeRef.current();
-          setMessagesRef.current((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === "assistant" && last.isStreaming) {
-              return [...prev.slice(0, -1), { ...last, isStreaming: false }];
-            }
-            return prev;
-          });
-        },
-        {
-          getActiveTurnSending: () => isSending(useTurnStore.getState()),
-          onReconnect: async (cause) => {
+    const unsubEvent = bus.subscribe("sse.event", (event) => {
+      const eventConversationKey = (event as { conversationKey?: string })
+        .conversationKey;
+      // Assistant-broadcast events (no conversationKey) are routed to
+      // every conversation-scoped consumer; the handler decides what
+      // to do with them. Per-conversation events are filtered here.
+      if (
+        eventConversationKey !== undefined &&
+        eventConversationKey !== capturedConversationKey
+      ) {
+        return;
+      }
+      handleStreamEventRef.current(event, streamEpochRef.current);
+    });
+
+    return () => {
+      unsubEvent();
+      streamEpochRef.current += 1;
+      if (streamRef.current === presence) {
+        streamRef.current = null;
+      }
+      if (
+        streamContextRef.current?.assistantId === capturedAssistantId &&
+        streamContextRef.current.conversationKey === capturedConversationKey
+      ) {
+        streamContextRef.current = null;
+      }
+    };
+  }, [
+    assistantStateKind,
+    assistantId,
+    activeConversationKey,
+    conversationExistsOnServer,
+    streamRef,
+    streamEpochRef,
+    streamContextRef,
+  ]);
+
+  // --------------------------------------------------------------------------
+  // Effect 2: React to bus-owned SSE (re)opens.
+  //
+  // Bumps the conversation epoch so any in-flight reconcile from the
+  // previous attempt is ignored. Runs the pending-reconcile flag set
+  // by app.resume, and the watchdog-recovery reconcile that today
+  // lives in `subscribeChatEvents`' `onReconnect` callback.
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    if (
+      assistantStateKind !== "active" ||
+      !assistantId ||
+      !activeConversationKey
+    ) {
+      return;
+    }
+    const capturedAssistantId = assistantId;
+    const capturedConversationKey = activeConversationKey;
+
+    const unsub = useEventBusStore
+      .getState()
+      .subscribe("sse.opened", ({ assistantId: openedFor, cause }) => {
+        if (openedFor !== capturedAssistantId) return;
+        const epoch = ++streamEpochRef.current;
+        recordChatDiagnostic("sse_stream_opened", {
+          assistantId: capturedAssistantId,
+          conversationKey: capturedConversationKey,
+          epoch,
+          cause,
+        });
+        if (reconcileAfterNextStreamOpenRef.current) {
+          reconcileAfterNextStreamOpenRef.current = false;
+          void reconcileActiveConversationRef.current();
+          startReconciliationLoopRef.current(epoch);
+        }
+        if (cause === "watchdog" || cause === "error") {
+          void (async () => {
             recordChatDiagnostic("sse_stream_reconnect", {
               assistantId: capturedAssistantId,
               conversationKey: capturedConversationKey,
@@ -273,100 +273,147 @@ export function useEventStream({
             const reconcileResult =
               syncReconnectResult?.activeConversationMessages ??
               (await reconcileActiveConversationRef.current());
-            if (cause === "watchdog") {
-              const latencyMs = Date.now() - startedAt;
-              recordChatDiagnostic("sse_post_watchdog_reconcile_result", {
-                assistantId: capturedAssistantId,
-                conversationKey: capturedConversationKey,
-                epoch,
+            if (cause !== "watchdog") return;
+            const latencyMs = Date.now() - startedAt;
+            recordChatDiagnostic("sse_post_watchdog_reconcile_result", {
+              assistantId: capturedAssistantId,
+              conversationKey: capturedConversationKey,
+              epoch,
+              latencyMs,
+              changed: reconcileResult.changed,
+              messagesAdded: reconcileResult.messagesAdded,
+              assistantProgress: reconcileResult.assistantProgress,
+            });
+            Sentry.addBreadcrumb({
+              category: "sse.watchdog",
+              level: "info",
+              message: "post_watchdog_reconcile_result",
+              data: {
                 latencyMs,
                 changed: reconcileResult.changed,
                 messagesAdded: reconcileResult.messagesAdded,
                 assistantProgress: reconcileResult.assistantProgress,
-              });
-              Sentry.addBreadcrumb({
-                category: "sse.watchdog",
-                level: "info",
-                message: "post_watchdog_reconcile_result",
-                data: {
-                  latencyMs,
-                  changed: reconcileResult.changed,
-                  messagesAdded: reconcileResult.messagesAdded,
-                  assistantProgress: reconcileResult.assistantProgress,
-                },
-              });
-              Sentry.captureMessage("sse_post_watchdog_reconcile_result", {
-                level: "info",
-                tags: {
-                  context: "sse_watchdog",
-                  platform: resolvePlatformTag(),
-                  assistantProgress: String(
-                    reconcileResult.assistantProgress,
-                  ),
-                  rescued: String(reconcileResult.messagesAdded > 0),
-                  messagesAddedBucket: bucketMessagesAdded(
-                    reconcileResult.messagesAdded,
-                  ),
-                },
-                extra: {
-                  latencyMs,
-                  messagesAdded: reconcileResult.messagesAdded,
-                  changed: reconcileResult.changed,
-                  assistantProgress: reconcileResult.assistantProgress,
-                  conversationKey: capturedConversationKey,
-                  epoch,
-                },
-              });
-            }
-          },
-        },
-      );
-
-      if (cancelled) {
-        stream.cancel();
-        return;
-      }
-      streamRef.current = stream;
-      recordChatDiagnostic("sse_stream_opened", {
-        assistantId: capturedAssistantId,
-        conversationKey: capturedConversationKey,
-        epoch,
+              },
+            });
+            Sentry.captureMessage("sse_post_watchdog_reconcile_result", {
+              level: "info",
+              tags: {
+                context: "sse_watchdog",
+                platform: resolvePlatformTag(),
+                assistantProgress: String(reconcileResult.assistantProgress),
+                rescued: String(reconcileResult.messagesAdded > 0),
+                messagesAddedBucket: bucketMessagesAdded(
+                  reconcileResult.messagesAdded,
+                ),
+              },
+              extra: {
+                latencyMs,
+                messagesAdded: reconcileResult.messagesAdded,
+                changed: reconcileResult.changed,
+                assistantProgress: reconcileResult.assistantProgress,
+                conversationKey: capturedConversationKey,
+                epoch,
+              },
+            });
+          })();
+        }
       });
-      if (reconcileAfterNextStreamOpenRef.current) {
-        reconcileAfterNextStreamOpenRef.current = false;
-        void reconcileActiveConversationRef.current();
-        startReconciliationLoopRef.current(epoch);
-      }
-    };
 
-    openStream();
-
-    return () => {
-      cancelled = true;
-      const cancelledEpoch = streamEpochRef.current;
-      streamEpochRef.current += 1;
-      recordChatDiagnostic("sse_stream_cancel", {
-        assistantId: capturedAssistantId,
-        conversationKey: capturedConversationKey,
-        epoch: cancelledEpoch,
-        nextEpoch: streamEpochRef.current,
-      });
-      streamRef.current?.cancel();
-      streamRef.current = null;
-    };
-    // streamRetryNonce is intentionally a dependency: bumping it re-opens the
-    // SSE stream after a reachability probe confirms the pod is ready again.
+    return () => unsub();
   }, [
     assistantStateKind,
     assistantId,
     activeConversationKey,
-    conversationExistsOnServer,
-    streamRetryNonce,
-    refreshEpoch,
+    streamEpochRef,
+    reconcileAfterNextStreamOpenRef,
+    syncRouterRef,
   ]);
 
   // --------------------------------------------------------------------------
-  // Effect 2: Reachability retry — re-open stream when probe flips to "ready"
+  // Effect 3: React to bus-owned SSE close events.
+  //
+  // The bus emits `sse.closed` on transport errors. We clear any
+  // in-flight assistant streaming flag so the composer doesn't sit in
+  // "thinking" forever, drop the matching processing key so the
+  // sidebar's indicator clears, and bounce reachability so the
+  // burst-limiter in effect 5 can kick a retry.
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    if (
+      assistantStateKind !== "active" ||
+      !assistantId ||
+      !activeConversationKey
+    ) {
+      return;
+    }
+    const capturedAssistantId = assistantId;
+    const capturedConversationKey = activeConversationKey;
+
+    const unsub = useEventBusStore
+      .getState()
+      .subscribe("sse.closed", ({ reason }) => {
+        recordChatDiagnostic("sse_stream_error", {
+          assistantId: capturedAssistantId,
+          conversationKey: capturedConversationKey,
+          epoch: streamEpochRef.current,
+          messageLength: reason.length,
+        });
+        useTurnStore.getState().onSessionError();
+        {
+          const convKey = streamContextRef.current?.conversationKey;
+          if (convKey) {
+            useConversationStore.getState().removeProcessingKey(convKey);
+          }
+        }
+        reachabilityProbeRef.current();
+        setMessagesRef.current((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === "assistant" && last.isStreaming) {
+            return [...prev.slice(0, -1), { ...last, isStreaming: false }];
+          }
+          return prev;
+        });
+      });
+
+    return () => unsub();
+  }, [
+    assistantStateKind,
+    assistantId,
+    activeConversationKey,
+    streamEpochRef,
+    streamContextRef,
+  ]);
+
+  // --------------------------------------------------------------------------
+  // Effect 4: Schedule a post-resume reconcile.
+  //
+  // The bus tears down + reopens its SSE around app.resume; we listen
+  // here so the next `sse.opened` runs the reconcile pass for the
+  // active conversation. Effect 2's `reconcileAfterNextStreamOpenRef`
+  // gate is the rendezvous point.
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    if (
+      assistantStateKind !== "active" ||
+      !assistantId ||
+      !activeConversationKey
+    ) {
+      return;
+    }
+    const unsub = useEventBusStore.getState().subscribe("app.resume", () => {
+      reconcileAfterNextStreamOpenRef.current = true;
+    });
+    return () => unsub();
+  }, [
+    assistantStateKind,
+    assistantId,
+    activeConversationKey,
+    reconcileAfterNextStreamOpenRef,
+  ]);
+
+  // --------------------------------------------------------------------------
+  // Effect 5: Reachability retry — request a bus-level SSE bounce
+  // when the reachability probe flips back to "ready".
   // --------------------------------------------------------------------------
   useEffect(() => {
     if (reachabilityPhase !== "ready") {
@@ -391,161 +438,21 @@ export function useEventStream({
     useTurnStore.getState().resetTurn();
     setErrorRef.current(null);
     reconcileAfterNextStreamOpenRef.current = true;
-    setStreamRetryNonceRef.current((value) => value + 1);
-  }, [reachabilityPhase]);
+    useEventBusStore
+      .getState()
+      .publish("reachability.retry-requested", {});
+  }, [reachabilityPhase, reconcileAfterNextStreamOpenRef]);
 
   // --------------------------------------------------------------------------
-  // Effect 3: Visibility / app-resume handler
-  // --------------------------------------------------------------------------
-  const stableReconcile = useCallback(
-    () => reconcileActiveConversationRef.current(),
-    [],
-  );
-
-  useEffect(() => {
-    if (!isLoggedIn || isLoading) {
-      return;
-    }
-
-    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const clearTimers = () => {
-      if (fallbackTimer) {
-        clearTimeout(fallbackTimer);
-        fallbackTimer = null;
-      }
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-        retryTimer = null;
-      }
-    };
-
-    let lastResumeAt = 0;
-    let lastResumeSignal: string | null = null;
-    const RESUME_DEDUP_WINDOW_MS = 1000;
-
-    const tearDownStream = (reason: string) => {
-      streamEpochRef.current += 1;
-      reconcileAfterNextStreamOpenRef.current = false;
-      streamRef.current?.cancel();
-      streamRef.current = null;
-      cancelReconciliationRef.current();
-      clearTimers();
-      lastResumeAt = 0;
-      lastResumeSignal = null;
-      recordChatDiagnostic("resume_stream_teardown", { reason });
-    };
-
-    const handleAppResume = (
-      signal: "visibility_change_visible" | "app_state_active",
-    ) => {
-      const now = Date.now();
-      if (now - lastResumeAt < RESUME_DEDUP_WINDOW_MS) {
-        recordChatDiagnostic("resume_signal_deduped", {
-          signal,
-          prior_signal: lastResumeSignal,
-          ms_since_prior: now - lastResumeAt,
-        });
-        return;
-      }
-      lastResumeAt = now;
-      lastResumeSignal = signal;
-      recordChatDiagnostic("resume_signal_fired", { signal });
-
-      checkAssistantRef.current();
-
-      let didReopen = false;
-      const reopenStream = () => {
-        if (didReopen) {
-          return;
-        }
-        didReopen = true;
-        if (document.visibilityState === "visible") {
-          reconcileAfterNextStreamOpenRef.current = true;
-          setStreamRetryNonceRef.current((n) => n + 1);
-        } else {
-          reconcileAfterNextStreamOpenRef.current = false;
-        }
-      };
-
-      const myTimer = (fallbackTimer = setTimeout(() => {
-        fallbackTimer = null;
-        reopenStream();
-        retryTimer = setTimeout(() => {
-          retryTimer = null;
-          if (document.visibilityState === "visible") {
-            stableReconcile();
-          }
-        }, 2000);
-      }, 5000));
-
-      stableReconcile().finally(() => {
-        if (fallbackTimer === myTimer) {
-          clearTimeout(fallbackTimer);
-          fallbackTimer = null;
-        }
-        reopenStream();
-      });
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        tearDownStream("visibility_change_hidden");
-        return;
-      }
-      handleAppResume("visibility_change_visible");
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    let appStateHandle: PluginListenerHandle | null = null;
-    let appStateCancelled = false;
-    if (isNativePlatform()) {
-      import("@capacitor/app")
-        .then(({ App }) =>
-          App.addListener("appStateChange", ({ isActive }) => {
-            if (!isActive) {
-              tearDownStream("app_state_inactive");
-              return;
-            }
-            handleAppResume("app_state_active");
-          }),
-        )
-        .then((registered) => {
-          if (appStateCancelled) {
-            void registered.remove();
-            return;
-          }
-          appStateHandle = registered;
-        })
-        .catch((error) => {
-          recordChatDiagnostic("resume_app_state_register_failed", {
-            message: error instanceof Error ? error.message : String(error),
-          });
-        });
-    }
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      clearTimers();
-      appStateCancelled = true;
-      void appStateHandle?.remove();
-    };
-  }, [isLoggedIn, isLoading, stableReconcile]);
-
-  // --------------------------------------------------------------------------
-  // Effect 4: Unmount cleanup
+  // Effect 6: Unmount cleanup.
   // --------------------------------------------------------------------------
   useEffect(() => {
     return () => {
-      streamRef.current?.cancel();
       cancelReconciliationRef.current();
       if (conversationListInvalidatedTimerRef.current) {
         clearTimeout(conversationListInvalidatedTimerRef.current);
         conversationListInvalidatedTimerRef.current = null;
       }
     };
-  }, []);
-
+  }, [conversationListInvalidatedTimerRef]);
 }

@@ -29,4 +29,17 @@ describe("MessageHoverActions", () => {
 
     expect(html).toBe("");
   });
+
+  test("renders inspect action for user messages when provided", () => {
+    const html = renderToStaticMarkup(
+      <MessageHoverActions
+        content="hello"
+        timestamp={Date.UTC(2026, 0, 2, 12, 34)}
+        role="user"
+        onInspect={() => {}}
+      />,
+    );
+
+    expect(html).toContain('title="Inspect"');
+  });
 });

@@ -45,6 +45,8 @@ export interface TranscriptProps {
   onRetryError: () => void;
   /** Callback for "Fork from here" from a message's hover actions. */
   onForkConversation?: (messageId: string) => void;
+  /** Callback for "Inspect" from a message's hover actions. */
+  onInspectMessage?: (messageId: string) => void;
   /** Persistent expanded tool-call ids. Optional — the Transcript owns its
    *  own set if not provided. Callers that need cross-render persistence
    *  should pass a stable ref. */
@@ -214,6 +216,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       onConfirmationDecision: rest.onConfirmationDecision,
       onRetryError: rest.onRetryError,
       onForkConversation: rest.onForkConversation,
+      onInspectMessage: rest.onInspectMessage,
       renderPendingSecret: rest.renderPendingSecret,
       renderPendingConfirmation: rest.renderPendingConfirmation,
       renderPendingContactRequest: rest.renderPendingContactRequest,

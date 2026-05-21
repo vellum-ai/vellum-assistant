@@ -40,6 +40,7 @@ export interface WebFetchMetadata {
   redirectCount: number;
   durationMs: number;
   errorMessage?: string;
+  mayRequireJavaScript?: boolean;
 }
 
 export interface ToolActivityMetadata {

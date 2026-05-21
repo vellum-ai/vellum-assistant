@@ -13,31 +13,10 @@ import {
   chatContextQueryKey,
 } from "@/lib/sync/query-tags.js";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types.js";
-
-type EventHandler = (event: AssistantEvent) => void;
-
-let activeHandler: EventHandler | null = null;
-let lastSubscribeArgs: {
-  assistantId: string;
-  conversationKey: string | null | undefined;
-} | null = null;
-const cancelMock = mock(() => {});
-const subscribeChatEventsMock = mock(
-  (
-    assistantId: string,
-    conversationKey: string | null | undefined,
-    onEvent: EventHandler,
-    _onError: (err: Error) => void,
-  ) => {
-    lastSubscribeArgs = { assistantId, conversationKey };
-    activeHandler = onEvent;
-    return { cancel: cancelMock };
-  },
-);
-
-mock.module("@/domains/chat/api/stream.js", () => ({
-  subscribeChatEvents: subscribeChatEventsMock,
-}));
+import {
+  __resetEventBusForTesting,
+  useEventBusStore,
+} from "@/stores/event-bus-store.js";
 
 const { useAssistantSyncStream } = await import(
   "@/domains/chat/hooks/use-assistant-sync-stream.js"
@@ -61,55 +40,40 @@ function syncEvent(tags: string[]): SyncChangedEvent {
   return { type: "sync_changed", tags };
 }
 
+function emit(event: AssistantEvent): void {
+  useEventBusStore.getState().publish("sse.event", event);
+}
+
 beforeEach(() => {
-  activeHandler = null;
-  lastSubscribeArgs = null;
-  cancelMock.mockClear();
-  subscribeChatEventsMock.mockClear();
+  __resetEventBusForTesting();
 });
 
 afterEach(() => {
   cleanup();
+  __resetEventBusForTesting();
 });
 
 describe("useAssistantSyncStream", () => {
-  test("does not subscribe when assistant is not active", () => {
+  test("does not subscribe to bus events when assistant is not active", () => {
     const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
     renderHook(() => useAssistantSyncStream("asst-1", false), {
       wrapper: createWrapper(queryClient),
     });
-    expect(subscribeChatEventsMock).not.toHaveBeenCalled();
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]));
+    expect(spy).not.toHaveBeenCalled();
   });
 
   test("does not subscribe when assistantId is null", () => {
     const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
     renderHook(() => useAssistantSyncStream(null, true), {
       wrapper: createWrapper(queryClient),
     });
-    expect(subscribeChatEventsMock).not.toHaveBeenCalled();
-  });
-
-  test("opens an unfiltered (null conversation key) stream when active", () => {
-    const queryClient = freshQueryClient();
-    renderHook(() => useAssistantSyncStream("asst-1", true), {
-      wrapper: createWrapper(queryClient),
-    });
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
-    expect(lastSubscribeArgs).toEqual({
-      assistantId: "asst-1",
-      conversationKey: null,
-    });
-  });
-
-  test("cancels the stream on unmount", () => {
-    const queryClient = freshQueryClient();
-    const { unmount } = renderHook(
-      () => useAssistantSyncStream("asst-1", true),
-      { wrapper: createWrapper(queryClient) },
-    );
-    expect(cancelMock).not.toHaveBeenCalled();
-    unmount();
-    expect(cancelMock).toHaveBeenCalledTimes(1);
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]));
+    expect(spy).not.toHaveBeenCalled();
   });
 
   test("invalidates avatar query on assistant:self:avatar sync tag", async () => {
@@ -119,7 +83,7 @@ describe("useAssistantSyncStream", () => {
     renderHook(() => useAssistantSyncStream("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    activeHandler!(syncEvent([SYNC_TAGS.assistantAvatar]));
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]));
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
         queryKey: avatarQueryKey("asst-1"),
@@ -134,7 +98,7 @@ describe("useAssistantSyncStream", () => {
     renderHook(() => useAssistantSyncStream("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    activeHandler!(syncEvent([SYNC_TAGS.assistantIdentity]));
+    emit(syncEvent([SYNC_TAGS.assistantIdentity]));
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
         queryKey: assistantIdentityQueryKey("asst-1"),
@@ -152,7 +116,7 @@ describe("useAssistantSyncStream", () => {
     renderHook(() => useAssistantSyncStream("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    activeHandler!(
+    emit(
       syncEvent([
         SYNC_TAGS.assistantConfig,
         SYNC_TAGS.assistantSounds,
@@ -180,9 +144,9 @@ describe("useAssistantSyncStream", () => {
     renderHook(() => useAssistantSyncStream("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    activeHandler!(syncEvent([SYNC_TAGS.conversationsList]));
-    activeHandler!(syncEvent([SYNC_TAGS.conversationsList]));
-    activeHandler!(syncEvent([SYNC_TAGS.conversationsList]));
+    emit(syncEvent([SYNC_TAGS.conversationsList]));
+    emit(syncEvent([SYNC_TAGS.conversationsList]));
+    emit(syncEvent([SYNC_TAGS.conversationsList]));
     // Debounced — wait past the 250ms window.
     await new Promise((resolve) => setTimeout(resolve, 350));
     const listCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
@@ -201,8 +165,7 @@ describe("useAssistantSyncStream", () => {
     renderHook(() => useAssistantSyncStream("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    // Fabricate a non-sync event — handler should not touch the cache.
-    activeHandler!({
+    emit({
       type: "assistant_text_delta",
       conversationId: "convo-1",
       delta: "hi",
@@ -217,8 +180,8 @@ describe("useAssistantSyncStream", () => {
     renderHook(() => useAssistantSyncStream("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    activeHandler!(syncEvent(["conversation:abc:metadata"]));
-    activeHandler!(syncEvent(["conversation:abc:messages"]));
+    emit(syncEvent(["conversation:abc:metadata"]));
+    emit(syncEvent(["conversation:abc:messages"]));
     // Both tags fall into the default branch and trigger the
     // debounced sidebar refresh — coalesced into a single invalidate.
     await new Promise((resolve) => setTimeout(resolve, 350));
@@ -238,12 +201,12 @@ describe("useAssistantSyncStream", () => {
     renderHook(() => useAssistantSyncStream("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    activeHandler!({
+    emit({
       type: "home_feed_updated",
       updatedAt: "2026-05-21T00:00:00Z",
       newItemCount: 1,
     } as unknown as AssistantEvent);
-    activeHandler!({
+    emit({
       type: "relationship_state_updated",
       updatedAt: "2026-05-21T00:00:00Z",
     } as unknown as AssistantEvent);
@@ -258,8 +221,10 @@ describe("useAssistantSyncStream", () => {
     });
   });
 
-  test("cancels the stream when isAssistantActive flips true -> false", () => {
+  test("unsubscribes from the bus when isAssistantActive flips true -> false", () => {
     const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
     const { rerender } = renderHook(
       ({ active }: { active: boolean }) =>
         useAssistantSyncStream("asst-1", active),
@@ -268,11 +233,11 @@ describe("useAssistantSyncStream", () => {
         initialProps: { active: true },
       },
     );
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
-    expect(cancelMock).not.toHaveBeenCalled();
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]));
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockClear();
     rerender({ active: false });
-    expect(cancelMock).toHaveBeenCalledTimes(1);
-    // Stays cancelled — no new subscribe while inactive.
-    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]));
+    expect(spy).not.toHaveBeenCalled();
   });
 });

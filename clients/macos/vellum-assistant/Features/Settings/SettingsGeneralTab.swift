@@ -38,8 +38,6 @@ struct SettingsGeneralTab: View {
     @State private var healthzLoaded = false
     @State private var isRefreshingHealthz = false
     @State private var systemResourcesDeepLinkRequested = false
-    @State private var subscription: SubscriptionResponse? = nil
-
 
     private var currentAssistant: LockfileAssistant? {
         lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
@@ -87,15 +85,6 @@ struct SettingsGeneralTab: View {
             if shouldShowSystemResourcesSection {
                 systemResourcesSection
             }
-            if topology == .managed, let assistant = currentAssistant {
-                ProComputeUpgradeSection(
-                    assistantId: assistant.assistantId,
-                    subscription: subscription,
-                    onUpgradeComplete: {
-                        Task { await fetchHealthz() }
-                    }
-                )
-            }
             if MacOSClientFeatureFlagManager.shared.isEnabled("teleport"),
                let assistant = currentAssistant,
                !assistant.isRemote || assistant.isDocker || assistant.isManaged {
@@ -128,17 +117,11 @@ struct SettingsGeneralTab: View {
                 await fetchHealthz()
                 await refreshAssistantSwitcherItems()
             }
-            Task { await refreshSubscription() }
             recordSystemResourcesDeepLinkIfNeeded(store.pendingSettingsGeneralSection)
         }
-        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+        .onChange(of: authManager.isAuthenticated) { _, _ in
             Task {
                 await refreshAssistantSwitcherItems()
-                if !isAuthenticated {
-                    subscription = nil
-                } else {
-                    await refreshSubscription()
-                }
             }
         }
         .onChange(of: store.pendingSettingsGeneralSection) { _, section in
@@ -159,7 +142,6 @@ struct SettingsGeneralTab: View {
                 await refreshLockfileAssistants()
                 await fetchHealthz()
                 await refreshAssistantSwitcherItems()
-                await refreshSubscription()
             }
         }
         .sheet(isPresented: $isDockerOperationInProgress) {
@@ -294,12 +276,6 @@ struct SettingsGeneralTab: View {
         } catch {
             settingsGeneralLog.warning("Failed to refresh assistant switcher: \(error.localizedDescription, privacy: .public)")
             assistantSwitcherError = "Could not load assistants."
-        }
-    }
-
-    private func refreshSubscription() async {
-        if let sub = try? await BillingService.shared.getSubscription() {
-            subscription = sub
         }
     }
 

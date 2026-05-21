@@ -63,6 +63,7 @@ import { useConversationLoader } from "@/domains/conversations/use-conversation-
 import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration.js";
 import { useConversationActions } from "@/domains/conversations/use-conversation-actions.js";
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions.js";
+import { canUseLlmInspector } from "@/domains/chat/inspector/access.js";
 import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections.js";
 import { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation.js";
 import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-handler.js";
@@ -111,7 +112,8 @@ import {
 
 export function ChatPage() {
   const authLoading = useAuthStore.use.isLoading();
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const authUser = useAuthStore.use.user();
+  const showLlmInspector = canUseLlmInspector(authUser);
   const isMobile = useIsMobile();
   const isNative = useIsNativePlatform();
   const navigate = useNavigate();
@@ -146,7 +148,6 @@ export function ChatPage() {
   void showAddCreditsModal;
   const [restoredDraftConversationKey, setRestoredDraftConversationKey] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
-  const [streamRetryNonce, setStreamRetryNonce] = useState(0);
   const [_autoGreetPending, setAutoGreetPending] = useState(false);
   const awaitingAutoGreetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
@@ -628,7 +629,6 @@ export function ChatPage() {
     confirmationToolCallMapRef,
     setMessages,
     setError,
-    setStreamRetryNonce,
     setInput,
     startReconciliationLoop,
     cancelReconciliation,
@@ -712,14 +712,8 @@ export function ChatPage() {
     reachabilityReset: reachability.reset,
     setMessages,
     setError,
-    streamRetryNonce,
-    setStreamRetryNonce,
-    refreshEpoch,
     syncRouterRef,
     conversationListInvalidatedTimerRef,
-    isLoggedIn,
-    isLoading: authLoading,
-    checkAssistant,
   });
 
   // -------------------------------------------------------------------------
@@ -779,6 +773,7 @@ export function ChatPage() {
     handleAnalyzeConversation,
     handleOpenInNewWindow,
     handleInspectConversation,
+    handleInspectMessage,
     handleCopyConversation,
   } = useConversationSecondaryActions({
     assistantId,
@@ -882,7 +877,7 @@ export function ChatPage() {
             : undefined
         }
         onInspect={
-          activeConversation.conversationKey
+          showLlmInspector && activeConversation.conversationKey
             ? () => handleInspectConversation(activeConversation)
             : undefined
         }
@@ -943,6 +938,7 @@ export function ChatPage() {
     handleForkConversationFromMenu,
     handleOpenInNewWindow,
     handleInspectConversation,
+    showLlmInspector,
     handleCopyConversation,
     handleMoveToGroup,
     handleRemoveFromGroup,
@@ -1297,6 +1293,7 @@ export function ChatPage() {
       if (app && assistantId) void useDeployStore.getState().deployApp(assistantId, app.appId, app.name, app.html);
     } : undefined,
     handleForkConversation,
+    handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
     subagentEntries,
     subagentState,
     activeSubagentId: viewerState.activeSubagentId,
@@ -1314,7 +1311,6 @@ export function ChatPage() {
     pushToAiSettings,
     checkAssistant,
     setRefreshEpoch,
-    streamRetryNonce,
     historyPagination: historyResult.pagination,
     refs: {
       inputRef,

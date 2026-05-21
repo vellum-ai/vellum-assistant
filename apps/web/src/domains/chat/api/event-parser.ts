@@ -36,11 +36,12 @@ export function readEventConversationKey(
   if (typeof data.conversationKey === "string" && data.conversationKey) {
     return data.conversationKey;
   }
-  // Daemon emits `conversationId` for many events. In the web client this maps
-  // 1:1 to the conversation key used by the sidebar/history APIs.
-  if (typeof data.conversationId === "string" && data.conversationId) {
-    return data.conversationId;
-  }
+  // Intentionally do NOT fall back to `data.conversationId`. The daemon's
+  // `conversationId` is its internal id from the conversation-keys mapping
+  // table and is not guaranteed to equal the web-facing conversationKey.
+  // When this returns undefined, stream.ts substitutes the subscription
+  // URL's `requestedConversationKey`, which is the authoritative routing
+  // key for the per-conversation SSE stream.
   return undefined;
 }
 
@@ -451,10 +452,6 @@ export function parseAssistantEvent(
     }
 
     case "conversation_title_updated": {
-      // Daemon emits `conversationId` (the internal ID), which for web maps
-      // 1:1 to the `conversationKey` the sidebar indexes by — the client
-      // never sees a separate conversationId because our only create path
-      // is POST /v1/messages with a client-chosen key.
       const conversationId =
         typeof data.conversationId === "string" ? data.conversationId : "";
       const title = typeof data.title === "string" ? data.title : "";

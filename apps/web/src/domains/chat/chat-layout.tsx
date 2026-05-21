@@ -11,9 +11,8 @@ import { Outlet, useLocation, useNavigate } from "react-router";
 import { haptic } from "@/utils/haptics.js";
 import { routes } from "@/utils/routes.js";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 import { useAssistantSyncStream } from "@/domains/chat/hooks/use-assistant-sync-stream.js";
+import { useRootOutletContext } from "@/root-layout.js";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
 import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
 import { useDynamicFavicon } from "@/domains/avatar/use-dynamic-favicon.js";
@@ -27,7 +26,6 @@ import {
 } from "@/domains/conversations/conversation-queries.js";
 import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking.js";
 import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions.js";
-import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
@@ -120,17 +118,7 @@ interface SideMenuRenderArgs {
 export function ChatLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
-  const authLoading = useAuthStore.use.isLoading();
-  const isNonProduction = useEnvironmentStore.use.isNonProduction();
-
-  const lifecycle = useAssistantLifecycle({
-    isLoggedIn,
-    isLoading: authLoading,
-    isRetired: false,
-    isNonProduction,
-    onRedirect: navigate,
-  });
+  const { lifecycle } = useRootOutletContext();
 
   // Subscribe to the sidebar conversation list at the layout level so every
   // chat-layout child route (home, library, contacts, identity, chat)
@@ -190,18 +178,11 @@ export function ChatLayout() {
     layoutAvatar.traits,
   );
 
-  // Layout-scoped SSE subscriber is disabled. The daemon dedups client
-  // subscribers by `clientId` (assistant-event-hub.ts), so this layout
-  // stream and ChatPage's conversation-scoped stream evict each other
-  // every (re-)subscribe — leaving the conversation stream silent and
-  // the chat composer permanently in "thinking" state after a send.
-  // Restoring the platform behavior of a single conversation-scoped
-  // stream until the dual-subscription support lands. Sibling routes
-  // (home, identity, library, workspace, contacts, inspect) drop back
-  // to the pre-LUM-1791 staleness for now.
-  //
-  // useAssistantSyncStream(lifecycle.assistantId, isAssistantActive);
-  void useAssistantSyncStream;
+  // Routes assistant-global sync events from `bus.sse.event` into the
+  // avatar / identity / config / sounds / schedules / conversation
+  // list query caches so the sidebar stays live on every chat-layout
+  // child route.
+  useAssistantSyncStream(lifecycle.assistantId, isAssistantActive);
 
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header. Gated on the homePage feature flag so the hook

@@ -33,7 +33,7 @@ interface MobileAppOverlayProps {
  * again.
  *
  * **Mounting constraint**: must render outside `RootLayout`'s inner
- * transformed wrapper (see `src/components/layout/root-layout.tsx`). When
+ * transformed wrapper (see `src/root-layout.tsx`). When
  * the soft keyboard opens, `RootLayout` applies a `translate3d(...)` to its
  * inner div to follow the visual viewport — any `position: fixed` element
  * inside that transformed wrapper anchors to the transform's origin rather

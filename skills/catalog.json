@@ -32,6 +32,27 @@
       "updatedAt": "2026-03-17T03:13:56-04:00"
     },
     {
+      "id": "assistant-migration",
+      "name": "assistant-migration",
+      "description": "Migrate from OpenClaw, Hermes, Manus, and other AI assistants into Vellum by inspecting their exports, files, prompts, memory, tools, workflows, integrations, and relationships, then mapping as much as safely possible into Vellum primitives.",
+      "metadata": {
+        "emoji": "🧳",
+        "vellum": {
+          "display-name": "Assistant Migration",
+          "activation-hints": [
+            "User wants to migrate from OpenClaw, Hermes, Manus, or another AI assistant into Vellum",
+            "User has an assistant export, workspace, prompt bundle, memory dump, tool config, or migration request from another assistant system",
+            "User asks what can be preserved when switching from another assistant"
+          ],
+          "avoid-when": [
+            "User is moving an existing Vellum assistant between Vellum homes; use backup/restore or teleport workflows instead"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-05-21T14:57:56-04:00"
+    },
+    {
       "id": "chatgpt-import",
       "name": "chatgpt-import",
       "description": "Import conversation history from ChatGPT into Vellum",
@@ -616,27 +637,6 @@
       },
       "compatibility": "Designed for Vellum personal assistants",
       "updatedAt": "2026-04-21T16:02:02-04:00"
-    },
-    {
-      "id": "species-migration",
-      "name": "species-migration",
-      "description": "Migrate from OpenClaw, Hermes, Manus, and other assistant species into Vellum by inspecting their exports, files, prompts, memory, tools, workflows, integrations, and relationships, then mapping as much as safely possible into Vellum primitives without hard-coded foreign-species porting logic.",
-      "metadata": {
-        "emoji": "🧬",
-        "vellum": {
-          "display-name": "Species Migration",
-          "activation-hints": [
-            "User wants to migrate from OpenClaw, Hermes, Manus, or another assistant species into Vellum",
-            "User has an assistant export, workspace, prompt bundle, memory dump, tool config, or migration request from another assistant system",
-            "User asks what can be preserved when switching assistant species"
-          ],
-          "avoid-when": [
-            "User is moving an existing Vellum assistant between Vellum homes; use backup/restore or teleport workflows instead"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-19T14:46:12Z"
     },
     {
       "id": "start-the-day",

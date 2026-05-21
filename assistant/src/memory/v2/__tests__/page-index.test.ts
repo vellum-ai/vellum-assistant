@@ -497,7 +497,7 @@ describe("partitionPageIndex", () => {
 // splitTier1 — recently modified pool extraction
 // ---------------------------------------------------------------------------
 
-const { splitTier1 } = await import("../page-index.js");
+const { splitTier1, splitTier2 } = await import("../page-index.js");
 const { utimes } = await import("node:fs/promises");
 const { join: joinPath } = await import("node:path");
 
@@ -619,5 +619,106 @@ describe("splitTier1", () => {
 
     const { tier1 } = splitTier1(idx, 2);
     expect(tier1!.entries.map((e) => e.slug)).toEqual(["alpha", "bravo"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// splitTier2 — top-M-by-EMA pool extraction
+// ---------------------------------------------------------------------------
+
+describe("splitTier2", () => {
+  async function buildIndex(slugs: string[]) {
+    for (const slug of slugs) {
+      await writePage(workspaceDir, makePage(slug, { summary: `${slug} sum` }));
+    }
+    return getPageIndex(workspaceDir);
+  }
+
+  test("tier2Size=null is a no-op — same index reference, no carve-out", async () => {
+    const idx = await buildIndex(["a", "b", "c"]);
+    const { tier2, rest } = splitTier2(idx, null, new Map());
+    expect(tier2).toBeNull();
+    expect(rest).toBe(idx);
+  });
+
+  test("returns no-op when no pages have a positive score", async () => {
+    const idx = await buildIndex(["a", "b", "c"]);
+    // Empty scores map → every page has score 0 → none eligible.
+    const { tier2, rest } = splitTier2(idx, 2, new Map());
+    expect(tier2).toBeNull();
+    expect(rest).toBe(idx);
+  });
+
+  test("top-M by score desc become tier 2; lower-score pages stay in rest", async () => {
+    await buildIndex(["a", "b", "c", "d", "e"]);
+    const idx = await getPageIndex(workspaceDir);
+    const scores = new Map([
+      ["a", 1.0],
+      ["b", 5.0],
+      ["c", 2.0],
+      ["d", 4.0],
+      ["e", 3.0],
+    ]);
+
+    const { tier2, rest } = splitTier2(idx, 2, scores);
+    expect(tier2!.entries.map((e) => e.slug)).toEqual(["b", "d"]);
+    expect(rest.entries.map((e) => e.slug).sort()).toEqual(["a", "c", "e"]);
+  });
+
+  test("score=0 pages are ineligible even when tier2Size is large", async () => {
+    await buildIndex(["a", "b", "c", "d", "e"]);
+    const idx = await getPageIndex(workspaceDir);
+    // Only 2 pages have positive scores; tier2Size=10 should NOT pull in
+    // zero-score pages to fill the pool.
+    const scores = new Map([
+      ["b", 5.0],
+      ["d", 4.0],
+    ]);
+    const { tier2, rest } = splitTier2(idx, 10, scores);
+    expect(tier2!.entries.map((e) => e.slug)).toEqual(["b", "d"]);
+    expect(rest.entries.map((e) => e.slug).sort()).toEqual(["a", "c", "e"]);
+  });
+
+  test("tied scores break by slug ASCII for determinism", async () => {
+    await buildIndex(["alpha", "bravo", "charlie", "delta"]);
+    const idx = await getPageIndex(workspaceDir);
+    const scores = new Map([
+      ["alpha", 2.0],
+      ["bravo", 2.0],
+      ["charlie", 2.0],
+      ["delta", 1.0],
+    ]);
+
+    const { tier2 } = splitTier2(idx, 2, scores);
+    expect(tier2!.entries.map((e) => e.slug)).toEqual(["alpha", "bravo"]);
+  });
+
+  test("tier 2 entries carry batch-local 1-based IDs", async () => {
+    await buildIndex(["a", "b", "c"]);
+    const idx = await getPageIndex(workspaceDir);
+    const { tier2 } = splitTier2(
+      idx,
+      2,
+      new Map([
+        ["a", 1.0],
+        ["b", 2.0],
+      ]),
+    );
+    expect(tier2!.entries.map((e) => e.id)).toEqual([1, 2]);
+    expect(tier2!.rendered).toContain("[1] ");
+    expect(tier2!.rendered).toContain("[2] ");
+  });
+
+  test("tier2Size larger than eligible count fills with available; rest gets remainder", async () => {
+    await buildIndex(["a", "b", "c"]);
+    const idx = await getPageIndex(workspaceDir);
+    const scores = new Map([
+      ["a", 1.0],
+      ["b", 2.0],
+      ["c", 3.0],
+    ]);
+    const { tier2, rest } = splitTier2(idx, 100, scores);
+    expect(tier2!.entries.length).toBe(3);
+    expect(rest.entries.length).toBe(0);
   });
 });
