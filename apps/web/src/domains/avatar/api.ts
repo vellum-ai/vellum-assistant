@@ -1,20 +1,24 @@
 /**
  * Avatar API functions for fetching character components and traits.
  *
- * These call daemon endpoints via the configured HeyAPI client singleton.
- * The daemon serves a single assistant per process, so its avatar and
- * workspace routes are unscoped — they live at `/v1/avatar/...` and
- * `/v1/workspace/...`, not under `/v1/assistants/{assistant_id}/...`.
+ * Targets the gateway-proxied `/v1/assistants/{assistant_id}/...` namespace,
+ * matching the platform implementation. The gateway runtime-proxy rewrites
+ * `/v1/assistants/<id>/X` to `/v1/X` before forwarding to the daemon, which
+ * registers avatar and workspace routes flat (`/v1/avatar/...`,
+ * `/v1/workspace/...`).
  */
 import { client } from "@/lib/api-client.js";
 import { assertHasResponse } from "@/lib/api-errors.js";
 import type { CharacterComponents, CharacterTraits } from "./types.js";
 import { isCharacterTraits } from "./types.js";
 
-export async function fetchCharacterComponents(): Promise<CharacterComponents | null> {
+export async function fetchCharacterComponents(
+  assistantId: string,
+): Promise<CharacterComponents | null> {
   try {
     const { data, error, response } = await client.get({
-      url: "/v1/avatar/character-components",
+      url: "/v1/assistants/{assistant_id}/avatar/character-components",
+      path: { assistant_id: assistantId },
     });
     assertHasResponse(response, error, "Failed to fetch character components");
     if (!response.ok || !data || typeof data !== "object") return null;
@@ -28,10 +32,13 @@ interface WorkspaceFileResponse {
   content: string | null;
 }
 
-export async function fetchCharacterTraits(): Promise<CharacterTraits | null> {
+export async function fetchCharacterTraits(
+  assistantId: string,
+): Promise<CharacterTraits | null> {
   try {
     const { data, error, response } = await client.get({
-      url: "/v1/workspace/file",
+      url: "/v1/assistants/{assistant_id}/workspace/file/",
+      path: { assistant_id: assistantId },
       query: { path: "data/avatar/character-traits.json" },
     });
     assertHasResponse(response, error, "Failed to fetch character traits");
@@ -49,11 +56,13 @@ export async function fetchCharacterTraits(): Promise<CharacterTraits | null> {
 }
 
 export async function saveCharacterTraits(
+  assistantId: string,
   traits: CharacterTraits,
 ): Promise<boolean> {
   try {
     const { error, response } = await client.post({
-      url: "/v1/avatar/render-from-traits",
+      url: "/v1/assistants/{assistant_id}/avatar/render-from-traits",
+      path: { assistant_id: assistantId },
       body: traits,
       headers: { "Content-Type": "application/json" },
     });
@@ -64,7 +73,10 @@ export async function saveCharacterTraits(
   }
 }
 
-export async function uploadAvatarImage(file: File): Promise<boolean> {
+export async function uploadAvatarImage(
+  assistantId: string,
+  file: File,
+): Promise<boolean> {
   try {
     const arrayBuffer = await file.arrayBuffer();
     const base64 = btoa(
@@ -75,7 +87,8 @@ export async function uploadAvatarImage(file: File): Promise<boolean> {
     );
 
     const { error: writeError, response: writeResponse } = await client.post({
-      url: "/v1/workspace/write",
+      url: "/v1/assistants/{assistant_id}/workspace/write/",
+      path: { assistant_id: assistantId },
       body: { path: "data/avatar/avatar-image.png", content: base64, encoding: "base64" },
       headers: { "Content-Type": "application/json" },
     });
@@ -83,7 +96,8 @@ export async function uploadAvatarImage(file: File): Promise<boolean> {
     if (!writeResponse.ok) return false;
 
     await client.post({
-      url: "/v1/workspace/delete",
+      url: "/v1/assistants/{assistant_id}/workspace/delete/",
+      path: { assistant_id: assistantId },
       body: { path: "data/avatar/character-traits.json" },
       headers: { "Content-Type": "application/json" },
     });
@@ -94,10 +108,13 @@ export async function uploadAvatarImage(file: File): Promise<boolean> {
   }
 }
 
-export async function fetchAvatarImageUrl(): Promise<string | null> {
+export async function fetchAvatarImageUrl(
+  assistantId: string,
+): Promise<string | null> {
   try {
     const { data, error, response } = await client.get({
-      url: "/v1/workspace/file/content",
+      url: "/v1/assistants/{assistant_id}/workspace/file/content/",
+      path: { assistant_id: assistantId },
       query: { path: "data/avatar/avatar-image.png" },
       parseAs: "blob",
     });

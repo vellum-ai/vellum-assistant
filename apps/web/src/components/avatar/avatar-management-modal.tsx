@@ -105,7 +105,7 @@ export function AvatarManagementModal({
       }
 
       setIsUploading(true);
-      const ok = await uploadAvatarImage(file);
+      const ok = await uploadAvatarImage(assistantId, file);
       setIsUploading(false);
 
       if (ok) {
@@ -117,7 +117,7 @@ export function AvatarManagementModal({
         fileInputRef.current.value = "";
       }
     },
-    [onUploadImage, handleClose],
+    [assistantId, onUploadImage, handleClose],
   );
 
   const handleUploadClick = useCallback(() => {

@@ -36,15 +36,15 @@ export function useAssistantAvatar(assistantId: string | null) {
     queryFn: async () => {
       const id = assistantId!;
       const [components, imageUrl] = await Promise.all([
-        fetchCharacterComponents(),
-        fetchAvatarImageUrl(),
+        fetchCharacterComponents(id),
+        fetchAvatarImageUrl(id),
       ]);
       // Skip the traits fetch when a custom image exists — the traits
       // file is intentionally deleted on the daemon side in that case,
       // so requesting it just generates 404s on every SSE-driven
       // reconnect invalidation. `AvatarRenderer` only reads `traits`
       // when there is no `customImageUrl`.
-      const traits = imageUrl ? null : await fetchCharacterTraits();
+      const traits = imageUrl ? null : await fetchCharacterTraits(id);
 
       const prev = activeBlobUrls.get(id);
       if (prev && prev !== imageUrl) {
