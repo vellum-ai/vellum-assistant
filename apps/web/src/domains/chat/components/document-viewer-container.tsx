@@ -16,8 +16,10 @@ import {
 } from "react";
 import {
   ArrowLeft,
+  Check,
   Download,
   FileText,
+  Loader2,
   MessageSquareText,
   X,
 } from "lucide-react";
@@ -98,24 +100,35 @@ export function DocumentViewerContainer({
   const [commentAnchors, setCommentAnchors] = useState<CommentAnchor[]>([]);
   const [activeHighlight, setActiveHighlight] = useState<{ start: number; end: number } | null>(null);
 
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+
   const containerRef = useRef<HTMLDivElement>(null);
   const commentPanelRef = useRef<DocumentCommentPanelHandle>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const savedFadeRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   const handleContentChange = useCallback(
     (markdown: string) => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (savedFadeRef.current) clearTimeout(savedFadeRef.current);
+      setSaveStatus("saving");
       saveTimerRef.current = setTimeout(() => {
-        void saveDocumentContent(assistantId, surfaceId, conversationId, documentName, markdown);
+        void saveDocumentContent(assistantId, surfaceId, conversationId, documentName, markdown).then(
+          () => {
+            setSaveStatus("saved");
+            savedFadeRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
+          },
+          () => setSaveStatus("idle"),
+        );
       }, 1000);
     },
     [assistantId, surfaceId, conversationId, documentName],
   );
 
-  // Clear text selection when the comment panel is closed
+  // Clear inline comment state when panel closes (but keep text selection
+  // visible since the popover now works independently of the panel)
   useEffect(() => {
     if (!commentsPanelOpen) {
-      setTextSelection(null);
       setAddingInlineComment(false);
     }
   }, [commentsPanelOpen]);
@@ -197,6 +210,7 @@ export function DocumentViewerContainer({
       });
       setInlineCommentDraft("");
       setTextSelection(null);
+      setCommentsPanelOpen(true);
       await refreshComments();
     } finally {
       setAddingInlineComment(false);
@@ -274,6 +288,19 @@ export function DocumentViewerContainer({
           {documentName}
         </Typography>
 
+        {saveStatus !== "idle" ? (
+          <span className="flex items-center gap-1 text-[var(--content-tertiary)]">
+            {saveStatus === "saving" ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <Check size={12} />
+            )}
+            <Typography variant="label-small-default" className="text-[var(--content-tertiary)]">
+              {saveStatus === "saving" ? "Saving…" : "Saved"}
+            </Typography>
+          </span>
+        ) : null}
+
         {onExport ? (
           <Button
             variant="ghost"
@@ -325,7 +352,7 @@ export function DocumentViewerContainer({
           />
 
           {/* Floating inline comment popover anchored to selection */}
-          {commentsPanelOpen && textSelection ? (
+          {textSelection ? (
             <div
               className="absolute z-10 w-72 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] shadow-lg"
               style={
