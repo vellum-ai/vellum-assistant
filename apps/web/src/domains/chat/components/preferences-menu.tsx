@@ -7,7 +7,6 @@ import {
   LogOut,
   MessageSquareText,
   Settings as SettingsIcon,
-  Shield,
   SlidersHorizontal,
 } from "lucide-react";
 import { useState } from "react";
@@ -39,7 +38,7 @@ import { ThemeToggle } from "@/components/theme-toggle.js";
  * pinned to the bottom of the rail).
  *
  * Content mirrors `UserMenu`'s dropdown — Theme, Credits, Earn credits,
- * Settings, Usage, Share Feedback, Admin, Log Out — but rendered
+ * Settings, Usage, Share Feedback, Log Out — but rendered
  * with `PanelItem` for every row except the two custom ones (Theme
  * toggle group + Credits / Add credits row). Those two have bespoke
  * layout that doesn't map onto a generic icon + label + badge row.
@@ -149,10 +148,7 @@ function PreferencesMenuContent({
   onEarnCredits,
 }: PreferencesMenuContentProps) {
   const navigate = useNavigate();
-  const user = useAuthStore.use.user();
   const logout = useAuthStore.use.logout();
-  const isAdmin = user?.isStaff ?? false;
-
   const { data: billingSummary } = useQuery({
     ...organizationsBillingSummaryRetrieveOptions(),
   });
@@ -224,17 +220,6 @@ function PreferencesMenuContent({
           onShareFeedback();
         }}
       />
-
-      {isAdmin ? (
-        <PanelItem
-          icon={Shield}
-          label="Admin"
-          onSelect={() => {
-            onClose();
-            navigate(routes.admin.root);
-          }}
-        />
-      ) : null}
 
       <PanelItem
         icon={LogOut}
