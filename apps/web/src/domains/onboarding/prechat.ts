@@ -46,6 +46,8 @@ export interface PreChatOnboardingContext {
    * Undefined when the user skipped Google connection.
    */
   googleScopes?: string[];
+  /** GTM cohort identifier, e.g. "content-automation". */
+  cohort?: string;
 }
 
 /**
@@ -216,6 +218,9 @@ function isPreChatOnboardingContext(
   if (candidate.priorAssistants !== undefined) {
     if (!Array.isArray(candidate.priorAssistants)) return false;
     if (!candidate.priorAssistants.every((s) => typeof s === "string")) return false;
+  }
+  if (candidate.cohort !== undefined && typeof candidate.cohort !== "string") {
+    return false;
   }
   return true;
 }
