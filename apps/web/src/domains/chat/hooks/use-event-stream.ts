@@ -156,6 +156,16 @@ export function useEventStream({
   const reachabilityResetRef = useRef(reachabilityReset);
   reachabilityResetRef.current = reachabilityReset;
 
+  // Track the latest active conversation key in a ref updated during
+  // render. The bus subscriber filters against this ref instead of the
+  // closure-captured value so an `assistant_text_delta` published in
+  // the gap between a conversation switch and the effect cleanup is
+  // rejected as soon as React commits the new active key — without
+  // this, in-flight deltas for the previous conversation can merge
+  // into the new conversation's messages.
+  const activeConversationKeyLatestRef = useRef(activeConversationKey);
+  activeConversationKeyLatestRef.current = activeConversationKey;
+
   // --------------------------------------------------------------------------
   // Effect 1: Subscribe to the bus-owned SSE for the active conversation.
   // --------------------------------------------------------------------------
@@ -191,11 +201,18 @@ export function useEventStream({
         .conversationKey;
       // Assistant-broadcast events (no conversationKey) are routed to
       // every conversation-scoped consumer; the handler decides what
-      // to do with them. Per-conversation events are filtered here.
+      // to do with them. Per-conversation events are filtered against
+      // the LATEST active conversation key, not the closure-captured
+      // value — see comment on `activeConversationKeyLatestRef`.
       if (
         eventConversationKey !== undefined &&
-        eventConversationKey !== capturedConversationKey
+        eventConversationKey !== activeConversationKeyLatestRef.current
       ) {
+        recordChatDiagnostic("sse_event_wrong_conversation_filtered", {
+          eventConversationKey,
+          activeConversationKey: activeConversationKeyLatestRef.current,
+          eventType: event.type,
+        });
         return;
       }
       handleStreamEventRef.current(event, streamEpochRef.current);
