@@ -5,7 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 
 // Reference: https://vite.dev/config/#using-environment-variables-in-config
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   // loadEnv with empty prefix loads all .env variables, not just VITE_-prefixed ones.
   const env = { ...process.env, ...loadEnv(mode, process.cwd(), "") };
 
@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
   const sentryUploadEnabled = !!env.SENTRY_AUTH_TOKEN;
 
   return {
-    base: "/assistant/",
+    base: command === "build" ? "/assistant/" : "/",
     plugins: [
       tailwindcss(),
       react(),
