@@ -193,6 +193,9 @@
   "src/domains/intelligence/identity-page.tsx": [
     "chat"
   ],
+  "src/domains/intelligence/skills-page.tsx": [
+    "chat"
+  ],
   "src/domains/interactions/interaction-store.ts": [
     "chat"
   ],
