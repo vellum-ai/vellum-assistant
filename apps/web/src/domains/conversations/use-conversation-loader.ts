@@ -32,12 +32,8 @@ import { haptic } from "@/utils/haptics.js";
 import { routes } from "@/utils/routes.js";
 import type { NavigateFunction } from "react-router";
 
-import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
 import type { AssistantStateKind, ChatError } from "@/domains/chat/types.js";
-import {
-  useConversationHistory,
-  type HistoryPaginationSnapshot,
-} from "@/domains/chat/hooks/use-conversation-history.js";
+import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-history.js";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { getChatContext } from "@/domains/chat/api/assistant.js";
@@ -47,13 +43,6 @@ import {
   chatContextQueryKey,
   conversationGroupsQueryKey,
 } from "@/domains/conversations/conversation-queries.js";
-
-// Re-export for consumers that import from this module
-export {
-  MAX_CACHED_CONVERSATIONS,
-  type HistoryPaginationSnapshot,
-  getPaginationAfterLatestHistory,
-} from "@/domains/chat/hooks/use-conversation-history.js";
 
 // ---------------------------------------------------------------------------
 // Module constants
@@ -81,7 +70,6 @@ interface UseConversationLoaderParams {
 
   // Collections
   conversations: Conversation[];
-  transcriptPagination: Omit<TranscriptPaginationState, "items">;
 
   // Feature flags / epochs
   conversationGroupsUI: boolean;
@@ -90,9 +78,6 @@ interface UseConversationLoaderParams {
 
   // Refs (owned by parent, read/written by this hook)
   assistantIdRef: MutableRefObject<string | null>;
-  conversationCacheRef: MutableRefObject<
-    Map<string, { messages: DisplayMessage[]; pagination: HistoryPaginationSnapshot }>
-  >;
   draftKeyResolutionRef: MutableRefObject<boolean>;
   previousConversationKeyRef: MutableRefObject<string | null>;
   onboardingDraftConversationKeyRef: MutableRefObject<string | null>;
@@ -106,14 +91,9 @@ interface UseConversationLoaderParams {
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  refreshSettleRef: MutableRefObject<RefreshSettleHandle | null>;
   lastSuggestionMsgIdRef: MutableRefObject<string | null>;
   autoGreetRef: MutableRefObject<boolean>;
-  initialPageOldestTsRef: MutableRefObject<number | null>;
-  isLoadingOlderRef: MutableRefObject<boolean>;
-  historyLoadedRef: MutableRefObject<boolean>;
   conversationListInvalidatedTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
-  loadEpochRef: MutableRefObject<number>;
   pendingInitialMessageRef: MutableRefObject<{ conversationKey: string; content: string } | null>;
 
   // State setters
@@ -164,12 +144,10 @@ export function useConversationLoader({
   searchParams,
   navigate,
   conversations,
-  transcriptPagination,
   conversationGroupsUI,
   refreshEpoch,
   reachabilityReadyEpoch,
   assistantIdRef,
-  conversationCacheRef,
   draftKeyResolutionRef,
   previousConversationKeyRef,
   onboardingDraftConversationKeyRef,
@@ -183,14 +161,9 @@ export function useConversationLoader({
   requestIdToStableIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
-  refreshSettleRef,
   lastSuggestionMsgIdRef,
   autoGreetRef,
-  initialPageOldestTsRef,
-  isLoadingOlderRef,
-  historyLoadedRef,
   conversationListInvalidatedTimerRef,
-  loadEpochRef,
   pendingInitialMessageRef,
   setAssistantId,
   setMessages,
@@ -426,13 +399,10 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   // Delegate: conversation history loading and caching
   // -------------------------------------------------------------------------
-  useConversationHistory({
+  const historyResult = useConversationHistory({
     assistantId,
     assistantStateKind,
     activeConversationKey,
-    refreshEpoch,
-    transcriptPagination,
-    conversationCacheRef,
     draftKeyResolutionRef,
     previousConversationKeyRef,
     messagesRef,
@@ -444,13 +414,8 @@ export function useConversationLoader({
     requestIdToStableIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    refreshSettleRef,
     lastSuggestionMsgIdRef,
     autoGreetRef,
-    initialPageOldestTsRef,
-    isLoadingOlderRef,
-    historyLoadedRef,
-    loadEpochRef,
     setMessages,
     setTranscriptPagination,
     setIsLoadingHistory,
@@ -499,5 +464,6 @@ export function useConversationLoader({
     switchConversation,
     startNewConversation,
     conversationExistsOnServer,
+    historyResult,
   };
 }

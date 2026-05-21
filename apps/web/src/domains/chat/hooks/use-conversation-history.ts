@@ -1,3 +1,23 @@
+/**
+ * Conversation history lifecycle — switch resets + TanStack Query data sync.
+ *
+ * This hook handles two concerns:
+ *
+ * 1. **Conversation-switch resets** — when `activeConversationKey` changes,
+ *    reset all per-conversation state (turn, interactions, subagents,
+ *    pending messages, dismissed surfaces, etc.) so nothing leaks between
+ *    conversations.
+ *
+ * 2. **History data sync** — when `useHistoryPagination` (TanStack Query)
+ *    delivers data (from cache or network), apply it to the shared
+ *    `messages` state, reconstruct subagent state, restore pending
+ *    interactions, refresh surface content, and detect auto-greet.
+ *
+ * The fetch/cache/cancellation machinery that previously lived here
+ * (`conversationCacheRef`, `loadEpochRef`, manual LRU rotation) has been
+ * replaced by `useHistoryPagination` — a thin `useInfiniteQuery` wrapper
+ * that handles all of that via TanStack Query's built-in mechanisms.
+ */
 
 import * as Sentry from "@sentry/react";
 import {
@@ -17,7 +37,6 @@ import {
   filterDismissedSurfaces,
   loadDismissedSurfaceIds,
 } from "@/domains/chat/utils/dismissed-surfaces-storage.js";
-import { fetchLatestHistoryPage } from "@/domains/chat/api/history.js";
 import {
   recordChatDiagnostic,
   summarizeDisplayMessages,
@@ -30,7 +49,6 @@ import { useConversationStore } from "@/domains/conversations/conversation-store
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import type { SubagentStatus } from "@/domains/chat/api/event-types.js";
 
-import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
 import {
   parsePendingSecretState,
   parsePendingConfirmationData,
@@ -38,62 +56,21 @@ import {
 import type { AssistantStateKind, ChatError } from "@/domains/chat/types.js";
 import { getPendingInteractions } from "@/domains/chat/api/interactions.js";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces.js";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-export const MAX_CACHED_CONVERSATIONS = 10;
+import {
+  useHistoryPagination,
+  type HistoryPaginationResult,
+} from "@/domains/chat/transcript/use-history-pagination.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface HistoryPaginationSnapshot {
-  hasMore: boolean;
-  oldestTimestamp: number | null;
-}
-
-// ---------------------------------------------------------------------------
-// Pure helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Merge a latest-history-page result's pagination with an optional base
- * (e.g. from the conversation cache).  The base wins when it covers older
- * messages than the latest page alone.
- */
-export function getPaginationAfterLatestHistory(
-  result: { hasMore: boolean; oldestTimestamp: number | null },
-  basePagination?: HistoryPaginationSnapshot,
-): HistoryPaginationSnapshot {
-  const latestPagination: HistoryPaginationSnapshot = {
-    hasMore: result.hasMore,
-    oldestTimestamp: result.oldestTimestamp,
-  };
-  if (!basePagination || basePagination.oldestTimestamp == null) {
-    return latestPagination;
-  }
-  if (
-    latestPagination.oldestTimestamp == null ||
-    basePagination.oldestTimestamp < latestPagination.oldestTimestamp
-  ) {
-    return basePagination;
-  }
-  return latestPagination;
-}
-
 interface UseConversationHistoryParams {
   assistantId: string | null;
   assistantStateKind: AssistantStateKind;
   activeConversationKey: string | null;
-  refreshEpoch: number;
-  transcriptPagination: Omit<TranscriptPaginationState, "items">;
 
   // Refs (owned by parent, read/written by this hook)
-  conversationCacheRef: MutableRefObject<
-    Map<string, { messages: DisplayMessage[]; pagination: HistoryPaginationSnapshot }>
-  >;
   draftKeyResolutionRef: MutableRefObject<boolean>;
   previousConversationKeyRef: MutableRefObject<string | null>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
@@ -106,13 +83,8 @@ interface UseConversationHistoryParams {
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  refreshSettleRef: MutableRefObject<RefreshSettleHandle | null>;
   lastSuggestionMsgIdRef: MutableRefObject<string | null>;
   autoGreetRef: MutableRefObject<boolean>;
-  initialPageOldestTsRef: MutableRefObject<number | null>;
-  isLoadingOlderRef: MutableRefObject<boolean>;
-  historyLoadedRef: MutableRefObject<boolean>;
-  loadEpochRef: MutableRefObject<number>;
 
   // State setters
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
@@ -132,30 +104,18 @@ interface UseConversationHistoryParams {
   shouldSuppressGenericChatErrorNotice: (prev: ChatError | null) => boolean;
 }
 
+export interface ConversationHistoryResult {
+  pagination: HistoryPaginationResult;
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
-/**
- * Manages conversation history loading and caching when the active
- * conversation changes.
- *
- * Handles:
- * - Caching outgoing conversation messages to the LRU cache on switch
- * - Resetting per-conversation state on switch
- * - Restoring cached messages or fetching fresh history from the server
- * - Reconciling cache with latest server data
- * - Restoring pending interactions (secrets, confirmations)
- * - Refreshing surface content for embedded surfaces
- * - Auto-greet detection for fresh conversations
- */
 export function useConversationHistory({
   assistantId,
   assistantStateKind,
   activeConversationKey,
-  refreshEpoch,
-  transcriptPagination,
-  conversationCacheRef,
   draftKeyResolutionRef,
   previousConversationKeyRef,
   messagesRef,
@@ -167,13 +127,8 @@ export function useConversationHistory({
   requestIdToStableIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
-  refreshSettleRef,
   lastSuggestionMsgIdRef,
   autoGreetRef,
-  initialPageOldestTsRef,
-  isLoadingOlderRef,
-  historyLoadedRef,
-  loadEpochRef,
   setMessages,
   setTranscriptPagination,
   setIsLoadingHistory,
@@ -185,86 +140,58 @@ export function useConversationHistory({
   resetChatAttachments,
   syncNeedsNewBubbleFromMessages,
   shouldSuppressGenericChatErrorNotice,
-}: UseConversationHistoryParams) {
-  const transcriptPaginationRef = useRef(transcriptPagination);
-  useEffect(() => {
-    transcriptPaginationRef.current = transcriptPagination;
-  }, [transcriptPagination]);
+}: UseConversationHistoryParams): ConversationHistoryResult {
+  // -------------------------------------------------------------------------
+  // TanStack Query for history fetching + caching + pagination
+  // -------------------------------------------------------------------------
+  const pagination = useHistoryPagination({
+    assistantId,
+    conversationKey: activeConversationKey,
+    enabled: assistantStateKind === "active" && !!assistantId && !!activeConversationKey,
+  });
+
+  // Track the last applied data timestamp so we only run side effects once
+  // per TQ data update, not on every render.
+  const lastAppliedDataRef = useRef(0);
+  // Track whether a conversation-switch reset has occurred so the data-apply
+  // effect knows to replace messages (fresh switch) vs. reconcile (background
+  // refetch while streaming is active).
+  const switchResetRef = useRef(false);
 
   // -------------------------------------------------------------------------
-  // Load message history when the active conversation changes
+  // Conversation-switch reset
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (assistantStateKind !== "active" || !assistantId || !activeConversationKey) {
       return;
     }
 
-    // Key resolution (draft->server ID), not a real switch -- skip reset.
+    // Draft-key resolution (draft→server ID) is not a real switch.
     if (draftKeyResolutionRef.current) {
       draftKeyResolutionRef.current = false;
       return;
     }
 
-    // Save the outgoing conversation's messages so they can be restored
-    // on switch-back without a server round-trip. Draft save/restore is
-    // handled by useDraftInput (LUM-1737).
+    // Track outgoing conversation's attention state.
     const outgoingKey = previousConversationKeyRef.current;
     const isConversationSwitch = Boolean(
       outgoingKey && outgoingKey !== activeConversationKey,
     );
     if (isConversationSwitch && outgoingKey) {
-      // If the outgoing conversation has a pending interaction, mark it as
-      // needing attention so the sidebar shows an alert icon.
       const interactionSnapshot = useInteractionStore.getState();
       if (interactionSnapshot.pendingSecret || interactionSnapshot.pendingConfirmation) {
         useConversationStore.getState().addAttentionKey(outgoingKey);
       }
-      // Cache outgoing conversation's messages (LRU eviction)
-      const outgoingMessages = messagesRef.current;
-      if (outgoingMessages.length > 0) {
-        if (conversationCacheRef.current.size >= MAX_CACHED_CONVERSATIONS) {
-          const firstKey = conversationCacheRef.current.keys().next().value;
-          if (firstKey) conversationCacheRef.current.delete(firstKey);
-        }
-        const paginationSnapshot = transcriptPaginationRef.current;
-        conversationCacheRef.current.set(outgoingKey, {
-          messages: outgoingMessages,
-          pagination: {
-            hasMore: paginationSnapshot.hasMore,
-            oldestTimestamp: paginationSnapshot.oldestTimestamp,
-          },
-        });
-        recordChatDiagnostic("history_cache_save", {
-          assistantId,
-          conversationKey: outgoingKey,
-          pagination: {
-            hasMore: paginationSnapshot.hasMore,
-            oldestTimestamp: paginationSnapshot.oldestTimestamp,
-          },
-          messages: summarizeDisplayMessages(outgoingMessages),
-        });
-      }
     }
     previousConversationKeyRef.current = activeConversationKey;
 
-    // Reset all per-conversation state so nothing leaks between threads.
-    isLoadingOlderRef.current = false;
-    initialPageOldestTsRef.current = null;
-    historyLoadedRef.current = false;
-    const epoch = ++loadEpochRef.current;
-    const invalidatePendingConversationLoad = () => {
-      ++loadEpochRef.current;
-      setIsLoadingHistory(false);
-    };
-    recordChatDiagnostic("conversation_load_start", {
+    recordChatDiagnostic("conversation_switch_reset", {
       assistantId,
       conversationKey: activeConversationKey,
       outgoingConversationKey: outgoingKey ?? null,
-      epoch,
-      previousMessages: summarizeDisplayMessages(messagesRef.current),
-      previousPagination: transcriptPaginationRef.current,
-      cacheSize: conversationCacheRef.current.size,
     });
+
+    // Reset all per-conversation state so nothing leaks between threads.
     useTurnStore.getState().resetTurn();
     setIsLoadingHistory(true);
     needsNewBubbleRef.current = true;
@@ -297,287 +224,17 @@ export function useConversationHistory({
       shouldSuppressGenericChatErrorNotice(prev) ? prev : null,
     );
 
-    // --- Inner helpers (scoped to this effect's epoch) ---------------------
-
-    const refreshSurfaceContentForMessages = (messagesToRefresh: DisplayMessage[]) => {
-      for (const msg of messagesToRefresh) {
-        if (!msg.surfaces) continue;
-        for (const surface of msg.surfaces) {
-          fetchSurfaceContent(assistantId, surface.surfaceId, activeConversationKey).then((fresh) => {
-            if (!fresh || loadEpochRef.current !== epoch) return;
-            setMessages((prev) => {
-              if (loadEpochRef.current !== epoch) return prev;
-              for (let i = prev.length - 1; i >= 0; i--) {
-                const m = prev[i]!;
-                const idx = m.surfaces?.findIndex((s) => s.surfaceId === fresh.surfaceId) ?? -1;
-                if (idx === -1) continue;
-                const updated = [...prev];
-                const newSurfaces = [...m.surfaces!];
-                newSurfaces[idx] = { ...newSurfaces[idx]!, data: fresh.data, title: fresh.title ?? newSurfaces[idx]!.title };
-                updated[i] = { ...m, surfaces: newSurfaces };
-                return updated;
-              }
-              return prev;
-            });
-          });
-        }
-      }
-    };
-
-    const restorePendingInteractions = async () => {
-      try {
-        const interactions = await getPendingInteractions(assistantId, activeConversationKey);
-        if (loadEpochRef.current !== epoch) return;
-        if (interactions.pendingSecret) {
-          const parsed = parsePendingSecretState(
-            interactions.pendingSecret as Record<string, unknown>,
-          );
-          if (loadEpochRef.current === epoch) {
-            useInteractionStore.getState().showSecret(parsed);
-          }
-        }
-        if (interactions.pendingConfirmation) {
-          const { state } = parsePendingConfirmationData(
-            interactions.pendingConfirmation as Record<string, unknown>,
-          );
-          if (loadEpochRef.current === epoch) {
-            useInteractionStore.getState().showConfirmation(state);
-          }
-        }
-        if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
-          useConversationStore.getState().removeAttentionKey(activeConversationKey);
-        }
-      } catch {
-        // Keep attention key on failure -- the prompt wasn't restored.
-      }
-    };
-
-    type LatestHistoryPage = Awaited<ReturnType<typeof fetchLatestHistoryPage>>;
-
-    const applyLatestHistoryResult = async (
-      result: LatestHistoryPage,
-      options: {
-        basePagination?: HistoryPaginationSnapshot;
-        mergeWithCurrent?: boolean;
-        source?: string;
-      } = {},
-    ) => {
-      if (loadEpochRef.current !== epoch) return;
-      const nextPagination = getPaginationAfterLatestHistory(
-        result,
-        options.basePagination,
-      );
-      historyLoadedRef.current = true;
-      initialPageOldestTsRef.current = nextPagination.oldestTimestamp;
-      recordChatDiagnostic("history_latest_apply", {
-        assistantId,
-        conversationKey: activeConversationKey,
-        epoch,
-        source: options.source,
-        basePagination: options.basePagination,
-        hasMore: result.hasMore,
-        oldestTimestamp: result.oldestTimestamp,
-        oldestMessageId: result.oldestMessageId,
-        nextPagination,
-        messages: summarizeDisplayMessages(result.messages),
-      });
-      if (result.messages.length > 0) {
-        const filteredMessages = filterDismissedSurfaces(
-          result.messages,
-          dismissedSurfaceIdsRef.current,
-        );
-        recordChatDiagnostic("history_latest_set_messages", {
-          assistantId,
-          conversationKey: activeConversationKey,
-          epoch,
-          source: options.source,
-          dismissedSurfaceCount: dismissedSurfaceIdsRef.current.size,
-          filteredMessages: summarizeDisplayMessages(filteredMessages),
-        });
-        startTransition(() => {
-          setMessages((prev) => {
-            if (loadEpochRef.current !== epoch) return prev;
-            const nextMessages = options.mergeWithCurrent
-              ? reconcileDisplayMessagesWithLatestHistory(prev, filteredMessages)
-              : filteredMessages;
-            syncNeedsNewBubbleFromMessages(nextMessages);
-            return nextMessages;
-          });
-          setTranscriptPagination((prev) =>
-            loadEpochRef.current === epoch
-              ? {
-                  hasMore: nextPagination.hasMore,
-                  oldestTimestamp: nextPagination.oldestTimestamp,
-                  isLoadingOlder: false,
-                  isPinnedToLatest: true,
-                }
-              : prev,
-          );
-          setIsLoadingHistory((prev) =>
-            loadEpochRef.current === epoch ? false : prev,
-          );
-        });
-        refreshSurfaceContentForMessages(filteredMessages);
-      } else {
-        recordChatDiagnostic("history_latest_empty", {
-          assistantId,
-          conversationKey: activeConversationKey,
-          epoch,
-          source: options.source,
-          hasMore: result.hasMore,
-          oldestTimestamp: result.oldestTimestamp,
-        });
-        setIsLoadingHistory(false);
-      }
-
-      // Reconstruct subagent state from history notifications.
-      // History may contain multiple notifications for the same subagent
-      // (e.g. a "running" notification followed by a "completed" one).
-      // Deduplicate by subagentId: keep status/error/conversationId from
-      // the last notification (terminal state) but preserve
-      // parentMessageId from the first (spawn-time position).
-      if (result.subagentNotifications && result.subagentNotifications.length > 0) {
-        const deduped = new Map<string, (typeof result.subagentNotifications)[number]>();
-        for (const n of result.subagentNotifications) {
-          const existing = deduped.get(n.subagentId);
-          if (existing) {
-            deduped.set(n.subagentId, {
-              ...n,
-              parentMessageId: existing.parentMessageId,
-            });
-          } else {
-            deduped.set(n.subagentId, n);
-          }
-        }
-
-        const subagentStore = useSubagentStore.getState();
-        subagentStore.reset();
-        for (const n of deduped.values()) {
-          subagentStore.spawnSubagent({
-            subagentId: n.subagentId,
-            label: n.label,
-            objective: "",
-            status: (n.status as SubagentStatus) || "completed",
-            error: n.error,
-            conversationId: n.conversationId,
-            timestamp: Date.now(),
-            parentMessageId: n.parentMessageId,
-          });
-        }
-      }
-
-      await restorePendingInteractions();
-
-      if (loadEpochRef.current !== epoch) {
-        return;
-      }
-
-      // Auto-send greeting after fresh setup (API key just provisioned, no history)
-      if (
-        !options.mergeWithCurrent &&
-        autoGreetRef.current &&
-        result.messages.length === 0
-      ) {
-        setAutoGreetPending(true);
-      }
-
-      // Settle any in-flight pull-to-refresh for this conversation.
-      const settle = refreshSettleRef.current;
-      if (settle && settle.conversationKey === activeConversationKey) {
-        refreshSettleRef.current = null;
-        settle.resolve();
-      }
-    };
-
-    const handleLatestHistoryError = (err: unknown, source?: string) => {
-      if (loadEpochRef.current !== epoch) return;
-      recordChatDiagnostic("history_latest_fetch_error", {
-        assistantId,
-        conversationKey: activeConversationKey,
-        epoch,
-        source,
-        messageLength: err instanceof Error ? err.message.length : null,
-      });
-      Sentry.captureException(err, {
-        tags: {
-          context: source === "cache_restore_reconcile"
-            ? "fetch_latest_history_page_after_cache_restore"
-            : "fetch_latest_history_page",
-        },
-      });
-      const settle = refreshSettleRef.current;
-      if (settle && settle.conversationKey === activeConversationKey) {
-        refreshSettleRef.current = null;
-        settle.reject(err);
-        if (!source) setIsLoadingHistory(false);
-        return;
-      }
-      if (!source) {
-        setIsLoadingHistory(false);
-        setError({ message: "Failed to load conversation history. Please try again." });
-      }
-    };
-
-    // --- Cache check then fetch --------------------------------------------
-
-    const cachedEntry = conversationCacheRef.current.get(activeConversationKey);
-    if (cachedEntry) {
-      historyLoadedRef.current = true;
-      initialPageOldestTsRef.current = cachedEntry.pagination.oldestTimestamp;
-      recordChatDiagnostic("history_cache_restore", {
-        assistantId,
-        conversationKey: activeConversationKey,
-        epoch,
-        pagination: cachedEntry.pagination,
-        messages: summarizeDisplayMessages(cachedEntry.messages),
-      });
-      startTransition(() => {
-        setMessages((prev) => {
-          if (loadEpochRef.current !== epoch) return prev;
-          syncNeedsNewBubbleFromMessages(cachedEntry.messages);
-          return cachedEntry.messages;
-        });
-        setTranscriptPagination((prev) =>
-          loadEpochRef.current === epoch
-            ? {
-                hasMore: cachedEntry.pagination.hasMore,
-                oldestTimestamp: cachedEntry.pagination.oldestTimestamp,
-                isLoadingOlder: false,
-                isPinnedToLatest: true,
-              }
-            : prev,
-        );
-        setIsLoadingHistory((prev) =>
-          loadEpochRef.current === epoch ? false : prev,
-        );
-      });
-      refreshSurfaceContentForMessages(cachedEntry.messages);
-      fetchLatestHistoryPage(assistantId, activeConversationKey)
-        .then((result) =>
-          applyLatestHistoryResult(result, {
-            basePagination: cachedEntry.pagination,
-            mergeWithCurrent: true,
-            source: "cache_restore_reconcile",
-          }),
-        )
-        .catch((err) => handleLatestHistoryError(err, "cache_restore_reconcile"));
-      return invalidatePendingConversationLoad;
-    }
-
-    fetchLatestHistoryPage(assistantId, activeConversationKey)
-      .then((result) => applyLatestHistoryResult(result))
-      .catch((err) => handleLatestHistoryError(err));
-
-    return invalidatePendingConversationLoad;
+    // Signal that we're in a fresh-switch state — the data-apply effect
+    // should replace messages rather than reconcile.
+    switchResetRef.current = true;
+    lastAppliedDataRef.current = 0;
   }, [
     assistantStateKind,
     assistantId,
     activeConversationKey,
     resetChatAttachments,
-    refreshEpoch,
     syncNeedsNewBubbleFromMessages,
     // Refs (stable references, listed for completeness):
-    conversationCacheRef,
     draftKeyResolutionRef,
     previousConversationKeyRef,
     messagesRef,
@@ -591,11 +248,6 @@ export function useConversationHistory({
     confirmationToolCallMapRef,
     lastSuggestionMsgIdRef,
     autoGreetRef,
-    initialPageOldestTsRef,
-    isLoadingOlderRef,
-    historyLoadedRef,
-    loadEpochRef,
-    refreshSettleRef,
     // Setters (stable references):
     setMessages,
     setTranscriptPagination,
@@ -607,4 +259,221 @@ export function useConversationHistory({
     setCompactionCircuitOpenUntil,
     shouldSuppressGenericChatErrorNotice,
   ]);
+
+  // -------------------------------------------------------------------------
+  // Apply TanStack Query data to messages state
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!pagination.isSuccess || pagination.dataUpdatedAt === lastAppliedDataRef.current) {
+      return;
+    }
+    if (!assistantId || !activeConversationKey) return;
+
+    lastAppliedDataRef.current = pagination.dataUpdatedAt;
+    const isFreshSwitch = switchResetRef.current;
+    switchResetRef.current = false;
+
+    recordChatDiagnostic("history_tq_data_apply", {
+      assistantId,
+      conversationKey: activeConversationKey,
+      isFreshSwitch,
+      pageCount: pagination.latestPage ? 1 : 0,
+      messageCount: pagination.messages.length,
+    });
+
+    if (pagination.messages.length > 0) {
+      const filteredMessages = filterDismissedSurfaces(
+        pagination.messages,
+        dismissedSurfaceIdsRef.current,
+      );
+
+      recordChatDiagnostic("history_tq_set_messages", {
+        assistantId,
+        conversationKey: activeConversationKey,
+        isFreshSwitch,
+        dismissedSurfaceCount: dismissedSurfaceIdsRef.current.size,
+        filteredMessages: summarizeDisplayMessages(filteredMessages),
+      });
+
+      startTransition(() => {
+        setMessages((prev) => {
+          // Fresh switch or empty state: replace entirely with TQ data.
+          // Background refetch while streaming: reconcile to preserve
+          // optimistic/streaming messages.
+          const nextMessages =
+            isFreshSwitch || prev.length === 0
+              ? filteredMessages
+              : reconcileDisplayMessagesWithLatestHistory(
+                  prev,
+                  filteredMessages,
+                );
+          syncNeedsNewBubbleFromMessages(nextMessages);
+          return nextMessages;
+        });
+        setTranscriptPagination({
+          hasMore: pagination.hasMore,
+          oldestTimestamp: pagination.oldestLoadedTimestamp,
+          isLoadingOlder: pagination.isFetchingOlderPages,
+          isPinnedToLatest: true,
+        });
+        setIsLoadingHistory(false);
+      });
+
+      // Refresh surface content for embedded surfaces.
+      for (const msg of filteredMessages) {
+        if (!msg.surfaces) continue;
+        for (const surface of msg.surfaces) {
+          fetchSurfaceContent(assistantId, surface.surfaceId, activeConversationKey).then(
+            (fresh) => {
+              if (!fresh) return;
+              setMessages((prev) => {
+                for (let i = prev.length - 1; i >= 0; i--) {
+                  const m = prev[i]!;
+                  const idx =
+                    m.surfaces?.findIndex(
+                      (s) => s.surfaceId === fresh.surfaceId,
+                    ) ?? -1;
+                  if (idx === -1) continue;
+                  const updated = [...prev];
+                  const newSurfaces = [...m.surfaces!];
+                  newSurfaces[idx] = {
+                    ...newSurfaces[idx]!,
+                    data: fresh.data,
+                    title: fresh.title ?? newSurfaces[idx]!.title,
+                  };
+                  updated[i] = { ...m, surfaces: newSurfaces };
+                  return updated;
+                }
+                return prev;
+              });
+            },
+          );
+        }
+      }
+    } else {
+      recordChatDiagnostic("history_tq_empty", {
+        assistantId,
+        conversationKey: activeConversationKey,
+      });
+      setIsLoadingHistory(false);
+    }
+
+    // Reconstruct subagent state from history notifications.
+    const notifications = pagination.latestPage?.subagentNotifications;
+    if (notifications && notifications.length > 0) {
+      const deduped = new Map<
+        string,
+        (typeof notifications)[number]
+      >();
+      for (const n of notifications) {
+        const existing = deduped.get(n.subagentId);
+        if (existing) {
+          deduped.set(n.subagentId, {
+            ...n,
+            parentMessageId: existing.parentMessageId,
+          });
+        } else {
+          deduped.set(n.subagentId, n);
+        }
+      }
+
+      const subagentStore = useSubagentStore.getState();
+      subagentStore.reset();
+      for (const n of deduped.values()) {
+        subagentStore.spawnSubagent({
+          subagentId: n.subagentId,
+          label: n.label,
+          objective: "",
+          status: (n.status as SubagentStatus) || "completed",
+          error: n.error,
+          conversationId: n.conversationId,
+          timestamp: Date.now(),
+          parentMessageId: n.parentMessageId,
+        });
+      }
+    }
+
+    // Restore pending interactions (secrets, confirmations).
+    void (async () => {
+      try {
+        const interactions = await getPendingInteractions(
+          assistantId,
+          activeConversationKey,
+        );
+        const parsed_secret = interactions.pendingSecret
+          ? parsePendingSecretState(
+              interactions.pendingSecret as Record<string, unknown>,
+            )
+          : null;
+        if (parsed_secret) {
+          useInteractionStore.getState().showSecret(parsed_secret);
+        }
+        if (interactions.pendingConfirmation) {
+          const { state } = parsePendingConfirmationData(
+            interactions.pendingConfirmation as Record<string, unknown>,
+          );
+          useInteractionStore.getState().showConfirmation(state);
+        }
+        if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
+          useConversationStore
+            .getState()
+            .removeAttentionKey(activeConversationKey);
+        }
+      } catch {
+        // Keep attention key on failure.
+      }
+    })();
+
+    // Auto-send greeting after fresh setup (no history).
+    if (
+      isFreshSwitch &&
+      autoGreetRef.current &&
+      pagination.messages.length === 0
+    ) {
+      setAutoGreetPending(true);
+    }
+  }, [
+    pagination.isSuccess,
+    pagination.dataUpdatedAt,
+    pagination.messages,
+    pagination.latestPage,
+    pagination.hasMore,
+    pagination.oldestLoadedTimestamp,
+    pagination.isFetchingOlderPages,
+    assistantId,
+    activeConversationKey,
+    dismissedSurfaceIdsRef,
+    autoGreetRef,
+    syncNeedsNewBubbleFromMessages,
+    setMessages,
+    setTranscriptPagination,
+    setIsLoadingHistory,
+    setAutoGreetPending,
+    setError,
+  ]);
+
+  // -------------------------------------------------------------------------
+  // Sync older-page loading state
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (pagination.isFetchingOlderPages) {
+      setTranscriptPagination((prev) => ({ ...prev, isLoadingOlder: true }));
+    }
+  }, [pagination.isFetchingOlderPages, setTranscriptPagination]);
+
+  // -------------------------------------------------------------------------
+  // Handle TanStack Query errors
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!pagination.isError || !pagination.error) return;
+    Sentry.captureException(pagination.error, {
+      tags: { context: "conversation_history_query" },
+    });
+    setIsLoadingHistory(false);
+    setError({
+      message: "Failed to load conversation history. Please try again.",
+    });
+  }, [pagination.isError, pagination.error, setIsLoadingHistory, setError]);
+
+  return { pagination };
 }

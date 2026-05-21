@@ -46,7 +46,6 @@ import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.
 import { consumePendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
 import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
-import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
 
 import { Button, ConfirmDialog } from "@vellum/design-library";
@@ -246,15 +245,10 @@ export function ChatPage() {
   const lastSuggestionMsgIdRef = useRef<string | null>(null);
   const autoGreetRef = useRef(false);
   const initialPageOldestTsRef = useRef<number | null>(null);
-  const isLoadingOlderRef = useRef(false);
-  const historyLoadedRef = useRef(false);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const loadEpochRef = useRef(0);
   const pendingInitialMessageRef = useRef<{ conversationKey: string; content: string } | null>(null);
   const expandedToolCallIdsRef = useRef<Set<string>>(new Set());
-  const conversationCacheRef = useRef<Map<string, { messages: DisplayMessage[]; pagination: { hasMore: boolean; oldestTimestamp: number | null } }>>(new Map());
   const contextWindowUsageByConversationRef = useRef<Map<string, ContextWindowUsage>>(new Map());
-  const refreshSettleRef = useRef<RefreshSettleHandle | null>(null);
   const syncRouterRef = useRef<WebSyncRouter | null>(null);
 
   // -------------------------------------------------------------------------
@@ -371,6 +365,7 @@ export function ChatPage() {
     switchConversation: rawSwitchConversation,
     startNewConversation: rawStartNewConversation,
     conversationExistsOnServer,
+    historyResult,
   } = useConversationLoader({
     assistantId,
     assistantStateKind: assistantState.kind,
@@ -379,12 +374,10 @@ export function ChatPage() {
     searchParams,
     navigate,
     conversations,
-    transcriptPagination,
     conversationGroupsUI,
     refreshEpoch,
     reachabilityReadyEpoch,
     assistantIdRef,
-    conversationCacheRef,
     draftKeyResolutionRef,
     previousConversationKeyRef,
     onboardingDraftConversationKeyRef,
@@ -398,14 +391,9 @@ export function ChatPage() {
     requestIdToStableIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    refreshSettleRef,
     lastSuggestionMsgIdRef,
     autoGreetRef,
-    initialPageOldestTsRef,
-    isLoadingOlderRef,
-    historyLoadedRef,
     conversationListInvalidatedTimerRef,
-    loadEpochRef,
     pendingInitialMessageRef,
     setAssistantId,
     setMessages,
@@ -420,6 +408,12 @@ export function ChatPage() {
     syncNeedsNewBubbleFromMessages,
     shouldSuppressGenericChatErrorNotice,
   });
+
+  // Keep initialPageOldestTsRef in sync with TQ pagination data — used by
+  // useMessageReconciliation to scope reconciliation to the loaded window.
+  useEffect(() => {
+    initialPageOldestTsRef.current = historyResult.pagination.latestPageOldestTimestamp;
+  }, [historyResult.pagination.latestPageOldestTimestamp]);
 
   // Wrap conversation-switching to reset subagent state eagerly
   const switchConversation = useCallback(
@@ -1236,6 +1230,7 @@ export function ChatPage() {
     checkAssistant,
     setRefreshEpoch,
     streamRetryNonce,
+    historyPagination: historyResult.pagination,
     refs: {
       inputRef,
       messagesRef,
@@ -1243,15 +1238,10 @@ export function ChatPage() {
       assistantIdRef,
       streamContextRef,
       expandedToolCallIdsRef,
-      conversationCacheRef,
       dismissedSurfaceIdsRef,
-      isLoadingOlderRef,
-      initialPageOldestTsRef,
       contextWindowUsageByConversationRef,
-      refreshSettleRef,
       streamRef,
       streamEpochRef,
-      historyLoadedRef,
       pendingQueuedStableIdsRef,
       requestIdToStableIdRef,
       pendingLocalDeletionsRef,

@@ -19,7 +19,7 @@
  */
 
 import * as Sentry from "@sentry/react";
-import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, startTransition, useCallback, useEffect, useMemo, useRef } from "react";
+import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useMemo, useRef } from "react";
 
 import { ChatBody } from "@/domains/chat/components/chat-body.js";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer.js";
@@ -30,7 +30,6 @@ import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card
 import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card.js";
 import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card.js";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh.js";
-import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
 import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages.js";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript.js";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll.js";
@@ -61,18 +60,19 @@ import { useIsNativePlatform } from "@/runtime/native-auth.js";
 
 import { Link } from "react-router";
 import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters.js";
-import { recordChatDiagnostic, summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics.js";
+
 import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state.js";
 import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants.js";
 import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting.js";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
-import { fetchOlderHistoryPage } from "@/domains/chat/api/history.js";
+
 import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
+import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination.js";
 import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/chat/utils/turn-selectors.js";
 import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
 
@@ -211,15 +211,10 @@ export interface ChatRouteRefs {
   assistantIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
   expandedToolCallIdsRef: MutableRefObject<Set<string>>;
-  conversationCacheRef: MutableRefObject<Map<string, { messages: DisplayMessage[]; pagination: { hasMore: boolean; oldestTimestamp: number | null } }>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
-  isLoadingOlderRef: MutableRefObject<boolean>;
-  initialPageOldestTsRef: MutableRefObject<number | null>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
-  refreshSettleRef: MutableRefObject<RefreshSettleHandle | null>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
-  historyLoadedRef: MutableRefObject<boolean>;
   pendingQueuedStableIdsRef: MutableRefObject<string[]>;
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
@@ -357,6 +352,9 @@ export interface ChatRouteContentProps {
   // Stream retry (for diagnostics)
   streamRetryNonce: number;
 
+  // TanStack Query pagination (from useHistoryPagination)
+  historyPagination: HistoryPaginationResult;
+
   // Refs
   refs: ChatRouteRefs;
 
@@ -383,7 +381,7 @@ export function ChatRouteContent({
   isMobile,
   isKeyboardOpen,
   messages,
-  setMessages,
+  setMessages: _setMessages,
   input,
   setInput,
   error,
@@ -409,7 +407,7 @@ export function ChatRouteContent({
   suggestion,
   setSuggestion,
   transcriptPagination,
-  setTranscriptPagination,
+  setTranscriptPagination: _setTranscriptPagination,
   setShowAddCreditsModal,
   diskPressure,
   handleReviewDiskUsage,
@@ -438,6 +436,7 @@ export function ChatRouteContent({
   checkAssistant,
   setRefreshEpoch,
   streamRetryNonce: _streamRetryNonce,
+  historyPagination,
   refs,
   isChannelReadonly,
   onboardingTasksEmpty,
@@ -495,15 +494,10 @@ export function ChatRouteContent({
     assistantIdRef: _assistantIdRef,
     streamContextRef,
     expandedToolCallIdsRef,
-    conversationCacheRef,
     dismissedSurfaceIdsRef: _dismissedSurfaceIdsRef,
-    isLoadingOlderRef,
-    initialPageOldestTsRef: _initialPageOldestTsRef,
     contextWindowUsageByConversationRef: _contextWindowUsageByConversationRef,
-    refreshSettleRef,
     streamRef: _streamRef,
     streamEpochRef: _streamEpochRef,
-    historyLoadedRef: _historyLoadedRef,
     pendingQueuedStableIdsRef: _pendingQueuedStableIdsRef,
     requestIdToStableIdRef: _requestIdToStableIdRef,
     pendingLocalDeletionsRef: _pendingLocalDeletionsRef,
@@ -696,14 +690,13 @@ export function ChatRouteContent({
   // Refresh conversation (destructive)
   // -------------------------------------------------------------------------
 
-  const handleRefreshConversation = useCallback(() => {
+  const onRefreshEpoch = useCallback(() => {
     if (activeConversationKey) {
       const currentInput = inputRef.current?.value ?? "";
       saveDraft(activeConversationKey, currentInput);
-      conversationCacheRef.current.delete(activeConversationKey);
     }
     setRefreshEpoch((prev) => prev + 1);
-  }, [activeConversationKey, inputRef, saveDraft, conversationCacheRef, setRefreshEpoch]);
+  }, [activeConversationKey, inputRef, saveDraft, setRefreshEpoch]);
 
   // -------------------------------------------------------------------------
   // Pull-to-refresh
@@ -718,8 +711,8 @@ export function ChatRouteContent({
   } = usePullRefresh({
     activeConversationKey,
     messagesRef,
-    onRefreshConversation: handleRefreshConversation,
-    refreshSettleRef,
+    invalidateHistory: historyPagination.invalidate,
+    onRefreshEpoch,
   });
 
   // -------------------------------------------------------------------------
@@ -727,94 +720,8 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
 
   const loadOlder = useCallback(() => {
-    if (
-      isLoadingOlderRef.current ||
-      transcriptPagination.isLoadingOlder ||
-      !transcriptPagination.hasMore ||
-      transcriptPagination.oldestTimestamp == null ||
-      !activeConversationKey ||
-      !assistantId
-    ) {
-      return;
-    }
-    const beforeTimestamp = transcriptPagination.oldestTimestamp;
-    recordChatDiagnostic("history_older_fetch_start", {
-      assistantId,
-      conversationKey: activeConversationKey,
-      beforeTimestamp,
-      pagination: {
-        hasMore: transcriptPagination.hasMore,
-        oldestTimestamp: beforeTimestamp,
-        isLoadingOlder: transcriptPagination.isLoadingOlder,
-      },
-      currentMessages: summarizeDisplayMessages(messagesRef.current),
-    });
-    isLoadingOlderRef.current = true;
-    setTranscriptPagination((p) => ({ ...p, isLoadingOlder: true }));
-    fetchOlderHistoryPage(
-      assistantId,
-      activeConversationKey,
-      beforeTimestamp,
-    )
-      .then((res) => {
-        const currentMessages = messagesRef.current;
-        const existingIds = new Set(
-          currentMessages.filter((m) => m.id).map((m) => m.id),
-        );
-        const deduped = res.messages.filter((m) => !m.id || !existingIds.has(m.id));
-        recordChatDiagnostic("history_older_apply", {
-          assistantId,
-          conversationKey: activeConversationKey,
-          beforeTimestamp,
-          response: {
-            hasMore: res.hasMore,
-            oldestTimestamp: res.oldestTimestamp,
-            oldestMessageId: res.oldestMessageId,
-            messages: summarizeDisplayMessages(res.messages),
-          },
-          dedupedCount: deduped.length,
-          droppedDuplicateCount: res.messages.length - deduped.length,
-          beforeMessages: summarizeDisplayMessages(currentMessages),
-        });
-        startTransition(() => {
-          setMessages((prev) => {
-            const existingIds2 = new Set(prev.filter((m) => m.id).map((m) => m.id));
-            const deduped2 = res.messages.filter((m) => !m.id || !existingIds2.has(m.id));
-            return [...deduped2, ...prev];
-          });
-          setTranscriptPagination((p) => ({
-            ...p,
-            hasMore: res.hasMore,
-            oldestTimestamp: res.oldestTimestamp,
-            isLoadingOlder: false,
-          }));
-          isLoadingOlderRef.current = false;
-        });
-      })
-      .catch((err) => {
-        isLoadingOlderRef.current = false;
-        recordChatDiagnostic("history_older_fetch_error", {
-          assistantId,
-          conversationKey: activeConversationKey,
-          beforeTimestamp,
-          messageLength: err instanceof Error ? err.message.length : null,
-        });
-        Sentry.captureException(err, {
-          tags: { context: "fetch_older_history_page" },
-        });
-        setTranscriptPagination((p) => ({ ...p, isLoadingOlder: false }));
-      });
-  }, [
-    assistantId,
-    activeConversationKey,
-    transcriptPagination.hasMore,
-    transcriptPagination.isLoadingOlder,
-    transcriptPagination.oldestTimestamp,
-    isLoadingOlderRef,
-    messagesRef,
-    setMessages,
-    setTranscriptPagination,
-  ]);
+    historyPagination.fetchOlderPage();
+  }, [historyPagination]);
 
   // -------------------------------------------------------------------------
   // Transcript items
