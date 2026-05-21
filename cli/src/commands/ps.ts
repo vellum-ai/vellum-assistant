@@ -11,6 +11,7 @@ import {
   lookupAssistantByIdentifier,
   type AssistantEntry,
 } from "../lib/assistant-config";
+import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import { resolveEnvironmentSource } from "../lib/environments/resolve";
 import { loadGuardianToken } from "../lib/guardian-token";
 import {
@@ -657,8 +658,7 @@ export async function ps(): Promise<void> {
   }
 
   const verbose = args.includes("--verbose");
-  const positional = args.filter((a) => !a.startsWith("--"));
-  const assistantIdentifier = positional[0];
+  const assistantIdentifier = parseAssistantTargetArg(args);
 
   if (!assistantIdentifier) {
     await listAllAssistants(verbose);

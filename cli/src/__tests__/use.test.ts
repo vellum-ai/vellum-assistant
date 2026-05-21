@@ -98,6 +98,21 @@ describe("vellum use", () => {
     );
   });
 
+  test("sets active assistant by unquoted multi-word display name", async () => {
+    writeLockfile([
+      makeEntry("assistant-1", { name: "Example Assistant" }),
+      makeEntry("assistant-2", { name: "Bob" }),
+    ]);
+    process.argv = ["bun", "vellum", "use", "Example", "Assistant"];
+
+    await use();
+
+    expect(getActiveAssistant()).toBe("assistant-1");
+    expect(consoleLogSpy.mock.calls.flat().join("\n")).toContain(
+      "Active assistant set to Example Assistant (assistant-1).",
+    );
+  });
+
   test("prints active assistant with display name and id", async () => {
     writeLockfile([makeEntry("assistant-1", { name: "Alice" })], "assistant-1");
 

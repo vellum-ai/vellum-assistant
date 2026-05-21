@@ -23,6 +23,7 @@ import {
   WEB_INTERFACE_ID,
   getClientRegistrationHeaders,
 } from "../lib/client-identity";
+import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import {
   fetchOrganizationId,
   fetchPlatformAssistants,
@@ -68,7 +69,14 @@ function readAssistantName(entry: AssistantEntry | null): string | undefined {
 function parseArgs(): ParsedArgs {
   const args = process.argv.slice(3);
 
-  let positionalName: string | undefined;
+  const positionalName = parseAssistantTargetArg(args, [
+    "--url",
+    "-u",
+    "--assistant-id",
+    "-a",
+    "--interface",
+    "-i",
+  ]);
   const flagArgs: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -85,8 +93,6 @@ function parseArgs(): ParsedArgs {
       args[i + 1]
     ) {
       flagArgs.push(arg, args[++i]);
-    } else if (!arg.startsWith("-") && positionalName === undefined) {
-      positionalName = arg;
     }
   }
 

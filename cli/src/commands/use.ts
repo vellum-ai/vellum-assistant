@@ -5,6 +5,7 @@ import {
   lookupAssistantByIdentifier,
   setActiveAssistant,
 } from "../lib/assistant-config.js";
+import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 
 export async function use(): Promise<void> {
   const args = process.argv.slice(3);
@@ -25,7 +26,7 @@ export async function use(): Promise<void> {
     process.exit(0);
   }
 
-  const name = args.find((a) => !a.startsWith("-"));
+  const name = parseAssistantTargetArg(args);
 
   if (!name) {
     const active = getActiveAssistant();
