@@ -2,30 +2,34 @@ import { existsSync, unlinkSync } from "fs";
 import { join } from "path";
 
 import {
-  findAssistantByName,
+  formatAssistantLookupError,
+  formatAssistantReference,
+  getAssistantDisplayName,
   loadAllAssistants,
+  lookupAssistantByIdentifier,
   removeAssistantEntry,
-} from "../lib/assistant-config";
-import type { AssistantEntry } from "../lib/assistant-config";
-import { getConfigDir } from "../lib/environments/paths";
-import { getCurrentEnvironment } from "../lib/environments/resolve";
+} from "../lib/assistant-config.js";
+import type { AssistantEntry } from "../lib/assistant-config.js";
+import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
+import { getConfigDir } from "../lib/environments/paths.js";
+import { getCurrentEnvironment } from "../lib/environments/resolve.js";
 import {
   authHeaders,
   getPlatformUrl,
   readPlatformToken,
-} from "../lib/platform-client";
-import { retireInstance as retireAwsInstance } from "../lib/aws";
-import { retireDocker } from "../lib/docker";
-import { retireInstance as retireGcpInstance } from "../lib/gcp";
-import { retireLocal } from "../lib/retire-local";
-import { retireAppleContainer } from "../lib/retire-apple-container";
-import { exec } from "../lib/step-runner";
+} from "../lib/platform-client.js";
+import { retireInstance as retireAwsInstance } from "../lib/aws.js";
+import { retireDocker } from "../lib/docker.js";
+import { retireInstance as retireGcpInstance } from "../lib/gcp.js";
+import { retireLocal } from "../lib/retire-local.js";
+import { retireAppleContainer } from "../lib/retire-apple-container.js";
+import { exec } from "../lib/step-runner.js";
 import {
   openLogFile,
   closeLogFile,
   resetLogFile,
   writeToLogFile,
-} from "../lib/xdg-log";
+} from "../lib/xdg-log.js";
 
 function resolveCloud(entry: AssistantEntry): string {
   if (entry.cloud) {
@@ -50,6 +54,12 @@ function extractHostFromUrl(url: string): string {
 }
 
 export { retireLocal };
+
+interface RetireArgs {
+  name?: string;
+  source?: string;
+  yes: boolean;
+}
 
 async function retireCustom(entry: AssistantEntry): Promise<void> {
   const host = extractHostFromUrl(entry.runtimeUrl);
@@ -129,14 +139,82 @@ async function retireVellum(
   }
 }
 
-function parseSource(): string | undefined {
-  const args = process.argv.slice(4);
+function parseRetireArgs(args: string[]): RetireArgs {
+  let source: string | undefined;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--source" && args[i + 1]) {
-      return args[i + 1];
+      source = args[i + 1];
+      i++;
     }
   }
-  return undefined;
+
+  return {
+    name: parseAssistantTargetArg(args, ["--source"]),
+    source,
+    yes: args.includes("--yes"),
+  };
+}
+
+function formatRuntimeUrl(entry: AssistantEntry): string {
+  return entry.localUrl ?? entry.runtimeUrl;
+}
+
+function printRetireTarget(entry: AssistantEntry, cloud: string): void {
+  const displayName = getAssistantDisplayName(entry);
+
+  console.log("Assistant to retire:");
+  if (displayName !== entry.assistantId) {
+    console.log(`  Name: ${displayName}`);
+  }
+  console.log(`  ID: ${entry.assistantId}`);
+  console.log(`  Cloud: ${cloud}`);
+  console.log(`  Runtime: ${formatRuntimeUrl(entry)}`);
+  console.log("");
+}
+
+function canPromptForRetireConfirmation(): boolean {
+  return (
+    process.stdin.isTTY === true &&
+    process.stdout.isTTY === true &&
+    typeof process.stdin.setRawMode === "function"
+  );
+}
+
+async function confirmRetireInteractive(): Promise<boolean> {
+  const stdin = process.stdin;
+  const stdout = process.stdout;
+  const wasRaw = stdin.isRaw === true;
+  const wasPaused = stdin.isPaused();
+
+  stdout.write("Press Enter to retire, or Esc/q to cancel: ");
+  stdin.setRawMode(true);
+  stdin.resume();
+
+  return await new Promise<boolean>((resolve) => {
+    const cleanup = () => {
+      stdin.off("data", onData);
+      stdin.setRawMode(wasRaw);
+      if (wasPaused) {
+        stdin.pause();
+      }
+      stdout.write("\n");
+    };
+
+    const onData = (chunk: Buffer) => {
+      const byte = chunk[0];
+      if (byte === 13 || byte === 10) {
+        cleanup();
+        resolve(true);
+        return;
+      }
+      if (byte === 27 || byte === 3 || byte === 113 || byte === 81) {
+        cleanup();
+        resolve(false);
+      }
+    };
+
+    stdin.on("data", onData);
+  });
 }
 
 /** Patch console methods to also append output to the given log file descriptor. */
@@ -188,38 +266,70 @@ export async function retire(): Promise<void> {
 async function retireInner(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum retire <name> [--source <source>]");
+    console.log(
+      "Usage: vellum retire <name-or-id> [--source <source>] [--yes]",
+    );
     console.log("");
     console.log("Delete an assistant instance and archive its data.");
+    console.log(
+      "By default, retire prints the assistant name, ID, cloud, and runtime before asking for confirmation.",
+    );
     console.log("");
     console.log("Arguments:");
-    console.log("  <name>               Name of the assistant to retire");
+    console.log(
+      "  <name-or-id>         Assistant display name or ID to retire",
+    );
     console.log("");
     console.log("Options:");
     console.log("  --source <source>    Source identifier for the retirement");
+    console.log(
+      "  --yes                Skip the interactive confirmation prompt",
+    );
     process.exit(0);
   }
 
-  const name = process.argv[3];
+  const parsed = parseRetireArgs(args);
+  const name = parsed.name;
 
   if (!name) {
-    console.error("Error: Instance name is required.");
-    console.error("Usage: vellum retire <name> [--source <source>]");
+    console.error("Error: Assistant name or ID is required.");
+    console.error(
+      "Usage: vellum retire <name-or-id> [--source <source>] [--yes]",
+    );
     process.exit(1);
   }
 
-  const entry = findAssistantByName(name);
-  if (!entry) {
-    console.error(`No assistant found with name '${name}'.`);
+  const lookup = lookupAssistantByIdentifier(name);
+  if (lookup.status !== "found") {
+    console.error(formatAssistantLookupError(name, lookup));
     console.error("Run 'vellum hatch' first, or check the instance name.");
     process.exit(1);
   }
 
-  const source = parseSource();
+  const entry = lookup.entry;
+  const assistantId = entry.assistantId;
+  const source = parsed.source;
   const cloud = resolveCloud(entry);
+  printRetireTarget(entry, cloud);
+
+  if (!parsed.yes) {
+    if (!canPromptForRetireConfirmation()) {
+      console.error(
+        "Error: Refusing to retire without confirmation in a non-interactive terminal.",
+      );
+      console.error("Re-run with --yes to confirm from automation.");
+      process.exit(1);
+    }
+
+    const confirmed = await confirmRetireInteractive();
+    if (!confirmed) {
+      console.log("Retire cancelled.");
+      process.exit(1);
+    }
+  }
 
   if (cloud === "apple-container") {
-    await retireAppleContainer(name, entry);
+    await retireAppleContainer(assistantId, entry);
   } else if (cloud === "gcp") {
     const project = entry.project;
     const zone = entry.zone;
@@ -229,29 +339,29 @@ async function retireInner(): Promise<void> {
       );
       process.exit(1);
     }
-    await retireGcpInstance(name, project, zone, source);
+    await retireGcpInstance(assistantId, project, zone, source);
   } else if (cloud === "aws") {
     const region = entry.region;
     if (!region) {
       console.error("Error: AWS region not found in assistant config.");
       process.exit(1);
     }
-    await retireAwsInstance(name, region, source);
+    await retireAwsInstance(assistantId, region, source);
   } else if (cloud === "docker") {
-    await retireDocker(name);
+    await retireDocker(assistantId);
   } else if (cloud === "local") {
-    await retireLocal(name, entry);
+    await retireLocal(assistantId, entry);
   } else if (cloud === "custom") {
     await retireCustom(entry);
   } else if (cloud === "vellum") {
-    await retireVellum(entry.assistantId, entry.runtimeUrl);
+    await retireVellum(assistantId, entry.runtimeUrl);
   } else {
     console.error(`Error: Unknown cloud type '${cloud}'.`);
     process.exit(1);
   }
 
-  removeAssistantEntry(name);
-  console.log(`Removed ${name} from config.`);
+  removeAssistantEntry(assistantId);
+  console.log(`Removed ${formatAssistantReference(entry)} from config.`);
 
   // When no assistants remain, remove the dock-display-name sentinel so
   // the next build.sh run falls back to "Vellum" instead of using the
