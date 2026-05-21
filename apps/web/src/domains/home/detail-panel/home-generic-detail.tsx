@@ -1,5 +1,5 @@
-import { Typography } from "@vellum/design-library";
 import { CATEGORY_STYLES, CATEGORY_ORDER } from "../home-feed-filter-bar.js";
+import { HomeMarkdownContent } from "./home-markdown-content.js";
 import type { FeedItem, FeedItemCategory } from "../types.js";
 
 function resolveStyle(category?: FeedItemCategory) {
@@ -14,6 +14,11 @@ export interface HomeGenericDetailProps {
   item: FeedItem;
 }
 
+/**
+ * Fallback renderer for feed items that don't have a specialized
+ * detail panel. Renders the item summary as markdown alongside a
+ * category-colored icon.
+ */
 export function HomeGenericDetail({ item }: HomeGenericDetailProps) {
   const style = resolveStyle(item.category);
   const Icon = style.icon;
@@ -32,12 +37,7 @@ export function HomeGenericDetail({ item }: HomeGenericDetailProps) {
         <Icon width={12} height={12} style={{ color: style.strong }} />
       </span>
 
-      <Typography
-        variant="body-medium-default"
-        className="text-[var(--content-secondary)]"
-      >
-        {item.summary}
-      </Typography>
+      <HomeMarkdownContent content={item.summary} />
     </div>
   );
 }
