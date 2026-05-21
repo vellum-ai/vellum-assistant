@@ -26,7 +26,8 @@ import {
 } from "@/domains/conversations/conversation-queries.js";
 import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking.js";
 import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 
@@ -124,8 +125,8 @@ export function ChatLayout() {
   // chat-layout child route (home, library, contacts, identity, chat)
   // inherits a populated sidebar on direct navigation — not just /assistant.
   // TanStack Query handles dedup with any other consumer using the same key.
-  const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
-  const homePageEnabled = useFeatureFlagStore.use.homePage();
+  const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
+  const homePageEnabled = useClientFeatureFlagStore.use.homePage();
   const isAssistantActive = lifecycle.assistantState.kind === "active";
   const { conversations } = useConversationListQuery(
     lifecycle.assistantId,

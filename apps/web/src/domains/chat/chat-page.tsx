@@ -35,7 +35,8 @@ import { useViewerStore } from "@/stores/viewer-store.js";
 import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 
@@ -131,10 +132,10 @@ export function ChatPage() {
     setOnSearchClick,
     setFooterBanner,
   } = useAssistantContext();
-  const chatPullToRefreshEnabled = useFeatureFlagStore.use.chatPullToRefreshEnabled();
-  const deployToVercel = useFeatureFlagStore.use.deployToVercel();
-  const doctor = useFeatureFlagStore.use.doctor();
-  const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
+  const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
+  const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
+  const doctor = useClientFeatureFlagStore.use.doctor();
+  const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
 
   // -------------------------------------------------------------------------
   // Local state
