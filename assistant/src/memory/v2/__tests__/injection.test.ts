@@ -388,6 +388,8 @@ import type { SkillEntry } from "../types.js";
 const { getSqliteFrom } = await import("../../db-connection.js");
 const { migrateActivationState } =
   await import("../../migrations/232-activation-state.js");
+const { migrateMemoryV2InjectionEvents } =
+  await import("../../migrations/256-memory-v2-injection-events.js");
 const schema = await import("../../schema.js");
 const { clearEverInjected, hydrate, save } =
   await import("../activation-store.js");
@@ -409,6 +411,7 @@ function createTestDb(): DrizzleDb {
     )
   `);
   migrateActivationState(db);
+  migrateMemoryV2InjectionEvents(db);
   return db;
 }
 

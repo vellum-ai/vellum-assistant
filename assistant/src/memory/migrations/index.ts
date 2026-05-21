@@ -224,6 +224,10 @@ export {
 } from "./254-external-conversation-binding-chat-name.js";
 export { migrateChannelInboundDeliveryAttempts } from "./255-channel-inbound-delivery-attempts.js";
 export {
+  downMemoryV2InjectionEvents,
+  migrateMemoryV2InjectionEvents,
+} from "./256-memory-v2-injection-events.js";
+export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,

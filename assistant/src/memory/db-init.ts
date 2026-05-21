@@ -125,6 +125,7 @@ import {
   migrateMemoryRecallLogsQueryContext,
   migrateMemoryRetrospectiveState,
   migrateMemoryV2ActivationLogs,
+  migrateMemoryV2InjectionEvents,
   migrateMessageBookmarks,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
@@ -442,6 +443,7 @@ export function initializeDb(): void {
     migrateCreateDocumentComments,
     migrateExternalConversationBindingChatName,
     migrateChannelInboundDeliveryAttempts,
+    migrateMemoryV2InjectionEvents,
   ];
 
   // Run each migration step, catching and logging individual failures so one
