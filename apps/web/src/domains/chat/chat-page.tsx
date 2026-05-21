@@ -85,6 +85,7 @@ import { abortSubagent } from "@/domains/chat/api/conversations.js";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay.js";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay.js";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay.js";
+import { getEditChatKey, setEditChatKey } from "@/domains/chat/utils/edit-chat-session.js";
 import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
 import type { AssistantIdentity } from "@/domains/chat/api/assistant.js";
@@ -1081,6 +1082,26 @@ export function ChatPage() {
     handleCloseEditPanel: () => {
       useConversationStore.getState().setEditingKey(null);
       useViewerStore.getState().exitAppEditing();
+    },
+    handleEditApp: () => {
+      const { openedAppState } = useViewerStore.getState();
+      if (!openedAppState || !assistantId) return;
+
+      const appId = openedAppState.appId;
+      const stored = getEditChatKey(assistantId, appId);
+      const storedStillExists =
+        stored !== null &&
+        (conversations.length === 0 ||
+          conversations.some((c) => c.conversationKey === stored));
+
+      const conversationKey = storedStillExists ? stored! : crypto.randomUUID();
+      setEditChatKey(assistantId, appId, conversationKey);
+      useConversationStore.getState().setEditingKey(conversationKey);
+      useViewerStore.getState().enterAppEditing();
+
+      if (activeConversationKey !== conversationKey) {
+        navigateToConversation(conversationKey);
+      }
     },
     handleShareApp: () => {
       const app = useViewerStore.getState().openedAppState;

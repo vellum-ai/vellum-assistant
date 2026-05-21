@@ -46,6 +46,7 @@ import { DiscordNudgeBanner } from "@/domains/nudges/components/discord-nudge-ba
 import { GitHubNudgeBanner } from "@/domains/nudges/components/github-nudge-banner.js";
 import { IOSAppBanner } from "@/domains/nudges/components/ios-app-banner.js";
 import { MacOSAppBanner } from "@/domains/nudges/components/macos-app-banner.js";
+import { Loader2 } from "lucide-react";
 import { Button, Notice, ResizablePanel } from "@vellum/design-library";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner.js";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer.js";
@@ -327,6 +328,7 @@ export interface ChatRouteContentProps {
   handleCloseDocument: () => void;
   handleCloseApp: () => void;
   handleCloseEditPanel: () => void;
+  handleEditApp: () => void;
   handleShareApp: () => void;
   handleDeployApp: (() => void) | undefined;
 
@@ -411,6 +413,7 @@ export function ChatRouteContent({
   handleCloseDocument,
   handleCloseApp,
   handleCloseEditPanel,
+  handleEditApp,
   handleShareApp,
   handleDeployApp,
   handleForkConversation,
@@ -1353,6 +1356,32 @@ export function ChatRouteContent({
             isEditing
           />
         }
+      />
+    );
+  }
+
+  // Desktop full-width app viewer (non-editing). Mobile uses the portal-based
+  // MobileAppOverlay instead — this branch is desktop-only.
+  if (mainView === "app" && !isMobile) {
+    if (!openedAppState) {
+      return (
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
+        </div>
+      );
+    }
+    return (
+      <AppViewerContainer
+        appId={openedAppState.appId}
+        appName={openedAppState.name}
+        html={openedAppState.html}
+        assistantId={assistantId ?? ""}
+        onClose={handleCloseApp}
+        onEdit={handleEditApp}
+        onShare={handleShareApp}
+        isSharing={isSharing}
+        onDeploy={deployToVercel ? handleDeployApp : undefined}
+        isDeploying={isDeploying}
       />
     );
   }
