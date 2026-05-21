@@ -25,6 +25,7 @@ import { Button, Typography } from "@vellum/design-library";
 
 import type { DocumentComment } from "@/domains/chat/api/document-comments.js";
 import { createComment, fetchComments } from "@/domains/chat/api/document-comments.js";
+import { saveDocumentContent } from "@/domains/chat/api/documents.js";
 import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map.js";
 import { TiptapDocumentEditor } from "./tiptap-document-editor.js";
 import {
@@ -99,6 +100,17 @@ export function DocumentViewerContainer({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const commentPanelRef = useRef<DocumentCommentPanelHandle>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+
+  const handleContentChange = useCallback(
+    (markdown: string) => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        void saveDocumentContent(assistantId, surfaceId, conversationId, documentName, markdown);
+      }, 1000);
+    },
+    [assistantId, surfaceId, conversationId, documentName],
+  );
 
   // Clear text selection when the comment panel is closed
   useEffect(() => {
@@ -293,7 +305,7 @@ export function DocumentViewerContainer({
         <div ref={containerRef} className="relative min-w-0 flex-1">
           <TiptapDocumentEditor
             content={content}
-            editable={false}
+            onContentChange={handleContentChange}
             onTextSelect={(sel) => setTextSelection({
               start: sel.start,
               end: sel.end,
