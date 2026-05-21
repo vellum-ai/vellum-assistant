@@ -141,4 +141,86 @@ describe("TranscriptMessageBody", () => {
     fireEvent.click(getByTitle("Inspect"));
     expect(inspectedIds).toEqual(["message-1"]);
   });
+
+  test("marks the logged-in Slack sender as You in channel conversations", () => {
+    const html = renderToStaticMarkup(
+      <TranscriptMessageBody
+        message={{
+          stableId: "stable-1",
+          id: "message-1",
+          role: "user",
+          content: "Can @assistant take this?",
+          slackMessage: {
+            channelId: "C123",
+            channelTs: "123.456",
+            sender: {
+              username: "alice",
+              displayName: "Alice",
+            },
+          },
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+        isChannelConversation
+        currentUserEmail="alice@example.com"
+      />,
+    );
+
+    expect(html).toContain("You");
+    expect(html).toContain("**@assistant**");
+    expect(html).toContain("bg-[var(--system-positive-weak)]");
+  });
+
+  test("does not highlight mentions inside markdown code or links", () => {
+    const html = renderToStaticMarkup(
+      <TranscriptMessageBody
+        message={{
+          stableId: "stable-1",
+          id: "message-1",
+          role: "user",
+          content: "`@code` [@link](https://example.com/@link) @plain",
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+        isChannelConversation
+      />,
+    );
+
+    expect(html).toContain("`@code`");
+    expect(html).toContain("[@link](https://example.com/@link)");
+    expect(html).toContain("**@plain**");
+    expect(html).not.toContain("**@code**");
+    expect(html).not.toContain("**@link**");
+  });
+
+  test("hides Slack attribution on channel continuation messages", () => {
+    const html = renderToStaticMarkup(
+      <TranscriptMessageBody
+        message={{
+          stableId: "stable-1",
+          id: "message-1",
+          role: "user",
+          content: "Second grouped message",
+          slackMessage: {
+            channelId: "C123",
+            channelTs: "123.456",
+            sender: {
+              username: "bob",
+              displayName: "Bob",
+            },
+          },
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+        isChannelConversation
+        groupPosition="last"
+      />,
+    );
+
+    expect(html).not.toContain("Bob");
+    expect(html).toContain("h-2");
+  });
 });

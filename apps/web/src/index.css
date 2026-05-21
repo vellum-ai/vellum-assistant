@@ -192,3 +192,12 @@
     opacity: 0.7 !important;
   }
 }
+
+/* Channel @mention highlighting. Mentions are pre-processed into markdown
+ * bold (**@mention**) which renders as <strong>. The wrapper div gets
+ * `channel-mentions` so we can style only mention-generated bold, not all
+ * bold text. */
+.channel-mentions strong {
+  color: var(--system-info-strong);
+  font-weight: 600;
+}

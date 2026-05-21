@@ -82,7 +82,6 @@ import { modelSupportsVision } from "@/assistant/model-capabilities.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
-import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
 import { isSending, type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
@@ -361,6 +360,7 @@ export interface ChatRouteContentProps {
 
   // Is channel readonly (computed in parent, used in topbar + here)
   isChannelReadonly: boolean;
+  currentUserEmail?: string;
 
   // Onboarding (iOS post-hatch flow)
   onboardingTasksEmpty: boolean;
@@ -375,7 +375,7 @@ export interface ChatRouteContentProps {
 export function ChatRouteContent({
   assistantId,
   assistantState,
-  assistantIdentity: _assistantIdentity,
+  assistantIdentity,
   chatPullToRefresh,
   deployToVercel,
   doctor: doctorEnabled,
@@ -441,6 +441,7 @@ export function ChatRouteContent({
   historyPagination,
   refs,
   isChannelReadonly,
+  currentUserEmail,
   onboardingTasksEmpty,
   didOnboarding,
   onboardingConversationKey,
@@ -1043,6 +1044,8 @@ export function ChatRouteContent({
     onOpenApp: handleOpenApp,
     onOpenDocument: handleOpenDocument,
     assistantId,
+    isChannelConversation: isChannelReadonly,
+    currentUserEmail,
     unknownNudgeToolCallIds,
     onDismissUnknownNudge: (toolCallId) =>
       setUnknownNudgeToolCallIds((ids) => {
@@ -1259,13 +1262,25 @@ export function ChatRouteContent({
     </div>
   ) : null;
 
-  const channelFooterSlot = (
+  const channelFooterSlot = isChannelReadonly ? undefined : (
     <SlackChannelFooter
       assistantId={assistantId ?? undefined}
       conversation={activeConversation}
       messages={messages}
     />
   );
+
+  const spectatorBarProps = isChannelReadonly
+    ? {
+        ...(assistantIdentity?.name
+          ? { assistantName: assistantIdentity.name }
+          : {}),
+        ...(assistantId ? { assistantId } : {}),
+        conversation: activeConversation,
+        messages,
+        canStopGenerating,
+      }
+    : undefined;
 
   // -------------------------------------------------------------------------
   // Render
@@ -1299,7 +1314,7 @@ export function ChatRouteContent({
             onRetryRefresh={handleRetryRefreshFromPill}
             genericChatError={genericChatError}
             isChannelReadonly={isChannelReadonly}
-            canStopGenerating={canStopGenerating}
+            spectatorBarProps={spectatorBarProps}
             questionPromptSlot={questionPromptSlot}
             channelFooterSlot={channelFooterSlot}
             startersSlot={startersSlot}
@@ -1372,7 +1387,7 @@ export function ChatRouteContent({
       onRetryRefresh={handleRetryRefreshFromPill}
       genericChatError={genericChatError}
       isChannelReadonly={isChannelReadonly}
-      canStopGenerating={canStopGenerating}
+      spectatorBarProps={spectatorBarProps}
       bannerSlot={mainBannerSlot}
       queuedDrawerSlot={mainQueuedDrawerSlot}
       questionPromptSlot={questionPromptSlot}

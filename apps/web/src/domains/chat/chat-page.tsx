@@ -1340,6 +1340,7 @@ export function ChatPage() {
       reconcileAfterNextStreamOpenRef,
     },
     isChannelReadonly,
+    ...(authUser?.email ? { currentUserEmail: authUser.email } : {}),
     onboardingTasksEmpty,
     didOnboarding,
     onboardingConversationKey,

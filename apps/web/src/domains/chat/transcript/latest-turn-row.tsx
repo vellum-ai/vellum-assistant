@@ -7,6 +7,7 @@ import type { MessageItem, TranscriptItem } from "@/domains/chat/transcript/type
 
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row.js";
 import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";
+import type { GroupPosition } from "@/domains/chat/transcript/transcript.js";
 
 /**
  * Renders the newest user message (the "anchor") plus any response items that
@@ -24,6 +25,8 @@ import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";
 export interface LatestTurnRowProps {
   anchorMessage: MessageItem;
   responseItems: TranscriptItem[];
+  /** Pre-computed group positions for the anchor + response items. */
+  groupPositions?: Map<string, GroupPosition>;
   /** Current scroll container height — drives `minHeight`. Provided by the
    *  parent `Transcript` via `useViewportMinHeight`. */
   viewportMinHeight: number;
@@ -77,11 +80,16 @@ export interface LatestTurnRowProps {
    *  the chat avatar at the bottom of the latest assistant message
    *  rather than at the bottom of the entire chat. */
   avatarSlot?: ReactNode;
+  /** When true, this is a channel conversation with spectator layout. */
+  isChannelConversation?: boolean;
+  /** Logged-in user email for guardian detection in channel conversations. */
+  currentUserEmail?: string;
 }
 
 export const LatestTurnRow = memo(function LatestTurnRow({
   anchorMessage,
   responseItems,
+  groupPositions,
   viewportMinHeight,
   expandedToolCallIds,
   expandedCardIds,
@@ -109,6 +117,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   onSubagentClick,
   onStopSubagent,
   avatarSlot,
+  isChannelConversation,
+  currentUserEmail,
 }: LatestTurnRowProps) {
   return (
     <div
@@ -118,6 +128,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
     >
       <TranscriptRow
         item={anchorMessage}
+        groupPosition={groupPositions?.get(anchorMessage.key)}
         expandedToolCallIds={expandedToolCallIds}
         expandedCardIds={expandedCardIds}
         onSurfaceAction={onSurfaceAction}
@@ -140,11 +151,14 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         onOpenApp={onOpenApp}
         onOpenDocument={onOpenDocument}
         assistantId={assistantId}
+        isChannelConversation={isChannelConversation}
+        currentUserEmail={currentUserEmail}
       />
       {responseItems.map((response) => (
         <Fragment key={response.key}>
           <TranscriptRow
             item={response}
+            groupPosition={groupPositions?.get(response.key)}
             expandedToolCallIds={expandedToolCallIds}
             expandedCardIds={expandedCardIds}
             onSurfaceAction={onSurfaceAction}
@@ -167,6 +181,8 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             onOpenApp={onOpenApp}
             onOpenDocument={onOpenDocument}
             assistantId={assistantId}
+            isChannelConversation={isChannelConversation}
+            currentUserEmail={currentUserEmail}
           />
           {response.kind === "message" &&
             subagentsByParent?.get(response.key) &&

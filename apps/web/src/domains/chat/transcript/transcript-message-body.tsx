@@ -18,6 +18,7 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
+import type { GroupPosition } from "@/domains/chat/transcript/transcript.js";
 
 export interface OpenRuleEditorContext {
   toolName: string;
@@ -77,6 +78,12 @@ export interface TranscriptMessageBodyProps {
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
   assistantId?: string | null;
+  /** When true, channel spectator layout is used. */
+  isChannelConversation?: boolean;
+  /** Logged-in user email, used to identify guardian messages. */
+  currentUserEmail?: string;
+  /** Position within a consecutive same-sender message group. */
+  groupPosition?: GroupPosition;
 }
 
 function isSurfaceToolCallComplete(message: DisplayMessage): boolean {
@@ -133,22 +140,78 @@ function getSlackSenderLabel(message: DisplayMessage): string | null {
   ) ?? fallbackRoleLabel(message.role);
 }
 
+function isGuardianMessage(
+  message: DisplayMessage,
+  currentUserEmail?: string,
+): boolean {
+  if (!currentUserEmail || !message.slackMessage?.sender) return false;
+  const emailPrefix = currentUserEmail.split("@")[0]?.toLowerCase();
+  if (!emailPrefix) return false;
+  const senderName = (
+    message.slackMessage.sender.username ??
+    message.slackMessage.sender.name ??
+    ""
+  ).toLowerCase();
+  return senderName === emailPrefix;
+}
+
+const MENTION_RE = /(^|[\s(])(@\w[\w.-]*)/g;
+
+function highlightMentions(content: string): string {
+  const parts: string[] = [];
+  let lastEnd = 0;
+  const codeBlockOrSpanOrLink =
+    /```[\s\S]*?```|`[^`]+`|\[[^\]]*\]\([^)]*\)/g;
+  let match: RegExpExecArray | null;
+  const protectedRanges: Array<[number, number]> = [];
+  while ((match = codeBlockOrSpanOrLink.exec(content)) !== null) {
+    protectedRanges.push([match.index, match.index + match[0].length]);
+  }
+  const isProtected = (pos: number) =>
+    protectedRanges.some(([start, end]) => pos >= start && pos < end);
+
+  content.replace(MENTION_RE, (matched, prefix, mention, offset) => {
+    if (isProtected(offset)) return matched;
+    parts.push(content.slice(lastEnd, offset));
+    parts.push(`${prefix}**${mention}**`);
+    lastEnd = offset + matched.length;
+    return matched;
+  });
+  parts.push(content.slice(lastEnd));
+  return parts.join("");
+}
+
 function isInteractiveClickTarget(target: Element | null): boolean {
   return Boolean(
     target?.closest('a, button, [role="button"], input, textarea, select'),
   );
 }
 
-function SlackMessageAttribution({ message }: { message: DisplayMessage }) {
+function SlackMessageAttribution({
+  message,
+  isChannelConversation,
+  isGuardian,
+}: {
+  message: DisplayMessage;
+  isChannelConversation?: boolean;
+  isGuardian?: boolean;
+}) {
   const label = getSlackSenderLabel(message);
   if (!label) return null;
 
   const url = getSlackLinkUrl(message.slackMessage?.messageLink);
   const className =
     "inline-flex items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)]";
+  const guardianBadge =
+    isChannelConversation && isGuardian ? (
+      <span className="rounded-full bg-[var(--system-positive-weak)] px-1.5 py-0.5 text-body-small-default text-[var(--content-default)]">
+        You
+      </span>
+    ) : null;
   const content = (
     <>
       <span>{label}</span>
+      {guardianBadge}
       {url && <ExternalLink aria-hidden className="h-3 w-3 shrink-0" />}
     </>
   );
@@ -192,15 +255,47 @@ export function TranscriptMessageBody({
   onOpenApp,
   onOpenDocument,
   assistantId,
+  isChannelConversation,
+  currentUserEmail,
+  groupPosition,
 }: TranscriptMessageBodyProps) {
   const hasInterleavedToolCalls = message.contentOrder?.some(
     (e) => e.type === "toolCall" || e.type === "tool",
   );
 
-  const textBubbleClass =
-    message.role === "user"
-      ? "max-w-[80%] rounded-lg px-4 py-3 bg-[var(--surface-lift)] text-[var(--content-default)]"
-      : "w-full text-[var(--content-default)]";
+  const isGuardian = isChannelConversation
+    ? isGuardianMessage(message, currentUserEmail)
+    : false;
+  const isContinuation =
+    isChannelConversation &&
+    (groupPosition === "middle" || groupPosition === "last");
+  const isRightAligned = isChannelConversation
+    ? message.role === "assistant"
+    : message.role === "user";
+
+  const bubbleBase =
+    "max-w-[80%] rounded-lg px-4 py-3 text-[var(--content-default)]";
+  let textBubbleClass: string;
+  if (isChannelConversation) {
+    if (message.role === "assistant") {
+      textBubbleClass = `${bubbleBase} bg-[var(--system-info-weak)]`;
+    } else if (isGuardian) {
+      textBubbleClass = `${bubbleBase} bg-[var(--system-positive-weak)]`;
+    } else {
+      textBubbleClass = `${bubbleBase} bg-[var(--surface-lift)]`;
+    }
+  } else {
+    textBubbleClass =
+      message.role === "user"
+        ? `${bubbleBase} bg-[var(--surface-lift)]`
+        : "w-full text-[var(--content-default)]";
+  }
+
+  const processContent = (text: string) =>
+    isChannelConversation ? highlightMentions(text) : text;
+  const mentionWrapperClass = isChannelConversation
+    ? " channel-mentions"
+    : "";
 
   const handleExpandChange = (toolCallId: string, isExpanded: boolean) => {
     if (isExpanded) {
@@ -324,10 +419,10 @@ export function TranscriptMessageBody({
         data-revealed={revealed}
         data-slack-message-link={slackMessageUrl ? "true" : undefined}
         title={slackMessageUrl ? "Open in Slack" : undefined}
-        className={`group/msg flex ${slackMessageUrl ? "cursor-pointer" : ""} ${message.role === "user" ? "justify-end" : "justify-start"}`}
+        className={`group/msg flex ${isContinuation ? "mt-0.5" : ""} ${slackMessageUrl ? "cursor-pointer" : ""} ${isRightAligned ? "justify-end" : "justify-start"}`}
       >
         <div
-          className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
+          className={`flex w-full flex-col gap-2 ${isRightAligned ? "items-end" : "items-start"}`}
         >
           {groups.map((group, gi) => {
             if (group.type === "toolCalls") {
@@ -370,9 +465,9 @@ export function TranscriptMessageBody({
               return (
                 <div
                   key={`text-${gi}`}
-                  className={`text-[15px] break-words ${textBubbleClass}`}
+                  className={`text-[15px] break-words ${textBubbleClass} ${mentionWrapperClass}`}
                 >
-                  <ChatMarkdownMessage content={text} hardLineBreaks={message.role === "user"} />
+                  <ChatMarkdownMessage content={processContent(text)} hardLineBreaks={message.role === "user"} />
                 </div>
               );
             }
@@ -401,9 +496,9 @@ export function TranscriptMessageBody({
               content. */}
           {!groups.some((g) => g.type === "text") && message.content && (
             <div
-              className={`text-[15px] break-words ${textBubbleClass}`}
+              className={`text-[15px] break-words ${textBubbleClass} ${mentionWrapperClass}`}
             >
-              <ChatMarkdownMessage content={message.content} hardLineBreaks={message.role === "user"} />
+              <ChatMarkdownMessage content={processContent(message.content)} hardLineBreaks={message.role === "user"} />
             </div>
           )}
           {message.attachments && message.attachments.length > 0 && (
@@ -412,8 +507,14 @@ export function TranscriptMessageBody({
               assistantId={assistantId}
             />
           )}
-          <SlackMessageAttribution message={message} />
-          <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
+          {!isContinuation && (
+            <SlackMessageAttribution
+              message={message}
+              isChannelConversation={isChannelConversation}
+              isGuardian={isGuardian}
+            />
+          )}
+          <div className={`${isContinuation ? "h-2" : "h-6"} opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100`}>
             <MessageHoverActions
               content={message.content}
               timestamp={messageTimestamp}
@@ -443,7 +544,7 @@ export function TranscriptMessageBody({
             );
         const segText = seg?.content ?? entry.id;
         contentElements.push(
-          <ChatMarkdownMessage key={`text-${entry.id}`} content={segText} hardLineBreaks={message.role === "user"} />,
+          <ChatMarkdownMessage key={`text-${entry.id}`} content={processContent(segText)} hardLineBreaks={message.role === "user"} />,
         );
       } else if (entry.type === "surface") {
         const surface = resolveSurface(entry.id);
@@ -465,13 +566,13 @@ export function TranscriptMessageBody({
     }
     if (contentElements.length === 0 && message.content) {
       contentElements.push(
-        <ChatMarkdownMessage key="fallback" content={message.content} hardLineBreaks={message.role === "user"} />,
+        <ChatMarkdownMessage key="fallback" content={processContent(message.content)} hardLineBreaks={message.role === "user"} />,
       );
     }
   } else {
     contentElements.push(
       message.content ? (
-        <ChatMarkdownMessage key="content" content={message.content} hardLineBreaks={message.role === "user"} />
+        <ChatMarkdownMessage key="content" content={processContent(message.content)} hardLineBreaks={message.role === "user"} />
       ) : null,
     );
   }
@@ -483,10 +584,10 @@ export function TranscriptMessageBody({
       data-revealed={revealed}
       data-slack-message-link={slackMessageUrl ? "true" : undefined}
       title={slackMessageUrl ? "Open in Slack" : undefined}
-      className={`group/msg flex ${slackMessageUrl ? "cursor-pointer" : ""} ${message.role === "user" ? "justify-end" : "justify-start"}`}
+      className={`group/msg flex ${isContinuation ? "mt-0.5" : ""} ${slackMessageUrl ? "cursor-pointer" : ""} ${isRightAligned ? "justify-end" : "justify-start"}`}
     >
       <div
-        className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
+        className={`flex w-full flex-col gap-2 ${isRightAligned ? "items-end" : "items-start"}`}
       >
         {message.toolCalls && message.toolCalls.filter((tc) => !isSuppressedUiTool(tc)).length > 0 && (
           <ToolCallProgressCard
@@ -508,7 +609,7 @@ export function TranscriptMessageBody({
           (!message.toolCalls?.length &&
             !(message.attachments && message.attachments.length > 0))) && (
           <div
-            className={`text-[15px] break-words ${textBubbleClass}`}
+            className={`text-[15px] break-words ${textBubbleClass} ${mentionWrapperClass}`}
           >
             {contentElements}
           </div>
@@ -544,8 +645,14 @@ export function TranscriptMessageBody({
             </div>
           ));
         })()}
-        <SlackMessageAttribution message={message} />
-        <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
+        {!isContinuation && (
+          <SlackMessageAttribution
+            message={message}
+            isChannelConversation={isChannelConversation}
+            isGuardian={isGuardian}
+          />
+        )}
+        <div className={`${isContinuation ? "h-2" : "h-6"} opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100`}>
           <MessageHoverActions
             content={message.content}
             timestamp={messageTimestamp}

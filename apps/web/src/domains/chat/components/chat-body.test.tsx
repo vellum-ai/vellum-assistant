@@ -58,6 +58,31 @@ mock.module(
   }),
 );
 
+mock.module("@/domains/chat/components/spectator-bar.js", () => ({
+  SpectatorBar: ({
+    assistantName,
+    canStopGenerating,
+    onStopGenerating,
+  }: {
+    assistantName?: string;
+    canStopGenerating?: boolean;
+    onStopGenerating: () => void;
+  }) => (
+    <div data-testid="spectator-bar">
+      Watching {assistantName}
+      {canStopGenerating && (
+        <button
+          aria-label="Stop generating"
+          title="Stop generation"
+          onClick={onStopGenerating}
+        >
+          STOP
+        </button>
+      )}
+    </div>
+  ),
+}));
+
 mock.module("@vellum/design-library", () => ({
   Button: ({
     children,
@@ -219,18 +244,22 @@ describe("ChatBody — startersSlot rendering", () => {
   });
 });
 
-describe("ChatBody — read-only cancellation", () => {
-  test("renders the read-only banner without a stop control while idle", () => {
+describe("ChatBody — read-only spectator bar", () => {
+  test("renders the spectator bar without a stop control while idle", () => {
     const html = renderToStaticMarkup(
       <ChatBody
         {...baseProps({
           isChannelReadonly: true,
+          spectatorBarProps: {
+            assistantName: "TestBot",
+            conversation: null,
+          },
           composerProps: { onStopGenerating: noop } as never,
         })}
       />,
     );
 
-    expect(html).toContain("Read-only conversation");
+    expect(html).toContain("Watching TestBot");
     expect(html).not.toContain('aria-label="Stop generating"');
     expect(html).not.toContain("COMPOSER");
   });
@@ -240,13 +269,17 @@ describe("ChatBody — read-only cancellation", () => {
       <ChatBody
         {...baseProps({
           isChannelReadonly: true,
-          canStopGenerating: true,
+          spectatorBarProps: {
+            assistantName: "TestBot",
+            conversation: null,
+            canStopGenerating: true,
+          },
           composerProps: { onStopGenerating: noop } as never,
         })}
       />,
     );
 
-    expect(html).toContain("Read-only conversation");
+    expect(html).toContain("Watching TestBot");
     expect(html).toContain('aria-label="Stop generating"');
     expect(html).toContain('title="Stop generation"');
     expect(html).not.toContain("COMPOSER");

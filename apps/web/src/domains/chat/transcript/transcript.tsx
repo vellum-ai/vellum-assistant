@@ -13,7 +13,11 @@ import {
 import { SubagentProgressCard } from "@/domains/chat/components/subagent-progress-card.js";
 import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
 import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn.js";
-import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
+import type {
+  MessageItem,
+  TranscriptItem,
+} from "@/domains/chat/transcript/types.js";
+import type { DisplayMessage } from "@/domains/chat/types/types.js";
 
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row.js";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner.js";
@@ -116,6 +120,85 @@ export interface TranscriptProps {
    *  gated). When `false`, no spinner element renders and no touch
    *  listeners attach. */
   pullRefreshEnabled?: boolean;
+  /** When true, this is a channel conversation with spectator layout. */
+  isChannelConversation?: boolean;
+  /** Logged-in user email for guardian detection in channel conversations. */
+  currentUserEmail?: string;
+}
+
+export type GroupPosition = "first" | "middle" | "last" | "solo";
+
+const MAX_GROUP_GAP_MS = 5 * 60 * 1000;
+
+function isSameSender(a: DisplayMessage, b: DisplayMessage): boolean {
+  const aSender = a.slackMessage?.sender;
+  const bSender = b.slackMessage?.sender;
+  if (aSender && bSender) {
+    if (aSender.externalUserId && bSender.externalUserId) {
+      return aSender.externalUserId === bSender.externalUserId;
+    }
+    if (aSender.username && bSender.username) {
+      return aSender.username === bSender.username;
+    }
+  }
+  return a.role === b.role;
+}
+
+function isWithinGroupWindow(a: DisplayMessage, b: DisplayMessage): boolean {
+  if (a.timestamp == null || b.timestamp == null) return false;
+  return Math.abs(b.timestamp - a.timestamp) <= MAX_GROUP_GAP_MS;
+}
+
+function computeGroupPositions(
+  items: TranscriptItem[],
+): Map<string, GroupPosition> {
+  const positions = new Map<string, GroupPosition>();
+
+  const messageEntries: Array<{ index: number; item: MessageItem }> = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item?.kind === "message") {
+      messageEntries.push({ index: i, item });
+    }
+  }
+
+  for (let mi = 0; mi < messageEntries.length; mi++) {
+    const entry = messageEntries[mi];
+    if (!entry) continue;
+    const { index, item } = entry;
+    const msg = item.message;
+
+    const prev = mi > 0 ? messageEntries[mi - 1] : undefined;
+    const next =
+      mi < messageEntries.length - 1 ? messageEntries[mi + 1] : undefined;
+
+    const groupedWithPrev =
+      prev != null &&
+      prev.index === index - 1 &&
+      isSameSender(prev.item.message, msg) &&
+      isWithinGroupWindow(prev.item.message, msg);
+
+    const groupedWithNext =
+      next != null &&
+      next.index === index + 1 &&
+      isSameSender(msg, next.item.message) &&
+      isWithinGroupWindow(msg, next.item.message);
+
+    let position: GroupPosition;
+    if (groupedWithPrev && groupedWithNext) {
+      position = "middle";
+    } else if (groupedWithPrev) {
+      position = "last";
+    } else if (groupedWithNext) {
+      position = "first";
+    } else {
+      position = "solo";
+    }
+
+    positions.set(item.key, position);
+  }
+
+  return positions;
 }
 
 export interface TranscriptHandle {
@@ -154,6 +237,10 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     const [expandedCardIds] = useState(() => new Map<string, boolean>());
 
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
+    const groupPositions = useMemo(
+      () => computeGroupPositions(items),
+      [items],
+    );
 
     const subagentsByParent = useMemo(() => {
       if (!rest.subagentEntries?.length) return null;
@@ -231,13 +318,19 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       onOpenApp: rest.onOpenApp,
       onOpenDocument: rest.onOpenDocument,
       assistantId: rest.assistantId,
+      isChannelConversation: rest.isChannelConversation,
+      currentUserEmail: rest.currentUserEmail,
     };
+
+    const spectatorBg = rest.isChannelConversation
+      ? " border-l-2 border-[var(--system-info-weak)]"
+      : "";
 
     return (
       <div
         ref={scrollRef}
         data-testid="transcript-scroll-container"
-        className="flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none]"
+        className={`flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none]${spectatorBg}`}
       >
         {/* Inner content wrapper — observed by the scroll coordinator's
          *  ResizeObserver so we can re-pin to bottom when scroll content
@@ -249,7 +342,11 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
           {partition.historyItems.map((item) => (
             <Fragment key={item.key}>
               <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
-                <TranscriptRow item={item} {...rowProps} />
+                <TranscriptRow
+                  item={item}
+                  groupPosition={groupPositions.get(item.key)}
+                  {...rowProps}
+                />
                 {item.kind === "message" &&
                   subagentsByParent?.get(item.key) &&
                   rest.onSubagentClick && (
@@ -268,6 +365,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
               <LatestTurnRow
                 anchorMessage={partition.anchorMessage}
                 responseItems={partition.responseItems}
+                groupPositions={groupPositions}
                 viewportMinHeight={viewportMinHeight}
                 avatarSlot={rest.renderAvatar ? rest.renderAvatar() : undefined}
                 subagentsByParent={subagentsByParent}

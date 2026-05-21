@@ -8,6 +8,7 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body.js";
 import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";
+import type { GroupPosition } from "@/domains/chat/transcript/transcript.js";
 
 /**
  * Thin dispatcher: render one `TranscriptItem` using the matching existing
@@ -66,6 +67,12 @@ export interface TranscriptRowProps {
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
   assistantId?: string | null;
+  /** When true, this is a channel conversation with spectator layout. */
+  isChannelConversation?: boolean;
+  /** Logged-in user email for guardian detection in channel conversations. */
+  currentUserEmail?: string;
+  /** Position within a consecutive same-sender message group. */
+  groupPosition?: GroupPosition;
 }
 
 export const TranscriptRow = memo(function TranscriptRow({
@@ -92,6 +99,9 @@ export const TranscriptRow = memo(function TranscriptRow({
   onOpenApp,
   onOpenDocument,
   assistantId,
+  isChannelConversation,
+  currentUserEmail,
+  groupPosition,
 }: TranscriptRowProps) {
   switch (item.kind) {
     case "message":
@@ -113,6 +123,9 @@ export const TranscriptRow = memo(function TranscriptRow({
           onOpenApp={onOpenApp}
           onOpenDocument={onOpenDocument}
           assistantId={assistantId}
+          isChannelConversation={isChannelConversation}
+          currentUserEmail={currentUserEmail}
+          groupPosition={groupPosition}
         />
       );
 
