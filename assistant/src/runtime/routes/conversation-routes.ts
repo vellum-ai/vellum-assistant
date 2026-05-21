@@ -1087,6 +1087,7 @@ export function persistOnboardingArtifacts(onboarding: {
   tone: string;
   userName?: string;
   assistantName?: string;
+  priorAssistants?: string[];
   cohort?: string;
   websiteUrl?: string;
   contentSourceUrl?: string;
@@ -1167,6 +1168,7 @@ export async function handleSendMessage(
       assistantName?: string;
       googleConnected?: boolean;
       googleScopes?: string[];
+      priorAssistants?: string[];
       cohort?: string;
       websiteUrl?: string;
       contentSourceUrl?: string;

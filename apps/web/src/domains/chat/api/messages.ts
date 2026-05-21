@@ -454,6 +454,7 @@ export async function postChatMessage(
     if (normalizedOnboarding.assistantName !== undefined) onboardingDict.assistantName = normalizedOnboarding.assistantName;
     if (normalizedOnboarding.googleConnected !== undefined) onboardingDict.googleConnected = normalizedOnboarding.googleConnected;
     if (normalizedOnboarding.googleScopes !== undefined) onboardingDict.googleScopes = normalizedOnboarding.googleScopes;
+    if (normalizedOnboarding.priorAssistants !== undefined) onboardingDict.priorAssistants = normalizedOnboarding.priorAssistants;
     body.onboarding = onboardingDict;
   }
   if (normalizedOnboarding) {
