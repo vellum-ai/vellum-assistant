@@ -58,6 +58,7 @@ import {
   migrateCanonicalGuardianRequesterChatId,
   migrateCapabilityCardColumns,
   migrateChannelInboundDeliveredSegments,
+  migrateChannelInboundDeliveryAttempts,
   migrateChannelInteractionColumns,
   migrateContactChannelsAccessFields,
   migrateContactChannelsTypeChatIdIndex,
@@ -438,6 +439,7 @@ export function initializeDb(): void {
     migrateA2ATasks,
     migrateLlmRequestLogAgentLoopExitReason,
     migrateCreateDocumentComments,
+    migrateChannelInboundDeliveryAttempts,
   ];
 
   // Run each migration step, catching and logging individual failures so one

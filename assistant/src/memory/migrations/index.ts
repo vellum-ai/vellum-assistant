@@ -218,6 +218,7 @@ export { migrateProviderConnectionBaseUrlAndModels } from "./250-provider-connec
 export { downA2ATasks, migrateA2ATasks } from "./251-a2a-tasks.js";
 export { migrateLlmRequestLogAgentLoopExitReason } from "./252-llm-request-log-agent-loop-exit-reason.js";
 export { migrateCreateDocumentComments } from "./253-document-comments.js";
+export { migrateChannelInboundDeliveryAttempts } from "./254-channel-inbound-delivery-attempts.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

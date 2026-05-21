@@ -6,7 +6,7 @@
  * retryable and dead-lettered events, and replaying dead letters.
  */
 
-import { and, eq, lte } from "drizzle-orm";
+import { and, eq, lte, or } from "drizzle-orm";
 
 import { getDb } from "./db-connection.js";
 import {
@@ -127,15 +127,15 @@ export function recordProcessingFailure(eventId: string, err: unknown): void {
 
 /**
  * Record an outbound callback delivery failure without changing the processing
- * status. The attempt/error/backoff columns are row-level retry bookkeeping
- * shared with processing failures until delivery gets its own counters.
+ * status. Delivery uses its own retry budget so a turn that needed processing
+ * retries still gets a full delivery retry window.
  */
 export function recordDeliveryFailure(eventId: string, err: unknown): void {
   const db = getDb();
   const now = Date.now();
 
   const row = db
-    .select({ attempts: channelInboundEvents.processingAttempts })
+    .select({ attempts: channelInboundEvents.deliveryAttempts })
     .from(channelInboundEvents)
     .where(eq(channelInboundEvents.id, eventId))
     .get();
@@ -148,7 +148,7 @@ export function recordDeliveryFailure(eventId: string, err: unknown): void {
     db.update(channelInboundEvents)
       .set({
         deliveryStatus: "dead_letter",
-        processingAttempts: attempts,
+        deliveryAttempts: attempts,
         lastProcessingError: errorMsg,
         retryAfter: null,
         updatedAt: now,
@@ -160,7 +160,7 @@ export function recordDeliveryFailure(eventId: string, err: unknown): void {
     db.update(channelInboundEvents)
       .set({
         deliveryStatus: "failed",
-        processingAttempts: attempts,
+        deliveryAttempts: attempts,
         lastProcessingError: errorMsg,
         retryAfter: now + delay,
         updatedAt: now,
@@ -297,7 +297,15 @@ export function getDeadLetterEvents(): Array<{
       createdAt: channelInboundEvents.createdAt,
     })
     .from(channelInboundEvents)
-    .where(eq(channelInboundEvents.processingStatus, "dead_letter"))
+    .where(
+      or(
+        eq(channelInboundEvents.processingStatus, "dead_letter"),
+        and(
+          eq(channelInboundEvents.processingStatus, "processed"),
+          eq(channelInboundEvents.deliveryStatus, "dead_letter"),
+        ),
+      ),
+    )
     .all();
 }
 
@@ -311,27 +319,50 @@ export function replayDeadLetters(eventIds: string[]): number {
   let count = 0;
   for (const id of eventIds) {
     const existing = db
-      .select({ id: channelInboundEvents.id })
+      .select({
+        id: channelInboundEvents.id,
+        processingStatus: channelInboundEvents.processingStatus,
+        deliveryStatus: channelInboundEvents.deliveryStatus,
+      })
       .from(channelInboundEvents)
       .where(
         and(
           eq(channelInboundEvents.id, id),
-          eq(channelInboundEvents.processingStatus, "dead_letter"),
+          or(
+            eq(channelInboundEvents.processingStatus, "dead_letter"),
+            and(
+              eq(channelInboundEvents.processingStatus, "processed"),
+              eq(channelInboundEvents.deliveryStatus, "dead_letter"),
+            ),
+          ),
         ),
       )
       .get();
     if (!existing) continue;
 
-    db.update(channelInboundEvents)
-      .set({
-        processingStatus: "failed",
-        processingAttempts: 0,
-        lastProcessingError: null,
-        retryAfter: now,
-        updatedAt: now,
-      })
-      .where(eq(channelInboundEvents.id, id))
-      .run();
+    if (existing.processingStatus === "dead_letter") {
+      db.update(channelInboundEvents)
+        .set({
+          processingStatus: "failed",
+          processingAttempts: 0,
+          lastProcessingError: null,
+          retryAfter: now,
+          updatedAt: now,
+        })
+        .where(eq(channelInboundEvents.id, id))
+        .run();
+    } else {
+      db.update(channelInboundEvents)
+        .set({
+          deliveryStatus: "failed",
+          deliveryAttempts: 0,
+          lastProcessingError: null,
+          retryAfter: now,
+          updatedAt: now,
+        })
+        .where(eq(channelInboundEvents.id, id))
+        .run();
+    }
     count++;
   }
   return count;

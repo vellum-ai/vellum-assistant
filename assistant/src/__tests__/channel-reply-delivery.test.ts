@@ -120,6 +120,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 mock.module("../memory/attachments-store.js", () => ({
   getAttachmentMetadataForMessage: (messageId: string) =>
     attachmentsByMessageId.get(messageId) ?? [],
+  getFilePathForAttachment: () => null,
 }));
 
 mock.module("../daemon/handlers/shared.js", () => ({
@@ -483,6 +484,74 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls[0].payload.text).toBe("Beta.");
     expect(deliveryCalls[1].payload.text).toBe("Gamma.");
     expect(delivered).toEqual([2, 3]);
+  });
+
+  it("targets an explicit assistant message instead of the latest reply", async () => {
+    conversationMessages.push(
+      { id: "msg-u", role: "user", content: "hi" },
+      { id: "msg-old", role: "assistant", content: '"old reply"' },
+      { id: "msg-new", role: "assistant", content: '"new reply"' },
+    );
+    attachmentsByMessageId.set("msg-old", [
+      {
+        id: "att-old",
+        originalFilename: "old.txt",
+        mimeType: "text/plain",
+        sizeBytes: 11,
+        kind: "uploaded",
+      },
+    ]);
+    attachmentsByMessageId.set("msg-new", [
+      {
+        id: "att-new",
+        originalFilename: "new.txt",
+        mimeType: "text/plain",
+        sizeBytes: 22,
+        kind: "uploaded",
+      },
+    ]);
+    renderedHistoryContent = {
+      text: "Reply.",
+      textSegments: ["Reply."],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    };
+
+    await deliverReplyViaCallback(
+      "conv-target",
+      "chat-target",
+      "http://gateway/deliver/telegram",
+      "assistant-3",
+      { messageId: "msg-old" },
+    );
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.attachments).toEqual([
+      {
+        id: "att-old",
+        filename: "old.txt",
+        mimeType: "text/plain",
+        sizeBytes: 11,
+        kind: "uploaded",
+      },
+    ]);
+  });
+
+  it("rejects an explicit target that is not an assistant message", async () => {
+    conversationMessages.push({ id: "msg-u", role: "user", content: "hi" });
+
+    await expect(
+      deliverReplyViaCallback(
+        "conv-target",
+        "chat-target",
+        "http://gateway/deliver/telegram",
+        "assistant-3",
+        { messageId: "msg-u" },
+      ),
+    ).rejects.toThrow("Target assistant reply message not found");
   });
 
   // ── slackMeta.channelTs reconciliation (post-send) ─────────────────────

@@ -14,6 +14,7 @@ const deliveryCalls: Array<{
   externalChatId: string;
   callbackUrl: string;
   assistantId?: string;
+  messageId?: string;
   startFromSegment?: number;
 }> = [];
 let deliverReplyViaCallbackImpl: (
@@ -26,13 +27,14 @@ mock.module("../runtime/channel-reply-delivery.js", () => ({
     externalChatId: string,
     callbackUrl: string,
     assistantId?: string,
-    options?: { startFromSegment?: number },
+    options?: { messageId?: string; startFromSegment?: number },
   ) => {
     deliveryCalls.push({
       conversationId,
       externalChatId,
       callbackUrl,
       assistantId,
+      messageId: options?.messageId,
       startFromSegment: options?.startFromSegment,
     });
     return deliverReplyViaCallbackImpl(
@@ -368,8 +370,13 @@ describe("channel-retry-sweep", () => {
     };
 
     let processMessageCalls = 0;
-    await sweepFailedEvents(async (conversationId) => {
+    await sweepFailedEvents(async (conversationId, _content, _ids, options) => {
       processMessageCalls++;
+      options?.onEvent?.({
+        type: "message_complete",
+        conversationId,
+        messageId: "assistant-delivery-fails",
+      });
       const messageId = "message-delivery-fails";
       db.insert(messages)
         .values({
@@ -393,6 +400,9 @@ describe("channel-retry-sweep", () => {
     expect(row?.processingStatus).toBe("processed");
     expect(row?.deliveryStatus).toBe("failed");
     expect(row?.messageId).toBe("message-delivery-fails");
+    expect(
+      row?.rawPayload ? JSON.parse(row.rawPayload).replyMessageId : undefined,
+    ).toBe("assistant-delivery-fails");
   });
 
   test("delivery retry for processed events resumes delivery without processing", async () => {
@@ -408,6 +418,7 @@ describe("channel-retry-sweep", () => {
       externalChatId: "chat-delivery-only",
       replyCallbackUrl: "https://example.test/deliver/telegram",
       assistantId: "assistant-1",
+      replyMessageId: "assistant-delivery-only",
     });
 
     const db = getDb();
@@ -440,6 +451,7 @@ describe("channel-retry-sweep", () => {
         externalChatId: "chat-delivery-only",
         callbackUrl: "https://example.test/deliver/telegram",
         assistantId: "assistant-1",
+        messageId: "assistant-delivery-only",
         startFromSegment: 2,
       },
     ]);

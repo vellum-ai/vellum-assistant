@@ -9,9 +9,14 @@ import {
 } from "../channels/types.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../daemon/disk-pressure-policy.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { updateDeliveredSegmentCount } from "../memory/delivery-channels.js";
-import { clearPayload, linkMessage } from "../memory/delivery-crud.js";
+import {
+  clearPayload,
+  linkMessage,
+  storeReplyMessageId,
+} from "../memory/delivery-crud.js";
 import {
   getRetryableDeliveryEvents,
   getRetryableEvents,
@@ -250,6 +255,16 @@ export async function sweepFailedEvents(
       sourceMetadata.chatType.trim().length > 0
         ? sourceMetadata.chatType.trim()
         : undefined;
+    let replyMessageId: string | undefined;
+    const observeAgentEvent = (msg: ServerMessage): void => {
+      if (
+        msg.type === "message_complete" &&
+        (msg.source === undefined || msg.source === "main") &&
+        typeof msg.messageId === "string"
+      ) {
+        replyMessageId = msg.messageId;
+      }
+    };
 
     try {
       const { messageId: userMessageId } = await processMessage(
@@ -267,12 +282,16 @@ export async function sweepFailedEvents(
           trustContext,
           isInteractive:
             resolveRoutingStateFromRuntime(trustContext).promptWaitingAllowed,
+          onEvent: observeAgentEvent,
         },
         sourceChannel,
         sourceInterface,
       );
       linkMessage(event.id, userMessageId);
       markProcessed(event.id);
+      if (replyMessageId) {
+        storeReplyMessageId(event.id, replyMessageId);
+      }
       log.info(
         { eventId: event.id },
         "Successfully replayed failed channel event",
@@ -305,6 +324,7 @@ export async function sweepFailedEvents(
             replyCallbackUrl,
             assistantId,
             {
+              messageId: replyMessageId,
               startFromSegment: 0,
               onSegmentDelivered: (count) =>
                 updateDeliveredSegmentCount(event.id, count),
@@ -350,12 +370,23 @@ export async function sweepFailedEvents(
       typeof payload.externalChatId === "string"
         ? payload.externalChatId
         : undefined;
+    const replyMessageId =
+      typeof payload.replyMessageId === "string"
+        ? payload.replyMessageId
+        : undefined;
     const assistantId =
       typeof payload.assistantId === "string" ? payload.assistantId : undefined;
     if (!replyCallbackUrl || !externalChatId) {
       recordDeliveryFailure(
         event.id,
         new Error("Stored payload is missing delivery callback details"),
+      );
+      continue;
+    }
+    if (!replyMessageId) {
+      recordDeliveryFailure(
+        event.id,
+        new Error("Stored payload is missing assistant reply message id"),
       );
       continue;
     }
@@ -367,6 +398,7 @@ export async function sweepFailedEvents(
         replyCallbackUrl,
         assistantId,
         {
+          messageId: replyMessageId,
           startFromSegment: event.deliveredSegmentCount,
           onSegmentDelivered: (count) =>
             updateDeliveredSegmentCount(event.id, count),

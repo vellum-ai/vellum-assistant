@@ -8,6 +8,11 @@ const markedProcessedEvents: string[] = [];
 const processingFailureEvents: string[] = [];
 const deliveredEvents: string[] = [];
 const deliveryFailureEvents: string[] = [];
+const storedReplyMessageIds: Array<{
+  eventId: string;
+  replyMessageId: string;
+}> = [];
+const replyDeliveryCalls: Array<{ messageId?: string }> = [];
 let deliverReplyViaCallbackImpl: (
   ...args: unknown[]
 ) => Promise<void> = async () => {};
@@ -25,6 +30,9 @@ mock.module("../../../memory/delivery-channels.js", () => ({
 
 mock.module("../../../memory/delivery-crud.js", () => ({
   linkMessage: () => {},
+  storeReplyMessageId: (eventId: string, replyMessageId: string) => {
+    storedReplyMessageIds.push({ eventId, replyMessageId });
+  },
 }));
 
 mock.module("../../../memory/delivery-status.js", () => ({
@@ -53,8 +61,11 @@ mock.module("../../gateway-client.js", () => ({
 }));
 
 mock.module("../channel-delivery-routes.js", () => ({
-  deliverReplyViaCallback: async (...args: unknown[]) =>
-    deliverReplyViaCallbackImpl(...args),
+  deliverReplyViaCallback: async (...args: unknown[]) => {
+    const options = args[4] as { messageId?: string } | undefined;
+    replyDeliveryCalls.push({ messageId: options?.messageId });
+    return deliverReplyViaCallbackImpl(...args);
+  },
 }));
 
 import type { TrustContext } from "../../../daemon/trust-context.js";
@@ -77,6 +88,8 @@ beforeEach(() => {
   processingFailureEvents.length = 0;
   deliveredEvents.length = 0;
   deliveryFailureEvents.length = 0;
+  storedReplyMessageIds.length = 0;
+  replyDeliveryCalls.length = 0;
   deliverReplyViaCallbackImpl = async () => {};
 });
 
@@ -203,9 +216,19 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     const conversationId = "conv-delivery-failure";
     const channelId = "C-DELIVERY-FAILURE";
 
-    const processMessage: MessageProcessor = async () => ({
-      messageId: "user-msg-delivery-failure",
-    });
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      _attachmentIds,
+      options,
+    ) => {
+      options?.onEvent?.({
+        type: "message_complete",
+        conversationId,
+        messageId: "assistant-msg-delivery-failure",
+      });
+      return { messageId: "user-msg-delivery-failure" };
+    };
     deliverReplyViaCallbackImpl = async () => {
       throw new Error("fetch failed");
     };
@@ -227,6 +250,15 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
 
     expect(markedProcessedEvents).toEqual(["evt-delivery-failure"]);
     expect(processingFailureEvents).toEqual([]);
+    expect(storedReplyMessageIds).toEqual([
+      {
+        eventId: "evt-delivery-failure",
+        replyMessageId: "assistant-msg-delivery-failure",
+      },
+    ]);
+    expect(replyDeliveryCalls).toEqual([
+      { messageId: "assistant-msg-delivery-failure" },
+    ]);
     expect(deliveryFailureEvents).toEqual(["evt-delivery-failure"]);
     expect(deliveredEvents).toEqual([]);
 

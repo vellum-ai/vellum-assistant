@@ -12,7 +12,10 @@ import { findGuardianForChannel } from "../../../contacts/contact-store.js";
 import type { ServerMessage } from "../../../daemon/message-protocol.js";
 import type { TrustContext } from "../../../daemon/trust-context.js";
 import { updateDeliveredSegmentCount } from "../../../memory/delivery-channels.js";
-import { linkMessage } from "../../../memory/delivery-crud.js";
+import {
+  linkMessage,
+  storeReplyMessageId,
+} from "../../../memory/delivery-crud.js";
 import {
   markDeliveryDelivered,
   markProcessed,
@@ -221,6 +224,17 @@ export function processChannelMessageInBackground(
                 : {}),
             }
           : undefined;
+      let replyMessageId: string | undefined;
+      const observeAgentEvent = (msg: ServerMessage): void => {
+        if (
+          msg.type === "message_complete" &&
+          (msg.source === undefined || msg.source === "main") &&
+          typeof msg.messageId === "string"
+        ) {
+          replyMessageId = msg.messageId;
+        }
+        slackThinkingStatus?.observeEvent(msg);
+      };
 
       try {
         const { messageId: userMessageId } = await processMessage(
@@ -241,18 +255,16 @@ export function processChannelMessageInBackground(
             ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
             ...(slackRuntimeContextNotice ? { slackRuntimeContextNotice } : {}),
             ...(slackInbound ? { slackInbound } : {}),
-            ...(slackThinkingStatus
-              ? {
-                  onEvent: (msg: ServerMessage) =>
-                    slackThinkingStatus.observeEvent(msg),
-                }
-              : {}),
+            onEvent: observeAgentEvent,
           },
           sourceChannel,
           sourceInterface,
         );
         linkMessage(eventId, userMessageId);
         markProcessed(eventId);
+        if (replyMessageId) {
+          storeReplyMessageId(eventId, replyMessageId);
+        }
       } catch (err) {
         // When another turn is already processing this conversation,
         // `prepareConversationForMessage` throws before any of this turn's
@@ -291,6 +303,7 @@ export function processChannelMessageInBackground(
             replyCallbackUrl,
             assistantId,
             {
+              messageId: replyMessageId,
               onSegmentDelivered: (count) =>
                 updateDeliveredSegmentCount(eventId, count),
             },
