@@ -172,6 +172,25 @@ export function upsertOutboundBinding(input: {
     .run();
 }
 
+export function updateExternalChatName(
+  conversationId: string,
+  externalChatName: string,
+): ExternalConversationBinding | null {
+  const db = getDb();
+  const trimmedName = externalChatName.trim();
+  if (!trimmedName) return getBindingByConversation(conversationId);
+
+  db.update(externalConversationBindings)
+    .set({
+      externalChatName: trimmedName,
+      updatedAt: Date.now(),
+    })
+    .where(eq(externalConversationBindings.conversationId, conversationId))
+    .run();
+
+  return getBindingByConversation(conversationId);
+}
+
 /**
  * Look up an external binding by conversation ID.
  */
