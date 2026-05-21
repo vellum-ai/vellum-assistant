@@ -31,9 +31,8 @@ import { Input, Textarea } from "@vellum/design-library/components/input";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
 import type { ClassificationEnum } from "@/generated/api/types.gen.js";
-import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf.js";
+import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers.js";
 import { buildChatDiagnosticsSnapshot } from "@/domains/chat/utils/diagnostics.js";
-import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 
 type Reason = "bug_report" | "feature_request" | "other";
@@ -142,18 +141,9 @@ async function fetchPlatformLogs(
   },
 ): Promise<Uint8Array | null> {
   try {
-    await ensureCsrfCookie();
-    const headers: Record<string, string> = {
+    const headers = await buildVellumMutatingHeaders({
       "Content-Type": "application/json",
-    };
-    const csrfToken = getCsrfToken();
-    if (csrfToken) {
-      headers["X-CSRFToken"] = csrfToken;
-    }
-    const orgId = getActiveOrganizationIdForRequests();
-    if (orgId) {
-      headers["Vellum-Organization-Id"] = orgId;
-    }
+    });
     const body: Record<string, unknown> = {};
     if (opts.window.startTime != null) {
       body.startTime = opts.window.startTime;

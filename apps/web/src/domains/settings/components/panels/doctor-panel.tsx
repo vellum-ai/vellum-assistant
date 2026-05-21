@@ -28,9 +28,11 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen.js";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen.js";
 import { getAssistant } from "@/assistant/api.js";
-import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf.js";
+import {
+  buildVellumHeaders,
+  buildVellumMutatingHeaders,
+} from "@/lib/auth/request-headers.js";
 import { reportError } from "@/lib/errors/report.js";
-import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import { ShareFeedbackModal } from "@/components/share-feedback-modal.js";
@@ -87,15 +89,9 @@ function nextId(): string {
 }
 
 async function doctorFetch(url: string, init?: RequestInit): Promise<Response> {
-  await ensureCsrfCookie();
-  const csrfToken = getCsrfToken();
-  const orgId = getActiveOrganizationIdForRequests();
-
-  const headers: Record<string, string> = {
+  const headers = await buildVellumMutatingHeaders({
     "Content-Type": "application/json",
-    ...(csrfToken ? { "X-CSRFToken": csrfToken } : {}),
-    ...(orgId ? { "Vellum-Organization-Id": orgId } : {}),
-  };
+  });
 
   return fetch(url, {
     ...init,
@@ -591,16 +587,10 @@ export function DoctorPanel({
           const response = await fetch(url, {
             signal: controller.signal,
             credentials: "include",
-            headers: {
+            headers: buildVellumHeaders({
               Accept: "text/event-stream",
               ...getClientRegistrationHeaders(),
-              ...(getActiveOrganizationIdForRequests()
-                ? {
-                    "Vellum-Organization-Id":
-                      getActiveOrganizationIdForRequests()!,
-                  }
-                : {}),
-            },
+            }),
           });
 
           if (!isCurrentStream()) return;

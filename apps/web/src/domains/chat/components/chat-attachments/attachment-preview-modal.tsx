@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 
 import { Button } from "@vellum/design-library";
 import { Typography } from "@vellum/design-library";
-import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";
+import { buildVellumHeaders } from "@/lib/auth/request-headers.js";
 
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview.js";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview.js";
@@ -99,12 +99,10 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       try {
         // The attachment-content endpoint streams binary data and isn't
         // exposed via the HeyAPI generated client, so we hit it directly.
-        const headers: HeadersInit = {};
-        const organizationId = getActiveOrganizationIdForRequests();
-        if (organizationId) {
-          headers["Vellum-Organization-Id"] = organizationId;
-        }
-        const response = await fetch(`/v1/assistants/${assistantId}/attachments/${attachment.id}/content`, { headers });
+        const response = await fetch(
+          `/v1/assistants/${assistantId}/attachments/${attachment.id}/content`,
+          { headers: buildVellumHeaders() },
+        );
         if (!response.ok) {
           throw new Error(`Failed to load file: ${response.statusText}`);
         }
