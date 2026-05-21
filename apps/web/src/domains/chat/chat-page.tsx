@@ -60,6 +60,7 @@ import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor.js
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges.js";
 import { useConversationLoader } from "@/domains/conversations/use-conversation-loader.js";
+import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration.js";
 import { useConversationActions } from "@/domains/conversations/use-conversation-actions.js";
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions.js";
 import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections.js";
@@ -259,6 +260,13 @@ export function ChatPage() {
   const expandedToolCallIdsRef = useRef<Set<string>>(new Set());
   const contextWindowUsageByConversationRef = useRef<Map<string, ContextWindowUsage>>(new Map());
   const syncRouterRef = useRef<WebSyncRouter | null>(null);
+
+  useContextWindowUsageHydration({
+    assistantId,
+    activeConversationKey,
+    contextWindowUsageByConversationRef,
+    setContextWindowUsage,
+  });
 
   // -------------------------------------------------------------------------
   // Routing
