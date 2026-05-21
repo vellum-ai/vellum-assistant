@@ -7,7 +7,7 @@ import {
   ChevronUp,
   Square,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type MouseEvent } from "react";
 
 import { BusyIndicator } from "@/domains/chat/components/busy-indicator.js";
 import { AvatarRenderer } from "@/components/avatar-renderer.js";
@@ -129,7 +129,7 @@ function SubagentRow({
   );
 
   const handleStop = useCallback(
-    (e: React.MouseEvent) => {
+    (e: MouseEvent) => {
       e.stopPropagation();
       onStopSubagent?.(entry.subagentId);
     },
@@ -189,7 +189,7 @@ function SubagentRow({
             tabIndex={0}
             aria-label={`Stop ${entry.label}`}
             onClick={handleStop}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleStop(e as unknown as React.MouseEvent); } }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleStop(e as unknown as MouseEvent); } }}
             className="flex shrink-0 cursor-pointer items-center justify-center p-1 text-[var(--content-tertiary)] hover:text-[var(--system-negative-strong)] transition-colors"
           >
             <Square className="h-2.5 w-2.5" fill="currentColor" />

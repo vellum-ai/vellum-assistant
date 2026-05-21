@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type FormEvent, type InputHTMLAttributes, type ReactNode } from "react";
 
 import { Notice } from "@vellum/design-library";
 
@@ -21,7 +21,7 @@ const ARROW_ICON = (
 );
 
 interface AccountFormProps {
-  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
+  onSubmit: (e: FormEvent<HTMLFormElement>) => void;
   error?: string | null;
   children: ReactNode;
   submitLabel: string;
@@ -62,7 +62,7 @@ export function AccountForm({
 }
 
 export function AccountInput(
-  props: React.InputHTMLAttributes<HTMLInputElement>,
+  props: InputHTMLAttributes<HTMLInputElement>,
 ) {
   return (
     <input

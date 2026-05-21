@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Input, Textarea } from "@vellum/design-library/components/input";
@@ -90,7 +90,7 @@ function CreateScheduleModalInner({
     trimmedMessage.length > 0 &&
     !submitting;
 
-  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!canSubmit) return;
     setSubmitting(true);

@@ -1,3 +1,4 @@
+import type { MouseEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -17,7 +18,7 @@ interface HomeMarkdownContentProps {
 // user actually sees the destination. Web keeps the default new-tab behavior
 // (right-click → copy link still works because the `href` is preserved).
 function handleAnchorClick(
-  event: React.MouseEvent<HTMLAnchorElement>,
+  event: MouseEvent<HTMLAnchorElement>,
   href: string | undefined,
 ): void {
   if (!href || !isNativePlatform()) return;
