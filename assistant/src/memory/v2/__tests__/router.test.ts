@@ -710,6 +710,31 @@ describe("runRouter — batched (batch_size set)", () => {
     expect(result.selectedSlugs).toEqual([]);
   });
 
+  test("union across batches is truncated to global max_page_ids", async () => {
+    // 5 pages, batch_size=1 → 5 batches, each picks its own local id 1.
+    // Without a global cap the union would be 5; max_page_ids=2 forces
+    // truncation back to 2.
+    providerStub = makeProvider(toolUseResponse([1]));
+
+    const result = await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ batchSize: 1, maxPageIds: 2 }),
+    });
+
+    expect(result.failureReason).toBeNull();
+    expect(result.selectedSlugs).toHaveLength(2);
+    // sourceBySlug must stay aligned with the truncated selection.
+    expect(result.sourceBySlug.size).toBe(2);
+    for (const slug of result.selectedSlugs) {
+      expect(result.sourceBySlug.get(slug)).toBeDefined();
+    }
+    const warned = warnLogs.some((l) =>
+      JSON.stringify(l.args).includes("union across batches exceeded"),
+    );
+    expect(warned).toBe(true);
+  });
+
   test("batch_size larger than index size is single batch (same as v3)", async () => {
     providerStub = makeProvider(toolUseResponse([1]));
     const result = await runRouter({
