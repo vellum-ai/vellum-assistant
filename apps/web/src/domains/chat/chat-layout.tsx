@@ -14,6 +14,8 @@ import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
+import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
+import { useDynamicFavicon } from "@/domains/avatar/use-dynamic-favicon.js";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge.js";
 import type { AssistantContextValue } from "@/domains/chat/assistant-context.js";
 
@@ -172,6 +174,18 @@ export function ChatLayout() {
     assistantId: lifecycle.assistantId,
     assistantStateKind: lifecycle.assistantState.kind,
   });
+
+  // Sync the browser favicon to the assistant's avatar across every
+  // chat-layout child route — not just ChatPage. Mounting this in the
+  // layout keeps the favicon live while the user is on identity,
+  // library, workspace, contacts, or home (where ChatPage isn't
+  // mounted). The hook is a no-op when assistantId is null.
+  const layoutAvatar = useAssistantAvatar(lifecycle.assistantId);
+  useDynamicFavicon(
+    layoutAvatar.customImageUrl,
+    layoutAvatar.components,
+    layoutAvatar.traits,
+  );
 
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header. Gated on the homePage feature flag so the hook

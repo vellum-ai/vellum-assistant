@@ -55,7 +55,6 @@ import { useChatAttachments } from "@/domains/chat/components/chat-attachments/u
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input.js";
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters.js";
 import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
-import { useDynamicFavicon } from "@/domains/avatar/use-dynamic-favicon.js";
 import { useAssistantReachability } from "@/assistant/use-assistant-reachability.js";
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor.js";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";
@@ -335,7 +334,6 @@ export function ChatPage() {
   // Avatar
   // -------------------------------------------------------------------------
   const avatar = useAssistantAvatar(assistantId);
-  useDynamicFavicon(avatar.customImageUrl, avatar.components, avatar.traits);
 
   // -------------------------------------------------------------------------
   // Nudges

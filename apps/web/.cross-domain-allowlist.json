@@ -6,6 +6,7 @@
     "messaging"
   ],
   "src/domains/chat/chat-layout.tsx": [
+    "avatar",
     "conversations",
     "subagents"
   ],
