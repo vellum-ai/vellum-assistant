@@ -390,6 +390,36 @@ function normalizeTaskProgressCardPatch(
   return normalizedPatch;
 }
 
+function isTaskProgressCardData(data: SurfaceData | Record<string, unknown>) {
+  return (data as Record<string, unknown>).template === "task_progress";
+}
+
+function isSlackTaskProgressUiException(
+  ctx: SurfaceConversationContext,
+  toolName: string,
+  input: Record<string, unknown>,
+): boolean {
+  if (ctx.channelCapabilities?.channel !== "slack") return false;
+  if (toolName === "ui_show") {
+    const surfaceType = input.surface_type as SurfaceType;
+    const rawData = isPlainObject(input.data) ? input.data : {};
+    return (
+      surfaceType === "card" &&
+      (input.template === "task_progress" ||
+        rawData.template === "task_progress")
+    );
+  }
+  if (toolName === "ui_update") {
+    const surfaceId = input.surface_id;
+    if (typeof surfaceId !== "string") return false;
+    const stored = ctx.surfaceState.get(surfaceId);
+    return (
+      stored?.surfaceType === "card" && isTaskProgressCardData(stored.data)
+    );
+  }
+  return false;
+}
+
 /**
  * Subset of Conversation state that surface helpers need access to.
  * The Conversation class implements this interface so its instances can be
@@ -2140,7 +2170,11 @@ export async function surfaceProxyResolver(
 
   if (toolName === "ui_show" || toolName === "ui_update") {
     const caps = ctx.channelCapabilities;
-    if (caps && !caps.supportsDynamicUi) {
+    if (
+      caps &&
+      !caps.supportsDynamicUi &&
+      !isSlackTaskProgressUiException(ctx, toolName, input)
+    ) {
       log.info(
         { toolName, channel: caps.channel, conversationId: ctx.conversationId },
         "Blocked UI surface tool on channel without dynamic UI support",
