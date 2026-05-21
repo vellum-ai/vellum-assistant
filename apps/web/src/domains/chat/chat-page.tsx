@@ -148,6 +148,7 @@ export function ChatPage() {
   });
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
   const [assistantIdentity, setAssistantIdentity] = useState<AssistantIdentity | null>(null);
+  const [overlayTarget, setOverlayTarget] = useState<HTMLElement | null>(null);
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
   // -------------------------------------------------------------------------
@@ -984,6 +985,15 @@ export function ChatPage() {
   }, [topBarRightContent, setTopBarRightSlot]);
 
   // -------------------------------------------------------------------------
+  // Mobile overlay portal — resolve after DOM commit (CONVENTIONS.md §SSR)
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    setOverlayTarget(
+      isMobile ? document.getElementById("viewport-overlays") : null,
+    );
+  }, [isMobile]);
+
+  // -------------------------------------------------------------------------
   // Derived UI state
   // -------------------------------------------------------------------------
   const hasUncompletedVisibleSurface = useMemo(() => {
@@ -1243,16 +1253,6 @@ export function ChatPage() {
     didOnboarding,
     onboardingConversationKey,
   };
-
-  // -------------------------------------------------------------------------
-  // Mobile overlay portal — resolve after DOM commit (CONVENTIONS.md §SSR)
-  // -------------------------------------------------------------------------
-  const [overlayTarget, setOverlayTarget] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    setOverlayTarget(
-      isMobile ? document.getElementById("viewport-overlays") : null,
-    );
-  }, [isMobile]);
 
   return (
     <>
