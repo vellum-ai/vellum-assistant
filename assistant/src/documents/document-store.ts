@@ -461,6 +461,7 @@ export function replaceInDocument(
         result += m[0].replace(singleMatchPattern, replace);
         lastIndex = m.index + m[0].length;
         count++;
+        if (m[0].length === 0) pattern.lastIndex++;
       }
       result += row.content.slice(lastIndex);
       newContent = result;
