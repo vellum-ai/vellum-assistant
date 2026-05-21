@@ -14,7 +14,7 @@ import { PaymentMethodsCard } from "@/domains/settings/components/payment-method
 import { PlanCard } from "@/domains/settings/components/plan-card.js";
 import { ReferralPanel } from "@/domains/settings/components/referral-panel.js";
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 
 /**
@@ -51,7 +51,7 @@ function BillingStatusHandler() {
 }
 
 export function BillingPage() {
-  const proPlanAdjust = useAssistantFeatureFlagStore.use.proPlanAdjust();
+  const proPlanAdjust = useClientFeatureFlagStore.use.proPlanAdjust();
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const openPlanModal = useCallback(() => setPlanModalOpen(true), []);
   const closePlanModal = useCallback(() => setPlanModalOpen(false), []);

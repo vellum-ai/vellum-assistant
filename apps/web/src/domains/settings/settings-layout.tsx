@@ -18,7 +18,7 @@ import { useSettingsSync } from "@/domains/settings/hooks/use-settings-sync.js";
  * fresh while the user is on any settings page.
  */
 export function SettingsLayout() {
-  const settingsDeveloperNav = useClientFeatureFlagStore.use.settingsDeveloperNav();
+  const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
   const sounds = useAssistantFeatureFlagStore.use.sounds();
   const { pathname } = useLocation();

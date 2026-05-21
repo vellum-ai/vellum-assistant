@@ -5,7 +5,7 @@ import { client } from "@/generated/api/client.gen.js";
 import { assertHasResponse } from "@/lib/api-errors.js";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import {
-  defaultsForScope,
+  ASSISTANT_FLAG_DEFAULTS,
   type AssistantFeatureFlags,
 } from "@/lib/feature-flags/feature-flag-catalog.js";
 
@@ -21,7 +21,7 @@ interface AssistantFlagValuesResponse {
   flags: FeatureFlagEntry[];
 }
 
-const ASSISTANT_DEFAULTS = defaultsForScope("assistant");
+const ASSISTANT_DEFAULTS = ASSISTANT_FLAG_DEFAULTS;
 
 const NORMALIZED_TO_STORE_KEY: Record<string, keyof AssistantFeatureFlags> = {};
 for (const key of Object.keys(ASSISTANT_DEFAULTS) as (keyof AssistantFeatureFlags)[]) {

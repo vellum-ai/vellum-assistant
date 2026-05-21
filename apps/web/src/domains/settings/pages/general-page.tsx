@@ -135,9 +135,9 @@ function TimezoneCard() {
 export function GeneralPage() {
   const { assistant, assistantLoading, healthz, healthzLoading, refetch } =
     useAssistantWithHealthz();
-  const accountDeletion = useClientFeatureFlagStore.use.accountDeletion();
+  const accountDeletion = useAssistantFeatureFlagStore.use.accountDeletion();
   const multiPlatformAssistant = useAssistantFeatureFlagStore.use.multiPlatformAssistant();
-  const settingsSleepPolicy = useClientFeatureFlagStore.use.settingsSleepPolicy();
+  const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isLoggedIn = useAuthStore.use.isLoggedIn();
 
   const platformAssistant = assistant?.is_local ? null : assistant;

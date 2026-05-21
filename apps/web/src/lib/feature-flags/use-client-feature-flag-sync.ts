@@ -5,7 +5,7 @@ import { client } from "@/generated/api/client.gen.js";
 import { assertHasResponse } from "@/lib/api-errors.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import {
-  defaultsForScope,
+  CLIENT_FLAG_DEFAULTS,
   type ClientFeatureFlags,
 } from "@/lib/feature-flags/feature-flag-catalog.js";
 
@@ -13,7 +13,7 @@ interface ClientFlagValuesResponse {
   flags: Record<string, boolean>;
 }
 
-const CLIENT_DEFAULTS = defaultsForScope("client");
+const CLIENT_DEFAULTS = CLIENT_FLAG_DEFAULTS;
 
 const NORMALIZED_TO_STORE_KEY: Record<string, keyof ClientFeatureFlags> = {};
 for (const key of Object.keys(CLIENT_DEFAULTS) as (keyof ClientFeatureFlags)[]) {

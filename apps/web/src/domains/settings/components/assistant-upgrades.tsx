@@ -16,7 +16,7 @@ import {
   assistantsUpgradeDetailCreate,
 } from "@/generated/api/sdk.gen.js";
 import type { ReleaseListItem } from "@/generated/api/types.gen.js";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import {
   compareParsed,
   parseSemver,
@@ -47,7 +47,7 @@ export function AssistantUpgrades({
   currentVersion,
   onUpgradeComplete,
 }: AssistantUpgradesProps) {
-  const rollbackEnabled = useClientFeatureFlagStore.use.rollbackEnabled();
+  const rollbackEnabled = useAssistantFeatureFlagStore.use.rollbackEnabled();
   const queryClient = useQueryClient();
   const [isPollingUpgrade, setIsPollingUpgrade] = useState(false);
   const targetVersionRef = useRef<string | null>(null);

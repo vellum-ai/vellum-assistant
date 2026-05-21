@@ -2,11 +2,11 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors.js";
 import {
-  defaultsForScope,
+  CLIENT_FLAG_DEFAULTS,
   type ClientFeatureFlags,
 } from "@/lib/feature-flags/feature-flag-catalog.js";
 
-const CLIENT_DEFAULTS = defaultsForScope("client");
+const CLIENT_DEFAULTS = CLIENT_FLAG_DEFAULTS;
 
 interface ClientFeatureFlagActions {
   setFlags: (flags: Partial<ClientFeatureFlags>) => void;

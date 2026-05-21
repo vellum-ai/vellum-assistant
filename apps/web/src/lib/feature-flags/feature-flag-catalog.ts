@@ -1,51 +1,55 @@
+import registry from "./feature-flag-registry.json";
+
 export type FlagScope = "client" | "assistant";
 
-interface FlagEntry {
+export interface FlagDefinition {
+  id: string;
   scope: FlagScope;
+  key: string;
+  label: string;
+  description: string;
   defaultEnabled: boolean;
 }
 
-export const FLAG_CATALOG = {
-  // Client flags
-  accountDeletion: { scope: "client", defaultEnabled: false },
-  chatPullToRefreshEnabled: { scope: "client", defaultEnabled: false },
-  doctor: { scope: "client", defaultEnabled: false },
-  homePage: { scope: "client", defaultEnabled: false },
-  platformNotifications: { scope: "client", defaultEnabled: false },
-  rollbackEnabled: { scope: "client", defaultEnabled: false },
-  selfHostedAssistant: { scope: "client", defaultEnabled: false },
-  settingsDeveloperNav: { scope: "client", defaultEnabled: false },
-  settingsSleepPolicy: { scope: "client", defaultEnabled: false },
-  velvet: { scope: "client", defaultEnabled: false },
+const flags = registry.flags as FlagDefinition[];
 
-  // Assistant flags
-  a2aChannel: { scope: "assistant", defaultEnabled: false },
-  analyzeConversation: { scope: "assistant", defaultEnabled: false },
-  conversationGroupsUI: { scope: "assistant", defaultEnabled: false },
-  deployToVercel: { scope: "assistant", defaultEnabled: false },
-  multiPlatformAssistant: { scope: "assistant", defaultEnabled: false },
-  openAICompatibleEndpoints: { scope: "assistant", defaultEnabled: false },
-  proPlanAdjust: { scope: "assistant", defaultEnabled: false },
-  safeStorageLimits: { scope: "assistant", defaultEnabled: false },
-  sounds: { scope: "assistant", defaultEnabled: false },
-} as const satisfies Record<string, FlagEntry>;
+function normalizeKey(kebabKey: string): string {
+  return kebabKey.replace(/-/g, "").toLowerCase();
+}
 
-type Catalog = typeof FLAG_CATALOG;
-type FlagKeysForScope<S extends FlagScope> = {
-  [K in keyof Catalog]: Catalog[K]["scope"] extends S ? K : never;
-}[keyof Catalog];
-
-export type ClientFlagKey = FlagKeysForScope<"client">;
-export type AssistantFlagKey = FlagKeysForScope<"assistant">;
-export type ClientFeatureFlags = Record<ClientFlagKey, boolean>;
-export type AssistantFeatureFlags = Record<AssistantFlagKey, boolean>;
-
-export function defaultsForScope<S extends FlagScope>(scope: S) {
-  const result: Record<string, boolean> = {};
-  for (const [key, entry] of Object.entries(FLAG_CATALOG)) {
-    if (entry.scope === scope) {
-      result[key] = entry.defaultEnabled;
+function buildScopeDefaults(scope: FlagScope): Record<string, boolean> {
+  const defaults: Record<string, boolean> = {};
+  for (const flag of flags) {
+    if (flag.scope === scope) {
+      defaults[normalizeKey(flag.key)] = flag.defaultEnabled;
     }
   }
-  return result as Record<FlagKeysForScope<S>, boolean>;
+  return defaults;
 }
+
+function buildNormalizedLookup(
+  scope: FlagScope,
+): Record<string, FlagDefinition> {
+  const lookup: Record<string, FlagDefinition> = {};
+  for (const flag of flags) {
+    if (flag.scope === scope) {
+      lookup[normalizeKey(flag.key)] = flag;
+    }
+  }
+  return lookup;
+}
+
+export const CLIENT_FLAG_DEFAULTS = buildScopeDefaults("client");
+export const ASSISTANT_FLAG_DEFAULTS = buildScopeDefaults("assistant");
+
+export const CLIENT_FLAG_LOOKUP = buildNormalizedLookup("client");
+export const ASSISTANT_FLAG_LOOKUP = buildNormalizedLookup("assistant");
+
+export type ClientFeatureFlags = Record<string, boolean>;
+export type AssistantFeatureFlags = Record<string, boolean>;
+
+export function ldKeyToNormalized(ldKey: string): string {
+  return normalizeKey(ldKey);
+}
+
+export { flags as ALL_FLAGS };

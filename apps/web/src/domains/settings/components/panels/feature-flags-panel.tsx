@@ -7,9 +7,8 @@ import { SettingsCard } from "@/domains/settings/components/settings-card.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import {
-  FLAG_CATALOG,
-  type ClientFlagKey,
-  type AssistantFlagKey,
+  ALL_FLAGS,
+  ldKeyToNormalized,
   type FlagScope,
 } from "@/lib/feature-flags/feature-flag-catalog.js";
 
@@ -122,21 +121,22 @@ export function FeatureFlagsPanel() {
 
   const flags: FlagDisplayEntry[] = useMemo(() => {
     const entries: FlagDisplayEntry[] = [];
-    for (const [key, catalogEntry] of Object.entries(FLAG_CATALOG)) {
-      const meta = FLAG_META[key];
+    for (const flag of ALL_FLAGS) {
+      const normalizedKey = ldKeyToNormalized(flag.key);
+      const meta = FLAG_META[normalizedKey];
       if (!meta) continue;
       const value =
-        catalogEntry.scope === "client"
-          ? clientState[key as ClientFlagKey]
-          : assistantState[key as AssistantFlagKey];
+        flag.scope === "client"
+          ? clientState[normalizedKey]
+          : assistantState[normalizedKey];
       entries.push({
-        key,
-        catalogKey: key,
-        scope: catalogEntry.scope,
+        key: normalizedKey,
+        catalogKey: normalizedKey,
+        scope: flag.scope as FlagScope,
         label: meta.label,
         description: meta.description,
         value,
-        defaultValue: catalogEntry.defaultEnabled,
+        defaultValue: flag.defaultEnabled,
       });
     }
     return entries.sort((a, b) =>
@@ -203,9 +203,9 @@ function FeatureFlagRow({ flag }: FeatureFlagRowProps) {
 
   const handleToggle = (next: boolean) => {
     if (flag.scope === "client") {
-      clientSetFlag(flag.catalogKey as ClientFlagKey, next);
+      clientSetFlag(flag.catalogKey, next);
     } else {
-      assistantSetFlag(flag.catalogKey as AssistantFlagKey, next);
+      assistantSetFlag(flag.catalogKey, next);
     }
   };
 
