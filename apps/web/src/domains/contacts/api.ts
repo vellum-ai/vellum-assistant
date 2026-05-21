@@ -1,4 +1,4 @@
-import { client } from "@/lib/api-client.js";
+import { client } from "@/generated/api/client.gen.js";
 import {
   ApiError,
   assertHasResponse,

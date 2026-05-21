@@ -4,7 +4,7 @@
  * /v1/assistants/{id}/trust-rules/* and are not part of the Django OpenAPI
  * schema.
  */
-import { client } from "@/lib/api-client.js";
+import { client } from "@/generated/api/client.gen.js";
 import {
   ApiError,
   assertHasResponse,
