@@ -7,17 +7,12 @@ import {
   fetchAvatarImageUrl,
 } from "./api.js";
 import type { CharacterComponents, CharacterTraits } from "./types.js";
+import { avatarQueryKey } from "@/lib/sync/query-tags.js";
 
 interface AvatarData {
   components: CharacterComponents | null;
   traits: CharacterTraits | null;
   customImageUrl: string | null;
-}
-
-export const AVATAR_QUERY_KEY_PREFIX = "assistantAvatar";
-
-export function avatarQueryKey(assistantId: string) {
-  return [AVATAR_QUERY_KEY_PREFIX, assistantId] as const;
 }
 
 const activeBlobUrls = new Map<string, string>();

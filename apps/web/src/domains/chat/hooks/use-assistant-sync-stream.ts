@@ -22,18 +22,16 @@ import * as Sentry from "@sentry/browser";
 
 import { subscribeChatEvents } from "@/domains/chat/api/stream.js";
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
-import { avatarQueryKey } from "@/domains/avatar/use-assistant-avatar.js";
 import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init.js";
-import {
-  chatContextQueryKey,
-  conversationGroupsQueryKey,
-} from "@/domains/conversations/conversation-queries.js";
 import {
   assistantDaemonConfigQueryKey,
   assistantScheduleRunsQueryKey,
   assistantSchedulesQueryKey,
   assistantSoundsAvailableQueryKey,
   assistantSoundsConfigQueryKey,
+  avatarQueryKey,
+  chatContextQueryKey,
+  conversationGroupsQueryKey,
 } from "@/lib/sync/query-tags.js";
 import {
   isConversationMessagesSyncTag,

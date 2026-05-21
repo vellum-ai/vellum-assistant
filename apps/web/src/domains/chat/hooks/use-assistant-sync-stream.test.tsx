@@ -4,13 +4,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
-import { avatarQueryKey } from "@/domains/avatar/use-assistant-avatar.js";
 import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init.js";
-import { chatContextQueryKey } from "@/domains/conversations/conversation-queries.js";
 import {
   assistantDaemonConfigQueryKey,
-  assistantSoundsConfigQueryKey,
   assistantSchedulesQueryKey,
+  assistantSoundsConfigQueryKey,
+  avatarQueryKey,
+  chatContextQueryKey,
 } from "@/lib/sync/query-tags.js";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types.js";
 
@@ -208,5 +208,44 @@ describe("useAssistantSyncStream", () => {
       delta: "hi",
     } as unknown as AssistantEvent);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  test("per-conversation metadata/messages tags schedule a debounced list refresh", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantSyncStream("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    activeHandler!(syncEvent(["conversation:abc:metadata"]));
+    activeHandler!(syncEvent(["conversation:abc:messages"]));
+    // Both tags fall into the default branch and trigger the
+    // debounced sidebar refresh — coalesced into a single invalidate.
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const listCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
+      (call) => {
+        const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
+        return arg?.queryKey?.[0] === chatContextQueryKey("asst-1")[0];
+      },
+    );
+    expect(listCalls.length).toBe(1);
+  });
+
+  test("cancels the stream when isAssistantActive flips true -> false", () => {
+    const queryClient = freshQueryClient();
+    const { rerender } = renderHook(
+      ({ active }: { active: boolean }) =>
+        useAssistantSyncStream("asst-1", active),
+      {
+        wrapper: createWrapper(queryClient),
+        initialProps: { active: true },
+      },
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    expect(cancelMock).not.toHaveBeenCalled();
+    rerender({ active: false });
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    // Stays cancelled — no new subscribe while inactive.
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
   });
 });

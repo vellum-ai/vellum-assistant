@@ -58,14 +58,6 @@
   "src/domains/chat/hooks/use-assistant-lifecycle.ts": [
     "onboarding"
   ],
-  "src/domains/chat/hooks/use-assistant-sync-stream.test.tsx": [
-    "avatar",
-    "conversations"
-  ],
-  "src/domains/chat/hooks/use-assistant-sync-stream.ts": [
-    "avatar",
-    "conversations"
-  ],
   "src/domains/chat/hooks/use-conversation-history.ts": [
     "conversations",
     "interactions",
