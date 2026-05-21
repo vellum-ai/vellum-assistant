@@ -6,7 +6,7 @@ import type {
   LLMContextSection,
   LLMRequestLogEntry,
 } from "@/domains/chat/types/inspector-types.js";
-import { FileMarkdown } from "@/domains/intelligence/components/file-markdown.js";
+import { FileMarkdown } from "@/components/file-markdown.js";
 
 interface PromptTabProps {
   entry: LLMRequestLogEntry;

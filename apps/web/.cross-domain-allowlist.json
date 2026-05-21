@@ -13,6 +13,7 @@
     "avatar",
     "conversations",
     "interactions",
+    "messaging",
     "onboarding",
     "subagents"
   ],
@@ -98,9 +99,6 @@
   "src/domains/chat/hooks/use-web-search-card-data.ts": [
     "messaging"
   ],
-  "src/domains/chat/inspector/components/tabs/prompt-tab.tsx": [
-    "intelligence"
-  ],
   "src/domains/chat/transcript/latest-turn-row.tsx": [
     "subagents"
   ],
@@ -129,9 +127,6 @@
     "messaging"
   ],
   "src/domains/chat/utils/stream-handlers/types.ts": [
-    "messaging"
-  ],
-  "src/domains/chat/utils/turn-selectors.ts": [
     "messaging"
   ],
   "src/domains/contacts/components/assistant-channels-detail.tsx": [
@@ -229,23 +224,11 @@
   "src/domains/logs/pages/usage-page.tsx": [
     "settings"
   ],
-  "src/domains/messaging/turn-store.test.ts": [
-    "chat"
-  ],
-  "src/domains/nudges/nudge-prefs.ts": [
-    "settings"
-  ],
-  "src/domains/onboarding/onboarding-store.ts": [
-    "settings"
-  ],
   "src/domains/onboarding/pages/hatching-screen.tsx": [
     "avatar"
   ],
   "src/domains/onboarding/pages/pre-chat-flow.tsx": [
     "nudges"
-  ],
-  "src/domains/onboarding/prefs.ts": [
-    "settings"
   ],
   "src/domains/onboarding/screens/get-ios-app-screen.tsx": [
     "nudges"
@@ -294,9 +277,6 @@
   ],
   "src/domains/subagents/subagent-store.ts": [
     "chat"
-  ],
-  "src/domains/workspace/components/workspace-file-viewer.tsx": [
-    "intelligence"
   ],
   "src/domains/workspace/workspace-page.tsx": [
     "chat"

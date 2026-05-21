@@ -58,7 +58,7 @@ import {
 import { routes } from "@/utils/routes.js";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags.js";
 import { synthesizeTTS } from "@/domains/voice/tts-synthesize.js";
-import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/domains/settings/local-settings.js";
+import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/lib/local-settings.js";
 import { CallSiteOverridesModal, type CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal.js";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal.js";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal.js";
