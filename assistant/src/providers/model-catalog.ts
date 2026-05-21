@@ -800,6 +800,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: { inputPer1mTokens: 3, outputPer1mTokens: 15 },
       },
       {
+        id: "x-ai/grok-4.3",
+        displayName: "Grok 4.3",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 16000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 1.25, outputPer1mTokens: 2.5 },
+      },
+      {
         id: "x-ai/grok-4",
         displayName: "Grok 4",
         contextWindowTokens: 131072,
