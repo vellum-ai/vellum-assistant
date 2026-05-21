@@ -1,21 +1,89 @@
 /**
  * Generates a pre-filled Slack app manifest creation URL.
  *
- * Usage: bun skills/slack-app-setup/generate-manifest-url.ts <bot-name> [bot-description]
+ * Usage:
+ *   bun skills/slack-app-setup/generate-manifest-url.ts
+ *   bun skills/slack-app-setup/generate-manifest-url.ts <bot-name> [bot-description]
  *
  * The manifest is the single source of truth for all required scopes,
  * event subscriptions, and settings.
  */
 
-const name = process.argv[2];
-const desc = process.argv[3] ?? "";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
-if (!name) {
-  console.error(
-    "Usage: bun generate-manifest-url.ts <bot-name> [bot-description]",
-  );
-  process.exit(1);
+const DEFAULT_ASSISTANT_NAME = "Vellum Assistant";
+const DEFAULT_GUARDIAN_NAME = "User";
+
+function cleanField(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith("_(") && trimmed.endsWith(")_")) return undefined;
+  return trimmed;
 }
+
+function labelPattern(label: string): RegExp {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^-\\s*(?:\\*\\*)?${escaped}:?(?:\\*\\*)?\\s*(.+)$`, "i");
+}
+
+function readFirstMarkdownField(
+  path: string,
+  labels: string[],
+): string | undefined {
+  if (!existsSync(path)) return undefined;
+
+  const content = readFileSync(path, "utf-8");
+  for (const rawLine of content.split("\n")) {
+    const line = rawLine.trim();
+    for (const label of labels) {
+      const match = line.match(labelPattern(label));
+      const value = cleanField(match?.[1]);
+      if (value) return value;
+    }
+  }
+
+  return undefined;
+}
+
+function getWorkspaceDir(): string {
+  return process.env.VELLUM_WORKSPACE_DIR?.trim() || process.cwd();
+}
+
+function inferAssistantName(workspaceDir: string): string {
+  return (
+    readFirstMarkdownField(join(workspaceDir, "IDENTITY.md"), [
+      "Name",
+      "Assistant Name",
+      "Preferred Name",
+    ]) ||
+    cleanField(process.env.VELLUM_ASSISTANT_NAME) ||
+    DEFAULT_ASSISTANT_NAME
+  );
+}
+
+function inferGuardianName(workspaceDir: string): string {
+  return (
+    readFirstMarkdownField(join(workspaceDir, "users", "default.md"), [
+      "Name",
+      "Preferred name/reference",
+      "Preferred Name",
+    ]) ||
+    readFirstMarkdownField(join(workspaceDir, "USER.md"), [
+      "Name",
+      "Preferred name/reference",
+      "Preferred Name",
+    ]) ||
+    DEFAULT_GUARDIAN_NAME
+  );
+}
+
+const workspaceDir = getWorkspaceDir();
+const name = cleanField(process.argv[2]) ?? inferAssistantName(workspaceDir);
+const desc =
+  process.argv[3] !== undefined
+    ? (cleanField(process.argv[3]) ?? "")
+    : `${inferGuardianName(workspaceDir)}'s Assistant`;
 
 const manifest = {
   display_information: {
