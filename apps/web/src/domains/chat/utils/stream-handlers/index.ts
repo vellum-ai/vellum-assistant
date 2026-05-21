@@ -24,6 +24,7 @@ export {
 } from "@/domains/chat/utils/stream-handlers/surface-handlers.js";
 export {
   handleToolUseStart,
+  handleToolProgress,
   handleToolResult,
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers.js";
 export {

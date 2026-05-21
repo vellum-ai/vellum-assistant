@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { ExternalLink } from "lucide-react";
 
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/index.js";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
@@ -14,7 +15,7 @@ import { MessageHoverActions } from "@/domains/chat/components/message-hover-act
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/index.js";
 import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import type { Surface } from "@/domains/chat/types/types.js";
+import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
 
@@ -106,6 +107,73 @@ function latestMessageActivityTimestamp(
   return Math.max(message.timestamp, latestToolTimestamp);
 }
 
+function fallbackRoleLabel(role: DisplayMessage["role"]): string {
+  return role === "assistant" ? "Assistant" : "User";
+}
+
+function firstPresentLabel(
+  ...candidates: Array<string | null | undefined>
+): string | undefined {
+  for (const candidate of candidates) {
+    const normalized = candidate?.trim();
+    if (normalized) return normalized;
+  }
+  return undefined;
+}
+
+function getSlackSenderLabel(message: DisplayMessage): string | null {
+  if (!message.slackMessage) return null;
+  const sender = message.slackMessage.sender;
+  return firstPresentLabel(
+    sender?.displayName,
+    sender?.name,
+    sender?.username,
+    sender?.externalUserId,
+  ) ?? fallbackRoleLabel(message.role);
+}
+
+function isInteractiveClickTarget(target: Element | null): boolean {
+  return Boolean(
+    target?.closest('a, button, [role="button"], input, textarea, select'),
+  );
+}
+
+function SlackMessageAttribution({ message }: { message: DisplayMessage }) {
+  const label = getSlackSenderLabel(message);
+  if (!label) return null;
+
+  const url = getSlackLinkUrl(message.slackMessage?.messageLink);
+  const className =
+    "inline-flex items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)]";
+  const content = (
+    <>
+      <span>{label}</span>
+      {url && <ExternalLink aria-hidden className="h-3 w-3 shrink-0" />}
+    </>
+  );
+
+  if (!url) {
+    return (
+      <div data-testid="slack-message-attribution" className={className}>
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <a
+      data-testid="slack-message-attribution"
+      href={url}
+      target="_blank"
+      rel="noreferrer noopener"
+      className={`${className} hover:text-[var(--content-default)]`}
+    >
+      {content}
+    </a>
+  );
+}
+
+
 export function TranscriptMessageBody({
   message,
   expandedToolCallIds,
@@ -152,6 +220,7 @@ export function TranscriptMessageBody({
   // (links, buttons) are skipped so they handle their own clicks.
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [revealed, setRevealed] = useState(false);
+  const slackMessageUrl = getSlackLinkUrl(message.slackMessage?.messageLink);
 
   useEffect(() => {
     if (!revealed) return;
@@ -166,13 +235,20 @@ export function TranscriptMessageBody({
   }, [revealed]);
 
   const handleBubbleClick = useCallback((e: ReactMouseEvent<HTMLDivElement>) => {
-    if (!isPointerCoarse()) return;
     const target = e.target as Element | null;
-    if (target?.closest('a, button, [role="button"], input, textarea, select')) {
+    if (isInteractiveClickTarget(target)) {
       return;
     }
+
+    if (slackMessageUrl) {
+      if (window.getSelection()?.toString()) return;
+      window.open(slackMessageUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    if (!isPointerCoarse()) return;
     setRevealed((v) => !v);
-  }, []);
+  }, [slackMessageUrl]);
 
   // Resolve a surface from a contentOrder id. Surfaces are stored directly
   // on the message's surfaces[] array. The streaming path uses the UUID
@@ -240,7 +316,9 @@ export function TranscriptMessageBody({
         ref={wrapperRef}
         onClick={handleBubbleClick}
         data-revealed={revealed}
-        className={`group/msg flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+        data-slack-message-link={slackMessageUrl ? "true" : undefined}
+        title={slackMessageUrl ? "Open in Slack" : undefined}
+        className={`group/msg flex ${slackMessageUrl ? "cursor-pointer" : ""} ${message.role === "user" ? "justify-end" : "justify-start"}`}
       >
         <div
           className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
@@ -328,6 +406,7 @@ export function TranscriptMessageBody({
               assistantId={assistantId}
             />
           )}
+          <SlackMessageAttribution message={message} />
           <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
             <MessageHoverActions
               content={message.content}
@@ -395,7 +474,9 @@ export function TranscriptMessageBody({
       ref={wrapperRef}
       onClick={handleBubbleClick}
       data-revealed={revealed}
-      className={`group/msg flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+      data-slack-message-link={slackMessageUrl ? "true" : undefined}
+      title={slackMessageUrl ? "Open in Slack" : undefined}
+      className={`group/msg flex ${slackMessageUrl ? "cursor-pointer" : ""} ${message.role === "user" ? "justify-end" : "justify-start"}`}
     >
       <div
         className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
@@ -456,6 +537,7 @@ export function TranscriptMessageBody({
             </div>
           ));
         })()}
+        <SlackMessageAttribution message={message} />
         <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
           <MessageHoverActions
             content={message.content}

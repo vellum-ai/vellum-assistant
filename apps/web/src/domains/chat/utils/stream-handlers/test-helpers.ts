@@ -27,6 +27,7 @@ export function makeCtx(
       onTextDelta: mock(() => {}),
       onToolUseStart: mock(() => {}),
       onToolResult: mock(() => {}),
+      onToolActivityMetadata: mock(() => {}),
       onActivityThinking: mock(() => {}),
       showSurface: mock(() => {}),
       updateSurface: mock(() => {}),

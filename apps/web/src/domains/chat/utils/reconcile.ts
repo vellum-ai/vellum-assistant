@@ -313,6 +313,9 @@ export function reconcileMessages(
       }
       if (m.metadata) msg.metadata = m.metadata;
       if (m.subagentNotification) msg.isSubagentNotification = true;
+      if (prepared.slackMessage ?? localMsg?.slackMessage) {
+        msg.slackMessage = prepared.slackMessage ?? localMsg?.slackMessage;
+      }
 
       // Prefer local toolCalls (accumulated during SSE streaming with richer
       // metadata) over the server's. When we keep local toolCalls, also keep

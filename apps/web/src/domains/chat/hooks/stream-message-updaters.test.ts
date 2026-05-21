@@ -4,11 +4,15 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 
 import {
   appendTextDelta,
+  applyToolProgress,
+  applyToolResult,
   createStreamingBubble,
   handleConversationError,
   stopStreaming,
   upsertToolCall,
 } from "@/domains/chat/hooks/stream-message-updaters.js";
+import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
 
 function makeAssistantMsg(
   overrides: Partial<DisplayMessage> = {},
@@ -238,5 +242,133 @@ describe("upsertToolCall", () => {
     const prev = [msg];
     upsertToolCall(prev, toolCall, false);
     expect(prev[0]!.toolCalls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyToolResult — activityMetadata persistence
+// ---------------------------------------------------------------------------
+
+describe("applyToolResult — activityMetadata", () => {
+  const baseToolCall: ChatMessageToolCall = {
+    id: "tc-1",
+    toolName: "web_search",
+    input: { query: "tigers" },
+    status: "running",
+    startedAt: 1000,
+  };
+
+  function msgWithRunningCall(): DisplayMessage {
+    return makeAssistantMsg({
+      toolCalls: [baseToolCall],
+      contentOrder: [{ type: "toolCall", id: "tc-1" }],
+    });
+  }
+
+  const metadata: ToolActivityMetadata = {
+    webSearch: {
+      query: "tigers",
+      provider: "anthropic-native",
+      resultCount: 1,
+      durationMs: 250,
+      results: [
+        {
+          rank: 1,
+          title: "Tigers - Wikipedia",
+          url: "https://en.wikipedia.org/wiki/Tiger",
+          domain: "en.wikipedia.org",
+        },
+      ],
+    },
+  };
+
+  it("persists activityMetadata onto the tool call", () => {
+    const result = applyToolResult([msgWithRunningCall()], {
+      toolUseId: "tc-1",
+      result: "...",
+      activityMetadata: metadata,
+    });
+    expect(result[0]!.toolCalls![0]!.activityMetadata).toEqual(metadata);
+    expect(result[0]!.toolCalls![0]!.status).toBe("completed");
+  });
+
+  it("preserves prior activityMetadata when re-applied without it", () => {
+    const msg = makeAssistantMsg({
+      toolCalls: [{ ...baseToolCall, status: "running", activityMetadata: metadata }],
+      contentOrder: [{ type: "toolCall", id: "tc-1" }],
+    });
+    const result = applyToolResult([msg], {
+      toolUseId: "tc-1",
+      result: "...",
+    });
+    expect(result[0]!.toolCalls![0]!.activityMetadata).toEqual(metadata);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyToolProgress
+// ---------------------------------------------------------------------------
+
+describe("applyToolProgress", () => {
+  const runningToolCall: ChatMessageToolCall = {
+    id: "tc-1",
+    toolName: "bash",
+    input: {},
+    status: "running",
+    startedAt: 1000,
+  };
+
+  function msgWithRunning(): DisplayMessage {
+    return makeAssistantMsg({
+      toolCalls: [runningToolCall],
+      contentOrder: [{ type: "toolCall", id: "tc-1" }],
+    });
+  }
+
+  it("stamps progressElapsedSec/progressTimeoutSec/lastProgressAt on matching tool call", () => {
+    const result = applyToolProgress([msgWithRunning()], {
+      toolUseId: "tc-1",
+      elapsedSec: 15,
+      timeoutSec: 60,
+    });
+    const tc = result[0]!.toolCalls![0]!;
+    expect(tc.progressElapsedSec).toBe(15);
+    expect(tc.progressTimeoutSec).toBe(60);
+    expect(typeof tc.lastProgressAt).toBe("number");
+  });
+
+  it("falls back to the last running tool call when toolUseId is missing", () => {
+    const result = applyToolProgress([msgWithRunning()], {
+      elapsedSec: 10,
+      timeoutSec: 30,
+    });
+    expect(result[0]!.toolCalls![0]!.progressElapsedSec).toBe(10);
+  });
+
+  it("is a no-op when no message with tool calls exists", () => {
+    const prev = [userMsg];
+    const result = applyToolProgress(prev, {
+      toolUseId: "tc-1",
+      elapsedSec: 5,
+      timeoutSec: 30,
+    });
+    expect(result).toBe(prev);
+  });
+
+  it("is a no-op when the matching tool call isn't running", () => {
+    const completed: ChatMessageToolCall = {
+      ...runningToolCall,
+      status: "completed",
+    };
+    const msg = makeAssistantMsg({
+      toolCalls: [completed],
+      contentOrder: [{ type: "toolCall", id: "tc-1" }],
+    });
+    const result = applyToolProgress([msg], {
+      toolUseId: "tc-1",
+      elapsedSec: 5,
+      timeoutSec: 30,
+    });
+    expect(result[0]!.toolCalls![0]!.progressElapsedSec).toBeUndefined();
   });
 });

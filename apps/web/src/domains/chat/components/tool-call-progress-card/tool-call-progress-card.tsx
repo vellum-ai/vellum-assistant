@@ -17,7 +17,9 @@ import {
   friendlyRunningLabel,
   progressiveLabels,
 } from "@/domains/chat/components/tool-call-chip/utils.js";
+import { WebSearchProgressCard } from "@/domains/chat/components/web-search/web-search-progress-card.js";
 import { useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time.js";
+import { useWebSearchCardData } from "@/domains/chat/hooks/use-web-search-card-data.js";
 import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
 
 // ---------------------------------------------------------------------------
@@ -98,6 +100,54 @@ function useProgressiveLabel(
 
   if (labels.length === 0) return null;
   return labels[index] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Stall watchdog
+// ---------------------------------------------------------------------------
+
+/** Threshold (ms) after which the client considers events stalled. */
+const CLIENT_STALL_THRESHOLD_MS = 45_000;
+
+/**
+ * When tool_progress events report a long-running tool, return a user-friendly
+ * "still working" message. Also acts as a client-side stall watchdog: if a
+ * tool has been running >45s with no progress event at all, or the last
+ * progress event is >45s stale, show a stall indicator.
+ */
+function stallSuffix(
+  tc: ChatMessageToolCall | undefined,
+  now: number,
+): string | null {
+  if (!tc || tc.status !== "running") return null;
+
+  // Server-driven progress: the daemon sends tool_progress every ~10s
+  if (tc.progressElapsedSec != null && tc.progressElapsedSec >= 30) {
+    if (tc.progressElapsedSec >= 60) return "This is taking longer than expected...";
+    return "Still working...";
+  }
+
+  // Client-side stall watchdog: no tool_progress events received but
+  // the tool has been running longer than the stall threshold.
+  if (tc.startedAt != null) {
+    const runningMs = now - tc.startedAt;
+    if (runningMs >= CLIENT_STALL_THRESHOLD_MS) {
+      // If we had progress events but they stopped arriving, that's a stall
+      if (tc.lastProgressAt != null) {
+        const sinceLast = now - tc.lastProgressAt;
+        if (sinceLast >= CLIENT_STALL_THRESHOLD_MS) {
+          return "Connection may be interrupted...";
+        }
+      } else {
+        // No progress events ever received — server may not support them,
+        // but tool has been running a long time
+        if (runningMs >= 60_000) return "This is taking longer than expected...";
+        return "Still working...";
+      }
+    }
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +323,30 @@ function ThinkingRow({ sinceMs }: { sinceMs: number | undefined }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export function ToolCallProgressCard({
+export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
+  // Short-circuit to the new web-search progress card whenever the active
+  // turn has any `web_search` / `web_fetch` tool calls. The selector hook
+  // returns `null` for non-web tool calls and historical (reopened) turns —
+  // those continue through the legacy generic card rendering below.
+  //
+  // The legacy renderer is its own component so the conditional return
+  // doesn't sit in front of the legacy path's hook calls (rules-of-hooks).
+  const webSearchData = useWebSearchCardData(props.toolCalls);
+  if (webSearchData) {
+    return (
+      <WebSearchProgressCard
+        currentStepTitle={webSearchData.currentStepTitle}
+        currentStepInfo={webSearchData.currentStepInfo}
+        stepCount={webSearchData.stepCount}
+        steps={webSearchData.steps}
+        state={webSearchData.state}
+      />
+    );
+  }
+  return <LegacyToolCallProgressCard {...props} />;
+}
+
+function LegacyToolCallProgressCard({
   toolCalls,
   expandedToolCallIds,
   onExpandChange,
@@ -375,6 +448,16 @@ export function ToolCallProgressCard({
 
   const phase = computePhase({ hasRunning, allCompleted, hasDenied, isStreaming });
 
+  // Tick every 5s while tools are running so stallSuffix can detect
+  // client-side stalls even when no SSE events are flowing. Stops ticking
+  // once all tools complete.
+  const [stallNow, setStallNow] = useState(Date.now);
+  useEffect(() => {
+    if (!hasRunning) return;
+    const id = setInterval(() => setStallNow(Date.now()), 5_000);
+    return () => clearInterval(id);
+  }, [hasRunning]);
+
   // Phase-based default: auto-expand while tools are running, thinking, or
   // denied. Collapse only once the card reaches "complete". The persistent
   // expandedCardIds set stores the user's explicit toggle so the preference
@@ -399,9 +482,15 @@ export function ToolCallProgressCard({
     (typeof currentRunningCall.input?.reason === "string" && currentRunningCall.input.reason.trim()) ||
     (typeof currentRunningCall.input?.building_status === "string" && currentRunningCall.input.building_status)
   );
-  const headline = (phase === "toolRunning" && progressiveLabel && !hasServerDrivenHeadline)
-    ? progressiveLabel
-    : baseHeadline;
+  // When a tool_progress event reports a stall (>=30s), override the headline
+  // with a user-friendly "still working" message. This takes highest priority
+  // so the user always sees feedback during long-running tool executions.
+  const stall = phase === "toolRunning" ? stallSuffix(currentRunningCall, stallNow) : null;
+  const headline = stall
+    ? stall
+    : (phase === "toolRunning" && progressiveLabel && !hasServerDrivenHeadline)
+      ? progressiveLabel
+      : baseHeadline;
   const elapsed = useElapsedTime(earliestStart, allCompleted && !isStreaming, latestCompleted, "header");
 
   return (

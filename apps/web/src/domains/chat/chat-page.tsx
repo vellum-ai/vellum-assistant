@@ -957,6 +957,14 @@ export function ChatPage() {
     [assistantId, activeConversationKey],
   );
 
+  const handleOpenDocument = useCallback(
+    (surfaceId: string) => {
+      haptic.light();
+      if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
+    },
+    [assistantId],
+  );
+
   const topBarRightContent = useMemo(() => {
     if (!activeConversation?.conversationKey || !assistantId) return null;
     return (
@@ -965,13 +973,10 @@ export function ChatPage() {
         conversationId={activeConversation.conversationKey}
         refreshKey={assetsRefreshKey}
         onOpenApp={handleOpenAppFromChat}
-        onOpenDocument={(surfaceId) => {
-          haptic.light();
-          if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
-        }}
+        onOpenDocument={handleOpenDocument}
       />
     );
-  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey, handleOpenAppFromChat]);
+  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument]);
 
   useEffect(() => {
     setTopBarRightSlot(topBarRightContent);
@@ -1000,11 +1005,15 @@ export function ChatPage() {
 
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
+  const pendingQuestion = useInteractionStore.use.pendingQuestion();
+  const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
 
   const _uiContext: UIContext = {
     hasStreamingAssistantMessage: messages.some((m) => m.isStreaming),
     hasPendingSecret: !!pendingSecret,
     hasPendingConfirmation: !!pendingConfirmation,
+    hasPendingQuestion: !!pendingQuestion,
+    hasPendingContactRequest: !!pendingContactRequest,
     hasUncompletedVisibleSurface,
     activeConversationIsProcessing,
     hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
@@ -1152,10 +1161,7 @@ export function ChatPage() {
       setUnknownNudgeToolCallIds: interactionActions.setUnknownNudgeToolCallIds,
     },
     handleOpenApp: handleOpenAppFromChat,
-    handleOpenDocument: (surfaceId: string) => {
-      haptic.light();
-      if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
-    },
+    handleOpenDocument,
     handleCloseDocument: () => {
       useViewerStore.getState().closeDocument();
     },

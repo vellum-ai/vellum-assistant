@@ -24,6 +24,7 @@ interface UseOnboardingChoiceOptions {
 
 interface UseOnboardingChoiceReturn {
   showOnboardingChoice: boolean;
+  handleSelectSpecific: () => void;
   handleSubmitTasks: (tasks: Set<string>, customText?: string) => void;
   dismiss: () => void;
 }
@@ -93,6 +94,11 @@ export function useOnboardingChoice({
     setPhase("dismissed");
   }, []);
 
+  const handleSelectSpecific = useCallback(() => {
+    sendMessage("I have something specific in mind");
+    dismiss();
+  }, [sendMessage, dismiss]);
+
   const handleSubmitTasks = useCallback(
     (tasks: Set<string>, customText?: string) => {
       const labels = PRECHAT_TASKS.filter((t) => tasks.has(t.id)).map(
@@ -110,6 +116,7 @@ export function useOnboardingChoice({
 
   return {
     showOnboardingChoice: phase === "visible",
+    handleSelectSpecific,
     handleSubmitTasks,
     dismiss,
   };

@@ -16,6 +16,8 @@ export interface UIContext {
   hasStreamingAssistantMessage: boolean;
   hasPendingSecret: boolean;
   hasPendingConfirmation: boolean;
+  hasPendingQuestion: boolean;
+  hasPendingContactRequest: boolean;
   hasUncompletedVisibleSurface: boolean;
   /** True when the active conversation is known to be processing even though
    * the local turn reducer was reset by a conversation switch. */
@@ -42,10 +44,15 @@ export interface UIContext {
  * phase moves past "thinking" (e.g. after a tool call completes before
  * any text arrives).
  *
- * Excluded during `awaiting_user_input` — secret prompts, confirmation
- * prompts, and interactive surfaces render their own UI and should not
- * compete with a "Thinking…" indicator. On macOS the equivalent events
- * clear the `isThinking` boolean, achieving the same suppression.
+ * Each potentially-competing UI surface has its own explicit gate:
+ * pending secret/confirmation/question/contact prompts, and any
+ * still-interactive transcript surface. When a user resolves one of
+ * those prompts via the composer (e.g. typing "yes please" instead of
+ * clicking a Confirmation card button), the corresponding gate goes
+ * false and the dots reappear during the in-flight gap — even if the
+ * turn reducer hasn't yet transitioned `phase` out of
+ * `awaiting_user_input`. This keeps the user informed that their reply
+ * is being processed.
  */
 export function shouldShowThinkingIndicator(
   state: TurnState,
@@ -57,9 +64,10 @@ export function shouldShowThinkingIndicator(
 
   return (
     (isSending(state) || restoredProcessing) &&
-    state.phase !== "awaiting_user_input" &&
     !ctx.hasPendingSecret &&
     !ctx.hasPendingConfirmation &&
+    !ctx.hasPendingQuestion &&
+    !ctx.hasPendingContactRequest &&
     !ctx.hasUncompletedVisibleSurface &&
     (isThinking(state) || restoredProcessing || !ctx.hasStreamingAssistantMessage) &&
     state.activeToolCallCount === 0

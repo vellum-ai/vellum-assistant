@@ -6,8 +6,9 @@
  * / `uploadChatAttachment` / `deleteQueuedMessage` write operations.
  */
 
-import type { ChatMessage, ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
 import type {
+  DisplayMessage,
   SlackRuntimeMessage,
   Surface,
 } from "@/domains/chat/types/types.js";
@@ -246,7 +247,7 @@ export function normalizeTextSegments(
 }
 
 export type ChatHistoryResult =
-  | { ok: true; messages: ChatMessage[] }
+  | { ok: true; messages: DisplayMessage[] }
   | { ok: false; status: number; error: string };
 
 export async function getChatHistory(
@@ -272,27 +273,12 @@ export async function getChatHistory(
       };
     }
 
-    const messages: ChatMessage[] = (Array.isArray(data?.messages) ? data.messages : [])
+    const { mapRuntimeToDisplayMessage } = await import(
+      "@/domains/chat/utils/map-runtime-message.js"
+    );
+    const messages = (Array.isArray(data?.messages) ? data.messages : [])
       .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => {
-        const msg: ChatMessage = { id: m.id, role: m.role, content: m.content };
-        if (m.surfaces) msg.surfaces = m.surfaces;
-        const normalizedSegments = normalizeTextSegments(m.textSegments as unknown[]);
-        if (normalizedSegments) msg.textSegments = normalizedSegments;
-        const normalizedOrder = normalizeContentOrder(m.contentOrder as unknown[]);
-        if (normalizedOrder) msg.contentOrder = normalizedOrder;
-        if (m.metadata) msg.metadata = m.metadata;
-        if (m.toolCalls && m.toolCalls.length > 0) {
-          msg.toolCalls = mapRuntimeToolCalls(m.toolCalls, m.id);
-        }
-        if (typeof m.timestamp === "number") {
-          msg.timestamp = m.timestamp;
-        } else if (typeof m.timestamp === "string") {
-          const timestamp = Date.parse(m.timestamp);
-          if (Number.isFinite(timestamp)) msg.timestamp = timestamp;
-        }
-        return msg;
-      });
+      .map(mapRuntimeToDisplayMessage);
 
     return { ok: true, messages };
   } catch (err) {

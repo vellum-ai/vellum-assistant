@@ -42,6 +42,7 @@ import {
   handleUISurfaceDismiss,
   handleUISurfaceComplete,
   handleToolUseStart,
+  handleToolProgress,
   handleToolResult,
   handleUsageUpdate,
   handleConversationListInvalidated,
@@ -353,6 +354,9 @@ export function useStreamEventHandler(
           break;
         case "tool_use_start":
           handleToolUseStart(event, ctx);
+          break;
+        case "tool_progress":
+          handleToolProgress(event, ctx);
           break;
         case "tool_result":
           handleToolResult(event, ctx);
