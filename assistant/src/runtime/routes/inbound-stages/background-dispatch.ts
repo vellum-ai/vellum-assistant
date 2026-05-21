@@ -81,7 +81,6 @@ export interface BackgroundProcessingParams {
   externalChatId: string;
   trustCtx: TrustContext;
   metadataHints: string[];
-  slackRuntimeContextNotice?: string;
   metadataUxBrief?: string;
   replyCallbackUrl?: string;
   assistantId?: string;
@@ -119,7 +118,6 @@ export function processChannelMessageInBackground(
     externalChatId,
     trustCtx,
     metadataHints,
-    slackRuntimeContextNotice,
     metadataUxBrief,
     replyCallbackUrl,
     assistantId,
@@ -256,7 +254,6 @@ export function processChannelMessageInBackground(
             isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
             ...(displayContent !== undefined ? { displayContent } : {}),
             ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
-            ...(slackRuntimeContextNotice ? { slackRuntimeContextNotice } : {}),
             ...(slackInbound ? { slackInbound } : {}),
             onEvent: observeAgentEvent,
           },

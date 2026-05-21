@@ -240,7 +240,6 @@ export class Conversation {
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ transportHints?: string[];
-  /** @internal */ slackRuntimeContextNotice?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
     type: string;
@@ -1163,10 +1162,6 @@ export class Conversation {
 
   setTransportHints(hints: string[] | undefined): void {
     this.transportHints = hints;
-  }
-
-  setSlackRuntimeContextNotice(notice: string | undefined): void {
-    this.slackRuntimeContextNotice = notice;
   }
 
   /**

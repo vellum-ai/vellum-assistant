@@ -196,7 +196,6 @@ function makeTestConversation() {
         metadata,
         displayContent,
       ),
-    setSlackRuntimeContextNotice: () => {},
     runAgentLoop,
     updateClient: () => {},
     getCurrentSender: () => undefined,
