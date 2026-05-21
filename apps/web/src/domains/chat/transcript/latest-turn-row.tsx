@@ -38,6 +38,7 @@ export interface LatestTurnRowProps {
   onConfirmationDecision: (requestId: string, decision: string) => void;
   onRetryError: () => void;
   onForkConversation?: (messageId: string) => void;
+  onInspectMessage?: (messageId: string) => void;
   renderPendingSecret?: (requestId: string) => ReactNode;
   renderPendingConfirmation?: (requestId: string) => ReactNode;
   renderPendingContactRequest?: (requestId: string) => ReactNode;
@@ -89,6 +90,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   onConfirmationDecision,
   onRetryError,
   onForkConversation,
+  onInspectMessage,
   renderPendingSecret,
   renderPendingConfirmation,
   renderPendingContactRequest,
@@ -123,6 +125,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         onConfirmationDecision={onConfirmationDecision}
         onRetryError={onRetryError}
         onForkConversation={onForkConversation}
+        onInspectMessage={onInspectMessage}
         renderPendingSecret={renderPendingSecret}
         renderPendingConfirmation={renderPendingConfirmation}
         renderPendingContactRequest={renderPendingContactRequest}
@@ -149,6 +152,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             onConfirmationDecision={onConfirmationDecision}
             onRetryError={onRetryError}
             onForkConversation={onForkConversation}
+            onInspectMessage={onInspectMessage}
             renderPendingSecret={renderPendingSecret}
             renderPendingConfirmation={renderPendingConfirmation}
             renderPendingContactRequest={renderPendingContactRequest}

@@ -54,6 +54,7 @@ export interface UseConversationSecondaryActionsReturn {
   handleAnalyzeConversation: (conversation: Conversation) => Promise<void>;
   handleOpenInNewWindow: (conversation: Conversation) => void;
   handleInspectConversation: (conversation: Conversation) => void;
+  handleInspectMessage: (messageId: string) => void;
   handleCopyConversation: () => void;
   feedbackOpen: boolean;
   setFeedbackOpen: Dispatch<SetStateAction<boolean>>;
@@ -169,6 +170,17 @@ export function useConversationSecondaryActions({
     [navigate, activeConversation?.conversationKey],
   );
 
+  const handleInspectMessage = useCallback(
+    (messageId: string) => {
+      if (!activeConversationKey) return;
+      const params = new URLSearchParams();
+      params.set("conversationKey", activeConversationKey);
+      params.set("messageId", messageId);
+      void navigate(`${routes.inspect}?${params.toString()}`);
+    },
+    [activeConversationKey, navigate],
+  );
+
   const handleShareFeedback = useCallback(() => {
     setFeedbackOpen(true);
   }, []);
@@ -195,6 +207,7 @@ export function useConversationSecondaryActions({
     handleAnalyzeConversation,
     handleOpenInNewWindow,
     handleInspectConversation,
+    handleInspectMessage,
     handleCopyConversation,
     feedbackOpen,
     setFeedbackOpen,
