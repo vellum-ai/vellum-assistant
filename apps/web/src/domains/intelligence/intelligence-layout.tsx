@@ -7,7 +7,7 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js"
 
 const INTELLIGENCE_TABS = [
   { label: "Identity", to: routes.identity },
-  { label: "Skills", to: routes.library.root },
+  { label: "Skills", to: routes.skills },
   { label: "Workspace", to: routes.workspace },
   { label: "Contacts", to: routes.contacts.root },
 ] as const;

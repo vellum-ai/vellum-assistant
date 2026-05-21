@@ -10,6 +10,7 @@ import { LibraryPage } from "@/domains/library/library-page.js";
 import { LibraryDetailPage } from "@/domains/library/library-detail-page.js";
 import { IdentityPage } from "@/domains/intelligence/identity-page.js";
 import { IntelligenceLayout } from "@/domains/intelligence/intelligence-layout.js";
+import { SkillsPage } from "@/domains/intelligence/skills-page.js";
 import { ConnectPage } from "@/domains/contacts/connect-page.js";
 import { ContactsPage } from "@/domains/contacts/contacts-page.js";
 import { WorkspacePage } from "@/domains/workspace/workspace-page.js";
@@ -196,6 +197,7 @@ export const router = createBrowserRouter([
                 element: <IntelligenceLayout />,
                 children: [
                   { path: "identity", element: <IdentityPage /> },
+                  { path: "skills", element: <SkillsPage /> },
                   { path: "library", element: <LibraryPage /> },
                   { path: "workspace", element: <WorkspacePage /> },
                   { path: "contacts", element: <ContactsPage /> },
