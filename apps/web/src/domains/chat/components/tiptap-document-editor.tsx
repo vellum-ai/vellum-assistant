@@ -7,7 +7,7 @@
  * - Text selection tracking with character offset conversion
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Extension } from "@tiptap/core";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -21,6 +21,7 @@ import {
   Code,
   Italic,
   Link as LinkIcon,
+  MessageSquareText,
   Strikethrough,
 } from "lucide-react";
 import { cn } from "@vellum/design-library";
@@ -47,6 +48,8 @@ interface TiptapDocumentEditorProps {
   }) => void;
   commentAnchors?: CommentAnchor[];
   highlightRange?: { start: number; end: number } | null;
+  onCommentSubmit?: (comment: string) => void;
+  commentSubmitting?: boolean;
   className?: string;
 }
 
@@ -187,9 +190,14 @@ function buildActiveHighlightDecorations(
 
 interface BubbleToolbarProps {
   editor: ReturnType<typeof useEditor> & object;
+  onCommentSubmit?: (comment: string) => void;
+  commentSubmitting?: boolean;
 }
 
-function BubbleToolbar({ editor }: BubbleToolbarProps) {
+function BubbleToolbar({ editor, onCommentSubmit, commentSubmitting }: BubbleToolbarProps) {
+  const [commentOpen, setCommentOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+
   if (!editor) return null;
 
   const btnBase = cn(
@@ -248,31 +256,86 @@ function BubbleToolbar({ editor }: BubbleToolbarProps) {
     },
   ];
 
+  const handleSubmitComment = () => {
+    if (!draft.trim() || commentSubmitting) return;
+    onCommentSubmit?.(draft.trim());
+    setDraft("");
+    setCommentOpen(false);
+  };
+
   return (
     <div
       className={cn(
         "bg-[var(--surface-lift)] rounded-lg",
         "shadow-[var(--shadow-popover)]",
         "border border-[var(--border-base)]",
-        "p-1 flex items-center gap-0.5",
       )}
     >
-      {buttons.map((btn, i) => (
-        <span key={btn.name} className="contents">
-          {i > 0 && buttons[i - 1]?.separator && (
+      <div className="p-1 flex items-center gap-0.5">
+        {buttons.map((btn, i) => (
+          <span key={btn.name} className="contents">
+            {i > 0 && buttons[i - 1]?.separator && (
+              <span className="mx-0.5 h-4 w-px bg-[var(--border-base)]" />
+            )}
+            <button
+              type="button"
+              className={cn(btnBase, editor.isActive(btn.name) && btnActive)}
+              onClick={btn.action}
+              aria-label={btn.name}
+              aria-pressed={editor.isActive(btn.name)}
+            >
+              {btn.icon}
+            </button>
+          </span>
+        ))}
+        {onCommentSubmit ? (
+          <>
             <span className="mx-0.5 h-4 w-px bg-[var(--border-base)]" />
-          )}
-          <button
-            type="button"
-            className={cn(btnBase, editor.isActive(btn.name) && btnActive)}
-            onClick={btn.action}
-            aria-label={btn.name}
-            aria-pressed={editor.isActive(btn.name)}
-          >
-            {btn.icon}
-          </button>
-        </span>
-      ))}
+            <button
+              type="button"
+              className={cn(btnBase, commentOpen && btnActive)}
+              onClick={() => setCommentOpen((prev) => !prev)}
+              aria-label="Comment"
+              aria-pressed={commentOpen}
+            >
+              <MessageSquareText size={14} />
+            </button>
+          </>
+        ) : null}
+      </div>
+      {commentOpen ? (
+        <div className="w-64 border-t border-[var(--border-base)] p-2">
+          <textarea
+            className="w-full resize-none rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] px-3 py-2 text-body-medium-lighter text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-[border-color] duration-150 ease-out focus-visible:border-[var(--border-active)]"
+            rows={2}
+            placeholder="Add your feedback…"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmitComment();
+              }
+            }}
+            autoFocus
+          />
+          <div className="mt-1.5 flex justify-end">
+            <button
+              type="button"
+              className={cn(
+                "rounded-md px-2.5 py-1 text-label-medium-default transition-colors",
+                draft.trim() && !commentSubmitting
+                  ? "bg-[var(--primary-base)] text-white hover:opacity-90"
+                  : "bg-[var(--surface-active)] text-[var(--content-disabled)] cursor-not-allowed",
+              )}
+              onClick={handleSubmitComment}
+              disabled={commentSubmitting || !draft.trim()}
+            >
+              {commentSubmitting ? "Adding…" : "Comment"}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -288,6 +351,8 @@ export function TiptapDocumentEditor({
   onTextSelect,
   commentAnchors = [],
   highlightRange = null,
+  onCommentSubmit,
+  commentSubmitting,
   className,
 }: TiptapDocumentEditorProps) {
   const onContentChangeRef = useRef(onContentChange);
@@ -407,7 +472,11 @@ export function TiptapDocumentEditor({
       <EditorContent editor={editor} className="flex-1 overflow-y-auto" />
       {editor ? (
         <BubbleMenu editor={editor} updateDelay={100}>
-          <BubbleToolbar editor={editor} />
+          <BubbleToolbar
+            editor={editor}
+            onCommentSubmit={onCommentSubmit}
+            commentSubmitting={commentSubmitting}
+          />
         </BubbleMenu>
       ) : null}
     </div>
