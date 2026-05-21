@@ -601,8 +601,8 @@ function getTaskProgressLoadingMessage(
 }
 
 /**
- * Set the Slack Assistants API "is thinking..." status on the thread and
- * return a cleanup function that clears it. Both operations are fire-and-forget.
+ * Set Slack Assistants API status on the thread and return a handle for
+ * updating loading messages or clearing the indicator.
  *
  * A safety timer auto-clears the status after {@link SLACK_THINKING_MAX_DURATION_MS}
  * to prevent a stuck indicator when `processMessage` hangs.
