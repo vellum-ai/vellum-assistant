@@ -68,30 +68,37 @@ which is produced by the burst-limited reachability retry in
 
 ## Subscribing
 
-```ts
-// In a hook
-useEffect(() => {
-  const unsubscribe = useEventBusStore
-    .getState()
-    .subscribe("app.resume", ({ signal }) => {
-      // Refetch stale-while-revalidate data here.
-    });
-  return unsubscribe;
-}, []);
-```
+In a React hook or component, use `useBusSubscription` from
+`@/hooks/use-bus-subscription.js`. It wraps `useEffect` + `subscribe`
++ cleanup and stabilises the handler ref so inline arrows don't
+re-register on every render.
 
 ```ts
-// In a Zustand store bootstrap (no React context)
-const unsubscribeResume = useEventBusStore
-  .getState()
-  .subscribe("app.resume", () => {
-    refetchIfStale();
-  });
+import { useBusSubscription } from "@/hooks/use-bus-subscription.js";
+
+useBusSubscription("app.resume", ({ signal }) => {
+  // Refetch stale-while-revalidate data here.
+});
+```
+
+In code outside the React tree (Zustand store bootstraps, route
+loaders, middleware), use `subscribeBus` from the same module and
+store the returned unsubscribe handle alongside the bootstrap's other
+teardown:
+
+```ts
+import { subscribeBus } from "@/hooks/use-bus-subscription.js";
+
+const unsubscribeResume = subscribeBus("app.resume", () => {
+  refetchIfStale();
+});
 // Add unsubscribeResume() to the existing teardown closure.
 ```
 
-`subscribe()` always returns an unsubscribe function. Call it in the
-effect cleanup (React) or the bootstrap teardown (stores).
+Both helpers wrap `useEventBusStore.getState().subscribe(...)`. New
+code should not call `useEventBusStore.getState()` directly for
+subscriptions — use the helpers so the unsubscribe lifecycle is
+consistent everywhere.
 
 ## Publishing
 
@@ -111,11 +118,87 @@ useEventBusStore.getState().publish("reachability.retry-requested", {});
    consumers learn when the event fires.
 2. Add the producer. SSE-derived events go in `use-event-bus-init.ts`'s
    SSE effect. DOM-derived events go in its lifecycle effect.
-3. Add subscribers where needed. Each subscriber's `useEffect` (or
-   bootstrap closure) gets one `subscribe(name, handler)` call and
-   returns the unsubscribe.
+3. Add subscribers where needed via `useBusSubscription` (React) or
+   `subscribeBus` (stores / non-React).
 4. Test the producer (publish round-trip in `use-event-bus-init.test.tsx`
    or `event-bus-store.test.ts`) and at least one consumer.
+
+## Conventions
+
+- **Use the helpers, not the raw store.** `useBusSubscription` and
+  `subscribeBus` from `@/hooks/use-bus-subscription.js` are the only
+  blessed subscriber surfaces. Don't reach into
+  `useEventBusStore.getState().subscribe(...)` from new code — the
+  helpers exist to keep the unsubscribe lifecycle consistent.
+- **Inline handlers are fine.** `useBusSubscription` stabilises the
+  handler ref internally, so passing an arrow function does not
+  re-register the subscription on every render. No `useCallback`
+  ceremony required.
+- **Subscribe at the right scope.** Bus subscribers belong in the
+  layer that owns the resulting side-effect: the hook that mutates a
+  query cache, the store whose state needs to refresh, the component
+  whose visual state depends on it. Don't subscribe inside deeply
+  nested presentational components.
+- **Filter inside the handler.** `bus.sse.event` is unfiltered;
+  consumers narrow on `payload.type` and (for conversation-scoped
+  consumers) on `payload.conversationKey`. The bus delivers every
+  event the SSE connection sees.
+- **Skip resume signals you don't care about.** `app.resume` fires for
+  visibility, app foregrounding, AND network online. A handler that
+  only cares about real foregrounding can early-return when
+  `signal === "online"` (see `use-home-feed-query.ts`).
+
+## Common patterns
+
+### Invalidate a query cache on resume
+
+```ts
+const queryClient = useQueryClient();
+useBusSubscription("app.resume", () => {
+  void queryClient.invalidateQueries({ queryKey: ["my-data"] });
+});
+```
+
+### Track time-away between hidden and resume
+
+```ts
+const hiddenAtRef = useRef<number | null>(null);
+useBusSubscription("app.hidden", () => {
+  hiddenAtRef.current = Date.now();
+});
+useBusSubscription("app.resume", ({ signal }) => {
+  if (signal === "online") return; // network blip, not real time-away
+  const hiddenAt = hiddenAtRef.current;
+  hiddenAtRef.current = null;
+  if (hiddenAt == null) return;
+  const elapsedMs = Date.now() - hiddenAt;
+  // Use elapsedMs.
+});
+```
+
+### React to a typed SSE event
+
+```ts
+useBusSubscription("sse.event", (event) => {
+  if (event.type !== "interaction_resolved") return;
+  // event is narrowed to the InteractionResolvedEvent shape.
+  queryClient.setQueryData(["interactions", event.requestId], { state: event.state });
+});
+```
+
+### Imperative subscriber inside a store bootstrap
+
+```ts
+export function setupMyStore(): () => void {
+  const unsubResume = subscribeBus("app.resume", () => {
+    refetchIfStale();
+  });
+  return () => {
+    unsubResume();
+    // ...other teardown.
+  };
+}
+```
 
 ## Don't do this
 
