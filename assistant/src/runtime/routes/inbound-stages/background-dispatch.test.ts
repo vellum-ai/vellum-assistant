@@ -306,7 +306,7 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
 });
 
 describe("Slack thinking status timing", () => {
-  const slackStatusLabels = ["is on it", "is working hard"];
+  const slackStatusLabels = ["is on it", "is working hard", "is touching grass"];
 
   const trustCtx: TrustContext = {
     trustClass: "guardian",
