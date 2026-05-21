@@ -5,9 +5,9 @@
  * verify behavior via `renderToStaticMarkup` plus `mock.module` shims that
  * replace leaf rendering dependencies with deterministic stubs.
  *
- * The component uses `flex-col-reverse` to render items: the LatestTurnRow
- * appears first in DOM order (visual bottom) and history items follow in
- * reverse chronological order (column-reverse un-reverses them).
+ * The component uses plain `flex-col` to render items: history items
+ * appear first in DOM order (visual top, oldest first) and the
+ * LatestTurnRow follows at the end of the DOM (visual bottom).
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -92,7 +92,7 @@ describe("Transcript", () => {
     expect(html).not.toContain('data-testid="markdown"');
   });
 
-  test("scroll container has flex-col-reverse class", () => {
+  test("scroll container has flex-col class (chronological order)", () => {
     const html = renderToStaticMarkup(
       <Transcript
         items={[]}
@@ -102,7 +102,8 @@ describe("Transcript", () => {
         onRetryError={noop}
       />,
     );
-    expect(html).toContain("flex-col-reverse");
+    expect(html).toContain("flex-col");
+    expect(html).not.toContain("flex-col-reverse");
   });
 
   test("with trailing user message, renders history rows and a latest-turn row", () => {
@@ -160,7 +161,7 @@ describe("Transcript", () => {
     expect(html).toContain("also assistant");
   });
 
-  test("items render in correct visual order (column-reverse: latest-turn first in DOM, history reversed)", () => {
+  test("items render in correct visual order (flex-col: history first in DOM, latest-turn last)", () => {
     const items: TranscriptItem[] = [
       assistantMessage("a1", "FIRST_MSG"),
       userMessage("u1", "SECOND_MSG"),
@@ -177,14 +178,13 @@ describe("Transcript", () => {
       />,
     );
 
-    // In column-reverse DOM order: LatestTurnRow (u1 + a2) comes BEFORE
-    // history items. History items are reversed in DOM but column-reverse
-    // un-reverses them visually.
+    // In flex-col DOM order: history items come first (visual top),
+    // LatestTurnRow (u1 + a2) is rendered last (visual bottom).
     const latestTurnIdx = html.indexOf('data-latest-turn="true"');
     const firstMsgIdx = html.indexOf("FIRST_MSG");
     expect(latestTurnIdx).toBeGreaterThanOrEqual(0);
     expect(firstMsgIdx).toBeGreaterThanOrEqual(0);
-    // LatestTurnRow appears first in DOM (before history items).
-    expect(latestTurnIdx).toBeLessThan(firstMsgIdx);
+    // History appears first in DOM (before LatestTurnRow).
+    expect(firstMsgIdx).toBeLessThan(latestTurnIdx);
   });
 });

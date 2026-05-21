@@ -8,9 +8,9 @@ import {
 
 interface PullRefreshSpinnerProps {
   /** Visual height of the spinner element in px. Drives the
-   *  flex-item height of this container, which (in the column-reverse
-   *  parent) shows up as growing space at the visual bottom of the
-   *  transcript. */
+   *  flex-item height of this container, which (rendered last inside
+   *  the flex-col parent) shows up as growing space at the visual
+   *  bottom of the transcript. */
   height: number;
   /** Drag progress, 0..1, where 1 is the commit threshold. */
   progress: number;

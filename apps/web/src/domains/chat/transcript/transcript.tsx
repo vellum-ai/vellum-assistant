@@ -119,6 +119,11 @@ export interface TranscriptProps {
 export interface TranscriptHandle {
   scrollToLatest(opts?: { behavior?: "auto" | "smooth" }): void;
   getScrollElement(): HTMLDivElement | null;
+  /** Inner wrapper that surrounds all rendered children. Sized to the
+   *  scroll content; observable via `ResizeObserver` to detect when
+   *  scroll content height changes (e.g. async min-height settling,
+   *  late image loads, streaming growth). */
+  getContentElement(): HTMLDivElement | null;
   getViewportHeight(): number;
 }
 
@@ -126,6 +131,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
   function Transcript(props, ref) {
     const { items, onPullRefresh, pullRefreshEnabled, ...rest } = props;
     const scrollRef = useRef<HTMLDivElement | null>(null);
+    const contentRef = useRef<HTMLDivElement | null>(null);
     const viewportMinHeight = useViewportMinHeight(scrollRef);
 
     const pullEnabled = !!pullRefreshEnabled && !!onPullRefresh;
@@ -146,10 +152,6 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     const [expandedCardIds] = useState(() => new Map<string, boolean>());
 
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
-    const reversedHistory = useMemo(
-      () => [...partition.historyItems].reverse(),
-      [partition.historyItems],
-    );
 
     const subagentsByParent = useMemo(() => {
       if (!rest.subagentEntries?.length) return null;
@@ -184,13 +186,18 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       ref,
       (): TranscriptHandle => ({
         scrollToLatest(opts) {
-          scrollRef.current?.scrollTo({
-            top: 0,
+          const el = scrollRef.current;
+          if (!el) return;
+          el.scrollTo({
+            top: el.scrollHeight - el.clientHeight,
             behavior: opts?.behavior ?? "auto",
           });
         },
         getScrollElement() {
           return scrollRef.current;
+        },
+        getContentElement() {
+          return contentRef.current;
         },
         getViewportHeight() {
           return scrollRef.current?.clientHeight ?? 0;
@@ -227,50 +234,57 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       <div
         ref={scrollRef}
         data-testid="transcript-scroll-container"
-        className="flex h-full w-full flex-col-reverse overflow-y-auto overscroll-none [overflow-anchor:none]"
+        className="flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none]"
       >
-        {/* Spinner first = visual bottom in column-reverse. Only
-         *  rendered when the gesture is feature-flag-enabled so the
-         *  flag-off path has zero DOM impact. */}
-        {pullEnabled && (
-          <PullRefreshSpinner
-            height={pull.pullDistance}
-            progress={pull.pullDistance / PULL_THRESHOLD_PX}
-            phase={pull.phase}
-          />
-        )}
-        {/* LatestTurnRow first = visual bottom with column-reverse */}
-        {partition.anchorMessage && (
-          <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
-            <LatestTurnRow
-              anchorMessage={partition.anchorMessage}
-              responseItems={partition.responseItems}
-              viewportMinHeight={viewportMinHeight}
-              avatarSlot={rest.renderAvatar ? rest.renderAvatar() : undefined}
-              subagentsByParent={subagentsByParent}
-              onSubagentClick={rest.onSubagentClick}
-              onStopSubagent={rest.onStopSubagent}
-              {...rowProps}
-            />
-          </div>
-        )}
-        {/* History items reversed — column-reverse un-reverses for chronological visual order */}
-        {reversedHistory.map((item) => (
-          <Fragment key={item.key}>
+        {/* Inner content wrapper — observed by the scroll coordinator's
+         *  ResizeObserver so we can re-pin to bottom when scroll content
+         *  height changes (async min-height settle, late image loads,
+         *  streaming growth). Wrapping all rows in a single observed
+         *  element is cheaper than observing each row individually. */}
+        <div ref={contentRef} className="flex w-full flex-col">
+          {/* History items in chronological order — oldest at top. */}
+          {partition.historyItems.map((item) => (
+            <Fragment key={item.key}>
+              <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
+                <TranscriptRow item={item} {...rowProps} />
+                {item.kind === "message" &&
+                  subagentsByParent?.get(item.key) &&
+                  rest.onSubagentClick && (
+                    <SubagentProgressCard
+                      entries={subagentsByParent.get(item.key)!}
+                      onSubagentClick={rest.onSubagentClick}
+                      onStopSubagent={rest.onStopSubagent}
+                    />
+                  )}
+              </div>
+            </Fragment>
+          ))}
+          {/* LatestTurnRow last = visual bottom in flex-col. */}
+          {partition.anchorMessage && (
             <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
-              <TranscriptRow item={item} {...rowProps} />
-              {item.kind === "message" &&
-                subagentsByParent?.get(item.key) &&
-                rest.onSubagentClick && (
-                  <SubagentProgressCard
-                    entries={subagentsByParent.get(item.key)!}
-                    onSubagentClick={rest.onSubagentClick}
-                    onStopSubagent={rest.onStopSubagent}
-                  />
-                )}
+              <LatestTurnRow
+                anchorMessage={partition.anchorMessage}
+                responseItems={partition.responseItems}
+                viewportMinHeight={viewportMinHeight}
+                avatarSlot={rest.renderAvatar ? rest.renderAvatar() : undefined}
+                subagentsByParent={subagentsByParent}
+                onSubagentClick={rest.onSubagentClick}
+                onStopSubagent={rest.onStopSubagent}
+                {...rowProps}
+              />
             </div>
-          </Fragment>
-        ))}
+          )}
+          {/* Spinner last = visual bottom in flex-col. Only rendered when
+           *  the gesture is feature-flag-enabled so the flag-off path has
+           *  zero DOM impact. */}
+          {pullEnabled && (
+            <PullRefreshSpinner
+              height={pull.pullDistance}
+              progress={pull.pullDistance / PULL_THRESHOLD_PX}
+              phase={pull.phase}
+            />
+          )}
+        </div>
       </div>
     );
   },

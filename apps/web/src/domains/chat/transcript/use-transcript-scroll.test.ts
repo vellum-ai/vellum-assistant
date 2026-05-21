@@ -9,10 +9,11 @@
  * those helpers — each test below maps directly to one of the
  * acceptance-criteria behaviors in the PR plan.
  *
- * In column-reverse layout, scrollTop = 0 is the visual bottom (latest
- * messages). Scrolling UP increases scrollTop. So:
- *   - distanceFromBottom = scrollTop
- *   - distanceFromTop = scrollHeight - clientHeight - scrollTop
+ * The transcript uses plain `flex-col` (chronological order):
+ *   - distanceFromTop    = scrollTop
+ *   - distanceFromBottom = scrollHeight − clientHeight − scrollTop
+ * scrollTop = 0 is the visual top (oldest); scrollTop = max is the
+ * visual bottom (latest).
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -49,16 +50,25 @@ function items(ids: readonly string[]): TranscriptItem[] {
   return ids.map(makeMessage);
 }
 
+/** Build ScrollMetrics positioned at a given distance from the bottom,
+ *  for a transcript with `scrollHeight = 1800, clientHeight = 800`
+ *  (max scrollTop = 1000). */
+function metricsAtDistanceFromBottom(distance: number) {
+  return { scrollTop: 1000 - distance, scrollHeight: 1800, clientHeight: 800 };
+}
+
 function makeHandle(): TranscriptHandle & {
   calls: {
     scrollToLatest: Array<[{ behavior?: "auto" | "smooth" }?]>;
     getScrollElement: number;
+    getContentElement: number;
     getViewportHeight: number;
   };
 } {
   const calls = {
     scrollToLatest: [] as Array<[{ behavior?: "auto" | "smooth" }?]>,
     getScrollElement: 0,
+    getContentElement: 0,
     getViewportHeight: 0,
   };
   const scrollToLatest = mock((opts?: { behavior?: "auto" | "smooth" }) => {
@@ -68,6 +78,10 @@ function makeHandle(): TranscriptHandle & {
     calls.getScrollElement += 1;
     return null;
   });
+  const getContentElement = mock((): HTMLDivElement | null => {
+    calls.getContentElement += 1;
+    return null;
+  });
   const getViewportHeight = mock((): number => {
     calls.getViewportHeight += 1;
     return 800;
@@ -75,23 +89,24 @@ function makeHandle(): TranscriptHandle & {
   return {
     scrollToLatest,
     getScrollElement,
+    getContentElement,
     getViewportHeight,
     calls,
   };
 }
 
 // ---------------------------------------------------------------------------
-// classifyScrollPosition — column-reverse thresholds
+// classifyScrollPosition — flex-col thresholds
 //
-// In column-reverse: scrollTop = 0 is the bottom (latest).
-// distanceFromBottom = scrollTop
-// distanceFromTop = scrollHeight - clientHeight - scrollTop
+// In flex-col: scrollTop = max is the bottom (latest).
+// distanceFromBottom = scrollHeight - clientHeight - scrollTop
+// distanceFromTop    = scrollTop
 // ---------------------------------------------------------------------------
 
 describe("classifyScrollPosition — pinned threshold (64 px)", () => {
-  test("at the bottom (scrollTop = 0) is pinned", () => {
+  test("at the bottom (max scrollTop) is pinned", () => {
     const c = classifyScrollPosition(
-      { scrollTop: 0, scrollHeight: 1800, clientHeight: 800 },
+      metricsAtDistanceFromBottom(0),
       { hasMore: false, isLoadingOlder: false, hasConversation: true },
     );
     expect(c.distanceFromBottom).toBe(0);
@@ -100,7 +115,7 @@ describe("classifyScrollPosition — pinned threshold (64 px)", () => {
 
   test("distance exactly 64 is pinned (<=)", () => {
     const c = classifyScrollPosition(
-      { scrollTop: 64, scrollHeight: 1800, clientHeight: 800 },
+      metricsAtDistanceFromBottom(64),
       { hasMore: false, isLoadingOlder: false, hasConversation: true },
     );
     expect(c.distanceFromBottom).toBe(PINNED_THRESHOLD_PX);
@@ -109,18 +124,29 @@ describe("classifyScrollPosition — pinned threshold (64 px)", () => {
 
   test("distance 65 is NOT pinned", () => {
     const c = classifyScrollPosition(
-      { scrollTop: 65, scrollHeight: 1800, clientHeight: 800 },
+      metricsAtDistanceFromBottom(65),
       { hasMore: false, isLoadingOlder: false, hasConversation: true },
     );
     expect(c.distanceFromBottom).toBe(65);
     expect(c.isPinned).toBe(false);
+  });
+
+  test("iOS rubber-band over-bottom (scrollTop > max) clamps distanceFromBottom to 0", () => {
+    // scrollTop briefly larger than max during rubber-band — distance must
+    // not flip negative or the pill would flicker on.
+    const c = classifyScrollPosition(
+      { scrollTop: 1050, scrollHeight: 1800, clientHeight: 800 },
+      { hasMore: false, isLoadingOlder: false, hasConversation: true },
+    );
+    expect(c.distanceFromBottom).toBe(0);
+    expect(c.isPinned).toBe(true);
   });
 });
 
 describe("classifyScrollPosition — show-scroll-button threshold (240 px)", () => {
   test("distance 240 does NOT show the button (>)", () => {
     const c = classifyScrollPosition(
-      { scrollTop: 240, scrollHeight: 1800, clientHeight: 800 },
+      metricsAtDistanceFromBottom(240),
       { hasMore: false, isLoadingOlder: false, hasConversation: true },
     );
     expect(c.distanceFromBottom).toBe(SHOW_SCROLL_BUTTON_THRESHOLD_PX);
@@ -129,7 +155,7 @@ describe("classifyScrollPosition — show-scroll-button threshold (240 px)", () 
 
   test("distance 241 shows the button", () => {
     const c = classifyScrollPosition(
-      { scrollTop: 241, scrollHeight: 1800, clientHeight: 800 },
+      metricsAtDistanceFromBottom(241),
       { hasMore: false, isLoadingOlder: false, hasConversation: true },
     );
     expect(c.distanceFromBottom).toBe(241);
@@ -138,7 +164,7 @@ describe("classifyScrollPosition — show-scroll-button threshold (240 px)", () 
 
   test("dropping back under 240 hides the button", () => {
     const c = classifyScrollPosition(
-      { scrollTop: 239, scrollHeight: 1800, clientHeight: 800 },
+      metricsAtDistanceFromBottom(239),
       { hasMore: false, isLoadingOlder: false, hasConversation: true },
     );
     expect(c.distanceFromBottom).toBe(239);
@@ -148,20 +174,17 @@ describe("classifyScrollPosition — show-scroll-button threshold (240 px)", () 
 
 describe("classifyScrollPosition — load-older threshold (200 px)", () => {
   test("scrolled to the top triggers load-older", () => {
-    // scrollHeight=5000, clientHeight=800, scrollTop=3800 =>
-    // distanceFromTop = 5000 - 800 - 3800 = 400 => NO
-    // We want distanceFromTop <= 200, so scrollTop >= 5000 - 800 - 200 = 4000
+    // distanceFromTop = scrollTop. We want scrollTop <= 200 to trigger.
     const c = classifyScrollPosition(
-      { scrollTop: 4000, scrollHeight: 5000, clientHeight: 800 },
+      { scrollTop: 200, scrollHeight: 5000, clientHeight: 800 },
       { hasMore: true, isLoadingOlder: false, hasConversation: true },
     );
     expect(c.shouldLoadOlder).toBe(true);
   });
 
   test("one pixel below threshold does NOT trigger load-older", () => {
-    // distanceFromTop = 5000 - 800 - 3999 = 201 => NOT triggered
     const c = classifyScrollPosition(
-      { scrollTop: 3999, scrollHeight: 5000, clientHeight: 800 },
+      { scrollTop: 201, scrollHeight: 5000, clientHeight: 800 },
       { hasMore: true, isLoadingOlder: false, hasConversation: true },
     );
     expect(c.shouldLoadOlder).toBe(false);
@@ -169,7 +192,7 @@ describe("classifyScrollPosition — load-older threshold (200 px)", () => {
 
   test("does not trigger when isLoadingOlder is true", () => {
     const c = classifyScrollPosition(
-      { scrollTop: 4200, scrollHeight: 5000, clientHeight: 800 },
+      { scrollTop: 100, scrollHeight: 5000, clientHeight: 800 },
       { hasMore: true, isLoadingOlder: true, hasConversation: true },
     );
     expect(c.shouldLoadOlder).toBe(false);
@@ -177,7 +200,7 @@ describe("classifyScrollPosition — load-older threshold (200 px)", () => {
 
   test("does not trigger when hasMore is false", () => {
     const c = classifyScrollPosition(
-      { scrollTop: 4200, scrollHeight: 5000, clientHeight: 800 },
+      { scrollTop: 100, scrollHeight: 5000, clientHeight: 800 },
       { hasMore: false, isLoadingOlder: false, hasConversation: true },
     );
     expect(c.shouldLoadOlder).toBe(false);
@@ -185,7 +208,7 @@ describe("classifyScrollPosition — load-older threshold (200 px)", () => {
 
   test("does not trigger when hasConversation is false", () => {
     const c = classifyScrollPosition(
-      { scrollTop: 4200, scrollHeight: 5000, clientHeight: 800 },
+      { scrollTop: 100, scrollHeight: 5000, clientHeight: 800 },
       { hasMore: true, isLoadingOlder: false, hasConversation: false },
     );
     expect(c.shouldLoadOlder).toBe(false);
@@ -228,14 +251,17 @@ describe("decideItemsChangeAction — no-conversation returns none", () => {
       previousItems: [],
       conversationKey: null,
       savedAnchor: null,
-      isPinnedToLatest: true,
     });
     expect(action.kind).toBe("none");
   });
 });
 
 describe("decideItemsChangeAction — streaming growth", () => {
-  test("pinned + items changed -> stick-to-latest", () => {
+  // The coordinator deliberately does NOT auto-follow as a response
+  // streams in. The user keeps control of the viewport; the "Go to
+  // Newest" pill surfaces once they drift past the threshold.
+
+  test("items grow during streaming -> none", () => {
     const prev = items(["m1", "m2"]);
     const next = items(["m1", "m2", "m3"]);
     const action = decideItemsChangeAction({
@@ -243,37 +269,11 @@ describe("decideItemsChangeAction — streaming growth", () => {
       previousItems: prev,
       conversationKey: "conv-1",
       savedAnchor: null,
-      isPinnedToLatest: true,
-    });
-    expect(action).toEqual({ kind: "stick-to-latest" });
-  });
-
-  test("NOT pinned + items changed -> none (preserve reader's viewport)", () => {
-    const prev = items(["m1", "m2"]);
-    const next = items(["m1", "m2", "m3"]);
-    const action = decideItemsChangeAction({
-      items: next,
-      previousItems: prev,
-      conversationKey: "conv-1",
-      savedAnchor: null,
-      isPinnedToLatest: false,
     });
     expect(action.kind).toBe("none");
   });
 
-  test("pinned but no change -> none", () => {
-    const list = items(["m1", "m2"]);
-    const action = decideItemsChangeAction({
-      items: list,
-      previousItems: list,
-      conversationKey: "conv-1",
-      savedAnchor: null,
-      isPinnedToLatest: true,
-    });
-    expect(action.kind).toBe("none");
-  });
-
-  test("content swap at same length counts as a change", () => {
+  test("content swap at same length -> none", () => {
     const prev = items(["m1", "m2"]);
     const next = items(["m1", "m2-edited"]);
     const action = decideItemsChangeAction({
@@ -281,53 +281,64 @@ describe("decideItemsChangeAction — streaming growth", () => {
       previousItems: prev,
       conversationKey: "conv-1",
       savedAnchor: null,
-      isPinnedToLatest: true,
     });
-    expect(action.kind).toBe("stick-to-latest");
+    expect(action.kind).toBe("none");
+  });
+
+  test("no change -> none", () => {
+    const list = items(["m1", "m2"]);
+    const action = decideItemsChangeAction({
+      items: list,
+      previousItems: list,
+      conversationKey: "conv-1",
+      savedAnchor: null,
+    });
+    expect(action.kind).toBe("none");
   });
 });
 
 describe("decideItemsChangeAction — anchor-preserving prepend", () => {
-  test("saved anchor present and found -> anchor-correct with new index", () => {
+  test("saved anchor present and found -> anchor-correct with saved metrics", () => {
     const before = items(["m1", "m2", "m3"]);
     const afterPrepend = items(["o1", "o2", "m1", "m2", "m3"]);
     const action = decideItemsChangeAction({
       items: afterPrepend,
       previousItems: before,
       conversationKey: "conv-1",
-      savedAnchor: { key: "m1", scrollTop: 42 },
-      isPinnedToLatest: false,
+      savedAnchor: { key: "m1", scrollTop: 42, scrollHeight: 1800 },
     });
     expect(action).toEqual({
       kind: "anchor-correct",
       newIndex: 2,
-      scrollTop: 42,
+      savedScrollTop: 42,
+      savedScrollHeight: 1800,
     });
   });
 
-  test("anchor correction takes priority over stick-to-latest when both would fire", () => {
+  test("anchor correction wins over the otherwise-noop streaming-growth path", () => {
     const before = items(["m1"]);
     const afterPrepend = items(["o1", "m1", "m2"]);
     const action = decideItemsChangeAction({
       items: afterPrepend,
       previousItems: before,
       conversationKey: "conv-1",
-      savedAnchor: { key: "m1", scrollTop: 123 },
-      // Even if the caller thinks we're pinned, anchor must win.
-      isPinnedToLatest: true,
+      savedAnchor: { key: "m1", scrollTop: 123, scrollHeight: 1800 },
     });
     expect(action.kind).toBe("anchor-correct");
   });
 
-  test("saved anchor but key missing -> falls through to stick-to-latest when pinned", () => {
+  test("saved anchor but key missing -> falls through to none", () => {
     const action = decideItemsChangeAction({
       items: items(["n1", "n2"]),
       previousItems: items(["m1"]),
       conversationKey: "conv-1",
-      savedAnchor: { key: "m1-no-longer-present", scrollTop: 10 },
-      isPinnedToLatest: true,
+      savedAnchor: {
+        key: "m1-no-longer-present",
+        scrollTop: 10,
+        scrollHeight: 1800,
+      },
     });
-    expect(action).toEqual({ kind: "stick-to-latest" });
+    expect(action.kind).toBe("none");
   });
 });
 
@@ -338,13 +349,12 @@ describe("decideItemsChangeAction — anchor-preserving prepend", () => {
 // ---------------------------------------------------------------------------
 
 describe("integration — handleScroll-style dispatch via pure helpers", () => {
-  test("onLoadOlder is called exactly once when near the top (column-reverse)", () => {
+  test("onLoadOlder is called exactly once when near the top", () => {
     const handle = makeHandle();
     const onLoadOlder = mock(() => {});
-    // In column-reverse, near the top means distanceFromTop <= 200
-    // distanceFromTop = 5000 - 800 - 4000 = 200
+    // distanceFromTop = scrollTop. scrollTop = 200 ⇒ load-older fires.
     const c = classifyScrollPosition(
-      { scrollTop: 4000, scrollHeight: 5000, clientHeight: 800 },
+      { scrollTop: 200, scrollHeight: 5000, clientHeight: 800 },
       { hasMore: true, isLoadingOlder: false, hasConversation: true },
     );
     if (c.shouldLoadOlder) onLoadOlder();
@@ -355,7 +365,7 @@ describe("integration — handleScroll-style dispatch via pure helpers", () => {
 
   test("onLoadOlder is NOT called while isLoadingOlder=true", () => {
     const onLoadOlder = mock(() => {});
-    for (const scrollTop of [4000, 4100, 4200]) {
+    for (const scrollTop of [50, 100, 150]) {
       const c = classifyScrollPosition(
         { scrollTop, scrollHeight: 5000, clientHeight: 800 },
         { hasMore: true, isLoadingOlder: true, hasConversation: true },
@@ -366,46 +376,45 @@ describe("integration — handleScroll-style dispatch via pure helpers", () => {
   });
 
   test("pinned flips exactly at the 64 px threshold as the user scrolls up then back down", () => {
-    // In column-reverse: distanceFromBottom = scrollTop
     let isPinned = true;
-    const update = (scrollTop: number) => {
+    const updateByDistanceFromBottom = (distance: number) => {
       const c = classifyScrollPosition(
-        { scrollTop, scrollHeight: 1800, clientHeight: 800 },
+        metricsAtDistanceFromBottom(distance),
         { hasMore: false, isLoadingOlder: false, hasConversation: true },
       );
       isPinned = c.isPinned;
     };
-    update(0); // at bottom, distance 0
+    updateByDistanceFromBottom(0); // at bottom
     expect(isPinned).toBe(true);
-    update(64); // distance 64
+    updateByDistanceFromBottom(64);
     expect(isPinned).toBe(true);
-    update(65); // distance 65 — flip
+    updateByDistanceFromBottom(65); // flip
     expect(isPinned).toBe(false);
-    update(64); // back to 64 — flip back
+    updateByDistanceFromBottom(64); // flip back
     expect(isPinned).toBe(true);
   });
 
   test("showScrollToLatest flips exactly at the 240 px threshold in both directions", () => {
     let show = false;
-    const update = (scrollTop: number) => {
+    const updateByDistanceFromBottom = (distance: number) => {
       const c = classifyScrollPosition(
-        { scrollTop, scrollHeight: 1800, clientHeight: 800 },
+        metricsAtDistanceFromBottom(distance),
         { hasMore: false, isLoadingOlder: false, hasConversation: true },
       );
       show = c.showScrollToLatest;
     };
-    update(240); // distance 240 — still hidden
+    updateByDistanceFromBottom(240); // still hidden
     expect(show).toBe(false);
-    update(241); // distance 241 — flip on
+    updateByDistanceFromBottom(241); // flip on
     expect(show).toBe(true);
-    update(240); // back to 240 — flip off
+    updateByDistanceFromBottom(240); // flip off
     expect(show).toBe(false);
   });
 
   test("anchor-preserving prepend: saved anchor -> anchor-correct on next items change", () => {
     const before = items(["m1", "m2", "m3"]);
     // Saved anchor captured during a load-older scroll event.
-    const saved = { key: "m1", scrollTop: 150 };
+    const saved = { key: "m1", scrollTop: 150, scrollHeight: 1800 };
     // New items arrive with two older messages prepended.
     const after = items(["o1", "o2", "m1", "m2", "m3"]);
     const action = decideItemsChangeAction({
@@ -413,49 +422,28 @@ describe("integration — handleScroll-style dispatch via pure helpers", () => {
       previousItems: before,
       conversationKey: "conv-1",
       savedAnchor: saved,
-      isPinnedToLatest: false,
     });
     expect(action).toEqual({
       kind: "anchor-correct",
       newIndex: 2,
-      scrollTop: 150,
+      savedScrollTop: 150,
+      savedScrollHeight: 1800,
     });
   });
 
-  test("streaming growth: pinned -> scrollToLatest called; not pinned -> NOT called", () => {
+  test("streaming growth never triggers an auto-scroll", () => {
     const handle = makeHandle();
     const prev = items(["m1"]);
     const grown = items(["m1", "m2"]);
-
-    // Case 1: pinned — scrollToLatest fires.
-    {
-      const action = decideItemsChangeAction({
-        items: grown,
-        previousItems: prev,
-        conversationKey: "conv-1",
-        savedAnchor: null,
-        isPinnedToLatest: true,
-      });
-      if (action.kind === "stick-to-latest") {
-        handle.scrollToLatest({ behavior: "auto" });
-      }
-    }
-    expect(handle.calls.scrollToLatest).toEqual([[{ behavior: "auto" }]]);
-
-    // Case 2: not pinned — no scroll command.
-    const handle2 = makeHandle();
-    {
-      const action = decideItemsChangeAction({
-        items: grown,
-        previousItems: prev,
-        conversationKey: "conv-1",
-        savedAnchor: null,
-        isPinnedToLatest: false,
-      });
-      if (action.kind === "stick-to-latest") {
-        handle2.scrollToLatest({ behavior: "auto" });
-      }
-    }
-    expect(handle2.calls.scrollToLatest.length).toBe(0);
+    const action = decideItemsChangeAction({
+      items: grown,
+      previousItems: prev,
+      conversationKey: "conv-1",
+      savedAnchor: null,
+    });
+    // Decision helper no longer emits stick-to-latest under any pinned
+    // state — the viewport stays put while the user reads.
+    expect(action.kind).toBe("none");
+    expect(handle.calls.scrollToLatest.length).toBe(0);
   });
 });
