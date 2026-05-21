@@ -3,10 +3,12 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors.js";
 import { ASSISTANT_FLAG_DEFAULTS } from "@/lib/feature-flags/feature-flag-catalog.js";
 
-interface AssistantFeatureFlagStore extends Record<string, unknown> {
+interface AssistantFeatureFlagActions {
   setFlags: (flags: Record<string, boolean>) => void;
   setFlag: (key: string, value: boolean) => void;
 }
+
+type AssistantFeatureFlagStore = Record<string, boolean> & AssistantFeatureFlagActions;
 
 const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
   (set) => ({
@@ -21,7 +23,7 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
       }),
 
     setFlag: (key: string, value: boolean) => set({ [key]: value }),
-  }),
+  } as AssistantFeatureFlagStore),
 );
 
 export const useAssistantFeatureFlagStore = createSelectors(
