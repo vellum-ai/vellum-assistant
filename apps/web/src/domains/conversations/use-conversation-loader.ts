@@ -18,7 +18,6 @@ import {
   createDraftConversationKey,
   resolveBootstrappedConversationKey,
 } from "@/domains/chat/utils/conversation-selection.js";
-import { loadContextWindowUsageMap } from "@/domains/chat/utils/context-window-storage.js";
 import {
   loadLastViewedConversationKey,
   saveLastViewedConversationKey,
@@ -180,7 +179,6 @@ export function useConversationLoader({
   // Internal refs
   // -------------------------------------------------------------------------
   const refreshConversationsRef = useRef<() => Promise<void>>(async () => {});
-  const hydratedAssistantIdRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
@@ -231,30 +229,6 @@ export function useConversationLoader({
       refreshConversationsRef.current();
     }, CONVERSATION_LIST_INVALIDATED_DEBOUNCE_MS);
   }, [conversationListInvalidatedTimerRef]);
-
-  // -------------------------------------------------------------------------
-  // Context window usage hydration from localStorage
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    if (!assistantId) return;
-    if (hydratedAssistantIdRef.current === assistantId) return;
-    hydratedAssistantIdRef.current = assistantId;
-    const stored = loadContextWindowUsageMap(assistantId);
-    if (stored.size === 0) return;
-    const merged = new Map(contextWindowUsageByConversationRef.current);
-    for (const [key, value] of stored) {
-      if (!merged.has(key)) {
-        merged.set(key, value);
-      }
-    }
-    contextWindowUsageByConversationRef.current = merged;
-    if (activeConversationKey) {
-      const cached = merged.get(activeConversationKey);
-      if (cached) {
-        setContextWindowUsage(cached);
-      }
-    }
-  }, [assistantId, activeConversationKey, contextWindowUsageByConversationRef, setContextWindowUsage]);
 
   // -------------------------------------------------------------------------
   // Init effect -- fetch conversations when the assistant becomes active
