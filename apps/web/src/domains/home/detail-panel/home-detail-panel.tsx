@@ -90,16 +90,20 @@ export function HomeDetailPanel({
               onSelect={() =>
                 onUpdateStatus(item.id, isUnread ? "seen" : "new")
               }
+              leftIcon={
+                isUnread ? (
+                  <MailOpen className="size-4" />
+                ) : (
+                  <Mail className="size-4" />
+                )
+              }
             >
-              {isUnread ? (
-                <MailOpen className="size-4" />
-              ) : (
-                <Mail className="size-4" />
-              )}
               {isUnread ? "Mark as read" : "Mark as unread"}
             </Menu.Item>
-            <Menu.Item onSelect={() => onDismiss(item.id)}>
-              <CircleX className="size-4" />
+            <Menu.Item
+              onSelect={() => onDismiss(item.id)}
+              leftIcon={<CircleX className="size-4" />}
+            >
               Dismiss
             </Menu.Item>
           </Menu.Content>
