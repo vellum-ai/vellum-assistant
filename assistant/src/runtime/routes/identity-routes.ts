@@ -21,7 +21,11 @@ import { resolveHatchedAtReadOnly } from "../../workspace/hatched-date.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { NotFoundError } from "./errors.js";
-import { getCachedIntro } from "./identity-intro-cache.js";
+import {
+  getCachedIntro,
+  parseSoulGreetings,
+  readWorkspaceIdentityIntro,
+} from "./identity-intro-cache.js";
 import type { RouteDefinition } from "./types.js";
 
 interface MemoryInfo {
@@ -376,6 +380,21 @@ function resolveIdentityCreatedAt(identityPath: string): string | undefined {
 }
 
 function getIdentityIntro() {
+  // 1. SOUL.md greetings — custom per-assistant greetings (matches macOS client)
+  const soulGreetings = parseSoulGreetings();
+  if (soulGreetings.length > 0) {
+    const greeting =
+      soulGreetings[Math.floor(Math.random() * soulGreetings.length)]!;
+    return { text: greeting };
+  }
+
+  // 2. Explicit ## Identity Intro section in IDENTITY.md or SOUL.md
+  const identityIntro = readWorkspaceIdentityIntro();
+  if (identityIntro) {
+    return { text: identityIntro };
+  }
+
+  // 3. Default "Hi, I'm {name}!" from IDENTITY.md
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
   if (existsSync(identityPath)) {
     const content = readFileSync(identityPath, "utf-8");
@@ -385,6 +404,7 @@ function getIdentityIntro() {
     }
   }
 
+  // 4. Cached LLM-generated intro
   const cached = getCachedIntro();
   if (!cached) {
     throw new NotFoundError("No cached identity intro available");
@@ -493,7 +513,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: getIdentityIntro,
     summary: "Get identity intro text",
     description:
-      "Returns a deterministic greeting derived from the assistant name in IDENTITY.md, falling back to LLM-generated cache.",
+      "Returns a greeting for the empty-state hero. Priority: SOUL.md ## Greetings (random pick), ## Identity Intro section, 'Hi, I'm {name}!' from IDENTITY.md, then LLM-generated cache.",
     tags: ["identity"],
     responseBody: z.object({
       text: z.string(),
