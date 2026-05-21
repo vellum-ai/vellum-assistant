@@ -75,8 +75,9 @@ export function usePullRefresh({
     // Also refresh the conversation list.
     onRefreshEpoch();
 
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const timeout = new Promise<never>((_, reject) => {
-      setTimeout(
+      timer = setTimeout(
         () => reject(new Error("pull_refresh_timeout")),
         PULL_REFRESH_TIMEOUT_MS,
       );
@@ -123,6 +124,8 @@ export function usePullRefresh({
       void haptic.error();
       setRefreshFeedback(outcome);
       return outcome;
+    } finally {
+      if (timer != null) clearTimeout(timer);
     }
   }, [activeConversationKey, messagesRef, invalidateHistory, onRefreshEpoch]);
 

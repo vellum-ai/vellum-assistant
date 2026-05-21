@@ -461,12 +461,13 @@ export function useConversationHistory({
   ]);
 
   // -------------------------------------------------------------------------
-  // Sync older-page loading state
+  // Sync older-page loading state (both true → false transitions)
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (pagination.isFetchingOlderPages) {
-      setTranscriptPagination((prev) => ({ ...prev, isLoadingOlder: true }));
-    }
+    setTranscriptPagination((prev) => {
+      if (prev.isLoadingOlder === pagination.isFetchingOlderPages) return prev;
+      return { ...prev, isLoadingOlder: pagination.isFetchingOlderPages };
+    });
   }, [pagination.isFetchingOlderPages, setTranscriptPagination]);
 
   // -------------------------------------------------------------------------
@@ -474,14 +475,26 @@ export function useConversationHistory({
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (!pagination.isError || !pagination.error) return;
+
+    // Older-page failures are reported to Sentry but don't show a
+    // user-facing error — the initial page loaded successfully and the
+    // user can retry by scrolling up again.
+    const isOlderPageError = pagination.isSuccess;
     Sentry.captureException(pagination.error, {
-      tags: { context: "conversation_history_query" },
+      tags: {
+        context: isOlderPageError
+          ? "conversation_history_older_page"
+          : "conversation_history_initial",
+      },
     });
-    setIsLoadingHistory(false);
-    setError({
-      message: "Failed to load conversation history. Please try again.",
-    });
-  }, [pagination.isError, pagination.error, setIsLoadingHistory, setError]);
+
+    if (!isOlderPageError) {
+      setIsLoadingHistory(false);
+      setError({
+        message: "Failed to load conversation history. Please try again.",
+      });
+    }
+  }, [pagination.isError, pagination.isSuccess, pagination.error, setIsLoadingHistory, setError]);
 
   return { pagination };
 }
