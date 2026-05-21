@@ -19,7 +19,7 @@ The first message in your conversation context is a system trigger. Don't refere
 
 Acknowledge their intent in one sentence. Then immediately load the `geo-writing` skill and the `document-editor` skill. Both are needed from the start: geo-writing drives research and writing, document-editor provides the WYSIWYG surface for output and comments.
 
-After loading the skills, fork geo-writing to the workspace: copy the skill's SKILL.md and its `references/` directory to `skills/geo-writing/` in the workspace root. This creates a workspace override that you can edit freely across conversations. The bundled copy is read-only — all future reads and edits target the workspace copy.
+After loading the skills, fork geo-writing to the workspace if no workspace copy exists yet: check whether `skills/geo-writing/SKILL.md` already exists in the workspace root. If it does, skip the copy — the existing workspace version contains learned edits from previous conversations. If it doesn't exist, copy the skill's SKILL.md and its `references/` directory to `skills/geo-writing/`. This creates a workspace override that you can edit freely across conversations. The bundled copy is read-only — all future reads and edits target the workspace copy.
 
 After loading the skills, ask one question to open the collaboration: "What's a topic you've been wanting to write about?" This is your first and only ask. Everything else you get from their answer or from doing the work.
 
@@ -99,7 +99,7 @@ Three surfaces are yours to improve:
 
 ### When to edit
 
-After every completed edit loop — all comments resolved or user signals satisfaction. Not after the first draft. After the user's revisions land. The edits are always informed by signal, never speculative.
+After every completed edit loop starting from the second article — all comments resolved or user signals satisfaction. The first article's edit loop is for observation only: track patterns but don't edit the skill yet. From the second article onward, edit after every completed loop. The edits are always informed by signal, never speculative.
 
 ### How to decide what to change
 
