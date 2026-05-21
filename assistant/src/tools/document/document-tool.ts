@@ -6,6 +6,7 @@ import {
   getDocumentById,
   getDocumentsForConversation,
   isDocumentAssociatedWithConversation,
+  replaceInDocument,
   saveDocument,
   searchDocumentsByTitle,
   updateDocumentContent,
@@ -291,6 +292,76 @@ export function executeDocumentFind(
         match_end: m.matchEnd,
         match_text: m.matchText,
       })),
+    }),
+    isError: false,
+  };
+}
+
+export function executeDocumentReplaceText(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): ToolExecutionResult {
+  const surfaceId = input.surface_id as string;
+  const find = input.find as string;
+  const replace = (input.replace as string) ?? "";
+  const regex = (input.regex as boolean | undefined) ?? false;
+  const caseSensitive = (input.case_sensitive as boolean | undefined) ?? false;
+  const maxReplacements = input.max_replacements as number | undefined;
+
+  if (!canAccessDocument(surfaceId, context)) {
+    return documentNotFound(surfaceId);
+  }
+
+  if (regex) {
+    try {
+      new RegExp(find);
+    } catch (err) {
+      return {
+        content: JSON.stringify({
+          success: false,
+          error: `Invalid regex: ${err instanceof Error ? err.message : String(err)}`,
+        }),
+        isError: true,
+      };
+    }
+  }
+
+  const result = replaceInDocument(surfaceId, find, replace, {
+    regex,
+    caseSensitive,
+    maxReplacements,
+  });
+
+  if (!result.success) {
+    return {
+      content: JSON.stringify({
+        success: false,
+        surface_id: surfaceId,
+        error: result.error,
+      }),
+      isError: true,
+    };
+  }
+
+  if (context.sendToClient && result.content_changed) {
+    const doc = getDocumentById(surfaceId);
+    if (doc) {
+      context.sendToClient({
+        type: "document_editor_update",
+        conversationId: context.conversationId,
+        surfaceId,
+        markdown: doc.content,
+        mode: "replace",
+      });
+    }
+  }
+
+  return {
+    content: JSON.stringify({
+      success: true,
+      surface_id: surfaceId,
+      replacements_made: result.replacements_made,
+      content_changed: result.content_changed,
     }),
     isError: false,
   };

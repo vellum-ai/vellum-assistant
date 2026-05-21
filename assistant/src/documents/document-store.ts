@@ -390,6 +390,109 @@ export function saveDocument(params: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Find-and-replace
+// ---------------------------------------------------------------------------
+
+export interface ReplaceInDocumentOptions {
+  regex?: boolean;
+  caseSensitive?: boolean;
+  maxReplacements?: number;
+}
+
+export type ReplaceInDocumentResult =
+  | { success: true; replacements_made: number; content_changed: boolean }
+  | { success: false; error: string };
+
+function escapeRegExpChars(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Find and replace text within a document — like sed.
+ * Supports literal text and regex patterns with optional backreferences.
+ */
+export function replaceInDocument(
+  surfaceId: string,
+  find: string,
+  replace: string,
+  options: ReplaceInDocumentOptions = {},
+): ReplaceInDocumentResult {
+  try {
+    const row = rawGet<{ content: string }>(
+      /*sql*/ `SELECT content FROM documents WHERE surface_id = ?`,
+      surfaceId,
+    );
+    if (!row) {
+      return { success: false, error: "Document not found" };
+    }
+
+    const flags = "g" + (options.caseSensitive === true ? "" : "i");
+    const pattern = options.regex
+      ? new RegExp(find, flags)
+      : new RegExp(escapeRegExpChars(find), flags);
+
+    const totalMatches = [...row.content.matchAll(pattern)].length;
+    if (totalMatches === 0) {
+      return { success: true, replacements_made: 0, content_changed: false };
+    }
+
+    let newContent: string;
+    let replacementsMade: number;
+
+    if (
+      options.maxReplacements != null &&
+      options.maxReplacements < totalMatches
+    ) {
+      // Iterative replacement up to maxReplacements using manual exec loop
+      // so backreferences in the replacement string work correctly.
+      const limit = options.maxReplacements;
+      let count = 0;
+      let result = "";
+      let lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = pattern.exec(row.content)) !== null) {
+        if (count >= limit) break;
+        result += row.content.slice(lastIndex, m.index);
+        // Build the replacement for this match using String.replace
+        // so $1, $2, $& backreferences resolve against the match.
+        result += m[0].replace(pattern, replace);
+        lastIndex = m.index + m[0].length;
+        count++;
+      }
+      result += row.content.slice(lastIndex);
+      newContent = result;
+      replacementsMade = count;
+    } else {
+      newContent = row.content.replace(pattern, replace);
+      replacementsMade = totalMatches;
+    }
+
+    const wordCount = newContent
+      .split(/\s+/)
+      .filter((w) => w.length > 0).length;
+    rawRun(
+      /*sql*/ `UPDATE documents SET content = ?, word_count = ?, updated_at = ? WHERE surface_id = ?`,
+      newContent,
+      wordCount,
+      Date.now(),
+      surfaceId,
+    );
+    log.info({ surfaceId, replacementsMade }, "Replaced text in document");
+    return {
+      success: true,
+      replacements_made: replacementsMade,
+      content_changed: true,
+    };
+  } catch (error) {
+    log.error({ err: error, surfaceId }, "Replace-in-document error");
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
 /** Update persisted document content (append or replace). */
 export function updateDocumentContent(
   surfaceId: string,
