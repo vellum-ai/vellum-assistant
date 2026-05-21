@@ -276,7 +276,11 @@ export function ChatLayout() {
   }, [navigate]);
 
   const isHomeActive = location.pathname === routes.home;
-  const isIdentityActive = location.pathname === routes.identity;
+  const isIdentityActive =
+    location.pathname === routes.identity ||
+    location.pathname === routes.skills ||
+    location.pathname === routes.workspace ||
+    location.pathname.startsWith(routes.contacts.root);
 
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
