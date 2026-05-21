@@ -1,26 +1,20 @@
 /**
- * Layout-scoped subscriber for assistant-global SSE events.
+ * Bus-consumer that routes assistant-global SSE events into the React
+ * Query caches that back avatar, identity, config, sounds, schedules,
+ * and the conversation list. Reads from {@link getEventBus} — the
+ * underlying SSE connection is owned by `useEventBusInit` mounted at
+ * the chat layout (LUM-1812 PR1).
  *
- * Opens an unfiltered `/v1/events` connection (no conversation key) and
- * routes `sync_changed` invalidations into the React Query caches that
- * back avatar, identity, config, sounds, schedules, and the conversation
- * list. Per-conversation events (text deltas, tool calls, interactions,
- * per-conversation message tags) are ignored here — those are owned by
- * the conversation-scoped `useEventStream` mounted in ChatPage.
- *
- * Mount in ChatLayout so global state stays live on every assistant
- * sibling route (home, identity, library, workspace, contacts, inspect),
- * not just `/assistant/conversations/:key`. Concurrent with ChatPage's
- * stream when the user is in a conversation — the daemon supports
- * multiple subscribers per assistant and the React Query invalidations
- * are idempotent.
+ * Per-conversation events (text deltas, tool calls, interactions,
+ * per-conversation message tags) are ignored here — those remain
+ * owned by the conversation-scoped `useEventStream` mounted in
+ * ChatPage. Per-conversation metadata/messages sync tags still bump
+ * the sidebar list refresh.
  */
 
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import * as Sentry from "@sentry/browser";
 
-import { subscribeChatEvents } from "@/domains/chat/api/stream.js";
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
 import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init.js";
 import {
@@ -39,14 +33,15 @@ import {
   SYNC_TAGS,
   type SyncChangedEvent,
 } from "@/lib/sync/types.js";
+import { getEventBus } from "@/runtime/event-bus.js";
 
 const CONVERSATION_LIST_DEBOUNCE_MS = 250;
 
 /**
- * Subscribes to assistant-global sync events at layout scope.
+ * Subscribes to assistant-global sync events via the event bus.
  *
  * Idempotent across remounts and safe to call when the assistant is not
- * active (returns without opening a connection).
+ * active (returns without subscribing).
  */
 export function useAssistantSyncStream(
   assistantId: string | null,
@@ -147,23 +142,11 @@ export function useAssistantSyncStream(
       }
     };
 
-    const handleError = (err: Error) => {
-      Sentry.captureException(err, {
-        level: "warning",
-        tags: { context: "assistant_sync_stream" },
-      });
-    };
-
-    const stream = subscribeChatEvents(
-      assistantId,
-      null,
-      handleEvent,
-      handleError,
-    );
+    const unsubscribe = getEventBus().subscribe("sse.event", handleEvent);
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      stream.cancel();
+      unsubscribe();
     };
   }, [assistantId, isAssistantActive, queryClient]);
 }

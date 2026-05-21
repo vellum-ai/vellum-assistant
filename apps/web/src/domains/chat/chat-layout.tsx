@@ -14,6 +14,7 @@ import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 import { useAssistantSyncStream } from "@/domains/chat/hooks/use-assistant-sync-stream.js";
+import { useEventBusInit } from "@/runtime/use-event-bus-init.js";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
 import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
 import { useDynamicFavicon } from "@/domains/avatar/use-dynamic-favicon.js";
@@ -188,12 +189,22 @@ export function ChatLayout() {
     layoutAvatar.traits,
   );
 
-  // Layout-scoped SSE subscriber for assistant-global sync events.
-  // ChatPage owns the conversation-scoped stream; this one keeps the
-  // avatar / identity / config / sounds / schedules / conversation list
-  // caches reactive on every assistant route — not just inside a
-  // conversation. See use-assistant-sync-stream.ts for the event
-  // routing contract.
+  // Layout-scoped event bus (LUM-1812). Owns the single assistant-scoped
+  // SSE connection and dispatches synthetic app.resume / app.hidden /
+  // app.online / app.offline events from document.visibilitychange,
+  // Capacitor App.appStateChange, and window online/offline. Consumers
+  // anywhere inside the layout read events via `getEventBus()`; this
+  // hook is the only place that opens the underlying transports.
+  useEventBusInit({
+    assistantId: lifecycle.assistantId,
+    isAssistantActive,
+  });
+
+  // Layout-scoped consumer for assistant-global sync events. ChatPage
+  // still owns the conversation-scoped stream; this hook routes the
+  // bus-dispatched SSE events into the avatar / identity / config /
+  // sounds / schedules / conversation list caches. See
+  // use-assistant-sync-stream.ts for the event routing contract.
   useAssistantSyncStream(lifecycle.assistantId, isAssistantActive);
 
   // Home page unread indicator — drives the red dot on the Home button in
