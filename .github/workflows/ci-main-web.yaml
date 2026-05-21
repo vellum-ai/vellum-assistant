@@ -180,15 +180,23 @@ jobs:
         run: bun run openapi-ts
 
       # Build per environment so the bundle bakes in this environment's public
-      # config — the Sentry environment tag and Stripe publishable key differ per
-      # env (e.g. pk_test_ vs pk_live_). The values live in the GitHub environment
-      # without the VITE_ prefix and are mapped onto VITE_* here. The API base URL
-      # is not baked in: in the browser the client uses same-origin paths, so each
-      # bucket's origin reaches its own backend.
+      # config — the Stripe publishable key differs per env (pk_test_ vs pk_live_)
+      # and the Sentry environment tag must match. Sources, per the GitHub config:
+      #   - VITE_SENTRY_DSN          repo-level variable (same for every env)
+      #   - VITE_SENTRY_ENVIRONMENT  per-environment variable (resolves via the
+      #                              job's `environment:`)
+      #   - VITE_STRIPE_PUBLISHABLE_KEY  per-environment secret; publishable keys
+      #                              are public, so embedding them is expected
+      #   - SENTRY_AUTH_TOKEN        repo-level secret; unprefixed, so Vite never
+      #                              inlines it — it only authenticates the
+      #                              build-time source-map upload and is not
+      #                              emitted into dist/.
+      # The API base URL is not baked in: in the browser the client uses
+      # same-origin paths, so each bucket's origin reaches its own backend.
       - name: Build
         env:
-          VITE_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          VITE_SENTRY_ENVIRONMENT: ${{ matrix.environment }}
+          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+          VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           VITE_APP_VERSION: ${{ github.sha }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
