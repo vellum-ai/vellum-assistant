@@ -131,8 +131,8 @@ export async function resolveSlackBotUserId(
   const trimmedBotId = botId.trim();
   if (!trimmedBotId) return null;
 
-  const cacheKey = `${account ?? ""}:${trimmedBotId}`;
-  if (botUserIdByBotIdCache.has(cacheKey)) {
+  const cacheKey = account ? `${account}:${trimmedBotId}` : null;
+  if (cacheKey && botUserIdByBotIdCache.has(cacheKey)) {
     return botUserIdByBotIdCache.get(cacheKey) ?? null;
   }
 
@@ -142,7 +142,9 @@ export async function resolveSlackBotUserId(
     return userId && userId.length > 0 ? userId : null;
   });
   if (resolvedUserId) {
-    botUserIdByBotIdCache.set(cacheKey, resolvedUserId);
+    if (cacheKey) {
+      botUserIdByBotIdCache.set(cacheKey, resolvedUserId);
+    }
     return resolvedUserId;
   }
   return null;

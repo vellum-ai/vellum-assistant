@@ -339,10 +339,17 @@ describe("Slack adapter token routing", () => {
     expect(resolved).toBeUndefined();
 
     const userId = await resolveSlackBotUserId(undefined, "B_ASSISTANT");
+    const repeatedUserId = await resolveSlackBotUserId(
+      undefined,
+      "B_ASSISTANT",
+    );
 
     expect(userId).toBe("U_BOT");
-    const botsInfoCall = captured.find((c) => c.url.includes("/bots.info"));
-    expect(botsInfoCall).toBeDefined();
-    expect(botsInfoCall!.authorization).toBe(`Bearer ${BOT_TOKEN}`);
+    expect(repeatedUserId).toBe("U_BOT");
+    const botsInfoCalls = captured.filter((c) => c.url.includes("/bots.info"));
+    expect(botsInfoCalls).toHaveLength(2);
+    for (const call of botsInfoCalls) {
+      expect(call.authorization).toBe(`Bearer ${BOT_TOKEN}`);
+    }
   });
 });
