@@ -34,7 +34,7 @@ const updateMessageMetadataCalls: UpdateMessageMetadataCall[] = [];
 /** Per-test override for the synthetic Slack `ts` returned by deliverChannelReply. */
 let nextDeliveryTs: string | null = null;
 
-let renderedHistoryContent: {
+type RenderedHistoryStub = {
   text: string;
   textSegments: string[];
   toolCalls: unknown[];
@@ -42,7 +42,9 @@ let renderedHistoryContent: {
   contentOrder: string[];
   surfaces: unknown[];
   thinkingSegments: string[];
-} = {
+};
+
+let renderedHistoryContent: RenderedHistoryStub = {
   text: "",
   textSegments: [],
   toolCalls: [],
@@ -51,6 +53,7 @@ let renderedHistoryContent: {
   surfaces: [],
   thinkingSegments: [],
 };
+const renderedHistoryContentQueue: RenderedHistoryStub[] = [];
 
 let deliveryFailAtIndex = -1;
 
@@ -100,6 +103,16 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
   getMessages: () => conversationMessages,
+  getMessagesAfter: (
+    _conversationId: string,
+    afterMessageId: string | null,
+  ) => {
+    if (!afterMessageId) return conversationMessages;
+    const index = conversationMessages.findIndex(
+      (message) => message.id === afterMessageId,
+    );
+    return index === -1 ? [] : conversationMessages.slice(index + 1);
+  },
   getMessageById: (messageId: string) =>
     conversationMessages.find((m) => m.id === messageId) ?? null,
   updateMessageMetadata: (
@@ -123,7 +136,8 @@ mock.module("../memory/attachments-store.js", () => ({
 }));
 
 mock.module("../daemon/handlers/shared.js", () => ({
-  renderHistoryContent: () => renderedHistoryContent,
+  renderHistoryContent: () =>
+    renderedHistoryContentQueue.shift() ?? renderedHistoryContent,
 }));
 
 const { deliverRenderedReplyViaCallback, deliverReplyViaCallback } =
@@ -137,6 +151,7 @@ describe("channel-reply-delivery", () => {
     attachmentsByMessageId.clear();
     updateMessageMetadataCalls.length = 0;
     nextDeliveryTs = null;
+    renderedHistoryContentQueue.length = 0;
     renderedHistoryContent = {
       text: "",
       textSegments: [],
@@ -259,6 +274,137 @@ describe("channel-reply-delivery", () => {
       ],
       assistantId: "assistant-2",
     });
+  });
+
+  it("falls back to current-turn assistant text when the newest assistant row is tool-only", async () => {
+    conversationMessages.push(
+      { id: "msg-old-user", role: "user", content: "old prompt" },
+      {
+        id: "msg-old-assistant",
+        role: "assistant",
+        content: '[{"type":"text","text":"old answer"}]',
+      },
+      { id: "msg-current-user", role: "user", content: "current prompt" },
+      {
+        id: "msg-current-text",
+        role: "assistant",
+        content: '[{"type":"text","text":"current answer"}]',
+      },
+      {
+        id: "msg-current-tool-result",
+        role: "user",
+        content: '[{"type":"tool_result","tool_use_id":"tu-1","content":"ok"}]',
+      },
+      {
+        id: "msg-current-tool-only",
+        role: "assistant",
+        content:
+          '[{"type":"tool_use","id":"tu-2","name":"remember","input":{}}]',
+      },
+    );
+    renderedHistoryContentQueue.push(
+      {
+        text: "",
+        textSegments: [],
+        toolCalls: [{ name: "remember", input: {} }],
+        toolCallsBeforeText: true,
+        contentOrder: ["tool:0"],
+        surfaces: [],
+        thinkingSegments: [],
+      },
+      {
+        text: "Current answer.",
+        textSegments: ["Current answer."],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0"],
+        surfaces: [],
+        thinkingSegments: [],
+      },
+    );
+
+    await deliverReplyViaCallback(
+      "conv-1",
+      "chat-current",
+      "http://gateway/deliver/slack",
+      "assistant-current",
+      { sinceMessageId: "msg-current-user" },
+    );
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.text).toBe("Current answer.");
+  });
+
+  it("does not cross the current user boundary when no current-turn assistant text exists", async () => {
+    conversationMessages.push(
+      { id: "msg-old-user", role: "user", content: "old prompt" },
+      {
+        id: "msg-old-assistant",
+        role: "assistant",
+        content: '[{"type":"text","text":"old answer"}]',
+      },
+      { id: "msg-current-user", role: "user", content: "current prompt" },
+      {
+        id: "msg-current-tool-only",
+        role: "assistant",
+        content:
+          '[{"type":"tool_use","id":"tu-1","name":"remember","input":{}}]',
+      },
+    );
+    renderedHistoryContentQueue.push({
+      text: "",
+      textSegments: [],
+      toolCalls: [{ name: "remember", input: {} }],
+      toolCallsBeforeText: true,
+      contentOrder: ["tool:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    });
+
+    await deliverReplyViaCallback(
+      "conv-1",
+      "chat-current",
+      "http://gateway/deliver/slack",
+      "assistant-current",
+      { sinceMessageId: "msg-current-user" },
+    );
+
+    expect(deliveryCalls).toHaveLength(0);
+  });
+
+  it("treats a current-turn no_response marker as terminal instead of falling back", async () => {
+    conversationMessages.push(
+      { id: "msg-current-user", role: "user", content: "current prompt" },
+      {
+        id: "msg-current-text",
+        role: "assistant",
+        content: '[{"type":"text","text":"current answer"}]',
+      },
+      {
+        id: "msg-current-silent",
+        role: "assistant",
+        content: '[{"type":"text","text":"<no_response/>"}]',
+      },
+    );
+    renderedHistoryContentQueue.push({
+      text: "<no_response/>",
+      textSegments: ["<no_response/>"],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    });
+
+    await deliverReplyViaCallback(
+      "conv-1",
+      "chat-current",
+      "http://gateway/deliver/slack",
+      "assistant-current",
+      { sinceMessageId: "msg-current-user" },
+    );
+
+    expect(deliveryCalls).toHaveLength(0);
   });
 
   it("skips already-delivered segments when startFromSegment is set", async () => {
