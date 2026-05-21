@@ -715,6 +715,71 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/assistants/{assistant_id}/handle-available/:
+    get:
+      operationId: assistants_handle_available_retrieve
+      description: |-
+        Live availability check used by the settings UI.
+
+        ``GET /v1/assistants/{assistant_id}/handle-available/?handle=foo``
+
+        Response shape (always 200 even when unavailable — the client renders
+        inline state, not a global error):
+
+        .. code-block:: json
+
+            {"available": true,  "code": null,        "message": null}
+            {"available": false, "code": "too_short", "message": "Must be at least 3 characters."}
+            {"available": false, "code": "taken",     "message": "This handle is already taken."}
+
+        A 429 is returned only when the per-user rate cap is exceeded — the
+        request was not evaluated.
+
+        Authorization: the URL is scoped under ``/v1/assistants/{assistant_id}/``
+        so the standard ownership filter in :class:`_AssistantAPIView` already
+        enforces that the caller can see this assistant. We exclude the
+        assistant's own current handle from the "taken" check so the UI can
+        treat the existing value as available (useful for re-confirming without
+        a save).
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: query
+        name: handle
+        schema:
+          type: string
+        description: Candidate handle (will be lowercased before check).
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantHandleAvailability'
+          description: ''
+        '400':
+          description: No response body
+        '429':
+          description: No response body
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/{assistant_id}/maintenance-mode/enter/:
     post:
       operationId: assistants_maintenance_mode_enter_create
@@ -1449,6 +1514,53 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+    patch:
+      operationId: assistants_partial_update
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAssistantPartialUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAssistantPartialUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAssistantPartialUpdateRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assistant'
+          description: ''
+        '400':
+          description: No response body
+        '409':
+          description: No response body
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/{id}/access-consent/:
     get:
       operationId: assistants_access_consent_detail_read
@@ -1680,6 +1792,72 @@ paths:
               schema:
                 $ref: '#/components/schemas/DetailResponse'
           description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{id}/resize/:
+    post:
+      operationId: assistants_resize
+      description: |-
+        Resize an assistant's machine size and/or workspace PVC.
+
+        Pro-gated and bounded by the org's purchased machine/storage tiers.
+        Either dimension may be supplied independently; storage grows only
+        (never shrinks). The actual vembda mechanics live in the policy-free
+        ``resize_assistant`` helper — this view owns the entitlement and
+        per-tier ceiling policy.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistantResizeRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AssistantResizeRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AssistantResizeRequestRequest'
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantResizeResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantResize403'
+          description: Forbidden. Either the org lacks the Pro entitlement (``{detail}``)
+            or the request exceeds a purchased tier (``{error, max_machine_tier |
+            max_storage_gib}``).
         '502':
           content:
             application/json:
@@ -3093,35 +3271,6 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
-    delete:
-      operationId: organizations_billing_subscription_destroy
-      description: 'STUB(ATL-593): Cancel the org''s active Pro subscription. Real
-        impl checks vembda PVC usage and either gates with 400 pvc_too_large or calls
-        Stripe to schedule cancellation at current period end. This stub returns a
-        hardcoded cancel_at 30 days out and domain=null.'
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      tags:
-      - organizations
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProSubscriptionCancelResponse'
-          description: ''
-      x-vellum-api-clients:
-      - platform
   /v1/organizations/billing/subscription/change-machine-tier/:
     post:
       operationId: organizations_billing_subscription_change_machine_tier_create
@@ -3163,32 +3312,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ComputeTierChangeResponse'
-          description: ''
-      x-vellum-api-clients:
-      - platform
-  /v1/organizations/billing/subscription/cleanup-prompt/:
-    post:
-      operationId: organizations_billing_subscription_cleanup_prompt_create
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      tags:
-      - organizations
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      responses:
-        '202':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProCleanupPromptResponse'
           description: ''
       x-vellum-api-clients:
       - platform
@@ -3341,9 +3464,10 @@ paths:
   /v1/organizations/billing/subscription/onboarding/storage/:
     post:
       operationId: organizations_billing_subscription_onboarding_storage_create
-      description: Apply the active Pro storage tier to every assistant's PVC on demand.
-        Idempotent at the vembda layer — re-clicks are safe. Marks pvc_ready on first
-        successful application if the account's last_invoice_paid_at is still null.
+      description: Apply the active Pro storage tier to the org's primary assistant's
+        PVC on demand. Grow-only and idempotent at the vembda layer — re-clicks are
+        safe. Readiness (pvc_ready) derives from the assistant's provisioned_storage_gib
+        column, written by the resize.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -3366,45 +3490,8 @@ paths:
                 $ref: '#/components/schemas/OnboardingStorageResponse'
           description: ''
         '409':
-          description: Missing or invalid storage tier on the account.
-      x-vellum-api-clients:
-      - platform
-  /v1/organizations/billing/subscription/retire/:
-    post:
-      operationId: organizations_billing_subscription_retire_create
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      tags:
-      - organizations
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ProRetireRequestRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/ProRetireRequestRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/ProRetireRequestRequest'
-        required: true
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProRetireResponse'
-          description: ''
+          description: Missing or invalid storage tier on the account, or no assistant
+            to provision.
       x-vellum-api-clients:
       - platform
   /v1/organizations/billing/subscription/upgrade/:
@@ -3999,6 +4086,19 @@ paths:
       operationId: releases_list
       parameters:
       - in: query
+        name: channel
+        schema:
+          enum:
+          - stable
+          - preview
+          type: string
+          minLength: 1
+        description: |-
+          Filter by release channel. Takes precedence over stable.
+
+          * `stable` - Stable
+          * `preview` - Preview
+      - in: query
         name: since_version
         schema:
           type: string
@@ -4100,6 +4200,10 @@ components:
         name:
           type: string
           maxLength: 255
+        handle:
+          type: string
+          readOnly: true
+          nullable: true
         description:
           type: string
           nullable: true
@@ -4113,6 +4217,10 @@ components:
         modified:
           type: string
           format: date-time
+          readOnly: true
+        release_channel:
+          allOf:
+          - $ref: '#/components/schemas/ReleaseChannelEnum'
           readOnly: true
         current_release_version:
           type: string
@@ -4150,12 +4258,14 @@ components:
       - access_consented
       - created
       - current_release_version
+      - handle
       - id
       - ingress_url
       - is_local
       - machine_size
       - maintenance_mode
       - modified
+      - release_channel
       - vembda_cluster_id
     AssistantDomain:
       type: object
@@ -4200,6 +4310,27 @@ components:
       - address
       - created_at
       - id
+    AssistantHandleAvailability:
+      type: object
+      description: |-
+        Response shape for the live assistant-handle availability check.
+
+        * ``available``: ``true`` only when the handle passes format validation
+          AND no other assistant holds it (case-insensitively).
+        * ``code``: ``null`` when ``available`` is ``true``; otherwise a stable
+          machine-readable reason — either a validation code from
+          :mod:`app.assistant.handle_validation` or ``"taken"``.
+      properties:
+        available:
+          type: boolean
+        code:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+      required:
+      - available
     AssistantRequest:
       type: object
       properties:
@@ -4217,6 +4348,51 @@ components:
           type: string
           nullable: true
           maxLength: 255
+    AssistantResize403:
+      oneOf:
+      - $ref: '#/components/schemas/AssistantResizeTierError'
+      - $ref: '#/components/schemas/DetailResponse'
+    AssistantResizeRequestRequest:
+      type: object
+      properties:
+        machine_size:
+          type: string
+          minLength: 1
+        storage_gib:
+          type: integer
+          minimum: 1
+    AssistantResizeResponse:
+      type: object
+      properties:
+        machine_size:
+          type: string
+          nullable: true
+        provisioned_storage_gib:
+          type: integer
+          nullable: true
+      required:
+      - machine_size
+      - provisioned_storage_gib
+    AssistantResizeTierError:
+      type: object
+      description: |-
+        403 body returned when a resize request exceeds a purchased tier.
+
+        Two flavors share this shape: ``exceeds_machine_tier`` (with
+        ``max_machine_tier``) and ``exceeds_storage_tier`` (with ``max_storage_gib``).
+        The non-applicable ceiling field is omitted per branch, so both are optional
+        and nullable. Distinct from the Pro-gate 403, which returns ``{detail}``.
+      properties:
+        error:
+          type: string
+        max_machine_tier:
+          type: string
+          nullable: true
+        max_storage_gib:
+          type: integer
+          nullable: true
+      required:
+      - error
     AssistantStatusEnum:
       enum:
       - initializing
@@ -5513,6 +5689,9 @@ components:
         selected_storage_tier:
           type: string
           nullable: true
+        selected_storage_gib:
+          type: integer
+          nullable: true
         pvc_ready:
           type: boolean
         domain_setup_available:
@@ -5521,6 +5700,7 @@ components:
       - domain_setup_available
       - max_machine_tier
       - pvc_ready
+      - selected_storage_gib
       - selected_storage_tier
     OnboardingStorageResponse:
       type: object
@@ -5738,6 +5918,29 @@ components:
           description: When True, Vellum admins may view the daemon log file (/workspace/data/logs/vellum.log)
             from this assistant pod for debugging. Defaults to False; the owner can
             revoke at any time.
+    PatchedAssistantPartialUpdateRequest:
+      type: object
+      description: |-
+        Write surface for ``PATCH /v1/assistants/{id}/``.
+
+        Accepts a narrow allowlist (``name``, ``description``, ``handle``) and
+        delegates handle format validation to
+        :func:`app.assistant.handle_validation.validate_handle`. Uniqueness is
+        enforced at the database layer via the case-insensitive functional
+        unique index on ``LOWER(handle)``; the view converts the resulting
+        ``IntegrityError`` to a 409 (see :meth:`AssistantViewSet.partial_update`).
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        handle:
+          type: string
+          nullable: true
+          maxLength: 150
     PatchedSleepPolicyRequest:
       type: object
       description: Serializer for the assistant sleep/wake policy.
@@ -5854,18 +6057,6 @@ components:
       - ios
       type: string
       description: '* `ios` - ios'
-    ProCleanupPromptResponse:
-      type: object
-      properties:
-        injected:
-          type: boolean
-        conversation_id:
-          type: string
-          format: uuid
-          nullable: true
-      required:
-      - conversation_id
-      - injected
     ProMachineResizeRequestRequest:
       type: object
       properties:
@@ -5929,36 +6120,14 @@ components:
       - pro
       type: string
       description: '* `pro` - pro'
-    ProRetireRequestRequest:
-      type: object
-      properties:
-        confirm_delete:
-          type: boolean
-      required:
-      - confirm_delete
-    ProRetireResponse:
-      type: object
-      properties:
-        retired:
-          type: boolean
-        cancel_at:
-          type: string
-          format: date-time
-      required:
-      - cancel_at
-      - retired
-    ProSubscriptionCancelResponse:
-      type: object
-      properties:
-        cancel_at:
-          type: string
-          format: date-time
-        domain:
-          type: string
-          nullable: true
-      required:
-      - cancel_at
-      - domain
+    ReleaseChannelEnum:
+      enum:
+      - stable
+      - preview
+      type: string
+      description: |-
+        * `stable` - Stable
+        * `preview` - Preview
     ReleaseListItem:
       type: object
       properties:
