@@ -13,13 +13,15 @@ Call this when something happened that the user would want to know about — a c
 ## Sending Notifications
 
 ```bash
-assistant notifications send --message "Your verbatim observation in your own words"
+assistant notifications send \
+  --title "Short headline" \
+  --message "Your verbatim observation in your own words"
 ```
 
 For time-sensitive items:
 
 ```bash
-assistant notifications send --message "..." --urgent
+assistant notifications send --title "..." --message "..." --urgent
 ```
 
 ### Command Reference
@@ -27,9 +29,13 @@ assistant notifications send --message "..." --urgent
 | Flag                  | Required | Description                                  |
 | --------------------- | -------- | -------------------------------------------- |
 | `--message <message>` | Yes      | Notification message the user should receive |
-| `--title <title>`     | No       | Optional notification title                  |
+| `--title <title>`     | No       | Short headline (≤ 8 words). Strongly recommended — auto-derived from `--message` if omitted. |
 | `--urgent`            | No       | Mark as needing attention now/soon           |
 | `--json`              | No       | Output machine-readable JSON                 |
+
+### Title
+
+Include a deliberate `--title` whenever you can. It's what the user sees in the lock-screen popup and notification list, so a short headline (noun phrase, ≤ 8 words) is much easier to scan than an auto-derived snippet from the message body. Avoid restating the first sentence of `--message` verbatim — the title should add scannability, not duplicate.
 
 ### Urgent semantics
 
@@ -39,10 +45,15 @@ Use `--urgent` for items needing attention now/soon (blocked work, broken auth, 
 
 ```bash
 # Plain notification
-assistant notifications send --message "Backup completed successfully"
+assistant notifications send \
+  --title "Backup complete" \
+  --message "Nightly backup finished — 12.4 GB archived to cold storage."
 
 # Urgent notification
-assistant notifications send --message "Auth token expired — sync paused" --urgent
+assistant notifications send \
+  --title "Auth token expired" \
+  --message "Sync is paused until you reauthenticate the GitHub integration." \
+  --urgent
 ```
 
 ### Response Format
