@@ -34,6 +34,7 @@ export const SIDEBAR_CONVERSATION_LIMIT = 5;
 // ---------------------------------------------------------------------------
 
 export interface PaginatedSection {
+  all: Conversation[];
   items: Conversation[];
   totalCount: number;
   showMore: boolean;
@@ -132,6 +133,7 @@ export function useSidebarState({
         .some((c) => attentionConversationKeys.has(c.conversationKey));
     const effectiveShowAll = showAllRecents || !!hasAttentionBeyondLimit;
     return {
+      all: grouped.recents,
       items: effectiveShowAll
         ? grouped.recents
         : grouped.recents.slice(0, SIDEBAR_CONVERSATION_LIMIT),
@@ -153,6 +155,7 @@ export function useSidebarState({
         .some((c) => attentionConversationKeys.has(c.conversationKey));
     const effectiveShowAll = showAllSlack || !!hasAttentionBeyondLimit;
     return {
+      all: grouped.slack,
       items: effectiveShowAll
         ? grouped.slack
         : grouped.slack.slice(0, SIDEBAR_CONVERSATION_LIMIT),

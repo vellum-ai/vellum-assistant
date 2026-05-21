@@ -389,8 +389,8 @@ export function AssistantSideMenu({
               pinned={sidebar.pinned}
               scheduled={sidebar.scheduled}
               background={sidebar.background}
-              slack={sidebar.slack.items}
-              recents={sidebar.recents.items}
+              slack={sidebar.slack.all}
+              recents={sidebar.recents.all}
               customGroups={sidebar.conversationGroupsEnabled ? sidebar.customGroups : undefined}
               activeConversationKey={activeConversationKey}
               onSelectConversation={selectAndClose}
