@@ -367,7 +367,7 @@ export function DocumentViewerContainer({
           {/* Floating inline comment popover anchored to selection */}
           {commentsPanelOpen && textSelection ? (
             <div
-              className="absolute z-10 w-72 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] shadow-lg"
+              className="absolute z-10 w-72 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] shadow-[var(--shadow-popover)]"
               style={
                 textSelection.rect && iframeRef.current
                   ? (() => {
@@ -395,14 +395,14 @@ export function DocumentViewerContainer({
                 <Button
                   variant="ghost"
                   size="compact"
-                  iconOnly={<X className="h-3 w-3" />}
+                  iconOnly={<X />}
                   aria-label="Dismiss"
                   onClick={handleDismissInlinePopover}
                 />
               </div>
               <div className="p-3">
                 <textarea
-                  className="w-full resize-none rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] px-2 py-1.5 text-sm text-[var(--content-emphasised)] placeholder:text-[var(--content-tertiary)] focus:border-[var(--border-focus)] focus:outline-none"
+                  className="w-full resize-none rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] px-3 py-2 text-body-medium-lighter text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-[border-color] duration-150 ease-out focus-visible:border-[var(--border-active)]"
                   rows={2}
                   placeholder="Add your feedback…"
                   value={inlineCommentDraft}
