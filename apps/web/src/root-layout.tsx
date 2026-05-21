@@ -10,6 +10,7 @@ import {
 } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
+import { useFeatureFlagSync } from "@/lib/feature-flags/use-feature-flag-sync.js";
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
@@ -66,6 +67,7 @@ export function RootLayout() {
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const authLoading = useAuthStore.use.isLoading();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
+  useFeatureFlagSync(isLoggedIn && !authLoading);
   const lifecycle = useAssistantLifecycle({
     isLoggedIn,
     isLoading: authLoading,
