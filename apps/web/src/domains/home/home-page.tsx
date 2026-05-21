@@ -41,7 +41,7 @@ function HomePageSkeleton() {
 }
 
 export interface HomePageProps {
-  assistantId: string | null;
+  assistantId: string;
   onStartNewChat: () => void;
   onOpenConversation: (conversationId: string) => void;
   onSuggestionSelected: (prompt: string) => void;
@@ -129,6 +129,17 @@ export function HomePage({
         greeting={feedQuery.data?.contextBanner?.greeting}
         onStartNewChat={onStartNewChat}
       />
+      {feedQuery.isError ? (
+        <div
+          role="alert"
+          className="rounded-md border border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)] px-[var(--app-spacing-lg)] py-[var(--app-spacing-md)] text-[var(--system-negative-strong)]"
+        >
+          Couldn't load home feed
+          {feedQuery.error instanceof Error
+            ? `: ${feedQuery.error.message}`
+            : "."}
+        </div>
+      ) : null}
       <HomeSuggestionPillBar
         suggestions={feedQuery.data?.suggestedPrompts ?? []}
         onSelect={handleSuggestionSelect}

@@ -76,6 +76,11 @@ function ConversationKeyRedirect() {
 function HomePageRoute() {
   const navigate = useNavigate();
   const { assistantId } = useAssistantContext();
+  // Mirror the platform's `mainView === "home" && assistantId` gate
+  // (AssistantPageClient.tsx). Rendering HomePage with a null assistantId
+  // leaves useHomeFeedQuery disabled forever and the page silently
+  // degrades to the empty-fallback state.
+  if (!assistantId) return null;
   return (
     <HomePage
       assistantId={assistantId}
