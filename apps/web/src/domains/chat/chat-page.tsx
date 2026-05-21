@@ -70,6 +70,7 @@ import { useSendMessage } from "@/domains/chat/hooks/use-send-message.js";
 import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions.js";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
+import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input.js";
 
 import { createWebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import { fetchAssistantIdentity } from "@/assistant/identity.js";
@@ -127,7 +128,6 @@ export function ChatPage() {
   // Local state
   // -------------------------------------------------------------------------
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
-  const [input, setInput] = useState("");
   const [error, setError] = useState<ChatError | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [compactionCircuitOpenUntil, setCompactionCircuitOpenUntil] = useState<Date | null>(null);
@@ -250,7 +250,6 @@ export function ChatPage() {
   const loadEpochRef = useRef(0);
   const pendingInitialMessageRef = useRef<{ conversationKey: string; content: string } | null>(null);
   const expandedToolCallIdsRef = useRef<Set<string>>(new Set());
-  const draftsRef = useRef<Map<string, string>>(new Map());
   const conversationCacheRef = useRef<Map<string, { messages: DisplayMessage[]; pagination: { hasMore: boolean; oldestTimestamp: number | null } }>>(new Map());
   const contextWindowUsageByConversationRef = useRef<Map<string, ContextWindowUsage>>(new Map());
   const refreshSettleRef = useRef<RefreshSettleHandle | null>(null);
@@ -287,6 +286,17 @@ export function ChatPage() {
     monitorEnabled: diskPressure.mode !== null,
     hasResolvedStatus: diskPressure.hasResolvedStatus,
     status: diskPressure.status,
+  });
+
+  // -------------------------------------------------------------------------
+  // Draft input — owns composer `input` state and per-conversation draft
+  // persistence to localStorage. Replaces the old manual `draftsRef` that was
+  // threaded through useConversationLoader → useConversationHistory.
+  // -------------------------------------------------------------------------
+  const { input, setInput, saveDraft, clearDraft } = useDraftInput({
+    assistantId,
+    activeConversationKey,
+    onDraftRestored: setRestoredDraftConversationKey,
   });
 
   // -------------------------------------------------------------------------
@@ -375,8 +385,6 @@ export function ChatPage() {
     previousConversationKeyRef,
     onboardingDraftConversationKeyRef,
     activeConversationKeyRef,
-    inputRef,
-    draftsRef,
     messagesRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
@@ -404,10 +412,8 @@ export function ChatPage() {
     setContextWindowUsage,
     setSuggestion,
     setCompactionCircuitOpenUntil,
-    setInput,
     resetChatAttachments,
     syncNeedsNewBubbleFromMessages,
-    onDraftRestored: setRestoredDraftConversationKey,
     shouldSuppressGenericChatErrorNotice,
   });
 
@@ -1067,6 +1073,8 @@ export function ChatPage() {
     editingConversationKey,
     restoredDraftConversationKey,
     setRestoredDraftConversationKey,
+    saveDraft,
+    clearDraft,
     avatar: {
       avatarComponents: avatar.components,
       avatarTraits: avatar.traits,
@@ -1216,7 +1224,6 @@ export function ChatPage() {
       assistantIdRef,
       streamContextRef,
       expandedToolCallIdsRef,
-      draftsRef,
       conversationCacheRef,
       dismissedSurfaceIdsRef,
       isLoadingOlderRef,

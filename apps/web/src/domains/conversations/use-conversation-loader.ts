@@ -97,8 +97,6 @@ interface UseConversationLoaderParams {
   previousConversationKeyRef: MutableRefObject<string | null>;
   onboardingDraftConversationKeyRef: MutableRefObject<string | null>;
   activeConversationKeyRef: MutableRefObject<string | null>;
-  inputRef: MutableRefObject<HTMLTextAreaElement | null>;
-  draftsRef: MutableRefObject<Map<string, string>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
@@ -128,21 +126,10 @@ interface UseConversationLoaderParams {
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
   setSuggestion: Dispatch<SetStateAction<string | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
-  setInput: Dispatch<SetStateAction<string>>;
-
 
   // Callbacks
   resetChatAttachments: () => void;
   syncNeedsNewBubbleFromMessages: (nextMessages: DisplayMessage[]) => void;
-
-  /**
-   * Fires after a non-empty saved draft is restored into the composer on a
-   * conversation switch. Receives the conversation key the draft belongs to.
-   * Used by the page to render a transient "Draft restored" notice so the
-   * user does not mistake the restored text for a stale unsent message (see
-   * LUM-1516). Optional — omit to suppress the notice (e.g. in tests).
-   */
-  onDraftRestored?: (conversationKey: string) => void;
 
   // Error classification
   shouldSuppressGenericChatErrorNotice: (prev: ChatError | null) => boolean;
@@ -187,8 +174,6 @@ export function useConversationLoader({
   previousConversationKeyRef,
   onboardingDraftConversationKeyRef,
   activeConversationKeyRef,
-  inputRef,
-  draftsRef,
   messagesRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
@@ -216,10 +201,8 @@ export function useConversationLoader({
   setContextWindowUsage,
   setSuggestion,
   setCompactionCircuitOpenUntil,
-  setInput,
   resetChatAttachments,
   syncNeedsNewBubbleFromMessages,
-  onDraftRestored,
   shouldSuppressGenericChatErrorNotice,
 }: UseConversationLoaderParams) {
   // -------------------------------------------------------------------------
@@ -452,8 +435,6 @@ export function useConversationLoader({
     conversationCacheRef,
     draftKeyResolutionRef,
     previousConversationKeyRef,
-    inputRef,
-    draftsRef,
     messagesRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
@@ -478,8 +459,6 @@ export function useConversationLoader({
     setContextWindowUsage,
     setSuggestion,
     setCompactionCircuitOpenUntil,
-    setInput,
-    onDraftRestored,
     resetChatAttachments,
     syncNeedsNewBubbleFromMessages,
     shouldSuppressGenericChatErrorNotice,

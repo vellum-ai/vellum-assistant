@@ -213,7 +213,6 @@ export interface ChatRouteRefs {
   assistantIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
   expandedToolCallIdsRef: MutableRefObject<Set<string>>;
-  draftsRef: MutableRefObject<Map<string, string>>;
   conversationCacheRef: MutableRefObject<Map<string, { messages: DisplayMessage[]; pagination: { hasMore: boolean; oldestTimestamp: number | null } }>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   isLoadingOlderRef: MutableRefObject<boolean>;
@@ -282,6 +281,8 @@ export interface ChatRouteContentProps {
   // Draft
   restoredDraftConversationKey: string | null;
   setRestoredDraftConversationKey: Dispatch<SetStateAction<string | null>>;
+  saveDraft: (key: string, text: string) => void;
+  clearDraft: (key: string) => void;
 
   // Avatar
   avatar: AvatarData;
@@ -400,6 +401,8 @@ export function ChatRouteContent({
   editingConversationKey,
   restoredDraftConversationKey,
   setRestoredDraftConversationKey,
+  saveDraft,
+  clearDraft,
   avatar,
   conversationStarters,
   contextWindowUsage,
@@ -494,7 +497,6 @@ export function ChatRouteContent({
     assistantIdRef: _assistantIdRef,
     streamContextRef,
     expandedToolCallIdsRef,
-    draftsRef,
     conversationCacheRef,
     dismissedSurfaceIdsRef: _dismissedSurfaceIdsRef,
     isLoadingOlderRef,
@@ -695,15 +697,11 @@ export function ChatRouteContent({
   const handleRefreshConversation = useCallback(() => {
     if (activeConversationKey) {
       const currentInput = inputRef.current?.value ?? "";
-      if (currentInput.trim()) {
-        draftsRef.current.set(activeConversationKey, currentInput);
-      } else {
-        draftsRef.current.delete(activeConversationKey);
-      }
+      saveDraft(activeConversationKey, currentInput);
       conversationCacheRef.current.delete(activeConversationKey);
     }
     setRefreshEpoch((prev) => prev + 1);
-  }, [activeConversationKey, inputRef, draftsRef, conversationCacheRef, setRefreshEpoch]);
+  }, [activeConversationKey, inputRef, saveDraft, conversationCacheRef, setRefreshEpoch]);
 
   // -------------------------------------------------------------------------
   // Pull-to-refresh
@@ -942,7 +940,7 @@ export function ChatRouteContent({
     setInput("");
     setSuggestion(null);
     if (activeConversationKey) {
-      draftsRef.current.delete(activeConversationKey);
+      clearDraft(activeConversationKey);
     }
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
@@ -953,7 +951,7 @@ export function ChatRouteContent({
     }
     haptic.medium();
     await sendMessage(trimmed, attachmentsToSend);
-  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationKey, chatAttachments, resetChatAttachments, sendMessage, setInput, setSuggestion, draftsRef, inputRef]);
+  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationKey, chatAttachments, resetChatAttachments, sendMessage, setInput, setSuggestion, clearDraft, inputRef]);
 
   const handleSelectStarter = (starter: { prompt: string }) => {
     setInput(starter.prompt);

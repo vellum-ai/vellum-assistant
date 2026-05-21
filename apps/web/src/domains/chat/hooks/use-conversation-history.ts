@@ -96,8 +96,6 @@ interface UseConversationHistoryParams {
   >;
   draftKeyResolutionRef: MutableRefObject<boolean>;
   previousConversationKeyRef: MutableRefObject<string | null>;
-  inputRef: MutableRefObject<HTMLTextAreaElement | null>;
-  draftsRef: MutableRefObject<Map<string, string>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
 
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
@@ -125,21 +123,10 @@ interface UseConversationHistoryParams {
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
   setSuggestion: Dispatch<SetStateAction<string | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
-  setInput: Dispatch<SetStateAction<string>>;
 
   // Callbacks
   resetChatAttachments: () => void;
   syncNeedsNewBubbleFromMessages: (nextMessages: DisplayMessage[]) => void;
-
-  /**
-   * Fires after a non-empty saved draft is restored into the composer on a
-   * genuine conversation switch. Receives the conversation key the draft
-   * belongs to. Used by the page to render a transient "Draft restored"
-   * notice so the user does not mistake the restored text for a stale
-   * unsent message (see LUM-1516). Optional -- omit to suppress the notice
-   * (e.g. in tests).
-   */
-  onDraftRestored?: (conversationKey: string) => void;
 
   // Error classification
   shouldSuppressGenericChatErrorNotice: (prev: ChatError | null) => boolean;
@@ -154,7 +141,7 @@ interface UseConversationHistoryParams {
  * conversation changes.
  *
  * Handles:
- * - Saving outgoing conversation drafts and messages to the LRU cache
+ * - Caching outgoing conversation messages to the LRU cache on switch
  * - Resetting per-conversation state on switch
  * - Restoring cached messages or fetching fresh history from the server
  * - Reconciling cache with latest server data
@@ -171,8 +158,6 @@ export function useConversationHistory({
   conversationCacheRef,
   draftKeyResolutionRef,
   previousConversationKeyRef,
-  inputRef,
-  draftsRef,
   messagesRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
@@ -197,10 +182,8 @@ export function useConversationHistory({
   setContextWindowUsage,
   setSuggestion,
   setCompactionCircuitOpenUntil,
-  setInput,
   resetChatAttachments,
   syncNeedsNewBubbleFromMessages,
-  onDraftRestored,
   shouldSuppressGenericChatErrorNotice,
 }: UseConversationHistoryParams) {
   const transcriptPaginationRef = useRef(transcriptPagination);
@@ -222,25 +205,14 @@ export function useConversationHistory({
       return;
     }
 
-    // Save the outgoing conversation's draft and messages so they can be
-    // restored on switch-back without a server round-trip.
+    // Save the outgoing conversation's messages so they can be restored
+    // on switch-back without a server round-trip. Draft save/restore is
+    // handled by useDraftInput (LUM-1737).
     const outgoingKey = previousConversationKeyRef.current;
-    // Distinguish a real conversation switch (drives draft restoration UX)
-    // from an effect re-run on the same conversation (e.g. pull-to-refresh
-    // incrementing `refreshEpoch`, feature-flag deps changing). On a
-    // same-key re-run the user's current input was just round-tripped
-    // through `draftsRef` by the refresh handler and must not be surfaced
-    // as a "restored draft" -- see comment on `onDraftRestored?.()` below.
     const isConversationSwitch = Boolean(
       outgoingKey && outgoingKey !== activeConversationKey,
     );
     if (isConversationSwitch && outgoingKey) {
-      const currentInput = inputRef.current?.value ?? "";
-      if (currentInput.trim()) {
-        draftsRef.current.set(outgoingKey, currentInput);
-      } else {
-        draftsRef.current.delete(outgoingKey);
-      }
       // If the outgoing conversation has a pending interaction, mark it as
       // needing attention so the sidebar shows an alert icon.
       const interactionSnapshot = useInteractionStore.getState();
@@ -274,29 +246,6 @@ export function useConversationHistory({
       }
     }
     previousConversationKeyRef.current = activeConversationKey;
-
-    // Restore the incoming conversation's draft (or clear the input).
-    // Gate on a genuine conversation switch: same-key effect re-runs (e.g.
-    // pull-to-refresh incrementing `refreshEpoch`, `conversationGroupsUI`
-    // toggling) must not overwrite the user's in-progress composer input
-    // with whatever stale value lives at this conversation's draft slot.
-    // The user's current text IS the live state at that point and is
-    // already preserved by `inputRef.current`.
-    let savedDraft = "";
-    if (isConversationSwitch) {
-      savedDraft = draftsRef.current.get(activeConversationKey) ?? "";
-      setInput(savedDraft);
-      if (inputRef.current) {
-        inputRef.current.style.height = "auto";
-      }
-    }
-    // Surface the restore to the page so it can render a transient notice.
-    // Without this, the user can mistake the restored text for stale
-    // content from a prior send (LUM-1516, part 2). Empty restores are
-    // the expected default and not worth a notice.
-    if (isConversationSwitch && savedDraft.length > 0) {
-      onDraftRestored?.(activeConversationKey);
-    }
 
     // Reset all per-conversation state so nothing leaks between threads.
     isLoadingOlderRef.current = false;
@@ -631,8 +580,6 @@ export function useConversationHistory({
     conversationCacheRef,
     draftKeyResolutionRef,
     previousConversationKeyRef,
-    inputRef,
-    draftsRef,
     messagesRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
@@ -658,8 +605,6 @@ export function useConversationHistory({
     setContextWindowUsage,
     setSuggestion,
     setCompactionCircuitOpenUntil,
-    setInput,
-    onDraftRestored,
     shouldSuppressGenericChatErrorNotice,
   ]);
 }
