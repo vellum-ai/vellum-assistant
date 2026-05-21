@@ -6,7 +6,7 @@ import { assertHasResponse } from "@/lib/api-errors.js";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import {
   ASSISTANT_FLAG_DEFAULTS,
-  type AssistantFeatureFlags,
+  ldKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog.js";
 
 interface FeatureFlagEntry {
@@ -21,27 +21,16 @@ interface AssistantFlagValuesResponse {
   flags: FeatureFlagEntry[];
 }
 
-const ASSISTANT_DEFAULTS = ASSISTANT_FLAG_DEFAULTS;
-
-const NORMALIZED_TO_STORE_KEY: Record<string, keyof AssistantFeatureFlags> = {};
-for (const key of Object.keys(ASSISTANT_DEFAULTS) as (keyof AssistantFeatureFlags)[]) {
-  NORMALIZED_TO_STORE_KEY[key.toLowerCase()] = key;
-}
-
-function gatewayKeyToStoreKey(
-  gatewayKey: string,
-): keyof AssistantFeatureFlags | undefined {
-  return NORMALIZED_TO_STORE_KEY[gatewayKey.replace(/-/g, "").toLowerCase()];
-}
+const VALID_KEYS = new Set(Object.keys(ASSISTANT_FLAG_DEFAULTS));
 
 function mapFlags(
   entries: FeatureFlagEntry[],
-): Partial<AssistantFeatureFlags> {
-  const mapped: Partial<AssistantFeatureFlags> = {};
+): Record<string, boolean> {
+  const mapped: Record<string, boolean> = {};
   for (const entry of entries) {
-    const storeKey = gatewayKeyToStoreKey(entry.key);
-    if (storeKey) {
-      Object.assign(mapped, { [storeKey]: entry.enabled });
+    const storeKey = ldKeyToStoreKey(entry.key);
+    if (VALID_KEYS.has(storeKey)) {
+      mapped[storeKey] = entry.enabled;
     }
   }
   return mapped;

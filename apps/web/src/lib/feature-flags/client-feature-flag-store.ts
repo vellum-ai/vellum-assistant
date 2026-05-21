@@ -1,36 +1,26 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors.js";
-import {
-  CLIENT_FLAG_DEFAULTS,
-  type ClientFeatureFlags,
-} from "@/lib/feature-flags/feature-flag-catalog.js";
+import { CLIENT_FLAG_DEFAULTS } from "@/lib/feature-flags/feature-flag-catalog.js";
 
-const CLIENT_DEFAULTS = CLIENT_FLAG_DEFAULTS;
-
-interface ClientFeatureFlagActions {
-  setFlags: (flags: Partial<ClientFeatureFlags>) => void;
-  setFlag: <K extends keyof ClientFeatureFlags>(
-    key: K,
-    value: ClientFeatureFlags[K],
-  ) => void;
+interface ClientFeatureFlagStore extends Record<string, unknown> {
+  setFlags: (flags: Record<string, boolean>) => void;
+  setFlag: (key: string, value: boolean) => void;
 }
-
-type ClientFeatureFlagStore = ClientFeatureFlags & ClientFeatureFlagActions;
 
 const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
   (set) => ({
-    ...CLIENT_DEFAULTS,
+    ...CLIENT_FLAG_DEFAULTS,
 
-    setFlags: (flags) =>
+    setFlags: (flags: Record<string, boolean>) =>
       set((prev) => {
-        const changed = (
-          Object.keys(flags) as (keyof ClientFeatureFlags)[]
-        ).some((k) => flags[k] !== prev[k]);
+        const changed = Object.keys(flags).some(
+          (k) => flags[k] !== prev[k],
+        );
         return changed ? flags : prev;
       }),
 
-    setFlag: (key, value) => set({ [key]: value }),
+    setFlag: (key: string, value: boolean) => set({ [key]: value }),
   }),
 );
 

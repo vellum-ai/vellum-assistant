@@ -8,7 +8,7 @@ import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-fl
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import {
   ALL_FLAGS,
-  ldKeyToNormalized,
+  ldKeyToStoreKey,
   type FlagScope,
 } from "@/lib/feature-flags/feature-flag-catalog.js";
 
@@ -29,7 +29,7 @@ export function FeatureFlagsPanel() {
   const flags: FlagDisplayEntry[] = useMemo(() => {
     const entries: FlagDisplayEntry[] = [];
     for (const flag of ALL_FLAGS) {
-      const storeKey = ldKeyToNormalized(flag.key);
+      const storeKey = ldKeyToStoreKey(flag.key);
       const state = flag.scope === "client" ? clientState : assistantState;
       const value = state[storeKey];
       if (typeof value !== "boolean") continue;

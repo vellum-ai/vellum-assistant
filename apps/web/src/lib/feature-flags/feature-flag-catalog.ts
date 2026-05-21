@@ -1,4 +1,4 @@
-import registry from "./feature-flag-registry.json";
+import registry from "./feature-flag-registry.json" with { type: "json" };
 
 export type FlagScope = "client" | "assistant";
 
@@ -13,43 +13,50 @@ export interface FlagDefinition {
 
 const flags = registry.flags as FlagDefinition[];
 
-function normalizeKey(kebabKey: string): string {
-  return kebabKey.replace(/-/g, "").toLowerCase();
+const STORE_KEY_OVERRIDES: Record<string, string> = {
+  "openai-compatible-endpoints": "openAICompatibleEndpoints",
+};
+
+function kebabToStoreKey(kebabKey: string): string {
+  const override = STORE_KEY_OVERRIDES[kebabKey];
+  if (override) return override;
+  const parts = kebabKey.split("-");
+  return parts
+    .map((part, i) => {
+      if (part === "ui") return "UI";
+      if (i === 0) return part;
+      return part[0].toUpperCase() + part.slice(1);
+    })
+    .join("");
 }
 
 function buildScopeDefaults(scope: FlagScope): Record<string, boolean> {
   const defaults: Record<string, boolean> = {};
   for (const flag of flags) {
     if (flag.scope === scope) {
-      defaults[normalizeKey(flag.key)] = flag.defaultEnabled;
+      defaults[kebabToStoreKey(flag.key)] = flag.defaultEnabled;
     }
   }
   return defaults;
 }
 
-function buildNormalizedLookup(
-  scope: FlagScope,
-): Record<string, FlagDefinition> {
-  const lookup: Record<string, FlagDefinition> = {};
-  for (const flag of flags) {
-    if (flag.scope === scope) {
-      lookup[normalizeKey(flag.key)] = flag;
-    }
-  }
-  return lookup;
-}
-
 export const CLIENT_FLAG_DEFAULTS = buildScopeDefaults("client");
 export const ASSISTANT_FLAG_DEFAULTS = buildScopeDefaults("assistant");
-
-export const CLIENT_FLAG_LOOKUP = buildNormalizedLookup("client");
-export const ASSISTANT_FLAG_LOOKUP = buildNormalizedLookup("assistant");
 
 export type ClientFeatureFlags = Record<string, boolean>;
 export type AssistantFeatureFlags = Record<string, boolean>;
 
-export function ldKeyToNormalized(ldKey: string): string {
-  return normalizeKey(ldKey);
+const STORE_KEY_TO_FLAG = new Map<string, FlagDefinition>();
+for (const flag of flags) {
+  STORE_KEY_TO_FLAG.set(kebabToStoreKey(flag.key), flag);
+}
+
+export function ldKeyToStoreKey(ldKey: string): string {
+  return kebabToStoreKey(ldKey);
+}
+
+export function getFlagDefinition(storeKey: string): FlagDefinition | undefined {
+  return STORE_KEY_TO_FLAG.get(storeKey);
 }
 
 export { flags as ALL_FLAGS };
