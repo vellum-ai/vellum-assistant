@@ -394,12 +394,20 @@ export function useConversationHistory({
     }
 
     // Restore pending interactions (secrets, confirmations).
+    // Capture the key before the await so we can detect stale responses
+    // when the user switches conversations while the request is in flight.
+    const requestedKey = activeConversationKey;
     void (async () => {
       try {
         const interactions = await getPendingInteractions(
           assistantId,
-          activeConversationKey,
+          requestedKey,
         );
+        // Guard: if the active conversation changed during the fetch,
+        // discard the result to avoid leaking state across conversations.
+        if (useConversationStore.getState().activeConversationKey !== requestedKey) {
+          return;
+        }
         const parsed_secret = interactions.pendingSecret
           ? parsePendingSecretState(
               interactions.pendingSecret as Record<string, unknown>,
@@ -417,7 +425,7 @@ export function useConversationHistory({
         if (!interactions.pendingSecret && !interactions.pendingConfirmation) {
           useConversationStore
             .getState()
-            .removeAttentionKey(activeConversationKey);
+            .removeAttentionKey(requestedKey);
         }
       } catch {
         // Keep attention key on failure.
