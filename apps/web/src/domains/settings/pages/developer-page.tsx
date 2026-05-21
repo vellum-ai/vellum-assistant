@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useSearchParams } from "react-router";
 
 import { AssistantLifecyclePanel } from "@/domains/settings/components/panels/assistant-lifecycle-panel.js";
+import { EnvironmentConfigPanel } from "@/domains/settings/components/panels/environment-config-panel.js";
 import { FeatureFlagsPanel } from "@/domains/settings/components/panels/feature-flags-panel.js";
 import { SentryTestingPanel } from "@/domains/settings/components/panels/sentry-testing-panel.js";
 import { cn } from "@/utils/misc.js";
@@ -71,8 +72,9 @@ export function DeveloperPage() {
         className="flex min-h-0 flex-1 flex-col pt-6"
       >
         {activeTab === "feature-flags" && (
-          <div className="max-w-[940px]">
+          <div className="max-w-[940px] space-y-6">
             <FeatureFlagsPanel />
+            <EnvironmentConfigPanel />
           </div>
         )}
         {activeTab === "lifecycle" && (

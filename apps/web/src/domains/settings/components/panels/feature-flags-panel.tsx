@@ -137,13 +137,6 @@ const FLAG_DEFINITIONS: Record<string, FlagDefinition> = {
     description: "Enable the Home page as the default landing view.",
     defaultValue: false,
   },
-  isNonProduction: {
-    ldKey: "is-non-production",
-    label: "Non-Production",
-    description:
-      "Indicates a non-production environment. Enables dev-only UI surfaces and diagnostics.",
-    defaultValue: false,
-  },
   openAICompatibleEndpoints: {
     ldKey: "openai-compatible-endpoints",
     label: "OpenAI-Compatible Endpoints",
@@ -156,13 +149,6 @@ const FLAG_DEFINITIONS: Record<string, FlagDefinition> = {
     label: "Velvet",
     description: "Enable the Velvet design theme.",
     defaultValue: false,
-  },
-  emailRootDomain: {
-    ldKey: "email-root-domain",
-    label: "Email Root Domain",
-    description:
-      "Root domain used for assistant email addresses (e.g. vellum.me).",
-    defaultValue: "vellum.me",
   },
 };
 

@@ -35,9 +35,7 @@ export interface AppFeatureFlags {
   deployToVercel: boolean;
   developerSettings: boolean;
   doctor: boolean;
-  emailRootDomain: string;
   homePage: boolean;
-  isNonProduction: boolean;
   multiPlatformAssistant: boolean;
   openAICompatibleEndpoints: boolean;
   platformNotifications: boolean;
@@ -63,9 +61,7 @@ export const DEFAULT_FLAGS: AppFeatureFlags = {
   deployToVercel: false,
   developerSettings: false,
   doctor: false,
-  emailRootDomain: "vellum.me",
   homePage: false,
-  isNonProduction: false,
   multiPlatformAssistant: false,
   openAICompatibleEndpoints: false,
   platformNotifications: false,
