@@ -145,6 +145,28 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
     expect(postCalls).toHaveLength(0);
   });
 
+  test("labels Slack direct-message channels from a known channel binding name", async () => {
+    render(
+      <SlackChannelFooter
+        assistantId="assistant-1"
+        conversation={{
+          conversationKey: "conv-direct-message-channel-name",
+          originChannel: "slack",
+          channelBinding: {
+            sourceChannel: "slack",
+            externalChatId: "D0123ABCDEF",
+            externalChatName: "Alice",
+          },
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("DM with Alice")).not.toBeNull();
+    expect(screen.queryByText("Slack DM")).toBeNull();
+    await Promise.resolve();
+    expect(postCalls).toHaveLength(0);
+  });
+
   test("uses a generic Slack DM label when the participant name is unavailable", async () => {
     render(
       <SlackChannelFooter

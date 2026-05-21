@@ -142,6 +142,7 @@ function cleanLabel(value: string | undefined): string | undefined {
 function getSlackDmParticipantName(
   channelBinding: ConversationChannelBinding,
   messageChannel: SlackMessageChannel | undefined,
+  friendlyChannelName: string | undefined,
 ): string | undefined {
   const sender = messageChannel?.sender;
   return (
@@ -149,7 +150,8 @@ function getSlackDmParticipantName(
     cleanLabel(channelBinding.username) ??
     cleanLabel(sender?.displayName) ??
     cleanLabel(sender?.name) ??
-    cleanLabel(sender?.username)
+    cleanLabel(sender?.username) ??
+    friendlyChannelName
   );
 }
 
@@ -157,11 +159,13 @@ function getSlackDmDisplayText(
   channelBinding: ConversationChannelBinding,
   channelId: string | undefined,
   messageChannel: SlackMessageChannel | undefined,
+  friendlyChannelName: string | undefined,
 ): string | undefined {
   if (!isSlackDmChannelId(channelId)) return undefined;
   const participantName = getSlackDmParticipantName(
     channelBinding,
     messageChannel,
+    friendlyChannelName,
   );
   return participantName ? `DM with ${participantName}` : "Slack DM";
 }
@@ -187,14 +191,22 @@ export function SlackChannelFooter({
     channelBinding?.externalChatId;
   const messageChannel = getSlackMessageChannel(messages, channelId);
   const isDmChannel = isSlackDmChannelId(channelId);
-  const dmDisplayText = channelBinding
-    ? getSlackDmDisplayText(channelBinding, channelId, messageChannel)
-    : undefined;
   const channelDisplayText = channelBinding
     ? getSlackChannelDisplayText(channelBinding, messageChannel?.channelName)
     : undefined;
+  const friendlyChannelName =
+    channelBinding &&
+    channelDisplayText &&
+    !isChannelIdFallback(channelDisplayText, channelBinding)
+      ? channelDisplayText
+      : undefined;
   const fallbackDisplayText = channelBinding
-    ? (dmDisplayText ?? channelDisplayText)
+    ? (getSlackDmDisplayText(
+        channelBinding,
+        channelId,
+        messageChannel,
+        friendlyChannelName,
+      ) ?? channelDisplayText)
     : undefined;
   const conversationId = conversation?.conversationKey;
   const resolutionKey =
