@@ -56,8 +56,10 @@ function pad(s: string, w: number): string {
   return s + " ".repeat(Math.max(0, w - s.length));
 }
 
-function computeColWidths(rows: TableRow[]): ColWidths {
-  const headers: TableRow = { name: "NAME", status: "STATUS", info: "INFO" };
+function computeColWidths(
+  rows: TableRow[],
+  headers: TableRow = { name: "NAME", status: "STATUS", info: "INFO" },
+): ColWidths {
   const all = [headers, ...rows];
   return {
     name: Math.max(...all.map((r) => r.name.length)),
@@ -70,9 +72,11 @@ function formatRow(r: TableRow, colWidths: ColWidths): string {
   return `  ${pad(r.name, colWidths.name)}  ${pad(r.status, colWidths.status)}  ${r.info}`;
 }
 
-function printTable(rows: TableRow[]): void {
-  const colWidths = computeColWidths(rows);
-  const headers: TableRow = { name: "PROCESS", status: "STATUS", info: "INFO" };
+function printTable(
+  rows: TableRow[],
+  headers: TableRow = { name: "PROCESS", status: "STATUS", info: "INFO" },
+): void {
+  const colWidths = computeColWidths(rows, headers);
   console.log(formatRow(headers, colWidths));
   const sep = `  ${"-".repeat(colWidths.name)}  ${"-".repeat(colWidths.status)}  ${"-".repeat(colWidths.info)}`;
   console.log(sep);
@@ -477,6 +481,75 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
 
 // ── List all assistants (no arg) ────────────────────────────────
 
+type AssistantHealth = {
+  status: string;
+  detail: string | null;
+  version?: string;
+};
+
+async function getAssistantListHealth(
+  entry: AssistantEntry,
+): Promise<AssistantHealth> {
+  const resources = entry.resources;
+  if (entry.cloud === "local" && resources) {
+    // TODO(ATL-306): Remove readPidFile/getDaemonPidPath in favor of
+    // fetching daemon PIDs via the health API (Gateway Security Migration).
+    const pid = readPidFile(getDaemonPidPath(resources));
+    const alive = pid !== null && isProcessAlive(pid);
+    if (!alive) {
+      return { status: "sleeping", detail: null };
+    }
+    const token = loadGuardianToken(entry.assistantId)?.accessToken;
+    return checkHealth(entry.localUrl ?? entry.runtimeUrl, token);
+  }
+
+  if (entry.cloud === "docker") {
+    const res = dockerResourceNames(entry.assistantId);
+    const state = await getDockerContainerState(res.assistantContainer);
+    if (!state || state !== "running") {
+      return { status: "sleeping", detail: null };
+    }
+    const token = loadGuardianToken(entry.assistantId)?.accessToken;
+    return checkHealth(entry.localUrl ?? entry.runtimeUrl, token);
+  }
+
+  if (entry.cloud === "apple-container") {
+    // Apple containers are managed by the macOS app. Probe the gateway
+    // (runtimeUrl is always written to the lockfile during hatch).
+    const token = loadGuardianToken(entry.assistantId)?.accessToken;
+    return entry.runtimeUrl
+      ? checkHealth(entry.runtimeUrl, token)
+      : { status: "unknown", detail: "no runtime URL" };
+  }
+
+  if (entry.cloud === "vellum") {
+    return checkManagedHealth(entry.runtimeUrl, entry.assistantId);
+  }
+
+  const token = loadGuardianToken(entry.assistantId)?.accessToken;
+  return checkHealth(entry.localUrl ?? entry.runtimeUrl, token);
+}
+
+function formatAssistantListRow(
+  entry: AssistantEntry,
+  activeAssistantId: string | null,
+  health: AssistantHealth,
+): TableRow {
+  const infoParts: string[] = [];
+  infoParts.push(`id: ${entry.assistantId}`);
+  if (entry.runtimeUrl) infoParts.push(entry.runtimeUrl);
+  if (entry.cloud) infoParts.push(`cloud: ${entry.cloud}`);
+  if (entry.species) infoParts.push(`species: ${entry.species}`);
+  if (health.detail) infoParts.push(health.detail);
+
+  const prefix = entry.assistantId === activeAssistantId ? "* " : "  ";
+  return {
+    name: prefix + getAssistantDisplayName(entry),
+    status: withStatusEmoji(health.status),
+    info: infoParts.join(" | "),
+  };
+}
+
 export async function listAllAssistants(verbose: boolean): Promise<void> {
   const { name: envName, source: envSource } = resolveEnvironmentSource();
   const sourceLabels: Record<typeof envSource, string> = {
@@ -547,99 +620,17 @@ export async function listAllAssistants(verbose: boolean): Promise<void> {
     return;
   }
 
-  const rows: TableRow[] = assistants.map((a) => {
-    const infoParts: string[] = [];
-    infoParts.push(`id: ${a.assistantId}`);
-    if (a.runtimeUrl) infoParts.push(a.runtimeUrl);
-    if (a.cloud) infoParts.push(`cloud: ${a.cloud}`);
-    if (a.species) infoParts.push(`species: ${a.species}`);
-    const prefix = a.assistantId === activeAssistantId ? "* " : "  ";
-
-    return {
-      name: prefix + getAssistantDisplayName(a),
-      status: withStatusEmoji("checking..."),
-      info: infoParts.join(" | "),
-    };
-  });
-
-  const colWidths = computeColWidths(rows);
-
-  const headers: TableRow = { name: "NAME", status: "STATUS", info: "INFO" };
-  console.log(formatRow(headers, colWidths));
-  const sep = `  ${"-".repeat(colWidths.name)}  ${"-".repeat(colWidths.status)}  ${"-".repeat(colWidths.info)}`;
-  console.log(sep);
-  for (const row of rows) {
-    console.log(formatRow(row, colWidths));
-  }
-
-  const totalDataRows = rows.length;
-
-  await Promise.all(
-    assistants.map(async (a, rowIndex) => {
-      // For local assistants, check if the daemon process is alive before
-      // hitting the health endpoint. If the PID file is missing or the
-      // process isn't running, the assistant is sleeping — skip the
-      // network health check to avoid a misleading "unreachable" status.
-      let health: { status: string; detail: string | null; version?: string };
-      const resources = a.resources;
-      if (a.cloud === "local" && resources) {
-        // TODO(ATL-306): Remove readPidFile/getDaemonPidPath in favor of
-        // fetching daemon PIDs via the health API (Gateway Security Migration).
-        const pid = readPidFile(getDaemonPidPath(resources));
-        const alive = pid !== null && isProcessAlive(pid);
-        if (!alive) {
-          health = { status: "sleeping", detail: null };
-        } else {
-          const token = loadGuardianToken(a.assistantId)?.accessToken;
-          health = await checkHealth(a.localUrl ?? a.runtimeUrl, token);
-        }
-      } else if (a.cloud === "docker") {
-        const res = dockerResourceNames(a.assistantId);
-        const state = await getDockerContainerState(res.assistantContainer);
-        if (!state || state !== "running") {
-          health = { status: "sleeping", detail: null };
-        } else {
-          const token = loadGuardianToken(a.assistantId)?.accessToken;
-          health = await checkHealth(a.localUrl ?? a.runtimeUrl, token);
-        }
-      } else if (a.cloud === "apple-container") {
-        // Apple containers are managed by the macOS app. Probe the gateway
-        // (runtimeUrl is always written to the lockfile during hatch).
-        const token = loadGuardianToken(a.assistantId)?.accessToken;
-        health = a.runtimeUrl
-          ? await checkHealth(a.runtimeUrl, token)
-          : { status: "unknown" as const, detail: "no runtime URL" };
-      } else if (a.cloud === "vellum") {
-        health = await checkManagedHealth(a.runtimeUrl, a.assistantId);
-      } else {
-        const token = loadGuardianToken(a.assistantId)?.accessToken;
-        health = await checkHealth(a.localUrl ?? a.runtimeUrl, token);
-      }
-
-      const infoParts: string[] = [];
-      infoParts.push(`id: ${a.assistantId}`);
-      if (a.runtimeUrl) infoParts.push(a.runtimeUrl);
-      if (a.cloud) infoParts.push(`cloud: ${a.cloud}`);
-      if (a.species) infoParts.push(`species: ${a.species}`);
-      if (health.detail) infoParts.push(health.detail);
-
-      const prefix = a.assistantId === activeAssistantId ? "* " : "  ";
-      const updatedRow: TableRow = {
-        name: prefix + getAssistantDisplayName(a),
-        status: withStatusEmoji(health.status),
-        info: infoParts.join(" | "),
-      };
-
-      const linesUp = totalDataRows - rowIndex;
-      process.stdout.write(
-        `\x1b[${linesUp}A` +
-          `\r\x1b[K` +
-          formatRow(updatedRow, colWidths) +
-          `\n` +
-          (linesUp > 1 ? `\x1b[${linesUp - 1}B` : ""),
-      );
-    }),
+  const rows = await Promise.all(
+    assistants.map(async (entry) =>
+      formatAssistantListRow(
+        entry,
+        activeAssistantId,
+        await getAssistantListHealth(entry),
+      ),
+    ),
   );
+
+  printTable(rows, { name: "NAME", status: "STATUS", info: "INFO" });
 }
 
 // ── Entry point ─────────────────────────────────────────────────

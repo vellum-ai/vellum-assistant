@@ -223,4 +223,38 @@ describe("vellum ps — platform status line", () => {
     expect(output).toContain("https://platform.example");
     expect(output).not.toContain("* assistant-123");
   });
+
+  test("assistant list renders one stable final row per assistant", async () => {
+    loadAllAssistantsMock.mockReturnValue([
+      {
+        assistantId: "assistant-123",
+        name: "Alice",
+        runtimeUrl: "https://platform.example/a",
+        cloud: "vellum",
+        species: "vellum",
+      },
+      {
+        assistantId: "assistant-456",
+        name: "Bob",
+        runtimeUrl: "https://platform.example/b",
+        cloud: "vellum",
+        species: "vellum",
+      },
+    ]);
+    getActiveAssistantMock.mockReturnValue("assistant-123");
+    checkManagedHealthMock.mockImplementation(async (_runtimeUrl, id) => ({
+      status: id === "assistant-123" ? "healthy" : "sleeping",
+      detail: null,
+    }));
+
+    await listAllAssistants(false);
+
+    const output = stdout.join("\n");
+    expect(output).not.toContain("\x1b[");
+    expect(output).not.toContain("checking...");
+    expect(output.match(/Alice/g)).toHaveLength(1);
+    expect(output.match(/Bob/g)).toHaveLength(1);
+    expect(output).toContain("healthy");
+    expect(output).toContain("sleeping");
+  });
 });
