@@ -75,11 +75,11 @@ export function TaskPreferencesSurface({
   const canSubmit =
     selectedTasks.size > 0 || (otherSelected && otherText.trim().length > 0);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!canSubmit || isSubmitting) return;
     setIsSubmitting(true);
     try {
-      onAction(surface.surfaceId, "submit", {
+      await onAction(surface.surfaceId, "submit", {
         tasks: Array.from(selectedTasks),
         customText: otherText.trim() || undefined,
       });
