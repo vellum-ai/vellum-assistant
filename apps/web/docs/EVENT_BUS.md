@@ -38,7 +38,7 @@ Centralizing through a bus also gives us:
 | Module | Role |
 |---|---|
 | `apps/web/src/stores/event-bus-store.ts` | The bus itself. Zustand store with `subscribe(event, handler)` / `publish(event, payload)` actions and a module-private handler registry. |
-| `apps/web/src/hooks/use-event-bus-init.ts` | Wires the bus to its sources: opens the single assistant-scoped `/v1/events` SSE, registers `document.visibilitychange` + `window.online`/`offline` + Capacitor `App.appStateChange`. Mounted exactly once by `ChatLayout`. |
+| `apps/web/src/hooks/use-event-bus-init.ts` | Wires the bus to its sources: opens the single assistant-scoped `/v1/events` SSE, registers `document.visibilitychange` + `window.online`/`offline` + Capacitor `App.appStateChange`. Mounted exactly once by `RootLayout` so the bus is alive on every authenticated route (chat, settings, logs, onboarding). |
 
 The bus is a Zustand store per the [state-management
 convention](./STATE_MANAGEMENT.md) — all shared client-state primitives
