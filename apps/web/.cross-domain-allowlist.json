@@ -55,9 +55,6 @@
   "src/domains/chat/hooks/use-app-nudges.ts": [
     "nudges"
   ],
-  "src/domains/chat/hooks/use-assistant-lifecycle.ts": [
-    "onboarding"
-  ],
   "src/domains/chat/hooks/use-conversation-history.ts": [
     "conversations",
     "interactions",
