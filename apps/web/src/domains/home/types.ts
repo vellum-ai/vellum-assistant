@@ -30,7 +30,7 @@ export interface FeedItem {
   id: string;
   type: FeedItemType;
   priority: number;
-  title: string;
+  title?: string;
   summary: string;
   timestamp: string;
   status: FeedItemStatus;
