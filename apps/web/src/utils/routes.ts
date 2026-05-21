@@ -83,10 +83,6 @@ export const routes = {
     upgradeSuccess: r("/assistant/settings/billing/upgrade/success"),
   },
 
-  admin: {
-    root: r("/admin"),
-  },
-
   docs: {
     legal: {
       privacyPolicy: r("/docs/privacy-policy"),
