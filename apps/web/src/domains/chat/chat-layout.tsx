@@ -137,12 +137,11 @@ export function ChatLayout() {
     isAssistantActive && conversationGroupsUI,
   );
 
-  // Track processing/attention indicators for every conversation in the
-  // sidebar, on every chat-layout child route. Mounted here (not ChatPage)
-  // so the 10s polling loop and graduation logic stay live when the user is
-  // on home/library/contacts/identity. Pass lifecycle values directly —
-  // `useAssistantContext()` would crash here since this hook runs inside
-  // the layout that PROVIDES that context (no parent outlet to read from).
+  // Track processing/attention indicators for every conversation in
+  // the sidebar, on every chat-layout child route. Mounted at layout
+  // scope so the bus-driven `interaction_resolved` subscriber and the
+  // post-reconnect reconcile sweep stay live across home, library,
+  // contacts, identity, and chat — not only inside `/assistant`.
   useAttentionTracking({
     assistantId: lifecycle.assistantId,
     assistantStateKind: lifecycle.assistantState.kind,

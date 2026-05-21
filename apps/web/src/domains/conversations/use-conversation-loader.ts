@@ -130,8 +130,9 @@ interface UseConversationLoaderParams {
  * Delegates to:
  * - `useConversationHistory` -- conversation switch, cache, and history loading
  *
- * Attention/processing-key tracking is now owned by `useAttentionTracking`,
- * mounted in `ChatLayout` so its 10s polling loop covers every chat-layout
+ * Attention/processing-key tracking is owned by `useAttentionTracking`,
+ * mounted in `ChatLayout` so the bus-driven `interaction_resolved`
+ * subscriber and post-reconnect reconcile cover every chat-layout
  * route (home/library/contacts/identity), not only `/assistant`.
  */
 export function useConversationLoader({
