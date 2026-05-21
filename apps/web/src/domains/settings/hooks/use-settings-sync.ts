@@ -1,9 +1,7 @@
-import type { PluginListenerHandle } from "@capacitor/core";
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
-import { isNativePlatform } from "@/runtime/native-auth.js";
 import { createSyncTagRegistry } from "@/lib/sync/tag-registry.js";
 import {
   invalidateAssistantConfigQueries,
@@ -12,13 +10,16 @@ import {
 } from "@/lib/sync/query-tags.js";
 import { SYNC_TAGS } from "@/lib/sync/types.js";
 import { subscribeChatEvents, type ChatEventStream } from "@/domains/chat/api/stream.js";
+import { useEventBusStore } from "@/stores/event-bus-store.js";
 
 const SETTINGS_STREAM_RETRY_DELAY_MS = 30_000;
 
 /**
  * Subscribes to the assistant event stream while on the settings pages
  * and invalidates TanStack Query caches when relevant sync tags arrive.
- * On native platforms also re-syncs when the app resumes from background.
+ * Also re-syncs whenever the layout-scoped event bus publishes
+ * `"app.resume"` — covering web visibility, Capacitor foreground, and
+ * `window.online` behind a single channel.
  */
 export function useSettingsSync(
   streamRetryDelayMs = SETTINGS_STREAM_RETRY_DELAY_MS,
@@ -107,43 +108,22 @@ export function useSettingsSync(
     }
 
     openStream();
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        refreshOnResume();
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    let appStateHandle: PluginListenerHandle | null = null;
-    let appStateCancelled = false;
-    if (isNativePlatform()) {
-      import("@capacitor/app")
-        .then(({ App }) =>
-          App.addListener("appStateChange", ({ isActive }) => {
-            if (isActive) {
-              refreshOnResume();
-            }
-          }),
-        )
-        .then((registered) => {
-          if (appStateCancelled) {
-            void registered.remove();
-            return;
-          }
-          appStateHandle = registered;
-        })
-        .catch(() => {
-          // Browser visibility still covers non-native and plugin failure paths.
-        });
-    }
+    // The bus's `"app.resume"` channel fans in browser visibility,
+    // Capacitor `appStateChange` (active), and `window.online`.
+    // `refreshOnResume` keeps its own 1s dedup window for the case
+    // where the bus delivers visibility + online in close succession.
+    const unsubResume = useEventBusStore
+      .getState()
+      .subscribe("app.resume", () => {
+        refreshOnResume();
+      });
 
     return () => {
       cancelled = true;
       clearRetryTimer();
       stream?.cancel();
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      appStateCancelled = true;
-      void appStateHandle?.remove();
+      unsubResume();
       for (const registration of registrations) {
         registration.dispose();
       }
