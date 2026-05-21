@@ -48,25 +48,47 @@ interface SenderAgg {
  * out of the LLM conversation context.
  */
 async function cacheStore(data: unknown): Promise<string> {
-  const proc = Bun.spawn(
-    ["assistant", "cache", "set", "--ttl", "30m", "--json"],
-    { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
-  );
-  proc.stdin.write(JSON.stringify(data));
-  proc.stdin.end();
+  // Use a temp file instead of stdin piping — in containerized environments
+  // /dev/stdin may be unavailable (ENXIO), which silently breaks the spawn.
+  const tmpFile = `/tmp/outlook-scan-cache-${Date.now()}-${Math.random().toString(36).slice(2)}.json`;
+  try {
+    await Bun.write(tmpFile, JSON.stringify(data));
+    const proc = Bun.spawn(
+      [
+        "assistant",
+        "cache",
+        "set",
+        "--ttl",
+        "30m",
+        "--json",
+        "--file",
+        tmpFile,
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
 
-  const stdout = await new Response(proc.stdout).text();
-  const exitCode = await proc.exited;
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
 
-  if (exitCode !== 0) {
-    throw new Error(`assistant cache set failed (exit ${exitCode}): ${stdout}`);
+    if (exitCode !== 0) {
+      throw new Error(
+        `assistant cache set failed (exit ${exitCode}): ${stdout}`,
+      );
+    }
+
+    const result = JSON.parse(stdout);
+    if (!result.ok) {
+      throw new Error(`assistant cache set error: ${result.error}`);
+    }
+    return result.key;
+  } finally {
+    try {
+      const { unlink } = await import("node:fs/promises");
+      await unlink(tmpFile);
+    } catch {
+      // Best-effort cleanup
+    }
   }
-
-  const result = JSON.parse(stdout);
-  if (!result.ok) {
-    throw new Error(`assistant cache set error: ${result.error}`);
-  }
-  return result.key;
 }
 
 interface PaginateOptions {
