@@ -141,6 +141,44 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
     expect(screen.queryByText("C9876ZYXWVU")).not.toBeNull();
   });
 
+  test("prefers a refreshed binding name over a cached lazy resolution", async () => {
+    const { rerender } = render(
+      <SlackChannelFooter
+        assistantId="assistant-1"
+        conversation={{
+          conversationKey: "conv-refreshed-name",
+          originChannel: "slack",
+          channelBinding: {
+            sourceChannel: "slack",
+            externalChatId: "C0123ABCDEF",
+          },
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("product")).not.toBeNull();
+    });
+
+    rerender(
+      <SlackChannelFooter
+        assistantId="assistant-1"
+        conversation={{
+          conversationKey: "conv-refreshed-name",
+          originChannel: "slack",
+          channelBinding: {
+            sourceChannel: "slack",
+            externalChatId: "C0123ABCDEF",
+            externalChatName: "renamed-product",
+          },
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("renamed-product")).not.toBeNull();
+    expect(screen.queryByText("product")).toBeNull();
+  });
+
   test("deduplicates in-flight resolution for repeated renders", async () => {
     let resolvePost:
       | ((value: typeof nextResolveResponse) => void)

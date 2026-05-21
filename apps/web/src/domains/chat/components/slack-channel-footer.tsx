@@ -227,7 +227,9 @@ export function SlackChannelFooter({
     resolutionKey && resolvedChannelName?.key === resolutionKey
       ? resolvedChannelName.channelName
       : undefined;
-  const displayText = resolvedDisplayText ?? fallbackDisplayText;
+  const displayText = !isChannelIdFallback(fallbackDisplayText, channelBinding)
+    ? fallbackDisplayText
+    : (resolvedDisplayText ?? fallbackDisplayText);
   if (!displayText) return null;
 
   const href = getSlackChannelLink(
