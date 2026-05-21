@@ -233,10 +233,9 @@ export function HatchingScreen() {
           markPrivacyConsent(userId);
 
           if (result.ok) {
-            const assistantId = result.data.id;
-            fetchCharacterTraits(assistantId).then((existing) => {
+            fetchCharacterTraits().then((existing) => {
               if (existing) return;
-              return saveCharacterTraits(assistantId, hatchTraits);
+              return saveCharacterTraits(hatchTraits);
             }).catch((err) => {
               Sentry.captureException(err, {
                 tags: { context: "onboarding_avatar_sync" },

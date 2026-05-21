@@ -41,7 +41,7 @@ export function AvatarCustomizationPanel({
     }
     let cancelled = false;
 
-    fetchCharacterComponents(assistantId).then((data) => {
+    fetchCharacterComponents().then((data) => {
       if (cancelled) {
         return;
       }
@@ -91,12 +91,12 @@ export function AvatarCustomizationPanel({
 
     setIsSaving(true);
     try {
-      await saveCharacterTraits(assistantId, traits);
+      await saveCharacterTraits(traits);
       onSave?.(traits);
     } finally {
       setIsSaving(false);
     }
-  }, [components, bodyIndex, eyeIndex, colorIndex, assistantId, onSave]);
+  }, [components, bodyIndex, eyeIndex, colorIndex, onSave]);
 
   if (isLoading) {
     return (
