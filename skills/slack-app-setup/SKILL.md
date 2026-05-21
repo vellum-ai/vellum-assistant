@@ -55,21 +55,23 @@ Note: `user_token` is optional. Missing `user_token` is **not** blocking — set
 
 Generate the manifest creation URL immediately. Do not ask the user to confirm the Slack bot name or description first.
 
-The manifest generator infers the Slack app identity:
+Infer the Slack app identity yourself before running the manifest generator:
 
 - Bot name: use your actual assistant name from the current identity context / `IDENTITY.md` if one exists; otherwise use the default assistant name.
 - Description: use `{guardianName}'s Assistant`, where `{guardianName}` is the guardian/user name from the current user context / `users/default.md`.
 
 **MANDATORY — you MUST run the script below to build the manifest URL.** Do NOT write your own manifest. Do NOT show YAML or JSON to the user. Do NOT tell the user to paste a manifest. The script contains the complete, correct manifest with all required scopes, event subscriptions, and socket mode settings. Running it produces a single pre-filled URL that creates the app with everything configured.
 
-Run this `bash` command:
+Run this `bash` command, replacing `<inferred_bot_name>` and `<inferred_description>` with the values you inferred above:
 
 ```
 bash {
-  command: "bun skills/slack-app-setup/generate-manifest-url.ts"
+  command: "bun skills/slack-app-setup/generate-manifest-url.ts '<inferred_bot_name>' '<inferred_description>'"
   activity: "to generate the Slack app manifest link"
 }
 ```
+
+If a value contains a single quote, escape it as `'\''` (closes the quote, adds an escaped literal quote, reopens the quote).
 
 The command outputs a ready-to-click URL. **Present it as a markdown link** so the full URL renders as a single clickable element — e.g. `[Click here to create your Slack app](URL)`. Do NOT paste the raw URL as plain text — it is too long and will break across lines, preventing the user from clicking it. Tell them: "Click the link, select your workspace, and click **Create**. All permissions, events, and Socket Mode are pre-configured."
 
