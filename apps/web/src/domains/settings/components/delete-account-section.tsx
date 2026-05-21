@@ -8,6 +8,7 @@ import { toast } from "@vellum/design-library/components/toast";
 import { SettingsCard } from "@/domains/settings/components/settings-card.js";
 import { userDeletionRequestCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
 import { useAuthStore } from "@/stores/auth-store.js";
+import { routes } from "@/utils/routes.js";
 
 export function DeleteAccountSection() {
   const navigate = useNavigate();
@@ -21,7 +22,7 @@ export function DeleteAccountSection() {
         "Account deletion requested. You will be logged out shortly.",
       );
       await logout();
-      navigate("/");
+      navigate(routes.account.login);
     },
     onError: () => {
       toast.error("Failed to request account deletion. Please try again.");

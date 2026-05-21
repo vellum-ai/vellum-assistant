@@ -1,7 +1,7 @@
 import { createBrowserRouter, Navigate, useNavigate, useSearchParams } from "react-router";
 
 import { authMiddleware } from "@/lib/auth/auth-middleware.js";
-import { RootLayout } from "@/components/layout/root-layout.js";
+import { RootLayout } from "@/root-layout.js";
 import { ChatLayout } from "@/domains/chat/chat-layout.js";
 import { ChatPage } from "@/domains/chat/chat-page.js";
 import { DocumentViewerPage } from "@/domains/chat/document-viewer-page.js";
