@@ -106,9 +106,24 @@ export function DocumentViewerContainer({
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const commentPanelRef = useRef<DocumentCommentPanelHandle>(null);
+  const initialContentRef = useRef(content);
 
-  // Generate the iframe HTML once per content change
-  const editorHTML = useMemo(() => generateEditorHTML(content), [content]);
+  // Generate the iframe HTML once on mount
+  const editorHTML = useMemo(
+    () => generateEditorHTML(initialContentRef.current),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // Push content updates to the iframe in-place (preserves scroll position)
+  useEffect(() => {
+    if (content === initialContentRef.current) return;
+    initialContentRef.current = content;
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: "set_content", content },
+      "*",
+    );
+  }, [content]);
 
   // -------------------------------------------------------------------------
   // postMessage listener for iframe → parent events
