@@ -578,6 +578,24 @@ export function ChatPage() {
     void sendMessage(prompt);
   }, [searchParams, activeConversationKey, sendMessage]);
 
+  // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
+  const deepLinkAppConsumed = useRef(false);
+  useEffect(() => {
+    if (deepLinkAppConsumed.current) return;
+    const appId = searchParams.get("app");
+    if (!appId || !assistantId) return;
+    deepLinkAppConsumed.current = true;
+    void useViewerStore.getState().loadApp(assistantId, appId);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("app");
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      query ? `${window.location.pathname}?${query}` : window.location.pathname,
+    );
+  }, [searchParams, assistantId]);
+
   // Clear question prompt when conversation changes
   useEffect(() => {
     useInteractionStore.getState().dismissQuestion();
