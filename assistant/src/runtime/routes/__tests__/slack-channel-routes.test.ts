@@ -6,38 +6,28 @@ type MockSlackInfo = {
   nameNormalized?: string;
 } | null;
 
-type MockSlackCategory =
-  | "auth"
-  | "channel_not_found"
-  | "not_found"
-  | "permission"
-  | "rate_limit"
-  | "unknown";
-
-class MockSlackApiError extends Error {
-  readonly slackError: string | undefined;
-  readonly category: MockSlackCategory;
-
-  constructor(slackError: string | undefined, category: MockSlackCategory) {
-    super(`Slack API error: ${slackError ?? "unknown"}`);
-    this.name = "SlackApiError";
-    this.slackError = slackError;
-    this.category = category;
-  }
-}
+type MockSlackResult = MockSlackInfo | { slackError: string };
 
 const slackInfoCalls: string[] = [];
-let slackInfoImpl: (channelId: string) => Promise<MockSlackInfo> = async () =>
+let slackInfoImpl: (channelId: string) => Promise<MockSlackResult> = async () =>
   null;
+const syncInvalidations: string[][] = [];
+const originalFetch = globalThis.fetch;
 
-mock.module("../../../messaging/providers/slack/api.js", () => ({
-  SlackApiError: MockSlackApiError,
-  getSlackConversationInfo: async (channelId: string) => {
-    slackInfoCalls.push(channelId);
-    return slackInfoImpl(channelId);
+mock.module("../../../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async () => "xoxb-test",
+}));
+
+mock.module("../../sync/sync-publisher.js", () => ({
+  publishSyncInvalidation: async (tags: string[]) => {
+    syncInvalidations.push([...tags]);
   },
 }));
 
+import {
+  conversationMetadataSyncTag,
+  SYNC_TAGS,
+} from "../../../daemon/message-types/sync.js";
 import { createConversation } from "../../../memory/conversation-crud.js";
 import { getDb, resetDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
@@ -103,13 +93,43 @@ async function resolve(conversationId: string): Promise<ResolveResponse> {
   })) as ResolveResponse;
 }
 
+function mockSlackFetch(): void {
+  globalThis.fetch = mock(async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname !== "/api/conversations.info") {
+      throw new Error(`Unexpected Slack API request: ${url.pathname}`);
+    }
+
+    const channelId = url.searchParams.get("channel") ?? "";
+    slackInfoCalls.push(channelId);
+    const result = await slackInfoImpl(channelId);
+    if (result && "slackError" in result) {
+      return Response.json({ ok: false, error: result.slackError });
+    }
+
+    return Response.json({
+      ok: true,
+      channel: result
+        ? {
+            id: result.id,
+            name: result.name,
+            name_normalized: result.nameNormalized,
+          }
+        : undefined,
+    });
+  }) as unknown as typeof fetch;
+}
+
 beforeEach(() => {
   clearTables();
   slackInfoCalls.length = 0;
+  syncInvalidations.length = 0;
   slackInfoImpl = async () => null;
+  mockSlackFetch();
 });
 
 afterAll(() => {
+  globalThis.fetch = originalFetch;
   resetDb();
   mock.restore();
 });
@@ -164,6 +184,30 @@ describe("slack_channel_name_resolve", () => {
     expect(updated?.username).toBe("alice");
   });
 
+  test("publishes conversation sync tags after persisting a returned name", async () => {
+    const conversationId = createBoundConversation({
+      externalChatId: "CSYNC123",
+      externalChatName: "CSYNC123",
+    });
+    slackInfoImpl = async (channelId) => ({
+      id: channelId,
+      nameNormalized: "team-sync",
+    });
+
+    const result = await resolve(conversationId);
+
+    expect(result).toEqual({
+      channelId: "CSYNC123",
+      channelName: "team-sync",
+      cached: false,
+      resolved: true,
+    });
+    expect(syncInvalidations).toContainEqual([
+      SYNC_TAGS.conversationsList,
+      conversationMetadataSyncTag(conversationId),
+    ]);
+  });
+
   test("does not call Slack for DM bindings", async () => {
     const conversationId = createBoundConversation({
       externalChatId: "D123",
@@ -203,9 +247,7 @@ describe("slack_channel_name_resolve", () => {
       externalChatName: "CFAIL123",
     });
     const before = getBindingByConversation(conversationId);
-    slackInfoImpl = async () => {
-      throw new MockSlackApiError("missing_scope", "permission");
-    };
+    slackInfoImpl = async () => ({ slackError: "missing_scope" });
 
     const result = await resolve(conversationId);
 
