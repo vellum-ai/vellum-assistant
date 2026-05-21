@@ -134,13 +134,6 @@ function buildTarEntry(filename: string, data: Uint8Array): Uint8Array {
   return buffer;
 }
 
-function isUuid(value: string | null | undefined): value is string {
-  return (
-    typeof value === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
-  );
-}
-
 async function fetchPlatformLogs(
   assistantId: string,
   opts: {
@@ -166,7 +159,13 @@ async function fetchPlatformLogs(
       body.startTime = opts.window.startTime;
       body.endTime = opts.window.endTime;
     }
-    if (isUuid(opts.activeConversationKey)) {
+    // Forward the active conversation key as `conversationId` so the backend
+    // can scope the export to messages / LLM request logs / usage events /
+    // tool invocations for that conversation. The backend accepts any
+    // non-empty string here — conversation keys take many shapes
+    // (e.g. `slack-thread:C123:1700000000.000000`), so we deliberately do
+    // NOT gate on UUID format.
+    if (opts.activeConversationKey) {
       body.conversationId = opts.activeConversationKey;
     }
     const res = await fetch(`/v1/assistants/${assistantId}/logs/export/`, {

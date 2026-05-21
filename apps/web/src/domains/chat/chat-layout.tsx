@@ -414,6 +414,7 @@ export function ChatLayout() {
           <PreferencesMenu
             assistantId={lifecycle.assistantId}
             assistantVersion={assistantVersion}
+            activeConversationKey={activeConversationKey}
           />
         }
         onClose={args.onClose}

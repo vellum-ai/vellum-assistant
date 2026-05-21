@@ -52,11 +52,20 @@ import { ThemeToggle } from "@/components/theme-toggle.js";
 export interface PreferencesMenuProps {
   assistantId?: string | null;
   assistantVersion?: string | null;
+  /**
+   * Key of the currently-open conversation, forwarded into the
+   * `<ShareFeedbackModal>` so the "Include logs" toggle scopes the
+   * exported assistant logs (messages / LLM request logs / usage events
+   * / tool invocations) to that conversation. `null` / `undefined` =
+   * unscoped export across all conversations.
+   */
+  activeConversationKey?: string | null;
 }
 
 export function PreferencesMenu({
   assistantId,
   assistantVersion,
+  activeConversationKey,
 }: PreferencesMenuProps) {
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const isMobile = useIsMobile();
@@ -118,6 +127,7 @@ export function PreferencesMenu({
         onClose={() => setIsFeedbackOpen(false)}
         assistantId={assistantId}
         assistantVersion={assistantVersion}
+        activeConversationKey={activeConversationKey}
       />
 
       <EarnCreditsModal
