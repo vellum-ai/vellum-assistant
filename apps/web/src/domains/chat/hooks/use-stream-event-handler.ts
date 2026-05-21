@@ -12,6 +12,7 @@ import { useConversationStore } from "@/domains/conversations/conversation-store
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
+import { useViewerStore } from "@/stores/viewer-store.js";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
 import {
   recordChatDiagnostic,
@@ -416,6 +417,13 @@ export function useStreamEventHandler(
           break;
         case "sync_changed":
           dispatchSyncChanged(event);
+          break;
+        case "document_editor_update":
+          useViewerStore.getState().updateDocumentContent(
+            event.surfaceId,
+            event.markdown,
+            event.mode,
+          );
           break;
         case "document_comment_created":
         case "document_comment_resolved":

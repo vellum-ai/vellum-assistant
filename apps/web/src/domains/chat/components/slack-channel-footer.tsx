@@ -1,5 +1,8 @@
+import { useEffect, useState } from "react";
+
 import { ExternalLink, Hash } from "lucide-react";
 
+import { resolveSlackChannelName } from "@/domains/chat/api/slack-channel-name.js";
 import type {
   Conversation,
   ConversationChannelBinding,
@@ -10,13 +13,19 @@ import {
   type SlackMessageLink,
 } from "@/domains/chat/types/types.js";
 
+type SlackFooterConversation = Pick<
+  Conversation,
+  "channelBinding" | "originChannel"
+> &
+  Partial<Pick<Conversation, "conversationKey">>;
+
 export interface SlackChannelFooterProps {
-  conversation:
-    | Pick<Conversation, "channelBinding" | "originChannel">
-    | null
-    | undefined;
+  assistantId?: string;
+  conversation: SlackFooterConversation | null | undefined;
   messages?: DisplayMessage[];
 }
+
+const slackChannelNameRequests = new Map<string, Promise<string | null>>();
 
 function getSlackChannelLink(
   slackChannel: ConversationChannelBinding["slackChannel"],
@@ -120,24 +129,107 @@ function getSlackChannelDisplayText(
   );
 }
 
+function isSlackDmChannelId(channelId: string | undefined): boolean {
+  return channelId?.startsWith("D") === true;
+}
+
 export function SlackChannelFooter({
+  assistantId,
   conversation,
   messages,
 }: SlackChannelFooterProps) {
-  if (conversation?.originChannel !== "slack" || !conversation.channelBinding) {
-    return null;
-  }
+  const [resolvedChannelName, setResolvedChannelName] = useState<{
+    key: string;
+    channelName: string;
+  } | null>(null);
 
-  const slackChannel = conversation.channelBinding.slackChannel;
+  const channelBinding =
+    conversation?.originChannel === "slack"
+      ? conversation.channelBinding
+      : undefined;
+  const slackChannel = channelBinding?.slackChannel;
   const channelId =
     slackChannel?.channelId ??
     slackChannel?.id ??
-    conversation.channelBinding.externalChatId;
+    channelBinding?.externalChatId;
   const messageChannel = getSlackMessageChannel(messages, channelId);
-  const displayText = getSlackChannelDisplayText(
-    conversation.channelBinding,
-    messageChannel?.channelName,
-  );
+  const fallbackDisplayText = channelBinding
+    ? getSlackChannelDisplayText(channelBinding, messageChannel?.channelName)
+    : undefined;
+  const conversationId = conversation?.conversationKey;
+  const resolutionKey =
+    assistantId && conversationId && channelId
+      ? `${assistantId}:${conversationId}:${channelId}`
+      : undefined;
+  const shouldResolveChannelName =
+    Boolean(assistantId && conversationId && channelId && channelBinding) &&
+    !isSlackDmChannelId(channelId) &&
+    channelBinding !== undefined &&
+    isChannelIdFallback(fallbackDisplayText, channelBinding);
+
+  useEffect(() => {
+    if (
+      !shouldResolveChannelName ||
+      !assistantId ||
+      !conversationId ||
+      !channelId ||
+      !resolutionKey
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let request = slackChannelNameRequests.get(resolutionKey);
+
+    if (!request) {
+      request = resolveSlackChannelName(assistantId, conversationId).then(
+        (result) => {
+          if (
+            !result?.resolved ||
+            result.channelId !== channelId ||
+            !result.channelName
+          ) {
+            return null;
+          }
+          return result.channelName;
+        },
+      );
+      slackChannelNameRequests.set(resolutionKey, request);
+      request.finally(() => {
+        if (slackChannelNameRequests.get(resolutionKey) === request) {
+          slackChannelNameRequests.delete(resolutionKey);
+        }
+      });
+    }
+
+    request.then((channelName) => {
+      if (!cancelled && channelName) {
+        setResolvedChannelName({ key: resolutionKey, channelName });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    assistantId,
+    channelId,
+    conversationId,
+    resolutionKey,
+    shouldResolveChannelName,
+  ]);
+
+  if (!channelBinding) {
+    return null;
+  }
+
+  const resolvedDisplayText =
+    resolutionKey && resolvedChannelName?.key === resolutionKey
+      ? resolvedChannelName.channelName
+      : undefined;
+  const displayText = !isChannelIdFallback(fallbackDisplayText, channelBinding)
+    ? fallbackDisplayText
+    : (resolvedDisplayText ?? fallbackDisplayText);
   if (!displayText) return null;
 
   const href = getSlackChannelLink(

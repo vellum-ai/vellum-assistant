@@ -1,5 +1,5 @@
 
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from "react";
+import { type Dispatch, type RefObject, type SetStateAction, useCallback, useEffect, useRef, useState } from "react";
 
 import {
   type VoiceInputButtonHandle,
@@ -21,14 +21,14 @@ export interface UseVoiceInputOptions {
   /** Current assistant ID — required for dictation cleanup via the daemon. */
   assistantId: string | null;
   /** Ref to the composer textarea for cursor-position reads and resize. */
-  inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  inputRef: RefObject<HTMLTextAreaElement | null>;
   /** State setter for the composer input value (React useState dispatch). */
   setInput: Dispatch<SetStateAction<string>>;
 }
 
 export interface UseVoiceInputReturn {
   /** Imperative handle ref passed to `VoiceInputButton`. */
-  voiceInputRef: React.RefObject<VoiceInputButtonHandle | null>;
+  voiceInputRef: RefObject<VoiceInputButtonHandle | null>;
   /** Interim (partial) transcript shown while recording is in progress. */
   voiceInterim: string;
   /** Current voice error code, or null if no error. */

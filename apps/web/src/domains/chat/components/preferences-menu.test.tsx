@@ -36,14 +36,11 @@ mock.module("@/stores/auth-store.js", () => {
   return { useAuthStore: store };
 });
 
-const flagsRef = { referralCodes: false, referralCodesAdmin: false };
+const flagsRef = {};
 
 mock.module("@/lib/feature-flags/feature-flag-store.js", () => {
   const store = () => null;
-  store.use = {
-    referralCodes: () => flagsRef.referralCodes,
-    referralCodesAdmin: () => flagsRef.referralCodesAdmin,
-  };
+  store.use = {};
   store.getState = () => flagsRef;
   return { useFeatureFlagStore: store };
 });
@@ -85,7 +82,6 @@ beforeEach(() => {
   isMobileRef.value = false;
   authRef.isLoggedIn = true;
   authRef.user = { id: "u1", email: "user@example.com", isStaff: false, username: null, firstName: "", lastName: "" };
-  flagsRef.referralCodes = false;
   billingRef.data = undefined;
 });
 

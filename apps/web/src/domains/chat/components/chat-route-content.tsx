@@ -22,6 +22,7 @@ import * as Sentry from "@sentry/react";
 import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, startTransition, useCallback, useEffect, useMemo, useRef } from "react";
 
 import { ChatBody } from "@/domains/chat/components/chat-body.js";
+import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer.js";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid.js";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices.js";
 import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card.js";
@@ -57,7 +58,6 @@ import { ComposerSettingsMenu } from "@/domains/chat/components/composer-setting
 import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel.js";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card.js";
-import { SlackChannelFooter } from "./slack-channel-footer.js";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 
@@ -1335,10 +1335,6 @@ export function ChatRouteContent({
     />
   );
 
-  const channelFooterSlot = (
-    <SlackChannelFooter conversation={activeConversation} messages={messages} />
-  );
-
   const questionPromptSlot = pendingQuestion ? (
     <div className="mb-2">
       <QuestionPromptCard
@@ -1351,6 +1347,14 @@ export function ChatRouteContent({
       />
     </div>
   ) : null;
+
+  const channelFooterSlot = (
+    <SlackChannelFooter
+      assistantId={assistantId ?? undefined}
+      conversation={activeConversation}
+      messages={messages}
+    />
+  );
 
   // -------------------------------------------------------------------------
   // Render

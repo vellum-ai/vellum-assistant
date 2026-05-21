@@ -75,6 +75,7 @@ export const HERMES_EVAL_SESSION_SOURCE = "evals";
 
 /** Title prefix written into `sessions.title` for traceability in `hermes sessions list`. */
 export const HERMES_EVAL_SESSION_TITLE_PREFIX = "evals seed";
+export const HERMES_SCHEMA_WAIT_TIMEOUT_SECONDS = 20;
 
 export interface SeedHermesSessionInput {
   runner: CommandRunner;
@@ -108,6 +109,7 @@ session_id = payload["session_id"]
 source = payload["source"]
 title = payload["title"]
 messages = payload["messages"]
+schema_wait_timeout_seconds = payload["schema_wait_timeout_seconds"]
 
 # timeout=5 lets us wait through transient WAL write locks held by the
 # Hermes daemon. isolation_level=None puts us in autocommit so the
@@ -116,6 +118,23 @@ messages = payload["messages"]
 conn = sqlite3.connect(db_path, timeout=5, isolation_level=None)
 try:
     conn.execute("PRAGMA foreign_keys=ON")
+    deadline = time.time() + schema_wait_timeout_seconds
+    while True:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sessions', 'messages')"
+            )
+        }
+        if {"sessions", "messages"}.issubset(tables):
+            break
+        if time.time() >= deadline:
+            raise sqlite3.OperationalError(
+                "Hermes state DB schema not ready: missing "
+                + ",".join(sorted({"sessions", "messages"} - tables))
+            )
+        time.sleep(0.25)
+
     now = time.time()
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -176,6 +195,7 @@ export async function seedHermesSession({
     session_id: sessionId,
     source: HERMES_EVAL_SESSION_SOURCE,
     title,
+    schema_wait_timeout_seconds: HERMES_SCHEMA_WAIT_TIMEOUT_SECONDS,
     // Re-shape messages to a plain {role, content} dict so the inline
     // Python doesn't need to know about TypeScript-side field naming.
     messages: messages.map((m) => ({ role: m.role, content: m.content })),

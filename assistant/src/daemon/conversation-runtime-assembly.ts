@@ -680,9 +680,15 @@ export function injectChannelCapabilityContext(
       "- Do NOT reference the dashboard UI, settings panels, or visual preference pickers.",
     );
     if (!caps.supportsDynamicUi) {
-      lines.push(
-        "- Do NOT use ui_show, ui_update, or app_create — this channel cannot render them.",
-      );
+      if (caps.channel === "slack") {
+        lines.push(
+          '- Do NOT use app_create. Only use ui_show/ui_update for card surfaces with template: "task_progress"; present all other information as text.',
+        );
+      } else {
+        lines.push(
+          "- Do NOT use ui_show, ui_update, or app_create — this channel cannot render them.",
+        );
+      }
       lines.push(
         "- Present information as well-formatted text instead of dynamic UI.",
       );
@@ -973,6 +979,9 @@ export function buildUnifiedTurnContextBlock(
     lines.push(
       `response_discretion: Not every message in a channel thread requires your response. If a message is clearly not directed at you (e.g. people talking among themselves, acknowledgements, reactions), output exactly <no_response/> as your entire reply to stay silent.`,
     );
+    if (options.channelName === "slack") {
+      lines.push("if you are going to do work, use task_progress");
+    }
   }
 
   lines.push("</turn_context>");

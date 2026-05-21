@@ -106,7 +106,7 @@ export type MessageProcessor = (
   options?: RuntimeMessageConversationOptions,
   sourceChannel?: ChannelId,
   sourceInterface?: InterfaceId,
-) => Promise<{ messageId: string }>;
+) => Promise<{ messageId: string; assistantMessageId?: string }>;
 
 /**
  * Dependencies for the POST /v1/messages handler.

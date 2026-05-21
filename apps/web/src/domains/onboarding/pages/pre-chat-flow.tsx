@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/browser";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useIsIOSWeb } from "@/domains/nudges/ios-app-platform.js";
@@ -75,16 +75,24 @@ export function PreChatFlow() {
   // Native pre-chat restores its position across reloads via sessionStorage
   // — without this, an iOS user who's tapped through to the vibe step and
   // hot-reloads (or returns after the OS reclaims memory) is silently
-  // dropped back to the name step.
-  const [screen, setScreen] = useState<Screen>(() => {
+  // dropped back to the name step. The key is user-scoped so a stale value
+  // from user A doesn't bleed into user B if they log in next in the same
+  // webview session — `useLayoutEffect` restores before paint once `userId`
+  // is known, so the user never sees an incorrect step momentarily.
+  const screenStorageKey = userId ? `prechat_native_screen:${userId}` : null;
+  const [screen, setScreen] = useState<Screen>(0);
+  useLayoutEffect(() => {
+    if (!screenStorageKey) return;
     try {
-      const saved = sessionStorage.getItem("prechat_native_screen");
-      if (saved === "1") return 1;
+      const saved = sessionStorage.getItem(screenStorageKey);
+      if (saved === "1") setScreen(1);
     } catch {
       // sessionStorage can throw under privacy modes — ignore.
     }
-    return 0;
-  });
+    // Restore only when the active user changes (mount, or logout→login).
+    // Intentionally omitting `screen` from deps so we don't re-restore mid-flow.
+  }, [screenStorageKey]);
+
   const [selectedTools, setSelectedTools] = useState<Set<string>>(
     () => new Set(),
   );
@@ -207,10 +215,12 @@ export function PreChatFlow() {
       // keeps the two callsites from drifting.
       const goToVibeStep = () => {
         setScreen(1);
-        try {
-          sessionStorage.setItem("prechat_native_screen", "1");
-        } catch {
-          // ignore — see initial-state comment.
+        if (screenStorageKey) {
+          try {
+            sessionStorage.setItem(screenStorageKey, "1");
+          } catch {
+            // ignore — see initial-state comment.
+          }
         }
       };
       return (
@@ -246,10 +256,12 @@ export function PreChatFlow() {
       if (trimmedAssistant) {
         setPendingAssistantName(trimmedAssistant);
       }
-      try {
-        sessionStorage.removeItem("prechat_native_screen");
-      } catch {
-        // ignore — see initial-state comment.
+      if (screenStorageKey) {
+        try {
+          sessionStorage.removeItem(screenStorageKey);
+        } catch {
+          // ignore — see initial-state comment.
+        }
       }
       void navigate(routes.onboarding.privacy);
     };
@@ -259,10 +271,12 @@ export function PreChatFlow() {
         onGroupChange={setSelectedGroupId}
         onBack={() => {
           setScreen(0);
-          try {
-            sessionStorage.removeItem("prechat_native_screen");
-          } catch {
-            // ignore — see initial-state comment.
+          if (screenStorageKey) {
+            try {
+              sessionStorage.removeItem(screenStorageKey);
+            } catch {
+              // ignore — see initial-state comment.
+            }
           }
         }}
         onContinue={finishNativePreChat}

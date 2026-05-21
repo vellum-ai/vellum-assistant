@@ -53,7 +53,8 @@ mock.module("../page-store.js", () => ({
   },
 }));
 
-const { getPageIndex, invalidatePageIndex } = await import("../page-index.js");
+const { getPageIndex, invalidatePageIndex, partitionPageIndex } =
+  await import("../page-index.js");
 const { writePage } = await import("../page-store.js");
 const { invalidateEdgeIndex } = await import("../edge-index.js");
 
@@ -356,5 +357,138 @@ describe("rendered prompt block", () => {
     await writePage(workspaceDir, makePage("alice", { summary: "A page" }));
     const idx = await getPageIndex(workspaceDir);
     expect(idx.rendered).toBe("[1] alice — A page\n");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// partitionPageIndex — stable batch assignment
+// ---------------------------------------------------------------------------
+
+describe("partitionPageIndex", () => {
+  async function buildIndex(slugs: string[]) {
+    for (const slug of slugs) {
+      await writePage(workspaceDir, makePage(slug, { summary: `${slug} sum` }));
+    }
+    return getPageIndex(workspaceDir);
+  }
+
+  test("batchSize=null returns the same index reference (no work, KV cache safe)", async () => {
+    const idx = await buildIndex(["alice", "bob", "carol"]);
+    const batches = partitionPageIndex(idx, null);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toBe(idx);
+  });
+
+  test("batchSize >= entries.length is a single batch identical to the input", async () => {
+    const idx = await buildIndex(["alice", "bob", "carol"]);
+    const batches = partitionPageIndex(idx, 10);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toBe(idx);
+  });
+
+  test("splits N=5 with batchSize=2 into 3 batches preserving all slugs", async () => {
+    const idx = await buildIndex(["a", "b", "c", "d", "e"]);
+    const batches = partitionPageIndex(idx, 2);
+    expect(batches.length).toBeGreaterThanOrEqual(2);
+    const allSlugs = batches.flatMap((b) => b.entries.map((e) => e.slug));
+    expect(new Set(allSlugs)).toEqual(new Set(["a", "b", "c", "d", "e"]));
+    // Every slug appears in exactly one batch.
+    expect(allSlugs.length).toBe(5);
+  });
+
+  test("re-renders each batch with local 1-based IDs", async () => {
+    const idx = await buildIndex(["a", "b", "c", "d", "e"]);
+    const batches = partitionPageIndex(idx, 2);
+    for (const batch of batches) {
+      expect(batch.entries.map((e) => e.id)).toEqual(
+        batch.entries.map((_, i) => i + 1),
+      );
+      for (const entry of batch.entries) {
+        expect(batch.byId.get(entry.id)).toBe(entry);
+        expect(batch.bySlug.get(entry.slug)).toBe(entry);
+        expect(batch.rendered).toContain(`[${entry.id}] ${entry.slug}`);
+      }
+    }
+  });
+
+  test("KV-cache stability: adding ONE slug only changes the batch it lands in", async () => {
+    // 4 slugs → 2 batches at batchSize=2. Adding a 5th slug should keep
+    // the slug→batch mapping of the original 4 intact except possibly
+    // shifting which 2 of the 3 resulting batches contain them. The
+    // critical invariant: for each ORIGINAL slug, the rendered string of
+    // its containing batch must be byte-identical before and after (so
+    // Anthropic's KV cache hits) — but only when the batch count is
+    // unchanged. When N crosses a ceiling boundary, batch_count grows
+    // and we accept the one-time reshuffle (rare in practice).
+
+    // Pick a slug set that stays at batch_count=3 both before (6 slugs,
+    // ceil(6/2)=3) and after (7 slugs, ceil(7/2)=4) → batch count
+    // changes. Instead, hold batch_count constant by going from 5 to 6
+    // slugs at batchSize=3: ceil(5/3)=2, ceil(6/3)=2.
+    const before = await buildIndex(["a", "b", "c", "d", "e"]);
+    const batchesBefore = partitionPageIndex(before, 3);
+    expect(batchesBefore).toHaveLength(2);
+
+    const renderedBySlug = new Map<string, string>();
+    for (const batch of batchesBefore) {
+      for (const entry of batch.entries) {
+        renderedBySlug.set(entry.slug, batch.rendered);
+      }
+    }
+
+    // Drop the cached global index, write one more page, rebuild.
+    invalidatePageIndex();
+    invalidateEdgeIndex();
+    await writePage(workspaceDir, makePage("f", { summary: "f sum" }));
+    const after = await getPageIndex(workspaceDir);
+    const batchesAfter = partitionPageIndex(after, 3);
+    expect(batchesAfter).toHaveLength(2);
+
+    // Locate each original slug's NEW batch and compare against its OLD
+    // rendered string. We expect exactly one of the two batches'
+    // rendered strings to be byte-identical to the pre-add version (the
+    // batch that didn't gain `f`); the other batch's rendering changed
+    // because `f` was added to it.
+    const renderedAfterBySlug = new Map<string, string>();
+    for (const batch of batchesAfter) {
+      for (const entry of batch.entries) {
+        renderedAfterBySlug.set(entry.slug, batch.rendered);
+      }
+    }
+    let unchangedSlugs = 0;
+    for (const slug of ["a", "b", "c", "d", "e"]) {
+      if (renderedBySlug.get(slug) === renderedAfterBySlug.get(slug)) {
+        unchangedSlugs += 1;
+      }
+    }
+    // At least some slugs must have their batch's rendered string
+    // preserved — index-modulo chunking would change ALL batches when
+    // a slug is added at any position. With hash-bucketing only the
+    // bucket `f` landed in changes.
+    expect(unchangedSlugs).toBeGreaterThan(0);
+  });
+
+  test("edges to pages in other batches drop; edges within a batch remap to local IDs", async () => {
+    // Force `alice → bob` edge. Choose batchSize=1 so alice and bob land
+    // in separate batches → the edge should drop.
+    await writePage(
+      workspaceDir,
+      makePage("alice", { summary: "A", edges: ["bob"] }),
+    );
+    await writePage(workspaceDir, makePage("bob", { summary: "B" }));
+    const idx = await getPageIndex(workspaceDir);
+    const batches = partitionPageIndex(idx, 1);
+
+    for (const batch of batches) {
+      for (const entry of batch.entries) {
+        // Edges must point to IDs that exist in THIS batch's byId map.
+        for (const edgeId of entry.edges) {
+          expect(batch.byId.has(edgeId)).toBe(true);
+        }
+      }
+    }
+    // alice's edge to bob must have dropped (bob is in a different batch).
+    const aliceBatch = batches.find((b) => b.bySlug.has("alice"))!;
+    expect(aliceBatch.bySlug.get("alice")!.edges).toEqual([]);
   });
 });

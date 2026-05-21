@@ -153,6 +153,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations/undo", scopes: ["chat.write"] },
   { endpoint: "conversations/regenerate", scopes: ["chat.write"] },
   { endpoint: "conversations/attention", scopes: ["chat.read"] },
+  { endpoint: "conversations/slack-channel/resolve", scopes: ["chat.read"] },
   { endpoint: "conversations/seen", scopes: ["chat.write"] },
   { endpoint: "conversations/unread", scopes: ["chat.write"] },
   { endpoint: "conversations/import", scopes: ["chat.write"] },

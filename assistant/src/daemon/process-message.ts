@@ -254,7 +254,7 @@ export async function processMessage(
   options?: ProcessMessageOptions,
   sourceChannel?: string,
   sourceInterface?: string,
-): Promise<{ messageId: string }> {
+): Promise<{ messageId: string; assistantMessageId?: string }> {
   const conversationOptions = stripPerTurnObservers(options);
   const { conversation, attachments } = await prepareConversationForMessage(
     conversationId,
@@ -370,7 +370,7 @@ export async function processMessage(
     }
 
     const assistantMsg = createAssistantMessage(slashResult.message);
-    await addMessage(
+    const persistedAssistant = await addMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
@@ -378,7 +378,10 @@ export async function processMessage(
     );
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
-    return { messageId: persisted.id };
+    return {
+      messageId: persisted.id,
+      assistantMessageId: persistedAssistant.id,
+    };
   }
 
   if (slashResult.kind === "compact") {
@@ -428,7 +431,7 @@ export async function processMessage(
     });
     const responseText = formatCompactResult(result);
     const assistantMsg = createAssistantMessage(responseText);
-    await addMessage(
+    const persistedAssistant = await addMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
@@ -436,7 +439,10 @@ export async function processMessage(
     );
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
-    return { messageId: persisted.id };
+    return {
+      messageId: persisted.id,
+      assistantMessageId: persistedAssistant.id,
+    };
   }
 
   const resolvedContent = slashResult.content;

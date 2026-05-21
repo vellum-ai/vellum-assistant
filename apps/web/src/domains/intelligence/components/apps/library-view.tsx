@@ -14,6 +14,7 @@ import { type ChangeEvent, type MouseEvent, useCallback, useEffect, useMemo, use
 
 import type { AppSummary } from "@/domains/chat/api/apps.js";
 import type { DocumentSummary } from "@/domains/chat/api/documents.js";
+import { ApiError } from "@/lib/api-errors.js";
 import {
   deleteApp,
   getCachedAppHtml,
@@ -269,7 +270,14 @@ export function LibraryView({
             appsResult.status === "rejected" &&
             docsResult.status === "rejected"
           ) {
-            throw appsResult.reason;
+            const isNotFound = (r: PromiseRejectedResult) =>
+              r.reason instanceof ApiError && r.reason.status === 404;
+            if (isNotFound(appsResult) && isNotFound(docsResult)) {
+              setApps([]);
+              setDocuments([]);
+            } else {
+              throw appsResult.reason;
+            }
           }
         }
       } catch (err) {
@@ -619,11 +627,8 @@ export function LibraryView({
   );
 
   return (
-    <div className="flex h-full flex-col overflow-hidden p-6">
-      <div className="mb-6 flex shrink-0 items-center justify-between">
-        <h1 className="text-title-large text-[var(--content-default)]">
-          Library
-        </h1>
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="mb-4 flex shrink-0 items-center justify-end">
         <div className="flex items-center gap-2">
           <input
             ref={fileInputRef}

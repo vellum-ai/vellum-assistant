@@ -9,6 +9,7 @@ import { HomePage } from "@/domains/home/home-page.js";
 import { LibraryPage } from "@/domains/library/library-page.js";
 import { LibraryDetailPage } from "@/domains/library/library-detail-page.js";
 import { IdentityPage } from "@/domains/intelligence/identity-page.js";
+import { IntelligenceLayout } from "@/domains/intelligence/intelligence-layout.js";
 import { ConnectPage } from "@/domains/contacts/connect-page.js";
 import { ContactsPage } from "@/domains/contacts/contacts-page.js";
 import { WorkspacePage } from "@/domains/workspace/workspace-page.js";
@@ -164,7 +165,7 @@ export const router = createBrowserRouter([
         path: "logs",
         element: <LogsLayout />,
         children: [
-          { index: true, element: <TracePage /> },
+          { index: true, element: <UsagePage /> },
           { path: "trace", element: <TracePage /> },
           { path: "usage", element: <UsagePage /> },
           { path: "system-events", element: <SystemEventsPage /> },
@@ -179,11 +180,16 @@ export const router = createBrowserRouter([
           { path: "conversations/:conversationKey", element: <ChatPage /> },
           { path: "documents/:surfaceId", element: <DocumentViewerPage /> },
           { path: "home", element: <HomePageRoute /> },
-          { path: "library", element: <LibraryPage /> },
+          {
+            element: <IntelligenceLayout />,
+            children: [
+              { path: "identity", element: <IdentityPage /> },
+              { path: "library", element: <LibraryPage /> },
+              { path: "workspace", element: <WorkspacePage /> },
+              { path: "contacts", element: <ContactsPage /> },
+            ],
+          },
           { path: "library/:appId", element: <LibraryDetailPage /> },
-          { path: "identity", element: <IdentityPage /> },
-          { path: "workspace", element: <WorkspacePage /> },
-          { path: "contacts", element: <ContactsPage /> },
           { path: "connect", element: <ConnectPage /> },
           { path: "inspect", element: <InspectPage /> },
         ],

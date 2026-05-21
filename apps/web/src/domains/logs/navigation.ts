@@ -1,9 +1,9 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  Activity,
   BarChart3,
   Mail,
   MonitorCog,
+  ScrollText,
 } from "lucide-react";
 
 import { routes } from "@/utils/routes.js";
@@ -16,13 +16,13 @@ export interface LogsSidebarItem {
 }
 
 export const LOGS_SIDEBAR: LogsSidebarItem[] = [
-  { id: "trace", label: "Trace", href: routes.logs.trace, icon: Activity },
   { id: "usage", label: "Usage", href: routes.logs.usage, icon: BarChart3 },
+  { id: "logs", label: "Logs", href: routes.logs.trace, icon: ScrollText },
+  { id: "emails", label: "Emails", href: routes.logs.emails, icon: Mail },
   {
     id: "system-events",
     label: "System Events",
     href: routes.logs.systemEvents,
     icon: MonitorCog,
   },
-  { id: "emails", label: "Emails", href: routes.logs.emails, icon: Mail },
 ];

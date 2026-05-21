@@ -17,7 +17,7 @@ import {
   Pencil,
   Video,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { client } from "@/generated/api/client.gen.js";
@@ -143,7 +143,7 @@ function FileHeader({
   name: string;
   mimeType: string;
   size?: number;
-  rightContent?: React.ReactNode;
+  rightContent?: ReactNode;
 }) {
   return (
     <div

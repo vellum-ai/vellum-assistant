@@ -541,6 +541,14 @@ export interface DocumentCommentDeletedSseEvent
   conversationKey?: string;
 }
 
+export interface DocumentEditorUpdateEvent {
+  type: "document_editor_update";
+  surfaceId: string;
+  markdown: string;
+  mode: string;
+  conversationKey?: string;
+}
+
 export interface UnknownEvent {
   type: "unknown";
   rawType: string;
@@ -726,4 +734,5 @@ export type AssistantEvent =
   | DocumentCommentResolvedSseEvent
   | DocumentCommentReopenedSseEvent
   | DocumentCommentDeletedSseEvent
+  | DocumentEditorUpdateEvent
   | UnknownEvent;

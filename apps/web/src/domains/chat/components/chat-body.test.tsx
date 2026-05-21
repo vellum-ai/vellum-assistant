@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, mock, test } from "bun:test";
+import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { ChatBodyProps } from "@/domains/chat/components/chat-body.js";
@@ -57,9 +58,23 @@ mock.module(
   }),
 );
 
-mock.module("@vellum/design-library/components/notice", () => ({
+mock.module("@vellum/design-library", () => ({
+  Button: ({
+    children,
+    iconOnly,
+    ...props
+  }: {
+    children?: ReactNode;
+    iconOnly?: ReactNode;
+  } & ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button {...props}>{iconOnly ?? children}</button>
+  ),
   Notice: ({ children }: { children: string }) => (
     <div data-testid="notice">{children}</div>
+  ),
+  ResizablePanel: () => <div data-testid="resizable-panel" />,
+  Typography: ({ children }: { children?: ReactNode }) => (
+    <span>{children}</span>
   ),
 }));
 
@@ -71,7 +86,7 @@ mock.module(
 );
 
 // Import after mocks are registered.
-import { ChatBody } from "@/domains/chat/components/chat-body.js";
+const { ChatBody } = await import("@/domains/chat/components/chat-body.js");
 
 const noop = () => {};
 const noopDrag = () => {};
@@ -235,5 +250,24 @@ describe("ChatBody — read-only cancellation", () => {
     expect(html).toContain('aria-label="Stop generating"');
     expect(html).toContain('title="Stop generation"');
     expect(html).not.toContain("COMPOSER");
+  });
+});
+
+describe("ChatBody — channel footer slot", () => {
+  test("renders channelFooterSlot immediately above the composer", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          channelFooterSlot: (
+            <div data-testid="channel-footer">CHANNEL_FOOTER</div>
+          ),
+        })}
+      />,
+    );
+
+    expect(html).toContain("CHANNEL_FOOTER");
+    expect(html.indexOf("CHANNEL_FOOTER")).toBeLessThan(
+      html.indexOf("COMPOSER"),
+    );
   });
 });

@@ -359,6 +359,14 @@ export function generateEditorHTML(content: string): string {
       }
     }
 
+    if (d.type === "set_content") {
+      if (typeof d.content === "string") {
+        rawContent = d.content;
+        clearActiveHighlights();
+        el.innerHTML = mdToHtml(rawContent);
+      }
+    }
+
     if (d.type === "set_comment_anchors") {
       // Remove existing anchor highlights (but keep active highlights)
       var existing = el.querySelectorAll(".comment-anchor-highlight");

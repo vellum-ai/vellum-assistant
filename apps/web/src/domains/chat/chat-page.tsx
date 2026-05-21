@@ -938,12 +938,23 @@ export function ChatPage() {
     return () => { setTopBarCenter(null); };
   }, [topBarCenterContent, setTopBarCenter]);
 
-  const handleOpenApp = useCallback(
-    (appId: string) => {
+  // Open an app from inside a chat (assets pill, "Open App" on a message).
+  // On macOS this enters side-by-side editing mode (chat + app preview);
+  // we mirror that here by transitioning the viewer to `app-editing` once
+  // the load lands, keeping the current conversation as the edit chat.
+  // Bail if the load failed or a newer open superseded this one.
+  const handleOpenAppFromChat = useCallback(
+    async (appId: string) => {
+      if (!assistantId) return;
       haptic.light();
-      if (assistantId) void useViewerStore.getState().loadApp(assistantId, appId);
+      await useViewerStore.getState().loadApp(assistantId, appId);
+      const { activeAppId, openedAppState } = useViewerStore.getState();
+      if (activeConversationKey && openedAppState && activeAppId === appId) {
+        useConversationStore.getState().setEditingKey(activeConversationKey);
+        useViewerStore.getState().enterAppEditing();
+      }
     },
-    [assistantId],
+    [assistantId, activeConversationKey],
   );
 
   const handleOpenDocument = useCallback(
@@ -961,11 +972,11 @@ export function ChatPage() {
         assistantId={assistantId}
         conversationId={activeConversation.conversationKey}
         refreshKey={assetsRefreshKey}
-        onOpenApp={handleOpenApp}
+        onOpenApp={handleOpenAppFromChat}
         onOpenDocument={handleOpenDocument}
       />
     );
-  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey, handleOpenApp, handleOpenDocument]);
+  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument]);
 
   useEffect(() => {
     setTopBarRightSlot(topBarRightContent);
@@ -1149,7 +1160,7 @@ export function ChatPage() {
       unknownNudgeToolCallIds: interactionActions.unknownNudgeToolCallIds,
       setUnknownNudgeToolCallIds: interactionActions.setUnknownNudgeToolCallIds,
     },
-    handleOpenApp,
+    handleOpenApp: handleOpenAppFromChat,
     handleOpenDocument,
     handleCloseDocument: () => {
       useViewerStore.getState().closeDocument();

@@ -25,7 +25,9 @@ export interface SlackMessageLink {
   webUrl?: string;
 }
 
-export function parseSlackMessageLink(raw: unknown): SlackMessageLink | undefined {
+export function parseSlackMessageLink(
+  raw: unknown,
+): SlackMessageLink | undefined {
   if (!raw || typeof raw !== "object") return undefined;
 
   const record = raw as Record<string, unknown>;

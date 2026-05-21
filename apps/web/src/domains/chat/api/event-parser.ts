@@ -691,6 +691,18 @@ export function parseAssistantEvent(
       return { type: rawType as "document_comment_reopened" | "document_comment_deleted", ...base };
     }
 
+    case "document_editor_update": {
+      const surfaceId =
+        typeof data.surfaceId === "string" ? data.surfaceId : "";
+      const markdown =
+        typeof data.markdown === "string" ? data.markdown : "";
+      const mode = typeof data.mode === "string" ? data.mode : "replace";
+      if (!surfaceId) {
+        return { type: "unknown", rawType, data };
+      }
+      return { type: "document_editor_update", surfaceId, markdown, mode };
+    }
+
     default:
       return { type: "unknown", rawType, data };
     }

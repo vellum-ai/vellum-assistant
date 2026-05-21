@@ -173,6 +173,7 @@ function SlackMessageAttribution({ message }: { message: DisplayMessage }) {
   );
 }
 
+
 export function TranscriptMessageBody({
   message,
   expandedToolCallIds,
