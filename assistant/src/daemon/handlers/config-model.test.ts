@@ -65,6 +65,7 @@ describe("projectProviderForWire", () => {
     const wire = projectProviderForWire(gemini!);
     const modelIds = wire.models.map((model) => model.id);
     const expectedGemini3ModelIds = [
+      "gemini-3.5-flash",
       "gemini-3.1-pro-preview",
       "gemini-3.1-pro-preview-customtools",
       "gemini-3-flash-preview",
