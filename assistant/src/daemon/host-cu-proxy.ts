@@ -280,7 +280,7 @@ export class HostCuProxy {
     observation: CuObservationResult,
   ): ToolExecutionResult | undefined {
     this._ownedRequests.delete(requestId);
-    const interaction = pendingInteractions.resolve(requestId);
+    const interaction = pendingInteractions.resolve(requestId, "answered");
     if (!interaction?.rpcResolve) {
       log.warn({ requestId }, "No pending host CU request for response");
       return undefined;

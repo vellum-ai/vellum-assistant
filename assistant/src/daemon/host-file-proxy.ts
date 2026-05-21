@@ -227,7 +227,7 @@ export class HostFileProxy {
     requestId: string,
     response: { content: string; isError: boolean; imageData?: string },
   ): void {
-    const interaction = pendingInteractions.resolve(requestId);
+    const interaction = pendingInteractions.resolve(requestId, "answered");
     if (!interaction?.rpcResolve) {
       log.warn({ requestId }, "No pending host file request for response");
       return;

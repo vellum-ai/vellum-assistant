@@ -12,7 +12,14 @@ interface MockClient {
 let mockClients: MockClient[] = [];
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: unknown) => sentMessages.push(msg),
+  broadcastMessage: (msg: unknown) => {
+    // Skip `interaction_resolved` envelopes — pending-interactions emits one
+    // on every resolve and these tests assert on host-proxy wire messages.
+    if ((msg as { type?: string } | null)?.type === "interaction_resolved") {
+      return;
+    }
+    sentMessages.push(msg);
+  },
   assistantEventHub: {
     getMostRecentClientByCapability: (cap: string) => {
       if (mockClients.length > 0) {

@@ -508,7 +508,7 @@ export class HostTransferProxy {
       errorMessage?: string;
     },
   ): void {
-    const interaction = pendingInteractions.resolve(requestId);
+    const interaction = pendingInteractions.resolve(requestId, "answered");
     if (!interaction?.rpcResolve) {
       log.warn({ requestId }, "No pending host transfer request for response");
       return;
