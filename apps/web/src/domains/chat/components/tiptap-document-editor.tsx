@@ -73,13 +73,13 @@ const CommentAnchorHighlightExtension = Extension.create<{
   },
 
   addProseMirrorPlugins() {
-    const extension = this;
+    const { anchors } = this.options;
     return [
       new Plugin({
         key: commentAnchorPluginKey,
         state: {
           init(_, { doc }) {
-            return buildCommentDecorations(doc, extension.options.anchors);
+            return buildCommentDecorations(doc, anchors);
           },
           apply(tr, oldDecorations) {
             const meta = tr.getMeta(commentAnchorPluginKey);
@@ -137,13 +137,13 @@ const ActiveHighlightExtension = Extension.create<{
   },
 
   addProseMirrorPlugins() {
-    const extension = this;
+    const { range } = this.options;
     return [
       new Plugin({
         key: activeHighlightPluginKey,
         state: {
           init(_, { doc }) {
-            return buildActiveHighlightDecorations(doc, extension.options.range);
+            return buildActiveHighlightDecorations(doc, range);
           },
           apply(tr, oldDecorations) {
             const meta = tr.getMeta(activeHighlightPluginKey);
@@ -309,7 +309,8 @@ export function TiptapDocumentEditor({
     ],
     content,
     onUpdate({ editor: ed }) {
-      const md = (ed.storage.markdown as { getMarkdown: () => string }).getMarkdown();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const md = (ed.storage as any).markdown.getMarkdown() as string;
       onContentChangeRef.current?.(md);
     },
     onSelectionUpdate({ editor: ed }) {
@@ -348,7 +349,8 @@ export function TiptapDocumentEditor({
     if (content === prevContentRef.current) return;
     prevContentRef.current = content;
 
-    const currentMd = (editor.storage.markdown as { getMarkdown: () => string }).getMarkdown();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const currentMd = (editor.storage as any).markdown.getMarkdown() as string;
     if (currentMd === content) return; // avoid cursor-reset loops
 
     editor.commands.setContent(content);
@@ -411,7 +413,7 @@ export function TiptapDocumentEditor({
       <style>{editorStyles}</style>
       <EditorContent editor={editor} className="flex-1 overflow-y-auto" />
       {editor ? (
-        <BubbleMenu editor={editor} tippyOptions={{ duration: 100 }}>
+        <BubbleMenu editor={editor} updateDelay={100}>
           <BubbleToolbar editor={editor} />
         </BubbleMenu>
       ) : null}
