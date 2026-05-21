@@ -37,6 +37,7 @@ import {
 
 interface TiptapDocumentEditorProps {
   content: string;
+  editable?: boolean;
   onContentChange?: (markdown: string) => void;
   onTextSelect?: (selection: {
     start: number;
@@ -282,6 +283,7 @@ function BubbleToolbar({ editor }: BubbleToolbarProps) {
 
 export function TiptapDocumentEditor({
   content,
+  editable = true,
   onContentChange,
   onTextSelect,
   commentAnchors = [],
@@ -305,6 +307,7 @@ export function TiptapDocumentEditor({
       ActiveHighlightExtension.configure({ range: highlightRange }),
     ],
     content,
+    editable,
     onUpdate({ editor: ed }) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const md = (ed.storage as any).markdown.getMarkdown() as string;

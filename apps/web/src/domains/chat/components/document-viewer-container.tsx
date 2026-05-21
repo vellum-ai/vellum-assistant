@@ -108,6 +108,13 @@ export function DocumentViewerContainer({
     }
   }, [commentsPanelOpen]);
 
+  // Clear stale highlights when switching documents
+  useEffect(() => {
+    setCommentAnchors([]);
+    setActiveHighlight(null);
+    setTextSelection(null);
+  }, [surfaceId]);
+
   // -------------------------------------------------------------------------
   // Comment panel interaction handlers
   // -------------------------------------------------------------------------
@@ -286,6 +293,7 @@ export function DocumentViewerContainer({
         <div ref={containerRef} className="relative min-w-0 flex-1">
           <TiptapDocumentEditor
             content={content}
+            editable={false}
             onTextSelect={(sel) => setTextSelection({
               start: sel.start,
               end: sel.end,
