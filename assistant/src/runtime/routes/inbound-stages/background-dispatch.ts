@@ -552,11 +552,7 @@ function createSlackThinkingStatusController(params: {
 
 const SLACK_THINKING_MAX_DURATION_MS = 120_000;
 const SLACK_GENERIC_LOADING_MESSAGES = ["Working on it..."] as const;
-const SLACK_THINKING_STATUSES = [
-  "is grinding",
-  "is working",
-  "is touching grass",
-] as const;
+const SLACK_THINKING_STATUSES = ["is on it", "is working hard"] as const;
 
 function getRandomSlackThinkingStatus(): string {
   return SLACK_THINKING_STATUSES[
