@@ -6,6 +6,14 @@ metadata:
   emoji: "🎬"
   vellum:
     display-name: "Media Processing"
+    activation-hints:
+      - "User wants to ingest, process, or analyze a local video, audio, or image file"
+      - "User wants to ask natural-language questions about a video's content (e.g. 'what happens at 3:14', 'find all the goals', 'who appears in this footage')"
+      - "User wants to extract a clip or short segment from a video"
+      - "User wants to run keyframe extraction, segmentation, or frame-by-frame analysis on a video"
+    avoid-when:
+      - "User only wants a plain audio transcript — use the transcribe skill instead"
+      - "User just wants to play or open a media file in their default system player — that does not need this pipeline"
 ---
 
 Ingest and track processing of media files (video, audio, images) through a configurable 3-phase pipeline.
