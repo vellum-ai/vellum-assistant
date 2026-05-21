@@ -492,3 +492,132 @@ describe("partitionPageIndex", () => {
     expect(aliceBatch.bySlug.get("alice")!.edges).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// splitTier1 — recently modified pool extraction
+// ---------------------------------------------------------------------------
+
+const { splitTier1 } = await import("../page-index.js");
+const { utimes } = await import("node:fs/promises");
+const { join: joinPath } = await import("node:path");
+
+async function setMtime(
+  workspaceDir: string,
+  slug: string,
+  epochMs: number,
+): Promise<void> {
+  const seconds = epochMs / 1000;
+  await utimes(
+    joinPath(workspaceDir, "memory", "concepts", `${slug}.md`),
+    seconds,
+    seconds,
+  );
+}
+
+describe("splitTier1", () => {
+  async function buildIndex(slugs: string[]) {
+    for (const slug of slugs) {
+      await writePage(workspaceDir, makePage(slug, { summary: `${slug} sum` }));
+    }
+    return getPageIndex(workspaceDir);
+  }
+
+  test("tier1Size=null is a no-op — same index reference, no carve-out", async () => {
+    const idx = await buildIndex(["a", "b", "c"]);
+    const { tier1, rest } = splitTier1(idx, null);
+    expect(tier1).toBeNull();
+    expect(rest).toBe(idx);
+  });
+
+  test("returns no-op shape on an empty workspace", async () => {
+    const idx = await getPageIndex(workspaceDir);
+    const { tier1, rest } = splitTier1(idx, 100);
+    expect(tier1).toBeNull();
+    expect(rest).toBe(idx);
+  });
+
+  test("top-N by mtime desc become tier 1; the remainder is the rest", async () => {
+    await buildIndex(["a", "b", "c", "d", "e"]);
+    await setMtime(workspaceDir, "a", 1_000_000);
+    await setMtime(workspaceDir, "b", 5_000_000);
+    await setMtime(workspaceDir, "c", 2_000_000);
+    await setMtime(workspaceDir, "d", 4_000_000);
+    await setMtime(workspaceDir, "e", 3_000_000);
+    invalidatePageIndex();
+    const idx = await getPageIndex(workspaceDir);
+
+    const { tier1, rest } = splitTier1(idx, 2);
+    expect(tier1).not.toBeNull();
+    expect(tier1!.entries.map((e) => e.slug)).toEqual(["b", "d"]);
+    expect(rest.entries.map((e) => e.slug).sort()).toEqual(["a", "c", "e"]);
+  });
+
+  test("tier1 carries batch-local 1-based IDs and re-rendered prompt block", async () => {
+    await buildIndex(["a", "b"]);
+    const idx = await getPageIndex(workspaceDir);
+    const { tier1 } = splitTier1(idx, 5);
+    expect(tier1!.entries.map((e) => e.id)).toEqual([1, 2]);
+    expect(tier1!.rendered).toContain("[1] ");
+    expect(tier1!.rendered).toContain("[2] ");
+  });
+
+  test("rest preserves slug-ASCII order so downstream hash bucketing is stable", async () => {
+    await buildIndex(["zulu", "alpha", "mike", "bravo", "kilo"]);
+    // Push zulu's mtime ahead of every other page — wall-clock mtimes from
+    // writePage are all in the same second, so a future-stamped zulu is the
+    // unambiguous "most recent."
+    await setMtime(workspaceDir, "zulu", Date.now() + 60_000);
+    invalidatePageIndex();
+    const idx = await getPageIndex(workspaceDir);
+
+    const { rest } = splitTier1(idx, 1);
+    expect(rest.entries.map((e) => e.slug)).toEqual([
+      "alpha",
+      "bravo",
+      "kilo",
+      "mike",
+    ]);
+  });
+
+  test("synthetic entries (mtime=0) sort below real pages — tier 1 prefers concept pages", async () => {
+    skillState.entries = [
+      { id: "echo", content: "echo skill" },
+      { id: "foxtrot", content: "fox skill" },
+    ];
+    await buildIndex(["alpha", "bravo"]);
+    invalidatePageIndex();
+    const idx = await getPageIndex(workspaceDir);
+
+    const { tier1 } = splitTier1(idx, 2);
+    // Both real concept pages have mtime > 0; skill entries have mtime=0 →
+    // tier 1's top-2 must be the concept pages, regardless of their relative
+    // mtime ordering.
+    const tier1Slugs = new Set(tier1!.entries.map((e) => e.slug));
+    expect(tier1Slugs.has("alpha")).toBe(true);
+    expect(tier1Slugs.has("bravo")).toBe(true);
+    expect(tier1Slugs.has("skills/echo")).toBe(false);
+    expect(tier1Slugs.has("skills/foxtrot")).toBe(false);
+  });
+
+  test("tier1Size larger than total entries returns all in tier 1 and empty rest", async () => {
+    await buildIndex(["a", "b"]);
+    const idx = await getPageIndex(workspaceDir);
+    const { tier1, rest } = splitTier1(idx, 100);
+    expect(tier1!.entries.length).toBe(2);
+    expect(rest.entries.length).toBe(0);
+  });
+
+  test("mtime ties break by slug ASCII for determinism", async () => {
+    await buildIndex(["alpha", "bravo", "charlie"]);
+    // Force identical mtimes — file-system creation timestamps would otherwise
+    // be near-identical but not exactly equal, masking the tiebreaker path.
+    await setMtime(workspaceDir, "alpha", 5_000_000);
+    await setMtime(workspaceDir, "bravo", 5_000_000);
+    await setMtime(workspaceDir, "charlie", 5_000_000);
+    invalidatePageIndex();
+    const idx = await getPageIndex(workspaceDir);
+
+    const { tier1 } = splitTier1(idx, 2);
+    expect(tier1!.entries.map((e) => e.slug)).toEqual(["alpha", "bravo"]);
+  });
+});

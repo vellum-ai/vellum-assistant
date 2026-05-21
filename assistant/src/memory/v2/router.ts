@@ -48,7 +48,7 @@ import type {
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { PageIndex } from "./page-index.js";
-import { getPageIndex, partitionPageIndex } from "./page-index.js";
+import { getPageIndex, partitionPageIndex, splitTier1 } from "./page-index.js";
 import { resolveRouterPrompt } from "./prompts/router.js";
 import type { EverInjectedEntry } from "./types.js";
 
@@ -170,7 +170,20 @@ export async function runRouter(
   }
 
   const batchSize = config.memory?.v2?.router?.batch_size ?? null;
-  const batches = partitionPageIndex(pageIndex, batchSize);
+  const tier1Size = config.memory?.v2?.router?.tier1_size ?? null;
+
+  // Tier 1 is the "recently modified" pool — its own batch with mtime-desc
+  // ordering. The remainder flows through tier-3 hash bucketing. With
+  // tier1_size=null AND batch_size=null we hit the bit-identical single-
+  // batch path that preserves v3's KV cache.
+  const { tier1, rest } = splitTier1(pageIndex, tier1Size);
+  const tier3Batches = partitionPageIndex(rest, batchSize).filter(
+    (b) => b.entries.length > 0,
+  );
+  const batches: PageIndex[] = tier1 ? [tier1, ...tier3Batches] : tier3Batches;
+  if (batches.length === 0) {
+    return emptyResult("empty_index");
+  }
 
   const batchResults = await Promise.all(
     batches.map((batch) =>

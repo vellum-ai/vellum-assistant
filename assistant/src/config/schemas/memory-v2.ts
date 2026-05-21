@@ -291,12 +291,22 @@ export const MemoryV2ConfigSchema = z
           .describe(
             "Target batch size for parallel page-index routing. `null` (default) sends the entire page index in one call — identical to v3 behavior. When set, pages are split into `ceil(N / batch_size)` batches by stable FNV-1a hash on slug (so adding/removing a single page only invalidates one batch's KV cache), routed in parallel, and the selected slugs are unioned. A failure in one batch does not abort the turn as long as at least one batch succeeds.",
           ),
+        tier1_size: z
+          .number()
+          .int()
+          .min(1)
+          .nullable()
+          .default(null)
+          .describe(
+            "Pool size for the tier-1 'recently modified' batch. `null` (default) disables tier 1 entirely — all pages flow through tier 3 batching. When set, the top-N concept pages by file mtime become their own dedicated parallel batch with mtime-desc ordering; everything else is partitioned into tier 3 batches by `batch_size`. Synthetic entries (skills, CLI commands) have mtime=0 and naturally rank below real concept pages so they don't crowd tier 1.",
+          ),
       })
       .default({
         enabled: true,
         max_page_ids: 25,
         router_prompt_path: null,
         batch_size: null,
+        tier1_size: null,
       })
       .describe(
         "LLM router configuration. When enabled, a single router LLM call replaces spreading activation for per-turn page selection.",
