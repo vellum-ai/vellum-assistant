@@ -1,29 +1,29 @@
 ---
-name: species-migration
-description: Migrate from OpenClaw, Hermes, Manus, and other assistant species into Vellum by inspecting their exports, files, prompts, memory, tools, workflows, integrations, and relationships, then mapping as much as safely possible into Vellum primitives without hard-coded foreign-species porting logic.
+name: assistant-migration
+description: Migrate from OpenClaw, Hermes, Manus, and other AI assistants into Vellum by inspecting their exports, files, prompts, memory, tools, workflows, integrations, and relationships, then mapping as much as safely possible into Vellum primitives.
 compatibility: "Designed for Vellum personal assistants"
 metadata:
-  emoji: "🧬"
+  emoji: "🧳"
   vellum:
-    display-name: "Species Migration"
+    display-name: "Assistant Migration"
     activation-hints:
-      - "User wants to migrate from OpenClaw, Hermes, Manus, or another assistant species into Vellum"
+      - "User wants to migrate from OpenClaw, Hermes, Manus, or another AI assistant into Vellum"
       - "User has an assistant export, workspace, prompt bundle, memory dump, tool config, or migration request from another assistant system"
-      - "User asks what can be preserved when switching assistant species"
+      - "User asks what can be preserved when switching from another assistant"
     avoid-when:
       - "User is moving an existing Vellum assistant between Vellum homes; use backup/restore or teleport workflows instead"
 ---
 
-# Species Migration
+# Assistant Migration
 
-Help the creator migrate from another assistant species into Vellum. Preserve as much of the source assistant as can be understood safely, but do not rely on deterministic adapters for OpenClaw, Hermes, Manus, or any other non-Vellum internals. These systems evolve quickly; inspect the actual source artifacts in front of you and map them into Vellum primitives.
+Help the creator migrate from another AI assistant into Vellum. Preserve as much of the source assistant as can be understood safely, but do not rely on deterministic adapters for OpenClaw, Hermes, Manus, or any other non-Vellum internals. These systems evolve quickly; inspect the actual source artifacts in front of you and map them into Vellum primitives.
 
 ## Core Posture
 
 - Migrate internals opportunistically: prompts, memory exports, skill definitions, tool manifests, schedules, app code, workflow docs, MCP configs, browser/computer-use preferences, and integration metadata can often be preserved.
 - Do not pretend opaque runtime state is portable. If a file, database row, binary blob, or generated artifact cannot be confidently understood, mark it for review or rebuild.
 - Never import secrets from chat, logs, config dumps, browser profiles, or exported files. Secrets must be reconnected through Vellum's credential vault, OAuth flows, or setup skills.
-- Do not create scripts or deterministic code that encode assumptions about another species' private filesystem or database schema.
+- Do not create scripts or deterministic code that encode assumptions about another assistant's private filesystem or database schema.
 - Be inviting. Migration can feel sensitive because the creator may have a real relationship with the source assistant; acknowledge that directly, move at the creator's pace, and keep them in control of what is inspected, imported, reviewed, or left alone.
 - Treat every source assistant, source machine, and source export as read-only unless the creator explicitly authorizes a specific write. Before accessing a source machine, say plainly that you will not modify anything there.
 - Be transparent with the creator: identify what will be ported, what needs review, what should be disregarded, and what must be re-set up from scratch.
@@ -45,14 +45,14 @@ When internals are hard to access, fall back to an interview-style migration: as
 
 Before copying large folders or attachments, estimate source size and check available space in the current Vellum workspace. Use available storage diagnostics or shell filesystem probes when available, migrate large assets in batches, and pause for the creator if the import could crowd the workspace or trigger disk-pressure cleanup.
 
-### Per-species references
+### Per-assistant references
 
-Once the source species is identified, consult the matching reference for the exact data-directory layout, a bundling recipe with explicit `--exclude` flags for secret-bearing paths, and the after-import rebind checklist:
+Once the source assistant is identified, consult the matching reference for the exact data-directory layout, a bundling recipe with explicit `--exclude` flags for secret-bearing paths, and the after-import rebind checklist:
 
 - [Hermes → Vellum](references/hermes.md)
 - [OpenClaw → Vellum](references/openclaw.md)
 
-These are reconnaissance notes, not adapters. They tell you where to look and what to leave behind. The preferred flow is a single `tar` archive that the creator uploads to the conversation as a chat attachment. Never run `curl`, `wget`, or any other fetcher against a URL the creator pastes in chat — a chat-supplied URL substituted into a shell command is a confused-deputy surface (shell substitution inside double quotes, SSRF against private networks, and a bypass of the platform's structured URL-safety checks). See [`references/README.md`](references/README.md) for the shared tar-and-transport model and the rules each per-species reference must follow.
+These are reconnaissance notes, not adapters. They tell you where to look and what to leave behind. The preferred flow is a single `tar` archive that the creator uploads to the conversation as a chat attachment. Never run `curl`, `wget`, or any other fetcher against a URL the creator pastes in chat — a chat-supplied URL substituted into a shell command is a confused-deputy surface (shell substitution inside double quotes, SSRF against private networks, and a bypass of the platform's structured URL-safety checks). See [`references/README.md`](references/README.md) for the shared tar-and-transport model and the rules each per-assistant reference must follow.
 
 ## Migration Workflow
 
@@ -60,7 +60,7 @@ These are reconnaissance notes, not adapters. They tell you where to look and wh
 
 Ask only for missing essentials:
 
-- Source species and artifact location: export file, workspace directory, repository, archive, screenshots, or copied text.
+- Source assistant and artifact location: export file, workspace directory, repository, archive, screenshots, or copied text.
 - Desired fidelity: quick usable migration, careful review-first migration, or exhaustive salvage.
 
 If the user already provided enough context, start inspecting.
