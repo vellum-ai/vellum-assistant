@@ -321,6 +321,27 @@ describe("parseConversation — Slack channel binding", () => {
     expect(parsed?.channelBinding).toBeUndefined();
   });
 
+  test("preserves Slack actor identity fields on channel bindings", () => {
+    const parsed = parseConversation({
+      conversationKey: "conv-dm",
+      channelBinding: {
+        sourceChannel: "slack",
+        externalChatId: "D0123ABCDEF",
+        externalUserId: "U0123ABCDEF",
+        displayName: "Alice",
+        username: "alice",
+      },
+    });
+
+    expect(parsed?.channelBinding).toMatchObject({
+      sourceChannel: "slack",
+      externalChatId: "D0123ABCDEF",
+      externalUserId: "U0123ABCDEF",
+      displayName: "Alice",
+      username: "alice",
+    });
+  });
+
   test("does not throw for malformed or absent channelBinding", () => {
     expect(
       parseConversation({

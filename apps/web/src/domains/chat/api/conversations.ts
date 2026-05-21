@@ -63,6 +63,9 @@ export interface ConversationChannelBinding {
   externalChatId: string;
   externalThreadId?: string;
   externalChatName?: string;
+  externalUserId?: string;
+  displayName?: string;
+  username?: string;
   slackChannel?: ConversationSlackChannel;
   slackThread?: ConversationSlackThread;
 }
@@ -171,6 +174,14 @@ function parseChannelBinding(
       typeof record.externalChatName === "string"
         ? record.externalChatName
         : undefined,
+    externalUserId:
+      typeof record.externalUserId === "string"
+        ? record.externalUserId
+        : undefined,
+    displayName:
+      typeof record.displayName === "string" ? record.displayName : undefined,
+    username:
+      typeof record.username === "string" ? record.username : undefined,
     ...(slackChannel ? { slackChannel } : {}),
     ...(slackThread ? { slackThread } : {}),
   };

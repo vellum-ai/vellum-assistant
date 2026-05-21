@@ -100,12 +100,90 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
           channelBinding: {
             sourceChannel: "slack",
             externalChatId: "D0123ABCDEF",
+            displayName: "Alice",
           },
         }}
       />,
     );
 
-    expect(screen.queryByText("D0123ABCDEF")).not.toBeNull();
+    expect(screen.queryByText("DM with Alice")).not.toBeNull();
+    expect(screen.queryByText("D0123ABCDEF")).toBeNull();
+    await Promise.resolve();
+    expect(postCalls).toHaveLength(0);
+  });
+
+  test("labels Slack direct-message channels from message sender metadata", async () => {
+    render(
+      <SlackChannelFooter
+        assistantId="assistant-1"
+        conversation={{
+          conversationKey: "conv-direct-message-message-sender",
+          originChannel: "slack",
+          channelBinding: {
+            sourceChannel: "slack",
+            externalChatId: "D0123ABCDEF",
+          },
+        }}
+        messages={[
+          {
+            stableId: "msg-1",
+            id: "msg-1",
+            role: "user",
+            content: "Hello",
+            slackMessage: {
+              channelId: "D0123ABCDEF",
+              channelTs: "1710000000.000100",
+              sender: { displayName: "Alice" },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.queryByText("DM with Alice")).not.toBeNull();
+    await Promise.resolve();
+    expect(postCalls).toHaveLength(0);
+  });
+
+  test("labels Slack direct-message channels from a known channel binding name", async () => {
+    render(
+      <SlackChannelFooter
+        assistantId="assistant-1"
+        conversation={{
+          conversationKey: "conv-direct-message-channel-name",
+          originChannel: "slack",
+          channelBinding: {
+            sourceChannel: "slack",
+            externalChatId: "D0123ABCDEF",
+            externalChatName: "Alice",
+          },
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("DM with Alice")).not.toBeNull();
+    expect(screen.queryByText("Slack DM")).toBeNull();
+    await Promise.resolve();
+    expect(postCalls).toHaveLength(0);
+  });
+
+  test("uses a generic Slack DM label when the participant name is unavailable", async () => {
+    render(
+      <SlackChannelFooter
+        assistantId="assistant-1"
+        conversation={{
+          conversationKey: "conv-direct-message-unknown",
+          originChannel: "slack",
+          channelBinding: {
+            sourceChannel: "slack",
+            externalChatId: "D0123ABCDEF",
+          },
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("Slack DM")).not.toBeNull();
+    expect(screen.queryByText("D0123ABCDEF")).toBeNull();
     await Promise.resolve();
     expect(postCalls).toHaveLength(0);
   });
