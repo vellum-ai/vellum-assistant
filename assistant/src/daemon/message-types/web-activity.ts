@@ -46,6 +46,8 @@ export interface WebFetchMetadata {
   redirectCount: number;
   durationMs: number;
   errorMessage?: string;
+  /** Set when extracted text is dramatically smaller than raw HTML — likely a JS-rendered SPA whose meaningful content the static fetcher missed. */
+  mayRequireJavaScript?: boolean;
 }
 
 /** Discriminated container so future tools can add their own metadata. */

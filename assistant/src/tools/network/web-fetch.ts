@@ -886,9 +886,20 @@ export async function executeWebFetch(
         `start_index (${startIndex}) exceeded available content length (${processed.length}).`,
       );
     }
-    if (html && !rawMode && processed.length < 200) {
+    // Detect likely JS-rendered SPAs: text is absolutely tiny, or a non-trivial
+    // HTML payload compresses to almost nothing (a shell page whose meaningful
+    // content is painted after fetch + document.body rewrite).
+    const lowAbsolute = processed.length < 200;
+    const lowRatio =
+      body.bytesRead >= 10_000 && processed.length / body.bytesRead < 0.05;
+    const mayRequireJavaScript = html && !rawMode && (lowAbsolute || lowRatio);
+    if (mayRequireJavaScript) {
+      const pct =
+        body.bytesRead > 0
+          ? ((processed.length / body.bytesRead) * 100).toFixed(1)
+          : "0";
       notices.push(
-        `Extracted text content is very short (${processed.length} characters). The page may require JavaScript rendering for full content.`,
+        `Extracted only ${processed.length} chars of text from ${body.bytesRead} bytes of HTML (${pct}%). Content may be JavaScript-rendered — the static fetch likely missed dynamically injected content.`,
       );
     }
 
@@ -927,6 +938,7 @@ export async function executeWebFetch(
       faviconUrl: faviconUrlForDomain(finalDomain),
       redirectCount,
       durationMs: Date.now() - startedAt,
+      mayRequireJavaScript: mayRequireJavaScript || undefined,
     };
 
     if (!response.ok) {
