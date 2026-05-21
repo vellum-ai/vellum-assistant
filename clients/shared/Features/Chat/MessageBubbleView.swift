@@ -184,7 +184,7 @@ public struct MessageBubbleView: View {
         for ref in message.contentOrder {
             switch ref {
             case .text: hasText = true
-            case .toolCall, .surface, .thinking: hasNonText = true
+            case .toolCall, .surface, .thinking, .attachment: hasNonText = true
             }
             if hasText && hasNonText { return true }
         }
