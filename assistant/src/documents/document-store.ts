@@ -270,67 +270,67 @@ export function findInDocument(
   query: string,
   options: { regex?: boolean; caseSensitive?: boolean } = {},
 ): FindResult | null {
-  const row = rawGet<{ content: string }>(
-    /*sql*/ `SELECT content FROM documents WHERE surface_id = ?`,
-    surfaceId,
-  );
-  if (!row) return null;
+  try {
+    const row = rawGet<{ content: string }>(
+      /*sql*/ `SELECT content FROM documents WHERE surface_id = ?`,
+      surfaceId,
+    );
+    if (!row) return null;
 
-  const lines = row.content.split("\n");
-  const matches: FindMatch[] = [];
+    const lines = row.content.split("\n");
+    const matches: FindMatch[] = [];
+    let uncappedTotal = 0;
 
-  if (options.regex) {
-    const flags = options.caseSensitive ? "g" : "gi";
-    const re = new RegExp(query, flags);
-    for (
-      let i = 0;
-      i < lines.length && matches.length < MAX_FIND_MATCHES;
-      i++
-    ) {
-      const line = lines[i];
-      re.lastIndex = 0;
-      let m: RegExpExecArray | null;
-      while (
-        (m = re.exec(line)) !== null &&
-        matches.length < MAX_FIND_MATCHES
-      ) {
-        matches.push({
-          lineNumber: i + 1,
-          lineContent: line,
-          matchStart: m.index,
-          matchEnd: m.index + m[0].length,
-          matchText: m[0],
-        });
-        // Prevent infinite loops on zero-length matches
-        if (m[0].length === 0) re.lastIndex++;
+    if (options.regex) {
+      const flags = options.caseSensitive ? "g" : "gi";
+      const re = new RegExp(query, flags);
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        re.lastIndex = 0;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(line)) !== null) {
+          uncappedTotal++;
+          if (matches.length < MAX_FIND_MATCHES) {
+            matches.push({
+              lineNumber: i + 1,
+              lineContent: line,
+              matchStart: m.index,
+              matchEnd: m.index + m[0].length,
+              matchText: m[0],
+            });
+          }
+          if (m[0].length === 0) re.lastIndex++;
+        }
+      }
+    } else {
+      const needle = options.caseSensitive ? query : query.toLowerCase();
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const haystack = options.caseSensitive ? line : line.toLowerCase();
+        let startPos = 0;
+        while (startPos <= haystack.length) {
+          const idx = haystack.indexOf(needle, startPos);
+          if (idx === -1) break;
+          uncappedTotal++;
+          if (matches.length < MAX_FIND_MATCHES) {
+            matches.push({
+              lineNumber: i + 1,
+              lineContent: line,
+              matchStart: idx,
+              matchEnd: idx + needle.length,
+              matchText: line.slice(idx, idx + needle.length),
+            });
+          }
+          startPos = idx + Math.max(needle.length, 1);
+        }
       }
     }
-  } else {
-    const needle = options.caseSensitive ? query : query.toLowerCase();
-    for (
-      let i = 0;
-      i < lines.length && matches.length < MAX_FIND_MATCHES;
-      i++
-    ) {
-      const line = lines[i];
-      const haystack = options.caseSensitive ? line : line.toLowerCase();
-      let startPos = 0;
-      while (startPos <= haystack.length && matches.length < MAX_FIND_MATCHES) {
-        const idx = haystack.indexOf(needle, startPos);
-        if (idx === -1) break;
-        matches.push({
-          lineNumber: i + 1,
-          lineContent: line,
-          matchStart: idx,
-          matchEnd: idx + needle.length,
-          matchText: line.slice(idx, idx + needle.length),
-        });
-        startPos = idx + Math.max(needle.length, 1);
-      }
-    }
+
+    return { surfaceId, totalMatches: uncappedTotal, matches };
+  } catch (error) {
+    log.error({ err: error, surfaceId }, "Find-in-document error");
+    return null;
   }
-
-  return { surfaceId, totalMatches: matches.length, matches };
 }
 
 // ---------------------------------------------------------------------------
@@ -454,9 +454,11 @@ export function replaceInDocument(
       while ((m = pattern.exec(row.content)) !== null) {
         if (count >= limit) break;
         result += row.content.slice(lastIndex, m.index);
-        // Build the replacement for this match using String.replace
-        // so $1, $2, $& backreferences resolve against the match.
-        result += m[0].replace(pattern, replace);
+        const singleMatchPattern = new RegExp(
+          pattern.source,
+          pattern.flags.replace("g", ""),
+        );
+        result += m[0].replace(singleMatchPattern, replace);
         lastIndex = m.index + m[0].length;
         count++;
       }
