@@ -1,14 +1,6 @@
 /**
- * Cross-domain event bus for assistant-global signals (LUM-1812).
- *
- * Provides a typed publish/subscribe surface so components no longer
- * need their own SSE handles, `visibilitychange` listeners, or
- * `navigator.online`/`offline` wiring. Lives in `stores/` as a Zustand
- * store per the
- * [state-management convention](../../docs/STATE_MANAGEMENT.md):
- * shared client-state primitives use Zustand even when, as here, the
- * `state` is private to the store and consumers only ever call the
- * action surface.
+ * Cross-domain typed publish/subscribe surface for assistant-global
+ * signals (SSE events, app lifecycle, network reachability).
  *
  * Pub/sub semantics intentionally do not flow through Zustand
  * reactivity — handlers fire synchronously from `publish()` rather
@@ -17,13 +9,11 @@
  * wrapper exists for codebase consistency and the `.getState()`
  * non-React entry point, not for React reactivity.
  *
- * Bootstrapping the bus to its sources — the single assistant-scoped
- * SSE connection + DOM lifecycle events (visibility, online, offline,
- * Capacitor app-state) — is done once at chat-layout scope by
- * `useEventBusInit`. The SSE owner publishes `sse.event` for every
- * received event, `sse.opened` after each successful (re)open, and
- * `sse.closed` on transport errors. Consumers anywhere in the
- * chat-layout subtree subscribe via `useEventBusStore.getState()`.
+ * Sources are wired by `useEventBusInit` at chat-layout scope: a
+ * single assistant-scoped SSE connection and DOM lifecycle events
+ * (visibility, online, offline, Capacitor app-state). Consumers
+ * anywhere in the chat-layout subtree subscribe via
+ * `useEventBusStore.getState()`.
  *
  * @see {@link https://zustand.docs.pmnd.rs/}
  */

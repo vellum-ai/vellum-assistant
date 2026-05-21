@@ -1,32 +1,21 @@
 /**
- * Conversation-scoped consumer of the bus-owned SSE stream (LUM-1812).
+ * Conversation-scoped consumer of the bus-owned SSE stream.
  *
- * The single assistant-scoped SSE connection is opened by
- * `useEventBusInit` at chat-layout scope. This hook subscribes to that
- * bus and routes the conversation-scoped subset of events into the
- * chat domain's reducers / turn store / reconcile loop.
+ * Subscribes to `bus.sse.event` and routes events whose
+ * `conversationKey` matches (or is missing on) the active conversation
+ * to `handleStreamEvent`. Subscribes to `bus.sse.opened` to bump the
+ * conversation epoch and run the pending-reconcile pass — on a
+ * watchdog-driven reopen the reconcile runs unconditionally and the
+ * result is recorded to Sentry so stalled-turn rescues are observable.
+ * Subscribes to `bus.sse.closed` to clear any in-flight `isStreaming`
+ * flag, drop the matching processing key, and bump reachability so
+ * the burst-limited retry below can take over.
  *
- * Three subscriptions:
- *
- * 1. `"sse.event"` — for every event whose `conversationKey` matches
- *    (or is missing on) the active conversation, forwards to
- *    `handleStreamEvent`. The bus delivers every event the underlying
- *    stream sees; filtering belongs here so the same bus can serve
- *    sibling routes that don't care about chat events.
- * 2. `"sse.opened"` — bumps the conversation epoch and runs the
- *    pending-reconcile flag set by an in-flight resume. On a
- *    watchdog-driven reopen the reconcile runs unconditionally so a
- *    stalled assistant turn can recover; the result is recorded to
- *    Sentry so the L2/L3 stall fix can be measured.
- * 3. `"sse.closed"` — clears any in-flight `isStreaming` flag on the
- *    last message, drops the matching processing key, and bumps
- *    reachability so the bus's reachability-retry signal can take
- *    over.
- *
- * Reachability retry stays here (effect 2) because the burst-limiter
- * is conversation-scoped — on success it publishes
- * `"reachability.retry-requested"` and the bus closes + reopens its
- * SSE. The 3-burst limit prevents pathological reconnect loops.
+ * Reachability retry lives here because the 3-burst limiter is
+ * conversation-scoped. On success it publishes
+ * `bus.reachability.retry-requested` and the bus bounces its SSE
+ * connection; on exhaustion it surfaces a "Connection lost" error so
+ * the user can manually retry.
  *
  * Visibility / app-state are owned by `useEventBusInit`. This hook
  * does not register any `visibilitychange` listener of its own.
@@ -74,12 +63,11 @@ export interface UseEventStreamParams {
   conversationExistsOnServer: boolean;
 
   // Shared refs — owned by caller, read/written by multiple hooks.
-  // `streamRef` is now a presence-bit: a sentinel object is written
-  // here while the bus subscription is live for the current
-  // conversation context, and nulled when the subscription tears down.
-  // `use-send-message.ts` reads this to decide whether SSE will
-  // deliver the response or polling is needed; the shape is preserved
-  // so that contract does not change.
+  // `streamRef` is a presence-bit: holds a sentinel object while the
+  // bus subscription is live for the current conversation context,
+  // and is nulled when the subscription tears down. `use-send-message`
+  // reads it to decide whether SSE will deliver the response or
+  // polling is needed.
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
   reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;

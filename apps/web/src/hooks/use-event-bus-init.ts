@@ -1,5 +1,5 @@
 /**
- * Owns the bus's event sources at chat-layout scope (LUM-1812).
+ * Owns the bus's event sources at chat-layout scope.
  *
  * Two concerns, two effects:
  *
@@ -8,19 +8,16 @@
  *    `App.appStateChange`; publishes `"app.resume"` / `"app.hidden"` /
  *    `"app.online"` / `"app.offline"` on the bus.
  *
- * 2. Single assistant-scoped SSE connection. Calls
- *    `subscribeChatEvents(assistantId, null, …)` once per assistant
- *    and re-broadcasts every received event on `"sse.event"`. Publishes
- *    `"sse.opened"` after each successful open and `"sse.closed"` on
- *    error. Tears down + reopens on `"app.hidden"` / `"app.resume"`
- *    (with a 1s dedup window matching the historical behavior) and
- *    on `"reachability.retry-requested"` from
- *    `useEventStream`'s burst-limiter.
+ * 2. Single assistant-scoped SSE connection. Opens one unfiltered
+ *    `/v1/events` stream per assistant and re-broadcasts every event
+ *    on `"sse.event"`. Publishes `"sse.opened"` after each successful
+ *    open and `"sse.closed"` on transport errors. Tears down +
+ *    reopens on `"app.hidden"` / `"app.resume"` (with a 1s dedup
+ *    window) and on `"reachability.retry-requested"`.
  *
  * The daemon dedups SSE subscribers by `clientId`, so this hook MUST
- * be the only place that opens a connection. ChatPage's
- * `useEventStream` and the layout-scope `useAssistantSyncStream` both
- * consume `bus.sse.event` instead of opening their own handles.
+ * be the only place that opens a connection. Consumers subscribe to
+ * `bus.sse.event` instead of opening their own SSE handles.
  */
 import { useEffect } from "react";
 import * as Sentry from "@sentry/browser";
@@ -117,16 +114,14 @@ export function useEventBusInit({
   }, []);
 
   // -------------------------------------------------------------------------
-  // Effect 2: Single assistant-scoped SSE connection
+  // Effect 2: Single assistant-scoped SSE connection.
   //
-  // Gated on a resolved + active assistant so we never open SSE before
-  // auth + lifecycle are settled. On every (re)open we publish
-  // `sse.opened` with a cause so conversation-scoped consumers can
-  // decide whether to reconcile. On transport errors we publish
-  // `sse.closed`; the bus does not automatically reopen on error
-  // because stream.ts already retries internally with exponential
-  // backoff and a watchdog. We only manually reopen on app.resume +
-  // reachability-retry signals, which mean the environment changed.
+  // Gated on a resolved + active assistant. `sse.opened` carries the
+  // (re)open cause so conversation-scoped consumers can decide whether
+  // to reconcile. `sse.closed` is only published on transport errors;
+  // `stream.ts` retries internally on transient drops, so the bus only
+  // manually reopens on app.resume + reachability-retry signals (which
+  // indicate an environment change worth eagerly probing).
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (!assistantId || !isAssistantActive) return;

@@ -1,9 +1,8 @@
 /**
  * Bus-consumer that routes assistant-global SSE events into the React
  * Query caches that back avatar, identity, config, sounds, schedules,
- * and the conversation list. Reads from {@link getEventBus} — the
- * underlying SSE connection is owned by `useEventBusInit` mounted at
- * the chat layout (LUM-1812 PR1).
+ * and the conversation list. The underlying SSE connection is owned
+ * by `useEventBusInit` at chat-layout scope.
  *
  * Per-conversation events (text deltas, tool calls, interactions,
  * per-conversation message tags) are ignored here — those remain

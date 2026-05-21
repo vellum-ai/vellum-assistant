@@ -191,27 +191,23 @@ export function ChatLayout() {
     layoutAvatar.traits,
   );
 
-  // Layout-scoped event bus (LUM-1812). Owns the single
-  // assistant-scoped `/v1/events` SSE connection and dispatches
-  // synthetic app.resume / app.hidden / app.online / app.offline events
-  // from document.visibilitychange, Capacitor App.appStateChange, and
-  // window online/offline. Consumers in the chat-layout subtree
-  // (useAssistantSyncStream below, ChatPage's useEventStream)
-  // subscribe to bus events instead of opening their own SSE handles.
-  // This is the only place that opens an SSE connection — the daemon
-  // dedups subscribers by `clientId` (assistant-event-hub.ts) and
-  // would evict any second SSE from this same browser tab.
+  // Layout-scoped event bus owns the single assistant-scoped SSE
+  // connection and dispatches synthetic app.resume / app.hidden /
+  // app.online / app.offline events from document.visibilitychange,
+  // Capacitor App.appStateChange, and window online/offline. This is
+  // the only place that opens an SSE connection — the daemon dedups
+  // subscribers by `clientId` (assistant-event-hub.ts) and would evict
+  // any second SSE from this same browser tab.
   useEventBusInit({
     assistantId: lifecycle.assistantId,
     isAssistantActive,
     checkAssistant: lifecycle.checkAssistant,
   });
 
-  // Layout-scoped consumer for assistant-global sync events.
-  // Subscribes to `bus.sse.event` and routes sync_changed +
-  // home_feed_updated + relationship_state_updated events into the
+  // Routes assistant-global sync events from `bus.sse.event` into the
   // avatar / identity / config / sounds / schedules / conversation
-  // list caches.
+  // list query caches so the sidebar stays live on every chat-layout
+  // child route.
   useAssistantSyncStream(lifecycle.assistantId, isAssistantActive);
 
   // Home page unread indicator — drives the red dot on the Home button in

@@ -350,9 +350,6 @@ export interface ChatRouteContentProps {
   checkAssistant: () => void;
   setRefreshEpoch: Dispatch<SetStateAction<number>>;
 
-  // Stream retry (for diagnostics)
-  streamRetryNonce: number;
-
   // TanStack Query pagination (from useHistoryPagination)
   historyPagination: HistoryPaginationResult;
 
@@ -437,7 +434,6 @@ export function ChatRouteContent({
   pushToAiSettings,
   checkAssistant,
   setRefreshEpoch,
-  streamRetryNonce: _streamRetryNonce,
   historyPagination,
   refs,
   isChannelReadonly,
