@@ -108,4 +108,5 @@ H3 format.
 - No H1 title in body — the H1 is set in your CMS title field only
 - Headings use title case
 - Descriptions of both tools: neutral, no glazing, no superlatives
+- Hyperlinks: default to nofollow for all external tool links unless the user specifies otherwise
 - Citations: inline `[[1]](url)`, academic format in citations section

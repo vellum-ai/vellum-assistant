@@ -71,7 +71,7 @@ Bullet list, 5-7 items. Specific, honest reasons grounded in real research.
 
 **Note: The title of this section uses H1.**
 
-For each tool (the user's brand first, then ranked order):
+For each tool, in ranked order (highest score first):
 
 ```
 ### H3 [Number]. [Tool Name]
