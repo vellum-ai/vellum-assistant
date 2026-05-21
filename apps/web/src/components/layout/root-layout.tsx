@@ -3,6 +3,8 @@ import { Outlet } from "react-router";
 import { useAppTheme } from "@/hooks/use-app-theme.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport.js";
+import { useFeatureFlagSync } from "@/lib/feature-flags/use-feature-flag-sync.js";
+import { useAuthStore } from "@/stores/auth-store.js";
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
@@ -23,6 +25,9 @@ const KEYBOARD_OPEN_THRESHOLD_PX = 100;
  */
 export function RootLayout() {
   useAppTheme();
+  const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const authLoading = useAuthStore.use.isLoading();
+  useFeatureFlagSync(isLoggedIn && !authLoading);
   const isMobile = useIsMobile();
   const visibleViewport = useVisibleViewport();
 

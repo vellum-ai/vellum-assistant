@@ -70,7 +70,8 @@ export function useFeatureFlagSync(enabled: boolean) {
     queryKey: FEATURE_FLAG_QUERY_KEY,
     queryFn: fetchClientFlagValues,
     enabled,
-    staleTime: 5 * 60_000,
+    staleTime: 5_000,
+    refetchInterval: 5_000,
     retry: 1,
   });
 
