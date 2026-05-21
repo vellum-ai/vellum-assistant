@@ -393,6 +393,32 @@ describe("task_progress surface compatibility", () => {
     expect(sent).toHaveLength(0);
   });
 
+  test("blocks Slack ui_update that would convert a plain card to task_progress", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent, {
+      channel: "slack",
+      supportsDynamicUi: false,
+    });
+    ctx.surfaceState.set("surface-1", {
+      surfaceType: "card",
+      data: { title: "Plain", body: "No progress" } satisfies CardSurfaceData,
+    });
+
+    const result = await surfaceProxyResolver(ctx, "ui_update", {
+      surface_id: "surface-1",
+      data: {
+        template: "task_progress",
+        templateData: { status: "in_progress", steps: [] },
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'ui_update is unavailable on channel "slack"',
+    );
+    expect(sent).toHaveLength(0);
+  });
+
   test("blocks Slack ui_update that would change task_progress card template", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext(sent, {

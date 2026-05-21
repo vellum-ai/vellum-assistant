@@ -412,6 +412,7 @@ function isSlackTaskProgressUiException(
     if (typeof surfaceId !== "string") return false;
     const stored = ctx.surfaceState.get(surfaceId);
     if (!stored || stored.surfaceType !== "card") return false;
+    if (!isTaskProgressCardData(stored.data)) return false;
     const rawPatch = isPlainObject(input.data) ? input.data : {};
     const patch = normalizeTaskProgressCardPatch(
       stored.data as CardSurfaceData,
