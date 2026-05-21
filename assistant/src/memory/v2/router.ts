@@ -47,8 +47,15 @@ import type {
   ToolDefinition,
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
+import type { DrizzleDb } from "../db-connection.js";
+import { computeInjectionScores } from "./injection-events.js";
 import type { PageIndex } from "./page-index.js";
-import { getPageIndex, partitionPageIndex, splitTier1 } from "./page-index.js";
+import {
+  getPageIndex,
+  partitionPageIndex,
+  splitTier1,
+  splitTier2,
+} from "./page-index.js";
 import { resolveRouterPrompt } from "./prompts/router.js";
 import type { EverInjectedEntry } from "./types.js";
 
@@ -128,6 +135,13 @@ interface RunRouterParams {
   priorEverInjected: readonly EverInjectedEntry[];
   config: AssistantConfig;
   signal?: AbortSignal;
+  /**
+   * Database handle for reading EMA scores when `tier2_size` is set. When
+   * absent, tier 2 is silently skipped (pages flow tier 1 → tier 3). The
+   * production caller (`injectViaRouter`) always passes it; tests that
+   * only exercise tier 1 / tier 3 paths can omit it.
+   */
+  database?: DrizzleDb;
 }
 
 /**
@@ -171,16 +185,34 @@ export async function runRouter(
 
   const batchSize = config.memory?.v2?.router?.batch_size ?? null;
   const tier1Size = config.memory?.v2?.router?.tier1_size ?? null;
+  const tier2Size = config.memory?.v2?.router?.tier2_size ?? null;
 
-  // Tier 1 is the "recently modified" pool — its own batch with mtime-desc
-  // ordering. The remainder flows through tier-3 hash bucketing. With
-  // tier1_size=null AND batch_size=null we hit the bit-identical single-
-  // batch path that preserves v3's KV cache.
-  const { tier1, rest } = splitTier1(pageIndex, tier1Size);
-  const tier3Batches = partitionPageIndex(rest, batchSize).filter(
+  // Carve in tier order so each later tier sees only what's left. With
+  // every tier disabled (defaults) we hit the bit-identical single-batch
+  // path that preserves v3's KV cache.
+  const { tier1, rest: afterTier1 } = splitTier1(pageIndex, tier1Size);
+
+  let tier2: PageIndex | null = null;
+  let afterTier2: PageIndex = afterTier1;
+  if (tier2Size !== null && params.database && afterTier1.entries.length > 0) {
+    const slugs = afterTier1.entries.map((e) => e.slug);
+    const scores = computeInjectionScores(params.database, slugs, Date.now());
+    const split = splitTier2(afterTier1, tier2Size, scores);
+    tier2 = split.tier2;
+    afterTier2 = split.rest;
+  } else if (tier2Size !== null && !params.database) {
+    log.warn(
+      "tier2_size set but no database passed to runRouter; skipping tier 2",
+    );
+  }
+
+  const tier3Batches = partitionPageIndex(afterTier2, batchSize).filter(
     (b) => b.entries.length > 0,
   );
-  const batches: PageIndex[] = tier1 ? [tier1, ...tier3Batches] : tier3Batches;
+  const batches: PageIndex[] = [];
+  if (tier1) batches.push(tier1);
+  if (tier2) batches.push(tier2);
+  batches.push(...tier3Batches);
   if (batches.length === 0) {
     return emptyResult("empty_index");
   }

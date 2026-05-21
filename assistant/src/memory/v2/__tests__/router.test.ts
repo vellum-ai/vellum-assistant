@@ -73,6 +73,26 @@ mock.module("../skill-store.js", () => ({
   listSkillEntries: () => skillState.entries,
 }));
 
+// Stub `computeInjectionScores` so tier-2 tests can dictate scores
+// without spinning up a real bun:sqlite db. Real production wiring is
+// covered by the splitTier2 unit tests in page-index.test.ts and the
+// score-formula tests in injection-events.test.ts.
+const scoresStub = new Map<string, number>();
+mock.module("../injection-events.js", () => ({
+  computeInjectionScores: (
+    _db: unknown,
+    slugs: readonly string[],
+    _now: number,
+  ): Map<string, number> => {
+    const out = new Map<string, number>();
+    for (const slug of slugs) {
+      const score = scoresStub.get(slug);
+      if (score !== undefined && score > 0) out.set(slug, score);
+    }
+    return out;
+  },
+}));
+
 // Provider stub. Each test sets `providerStub` to control the response;
 // `null` simulates "no configured provider available".
 let providerStub: Provider | null = null;
@@ -112,6 +132,7 @@ beforeEach(() => {
   providerStub = null;
   providerCalls.length = 0;
   warnLogs.length = 0;
+  scoresStub.clear();
   invalidatePageIndex();
 });
 
@@ -198,6 +219,7 @@ function makeConfig(overrides?: {
   maxPageIds?: number;
   batchSize?: number | null;
   tier1Size?: number | null;
+  tier2Size?: number | null;
 }) {
   return {
     memory: {
@@ -208,6 +230,7 @@ function makeConfig(overrides?: {
           max_page_ids: overrides?.maxPageIds ?? 25,
           batch_size: overrides?.batchSize ?? null,
           tier1_size: overrides?.tier1Size ?? null,
+          tier2_size: overrides?.tier2Size ?? null,
         },
       },
     },
@@ -807,5 +830,133 @@ describe("runRouter — tier 1 (recently modified)", () => {
     });
     // 5 pages, tier1_size=100 → only tier 1 fires; the empty rest is dropped.
     expect(providerCalls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tier 2 (highest-EMA) splitting.
+// ---------------------------------------------------------------------------
+
+describe("runRouter — tier 2 (highest EMA)", () => {
+  // Any non-null value passes the `params.database` check in the orchestrator;
+  // the real db is never touched because computeInjectionScores is mocked.
+  const stubDb = {} as Parameters<typeof runRouter>[0]["database"];
+
+  beforeEach(async () => {
+    await writePage(workspaceDir, makePage("alpha", { summary: "A" }));
+    await writePage(workspaceDir, makePage("bravo", { summary: "B" }));
+    await writePage(workspaceDir, makePage("charlie", { summary: "C" }));
+    await writePage(workspaceDir, makePage("delta", { summary: "D" }));
+    await writePage(workspaceDir, makePage("echo", { summary: "E" }));
+  });
+
+  test("tier2_size + tier1_size both null is the v3 single-batch path", async () => {
+    providerStub = makeProvider(toolUseResponse([1]));
+    await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig(),
+      database: stubDb,
+    });
+    expect(providerCalls).toHaveLength(1);
+  });
+
+  test("tier2_size=2 produces 2 batches (tier 2 + rest)", async () => {
+    scoresStub.set("alpha", 1.0);
+    scoresStub.set("bravo", 5.0);
+    scoresStub.set("delta", 4.0);
+
+    providerStub = makeProvider(toolUseResponse([1]));
+    await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ tier2Size: 2 }),
+      database: stubDb,
+    });
+    expect(providerCalls.length).toBe(2);
+
+    // Tier 2 is the first batch (no tier 1 in this test). Its prompt should
+    // contain exactly the top-2 by score: bravo (5) and delta (4).
+    const tier2Prompt = providerCalls[0].systemPrompt ?? "";
+    const indexedSlugs = new Set(
+      [...tier2Prompt.matchAll(/^\[\d+\] (\S+)/gm)].map((m) => m[1]),
+    );
+    expect(indexedSlugs).toEqual(new Set(["bravo", "delta"]));
+  });
+
+  test("tier 1 then tier 2 then rest — three batches in that order", async () => {
+    // Pin mtimes so tier 1 is deterministic: alpha + bravo are the two
+    // most recent (highest mtime values). Tier 2 runs on the rest
+    // (charlie, delta, echo) using scores we control.
+    const { utimes } = await import("node:fs/promises");
+    const stamp = async (slug: string, s: number) =>
+      utimes(join(workspaceDir, "memory", "concepts", `${slug}.md`), s, s);
+    await stamp("alpha", 9000);
+    await stamp("bravo", 8000);
+    await stamp("charlie", 3000);
+    await stamp("delta", 2000);
+    await stamp("echo", 1000);
+    invalidatePageIndex();
+
+    scoresStub.set("charlie", 2.0);
+    scoresStub.set("delta", 3.0);
+    // echo has no score → ineligible for tier 2.
+
+    providerStub = makeProvider(toolUseResponse([1]));
+    await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ tier1Size: 2, tier2Size: 2 }),
+      database: stubDb,
+    });
+    expect(providerCalls.length).toBe(3);
+
+    // Tier 2 batch (index 1) contains charlie + delta. Echo went to rest.
+    const tier2Prompt = providerCalls[1].systemPrompt ?? "";
+    const tier2Slugs = new Set(
+      [...tier2Prompt.matchAll(/^\[\d+\] (\S+)/gm)].map((m) => m[1]),
+    );
+    expect(tier2Slugs).toEqual(new Set(["charlie", "delta"]));
+
+    // Echo (no score) must land in the rest batch, not tier 2.
+    const restPrompt = providerCalls[2].systemPrompt ?? "";
+    const restSlugs = new Set(
+      [...restPrompt.matchAll(/^\[\d+\] (\S+)/gm)].map((m) => m[1]),
+    );
+    expect(restSlugs).toEqual(new Set(["echo"]));
+  });
+
+  test("score=0 pages stay in rest even when tier2_size is large", async () => {
+    // Only one page has a positive score; tier2_size=100 should NOT pull in
+    // zero-score pages.
+    scoresStub.set("bravo", 5.0);
+
+    providerStub = makeProvider(toolUseResponse([1]));
+    await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ tier2Size: 100 }),
+      database: stubDb,
+    });
+    expect(providerCalls.length).toBe(2);
+    const tier2Prompt = providerCalls[0].systemPrompt ?? "";
+    expect(tier2Prompt).toContain("[1] bravo");
+    expect(tier2Prompt).not.toMatch(/^\[\d+\] alpha/m);
+  });
+
+  test("tier2_size set without database logs a warn and skips tier 2", async () => {
+    scoresStub.set("bravo", 5.0);
+    providerStub = makeProvider(toolUseResponse([1]));
+    await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ tier2Size: 2 }),
+      // No database → tier 2 silently skipped.
+    });
+    expect(providerCalls).toHaveLength(1);
+    const warned = warnLogs.some((l) =>
+      JSON.stringify(l.args).includes("tier2_size set but no database"),
+    );
+    expect(warned).toBe(true);
   });
 });

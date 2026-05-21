@@ -553,6 +553,7 @@ async function injectViaRouter(args: {
     nowText,
     priorEverInjected,
     config,
+    database,
     ...(signal ? { signal } : {}),
   });
 
