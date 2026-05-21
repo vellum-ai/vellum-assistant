@@ -33,7 +33,7 @@ import {
   SYNC_TAGS,
   type SyncChangedEvent,
 } from "@/lib/sync/types.js";
-import { getEventBus } from "@/runtime/event-bus.js";
+import { useEventBusStore } from "@/stores/event-bus-store.js";
 
 const CONVERSATION_LIST_DEBOUNCE_MS = 250;
 
@@ -142,7 +142,9 @@ export function useAssistantSyncStream(
       }
     };
 
-    const unsubscribe = getEventBus().subscribe("sse.event", handleEvent);
+    const unsubscribe = useEventBusStore
+      .getState()
+      .subscribe("sse.event", handleEvent);
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);

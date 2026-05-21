@@ -149,6 +149,7 @@ import {
   migrateOAuthProvidersScopeSeparator,
   migrateOAuthProvidersTokenAuthMethodDefault,
   migrateOAuthProvidersTokenExchangeBodyFormat,
+  migrateOnboardingEventsPriorAssistants,
   migrateProviderConnectionBaseUrlAndModels,
   migrateProviderConnectionStatusLabel,
   migrateReminderRoutingIntent,
@@ -448,6 +449,7 @@ export function initializeDb(): void {
     migrateMemoryV2InjectionEvents,
     migrateConversationLastNotifiedProfile,
     migrateStripBaseUrlNonOpenaiCompatible,
+    migrateOnboardingEventsPriorAssistants,
   ];
 
   // Run each migration step, catching and logging individual failures so one

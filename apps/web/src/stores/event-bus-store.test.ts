@@ -1,15 +1,26 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
-import { createEventBus } from "@/runtime/event-bus.js";
+import {
+  __resetEventBusForTesting,
+  useEventBusStore,
+} from "@/stores/event-bus-store.js";
 
 function avatarEvent(): AssistantEvent {
   return { type: "avatar_updated" } as AssistantEvent;
 }
 
-describe("event-bus", () => {
+beforeEach(() => {
+  __resetEventBusForTesting();
+});
+
+afterEach(() => {
+  __resetEventBusForTesting();
+});
+
+describe("event-bus-store", () => {
   test("publish delivers to a single subscriber", () => {
-    const bus = createEventBus();
+    const bus = useEventBusStore.getState();
     const handler = mock(() => {});
     bus.subscribe("sse.event", handler);
     const event = avatarEvent();
@@ -19,7 +30,7 @@ describe("event-bus", () => {
   });
 
   test("publish delivers to every active subscriber", () => {
-    const bus = createEventBus();
+    const bus = useEventBusStore.getState();
     const a = mock(() => {});
     const b = mock(() => {});
     bus.subscribe("app.online", a);
@@ -30,7 +41,7 @@ describe("event-bus", () => {
   });
 
   test("unsubscribe stops delivery to that subscriber", () => {
-    const bus = createEventBus();
+    const bus = useEventBusStore.getState();
     const handler = mock(() => {});
     const unsubscribe = bus.subscribe("sse.event", handler);
     bus.publish("sse.event", avatarEvent());
@@ -41,7 +52,7 @@ describe("event-bus", () => {
   });
 
   test("unsubscribe is safe to call twice", () => {
-    const bus = createEventBus();
+    const bus = useEventBusStore.getState();
     const handler = mock(() => {});
     const unsubscribe = bus.subscribe("app.offline", handler);
     unsubscribe();
@@ -51,7 +62,7 @@ describe("event-bus", () => {
   });
 
   test("subscribers on different event names are isolated", () => {
-    const bus = createEventBus();
+    const bus = useEventBusStore.getState();
     const sseHandler = mock(() => {});
     const resumeHandler = mock(() => {});
     bus.subscribe("sse.event", sseHandler);
@@ -62,12 +73,12 @@ describe("event-bus", () => {
   });
 
   test("publish with no subscribers is a no-op", () => {
-    const bus = createEventBus();
+    const bus = useEventBusStore.getState();
     expect(() => bus.publish("app.resume", { signal: "online" })).not.toThrow();
   });
 
   test("a throwing handler does not block downstream handlers", () => {
-    const bus = createEventBus();
+    const bus = useEventBusStore.getState();
     const bad = mock(() => {
       throw new Error("boom");
     });
@@ -86,7 +97,7 @@ describe("event-bus", () => {
   });
 
   test("unsubscribing during dispatch does not skip remaining handlers", () => {
-    const bus = createEventBus();
+    const bus = useEventBusStore.getState();
     const a = mock(() => {});
     const c = mock(() => {});
     let unsubB: (() => void) | null = null;
@@ -100,10 +111,18 @@ describe("event-bus", () => {
     expect(a).toHaveBeenCalledTimes(1);
     expect(b).toHaveBeenCalledTimes(1);
     expect(c).toHaveBeenCalledTimes(1);
-    // b unsubscribed during dispatch — next publish must not reach it.
     bus.publish("app.online", {});
     expect(a).toHaveBeenCalledTimes(2);
     expect(b).toHaveBeenCalledTimes(1);
     expect(c).toHaveBeenCalledTimes(2);
+  });
+
+  test("__resetEventBusForTesting clears every subscriber", () => {
+    const bus = useEventBusStore.getState();
+    const handler = mock(() => {});
+    bus.subscribe("app.online", handler);
+    __resetEventBusForTesting();
+    bus.publish("app.online", {});
+    expect(handler).not.toHaveBeenCalled();
   });
 });

@@ -13,7 +13,10 @@ import {
   chatContextQueryKey,
 } from "@/lib/sync/query-tags.js";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types.js";
-import { __resetEventBusForTesting, getEventBus } from "@/runtime/event-bus.js";
+import {
+  __resetEventBusForTesting,
+  useEventBusStore,
+} from "@/stores/event-bus-store.js";
 
 const { useAssistantSyncStream } = await import(
   "@/domains/chat/hooks/use-assistant-sync-stream.js"
@@ -38,7 +41,7 @@ function syncEvent(tags: string[]): SyncChangedEvent {
 }
 
 function emit(event: AssistantEvent): void {
-  getEventBus().publish("sse.event", event);
+  useEventBusStore.getState().publish("sse.event", event);
 }
 
 beforeEach(() => {

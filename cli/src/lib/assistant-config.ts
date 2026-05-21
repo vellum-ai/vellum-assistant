@@ -109,6 +109,11 @@ export interface AssistantEntry {
   [key: string]: unknown;
 }
 
+export type AssistantLookupResult =
+  | { status: "found"; entry: AssistantEntry }
+  | { status: "not_found" }
+  | { status: "ambiguous"; matches: AssistantEntry[] };
+
 interface LockfileData {
   assistants?: Record<string, unknown>[];
   activeAssistant?: string;
@@ -309,8 +314,70 @@ export function loadLatestAssistant(): AssistantEntry | null {
 }
 
 export function findAssistantByName(name: string): AssistantEntry | null {
+  return readAssistants().find((entry) => entry.assistantId === name) ?? null;
+}
+
+export function getAssistantDisplayName(entry: AssistantEntry): string {
+  const primary = entry.name?.trim();
+  if (primary) return primary;
+
+  const legacy = entry.assistantName?.trim();
+  if (legacy) return legacy;
+
+  return entry.assistantId;
+}
+
+export function formatAssistantReference(entry: AssistantEntry): string {
+  const displayName = getAssistantDisplayName(entry);
+  return displayName === entry.assistantId
+    ? entry.assistantId
+    : `${displayName} (${entry.assistantId})`;
+}
+
+function getAssistantDisplayNameCandidates(entry: AssistantEntry): string[] {
+  return Array.from(
+    new Set(
+      [entry.name?.trim(), entry.assistantName?.trim()].filter(
+        (value): value is string => typeof value === "string" && value !== "",
+      ),
+    ),
+  );
+}
+
+export function lookupAssistantByIdentifier(
+  identifier: string,
+): AssistantLookupResult {
   const entries = readAssistants();
-  return entries.find((e) => e.assistantId === name) ?? null;
+  const exactId = entries.find((entry) => entry.assistantId === identifier);
+  if (exactId) {
+    return { status: "found", entry: exactId };
+  }
+
+  const displayMatches = entries.filter((entry) =>
+    getAssistantDisplayNameCandidates(entry).includes(identifier),
+  );
+  if (displayMatches.length === 1) {
+    return { status: "found", entry: displayMatches[0] };
+  }
+  if (displayMatches.length > 1) {
+    return { status: "ambiguous", matches: displayMatches };
+  }
+
+  return { status: "not_found" };
+}
+
+export function formatAssistantLookupError(
+  identifier: string,
+  result: AssistantLookupResult = lookupAssistantByIdentifier(identifier),
+): string {
+  if (result.status === "ambiguous") {
+    const matches = result.matches
+      .map((entry) => formatAssistantReference(entry))
+      .join(", ");
+    return `Multiple assistants match '${identifier}': ${matches}. Use the assistant ID to disambiguate.`;
+  }
+
+  return `No assistant found with name or ID '${identifier}'.`;
 }
 
 export function removeAssistantEntry(assistantId: string): void {
@@ -446,13 +513,25 @@ export function resolveAssistant(nameArg?: string): AssistantEntry | null {
  * 3. Sole lockfile entry (any cloud)
  */
 export function resolveTargetAssistant(nameArg?: string): AssistantEntry {
-  const entry = resolveAssistant(nameArg);
-  if (entry) return entry;
-
   if (nameArg) {
-    console.error(`No assistant found with name '${nameArg}'.`);
+    const result = lookupAssistantByIdentifier(nameArg);
+    if (result.status === "found") return result.entry;
+    console.error(formatAssistantLookupError(nameArg, result));
   } else {
+    const active = getActiveAssistant();
+    if (active) {
+      const result = lookupAssistantByIdentifier(active);
+      if (result.status === "found") return result.entry;
+      if (result.status === "ambiguous") {
+        console.error(formatAssistantLookupError(active, result));
+        process.exit(1);
+      }
+      // Active assistant no longer exists in lockfile — fall through.
+    }
+
     const all = readAssistants();
+    if (all.length === 1) return all[0];
+
     if (all.length === 0) {
       console.error("No assistant found. Run 'vellum hatch' first.");
     } else {

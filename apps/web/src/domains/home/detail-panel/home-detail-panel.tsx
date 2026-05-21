@@ -61,7 +61,7 @@ export function HomeDetailPanel({
           variant="title-small"
           className="min-w-0 flex-1 truncate text-[var(--content-default)]"
         >
-          {item.title}
+          {item.title ?? item.summary}
         </Typography>
 
         {/* Go to Convo button — only when conversationId exists */}

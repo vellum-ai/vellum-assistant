@@ -73,7 +73,7 @@ export function HomeRecapRow({
           "text-[var(--content-secondary)]",
         )}
       >
-        {item.title}
+        {item.title ?? item.summary}
       </span>
 
       {isHovering ? (

@@ -1,4 +1,4 @@
-import { CATEGORY_STYLES, CATEGORY_ORDER } from "../home-feed-filter-bar.js";
+import { CATEGORY_STYLES } from "../home-feed-filter-bar.js";
 import { HomeMarkdownContent } from "./home-markdown-content.js";
 import type { FeedItem, FeedItemCategory } from "../types.js";
 
@@ -6,8 +6,7 @@ function resolveStyle(category?: FeedItemCategory) {
   if (category && CATEGORY_STYLES[category]) {
     return CATEGORY_STYLES[category];
   }
-  const fallback = CATEGORY_ORDER[0] ?? "security";
-  return CATEGORY_STYLES[fallback];
+  return CATEGORY_STYLES.system;
 }
 
 export interface HomeGenericDetailProps {

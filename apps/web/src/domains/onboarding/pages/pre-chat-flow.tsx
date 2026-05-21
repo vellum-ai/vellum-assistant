@@ -11,6 +11,7 @@ import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen
 import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen.js";
 import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen.js";
 import { NameExchangeScreen } from "@/domains/onboarding/screens/name-exchange-screen.js";
+import { PriorAssistantSelectionScreen } from "@/domains/onboarding/screens/prior-assistant-selection-screen.js";
 import { NameStepScreen } from "@/domains/onboarding/screens/name-step-screen.js";
 import { TaskToneSelectionScreen } from "@/domains/onboarding/screens/task-tone-selection-screen.js";
 import { ToolSelectionScreen } from "@/domains/onboarding/screens/tool-selection-screen.js";
@@ -48,10 +49,11 @@ import { routes } from "@/utils/routes.js";
  *   0 = NameExchange
  *   1 = TaskTone
  *   2 = ToolSelection
- *   3 = GoogleOAuth
- *   4 = GetApp (conditional — shown only on iOS/macOS web)
+ *   3 = PriorAssistants
+ *   4 = GoogleOAuth
+ *   5 = GetApp (conditional — shown only on iOS/macOS web)
  */
-type Screen = 0 | 1 | 2 | 3 | 4;
+type Screen = 0 | 1 | 2 | 3 | 4 | 5;
 
 const IOS_TOTAL_STEPS = 3;
 
@@ -97,6 +99,9 @@ export function PreChatFlow() {
     () => new Set(),
   );
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [selectedPriorAssistants, setSelectedPriorAssistants] = useState<Set<string>>(
     () => new Set(),
   );
   const { value: userName, onChange: handleUserNameChange } =
@@ -182,6 +187,9 @@ export function PreChatFlow() {
       context.googleScopes = googleScopes;
     } else {
       context.googleConnected = false;
+    }
+    if (selectedPriorAssistants.size > 0) {
+      context.priorAssistants = stripOtherPrefix([...selectedPriorAssistants]);
     }
 
     setPendingPreChatContext(context);
@@ -287,7 +295,7 @@ export function PreChatFlow() {
     );
   }
 
-  // ── Web flow: NameExchange → TaskTone → Tools → Google → App ──
+  // ── Web flow: NameExchange → TaskTone → Tools → PriorAssistants → Google → App ──
 
   if (screen === 0) {
     return (
@@ -320,10 +328,14 @@ export function PreChatFlow() {
   const hasGoogleTool = [...selectedTools].some((id) => GOOGLE_TOOL_IDS.has(id));
 
   const advancePastToolSelection = () => {
+    setScreen(3);
+  };
+
+  const advancePastPriorAssistants = () => {
     if (hasGoogleTool) {
-      setScreen(3);
-    } else if (showAppStep) {
       setScreen(4);
+    } else if (showAppStep) {
+      setScreen(5);
     } else {
       finish();
     }
@@ -342,6 +354,21 @@ export function PreChatFlow() {
   }
 
   if (screen === 3) {
+    return (
+      <PriorAssistantSelectionScreen
+        selectedAssistants={selectedPriorAssistants}
+        onChange={setSelectedPriorAssistants}
+        onBack={() => setScreen(2)}
+        onContinue={advancePastPriorAssistants}
+        onSkip={() => {
+          setSelectedPriorAssistants(new Set());
+          advancePastPriorAssistants();
+        }}
+      />
+    );
+  }
+
+  if (screen === 4) {
     if (!activeAssistant) {
       return null;
     }
@@ -354,18 +381,18 @@ export function PreChatFlow() {
           setGoogleConnected(true);
           setGoogleScopes(scopes);
           if (showAppStep) {
-            setScreen(4);
+            setScreen(5);
           } else {
             finish(scopes);
           }
         }}
-        onSkip={showAppStep ? () => setScreen(4) : () => finish()}
-        onBack={() => setScreen(2)}
+        onSkip={showAppStep ? () => setScreen(5) : () => finish()}
+        onBack={() => setScreen(3)}
       />
     );
   }
 
-  if (screen === 4) {
+  if (screen === 5) {
     if (isIOSWeb) return <GetIOSAppScreen onComplete={() => finish()} />;
     return <GetMacOSAppScreen onComplete={() => finish()} />;
   }

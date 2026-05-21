@@ -415,6 +415,10 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
           `- Google connected: yes (${n.googleServices.join(", ")} access granted)`,
         );
       }
+      if (n.priorAssistants?.length)
+        lines.push(
+          `- Prior AI assistants used: ${n.priorAssistants.join(", ")}`,
+        );
       lines.push(
         "",
         "Apply this context quietly. Do not recap it as a list unless the user asks.",

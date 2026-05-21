@@ -1,6 +1,6 @@
 
 import type { LucideIcon } from "lucide-react";
-import { forwardRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { PanelItem } from "@vellum/design-library";
 
@@ -17,16 +17,16 @@ export interface CommandPaletteItemProps {
  * A single result row inside the CommandPalette. Built on the PanelItem
  * primitive for consistent hover/active treatment.
  */
-export const CommandPaletteItem = forwardRef<
-  HTMLButtonElement,
-  CommandPaletteItemProps
->(function CommandPaletteItem(
-  { icon, title, subtitle, shortcutHint, isSelected, onClick },
-  ref,
-) {
+export function CommandPaletteItem({
+  icon,
+  title,
+  subtitle,
+  shortcutHint,
+  isSelected,
+  onClick,
+}: CommandPaletteItemProps) {
   return (
     <PanelItem
-      ref={ref}
       icon={icon}
       label={
         <span className="flex min-w-0 flex-1 items-center gap-2">
@@ -48,4 +48,4 @@ export const CommandPaletteItem = forwardRef<
       className="px-3 py-2"
     />
   );
-});
+}
