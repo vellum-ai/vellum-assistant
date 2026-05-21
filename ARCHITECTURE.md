@@ -621,7 +621,7 @@ All feature flags (assistant-scoped and client-scoped) are declared in the unifi
 
 ## Safe Storage Limits
 
-`safe-storage-limits` is an assistant-scoped feature flag, default off. The companion `vellum-assistant-platform` work provisions the LaunchDarkly/Terraform flag and web app UI; this repo owns the assistant runtime contract, bundled registries, macOS client UI, and release notes.
+`safe-storage-limits` is an assistant-scoped feature flag, default off. The companion `vellum-assistant-platform` work provisions the Terraform flag and web app UI; this repo owns the assistant runtime contract, bundled registries, macOS client UI, and release notes.
 
 When the flag is enabled, `assistant/src/daemon/disk-pressure-guard.ts` samples workspace disk usage every 60 seconds using the shared disk-usage sampler. At or above 95% usage it creates an in-memory lock with a `lockId`, usage snapshot, `acknowledged` state, optional `overrideActive` state, and blocked capabilities: `agent-turns`, `background-work`, and `remote-ingress`. Dropping below the threshold clears the lock. Disabling the flag returns a stable disabled status and stops enforcement.
 

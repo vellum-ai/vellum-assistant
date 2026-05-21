@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors.js";
 import { client } from "@/generated/api/client.gen.js";
-import { ASSISTANT_FLAG_DEFAULTS, storeKeyToLdKey } from "@/lib/feature-flags/feature-flag-catalog.js";
+import { ASSISTANT_FLAG_DEFAULTS, storeKeyToFlagKey } from "@/lib/feature-flags/feature-flag-catalog.js";
 
 let currentAssistantId: string | null = null;
 
@@ -30,10 +30,10 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
       setFlag: (key: string, value: boolean) => {
         set({ [key]: value });
 
-        const ldKey = storeKeyToLdKey(key);
-        if (currentAssistantId && ldKey) {
+        const flagKey = storeKeyToFlagKey(key);
+        if (currentAssistantId && flagKey) {
           void client.patch({
-            url: `/v1/assistants/${currentAssistantId}/feature-flags/${ldKey}`,
+            url: `/v1/assistants/${currentAssistantId}/feature-flags/${flagKey}`,
             body: { enabled: value },
             throwOnError: false,
           } as Parameters<typeof client.patch>[0]);

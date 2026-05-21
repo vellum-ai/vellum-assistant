@@ -324,7 +324,7 @@ describe("GET /v1/feature-flags handler", () => {
   });
 
   test("reflects updated flags after remote sync writes new values (stale cache regression)", async () => {
-    // Scenario: the LD poller (RemoteFeatureFlagSync) writes
+    // Scenario: the remote poller (RemoteFeatureFlagSync) writes
     // email-channel: false, the gateway caches it, then a subsequent
     // poll writes email-channel: true. The GET handler should return
     // the updated value because writeRemoteFeatureFlags() updates

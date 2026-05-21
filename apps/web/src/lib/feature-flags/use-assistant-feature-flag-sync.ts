@@ -6,7 +6,7 @@ import { assertHasResponse } from "@/lib/api-errors.js";
 import { useAssistantFeatureFlagStore, setAssistantIdForFlags } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import {
   ASSISTANT_FLAG_DEFAULTS,
-  ldKeyToStoreKey,
+  flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog.js";
 
 interface FeatureFlagEntry {
@@ -28,7 +28,7 @@ function mapFlags(
 ): Record<string, boolean> {
   const mapped: Record<string, boolean> = {};
   for (const entry of entries) {
-    const storeKey = ldKeyToStoreKey(entry.key);
+    const storeKey = flagKeyToStoreKey(entry.key);
     if (VALID_KEYS.has(storeKey)) {
       mapped[storeKey] = entry.enabled;
     }
