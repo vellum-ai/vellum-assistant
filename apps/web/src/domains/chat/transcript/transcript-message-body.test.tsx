@@ -33,9 +33,9 @@ mock.module(
   }),
 );
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 
-import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
+import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body.js";
 
 const noop = () => {};
 
