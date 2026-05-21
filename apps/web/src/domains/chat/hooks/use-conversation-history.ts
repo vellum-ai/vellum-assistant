@@ -145,9 +145,9 @@ export function useConversationHistory({
   });
 
   // -------------------------------------------------------------------------
-  // Conversation-switch reset — extracted into its own hook (LUM-1739/4a).
-  // Owns the two refs (`switchResetRef`, `lastAppliedDataRef`) the data-apply
-  // effect below reads to decide between a fresh-switch replace and a
+  // Conversation-switch reset — delegated to a focused hook. Owns the two
+  // refs (`switchResetRef`, `lastAppliedDataRef`) the data-apply effect
+  // below reads to decide between a fresh-switch replace and a
   // background-refetch reconcile.
   // -------------------------------------------------------------------------
   const { switchResetRef, lastAppliedDataRef } = useConversationSwitch({

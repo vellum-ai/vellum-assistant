@@ -8,10 +8,6 @@
  * replace messages rather than reconcile, and resets
  * `lastAppliedDataRef` so the next TQ update is treated as the first one
  * for the new conversation.
- *
- * Extracted from `use-conversation-history.ts` as Phase 4a of LUM-1734.
- * Phase 5 (LUM-1740) will fold the rest of `use-conversation-loader.ts`
- * into focused hooks; this is the seam that makes that split clean.
  */
 
 import {
