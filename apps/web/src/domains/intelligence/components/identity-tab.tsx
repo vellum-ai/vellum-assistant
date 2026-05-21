@@ -12,7 +12,7 @@ import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/type
 import { fetchSkills, installSkill, uninstallSkill } from "@/domains/intelligence/skills/api.js";
 import type { SkillInfo } from "@/domains/intelligence/skills/types.js";
 import { getAssistant } from "@/assistant/api.js";
-import { type AssistantIdentity, fetchAssistantIdentity } from "@/domains/chat/api/assistant.js";
+import { type AssistantIdentity, fetchAssistantIdentity } from "@/assistant/identity.js";
 
 export interface IdentityCardProps {
   assistantName: string;

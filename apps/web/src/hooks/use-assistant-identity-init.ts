@@ -28,7 +28,7 @@
 import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { fetchAssistantIdentity } from "@/domains/chat/api/assistant.js";
+import { fetchAssistantIdentity } from "@/assistant/identity.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 

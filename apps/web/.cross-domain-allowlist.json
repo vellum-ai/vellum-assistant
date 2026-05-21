@@ -192,8 +192,7 @@
     "avatar"
   ],
   "src/domains/intelligence/components/identity-tab.tsx": [
-    "avatar",
-    "chat"
+    "avatar"
   ],
   "src/domains/intelligence/identity-page.tsx": [
     "chat"

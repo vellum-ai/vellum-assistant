@@ -70,7 +70,7 @@ import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
 
 import { createWebSyncRouter } from "@/lib/sync/web-sync-router.js";
-import { fetchAssistantIdentity } from "@/domains/chat/api/assistant.js";
+import { fetchAssistantIdentity } from "@/assistant/identity.js";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
 import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
@@ -88,7 +88,7 @@ import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-su
 import { getEditChatKey, setEditChatKey } from "@/domains/chat/utils/edit-chat-session.js";
 import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
-import type { AssistantIdentity } from "@/domains/chat/api/assistant.js";
+import type { AssistantIdentity } from "@/assistant/identity.js";
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 import {
   ChatRouteContent,
