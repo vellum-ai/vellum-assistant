@@ -41,6 +41,7 @@ export interface LatestTurnRowProps {
   renderPendingSecret?: (requestId: string) => ReactNode;
   renderPendingConfirmation?: (requestId: string) => ReactNode;
   renderPendingContactRequest?: (requestId: string) => ReactNode;
+  renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
     toolName: string;
     riskLevel?: string;
@@ -91,6 +92,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   renderPendingSecret,
   renderPendingConfirmation,
   renderPendingContactRequest,
+  renderOnboardingChoice,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
@@ -124,6 +126,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         renderPendingSecret={renderPendingSecret}
         renderPendingConfirmation={renderPendingConfirmation}
         renderPendingContactRequest={renderPendingContactRequest}
+        renderOnboardingChoice={renderOnboardingChoice}
         onOpenRuleEditor={onOpenRuleEditor}
         unknownNudgeToolCallIds={unknownNudgeToolCallIds}
         onDismissUnknownNudge={onDismissUnknownNudge}
@@ -149,6 +152,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             renderPendingSecret={renderPendingSecret}
             renderPendingConfirmation={renderPendingConfirmation}
             renderPendingContactRequest={renderPendingContactRequest}
+            renderOnboardingChoice={renderOnboardingChoice}
             onOpenRuleEditor={onOpenRuleEditor}
             unknownNudgeToolCallIds={unknownNudgeToolCallIds}
             onDismissUnknownNudge={onDismissUnknownNudge}

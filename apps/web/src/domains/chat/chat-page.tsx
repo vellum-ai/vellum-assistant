@@ -43,7 +43,8 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { ChatError } from "@/domains/chat/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
-import type { PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import { consumePendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
@@ -135,6 +136,7 @@ export function ChatPage() {
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [streamRetryNonce, setStreamRetryNonce] = useState(0);
   const [_autoGreetPending, setAutoGreetPending] = useState(false);
+  const awaitingAutoGreetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
     hasMore: false,
@@ -225,6 +227,8 @@ export function ChatPage() {
   const dismissedSurfaceIdsRef = useRef<Set<string>>(new Set());
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
   const onboardingDraftConversationKeyRef = useRef<string | null>(null);
+  const didOnboardingRef = useRef(false);
+  const onboardingTasksEmptyRef = useRef(false);
   const draftKeyResolutionRef = useRef(false);
   const previousConversationKeyRef = useRef<string | null>(null);
   const pendingQueuedStableIdsRef = useRef<string[]>([]);
@@ -417,6 +421,44 @@ export function ChatPage() {
     },
     [rawStartNewConversation],
   );
+
+  // -------------------------------------------------------------------------
+  // Onboarding signal consumption
+  // -------------------------------------------------------------------------
+  // Consume the `?onboarding=1` signal left by `/onboarding/hatching` when
+  // it forwards the user after a successful hatch. Flipping `autoGreetRef`
+  // mirrors the existing auto-greet paths so the first assistant message
+  // fires once the chat history loads. The flag is stripped from the URL
+  // immediately so a page refresh doesn't re-trigger the greet.
+  useEffect(() => {
+    if (searchParams.get("onboarding") !== "1") return;
+    autoGreetRef.current = true;
+    didOnboardingRef.current = true;
+    setAutoGreetPending(true);
+    if (awaitingAutoGreetTimeoutRef.current) {
+      clearTimeout(awaitingAutoGreetTimeoutRef.current);
+    }
+    awaitingAutoGreetTimeoutRef.current = setTimeout(() => {
+      setAutoGreetPending(false);
+    }, 10_000);
+    const onboardingDraftKey =
+      onboardingDraftConversationKeyRef.current ?? createDraftConversationKey();
+    onboardingDraftConversationKeyRef.current = onboardingDraftKey;
+    // Drain pending PreChat context from sessionStorage at the same moment
+    // the auto-greet is armed so the payload rides along the single greet
+    // send and doesn't leak onto a later message.
+    //
+    // React strict-mode double-fires effects in dev; guard so the second
+    // invocation is a no-op (sessionStorage was already drained).
+    if (pendingOnboardingContextRef.current === null) {
+      pendingOnboardingContextRef.current = consumePendingPreChatContext();
+    }
+    if (pendingOnboardingContextRef.current) {
+      onboardingTasksEmptyRef.current =
+        pendingOnboardingContextRef.current.tasks.length === 0;
+    }
+    void navigate(routes.conversation(onboardingDraftKey), { replace: true });
+  }, [searchParams, navigate]);
 
   // -------------------------------------------------------------------------
   // Message reconciliation
@@ -1133,6 +1175,8 @@ export function ChatPage() {
       reconcileAfterNextStreamOpenRef,
     },
     isChannelReadonly,
+    onboardingTasksEmpty: onboardingTasksEmptyRef.current,
+    didOnboarding: didOnboardingRef.current,
   };
 
   // -------------------------------------------------------------------------
