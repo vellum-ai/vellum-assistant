@@ -9,6 +9,13 @@ on:
       - 'packages/design-library/**'
       - '.github/workflows/ci-main-web.yaml'
 
+# Serialize runs per branch and cancel any superseded in-flight run, so an
+# older commit's deploy can never finish after — and overwrite the bucket's
+# index.html behind — a newer one. Only the newest main run publishes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # Independent jobs run in parallel — same structure as PR workflow.
 jobs:
   lint:
