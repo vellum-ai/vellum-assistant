@@ -43,8 +43,6 @@ export interface AppFeatureFlags {
   platformNotifications: boolean;
   proPlanAdjust: boolean;
   rollbackEnabled: boolean;
-  referralCodes: boolean;
-  referralCodesAdmin: boolean;
   safeStorageLimits: boolean;
   selfHostedAssistant: boolean;
   settingsSleepPolicy: boolean;
@@ -73,8 +71,6 @@ export const DEFAULT_FLAGS: AppFeatureFlags = {
   platformNotifications: false,
   proPlanAdjust: false,
   rollbackEnabled: false,
-  referralCodes: false,
-  referralCodesAdmin: false,
   safeStorageLimits: false,
   selfHostedAssistant: false,
   settingsSleepPolicy: false,

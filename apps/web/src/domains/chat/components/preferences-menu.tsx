@@ -22,7 +22,6 @@ import {
 } from "@vellum/design-library";
 
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
@@ -142,8 +141,6 @@ function PreferencesMenuContent({
   const navigate = useNavigate();
   const user = useAuthStore.use.user();
   const logout = useAuthStore.use.logout();
-  const referralCodes = useFeatureFlagStore.use.referralCodes();
-
   const isAdmin = user?.isStaff ?? false;
 
   const { data: billingSummary } = useQuery({
@@ -181,19 +178,15 @@ function PreferencesMenuContent({
         </>
       ) : null}
 
-      {referralCodes ? (
-        <>
-          <PanelItem
-            icon={Gift}
-            label="Earn credits"
-            onSelect={() => {
-              onClose();
-              onEarnCredits();
-            }}
-          />
-          <MenuDivider />
-        </>
-      ) : null}
+      <PanelItem
+        icon={Gift}
+        label="Earn credits"
+        onSelect={() => {
+          onClose();
+          onEarnCredits();
+        }}
+      />
+      <MenuDivider />
 
       <PanelItem
         icon={SettingsIcon}
