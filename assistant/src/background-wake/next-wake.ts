@@ -5,11 +5,7 @@ import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { computeNextRunAt } from "../schedule/recurrence-engine.js";
 import { listSchedules, type ScheduleJob } from "../schedule/schedule-store.js";
 
-export type BackgroundWakeIntentReason =
-  | "heartbeat"
-  | "schedule"
-  | "mixed"
-  | "refresh";
+export type BackgroundWakeIntentReason = "heartbeat" | "schedule" | "mixed";
 
 export interface BackgroundWakeSourcePayload {
   heartbeat: HeartbeatWakeSource | null;
@@ -50,10 +46,6 @@ type WakeCandidate = {
   source: "heartbeat" | "schedule";
 };
 
-const VALKEY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const REFRESH_WAKE_SAFETY_MARGIN_MS = 24 * 60 * 60 * 1000;
-const REFRESH_WAKE_HORIZON_MS = VALKEY_TTL_MS - REFRESH_WAKE_SAFETY_MARGIN_MS;
-
 export function computeNextBackgroundWakeIntent(
   now = Date.now(),
 ): BackgroundWakeIntent | null {
@@ -72,17 +64,14 @@ export function computeNextBackgroundWakeIntent(
   if (candidates.length === 0) return null;
 
   const actualNextDueAt = Math.min(...candidates.map((c) => c.nextRunAt));
-  const latestRefreshWakeAt = now + REFRESH_WAKE_HORIZON_MS;
-  const needsRefreshWake = actualNextDueAt > latestRefreshWakeAt;
-  const nextWakeAt = needsRefreshWake ? latestRefreshWakeAt : actualNextDueAt;
+  const nextWakeAt = actualNextDueAt;
   const dueSources = new Set(
     candidates
       .filter((candidate) => candidate.nextRunAt === actualNextDueAt)
       .map((candidate) => candidate.source),
   );
-  const reason = needsRefreshWake
-    ? "refresh"
-    : dueSources.size > 1
+  const reason =
+    dueSources.size > 1
       ? "mixed"
       : dueSources.has("heartbeat")
         ? "heartbeat"

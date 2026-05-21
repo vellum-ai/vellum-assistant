@@ -216,7 +216,7 @@ describe("computeNextBackgroundWakeIntent", () => {
     expect(computeNextBackgroundWakeIntent(NOW)).toBeNull();
   });
 
-  test("returns refresh wake for far-future actual due work", () => {
+  test("reports far-future due work without applying storage horizon", () => {
     heartbeatConfig.enabled = false;
     const actualNextDueAt = NOW + 45 * 24 * 60 * 60 * 1000;
     schedules = [
@@ -229,9 +229,9 @@ describe("computeNextBackgroundWakeIntent", () => {
     const intent = computeNextBackgroundWakeIntent(NOW);
 
     expect(intent).not.toBeNull();
-    expect(intent!.reason).toBe("refresh");
+    expect(intent!.reason).toBe("schedule");
     expect(intent!.actualNextDueAt).toBe(actualNextDueAt);
-    expect(intent!.nextWakeAt).toBe(NOW + 29 * 24 * 60 * 60 * 1000);
+    expect(intent!.nextWakeAt).toBe(actualNextDueAt);
   });
 
   test("sets computedAt to the local snapshot time", () => {
