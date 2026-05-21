@@ -13,106 +13,13 @@ import {
 } from "@/lib/feature-flags/feature-flag-catalog.js";
 
 interface FlagDisplayEntry {
-  key: string;
-  catalogKey: string;
+  storeKey: string;
   scope: FlagScope;
   label: string;
   description: string;
   value: boolean;
   defaultValue: boolean;
 }
-
-const FLAG_META: Record<
-  string,
-  { label: string; description: string }
-> = {
-  a2aChannel: {
-    label: "A2A Channel",
-    description:
-      "Enable A2A (assistant-to-assistant) channel for inter-assistant communication on the Contacts page.",
-  },
-  accountDeletion: {
-    label: "Account Deletion",
-    description:
-      "Surfaces the user-initiated account deletion flow in client settings.",
-  },
-  analyzeConversation: {
-    label: "Analyze Conversation",
-    description:
-      "Show the 'Analyze' option in conversation context menus and title actions dropdown.",
-  },
-  chatPullToRefreshEnabled: {
-    label: "Chat Pull to Refresh",
-    description: "Enable pull-to-refresh gesture in the chat view.",
-  },
-  conversationGroupsUI: {
-    label: "Conversation Groups",
-    description:
-      "Enable custom conversation group creation, move-to-group, and group management in the sidebar.",
-  },
-  deployToVercel: {
-    label: "Deploy to Vercel",
-    description:
-      "Enable the Deploy to Vercel / Publish option in the app workspace header share menu.",
-  },
-  settingsDeveloperNav: {
-    label: "Settings Developer Nav",
-    description: "Control Developer nav visibility in settings.",
-  },
-  doctor: {
-    label: "Doctor",
-    description: "Enable the Doctor diagnostic tab in Debug settings.",
-  },
-  multiPlatformAssistant: {
-    label: "Multi-Platform Assistant Switcher",
-    description:
-      "Enable the assistant switcher for managing multiple platform-hosted assistants.",
-  },
-  platformNotifications: {
-    label: "Platform Notifications",
-    description: "Enable the Notifications tab in settings.",
-  },
-  proPlanAdjust: {
-    label: "Pro Plan Adjust",
-    description: "Show the rich Plan card in the Billing tab.",
-  },
-  rollbackEnabled: {
-    label: "Rollback Enabled",
-    description:
-      "Show older versions in the version picker, allowing rollback to previous releases.",
-  },
-  safeStorageLimits: {
-    label: "Safe Storage Limits",
-    description:
-      "Enable disk pressure protection flows that block background work while storage is critically low.",
-  },
-  selfHostedAssistant: {
-    label: "Self-Hosted Assistant",
-    description: "Enable self-hosted assistant configuration.",
-  },
-  settingsSleepPolicy: {
-    label: "Settings Sleep Policy",
-    description: "Enable sleep policy settings.",
-  },
-  sounds: {
-    label: "Sounds",
-    description:
-      "Enable the Sounds tab in Settings and all app sound playback.",
-  },
-  homePage: {
-    label: "Home Page",
-    description: "Enable the Home page as the default landing view.",
-  },
-  openAICompatibleEndpoints: {
-    label: "OpenAI-Compatible Endpoints",
-    description:
-      "Enable OpenAI-compatible provider connections in AI settings.",
-  },
-  velvet: {
-    label: "Velvet",
-    description: "Enable the Velvet design theme.",
-  },
-};
 
 export function FeatureFlagsPanel() {
   const [searchText, setSearchText] = useState("");
@@ -122,19 +29,15 @@ export function FeatureFlagsPanel() {
   const flags: FlagDisplayEntry[] = useMemo(() => {
     const entries: FlagDisplayEntry[] = [];
     for (const flag of ALL_FLAGS) {
-      const normalizedKey = ldKeyToNormalized(flag.key);
-      const meta = FLAG_META[normalizedKey];
-      if (!meta) continue;
-      const value =
-        flag.scope === "client"
-          ? clientState[normalizedKey]
-          : assistantState[normalizedKey];
+      const storeKey = ldKeyToNormalized(flag.key);
+      const state = flag.scope === "client" ? clientState : assistantState;
+      const value = state[storeKey];
+      if (typeof value !== "boolean") continue;
       entries.push({
-        key: normalizedKey,
-        catalogKey: normalizedKey,
+        storeKey,
         scope: flag.scope as FlagScope,
-        label: meta.label,
-        description: meta.description,
+        label: flag.label,
+        description: flag.description,
         value,
         defaultValue: flag.defaultEnabled,
       });
@@ -153,7 +56,7 @@ export function FeatureFlagsPanel() {
       (flag) =>
         flag.label.toLowerCase().includes(query) ||
         flag.description.toLowerCase().includes(query) ||
-        flag.key.toLowerCase().includes(query) ||
+        flag.storeKey.toLowerCase().includes(query) ||
         flag.scope.toLowerCase().includes(query),
     );
   }, [flags, searchText]);
@@ -184,7 +87,7 @@ export function FeatureFlagsPanel() {
         {filteredFlags.length > 0 && (
           <div className="max-h-[500px] space-y-2 overflow-y-auto">
             {filteredFlags.map((flag) => (
-              <FeatureFlagRow key={flag.key} flag={flag} />
+              <FeatureFlagRow key={flag.storeKey} flag={flag} />
             ))}
           </div>
         )}
@@ -203,9 +106,9 @@ function FeatureFlagRow({ flag }: FeatureFlagRowProps) {
 
   const handleToggle = (next: boolean) => {
     if (flag.scope === "client") {
-      clientSetFlag(flag.catalogKey, next);
+      clientSetFlag(flag.storeKey, next);
     } else {
-      assistantSetFlag(flag.catalogKey, next);
+      assistantSetFlag(flag.storeKey, next);
     }
   };
 
@@ -225,13 +128,9 @@ function FeatureFlagRow({ flag }: FeatureFlagRowProps) {
           </span>
           <Tag tone="neutral">{flag.scope}</Tag>
         </div>
-        {flag.description && (
-          <div>
-            <span className="text-body-small-default text-[var(--content-tertiary)]">
-              {flag.description}
-            </span>
-          </div>
-        )}
+        <span className="block text-body-small-default text-[var(--content-tertiary)]">
+          {flag.description}
+        </span>
         <div className="flex items-center gap-1">
           <span className="text-body-small-default text-[var(--content-tertiary)]">
             Default:
