@@ -729,6 +729,12 @@ public struct ConversationInferenceProfileUpdatedMessage: Decodable, Sendable {
     }
 }
 
+public struct TurnProfileAutoRoutedMessage: Decodable, Sendable {
+    public let conversationId: String
+    public let profile: String
+    public let profileLabel: String
+}
+
 /// Server push — tells clients their sidebar conversation list is stale.
 public struct ConversationListInvalidatedMessage: Decodable, Sendable {
     public let reason: String
@@ -2901,6 +2907,7 @@ public enum ServerMessage: Decodable, Sendable {
     case messageComplete(MessageCompleteMessage)
     case conversationInfo(ConversationInfoMessage)
     case conversationInferenceProfileUpdated(ConversationInferenceProfileUpdatedMessage)
+    case turnProfileAutoRouted(TurnProfileAutoRoutedMessage)
     case conversationTitleUpdated(ConversationTitleUpdatedMessage)
     case conversationListResponse(ConversationListResponseMessage)
     case conversationListInvalidated(ConversationListInvalidatedMessage)
@@ -3121,6 +3128,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "conversation_inference_profile_updated":
             let message = try ConversationInferenceProfileUpdatedMessage(from: decoder)
             self = .conversationInferenceProfileUpdated(message)
+        case "turn_profile_auto_routed":
+            let message = try TurnProfileAutoRoutedMessage(from: decoder)
+            self = .turnProfileAutoRouted(message)
         case "conversation_title_updated":
             let message = try ConversationTitleUpdatedMessage(from: decoder)
             self = .conversationTitleUpdated(message)

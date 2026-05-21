@@ -54,12 +54,17 @@ struct ChatProfilePicker: View {
     /// conversation falls back to `activeProfile`.
     let onSelect: (String?) -> Void
 
+    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
+
     /// Pill label: the override profile's display name when set, otherwise
-    /// "Default (`<activeProfile>`)". Internal so tests can assert on it
-    /// without spinning up a SwiftUI host.
-    static func label(current: String?, profiles: [InferenceProfile], activeProfile: String) -> String {
+    /// "Auto" when auto-routing is enabled or "Default (`<activeProfile>`)"
+    /// when it is not.
+    static func label(current: String?, profiles: [InferenceProfile], activeProfile: String, autoRouting: Bool = false) -> String {
         if let current {
             return profiles.first(where: { $0.name == current })?.displayName ?? current
+        }
+        if autoRouting {
+            return "Auto"
         }
         let activeDisplay = profiles.first(where: { $0.name == activeProfile })?.displayName ?? activeProfile
         return "Default (\(activeDisplay))"
@@ -67,7 +72,9 @@ struct ChatProfilePicker: View {
 
     var body: some View {
         let activeProfiles = profiles.filter { !$0.isDisabled }
-        let pillLabel = Self.label(current: current, profiles: activeProfiles, activeProfile: activeProfile)
+        let autoRoutingEnabled = assistantFeatureFlagStore.isEnabled("query-complexity-routing")
+        let isAutoActive = autoRoutingEnabled && current == nil
+        let pillLabel = Self.label(current: current, profiles: activeProfiles, activeProfile: activeProfile, autoRouting: autoRoutingEnabled)
         #if os(macOS)
         ComposerPillMenu(
             isEnabled: isEnabled,
@@ -82,35 +89,56 @@ struct ChatProfilePicker: View {
                 .foregroundStyle(VColor.contentSecondary)
                 .lineLimit(1)
         } menu: {
-            ForEach(activeProfiles) { profile in
+            if autoRoutingEnabled {
                 VMenuItem(
-                    icon: VIcon.sparkles.rawValue,
-                    label: profile.displayName,
-                    isActive: current == profile.name,
+                    icon: VIcon.wand.rawValue,
+                    label: "Auto",
+                    isActive: isAutoActive,
                     size: .regular
                 ) {
-                    onSelect(profile.name)
+                    onSelect(nil)
                 } trailing: {
                     VStack(alignment: .trailing, spacing: 2) {
-                        if current == profile.name {
+                        if isAutoActive {
                             VIconView(.check, size: 12)
                                 .foregroundStyle(VColor.primaryBase)
                         }
                     }
                 }
             }
-            VMenuItem(
-                icon: VIcon.rotateCcw.rawValue,
-                label: "Reset to default (\(activeProfiles.first { $0.name == activeProfile }?.displayName ?? activeProfile))",
-                isActive: current == nil,
-                size: .regular
-            ) {
-                onSelect(nil)
-            } trailing: {
-                VStack(alignment: .trailing, spacing: 2) {
-                    if current == nil {
-                        VIconView(.check, size: 12)
-                            .foregroundStyle(VColor.primaryBase)
+
+            ForEach(activeProfiles) { profile in
+                VMenuItem(
+                    icon: VIcon.sparkles.rawValue,
+                    label: profile.displayName,
+                    isActive: !isAutoActive && current == profile.name,
+                    size: .regular
+                ) {
+                    onSelect(profile.name)
+                } trailing: {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        if !isAutoActive && current == profile.name {
+                            VIconView(.check, size: 12)
+                                .foregroundStyle(VColor.primaryBase)
+                        }
+                    }
+                }
+            }
+
+            if !autoRoutingEnabled {
+                VMenuItem(
+                    icon: VIcon.rotateCcw.rawValue,
+                    label: "Reset to default (\(activeProfiles.first { $0.name == activeProfile }?.displayName ?? activeProfile))",
+                    isActive: current == nil,
+                    size: .regular
+                ) {
+                    onSelect(nil)
+                } trailing: {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        if current == nil {
+                            VIconView(.check, size: 12)
+                                .foregroundStyle(VColor.primaryBase)
+                        }
                     }
                 }
             }

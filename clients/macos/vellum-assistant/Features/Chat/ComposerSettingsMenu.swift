@@ -22,6 +22,8 @@ struct ComposerSettingsMenu: View {
 
     let inferenceProfilePicker: ChatProfilePickerConfiguration?
 
+    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
+
     // MARK: - Threshold state (mirrors ComposerThresholdPicker)
 
     @State private var currentPreset: ThresholdPreset = .relaxed
@@ -150,20 +152,39 @@ struct ComposerSettingsMenu: View {
                 }
 
                 if let config, !config.profiles.isEmpty {
+                    let autoRoutingEnabled = assistantFeatureFlagStore.isEnabled("query-complexity-routing")
+                    let hasOverride = config.current != nil
+                    let isAutoActive = autoRoutingEnabled && !hasOverride
                     let effectiveProfile = config.current ?? config.activeProfile
 
                     sectionHeader("Model Profile")
+
+                    if autoRoutingEnabled {
+                        VMenuItem(
+                            icon: VIcon.wand.rawValue,
+                            label: "Auto",
+                            isActive: isAutoActive,
+                            size: .regular
+                        ) {
+                            config.onSelect(nil)
+                        } trailing: {
+                            if isAutoActive {
+                                VIconView(.check, size: 12)
+                                    .foregroundStyle(VColor.primaryBase)
+                            }
+                        }
+                    }
 
                     ForEach(config.profiles) { profile in
                         VMenuItem(
                             icon: VIcon.sparkles.rawValue,
                             label: profile.displayName,
-                            isActive: effectiveProfile == profile.name,
+                            isActive: !isAutoActive && effectiveProfile == profile.name,
                             size: .regular
                         ) {
                             config.onSelect(profile.name)
                         } trailing: {
-                            if effectiveProfile == profile.name {
+                            if !isAutoActive && effectiveProfile == profile.name {
                                 VIconView(.check, size: 12)
                                     .foregroundStyle(VColor.primaryBase)
                             }
