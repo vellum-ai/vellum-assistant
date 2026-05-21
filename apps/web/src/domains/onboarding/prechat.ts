@@ -33,6 +33,8 @@ export interface PreChatOnboardingContext {
   userName?: string;
   /** Undefined if the user kept the default assistant name. */
   assistantName?: string;
+  /** e.g. ["chatgpt", "openclaw", "hermes"] */
+  priorAssistants?: string[];
   /**
    * True when the user connected Google during the pre-chat onboarding
    * OAuth screen. Undefined/absent if the screen was not shown or the
@@ -80,6 +82,16 @@ export const TASK_DISPLAY_LABELS: Record<string, string> = {
   personal: "handles life admin",
 };
 
+export const PRIOR_ASSISTANT_DISPLAY_NAMES: Record<string, string> = {
+  chatgpt: "ChatGPT",
+  claude: "Claude",
+  openclaw: "OpenClaw",
+  hermes: "Hermes",
+  manus: "Manus",
+  gemini: "Gemini",
+  copilot: "Copilot",
+};
+
 function capitalizeFirst(value: string): string {
   if (!value) return value;
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -91,6 +103,10 @@ export function normalizePreChatTools(tools: string[]): string[] {
 
 export function normalizePreChatTasks(tasks: string[]): string[] {
   return tasks.map((id) => TASK_DISPLAY_LABELS[id] ?? id);
+}
+
+export function normalizePreChatPriorAssistants(ids: string[]): string[] {
+  return ids.map((id) => PRIOR_ASSISTANT_DISPLAY_NAMES[id] ?? capitalizeFirst(id));
 }
 
 /**
@@ -105,6 +121,9 @@ export function normalizePreChatOnboardingContext(
     ...ctx,
     tools: normalizePreChatTools(ctx.tools),
     tasks: normalizePreChatTasks(ctx.tasks),
+    priorAssistants: ctx.priorAssistants?.length
+      ? normalizePreChatPriorAssistants(ctx.priorAssistants)
+      : ctx.priorAssistants,
   };
 }
 
@@ -193,6 +212,10 @@ function isPreChatOnboardingContext(
   if (candidate.googleScopes !== undefined) {
     if (!Array.isArray(candidate.googleScopes)) return false;
     if (!candidate.googleScopes.every((s) => typeof s === "string")) return false;
+  }
+  if (candidate.priorAssistants !== undefined) {
+    if (!Array.isArray(candidate.priorAssistants)) return false;
+    if (!candidate.priorAssistants.every((s) => typeof s === "string")) return false;
   }
   return true;
 }
