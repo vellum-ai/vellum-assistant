@@ -91,9 +91,10 @@ describe("VellumAgent", () => {
 
     expect(agent.id).toBe("eval-run-1");
     expect(agent.conversationKey).toBe("evals:timeline-recall:eval-run-1");
-    expect(runner.runs.map((r) => [r.command, ...r.args])).toEqual([
-      [
-        "vellum",
+    // Recording sidecar adds docker build + run calls
+    expect(runner.runs[0]).toEqual({
+      command: "vellum",
+      args: [
         "hatch",
         "vellum",
         "--remote",
@@ -103,18 +104,34 @@ describe("VellumAgent", () => {
         "--name",
         "eval-run-1",
       ],
-      ["docker", "rm", "-f", "eval-run-1-assistant-egress-jail"],
-      expect.arrayContaining([
-        "docker",
-        "run",
-        "--rm",
-        "--name",
-        "eval-run-1-assistant-egress-jail",
-        "--network",
-        "container:eval-run-1-assistant",
-      ]),
-      [
-        "vellum",
+      opts: { env: {} },
+    });
+    expect(runner.runs[1]).toEqual({
+      command: "docker",
+      args: ["rm", "-f", "eval-run-1-assistant-egress-jail"],
+    });
+    // Build command
+    expect(runner.runs[2].command).toBe("docker");
+    expect(runner.runs[2].args[0]).toBe("build");
+    expect(runner.runs[2].args[1]).toBe("-t");
+    expect(runner.runs[2].args[2]).toBe("vellum-evals-recording-jail:local");
+    // Run command (detached recording jail)
+    expect(runner.runs[3].command).toBe("docker");
+    expect(runner.runs[3].args.slice(0, 6)).toEqual([
+      "run",
+      "-d",
+      "--name",
+      "eval-run-1-assistant-egress-jail",
+      "--network",
+      "container:eval-run-1-assistant",
+    ]);
+    expect(runner.runs[3].args).toContain("--cap-add");
+    expect(runner.runs[3].args).toContain("NET_ADMIN");
+    expect(runner.runs[3].args).toContain("evals.vellum.ai/egress-recording=1");
+    // Setup command
+    expect(runner.runs[4]).toEqual({
+      command: "vellum",
+      args: [
         "exec",
         "eval-run-1",
         "--",
@@ -122,8 +139,7 @@ describe("VellumAgent", () => {
         "-lc",
         "assistant plugins install simple-memory",
       ],
-    ]);
-    expect(runner.runs[2].args).toContain("--cap-add");
+    });
     expect(runner.spawns).toEqual([]);
 
     const events = [];

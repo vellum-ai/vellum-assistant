@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentMessage } from "../adapter";
+import type { AgentEvent, AgentMessage, BaseAgent } from "../adapter";
 import {
   appendAssistantEvents,
   appendProgressEvent,
@@ -6,6 +6,7 @@ import {
   appendTranscriptTurn,
   ensureRunArtifacts,
   readTranscript,
+  readUsage,
   runMetrics,
   type MetricResult,
   writeMetricResults,
@@ -15,7 +16,7 @@ import {
 import type { Profile } from "../profile";
 import type { TestDef } from "../test-def";
 import type { TranscriptTurn } from "../transcript";
-import { summarizeAssistantUsage } from "../usage";
+import { mergeUsageSummaries, summarizeAssistantUsage } from "../usage";
 import {
   SimulatorParseError,
   UserSimulator,
@@ -100,7 +101,7 @@ async function collectAndPersistEvents(input: {
   collector: AgentEventCollector;
   assistantEvents: AgentEvent[];
   includeInTranscript: boolean;
-}): Promise<void> {
+}): Promise<number> {
   const events = await input.collector.collectUntilQuiet({
     quietMs: EVENT_QUIET_MS,
     maxMs: EVENT_MAX_MS,
@@ -108,6 +109,7 @@ async function collectAndPersistEvents(input: {
   input.assistantEvents.push(...events);
   await appendAssistantEvents(input.runId, events);
 
+  let transcriptTurnCount = 0;
   if (input.includeInTranscript) {
     for (const event of events) {
       const content = assistantContent(event);
@@ -117,11 +119,31 @@ async function collectAndPersistEvents(input: {
           content: content.trim(),
           emittedAt: event.emittedAt ?? new Date().toISOString(),
         });
+        transcriptTurnCount += 1;
       }
     }
   }
 
-  await writeUsage(input.runId, summarizeAssistantUsage(input.assistantEvents));
+  const eventUsage = summarizeAssistantUsage(input.assistantEvents);
+  const existingUsage = await readUsage(input.runId);
+  await writeUsage(input.runId, mergeUsageSummaries(existingUsage, eventUsage));
+  return transcriptTurnCount;
+}
+
+async function mergeRecordedUsage(input: {
+  runId: string;
+  agent: BaseAgent;
+}): Promise<void> {
+  const records = await input.agent.readUsageRecords?.();
+  if (!records || records.length === 0) return;
+  const existingUsage = await readUsage(input.runId);
+  const recordedUsage = summarizeAssistantUsage(
+    records.map((usage) => ({ message: { type: "usage", usage } })),
+  );
+  await writeUsage(
+    input.runId,
+    mergeUsageSummaries(existingUsage, recordedUsage),
+  );
 }
 
 async function sendAndPersistSimulatorMessage(input: {
@@ -306,19 +328,27 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         message: "Waiting for assistant response",
         turn: simulatorTurns + 1,
       });
-      await collectAndPersistEvents({
+      const assistantTranscriptTurns = await collectAndPersistEvents({
         runId: input.runId,
         collector,
         assistantEvents,
         includeInTranscript: true,
       });
+      if (assistantTranscriptTurns === 0) {
+        throw new Error(
+          `assistant response collection produced no transcript text for turn ${simulatorTurns + 1}`,
+        );
+      }
       progress({
         step: "events",
         status: "done",
         message: "Assistant response collected",
+        detail: `${assistantTranscriptTurns} transcript turn${assistantTranscriptTurns === 1 ? "" : "s"}`,
         turn: simulatorTurns + 1,
       });
     }
+
+    await mergeRecordedUsage({ runId: input.runId, agent });
 
     progress({
       step: "metrics",

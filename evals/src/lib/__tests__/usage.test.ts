@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AgentEvent } from "../adapter";
-import { summarizeAssistantUsage } from "../usage";
+import { mergeUsageSummaries, summarizeAssistantUsage } from "../usage";
 
 function usageEvent(usage: Record<string, unknown>): AgentEvent {
   return { message: { type: "usage", usage } };
@@ -123,4 +123,32 @@ describe("summarizeAssistantUsage", () => {
     expect(summary.requests).toHaveLength(1);
     expect(summary.totalCostUsd).toBeCloseTo(0.0105, 6);
   });
+});
+
+test("mergeUsageSummaries re-prices combined daemon and recording usage records", () => {
+  const summary = mergeUsageSummaries(
+    summarizeAssistantUsage([
+      usageEvent({
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        input_tokens: 1_000,
+        output_tokens: 500,
+      }),
+    ]),
+    {
+      requests: [
+        {
+          provider: "anthropic",
+          model: "claude-haiku-4-5",
+          input_tokens: 2_000,
+          output_tokens: 1_000,
+        },
+      ],
+    },
+  );
+
+  expect(summary.requests).toHaveLength(2);
+  expect(summary.totalInputTokens).toBe(3_000);
+  expect(summary.totalCostUsd).toBeCloseTo(0.0105 + 0.007, 6);
+  expect(summary.costStatus).toBe("ok");
 });
