@@ -4,6 +4,13 @@ const deliveredChannelReplies: Array<{
   callbackUrl: string;
   payload: Record<string, unknown>;
 }> = [];
+const markedProcessedEvents: string[] = [];
+const processingFailureEvents: string[] = [];
+const deliveredEvents: string[] = [];
+const deliveryFailureEvents: string[] = [];
+let deliverReplyViaCallbackImpl: (
+  ...args: unknown[]
+) => Promise<void> = async () => {};
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
@@ -21,8 +28,18 @@ mock.module("../../../memory/delivery-crud.js", () => ({
 }));
 
 mock.module("../../../memory/delivery-status.js", () => ({
-  markProcessed: () => {},
-  recordProcessingFailure: () => {},
+  markDeliveryDelivered: (eventId: string) => {
+    deliveredEvents.push(eventId);
+  },
+  markProcessed: (eventId: string) => {
+    markedProcessedEvents.push(eventId);
+  },
+  recordDeliveryFailure: (eventId: string) => {
+    deliveryFailureEvents.push(eventId);
+  },
+  recordProcessingFailure: (eventId: string) => {
+    processingFailureEvents.push(eventId);
+  },
 }));
 
 mock.module("../../gateway-client.js", () => ({
@@ -36,7 +53,8 @@ mock.module("../../gateway-client.js", () => ({
 }));
 
 mock.module("../channel-delivery-routes.js", () => ({
-  deliverReplyViaCallback: async () => {},
+  deliverReplyViaCallback: async (...args: unknown[]) =>
+    deliverReplyViaCallbackImpl(...args),
 }));
 
 import type { TrustContext } from "../../../daemon/trust-context.js";
@@ -52,6 +70,15 @@ import {
   shouldStartSlackThinkingStatusForText,
   shouldStartSlackThinkingStatusImmediately,
 } from "./background-dispatch.js";
+
+beforeEach(() => {
+  deliveredChannelReplies.length = 0;
+  markedProcessedEvents.length = 0;
+  processingFailureEvents.length = 0;
+  deliveredEvents.length = 0;
+  deliveryFailureEvents.length = 0;
+  deliverReplyViaCallbackImpl = async () => {};
+});
 
 describe("isBoundGuardianActor", () => {
   test("returns true only when requester matches bound guardian", () => {
@@ -168,6 +195,40 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     await flush();
 
     expect(getThreadTs(conversationId)).toBe(newThreadTs);
+
+    clearThreadTs(conversationId);
+  });
+
+  test("records callback delivery failures without failing processing", async () => {
+    const conversationId = "conv-delivery-failure";
+    const channelId = "C-DELIVERY-FAILURE";
+
+    const processMessage: MessageProcessor = async () => ({
+      messageId: "user-msg-delivery-failure",
+    });
+    deliverReplyViaCallbackImpl = async () => {
+      throw new Error("fetch failed");
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-delivery-failure",
+      content: "please reply",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+    });
+
+    await flush();
+
+    expect(markedProcessedEvents).toEqual(["evt-delivery-failure"]);
+    expect(processingFailureEvents).toEqual([]);
+    expect(deliveryFailureEvents).toEqual(["evt-delivery-failure"]);
+    expect(deliveredEvents).toEqual([]);
 
     clearThreadTs(conversationId);
   });

@@ -25,8 +25,11 @@ import {
 import {
   acknowledgeDelivery,
   getDeadLetterEvents,
+  getRetryableDeliveryEvents,
   getRetryableEvents,
+  markDeliveryDelivered,
   markProcessed,
+  recordDeliveryFailure,
   recordProcessingFailure,
   replayDeadLetters,
 } from "../memory/delivery-status.js";
@@ -509,6 +512,47 @@ describe("channel-delivery-store", () => {
   test("acknowledgeDelivery returns false for unknown event", () => {
     const ack = acknowledgeDelivery("telegram", "chat-1", "nonexistent");
     expect(ack).toBe(false);
+  });
+
+  test("delivery failures are retryable without changing processing status", () => {
+    const result = recordInbound("telegram", "chat-1", "msg-1");
+    markProcessed(result.eventId);
+
+    recordDeliveryFailure(result.eventId, new Error("fetch failed"));
+
+    const db = getDb();
+    let row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .get();
+    expect(row!.processingStatus).toBe("processed");
+    expect(row!.deliveryStatus).toBe("failed");
+    expect(row!.processingAttempts).toBe(1);
+    expect(row!.lastProcessingError).toBe("fetch failed");
+    expect(row!.retryAfter).toBeGreaterThan(0);
+
+    db.update(channelInboundEvents)
+      .set({ retryAfter: Date.now() - 10_000, deliveredSegmentCount: 2 })
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .run();
+
+    const retryable = getRetryableDeliveryEvents();
+    expect(retryable).toHaveLength(1);
+    expect(retryable[0].id).toBe(result.eventId);
+    expect(retryable[0].deliveredSegmentCount).toBe(2);
+
+    markDeliveryDelivered(result.eventId);
+
+    row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .get();
+    expect(row!.processingStatus).toBe("processed");
+    expect(row!.deliveryStatus).toBe("delivered");
+    expect(row!.retryAfter).toBeNull();
+    expect(getRetryableDeliveryEvents()).toHaveLength(0);
   });
 
   // ── Processing status transitions ─────────────────────────────────

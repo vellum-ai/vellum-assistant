@@ -9,6 +9,42 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+const deliveryCalls: Array<{
+  conversationId: string;
+  externalChatId: string;
+  callbackUrl: string;
+  assistantId?: string;
+  startFromSegment?: number;
+}> = [];
+let deliverReplyViaCallbackImpl: (
+  ...args: unknown[]
+) => Promise<void> = async () => {};
+
+mock.module("../runtime/channel-reply-delivery.js", () => ({
+  deliverReplyViaCallback: async (
+    conversationId: string,
+    externalChatId: string,
+    callbackUrl: string,
+    assistantId?: string,
+    options?: { startFromSegment?: number },
+  ) => {
+    deliveryCalls.push({
+      conversationId,
+      externalChatId,
+      callbackUrl,
+      assistantId,
+      startFromSegment: options?.startFromSegment,
+    });
+    return deliverReplyViaCallbackImpl(
+      conversationId,
+      externalChatId,
+      callbackUrl,
+      assistantId,
+      options,
+    );
+  },
+}));
+
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import * as deliveryCrud from "../memory/delivery-crud.js";
@@ -97,6 +133,8 @@ function seedFailedEventWithActorRoleOnly(
 describe("channel-retry-sweep", () => {
   beforeEach(() => {
     resetTables();
+    deliveryCalls.length = 0;
+    deliverReplyViaCallbackImpl = async () => {};
   });
 
   test("replays canonical payloads with trustClass correctly", async () => {
@@ -295,5 +333,118 @@ describe("channel-retry-sweep", () => {
     expect(capturedOptions?.trustContext?.trustClass).toBe("unknown");
     expect(capturedOptions?.trustContext?.sourceChannel).toBe("telegram");
     expect(capturedOptions?.isInteractive).toBe(false);
+  });
+
+  test("delivery failure after successful replay does not requeue processing", async () => {
+    const inbound = deliveryCrud.recordInbound(
+      "telegram",
+      "chat-delivery-fails",
+      "msg-delivery-fails",
+    );
+    deliveryCrud.storePayload(inbound.eventId, {
+      content: "retry me",
+      sourceChannel: "telegram",
+      interface: "telegram",
+      externalChatId: "chat-delivery-fails",
+      replyCallbackUrl: "https://example.test/deliver/telegram",
+      trustCtx: {
+        trustClass: "unknown",
+        sourceChannel: "telegram",
+        requesterChatId: "chat-delivery-fails",
+      },
+    });
+
+    const db = getDb();
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "failed",
+        processingAttempts: 1,
+        retryAfter: Date.now() - 1,
+      })
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .run();
+    deliverReplyViaCallbackImpl = async () => {
+      throw new Error("fetch failed");
+    };
+
+    let processMessageCalls = 0;
+    await sweepFailedEvents(async (conversationId) => {
+      processMessageCalls++;
+      const messageId = "message-delivery-fails";
+      db.insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
+
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .get();
+    expect(processMessageCalls).toBe(1);
+    expect(deliveryCalls).toHaveLength(1);
+    expect(row?.processingStatus).toBe("processed");
+    expect(row?.deliveryStatus).toBe("failed");
+    expect(row?.messageId).toBe("message-delivery-fails");
+  });
+
+  test("delivery retry for processed events resumes delivery without processing", async () => {
+    const inbound = deliveryCrud.recordInbound(
+      "telegram",
+      "chat-delivery-only",
+      "msg-delivery-only",
+    );
+    deliveryCrud.storePayload(inbound.eventId, {
+      content: "already processed",
+      sourceChannel: "telegram",
+      interface: "telegram",
+      externalChatId: "chat-delivery-only",
+      replyCallbackUrl: "https://example.test/deliver/telegram",
+      assistantId: "assistant-1",
+    });
+
+    const db = getDb();
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "processed",
+        deliveryStatus: "failed",
+        processingAttempts: 1,
+        retryAfter: Date.now() - 1,
+        deliveredSegmentCount: 2,
+      })
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .run();
+
+    let processMessageCalls = 0;
+    await sweepFailedEvents(async () => {
+      processMessageCalls++;
+      throw new Error("processMessage should not be called");
+    });
+
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .get();
+    expect(processMessageCalls).toBe(0);
+    expect(deliveryCalls).toEqual([
+      {
+        conversationId: inbound.conversationId,
+        externalChatId: "chat-delivery-only",
+        callbackUrl: "https://example.test/deliver/telegram",
+        assistantId: "assistant-1",
+        startFromSegment: 2,
+      },
+    ]);
+    expect(row?.processingStatus).toBe("processed");
+    expect(row?.deliveryStatus).toBe("delivered");
+    expect(row?.retryAfter).toBeNull();
   });
 });

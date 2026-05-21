@@ -13,9 +13,12 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import { updateDeliveredSegmentCount } from "../memory/delivery-channels.js";
 import { clearPayload, linkMessage } from "../memory/delivery-crud.js";
 import {
+  getRetryableDeliveryEvents,
   getRetryableEvents,
+  markDeliveryDelivered,
   markProcessed,
   markRetryableFailure,
+  recordDeliveryFailure,
   recordProcessingFailure,
 } from "../memory/delivery-status.js";
 import { getLogger } from "../util/logger.js";
@@ -91,9 +94,13 @@ export async function sweepFailedEvents(
   processMessage: MessageProcessor,
 ): Promise<void> {
   const events = getRetryableEvents();
-  if (events.length === 0) return;
+  const deliveryEvents = getRetryableDeliveryEvents();
+  if (events.length === 0 && deliveryEvents.length === 0) return;
 
-  log.info({ count: events.length }, "Retrying failed channel inbound events");
+  log.info(
+    { processingCount: events.length, deliveryCount: deliveryEvents.length },
+    "Retrying failed channel inbound events",
+  );
 
   for (const event of events) {
     if (!event.rawPayload) {
@@ -270,17 +277,23 @@ export async function sweepFailedEvents(
         { eventId: event.id },
         "Successfully replayed failed channel event",
       );
+    } catch (err) {
+      log.error({ err, eventId: event.id }, "Retry failed for channel event");
+      recordProcessingFailure(event.id, err);
+      continue;
+    }
 
-      const replyCallbackUrl =
-        typeof payload.replyCallbackUrl === "string"
-          ? payload.replyCallbackUrl
+    const replyCallbackUrl =
+      typeof payload.replyCallbackUrl === "string"
+        ? payload.replyCallbackUrl
+        : undefined;
+    if (replyCallbackUrl) {
+      const externalChatId =
+        typeof payload.externalChatId === "string"
+          ? payload.externalChatId
           : undefined;
-      if (replyCallbackUrl) {
-        const externalChatId =
-          typeof payload.externalChatId === "string"
-            ? payload.externalChatId
-            : undefined;
-        if (externalChatId) {
+      if (externalChatId) {
+        try {
           // processMessage above generated a fresh assistant response, so any
           // previously tracked segment progress belongs to the old response and
           // must not carry over. Reset to 0 so we deliver all segments of the
@@ -297,11 +310,75 @@ export async function sweepFailedEvents(
                 updateDeliveredSegmentCount(event.id, count),
             },
           );
+          markDeliveryDelivered(event.id);
+        } catch (err) {
+          log.error(
+            { err, eventId: event.id },
+            "Retry delivery failed for channel event",
+          );
+          recordDeliveryFailure(event.id, err);
         }
       }
+    }
+  }
+
+  for (const event of deliveryEvents) {
+    if (!event.rawPayload) {
+      recordDeliveryFailure(
+        event.id,
+        new Error("No raw payload stored for delivery retry"),
+      );
+      continue;
+    }
+
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(event.rawPayload) as Record<string, unknown>;
+    } catch {
+      recordDeliveryFailure(
+        event.id,
+        new Error("Failed to parse stored raw payload for delivery retry"),
+      );
+      continue;
+    }
+
+    const replyCallbackUrl =
+      typeof payload.replyCallbackUrl === "string"
+        ? payload.replyCallbackUrl
+        : undefined;
+    const externalChatId =
+      typeof payload.externalChatId === "string"
+        ? payload.externalChatId
+        : undefined;
+    const assistantId =
+      typeof payload.assistantId === "string" ? payload.assistantId : undefined;
+    if (!replyCallbackUrl || !externalChatId) {
+      recordDeliveryFailure(
+        event.id,
+        new Error("Stored payload is missing delivery callback details"),
+      );
+      continue;
+    }
+
+    try {
+      await deliverReplyViaCallback(
+        event.conversationId,
+        externalChatId,
+        replyCallbackUrl,
+        assistantId,
+        {
+          startFromSegment: event.deliveredSegmentCount,
+          onSegmentDelivered: (count) =>
+            updateDeliveredSegmentCount(event.id, count),
+        },
+      );
+      markDeliveryDelivered(event.id);
     } catch (err) {
-      log.error({ err, eventId: event.id }, "Retry failed for channel event");
-      recordProcessingFailure(event.id, err);
+      log.error(
+        { err, eventId: event.id },
+        "Retry delivery failed for processed channel event",
+      );
+      recordDeliveryFailure(event.id, err);
     }
   }
 }

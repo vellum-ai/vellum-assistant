@@ -44,6 +44,7 @@ export function acknowledgeDelivery(
   db.update(channelInboundEvents)
     .set({
       deliveryStatus: "delivered",
+      retryAfter: null,
       updatedAt: now,
     })
     .where(eq(channelInboundEvents.id, existing.id))
@@ -59,6 +60,23 @@ export function markProcessed(eventId: string): void {
     .set({ processingStatus: "processed", updatedAt: Date.now() })
     .where(eq(channelInboundEvents.id, eventId))
     .run();
+}
+
+/** Mark an event's outbound callback delivery as complete. */
+export function markDeliveryDelivered(eventId: string): void {
+  const db = getDb();
+  db.update(channelInboundEvents)
+    .set({
+      deliveryStatus: "delivered",
+      retryAfter: null,
+      updatedAt: Date.now(),
+    })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /**
@@ -79,7 +97,7 @@ export function recordProcessingFailure(eventId: string, err: unknown): void {
 
   const attempts = (row?.attempts ?? 0) + 1;
   const category = classifyError(err);
-  const errorMsg = err instanceof Error ? err.message : String(err);
+  const errorMsg = errorMessage(err);
 
   if (category === "fatal" || attempts >= RETRY_MAX_ATTEMPTS) {
     db.update(channelInboundEvents)
@@ -97,6 +115,51 @@ export function recordProcessingFailure(eventId: string, err: unknown): void {
     db.update(channelInboundEvents)
       .set({
         processingStatus: "failed",
+        processingAttempts: attempts,
+        lastProcessingError: errorMsg,
+        retryAfter: now + delay,
+        updatedAt: now,
+      })
+      .where(eq(channelInboundEvents.id, eventId))
+      .run();
+  }
+}
+
+/**
+ * Record an outbound callback delivery failure without changing the processing
+ * status. The attempt/error/backoff columns are row-level retry bookkeeping
+ * shared with processing failures until delivery gets its own counters.
+ */
+export function recordDeliveryFailure(eventId: string, err: unknown): void {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select({ attempts: channelInboundEvents.processingAttempts })
+    .from(channelInboundEvents)
+    .where(eq(channelInboundEvents.id, eventId))
+    .get();
+
+  const attempts = (row?.attempts ?? 0) + 1;
+  const category = classifyError(err);
+  const errorMsg = errorMessage(err);
+
+  if (category === "fatal" || attempts >= RETRY_MAX_ATTEMPTS) {
+    db.update(channelInboundEvents)
+      .set({
+        deliveryStatus: "dead_letter",
+        processingAttempts: attempts,
+        lastProcessingError: errorMsg,
+        retryAfter: null,
+        updatedAt: now,
+      })
+      .where(eq(channelInboundEvents.id, eventId))
+      .run();
+  } else {
+    const delay = retryDelayForAttempt(attempts);
+    db.update(channelInboundEvents)
+      .set({
+        deliveryStatus: "failed",
         processingAttempts: attempts,
         lastProcessingError: errorMsg,
         retryAfter: now + delay,
@@ -173,6 +236,36 @@ export function getRetryableEvents(limit = 20): Array<{
     .where(
       and(
         eq(channelInboundEvents.processingStatus, "failed"),
+        lte(channelInboundEvents.retryAfter, now),
+      ),
+    )
+    .limit(limit)
+    .all();
+}
+
+/** Fetch callback deliveries eligible for retry without rerunning processing. */
+export function getRetryableDeliveryEvents(limit = 20): Array<{
+  id: string;
+  conversationId: string;
+  processingAttempts: number;
+  rawPayload: string | null;
+  deliveredSegmentCount: number;
+}> {
+  const db = getDb();
+  const now = Date.now();
+  return db
+    .select({
+      id: channelInboundEvents.id,
+      conversationId: channelInboundEvents.conversationId,
+      processingAttempts: channelInboundEvents.processingAttempts,
+      rawPayload: channelInboundEvents.rawPayload,
+      deliveredSegmentCount: channelInboundEvents.deliveredSegmentCount,
+    })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.processingStatus, "processed"),
+        eq(channelInboundEvents.deliveryStatus, "failed"),
         lte(channelInboundEvents.retryAfter, now),
       ),
     )
