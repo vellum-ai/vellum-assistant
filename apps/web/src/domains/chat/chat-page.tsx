@@ -938,6 +938,25 @@ export function ChatPage() {
     return () => { setTopBarCenter(null); };
   }, [topBarCenterContent, setTopBarCenter]);
 
+  // Open an app from inside a chat (assets pill, "Open App" on a message).
+  // On macOS this enters side-by-side editing mode (chat + app preview);
+  // we mirror that here by transitioning the viewer to `app-editing` once
+  // the load lands, keeping the current conversation as the edit chat.
+  // Bail if the load failed or a newer open superseded this one.
+  const handleOpenAppFromChat = useCallback(
+    async (appId: string) => {
+      if (!assistantId) return;
+      haptic.light();
+      await useViewerStore.getState().loadApp(assistantId, appId);
+      const { activeAppId, openedAppState } = useViewerStore.getState();
+      if (activeConversationKey && openedAppState && activeAppId === appId) {
+        useConversationStore.getState().setEditingKey(activeConversationKey);
+        useViewerStore.getState().enterAppEditing();
+      }
+    },
+    [assistantId, activeConversationKey],
+  );
+
   const topBarRightContent = useMemo(() => {
     if (!activeConversation?.conversationKey || !assistantId) return null;
     return (
@@ -945,17 +964,14 @@ export function ChatPage() {
         assistantId={assistantId}
         conversationId={activeConversation.conversationKey}
         refreshKey={assetsRefreshKey}
-        onOpenApp={(appId) => {
-          haptic.light();
-          if (assistantId) void useViewerStore.getState().loadApp(assistantId, appId);
-        }}
+        onOpenApp={handleOpenAppFromChat}
         onOpenDocument={(surfaceId) => {
           haptic.light();
           if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
         }}
       />
     );
-  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey]);
+  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey, handleOpenAppFromChat]);
 
   useEffect(() => {
     setTopBarRightSlot(topBarRightContent);
@@ -1135,10 +1151,7 @@ export function ChatPage() {
       unknownNudgeToolCallIds: interactionActions.unknownNudgeToolCallIds,
       setUnknownNudgeToolCallIds: interactionActions.setUnknownNudgeToolCallIds,
     },
-    handleOpenApp: (appId: string) => {
-      haptic.light();
-      if (assistantId) void useViewerStore.getState().loadApp(assistantId, appId);
-    },
+    handleOpenApp: handleOpenAppFromChat,
     handleOpenDocument: (surfaceId: string) => {
       haptic.light();
       if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
