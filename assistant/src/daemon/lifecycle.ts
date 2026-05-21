@@ -2,6 +2,7 @@ import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
 
+import { registerBackgroundWakeRuntime } from "../background-wake/runtime-registry.js";
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
@@ -1291,6 +1292,7 @@ export async function runDaemon(): Promise<void> {
         }),
     });
     heartbeat.start();
+    registerBackgroundWakeRuntime({ scheduler, heartbeat });
     log.info(
       {
         enabled: heartbeatConfig.enabled,

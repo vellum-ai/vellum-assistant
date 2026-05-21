@@ -663,6 +663,12 @@ registerPolicy("channels/inbound", {
   allowedPrincipalTypes: ["svc_gateway"],
 });
 
+// Background wake control-plane calls from the platform.
+registerPolicy("background-wake", {
+  requiredScopes: ["internal.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+});
+
 // Internal forwarding endpoints: gateway-only
 const INTERNAL_ENDPOINTS = [
   "internal/twilio/voice-webhook",

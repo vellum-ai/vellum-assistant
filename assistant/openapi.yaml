@@ -1823,6 +1823,247 @@ paths:
               required:
                 - id
               additionalProperties: false
+  /v1/background-wake/drain-due:
+    post:
+      operationId: backgroundwake_draindue_post
+      summary: Drain due background wake work
+      description: Run due heartbeat and scheduler work for a background wake lease.
+      tags:
+        - background-wake
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  leaseId:
+                    type: string
+                  reason:
+                    type: string
+                  sourceGeneration:
+                    type: string
+                  startedAt:
+                    type: number
+                  deadlineAt:
+                    type: number
+                  counts:
+                    type: object
+                    properties:
+                      heartbeat:
+                        type: number
+                      scheduler:
+                        type: number
+                      total:
+                        type: number
+                    required:
+                      - heartbeat
+                      - scheduler
+                      - total
+                    additionalProperties: false
+                  nextIntent:
+                    anyOf:
+                      - type: object
+                        properties:
+                          nextWakeAt:
+                            type: number
+                          actualNextDueAt:
+                            type: number
+                          reason:
+                            type: string
+                            enum:
+                              - heartbeat
+                              - schedule
+                              - mixed
+                          sourceGeneration:
+                            type: string
+                          computedAt:
+                            type: number
+                          sourcePayload:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties: {}
+                        required:
+                          - nextWakeAt
+                          - actualNextDueAt
+                          - reason
+                          - sourceGeneration
+                          - computedAt
+                          - sourcePayload
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - leaseId
+                  - reason
+                  - sourceGeneration
+                  - startedAt
+                  - deadlineAt
+                  - counts
+                  - nextIntent
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              anyOf:
+                - type: object
+                  properties:
+                    leaseId:
+                      type: string
+                      minLength: 1
+                    reason:
+                      type: string
+                      minLength: 1
+                    sourceGeneration:
+                      type: string
+                      minLength: 1
+                    startedAt:
+                      anyOf:
+                        - type: number
+                        - type: string
+                    deadlineAt:
+                      anyOf:
+                        - type: number
+                        - type: string
+                  required:
+                    - leaseId
+                    - reason
+                    - sourceGeneration
+                    - startedAt
+                    - deadlineAt
+                  additionalProperties: false
+                - type: object
+                  properties:
+                    lease_id:
+                      type: string
+                      minLength: 1
+                    reason:
+                      type: string
+                      minLength: 1
+                    source_generation:
+                      type: string
+                      minLength: 1
+                    started_at:
+                      anyOf:
+                        - type: number
+                        - type: string
+                    deadline_at:
+                      anyOf:
+                        - type: number
+                        - type: string
+                  required:
+                    - lease_id
+                    - reason
+                    - source_generation
+                    - started_at
+                    - deadline_at
+                  additionalProperties: false
+  /v1/background-wake/intent:
+    get:
+      operationId: backgroundwake_intent_get
+      summary: Get background wake intent
+      description: Return the current computed background wake intent.
+      tags:
+        - background-wake
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  intent:
+                    anyOf:
+                      - type: object
+                        properties:
+                          nextWakeAt:
+                            type: number
+                          actualNextDueAt:
+                            type: number
+                          reason:
+                            type: string
+                            enum:
+                              - heartbeat
+                              - schedule
+                              - mixed
+                          sourceGeneration:
+                            type: string
+                          computedAt:
+                            type: number
+                          sourcePayload:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties: {}
+                        required:
+                          - nextWakeAt
+                          - actualNextDueAt
+                          - reason
+                          - sourceGeneration
+                          - computedAt
+                          - sourcePayload
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - intent
+                additionalProperties: false
+  /v1/background-wake/prepare-sleep:
+    post:
+      operationId: backgroundwake_preparesleep_post
+      summary: Prepare for assistant sleep
+      description: Return the current background wake intent and whether sleep should be deferred.
+      tags:
+        - background-wake
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  intent:
+                    anyOf:
+                      - type: object
+                        properties:
+                          nextWakeAt:
+                            type: number
+                          actualNextDueAt:
+                            type: number
+                          reason:
+                            type: string
+                            enum:
+                              - heartbeat
+                              - schedule
+                              - mixed
+                          sourceGeneration:
+                            type: string
+                          computedAt:
+                            type: number
+                          sourcePayload:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties: {}
+                        required:
+                          - nextWakeAt
+                          - actualNextDueAt
+                          - reason
+                          - sourceGeneration
+                          - computedAt
+                          - sourcePayload
+                        additionalProperties: false
+                      - type: "null"
+                  deferSleep:
+                    type: boolean
+                required:
+                  - intent
+                  - deferSleep
+                additionalProperties: false
   /v1/backup/destinations:
     get:
       operationId: backup_destinations_get
