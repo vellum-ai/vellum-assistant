@@ -107,7 +107,6 @@ export function AutoTopUpPaymentMethodModal({
 
   // Resolve Stripe appearance once per modal open (keyed on clientSecret) so
   // Elements picks up the active light/dark theme without a stale cache.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const stripeAppearance = useMemo(() => getStripeAppearance(), [clientSecret]);
 
   return (
