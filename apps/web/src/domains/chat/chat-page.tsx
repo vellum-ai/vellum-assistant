@@ -1088,13 +1088,7 @@ export function ChatPage() {
       if (!openedAppState || !assistantId) return;
 
       const appId = openedAppState.appId;
-      const stored = getEditChatKey(assistantId, appId);
-      const storedStillExists =
-        stored !== null &&
-        (conversations.length === 0 ||
-          conversations.some((c) => c.conversationKey === stored));
-
-      const conversationKey = storedStillExists ? stored! : crypto.randomUUID();
+      const conversationKey = getEditChatKey(assistantId, appId) ?? crypto.randomUUID();
       setEditChatKey(assistantId, appId, conversationKey);
       useConversationStore.getState().setEditingKey(conversationKey);
       useViewerStore.getState().enterAppEditing();
