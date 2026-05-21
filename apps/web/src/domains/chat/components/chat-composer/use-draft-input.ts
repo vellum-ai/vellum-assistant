@@ -12,6 +12,7 @@
 
 import {
   type Dispatch,
+  type MutableRefObject,
   type SetStateAction,
   useCallback,
   useEffect,
@@ -75,6 +76,13 @@ export interface UseDraftInputParams {
   assistantId: string | null;
   activeConversationKey: string | null;
   /**
+   * When true, the next key change is a draft-to-server key resolution (not a
+   * real switch). The hook skips save/restore and only updates its internal
+   * `previousKeyRef`. Owned by ChatPage, written by `useSendMessage` when a
+   * draft conversation receives its server-assigned ID.
+   */
+  draftKeyResolutionRef: MutableRefObject<boolean>;
+  /**
    * Fires after a non-empty saved draft is restored into the composer on a
    * genuine conversation switch. Used to render a transient "Draft restored"
    * notice (LUM-1516).
@@ -104,6 +112,7 @@ export interface UseDraftInputReturn {
 export function useDraftInput({
   assistantId,
   activeConversationKey,
+  draftKeyResolutionRef,
   onDraftRestored,
 }: UseDraftInputParams): UseDraftInputReturn {
   const [input, setInputState] = useState("");
@@ -166,6 +175,14 @@ export function useDraftInput({
   useEffect(() => {
     const prevKey = previousKeyRef.current;
     const isSwitch = prevKey !== null && prevKey !== activeConversationKey;
+
+    // Draft-key resolution (draft-xxx → conv-yyy) is not a real conversation
+    // switch — the user stays on the same conversation. Skip save/restore to
+    // avoid clearing the composer.
+    if (draftKeyResolutionRef.current) {
+      previousKeyRef.current = activeConversationKey;
+      return;
+    }
 
     if (isSwitch && prevKey) {
       // Save outgoing conversation's draft.

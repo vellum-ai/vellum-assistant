@@ -296,6 +296,7 @@ export function ChatPage() {
   const { input, setInput, saveDraft, clearDraft } = useDraftInput({
     assistantId,
     activeConversationKey,
+    draftKeyResolutionRef,
     onDraftRestored: setRestoredDraftConversationKey,
   });
 
