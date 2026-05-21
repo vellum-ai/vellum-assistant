@@ -14,6 +14,7 @@ import type { OAuthConnection } from "../../../oauth/connection.js";
 import type {
   SlackApiResponse,
   SlackAuthTestResponse,
+  SlackBotsInfoResponse,
   SlackConversationHistoryResponse,
   SlackConversationMarkResponse,
   SlackConversationRepliesResponse,
@@ -284,6 +285,17 @@ export async function authTest(
   connectionOrToken: OAuthConnection | string,
 ): Promise<SlackAuthTestResponse> {
   return request<SlackAuthTestResponse>(connectionOrToken, "auth.test");
+}
+
+export async function botsInfo(
+  connectionOrToken: OAuthConnection | string,
+  botId: string,
+  teamId?: string,
+): Promise<SlackBotsInfoResponse> {
+  return request<SlackBotsInfoResponse>(connectionOrToken, "bots.info", {
+    bot: botId,
+    team_id: teamId,
+  });
 }
 
 export async function listConversations(

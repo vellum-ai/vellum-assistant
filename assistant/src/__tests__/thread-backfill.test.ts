@@ -77,6 +77,14 @@ mock.module("../messaging/providers/slack/adapter.js", () => ({
     _account: string | undefined,
     fn: (token: string) => Promise<unknown>,
   ) => fn("test-slack-token"),
+  resolveSlackBotUserId: async (
+    _account: string | undefined,
+    botId: string,
+  ) => {
+    if (botId === "B_ASSISTANT") return "U_BOT";
+    if (botId === "B_OTHER") return "U_OTHER_BOT";
+    return null;
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -85,6 +93,11 @@ mock.module("../messaging/providers/slack/adapter.js", () => ({
 
 import { v4 as uuid } from "uuid";
 
+import {
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../config/loader.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import {
   type ChannelCapabilities,
@@ -162,6 +175,13 @@ function resetState(): void {
   backfillDmMock.mockImplementation(async () => []);
   downloadSlackFileMock.mockReset();
   downloadSlackFileMock.mockResolvedValue(null);
+  setConfiguredSlackBotUserId("U_BOT");
+}
+
+function setConfiguredSlackBotUserId(botUserId: string): void {
+  const raw = loadRawConfig();
+  setNestedValue(raw, "slack.botUserId", botUserId);
+  saveRawConfig(raw);
 }
 
 let convCounter = 0;
@@ -978,7 +998,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(contextImage).toBeDefined();
   });
 
-  test("backfilled bot Slack image files are persisted as user image history", async () => {
+  test("backfilled assistant Slack image files are persisted as assistant image history", async () => {
     const conv = createTestConversation();
 
     seedSlackRow(conv.id, "1234.0", undefined, "parent already here");
@@ -992,7 +1012,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
         id: "1234.1",
         text: "bot posted a diagram",
         threadId: "1234.0",
-        sender: { id: "B_IMAGE", name: "Build Bot" },
+        sender: { id: "U_BOT", name: "Douglas" },
         metadata: {
           isBot: true,
           slackFiles: [
@@ -1020,7 +1040,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       row.content.includes("bot posted a diagram"),
     );
     expect(botRow).toBeDefined();
-    expect(botRow?.role).toBe("user");
+    expect(botRow?.role).toBe("assistant");
     const blocks = JSON.parse(botRow!.content) as Message["content"];
     const textBlock = blocks.find(
       (block): block is Extract<Message["content"][number], { type: "text" }> =>
@@ -1042,6 +1062,27 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     });
 
     expect(context).not.toBeNull();
+    const contextBotMessage = context!.messages.find(
+      (message) =>
+        message.role === "assistant" &&
+        message.content.some(
+          (block) =>
+            block.type === "text" &&
+            block.text.includes("bot posted a diagram"),
+        ),
+    );
+    expect(contextBotMessage).toBeDefined();
+    expect(
+      contextBotMessage!.content
+        .filter(
+          (
+            block,
+          ): block is Extract<Message["content"][number], { type: "text" }> =>
+            block.type === "text",
+        )
+        .map((block) => block.text)
+        .join("\n"),
+    ).not.toContain("<external_content");
     const contextImage = context!.messages
       .flatMap((message) => message.content)
       .find((block) => block.type === "image");
@@ -1115,7 +1156,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(persisted.provenanceRequesterIdentifier).toBe("U_GUARDIAN");
   });
 
-  test("backfilled bot-authored text is persisted raw as user history", async () => {
+  test("backfilled assistant-authored text is persisted raw as assistant history", async () => {
     const conv = createTestConversation();
 
     backfillThreadMock.mockImplementation(async () => [
@@ -1138,13 +1179,85 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       (p) => p.channelTs === "1234.0",
     );
     expect(persisted).toBeDefined();
-    expect(persisted.role).toBe("user");
+    expect(persisted.role).toBe("assistant");
     expect(persisted.rawContent).toBe("earlier assistant reply");
     expect(persisted.rawContent).not.toContain("<external_content");
     expect(persisted.actorExternalUserId).toBe("U_BOT");
     expect(persisted.provenanceTrustClass).toBe("unknown");
     expect(persisted.provenanceSourceChannel).toBe("slack");
     expect(persisted.provenanceRequesterIdentifier).toBe("U_BOT");
+
+    const context = loadSlackChronologicalContext(conv.id, SLACK_CHANNEL_CAPS, {
+      loader: readMessageRowsByConversation,
+      trustClass: "guardian",
+    });
+    expect(context).not.toBeNull();
+    expect(context!.messages).toEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "earlier assistant reply" }],
+      },
+    ]);
+  });
+
+  test("backfilled bot-id-only assistant text resolves to assistant history", async () => {
+    const conv = createTestConversation();
+
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.0",
+        text: "earlier assistant reply from bot id",
+        threadId: undefined,
+        sender: { id: "B_ASSISTANT", name: "Douglas" },
+        metadata: { isBot: true, slackBotId: "B_ASSISTANT" },
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+    });
+
+    const [persisted] = readPersistedSlackRows(conv.id).filter(
+      (p) => p.channelTs === "1234.0",
+    );
+    expect(persisted).toBeDefined();
+    expect(persisted.role).toBe("assistant");
+    expect(persisted.rawContent).toBe("earlier assistant reply from bot id");
+    expect(persisted.actorExternalUserId).toBe("B_ASSISTANT");
+    expect(persisted.provenanceRequesterIdentifier).toBe("B_ASSISTANT");
+  });
+
+  test("backfilled third-party bot-authored text stays user history", async () => {
+    const conv = createTestConversation();
+
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.0",
+        text: "deployment bot status update",
+        threadId: undefined,
+        sender: { id: "U_OTHER_BOT", name: "Deploy Bot" },
+        metadata: { isBot: true, slackBotId: "B_OTHER" },
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+    });
+
+    const [persisted] = readPersistedSlackRows(conv.id).filter(
+      (p) => p.channelTs === "1234.0",
+    );
+    expect(persisted).toBeDefined();
+    expect(persisted.role).toBe("user");
+    expect(persisted.rawContent).toBe("deployment bot status update");
+    expect(persisted.actorExternalUserId).toBe("U_OTHER_BOT");
+    expect(persisted.provenanceTrustClass).toBe("unknown");
+    expect(persisted.provenanceSourceChannel).toBe("slack");
+    expect(persisted.provenanceRequesterIdentifier).toBe("U_OTHER_BOT");
   });
 
   test("backfilled non-bot message with empty text is persisted unwrapped", async () => {

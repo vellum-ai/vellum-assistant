@@ -15,6 +15,7 @@ import {
   isChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
+import { getConfig } from "../../config/loader.js";
 import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
@@ -55,7 +56,10 @@ import {
 import { markProcessed } from "../../memory/delivery-status.js";
 import { upsertBinding } from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
-import { withSlackBotToken } from "../../messaging/providers/slack/adapter.js";
+import {
+  resolveSlackBotUserId,
+  withSlackBotToken,
+} from "../../messaging/providers/slack/adapter.js";
 import {
   backfillDm,
   backfillThreadWindowPage,
@@ -1452,9 +1456,10 @@ function readStoredSlackThreadState(
  *
  * Shared insertion point for any path that hydrates Slack history lazily
  * (DM cold-start backfill, thread gap/delta backfill, etc.). Backfilled Slack
- * rows are always persisted as `user` history: `assistant` rows are reserved
- * for messages produced by the local assistant loop, not third-party channel
- * replay.
+ * rows normally persist as `user` history, but rows authored by this
+ * assistant's configured Slack bot are replayed as assistant history so prior
+ * assistant messages do not enter model context wrapped as external user
+ * content.
  * Caller is responsible for dedup checks before invoking; this helper
  * performs no idempotency check itself.
  */
@@ -1492,7 +1497,12 @@ async function persistBackfilledSlackMessage(params: {
     message,
     params.guardianExternalUserId,
   );
-  const role = "user";
+  const role = (await isBackfilledSlackAssistantMessage(
+    message,
+    params.account,
+  ))
+    ? "assistant"
+    : "user";
 
   const rawText = message.text ?? "";
 
@@ -1622,6 +1632,47 @@ function isBackfilledSlackGuardianMessage(
     canonicalizeInboundIdentity("slack", guardianExternalUserId) ??
     guardianExternalUserId.trim();
   return canonicalSender === canonicalGuardian;
+}
+
+async function isBackfilledSlackAssistantMessage(
+  message: ProviderMessage,
+  account: string | undefined,
+): Promise<boolean> {
+  if (message.metadata?.isBot !== true) return false;
+
+  const botUserId = getConfig().slack.botUserId.trim();
+  const rawSenderId = message.sender?.id?.trim();
+  if (!botUserId) return false;
+
+  if (rawSenderId && slackIdentityMatches(rawSenderId, botUserId)) return true;
+
+  const rawBotId =
+    typeof message.metadata.slackBotId === "string"
+      ? message.metadata.slackBotId.trim()
+      : "";
+  if (!rawBotId) return false;
+
+  try {
+    const resolvedBotUserId = await resolveSlackBotUserId(account, rawBotId);
+    return (
+      typeof resolvedBotUserId === "string" &&
+      slackIdentityMatches(resolvedBotUserId, botUserId)
+    );
+  } catch (err) {
+    log.warn(
+      { err, slackBotId: rawBotId, channelTs: message.id },
+      "Failed to resolve Slack bot id for backfilled assistant detection",
+    );
+    return false;
+  }
+}
+
+function slackIdentityMatches(left: string, right: string): boolean {
+  const canonicalSender =
+    canonicalizeInboundIdentity("slack", left) ?? left.trim();
+  const canonicalBot =
+    canonicalizeInboundIdentity("slack", right) ?? right.trim();
+  return canonicalSender === canonicalBot;
 }
 
 /**

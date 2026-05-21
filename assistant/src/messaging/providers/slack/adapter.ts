@@ -58,6 +58,7 @@ const userNameCache = new Map<string, string>();
  */
 let _cachedSlackWriteAuth: OAuthConnection | string | null = null;
 let _cachedSlackReadAuth: OAuthConnection | string | null = null;
+const botUserIdByBotIdCache = new Map<string, string>();
 
 /**
  * Get the Slack auth value to pass to Slack client functions.
@@ -121,6 +122,32 @@ export async function withSlackBotToken<T>(
   if (!auth) return null;
   if (typeof auth === "string") return fn(auth);
   return auth.withToken(fn);
+}
+
+export async function resolveSlackBotUserId(
+  account: string | undefined,
+  botId: string,
+): Promise<string | null> {
+  const trimmedBotId = botId.trim();
+  if (!trimmedBotId) return null;
+
+  const cacheKey = account ? `${account}:${trimmedBotId}` : null;
+  if (cacheKey && botUserIdByBotIdCache.has(cacheKey)) {
+    return botUserIdByBotIdCache.get(cacheKey) ?? null;
+  }
+
+  const resolvedUserId = await withSlackBotToken(account, async (token) => {
+    const resp = await slack.botsInfo(token, trimmedBotId);
+    const userId = resp.bot.user_id?.trim();
+    return userId && userId.length > 0 ? userId : null;
+  });
+  if (resolvedUserId) {
+    if (cacheKey) {
+      botUserIdByBotIdCache.set(cacheKey, resolvedUserId);
+    }
+    return resolvedUserId;
+  }
+  return null;
 }
 
 /**
@@ -258,6 +285,7 @@ function mapMessage(
   const isBot =
     msg.subtype === "bot_message" || (msg.bot_id != null && !msg.user);
   const slackFiles = mapSlackFiles(msg.files);
+  const slackBotId = msg.bot_id?.trim();
   return {
     id: msg.ts,
     conversationId: channelId,
@@ -273,6 +301,7 @@ function mapMessage(
       ? {
           metadata: {
             ...(isBot ? { isBot: true } : {}),
+            ...(slackBotId ? { slackBotId } : {}),
             ...(slackFiles ? { slackFiles } : {}),
           },
         }
