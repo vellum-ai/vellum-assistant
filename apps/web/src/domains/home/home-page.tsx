@@ -126,6 +126,7 @@ export function HomePage({
         avatarComponents={avatar.components}
         avatarTraits={avatar.traits}
         avatarImageUrl={avatar.customImageUrl}
+        greeting={feedQuery.data?.contextBanner?.greeting}
         onStartNewChat={onStartNewChat}
       />
       <HomeSuggestionPillBar
@@ -149,6 +150,7 @@ export function HomePage({
           onClose={handleCloseDetail}
           onGoToThread={handleGoToThread}
           onUpdateStatus={handleUpdateStatus}
+          onDismiss={handleDismissItem}
         />
       </div>
     );
@@ -172,6 +174,7 @@ export function HomePage({
             onClose={handleCloseDetail}
             onGoToThread={handleGoToThread}
             onUpdateStatus={handleUpdateStatus}
+            onDismiss={handleDismissItem}
           />
         }
       />

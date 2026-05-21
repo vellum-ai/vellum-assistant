@@ -613,7 +613,7 @@ describe("channel-delivery-store", () => {
     expect(row!.deliveryStatus).toBe("delivered");
   });
 
-  test("acknowledgeDelivery does not overwrite failed delivery state", () => {
+  test("acknowledgeDelivery accepts late acks after retryable delivery failure", () => {
     const result = recordInbound("telegram", "chat-1", "msg-1");
     markProcessed(result.eventId);
     recordDeliveryFailure(result.eventId, new Error("fetch failed"));
@@ -627,9 +627,8 @@ describe("channel-delivery-store", () => {
       .from(channelInboundEvents)
       .where(eq(channelInboundEvents.id, result.eventId))
       .get();
-    expect(row!.deliveryStatus).toBe("failed");
-    expect(row!.retryAfter).not.toBeNull();
-    expect(row!.retryAfter ?? 0).toBeGreaterThan(0);
+    expect(row!.deliveryStatus).toBe("delivered");
+    expect(row!.retryAfter).toBeNull();
   });
 
   test("acknowledgeDelivery returns false for unknown event", () => {

@@ -1,3 +1,4 @@
+import type { RenderedHistoryContent } from "../daemon/handlers/shared.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
 import { getAttachmentMetadataForMessage } from "../memory/attachments-store.js";
 import {
@@ -74,6 +75,18 @@ function toDeliverableTextSegments(
     return [fallbackText];
   }
   return [];
+}
+
+function hasDeliverableReply(
+  rendered: RenderedHistoryContent,
+  attachments: RuntimeAttachmentMetadata[],
+): boolean {
+  return (
+    toDeliverableTextSegments(rendered.textSegments, rendered.text).length >
+      0 ||
+    attachments.length > 0 ||
+    hasNoResponseMarker(rendered.textSegments)
+  );
 }
 
 export async function deliverRenderedReplyViaCallback(
@@ -171,6 +184,11 @@ export async function deliverRenderedReplyViaCallback(
 export type DeliverReplyOptions = {
   /** Persisted assistant message row to deliver; defaults to latest assistant. */
   messageId?: string;
+  /**
+   * Internal conversation message id for the user row that started this
+   * delivery. When set, fallback scans never cross into older turns.
+   */
+  sinceMessageId?: string;
   startFromSegment?: number;
   onSegmentDelivered?: (deliveredCount: number) => void;
   /** Deliver as ephemeral (visible only to `user`). Fire-and-forget. */
@@ -185,32 +203,10 @@ export type DeliverReplyOptions = {
 
 type PersistedMessage = ReturnType<typeof getMessages>[number];
 
-export function findAssistantReplyMessageIdForTurn(
-  conversationId: string,
-  userMessageId: string,
-): string | undefined {
-  const msgs = getMessages(conversationId);
-  const userIndex = msgs.findIndex((msg) => msg.id === userMessageId);
-  if (userIndex === -1) return undefined;
-
-  let candidate: string | undefined;
-  for (let i = userIndex + 1; i < msgs.length; i++) {
-    const msg = msgs[i];
-    if (msg.role === "user") break;
-    if (msg.role === "assistant") {
-      candidate = msg.id;
-    }
-  }
-  return candidate;
-}
-
-async function deliverPersistedAssistantMessageViaCallback(
-  msg: PersistedMessage,
-  externalChatId: string,
-  callbackUrl: string,
-  assistantId: string | undefined,
-  options: DeliverReplyOptions | undefined,
-): Promise<void> {
+function readPersistedAssistantReply(msg: PersistedMessage): {
+  rendered: RenderedHistoryContent;
+  replyAttachments: RuntimeAttachmentMetadata[];
+} {
   let parsed: unknown;
   try {
     parsed = JSON.parse(msg.content);
@@ -227,6 +223,69 @@ async function deliverPersistedAssistantMessageViaCallback(
     sizeBytes: a.sizeBytes,
     kind: a.kind,
   }));
+
+  return { rendered, replyAttachments };
+}
+
+function isToolResultUserMessage(msg: PersistedMessage): boolean {
+  if (msg.role !== "user") return false;
+  try {
+    const parsed = JSON.parse(msg.content) as unknown;
+    return (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every(
+        (block) =>
+          block !== null &&
+          typeof block === "object" &&
+          (block as Record<string, unknown>).type === "tool_result",
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function findAssistantReplyMessageIdForTurn(
+  conversationId: string,
+  userMessageId: string,
+): string | undefined {
+  const msgs = getMessages(conversationId);
+  const userIndex = msgs.findIndex((msg) => msg.id === userMessageId);
+  if (userIndex === -1) return undefined;
+
+  let turnEndIndex = msgs.length;
+  for (let i = userIndex + 1; i < msgs.length; i++) {
+    const msg = msgs[i];
+    if (msg.role === "user" && !isToolResultUserMessage(msg)) {
+      turnEndIndex = i;
+      break;
+    }
+  }
+
+  for (let i = turnEndIndex - 1; i > userIndex; i--) {
+    const msg = msgs[i];
+    if (msg.role === "assistant") {
+      const { rendered, replyAttachments } = readPersistedAssistantReply(msg);
+      if (hasDeliverableReply(rendered, replyAttachments)) {
+        return msg.id;
+      }
+    }
+  }
+  return undefined;
+}
+
+async function deliverPersistedAssistantMessageViaCallback(
+  msg: PersistedMessage,
+  externalChatId: string,
+  callbackUrl: string,
+  assistantId: string | undefined,
+  options: DeliverReplyOptions | undefined,
+): Promise<boolean> {
+  const { rendered, replyAttachments } = readPersistedAssistantReply(msg);
+  if (!hasDeliverableReply(rendered, replyAttachments)) {
+    return false;
+  }
 
   // Compose an `onMessageTs` that reconciles `slackMeta.channelTs` on the
   // persisted assistant row once Slack returns the authoritative ts. The
@@ -258,6 +317,7 @@ async function deliverPersistedAssistantMessageViaCallback(
     messageTs: options?.messageTs,
     onMessageTs: composedOnMessageTs,
   });
+  return true;
 }
 
 export async function deliverReplyViaCallback(
@@ -284,17 +344,37 @@ export async function deliverReplyViaCallback(
     return;
   }
 
+  if (options?.sinceMessageId) {
+    const replyMessageId = findAssistantReplyMessageIdForTurn(
+      conversationId,
+      options.sinceMessageId,
+    );
+    if (replyMessageId) {
+      const msg = getMessageById(replyMessageId, conversationId);
+      if (msg && msg.role === "assistant") {
+        await deliverPersistedAssistantMessageViaCallback(
+          msg,
+          externalChatId,
+          callbackUrl,
+          assistantId,
+          options,
+        );
+      }
+    }
+    return;
+  }
+
   const msgs = getMessages(conversationId);
   for (let i = msgs.length - 1; i >= 0; i--) {
     if (msgs[i].role !== "assistant") continue;
-    await deliverPersistedAssistantMessageViaCallback(
+    const delivered = await deliverPersistedAssistantMessageViaCallback(
       msgs[i],
       externalChatId,
       callbackUrl,
       assistantId,
       options,
     );
-    break;
+    if (delivered) break;
   }
 }
 

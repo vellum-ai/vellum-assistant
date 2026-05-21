@@ -28,10 +28,7 @@ export function acknowledgeDelivery(
   const now = Date.now();
 
   const existing = db
-    .select({
-      id: channelInboundEvents.id,
-      deliveryStatus: channelInboundEvents.deliveryStatus,
-    })
+    .select({ id: channelInboundEvents.id })
     .from(channelInboundEvents)
     .where(
       and(
@@ -43,12 +40,6 @@ export function acknowledgeDelivery(
     .get();
 
   if (!existing) return false;
-  if (
-    existing.deliveryStatus === "failed" ||
-    existing.deliveryStatus === "dead_letter"
-  ) {
-    return true;
-  }
 
   db.update(channelInboundEvents)
     .set({

@@ -57,6 +57,8 @@ export interface TranscriptProps {
   renderPendingConfirmation?: (requestId: string) => ReactNode;
   /** Optional renderer for `kind: "pendingContactRequest"` items. */
   renderPendingContactRequest?: (requestId: string) => ReactNode;
+  /** Optional renderer for `kind: "onboardingChoice"` items. */
+  renderOnboardingChoice?: () => ReactNode;
   /** Click handler on a tool-call risk badge — opens the rule editor. The
    *  ToolCallChip forwards the active tool-call's metadata so the modal can
    *  pre-fill its fields. */
@@ -208,6 +210,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       renderPendingSecret: rest.renderPendingSecret,
       renderPendingConfirmation: rest.renderPendingConfirmation,
       renderPendingContactRequest: rest.renderPendingContactRequest,
+      renderOnboardingChoice: rest.renderOnboardingChoice,
       onOpenRuleEditor: rest.onOpenRuleEditor,
       unknownNudgeToolCallIds: rest.unknownNudgeToolCallIds,
       onDismissUnknownNudge: rest.onDismissUnknownNudge,

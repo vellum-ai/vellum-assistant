@@ -1,6 +1,10 @@
 /**
- * Assistant-level operations: discovery, chat context bootstrapping,
- * and runtime identity retrieval.
+ * Chat context bootstrapping: pick an assistant and build the
+ * initial conversation context the chat UI lands on.
+ *
+ * Runtime assistant identity (name, personality, emoji, etc.)
+ * lives at `@/assistant/identity.js` — it's a property of the
+ * assistant itself, not a chat concern.
  */
 
 import {
@@ -87,45 +91,4 @@ export async function getChatContext(): Promise<ChatContext | null> {
     : assistantId;
 
   return { assistantId, conversations, conversationKey };
-}
-
-// ---------------------------------------------------------------------------
-// Runtime identity
-// ---------------------------------------------------------------------------
-
-export interface AssistantIdentity {
-  name: string;
-  role: string;
-  personality: string;
-  emoji: string;
-  home: string;
-  version: string;
-  createdAt?: string;
-}
-
-/**
- * Fetch the runtime identity for an assistant via the wildcard proxy.
- * Returns `null` when the identity cannot be retrieved (e.g. assistant
- * is still initializing or the runtime is unreachable).
- */
-export async function fetchAssistantIdentity(
-  assistantId: string,
-): Promise<AssistantIdentity | null> {
-  try {
-    const { data, error, response } = await client.get<AssistantIdentity, unknown>({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/identity/",
-      path: { assistant_id: assistantId },
-      throwOnError: false,
-    });
-    assertHasResponse(response, error, "Failed to fetch assistant identity");
-
-    if (!response.ok || !data || typeof data !== "object") {
-      return null;
-    }
-
-    return data;
-  } catch {
-    return null;
-  }
 }

@@ -238,36 +238,35 @@ export function processChannelMessageInBackground(
         slackThinkingStatus?.observeEvent(msg);
       };
 
+      let userMessageId: string | undefined;
       try {
-        const { messageId: userMessageId, assistantMessageId } =
-          await processMessage(
-            conversationId,
-            content,
-            attachmentIds,
-            {
-              transport: {
-                channelId: sourceChannel,
-                hints: metadataHints.length > 0 ? metadataHints : undefined,
-                uxBrief: metadataUxBrief,
-                chatType,
-              },
-              assistantId,
-              trustContext: trustCtx,
-              isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
-              ...(displayContent !== undefined ? { displayContent } : {}),
-              ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
-              ...(slackRuntimeContextNotice
-                ? { slackRuntimeContextNotice }
-                : {}),
-              ...(slackInbound ? { slackInbound } : {}),
-              onEvent: observeAgentEvent,
+        const result = await processMessage(
+          conversationId,
+          content,
+          attachmentIds,
+          {
+            transport: {
+              channelId: sourceChannel,
+              hints: metadataHints.length > 0 ? metadataHints : undefined,
+              uxBrief: metadataUxBrief,
+              chatType,
             },
-            sourceChannel,
-            sourceInterface,
-          );
+            assistantId,
+            trustContext: trustCtx,
+            isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
+            ...(displayContent !== undefined ? { displayContent } : {}),
+            ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
+            ...(slackRuntimeContextNotice ? { slackRuntimeContextNotice } : {}),
+            ...(slackInbound ? { slackInbound } : {}),
+            onEvent: observeAgentEvent,
+          },
+          sourceChannel,
+          sourceInterface,
+        );
+        userMessageId = result.messageId;
         linkMessage(eventId, userMessageId);
         markProcessed(eventId);
-        replyMessageId ??= assistantMessageId;
+        replyMessageId ??= result.assistantMessageId;
         if (replyMessageId) {
           storeReplyMessageId(eventId, replyMessageId);
         }
@@ -310,6 +309,7 @@ export function processChannelMessageInBackground(
             assistantId,
             {
               messageId: replyMessageId,
+              sinceMessageId: userMessageId,
               onSegmentDelivered: (count) =>
                 updateDeliveredSegmentCount(eventId, count),
             },

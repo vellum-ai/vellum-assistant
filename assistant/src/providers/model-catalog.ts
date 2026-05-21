@@ -401,6 +401,21 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "gemini-3.5-flash",
+        displayName: "Gemini 3.5 Flash",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.5,
+          outputPer1mTokens: 9.0,
+          cacheReadPer1mTokens: 0.15,
+        },
+      },
+      {
         id: "gemini-3.1-pro-preview",
         displayName: "Gemini 3.1 Pro Preview",
         contextWindowTokens: 1048576,
@@ -785,6 +800,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: { inputPer1mTokens: 3, outputPer1mTokens: 15 },
       },
       {
+        id: "x-ai/grok-4.3",
+        displayName: "Grok 4.3",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 16000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 1.25, outputPer1mTokens: 2.5 },
+      },
+      {
         id: "x-ai/grok-4",
         displayName: "Grok 4",
         contextWindowTokens: 131072,
@@ -1065,6 +1091,18 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         pricing: { inputPer1mTokens: 0.8, outputPer1mTokens: 3.2 },
+      },
+      // Owl (OpenRouter first-party)
+      {
+        id: "openrouter/owl-alpha",
+        displayName: "Owl Alpha",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 262144,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 0, outputPer1mTokens: 0 },
       },
     ],
     defaultModel: "x-ai/grok-4.20-beta",

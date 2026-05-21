@@ -100,7 +100,7 @@ export function SurfaceRouter({
       // Fallback card for unsupported surface types
       return (
         <SurfaceContainer surface={surface} onAction={onAction}>
-          <p className="text-body-medium-lighter text-stone-500 dark:text-stone-400">
+          <p className="text-body-medium-lighter text-[var(--content-quiet)]">
             {surface.surfaceType
               ? `Unsupported surface type: ${surface.surfaceType}`
               : "Unknown surface"}

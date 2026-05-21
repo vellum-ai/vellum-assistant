@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 
 import { ArrowUpRight, FileText } from "lucide-react";
 import type { KeyboardEvent } from "react";
@@ -68,8 +69,8 @@ export function DocumentPreviewSurface({
         }
       >
         <div className="flex items-center gap-2">
-          <FileText className="h-4 w-4 shrink-0 text-stone-500 dark:text-stone-400" />
-          <h3 className="text-title-small text-stone-800 dark:text-stone-200">
+          <FileText className="h-4 w-4 shrink-0 text-[var(--content-quiet)]" />
+          <h3 className="text-title-small text-[var(--content-strong)]">
             {data.documentName}
           </h3>
           {data.mimeType && (
@@ -78,7 +79,7 @@ export function DocumentPreviewSurface({
             </span>
           )}
           {isClickable && (
-            <ArrowUpRight className="ml-auto h-3.5 w-3.5 shrink-0 text-stone-400 dark:text-stone-500" />
+            <ArrowUpRight className="ml-auto h-3.5 w-3.5 shrink-0 text-[var(--content-faint)]" />
           )}
         </div>
 

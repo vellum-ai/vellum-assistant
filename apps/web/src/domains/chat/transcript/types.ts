@@ -14,7 +14,8 @@ export type TranscriptItemKind =
   | "pendingContactRequest"
   | "surface"
   | "queuedMarker"
-  | "error";
+  | "error"
+  | "onboardingChoice";
 
 export interface TranscriptItemBase {
   key: string;
@@ -69,6 +70,10 @@ export interface ErrorItem extends TranscriptItemBase {
   message: string;
 }
 
+export interface OnboardingChoiceItem extends TranscriptItemBase {
+  kind: "onboardingChoice";
+}
+
 export type TranscriptItem =
   | MessageItem
   | ThinkingItem
@@ -77,7 +82,8 @@ export type TranscriptItem =
   | PendingContactRequestItem
   | SurfaceItem
   | QueuedMarkerItem
-  | ErrorItem;
+  | ErrorItem
+  | OnboardingChoiceItem;
 
 /** Result of splitting the transcript into stable history and the
  *  currently-in-progress turn. `anchorMessage` is the most recent user

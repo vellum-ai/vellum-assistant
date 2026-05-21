@@ -40,6 +40,8 @@ export interface TranscriptRowProps {
   renderPendingConfirmation?: (requestId: string) => ReactNode;
   /** Render-prop override for `kind: "pendingContactRequest"`. */
   renderPendingContactRequest?: (requestId: string) => ReactNode;
+  /** Render-prop override for `kind: "onboardingChoice"`. */
+  renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
     toolName: string;
     riskLevel?: string;
@@ -77,6 +79,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   renderPendingSecret,
   renderPendingConfirmation,
   renderPendingContactRequest,
+  renderOnboardingChoice,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
@@ -206,6 +209,12 @@ export const TranscriptRow = memo(function TranscriptRow({
           {item.message}
         </Notice>
       );
+
+    case "onboardingChoice":
+      if (renderOnboardingChoice) {
+        return <>{renderOnboardingChoice()}</>;
+      }
+      return null;
 
     default: {
       // Exhaustiveness guard — TypeScript narrows `item` to `never` here.

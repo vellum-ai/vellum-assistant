@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 import { ChevronLeft, ChevronRight, Dices, Save, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -107,7 +108,7 @@ export function AvatarCustomizationPanel({
 
   if (!components) {
     return (
-      <div className="py-8 text-center text-body-medium-lighter text-stone-500 dark:text-stone-400">
+      <div className="py-8 text-center text-body-medium-lighter text-[var(--content-quiet)]">
         Unable to load avatar components. Make sure your assistant is running.
       </div>
     );
@@ -157,7 +158,7 @@ export function AvatarCustomizationPanel({
         <button
           type="button"
           onClick={handleRandomize}
-          className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-body-medium-default text-stone-600 transition-colors hover:bg-stone-50 dark:border-moss-600 dark:bg-moss-700 dark:text-stone-300 dark:hover:bg-moss-600"
+          className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border border-stone-200 bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-strong)] transition-colors hover:bg-stone-50 dark:border-moss-600 dark:hover:bg-moss-600"
         >
           <Dices className="h-4 w-4" />
           Randomize
@@ -175,7 +176,7 @@ export function AvatarCustomizationPanel({
           <button
             type="button"
             onClick={onCancel}
-            className="flex cursor-pointer items-center justify-center rounded-lg border border-stone-200 bg-white px-3 py-2 text-body-medium-default text-stone-600 transition-colors hover:bg-stone-50 dark:border-moss-600 dark:bg-moss-700 dark:text-stone-300 dark:hover:bg-moss-600"
+            className="flex cursor-pointer items-center justify-center rounded-lg border border-stone-200 bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-strong)] transition-colors hover:bg-stone-50 dark:border-moss-600 dark:hover:bg-moss-600"
           >
             <X className="h-4 w-4" />
           </button>
@@ -195,8 +196,8 @@ interface CycleRowProps {
 
 function CycleRow({ label, value, colorHex, onPrev, onNext }: CycleRowProps) {
   return (
-    <div className="flex items-center justify-between rounded-lg border border-stone-200 bg-white px-3 py-2 dark:border-moss-600 dark:bg-moss-700">
-      <span className="text-body-small-default uppercase tracking-wider text-stone-500 dark:text-stone-400">
+    <div className="flex items-center justify-between rounded-lg border border-stone-200 bg-[var(--surface-lift)] px-3 py-2 dark:border-moss-600">
+      <span className="text-body-small-default uppercase tracking-wider text-[var(--content-quiet)]">
         {label}
       </span>
       <div className="flex items-center gap-2">
@@ -214,7 +215,7 @@ function CycleRow({ label, value, colorHex, onPrev, onNext }: CycleRowProps) {
               style={{ backgroundColor: colorHex }}
             />
           )}
-          <span className="text-body-medium-default capitalize text-stone-700 dark:text-stone-200">
+          <span className="text-body-medium-default capitalize text-[var(--content-strong)]">
             {value}
           </span>
         </div>

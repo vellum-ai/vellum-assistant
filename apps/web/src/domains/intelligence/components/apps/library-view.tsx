@@ -38,7 +38,7 @@ import {
   toast,
 } from "@vellum/design-library";
 import { AppViewerContainer } from "@/domains/intelligence/components/apps/app-viewer-container.js";
-import { VercelTokenDialog } from "@/domains/intelligence/components/apps/vercel-token-dialog.js";
+import { VercelTokenDialog } from "@/components/vercel-token-dialog.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { cn } from "@/utils/misc.js";
 

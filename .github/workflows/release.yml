@@ -574,13 +574,12 @@ jobs:
           echo "Manifest digest: ${DIGEST}"
           mkdir -p /tmp/manifest-digest
           echo "${DIGEST}" > /tmp/manifest-digest/digest
-          echo "${IMAGE}" > /tmp/manifest-digest/repository
 
       - name: Upload manifest digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: assistant-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
-          path: /tmp/manifest-digest/*
+          path: /tmp/manifest-digest/digest
           retention-days: 1
 
       - name: Export image metadata
@@ -855,13 +854,12 @@ jobs:
           echo "Manifest digest: ${DIGEST}"
           mkdir -p /tmp/manifest-digest
           echo "${DIGEST}" > /tmp/manifest-digest/digest
-          echo "${IMAGE}" > /tmp/manifest-digest/repository
 
       - name: Upload manifest digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gateway-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
-          path: /tmp/manifest-digest/*
+          path: /tmp/manifest-digest/digest
           retention-days: 1
 
       - name: Export image metadata
@@ -973,13 +971,12 @@ jobs:
           echo "Manifest digest: ${DIGEST}"
           mkdir -p /tmp/manifest-digest
           echo "${DIGEST}" > /tmp/manifest-digest/digest
-          echo "${IMAGE}" > /tmp/manifest-digest/repository
 
       - name: Upload manifest digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: credential-executor-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
-          path: /tmp/manifest-digest/*
+          path: /tmp/manifest-digest/digest
           retention-days: 1
 
       - name: Export image metadata
@@ -997,208 +994,6 @@ jobs:
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-
-  publish-production-preview-image-tags:
-    needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging == 'true' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      id-token: write
-    # Registry credentials are currently scoped by GitHub environment. The
-    # production identity must also be able to read staging manifests so
-    # imagetools can retag them into production preview repositories.
-    environment: production
-    steps:
-      - name: Authenticate to production GCP
-        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-        with:
-          version: latest
-
-      - name: Download assistant staging manifest digest
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: assistant-manifest-digest-staging
-          path: /tmp/assistant-digest
-
-      - name: Download gateway staging manifest digest
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: gateway-manifest-digest-staging
-          path: /tmp/gateway-digest
-
-      - name: Download credential-executor staging manifest digest
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: credential-executor-manifest-digest-staging
-          path: /tmp/credential-executor-digest
-
-      - name: Resolve image references
-        id: refs
-        run: |
-          ASSISTANT_SOURCE_REPO=$(cat /tmp/assistant-digest/repository)
-          ASSISTANT_SOURCE_DIGEST=$(cat /tmp/assistant-digest/digest)
-          GATEWAY_SOURCE_REPO=$(cat /tmp/gateway-digest/repository)
-          GATEWAY_SOURCE_DIGEST=$(cat /tmp/gateway-digest/digest)
-          CREDENTIAL_EXECUTOR_SOURCE_REPO=$(cat /tmp/credential-executor-digest/repository)
-          CREDENTIAL_EXECUTOR_SOURCE_DIGEST=$(cat /tmp/credential-executor-digest/digest)
-
-          ASSISTANT_DEST_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
-          GATEWAY_DEST_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
-          CREDENTIAL_EXECUTOR_DEST_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
-
-          echo "assistant_source_repo=${ASSISTANT_SOURCE_REPO}" >> "$GITHUB_OUTPUT"
-          echo "assistant_source_digest=${ASSISTANT_SOURCE_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "assistant_dest_repo=${ASSISTANT_DEST_REPO}" >> "$GITHUB_OUTPUT"
-          echo "gateway_source_repo=${GATEWAY_SOURCE_REPO}" >> "$GITHUB_OUTPUT"
-          echo "gateway_source_digest=${GATEWAY_SOURCE_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "gateway_dest_repo=${GATEWAY_DEST_REPO}" >> "$GITHUB_OUTPUT"
-          echo "credential_executor_source_repo=${CREDENTIAL_EXECUTOR_SOURCE_REPO}" >> "$GITHUB_OUTPUT"
-          echo "credential_executor_source_digest=${CREDENTIAL_EXECUTOR_SOURCE_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "credential_executor_dest_repo=${CREDENTIAL_EXECUTOR_DEST_REPO}" >> "$GITHUB_OUTPUT"
-
-      - name: Configure Docker for Artifact Registry
-        run: |
-          CONFIGURED_HOSTS=""
-          for repo in \
-            "${{ steps.refs.outputs.assistant_source_repo }}" \
-            "${{ steps.refs.outputs.gateway_source_repo }}" \
-            "${{ steps.refs.outputs.credential_executor_source_repo }}" \
-            "${{ steps.refs.outputs.assistant_dest_repo }}" \
-            "${{ steps.refs.outputs.gateway_dest_repo }}" \
-            "${{ steps.refs.outputs.credential_executor_dest_repo }}"
-          do
-            host="${repo%%/*}"
-            if [ -z "$host" ]; then
-              continue
-            fi
-            case " $CONFIGURED_HOSTS " in
-              *" $host "*) continue ;;
-            esac
-            gcloud auth configure-docker "$host"
-            CONFIGURED_HOSTS="$CONFIGURED_HOSTS $host"
-          done
-
-      - name: Validate staging source manifest access
-        run: |
-          validate_source_manifest() {
-            local service="$1"
-            local source_repo="$2"
-            local source_digest="$3"
-
-            if docker buildx imagetools inspect "${source_repo}@${source_digest}" >/dev/null; then
-              return 0
-            fi
-
-            echo "::error::Production preview publishing requires the production GCP service account to read the staging Artifact Registry manifest for ${service}. Grant staging Artifact Registry reader access or provide a narrower preview credential set with staging read and production write permissions."
-            return 1
-          }
-
-          validate_source_manifest \
-            "assistant" \
-            "${{ steps.refs.outputs.assistant_source_repo }}" \
-            "${{ steps.refs.outputs.assistant_source_digest }}"
-
-          validate_source_manifest \
-            "gateway" \
-            "${{ steps.refs.outputs.gateway_source_repo }}" \
-            "${{ steps.refs.outputs.gateway_source_digest }}"
-
-          validate_source_manifest \
-            "credential-executor" \
-            "${{ steps.refs.outputs.credential_executor_source_repo }}" \
-            "${{ steps.refs.outputs.credential_executor_source_digest }}"
-
-      - name: Publish production preview tags
-        id: preview
-        run: |
-          VERSION="${{ needs.extract-version.outputs.version }}"
-
-          publish_preview_tags() {
-            local output_prefix="$1"
-            local source_repo="$2"
-            local source_digest="$3"
-            local dest_repo="$4"
-            local digest_dir="$5"
-
-            local immutable_tag="${dest_repo}:preview-v${VERSION}"
-            local floating_tag="${dest_repo}:preview"
-
-            docker buildx imagetools create \
-              -t "$immutable_tag" \
-              -t "$floating_tag" \
-              "${source_repo}@${source_digest}"
-
-            local digest
-            digest=$(docker buildx imagetools inspect "$immutable_tag" --format '{{json .Manifest.Digest}}' | tr -d '"')
-            mkdir -p "$digest_dir"
-            echo "$digest" > "$digest_dir/digest"
-
-            echo "${output_prefix}_digest=${digest}" >> "$GITHUB_OUTPUT"
-            echo "${output_prefix}_immutable_tag=${immutable_tag}" >> "$GITHUB_OUTPUT"
-            echo "${output_prefix}_floating_tag=${floating_tag}" >> "$GITHUB_OUTPUT"
-          }
-
-          publish_preview_tags \
-            "assistant" \
-            "${{ steps.refs.outputs.assistant_source_repo }}" \
-            "${{ steps.refs.outputs.assistant_source_digest }}" \
-            "${{ steps.refs.outputs.assistant_dest_repo }}" \
-            "/tmp/preview-digests/assistant"
-
-          publish_preview_tags \
-            "gateway" \
-            "${{ steps.refs.outputs.gateway_source_repo }}" \
-            "${{ steps.refs.outputs.gateway_source_digest }}" \
-            "${{ steps.refs.outputs.gateway_dest_repo }}" \
-            "/tmp/preview-digests/gateway"
-
-          publish_preview_tags \
-            "credential_executor" \
-            "${{ steps.refs.outputs.credential_executor_source_repo }}" \
-            "${{ steps.refs.outputs.credential_executor_source_digest }}" \
-            "${{ steps.refs.outputs.credential_executor_dest_repo }}" \
-            "/tmp/preview-digests/credential-executor"
-
-      - name: Upload assistant production preview manifest digest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: assistant-preview-manifest-digest-production
-          path: /tmp/preview-digests/assistant/digest
-          retention-days: 1
-
-      - name: Upload gateway production preview manifest digest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: gateway-preview-manifest-digest-production
-          path: /tmp/preview-digests/gateway/digest
-          retention-days: 1
-
-      - name: Upload credential-executor production preview manifest digest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: credential-executor-preview-manifest-digest-production
-          path: /tmp/preview-digests/credential-executor/digest
-          retention-days: 1
-
-      - name: Summary
-        run: |
-          echo "## Production Preview Images Published" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Source staging version:** \`v${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Service | Destination preview tags | Manifest digest |" >> $GITHUB_STEP_SUMMARY
-          echo "| --- | --- | --- |" >> $GITHUB_STEP_SUMMARY
-          echo "| assistant | \`${{ steps.preview.outputs.assistant_immutable_tag }}\`<br>\`${{ steps.preview.outputs.assistant_floating_tag }}\` | \`${{ steps.preview.outputs.assistant_digest }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| gateway | \`${{ steps.preview.outputs.gateway_immutable_tag }}\`<br>\`${{ steps.preview.outputs.gateway_floating_tag }}\` | \`${{ steps.preview.outputs.gateway_digest }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| credential-executor | \`${{ steps.preview.outputs.credential_executor_immutable_tag }}\`<br>\`${{ steps.preview.outputs.credential_executor_floating_tag }}\` | \`${{ steps.preview.outputs.credential_executor_digest }}\` |" >> $GITHUB_STEP_SUMMARY
 
   push-dockerhub-image:
     needs: [extract-version, ci-assistant, ci-gateway, ci-credential-executor]
@@ -3249,7 +3044,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, publish-production-preview-image-tags, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, dispatch-ios-release, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
+    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, dispatch-ios-release, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -3295,9 +3090,6 @@ jobs:
             if [ "${{ needs.register-release.result }}" != "success" ]; then
               STAGING_READY="false"
             fi
-            if [ "${{ needs.publish-production-preview-image-tags.result }}" != "success" ]; then
-              STAGING_READY="false"
-            fi
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
@@ -3329,7 +3121,6 @@ jobs:
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
           CEI=$(ci_icon "${{ needs.push-credential-executor-manifest.result }}")
-          PP=$(ci_icon "${{ needs.publish-production-preview-image-tags.result }}")
           DH=$(ci_icon "${{ needs.push-dockerhub-image.result }}")
           RR=$(ci_icon "${{ needs.register-release.result }}")
           PC=$(ci_icon "${{ needs.pack-cli.result }}")
@@ -3351,7 +3142,7 @@ jobs:
             fi
           fi
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s dispatch-ios-release\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s production-preview-tags\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$DI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$PP" "$DH" "$RR" "$PC" "$TQ" "$MB")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s dispatch-ios-release\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$DI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"
@@ -3360,7 +3151,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, and DockerHub publishes were skipped. Docker images pushed to staging GCR, production preview tags were published, and the staging release was registered._' "$VERSION" "$TRIGGERED_BY")
+            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, and DockerHub publishes were skipped. Docker images pushed to staging GCR, and the staging release was registered._' "$VERSION" "$TRIGGERED_BY")
           else
             META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi

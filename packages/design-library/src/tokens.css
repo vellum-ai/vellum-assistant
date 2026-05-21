@@ -189,13 +189,26 @@
   --border-hover: #F6F5F4;
   --border-active: #2D3339;
 
-  /* Content */
+  /* Content. The 5-step intensity ramp (emphasised > default > secondary >
+   * tertiary > disabled) covers most text. `quiet`, `faint`, and `strong`
+   * are platform-de-facto pairs — they exist because component code uses
+   * specific shades the ramp doesn't name. See dark-mode block for full
+   * pair semantics. */
   --content-default: #24292E;
   --content-emphasised: #161616;
   --content-secondary: #5A6672;
   --content-tertiary: #71808E;
+  --content-quiet: #8D99A5;     /* between tertiary and disabled */
+  --content-strong: #24292E;    /* = default in light, slightly muted in dark */
+  --content-faint: #A9B2BB;     /* lighter than disabled */
   --content-disabled: #CFCCC9;
   --content-inset: #FDFDFC;
+
+  /* Surface (extras beyond the base/overlay/active/lift/hover ramp) */
+  --surface-sunken: #F6F5F4;    /* = surface-base in light; recessed in dark */
+
+  /* Border (extras beyond base/disabled/element/hover/active/overlay) */
+  --border-subtle: #E9E6E2;     /* = border-disabled in light; soft in dark */
 
   /* System */
   --system-positive-strong: #277E41;
@@ -260,13 +273,22 @@
   --border-hover: #2D3339;
   --border-active: #F6F5F4;
 
-  /* Content */
+  /* Content. See light-mode block for the rationale on quiet/faint/strong. */
   --content-default: #F6F5F4;
   --content-emphasised: #FDFDFC;
   --content-secondary: #A9B2BB;
   --content-tertiary: #8D99A5;
+  --content-quiet: #A9B2BB;     /* = secondary in dark, lighter than tertiary in light */
+  --content-strong: #E9E6E2;
+  --content-faint: #8D99A5;
   --content-disabled: #5A6672;
   --content-inset: #17191C;
+
+  /* Surface (extras) */
+  --surface-sunken: #1C2024;
+
+  /* Border (extras) */
+  --border-subtle: #2D3339;
 
   /* System */
   --system-positive-strong: #309C50;
@@ -332,13 +354,25 @@
   --border-hover: #30252B;
   --border-active: #FFB3C7;
 
-  /* Content */
+  /* Content. Velvet inherits the dark values for quiet/faint/strong since
+   * velvet's accent applies at the chrome level (primary/surface), not the
+   * text ramp. Design may refine these per Velvet's own palette later. */
   --content-default: #F6F5F4;
   --content-emphasised: #FFF7FA;
   --content-secondary: #C8B6BE;
   --content-tertiary: #A98695;
+  --content-quiet: #A9B2BB;
+  --content-strong: #E9E6E2;
+  --content-faint: #8D99A5;
   --content-disabled: #6B5962;
   --content-inset: #FFF7FA;
+
+  /* Surface (extras). Sunken inherits dark — design to refine if velvet
+   * wants its own subdued surface. */
+  --surface-sunken: #1C2024;
+
+  /* Border (extras) */
+  --border-subtle: #2D3339;
 
   /* System */
   --system-positive-strong: #E83F5B;

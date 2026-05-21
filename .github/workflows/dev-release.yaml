@@ -297,12 +297,13 @@ jobs:
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           mkdir -p /tmp/manifest-digest
           echo "${DIGEST}" > /tmp/manifest-digest/digest
+          echo "${IMAGE}" > /tmp/manifest-digest/repository
 
       - name: Upload manifest digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: assistant-manifest-digest-dev
-          path: /tmp/manifest-digest/digest
+          path: /tmp/manifest-digest/*
           retention-days: 1
 
   push-gateway-image:
@@ -462,12 +463,13 @@ jobs:
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           mkdir -p /tmp/manifest-digest
           echo "${DIGEST}" > /tmp/manifest-digest/digest
+          echo "${IMAGE}" > /tmp/manifest-digest/repository
 
       - name: Upload manifest digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gateway-manifest-digest-dev
-          path: /tmp/manifest-digest/digest
+          path: /tmp/manifest-digest/*
           retention-days: 1
 
   push-credential-executor-image:
@@ -624,13 +626,351 @@ jobs:
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           mkdir -p /tmp/manifest-digest
           echo "${DIGEST}" > /tmp/manifest-digest/digest
+          echo "${IMAGE}" > /tmp/manifest-digest/repository
 
       - name: Upload manifest digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: credential-executor-manifest-digest-dev
-          path: /tmp/manifest-digest/digest
+          path: /tmp/manifest-digest/*
           retention-days: 1
+
+  publish-production-preview-image-tags:
+    needs: [compute-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
+    if: ${{ always() && !cancelled() && github.ref_name == 'main' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    # Registry credentials are currently scoped by GitHub environment. The
+    # production identity must also be able to read dev manifests so imagetools
+    # can retag them into production preview repositories.
+    environment: production
+    steps:
+      - name: Authenticate to production GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        with:
+          version: latest
+
+      - name: Download assistant dev manifest digest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: assistant-manifest-digest-dev
+          path: /tmp/assistant-digest
+
+      - name: Download gateway dev manifest digest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: gateway-manifest-digest-dev
+          path: /tmp/gateway-digest
+
+      - name: Download credential-executor dev manifest digest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: credential-executor-manifest-digest-dev
+          path: /tmp/credential-executor-digest
+
+      - name: Resolve image references
+        id: refs
+        run: |
+          ASSISTANT_SOURCE_REPO=$(cat /tmp/assistant-digest/repository)
+          ASSISTANT_SOURCE_DIGEST=$(cat /tmp/assistant-digest/digest)
+          GATEWAY_SOURCE_REPO=$(cat /tmp/gateway-digest/repository)
+          GATEWAY_SOURCE_DIGEST=$(cat /tmp/gateway-digest/digest)
+          CREDENTIAL_EXECUTOR_SOURCE_REPO=$(cat /tmp/credential-executor-digest/repository)
+          CREDENTIAL_EXECUTOR_SOURCE_DIGEST=$(cat /tmp/credential-executor-digest/digest)
+
+          ASSISTANT_DEST_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
+          GATEWAY_DEST_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          CREDENTIAL_EXECUTOR_DEST_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+
+          echo "assistant_source_repo=${ASSISTANT_SOURCE_REPO}" >> "$GITHUB_OUTPUT"
+          echo "assistant_source_digest=${ASSISTANT_SOURCE_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "assistant_dest_repo=${ASSISTANT_DEST_REPO}" >> "$GITHUB_OUTPUT"
+          echo "gateway_source_repo=${GATEWAY_SOURCE_REPO}" >> "$GITHUB_OUTPUT"
+          echo "gateway_source_digest=${GATEWAY_SOURCE_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "gateway_dest_repo=${GATEWAY_DEST_REPO}" >> "$GITHUB_OUTPUT"
+          echo "credential_executor_source_repo=${CREDENTIAL_EXECUTOR_SOURCE_REPO}" >> "$GITHUB_OUTPUT"
+          echo "credential_executor_source_digest=${CREDENTIAL_EXECUTOR_SOURCE_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "credential_executor_dest_repo=${CREDENTIAL_EXECUTOR_DEST_REPO}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          CONFIGURED_HOSTS=""
+          for repo in \
+            "${{ steps.refs.outputs.assistant_source_repo }}" \
+            "${{ steps.refs.outputs.gateway_source_repo }}" \
+            "${{ steps.refs.outputs.credential_executor_source_repo }}" \
+            "${{ steps.refs.outputs.assistant_dest_repo }}" \
+            "${{ steps.refs.outputs.gateway_dest_repo }}" \
+            "${{ steps.refs.outputs.credential_executor_dest_repo }}"
+          do
+            host="${repo%%/*}"
+            if [ -z "$host" ]; then
+              continue
+            fi
+            case " $CONFIGURED_HOSTS " in
+              *" $host "*) continue ;;
+            esac
+            gcloud auth configure-docker "$host"
+            CONFIGURED_HOSTS="$CONFIGURED_HOSTS $host"
+          done
+
+      - name: Validate dev source manifest access
+        run: |
+          validate_source_manifest() {
+            local service="$1"
+            local source_repo="$2"
+            local source_digest="$3"
+
+            if docker buildx imagetools inspect "${source_repo}@${source_digest}" >/dev/null; then
+              return 0
+            fi
+
+            echo "::error::Production preview publishing requires the production GCP service account to read the dev Artifact Registry manifest for ${service}. Grant dev Artifact Registry reader access or provide a narrower preview credential set with dev read and production write permissions."
+            return 1
+          }
+
+          validate_source_manifest \
+            "assistant" \
+            "${{ steps.refs.outputs.assistant_source_repo }}" \
+            "${{ steps.refs.outputs.assistant_source_digest }}"
+
+          validate_source_manifest \
+            "gateway" \
+            "${{ steps.refs.outputs.gateway_source_repo }}" \
+            "${{ steps.refs.outputs.gateway_source_digest }}"
+
+          validate_source_manifest \
+            "credential-executor" \
+            "${{ steps.refs.outputs.credential_executor_source_repo }}" \
+            "${{ steps.refs.outputs.credential_executor_source_digest }}"
+
+      - name: Publish production preview tags
+        id: preview
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+
+          publish_preview_tags() {
+            local output_prefix="$1"
+            local source_repo="$2"
+            local source_digest="$3"
+            local dest_repo="$4"
+            local digest_dir="$5"
+
+            local immutable_tag="${dest_repo}:preview-v${VERSION}"
+            local floating_tag="${dest_repo}:preview"
+
+            docker buildx imagetools create \
+              -t "$immutable_tag" \
+              -t "$floating_tag" \
+              "${source_repo}@${source_digest}"
+
+            local digest
+            digest=$(docker buildx imagetools inspect "$immutable_tag" --format '{{json .Manifest.Digest}}' | tr -d '"')
+            mkdir -p "$digest_dir"
+            echo "$digest" > "$digest_dir/digest"
+
+            echo "${output_prefix}_digest=${digest}" >> "$GITHUB_OUTPUT"
+            echo "${output_prefix}_immutable_tag=${immutable_tag}" >> "$GITHUB_OUTPUT"
+            echo "${output_prefix}_floating_tag=${floating_tag}" >> "$GITHUB_OUTPUT"
+          }
+
+          publish_preview_tags \
+            "assistant" \
+            "${{ steps.refs.outputs.assistant_source_repo }}" \
+            "${{ steps.refs.outputs.assistant_source_digest }}" \
+            "${{ steps.refs.outputs.assistant_dest_repo }}" \
+            "/tmp/preview-digests/assistant"
+
+          publish_preview_tags \
+            "gateway" \
+            "${{ steps.refs.outputs.gateway_source_repo }}" \
+            "${{ steps.refs.outputs.gateway_source_digest }}" \
+            "${{ steps.refs.outputs.gateway_dest_repo }}" \
+            "/tmp/preview-digests/gateway"
+
+          publish_preview_tags \
+            "credential_executor" \
+            "${{ steps.refs.outputs.credential_executor_source_repo }}" \
+            "${{ steps.refs.outputs.credential_executor_source_digest }}" \
+            "${{ steps.refs.outputs.credential_executor_dest_repo }}" \
+            "/tmp/preview-digests/credential-executor"
+
+      - name: Upload assistant production preview manifest digest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: assistant-preview-manifest-digest-production
+          path: /tmp/preview-digests/assistant/digest
+          retention-days: 1
+
+      - name: Upload gateway production preview manifest digest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gateway-preview-manifest-digest-production
+          path: /tmp/preview-digests/gateway/digest
+          retention-days: 1
+
+      - name: Upload credential-executor production preview manifest digest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: credential-executor-preview-manifest-digest-production
+          path: /tmp/preview-digests/credential-executor/digest
+          retention-days: 1
+
+      - name: Summary
+        run: |
+          echo "## Production Preview Images Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Source dev version:** \`${{ needs.compute-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Destination preview tags | Manifest digest |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- | --- |" >> $GITHUB_STEP_SUMMARY
+          echo "| assistant | \`${{ steps.preview.outputs.assistant_immutable_tag }}\`<br>\`${{ steps.preview.outputs.assistant_floating_tag }}\` | \`${{ steps.preview.outputs.assistant_digest }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| gateway | \`${{ steps.preview.outputs.gateway_immutable_tag }}\`<br>\`${{ steps.preview.outputs.gateway_floating_tag }}\` | \`${{ steps.preview.outputs.gateway_digest }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| credential-executor | \`${{ steps.preview.outputs.credential_executor_immutable_tag }}\`<br>\`${{ steps.preview.outputs.credential_executor_floating_tag }}\` | \`${{ steps.preview.outputs.credential_executor_digest }}\` |" >> $GITHUB_STEP_SUMMARY
+
+  register-preview-release:
+    needs: [compute-version, publish-production-preview-image-tags]
+    if: ${{ always() && !cancelled() && github.ref_name == 'main' && needs.publish-production-preview-image-tags.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - name: Download assistant production preview manifest digest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: assistant-preview-manifest-digest-production
+          path: /tmp/assistant-preview-digest
+
+      - name: Download gateway production preview manifest digest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: gateway-preview-manifest-digest-production
+          path: /tmp/gateway-preview-digest
+
+      - name: Download credential-executor production preview manifest digest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: credential-executor-preview-manifest-digest-production
+          path: /tmp/credential-executor-preview-digest
+
+      - name: Extract production preview manifest digests
+        id: digests
+        run: |
+          ASSISTANT_DIGEST=$(cat /tmp/assistant-preview-digest/digest)
+          GATEWAY_DIGEST=$(cat /tmp/gateway-preview-digest/digest)
+          CREDENTIAL_EXECUTOR_DIGEST=$(cat /tmp/credential-executor-preview-digest/digest)
+          echo "assistant_digest=${ASSISTANT_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "credential_executor_digest=${CREDENTIAL_EXECUTOR_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "gateway_digest=${GATEWAY_DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve production platform credentials
+        id: platform-creds
+        run: |
+          echo "api_url=${{ secrets.PLATFORM_API_URL }}" >> "$GITHUB_OUTPUT"
+          echo "api_key=${{ secrets.PLATFORM_INTERNAL_SERVICE_API_KEY }}" >> "$GITHUB_OUTPUT"
+
+      - name: Register preview release with production platform
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          SHA="${GITHUB_SHA}"
+          ASSISTANT_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
+          GATEWAY_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          CREDENTIAL_EXECUTOR_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
+          IS_STABLE="false"
+
+          PAYLOAD=$(jq -n \
+            --arg version "$VERSION" \
+            --arg released_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg release_channel "preview" \
+            --argjson is_stable "$IS_STABLE" \
+            --arg assistant_repo "$ASSISTANT_REPO" \
+            --arg assistant_tag "preview-v${VERSION}" \
+            --arg assistant_sha "$SHA" \
+            --arg assistant_digest "${{ steps.digests.outputs.assistant_digest }}" \
+            --arg gateway_repo "$GATEWAY_REPO" \
+            --arg gateway_tag "preview-v${VERSION}" \
+            --arg gateway_sha "$SHA" \
+            --arg gateway_digest "${{ steps.digests.outputs.gateway_digest }}" \
+            --arg credential_executor_repo "$CREDENTIAL_EXECUTOR_REPO" \
+            --arg credential_executor_tag "preview-v${VERSION}" \
+            --arg credential_executor_sha "$SHA" \
+            --arg credential_executor_digest "${{ steps.digests.outputs.credential_executor_digest }}" \
+            '{
+              version: $version,
+              released_at: $released_at,
+              release_channel: $release_channel,
+              is_stable: $is_stable,
+              assistant_image: {
+                repository: $assistant_repo,
+                tag: $assistant_tag,
+                sha: $assistant_sha,
+                digest: $assistant_digest
+              },
+              gateway_image: {
+                repository: $gateway_repo,
+                tag: $gateway_tag,
+                sha: $gateway_sha,
+                digest: $gateway_digest
+              },
+              credential_executor_image: {
+                repository: $credential_executor_repo,
+                tag: $credential_executor_tag,
+                sha: $credential_executor_sha,
+                digest: $credential_executor_digest
+              }
+            }')
+
+          DELAYS=(5 15 30)
+          MAX_ATTEMPTS=3
+
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            CURL_EXIT=0
+            echo "Registering preview release ${VERSION} with production platform [attempt ${attempt}/${MAX_ATTEMPTS}]..."
+            HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+              -X POST "${{ steps.platform-creds.outputs.api_url }}/v1/internal/assistant-image-releases/" \
+              -H "Content-Type: application/json" \
+              -H "X-Internal-Service-Api-Key: ${{ steps.platform-creds.outputs.api_key }}" \
+              -d "$PAYLOAD") || CURL_EXIT=$?
+
+            if [ "${CURL_EXIT:-0}" -ne 0 ]; then
+              echo "::warning::curl transport error (exit code $CURL_EXIT)"
+              HTTP_STATUS="000"
+            else
+              echo "HTTP Status: $HTTP_STATUS"
+              cat /tmp/response.json
+            fi
+
+            if [ "$HTTP_STATUS" -ge 200 ] 2>/dev/null && [ "$HTTP_STATUS" -lt 300 ] 2>/dev/null; then
+              echo "Preview registration succeeded"
+              exit 0
+            fi
+
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              DELAY=${DELAYS[$((attempt - 1))]}
+              echo "::warning::Attempt ${attempt} failed (HTTP $HTTP_STATUS). Retrying in ${DELAY}s..."
+              sleep "$DELAY"
+            else
+              echo "::error::Preview release registration failed after ${MAX_ATTEMPTS} attempts (last HTTP $HTTP_STATUS)"
+              exit 1
+            fi
+          done
+
+      - name: Summary
+        run: |
+          echo "## Production Preview Release Registered" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.compute-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Release channel:** \`preview\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Platform environment:** \`production\`" >> $GITHUB_STEP_SUMMARY
 
   # ── Register Release with Dev Platform ─────────────────────────────────
 
@@ -757,7 +1097,7 @@ jobs:
   #      (e.g. C0123ABCD) is more robust than a #name.
 
   notify-dev-release:
-    needs: [compute-version, register-release]
+    needs: [compute-version, register-release, register-preview-release]
     runs-on: ubuntu-latest
     # A Slack outage must not fail the release run: that would both mar the run
     # conclusion (poisoning notify-releases' first-failure detection) and is

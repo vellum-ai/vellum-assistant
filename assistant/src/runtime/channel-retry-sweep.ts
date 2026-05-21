@@ -269,31 +269,32 @@ export async function sweepFailedEvents(
       }
     };
 
+    let userMessageId: string | undefined;
     try {
-      const { messageId: userMessageId, assistantMessageId } =
-        await processMessage(
-          event.conversationId,
-          content,
-          attachmentIds,
-          {
-            transport: {
-              channelId: sourceChannel,
-              hints: metadataHints.length > 0 ? metadataHints : undefined,
-              uxBrief: metadataUxBrief,
-              chatType: metadataChatType,
-            },
-            assistantId,
-            trustContext,
-            isInteractive:
-              resolveRoutingStateFromRuntime(trustContext).promptWaitingAllowed,
-            onEvent: observeAgentEvent,
+      const result = await processMessage(
+        event.conversationId,
+        content,
+        attachmentIds,
+        {
+          transport: {
+            channelId: sourceChannel,
+            hints: metadataHints.length > 0 ? metadataHints : undefined,
+            uxBrief: metadataUxBrief,
+            chatType: metadataChatType,
           },
-          sourceChannel,
-          sourceInterface,
-        );
+          assistantId,
+          trustContext,
+          isInteractive:
+            resolveRoutingStateFromRuntime(trustContext).promptWaitingAllowed,
+          onEvent: observeAgentEvent,
+        },
+        sourceChannel,
+        sourceInterface,
+      );
+      userMessageId = result.messageId;
       linkMessage(event.id, userMessageId);
       markProcessed(event.id);
-      replyMessageId ??= assistantMessageId;
+      replyMessageId ??= result.assistantMessageId;
       if (replyMessageId) {
         storeReplyMessageId(event.id, replyMessageId);
       }
@@ -330,6 +331,7 @@ export async function sweepFailedEvents(
             assistantId,
             {
               messageId: replyMessageId,
+              sinceMessageId: userMessageId,
               startFromSegment: 0,
               onSegmentDelivered: (count) =>
                 updateDeliveredSegmentCount(event.id, count),

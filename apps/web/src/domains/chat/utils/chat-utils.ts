@@ -1,5 +1,5 @@
 import type { DisplayMessage } from "@/domains/chat/types/types.js";
-import type { AssistantIdentity } from "@/domains/chat/api/assistant.js";
+import type { AssistantIdentity } from "@/assistant/identity.js";
 import type { Conversation } from "@/domains/chat/api/conversations.js";
 import type { AllowlistOption, AssistantEvent, DirectoryScopeOption, PendingToolConfirmation, ScopeOption } from "@/domains/chat/api/event-types.js";
 

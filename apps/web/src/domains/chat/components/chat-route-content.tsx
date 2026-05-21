@@ -46,6 +46,7 @@ import { DiscordNudgeBanner } from "@/domains/nudges/components/discord-nudge-ba
 import { GitHubNudgeBanner } from "@/domains/nudges/components/github-nudge-banner.js";
 import { IOSAppBanner } from "@/domains/nudges/components/ios-app-banner.js";
 import { MacOSAppBanner } from "@/domains/nudges/components/macos-app-banner.js";
+import { Loader2 } from "lucide-react";
 import { Button, Notice, ResizablePanel } from "@vellum/design-library";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner.js";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer.js";
@@ -55,6 +56,9 @@ import { ChatAvatar } from "@/components/avatar/chat-avatar.js";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu.js";
 import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel.js";
+import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card.js";
+import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice.js";
+import { useIsNativePlatform } from "@/runtime/native-auth.js";
 
 import { Link } from "react-router";
 import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters.js";
@@ -87,7 +91,7 @@ import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScop
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button.js";
-import type { AssistantIdentity } from "@/domains/chat/api/assistant.js";
+import type { AssistantIdentity } from "@/assistant/identity.js";
 import type { Conversation } from "@/domains/chat/api/conversations.js";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions.js";
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
@@ -327,6 +331,7 @@ export interface ChatRouteContentProps {
   handleCloseDocument: () => void;
   handleCloseApp: () => void;
   handleCloseEditPanel: () => void;
+  handleEditApp: () => void;
   handleShareApp: () => void;
   handleDeployApp: (() => void) | undefined;
 
@@ -357,6 +362,11 @@ export interface ChatRouteContentProps {
 
   // Is channel readonly (computed in parent, used in topbar + here)
   isChannelReadonly: boolean;
+
+  // Onboarding (iOS post-hatch flow)
+  onboardingTasksEmpty: boolean;
+  didOnboarding: boolean;
+  onboardingConversationKey: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -411,6 +421,7 @@ export function ChatRouteContent({
   handleCloseDocument,
   handleCloseApp,
   handleCloseEditPanel,
+  handleEditApp,
   handleShareApp,
   handleDeployApp,
   handleForkConversation,
@@ -427,6 +438,9 @@ export function ChatRouteContent({
   streamRetryNonce: _streamRetryNonce,
   refs,
   isChannelReadonly,
+  onboardingTasksEmpty,
+  didOnboarding,
+  onboardingConversationKey,
 }: ChatRouteContentProps) {
   // Destructure grouped props
   const { avatarComponents, avatarTraits, avatarImageUrl } = avatar;
@@ -531,6 +545,25 @@ export function ChatRouteContent({
   const secretSaved = useInteractionStore.use.secretSaved();
   const inlineConfirmationToolCallId = useInteractionStore.use.inlineConfirmationToolCallId();
   const inlineConfirmationAttached = inlineConfirmationToolCallId !== null;
+
+  // -------------------------------------------------------------------------
+  // Onboarding choice card
+  // -------------------------------------------------------------------------
+
+  const isNative = useIsNativePlatform();
+  const {
+    showOnboardingChoice,
+    handleSubmitTasks,
+    dismiss: dismissOnboardingChoice,
+  } = useOnboardingChoice({
+    isNative,
+    didOnboarding,
+    messages,
+    onboardingTasksEmpty,
+    activeConversationKey,
+    onboardingConversationKey,
+    sendMessage,
+  });
 
   // -------------------------------------------------------------------------
   // Derived values
@@ -811,6 +844,7 @@ export function ChatRouteContent({
         isThinking: showThinking,
         thinkingLabel,
         errorNotice: null,
+        showOnboardingChoice,
       }),
     [
       messages,
@@ -820,6 +854,7 @@ export function ChatRouteContent({
       pendingContactRequest,
       showThinking,
       thinkingLabel,
+      showOnboardingChoice,
     ],
   );
 
@@ -1174,6 +1209,12 @@ export function ChatRouteContent({
     subagentEntries,
     onSubagentClick,
     onStopSubagent,
+    renderOnboardingChoice: () => (
+      <OnboardingChoiceCard
+        onSelectSpecific={dismissOnboardingChoice}
+        onSubmitTasks={handleSubmitTasks}
+      />
+    ),
   };
 
   const sharedComposerNoticeProps = {
@@ -1353,6 +1394,32 @@ export function ChatRouteContent({
             isEditing
           />
         }
+      />
+    );
+  }
+
+  // Desktop full-width app viewer (non-editing). Mobile uses the portal-based
+  // MobileAppOverlay instead — this branch is desktop-only.
+  if (mainView === "app" && !isMobile) {
+    if (!openedAppState) {
+      return (
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
+        </div>
+      );
+    }
+    return (
+      <AppViewerContainer
+        appId={openedAppState.appId}
+        appName={openedAppState.name}
+        html={openedAppState.html}
+        assistantId={assistantId ?? ""}
+        onClose={handleCloseApp}
+        onEdit={handleEditApp}
+        onShare={handleShareApp}
+        isSharing={isSharing}
+        onDeploy={deployToVercel ? handleDeployApp : undefined}
+        isDeploying={isDeploying}
       />
     );
   }

@@ -43,12 +43,14 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { ChatError } from "@/domains/chat/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
-import type { PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import { consumePendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import type { RefreshSettleHandle } from "@/domains/chat/hooks/use-pull-refresh.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
 
-import { Button } from "@vellum/design-library";
+import { Button, ConfirmDialog } from "@vellum/design-library";
+import { VercelTokenDialog } from "@/components/vercel-token-dialog.js";
 import { useSyncChatStore } from "@/domains/chat/chat-store.js";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input.js";
@@ -70,7 +72,7 @@ import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
 
 import { createWebSyncRouter } from "@/lib/sync/web-sync-router.js";
-import { fetchAssistantIdentity } from "@/domains/chat/api/assistant.js";
+import { fetchAssistantIdentity } from "@/assistant/identity.js";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
 import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
@@ -85,9 +87,10 @@ import { abortSubagent } from "@/domains/chat/api/conversations.js";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay.js";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay.js";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay.js";
+import { getEditChatKey, setEditChatKey } from "@/domains/chat/utils/edit-chat-session.js";
 import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
-import type { AssistantIdentity } from "@/domains/chat/api/assistant.js";
+import type { AssistantIdentity } from "@/assistant/identity.js";
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 import {
   ChatRouteContent,
@@ -135,6 +138,7 @@ export function ChatPage() {
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [streamRetryNonce, setStreamRetryNonce] = useState(0);
   const [_autoGreetPending, setAutoGreetPending] = useState(false);
+  const awaitingAutoGreetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
     hasMore: false,
@@ -180,6 +184,8 @@ export function ChatPage() {
   const subagentState = useSubagentStore(useShallow((s) => ({ byId: s.byId, orderedIds: s.orderedIds })));
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
+  const isTokenDialogOpen = useDeployStore.use.isTokenDialogOpen();
+  const complexDeployApp = useDeployStore.use.complexDeployApp();
   const subagentEntries = useMemo(
     () => subagentState.orderedIds.map((id) => subagentState.byId[id]!).filter(Boolean),
     [subagentState.byId, subagentState.orderedIds],
@@ -225,6 +231,9 @@ export function ChatPage() {
   const dismissedSurfaceIdsRef = useRef<Set<string>>(new Set());
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
   const onboardingDraftConversationKeyRef = useRef<string | null>(null);
+  const [didOnboarding, setDidOnboarding] = useState(false);
+  const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
+  const [onboardingConversationKey, setOnboardingConversationKey] = useState<string | null>(null);
   const draftKeyResolutionRef = useRef(false);
   const previousConversationKeyRef = useRef<string | null>(null);
   const pendingQueuedStableIdsRef = useRef<string[]>([]);
@@ -419,6 +428,52 @@ export function ChatPage() {
   );
 
   // -------------------------------------------------------------------------
+  // Onboarding signal consumption
+  // -------------------------------------------------------------------------
+  // Consume the `?onboarding=1` signal left by `/onboarding/hatching` when
+  // it forwards the user after a successful hatch. Flipping `autoGreetRef`
+  // mirrors the existing auto-greet paths so the first assistant message
+  // fires once the chat history loads. The flag is stripped from the URL
+  // immediately so a page refresh doesn't re-trigger the greet.
+  useEffect(() => {
+    if (searchParams.get("onboarding") !== "1") return;
+    autoGreetRef.current = true;
+    setDidOnboarding(true);
+    setAutoGreetPending(true);
+    if (awaitingAutoGreetTimeoutRef.current) {
+      clearTimeout(awaitingAutoGreetTimeoutRef.current);
+    }
+    awaitingAutoGreetTimeoutRef.current = setTimeout(() => {
+      setAutoGreetPending(false);
+    }, 10_000);
+    const onboardingDraftKey =
+      onboardingDraftConversationKeyRef.current ?? createDraftConversationKey();
+    onboardingDraftConversationKeyRef.current = onboardingDraftKey;
+    setOnboardingConversationKey(onboardingDraftKey);
+    // Drain pending PreChat context from sessionStorage at the same moment
+    // the auto-greet is armed so the payload rides along the single greet
+    // send and doesn't leak onto a later message.
+    //
+    // React strict-mode double-fires effects in dev; guard so the second
+    // invocation is a no-op (sessionStorage was already drained).
+    if (pendingOnboardingContextRef.current === null) {
+      pendingOnboardingContextRef.current = consumePendingPreChatContext();
+    }
+    if (pendingOnboardingContextRef.current) {
+      setOnboardingTasksEmpty(
+        pendingOnboardingContextRef.current.tasks.length === 0,
+      );
+    }
+    void navigate(routes.conversation(onboardingDraftKey), { replace: true });
+    return () => {
+      if (awaitingAutoGreetTimeoutRef.current) {
+        clearTimeout(awaitingAutoGreetTimeoutRef.current);
+        awaitingAutoGreetTimeoutRef.current = null;
+      }
+    };
+  }, [searchParams, navigate]);
+
+  // -------------------------------------------------------------------------
   // Message reconciliation
   // -------------------------------------------------------------------------
   const {
@@ -576,6 +631,24 @@ export function ChatPage() {
     promptConsumedRef.current = prompt;
     void sendMessage(prompt);
   }, [searchParams, activeConversationKey, sendMessage]);
+
+  // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
+  const deepLinkAppConsumed = useRef(false);
+  useEffect(() => {
+    if (deepLinkAppConsumed.current) return;
+    const appId = searchParams.get("app");
+    if (!appId || !assistantId) return;
+    deepLinkAppConsumed.current = true;
+    void useViewerStore.getState().loadApp(assistantId, appId);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("app");
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      query ? `${window.location.pathname}?${query}` : window.location.pathname,
+    );
+  }, [searchParams, assistantId]);
 
   // Clear question prompt when conversation changes
   useEffect(() => {
@@ -1082,6 +1155,20 @@ export function ChatPage() {
       useConversationStore.getState().setEditingKey(null);
       useViewerStore.getState().exitAppEditing();
     },
+    handleEditApp: () => {
+      const { openedAppState } = useViewerStore.getState();
+      if (!openedAppState || !assistantId) return;
+
+      const appId = openedAppState.appId;
+      const conversationKey = getEditChatKey(assistantId, appId) ?? crypto.randomUUID();
+      setEditChatKey(assistantId, appId, conversationKey);
+      useConversationStore.getState().setEditingKey(conversationKey);
+      useViewerStore.getState().enterAppEditing();
+
+      if (activeConversationKey !== conversationKey) {
+        navigateToConversation(conversationKey);
+      }
+    },
     handleShareApp: () => {
       const app = useViewerStore.getState().openedAppState;
       if (app && assistantId) void useDeployStore.getState().shareApp(assistantId, app.appId, app.name);
@@ -1133,6 +1220,9 @@ export function ChatPage() {
       reconcileAfterNextStreamOpenRef,
     },
     isChannelReadonly,
+    onboardingTasksEmpty,
+    didOnboarding,
+    onboardingConversationKey,
   };
 
   // -------------------------------------------------------------------------
@@ -1158,6 +1248,32 @@ export function ChatPage() {
         isSearching={commandPalette.isSearching}
         onItemSelect={handleItemSelect}
         onKeyDown={commandPalette.handleKeyDown}
+      />
+      {assistantId && (
+        <VercelTokenDialog
+          open={isTokenDialogOpen}
+          onOpenChange={(open) => {
+            if (!open) useDeployStore.getState().hideTokenDialog();
+          }}
+          assistantId={assistantId}
+          onTokenSaved={() => {
+            void useDeployStore.getState().deployAfterTokenSaved(assistantId);
+          }}
+        />
+      )}
+      <ConfirmDialog
+        open={complexDeployApp !== null}
+        title="This app needs a full deploy"
+        message={`"${complexDeployApp?.name ?? ""}" uses backend services that won't work on a static Vercel page. ${assistantIdentity?.name ?? "Your assistant"} can deploy it properly with serverless functions.`}
+        confirmLabel={`Let ${assistantIdentity?.name ?? "assistant"} handle it`}
+        onConfirm={() => {
+          const appName = useDeployStore.getState().complexDeployApp?.name ?? "this app";
+          useDeployStore.getState().setComplexDeployApp(null);
+          startNewConversation({
+            initialMessage: `Deploy my app "${appName}" to Vercel. It uses backend services that need serverless functions — please use the deploy-fullstack-vercel skill to handle it properly.`,
+          });
+        }}
+        onCancel={() => useDeployStore.getState().setComplexDeployApp(null)}
       />
       {overlayTarget &&
         createPortal(
