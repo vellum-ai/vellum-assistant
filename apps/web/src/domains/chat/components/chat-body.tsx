@@ -118,6 +118,12 @@ export interface ChatBodyProps {
   questionPromptSlot?: ReactNode;
 
   /**
+   * Optional pre-rendered footer rendered inside the max-width wrapper
+   * immediately above the composer or read-only banner.
+   */
+  channelFooterSlot?: ReactNode;
+
+  /**
    * Optional conversation-starter chip grid rendered inside the max-width
    * wrapper directly below the composer. Visible only on the empty state;
    * the parent passes `undefined` once messages arrive. Rendered as a
@@ -176,6 +182,7 @@ export function ChatBody({
   bannerSlot,
   queuedDrawerSlot,
   questionPromptSlot,
+  channelFooterSlot,
   startersSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
@@ -249,6 +256,7 @@ export function ChatBody({
           )}
           {queuedDrawerSlot}
           {questionPromptSlot}
+          {channelFooterSlot}
           {isChannelReadonly ? (
             <ChatReadonlyBanner
               canStopGenerating={canStopGenerating}
