@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 
 import { CheckCircle, Loader2 } from "lucide-react";
 import { type ReactNode, useState } from "react";

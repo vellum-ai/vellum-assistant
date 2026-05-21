@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 /**
  * Chat-domain MarkdownMessage that composes the design-library primitive
  * with OAuth-aware link handling for authorization URLs in chat responses.

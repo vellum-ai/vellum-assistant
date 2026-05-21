@@ -184,6 +184,24 @@ Reference: [TypeScript — Type-Only Imports](https://www.typescriptlang.org/doc
 
 ---
 
+## Color
+
+### Theme-aware color
+
+Use semantic tokens for color that varies by theme. Never pair `dark:` with a raw color-scale utility (`dark:bg-moss-700`, `dark:text-stone-400`, etc.) — the lint rule will flag this. Semantic tokens are defined in `packages/design-library/src/tokens.css` and switch per `data-theme` automatically, including velvet (which the `dark:` variant does NOT match).
+
+```tsx
+// ❌ Wrong — dark: doesn't fire in velvet; high chance of velvet contrast bugs
+<div className="bg-white text-stone-700 dark:bg-moss-700 dark:text-stone-200" />
+
+// ✅ Right — semantic tokens, one className, all three themes work
+<div className="bg-[var(--surface-lift)] text-[var(--content-strong)]" />
+```
+
+If your design needs a role that isn't already a token, add it to `tokens.css` first (with light/dark/velvet values) and then use it.
+
+---
+
 ## TypeScript
 
 ### Strict mode

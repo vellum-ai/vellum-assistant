@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 
 import { AlertTriangle, File, Loader2, Upload, X } from "lucide-react";
 import { type DragEvent, useCallback, useRef, useState } from "react";
