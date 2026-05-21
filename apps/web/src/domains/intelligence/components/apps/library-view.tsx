@@ -619,11 +619,8 @@ export function LibraryView({
   );
 
   return (
-    <div className="flex h-full flex-col overflow-hidden p-6">
-      <div className="mb-6 flex shrink-0 items-center justify-between">
-        <h1 className="text-title-large text-[var(--content-default)]">
-          Library
-        </h1>
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="mb-4 flex shrink-0 items-center justify-end">
         <div className="flex items-center gap-2">
           <input
             ref={fileInputRef}

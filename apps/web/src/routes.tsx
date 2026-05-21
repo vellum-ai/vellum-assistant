@@ -185,11 +185,11 @@ export const router = createBrowserRouter([
             children: [
               { path: "identity", element: <IdentityPage /> },
               { path: "library", element: <LibraryPage /> },
-              { path: "library/:appId", element: <LibraryDetailPage /> },
               { path: "workspace", element: <WorkspacePage /> },
               { path: "contacts", element: <ContactsPage /> },
             ],
           },
+          { path: "library/:appId", element: <LibraryDetailPage /> },
           { path: "connect", element: <ConnectPage /> },
           { path: "inspect", element: <InspectPage /> },
         ],
