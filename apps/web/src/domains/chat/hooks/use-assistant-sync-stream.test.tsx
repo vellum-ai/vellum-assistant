@@ -231,6 +231,33 @@ describe("useAssistantSyncStream", () => {
     expect(listCalls.length).toBe(1);
   });
 
+  test("invalidates home-feed queries on home_feed_updated and relationship_state_updated", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantSyncStream("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    activeHandler!({
+      type: "home_feed_updated",
+      updatedAt: "2026-05-21T00:00:00Z",
+      newItemCount: 1,
+    } as unknown as AssistantEvent);
+    activeHandler!({
+      type: "relationship_state_updated",
+      updatedAt: "2026-05-21T00:00:00Z",
+    } as unknown as AssistantEvent);
+    await waitFor(() => {
+      const homeCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
+        (call) => {
+          const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
+          return arg?.queryKey?.[0] === "home-feed";
+        },
+      );
+      expect(homeCalls.length).toBe(2);
+    });
+  });
+
   test("cancels the stream when isAssistantActive flips true -> false", () => {
     const queryClient = freshQueryClient();
     const { rerender } = renderHook(

@@ -126,12 +126,25 @@ export function useAssistantSyncStream(
     };
 
     const handleEvent = (event: AssistantEvent) => {
-      if (event.type === "sync_changed") {
-        handleSyncChanged(event);
+      switch (event.type) {
+        case "sync_changed":
+          handleSyncChanged(event);
+          return;
+        case "home_feed_updated":
+        case "relationship_state_updated":
+          // Broadcast events that mutate home-feed-derived state
+          // (home page list + sidebar unread-home indicator). Invalidate
+          // by prefix so every home-feed query key for the assistant is
+          // refreshed, matching the existing per-conversation handler.
+          void queryClient.invalidateQueries({ queryKey: ["home-feed"] });
+          return;
+        default:
+          // All other event types (assistant_text_delta, tool_*,
+          // message_*, confirmation_request, etc.) are
+          // conversation-scoped and handled by ChatPage's
+          // useEventStream. Ignoring them here is intentional.
+          return;
       }
-      // All other event types (assistant_text_delta, tool_*, message_*,
-      // confirmation_request, etc.) are conversation-scoped and handled
-      // by ChatPage's useEventStream. Ignoring them here is intentional.
     };
 
     const handleError = (err: Error) => {
