@@ -46,8 +46,11 @@ When the user requests changes to a document:
 
 1. Find the `surface_id` from the `<active_documents>` context block.
 2. Use `document_update` with the existing `surface_id` — do NOT call `document_create` again.
-3. Use `mode: "replace"` for full rewrites or `mode: "append"` for additions.
-4. For targeted edits — fixing typos, renaming terms, adjusting formatting — prefer `document_find` + `document_replace_text` over `document_update` with `mode: "replace"`. This avoids rewriting the entire document and reduces the risk of accidentally dropping content.
+3. **Choose the right editing tool:**
+   - `document_update` with `mode: "append"` — adding new content to the end.
+   - `document_update` with `mode: "replace"` — ONLY for full rewrites where the majority of the document is changing.
+   - `document_find` + `document_replace_text` — **for everything else**. Fixing typos, renaming terms, swapping sections, reordering content, adjusting formatting, or any edit that touches only part of the document. This is the default choice for edits. It avoids rewriting the entire document and eliminates the risk of accidentally dropping content.
+4. **Do NOT use `document_update` with `mode: "replace"` for targeted edits.** Rewriting the entire document to change a few words or rearrange sections is wasteful and error-prone.
 
 ## Find & Replace
 
@@ -87,6 +90,7 @@ Returns the number of replacements made and whether the content changed.
 - **Fix a recurring typo**: Find `"recieve"`, replace with `"receive"`.
 - **Rename a term throughout**: Find `"widget"` (case-insensitive), replace with `"component"`.
 - **Reformat dates with regex**: Find `(\d{2})/(\d{2})/(\d{4})` with `regex: true`, replace with `$3-$1-$2` to convert `MM/DD/YYYY` to `YYYY-MM-DD`.
+- **Swap or reorder sections**: Use `document_read` to get the content, identify the sections to swap, then call `document_replace_text` to replace the first section with the second and vice versa. For complex rearrangements, use multiple `document_replace_text` calls with `max_replacements: 1`.
 
 ## Comments
 
