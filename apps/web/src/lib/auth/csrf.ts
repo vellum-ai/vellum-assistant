@@ -10,7 +10,9 @@
  */
 import { getAllauthByClientV1AuthSession } from "@/generated/auth/sdk.gen.js";
 
-const CSRF_COOKIE_NAME = "csrftoken";
+const CSRF_COOKIE_NAME = import.meta.env.PROD
+  ? "__Secure-csrftoken"
+  : "csrftoken";
 
 /**
  * Read the CSRF token from the browser cookie jar.
