@@ -39,7 +39,7 @@ import type {
   ContactPayload,
   ContactSelection,
 } from "@/domains/contacts/types.js";
-import { useActiveAssistantContext } from "@/domains/chat/active-assistant-gate.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
 import { fetchAssistantIdentity } from "@/assistant/identity.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { routes } from "@/utils/routes.js";

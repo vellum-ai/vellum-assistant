@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
 import { type ReactNode } from "react";
 
-import { useActiveAssistantContext } from "@/domains/chat/active-assistant-gate.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
 import { fetchConversationMessages } from "@/domains/chat/api/messages.js";
 import { MessageInspectorView } from "@/domains/chat/inspector/components/message-inspector-view.js";
 

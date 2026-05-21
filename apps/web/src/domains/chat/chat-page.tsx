@@ -24,7 +24,7 @@ import { ChevronDown } from "lucide-react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
-import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { useAssistantContext } from "@/components/layout/assistant-context.js";
 import { useShallow } from "zustand/shallow";
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import {

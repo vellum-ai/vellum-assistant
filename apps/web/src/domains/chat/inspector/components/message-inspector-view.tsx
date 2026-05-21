@@ -4,7 +4,7 @@ import { Link, useSearchParams } from "react-router";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@vellum/design-library";
-import { useActiveAssistantContext } from "@/domains/chat/active-assistant-gate.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
 import {
   buildInspectorExportFilename,
   buildInspectorExportZipBlob,

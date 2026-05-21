@@ -12,7 +12,7 @@ import { useNavigate, useParams } from "react-router";
 import { Loader2 } from "lucide-react";
 import { Typography } from "@vellum/design-library";
 
-import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { useAssistantContext } from "@/components/layout/assistant-context.js";
 import { getEditChatKey, setEditChatKey } from "@/domains/chat/utils/edit-chat-session.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { routes } from "@/utils/routes.js";

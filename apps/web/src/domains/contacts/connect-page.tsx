@@ -11,7 +11,7 @@ import { Typography } from "@vellum/design-library/components/typography";
 import { parseA2AInviteParams } from "@/domains/contacts/a2a-invite.js";
 import type { A2AInviteParams } from "@/domains/contacts/a2a-invite.js";
 import { acceptA2AInvite } from "@/domains/contacts/api.js";
-import { useActiveAssistantContext } from "@/domains/chat/active-assistant-gate.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
 import { routes } from "@/utils/routes.js";
 
 /**

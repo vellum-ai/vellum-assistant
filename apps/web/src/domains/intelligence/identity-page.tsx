@@ -1,4 +1,4 @@
-import { useActiveAssistantContext } from "@/domains/chat/active-assistant-gate.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
 import { IdentityTab } from "@/domains/intelligence/components/identity-tab.js";
 
 export function IdentityPage() {

@@ -143,12 +143,6 @@
   "src/domains/contacts/components/guardian-detail-view.tsx": [
     "settings"
   ],
-  "src/domains/contacts/connect-page.tsx": [
-    "chat"
-  ],
-  "src/domains/contacts/contacts-page.tsx": [
-    "chat"
-  ],
   "src/domains/conversations/conversation-queries.test.ts": [
     "chat"
   ],
@@ -194,12 +188,6 @@
   "src/domains/intelligence/components/identity-tab.tsx": [
     "avatar"
   ],
-  "src/domains/intelligence/identity-page.tsx": [
-    "chat"
-  ],
-  "src/domains/intelligence/skills-page.tsx": [
-    "chat"
-  ],
   "src/domains/interactions/interaction-store.ts": [
     "chat"
   ],
@@ -208,7 +196,6 @@
     "intelligence"
   ],
   "src/domains/library/library-page.tsx": [
-    "chat",
     "intelligence"
   ],
   "src/domains/logs/components/logs-tab.tsx": [
@@ -281,9 +268,6 @@
     "chat"
   ],
   "src/domains/subagents/subagent-store.ts": [
-    "chat"
-  ],
-  "src/domains/workspace/workspace-page.tsx": [
     "chat"
   ]
 }

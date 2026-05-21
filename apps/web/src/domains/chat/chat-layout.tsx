@@ -18,7 +18,7 @@ import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js
 import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
 import { useDynamicFavicon } from "@/domains/avatar/use-dynamic-favicon.js";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge.js";
-import type { AssistantContextValue } from "@/domains/chat/assistant-context.js";
+import type { AssistantContextValue } from "@/components/layout/assistant-context.js";
 
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import {
