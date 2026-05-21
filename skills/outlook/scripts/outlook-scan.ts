@@ -54,7 +54,16 @@ async function cacheStore(data: unknown): Promise<string> {
   try {
     await Bun.write(tmpFile, JSON.stringify(data));
     const proc = Bun.spawn(
-      ["assistant", "cache", "set", "--ttl", "30m", "--json", "--file", tmpFile],
+      [
+        "assistant",
+        "cache",
+        "set",
+        "--ttl",
+        "30m",
+        "--json",
+        "--file",
+        tmpFile,
+      ],
       { stdout: "pipe", stderr: "pipe" },
     );
 
