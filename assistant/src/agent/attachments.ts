@@ -38,6 +38,7 @@ export function attachmentsToContentBlocks(
         filename: attachment.filename,
       },
       extracted_text: attachment.extractedText,
+      ...(attachment.id ? { _attachmentId: attachment.id } : {}),
     } as ContentBlock;
   });
 }

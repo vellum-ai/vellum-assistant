@@ -10,6 +10,34 @@ extension Notification.Name {
     static let internalImageDragStarted = Notification.Name("com.vellum.internalImageDragStarted")
 }
 
+/// Partition attachments into image, video, audio, and file buckets by MIME prefix.
+/// Free function so renderers can partition arbitrary subsets (e.g. a single
+/// inline attachment referenced by contentOrder) without going through the
+/// message-level computed-var path.
+func partitionAttachments(_ attachments: [ChatAttachment]) -> (
+    images: [ChatAttachment],
+    videos: [ChatAttachment],
+    audios: [ChatAttachment],
+    files: [ChatAttachment]
+) {
+    var images: [ChatAttachment] = []
+    var videos: [ChatAttachment] = []
+    var audios: [ChatAttachment] = []
+    var files: [ChatAttachment] = []
+    for attachment in attachments {
+        if attachment.mimeType.hasPrefix("image/") {
+            images.append(attachment)
+        } else if attachment.mimeType.hasPrefix("video/") {
+            videos.append(attachment)
+        } else if attachment.mimeType.hasPrefix("audio/") {
+            audios.append(attachment)
+        } else {
+            files.append(attachment)
+        }
+    }
+    return (images, videos, audios, files)
+}
+
 // MARK: - Display-Resolution Image Downsampling
 
 /// Downsample raw image data to the target display size using ImageIO's streaming
@@ -433,22 +461,7 @@ extension ChatBubble {
     /// performing any image decoding — decoding happens asynchronously in
     /// AttachmentImageGrid to keep NSImage(data:) off the layout path.
     var partitionedAttachments: (images: [ChatAttachment], videos: [ChatAttachment], audios: [ChatAttachment], files: [ChatAttachment]) {
-        var images: [ChatAttachment] = []
-        var videos: [ChatAttachment] = []
-        var audios: [ChatAttachment] = []
-        var files: [ChatAttachment] = []
-        for attachment in message.attachments {
-            if attachment.mimeType.hasPrefix("image/") {
-                images.append(attachment)
-            } else if attachment.mimeType.hasPrefix("video/") {
-                videos.append(attachment)
-            } else if attachment.mimeType.hasPrefix("audio/") {
-                audios.append(attachment)
-            } else {
-                files.append(attachment)
-            }
-        }
-        return (images, videos, audios, files)
+        partitionAttachments(message.attachments)
     }
 
     func attachmentImageGrid(_ images: [ChatAttachment]) -> some View {
