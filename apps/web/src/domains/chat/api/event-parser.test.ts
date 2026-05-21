@@ -16,7 +16,7 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("maps assistant_text_delta conversationId to conversationKey", () => {
+  test("does not conflate conversationId with conversationKey", () => {
     const event = parseAssistantEvent("assistant_text_delta", {
       text: "Hello",
       messageId: "msg-1",
@@ -26,7 +26,6 @@ describe("parseAssistantEvent", () => {
       type: "assistant_text_delta",
       text: "Hello",
       messageId: "msg-1",
-      conversationKey: "conversation-1",
     });
   });
 
@@ -234,7 +233,7 @@ describe("parseAssistantEvent", () => {
 
   test("parses assistant_activity_state idle", () => {
     const event = parseAssistantEvent("assistant_activity_state", {
-      conversationId: "conv-1",
+      conversationKey: "conv-1",
       activityVersion: 7,
       phase: "idle",
       anchor: "global",
@@ -254,7 +253,7 @@ describe("parseAssistantEvent", () => {
 
   test("parses assistant_activity_state thinking with statusText", () => {
     const event = parseAssistantEvent("assistant_activity_state", {
-      conversationId: "conv-1",
+      conversationKey: "conv-1",
       activityVersion: 3,
       phase: "thinking",
       anchor: "assistant_turn",
@@ -277,7 +276,7 @@ describe("parseAssistantEvent", () => {
     // follow-up message_complete. The web handler must treat this as
     // terminal so the loading indicator clears.
     const event = parseAssistantEvent("assistant_activity_state", {
-      conversationId: "conv-1",
+      conversationKey: "conv-1",
       activityVersion: 1,
       phase: "idle",
       anchor: "global",
@@ -295,7 +294,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown for assistant_activity_state with invalid phase", () => {
     const data = {
-      conversationId: "conv-1",
+      conversationKey: "conv-1",
       activityVersion: 1,
       phase: "definitely_not_a_phase",
       anchor: "global",
@@ -312,7 +311,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown for assistant_activity_state with invalid reason", () => {
     const data = {
-      conversationId: "conv-1",
+      conversationKey: "conv-1",
       activityVersion: 1,
       phase: "idle",
       anchor: "global",
