@@ -18,7 +18,6 @@ export function SetupScreen() {
         style={{ animation: "fadeInUp 0.5s ease-out forwards" }}
       >
         {/* typography: off-scale — emoji hero sized via text-3xl */}
-        { }
         <span className="text-3xl" role="img" aria-label="seedling">
           🌱
         </span>
