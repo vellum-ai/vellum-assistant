@@ -412,7 +412,7 @@ export function TiptapDocumentEditor({
 }
 
 // ---------------------------------------------------------------------------
-// Editor styles — mirrors editor-bridge.ts CSS using design system tokens
+// Editor styles using design system tokens
 // ---------------------------------------------------------------------------
 
 const editorStyles = /* css */ `
