@@ -49,11 +49,8 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
 
 // Dynamic imports after mock.module calls so the stubs take effect
 // before the modules under test are loaded.
-const {
-  HOST_TOOL_NAMES,
-  HOST_TOOL_TO_CAPABILITY,
-  isToolActiveForContext,
-} = await import("../conversation-tool-setup.js");
+const { HOST_TOOL_NAMES, HOST_TOOL_TO_CAPABILITY, isToolActiveForContext } =
+  await import("../conversation-tool-setup.js");
 type SkillProjectionContext =
   import("../conversation-tool-setup.js").SkillProjectionContext;
 type SkillProjectionCache =
@@ -73,6 +70,66 @@ function makeCtx(
 
 beforeEach(() => {
   mockClientCountByCapability.clear();
+});
+
+describe("isToolActiveForContext — Slack task_progress UI exception", () => {
+  test("ui_show and ui_update are active for Slack task_progress turns", () => {
+    const ctx = makeCtx({
+      hasNoClient: false,
+      channelCapabilities: {
+        channel: "slack",
+        supportsDynamicUi: false,
+      },
+    });
+
+    expect(isToolActiveForContext("ui_show", ctx)).toBe(true);
+    expect(isToolActiveForContext("ui_update", ctx)).toBe(true);
+  });
+
+  test("ui_dismiss remains hidden for Slack without dynamic UI support", () => {
+    expect(
+      isToolActiveForContext(
+        "ui_dismiss",
+        makeCtx({
+          hasNoClient: false,
+          channelCapabilities: {
+            channel: "slack",
+            supportsDynamicUi: false,
+          },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("Slack task_progress UI tools still require a connected client path", () => {
+    expect(
+      isToolActiveForContext(
+        "ui_show",
+        makeCtx({
+          hasNoClient: true,
+          channelCapabilities: {
+            channel: "slack",
+            supportsDynamicUi: false,
+          },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("other non-dynamic channels still hide UI surface tools", () => {
+    expect(
+      isToolActiveForContext(
+        "ui_show",
+        makeCtx({
+          hasNoClient: false,
+          channelCapabilities: {
+            channel: "telegram",
+            supportsDynamicUi: false,
+          },
+        }),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("isToolActiveForContext — host tool capability gating", () => {
@@ -331,7 +388,10 @@ describe("isToolActiveForContext — cross-client exposure for host_file_*", () 
       expect(
         isToolActiveForContext(
           tool,
-          makeCtx({ hasNoClient: true, transportInterface: "chrome-extension" }),
+          makeCtx({
+            hasNoClient: true,
+            transportInterface: "chrome-extension",
+          }),
         ),
       ).toBe(false);
     });
