@@ -175,11 +175,15 @@ describe("handleListMessages tool_result merging", () => {
     expect(body.messages[2].content).toBe("how are you?");
   });
 
-  test("tool_result at start of array (no preceding assistant) is preserved", async () => {
+  test("tool_result at start of array (no preceding assistant) is dropped", async () => {
     const conv = createConversation();
-    // Orphan tool_result with no preceding assistant (pagination boundary).
-    // The preceding assistant tool_use lives in the previous page — dropping
-    // the result would be unrecoverable, so it is kept as-is.
+    // Orphan tool_result with no preceding assistant. Without the parent
+    // tool_use we can't tell the user what tool ran, so the result is
+    // meaningless — renderHistoryContent drops it rather than synthesizing
+    // a phantom "unknown" tool call. See shared.ts comment.
+    // The user message itself is preserved at the pagination boundary
+    // (mergeToolResultsIntoAssistantMessages keeps it to avoid data loss
+    // in case the matching tool_use lives on the previous page).
     await addMessage(
       conv.id,
       "user",
@@ -200,14 +204,11 @@ describe("handleListMessages tool_result merging", () => {
     const response = handleListMessages(createTestArgs(conv.id));
     const body = response as { messages: MessagePayload[] };
 
-    // Orphan tool_result is preserved (not suppressed) to avoid data loss
+    // Both messages exist — user message preserved at pagination boundary,
+    // but the orphan tool_result is dropped (no phantom toolCalls)
     expect(body.messages).toHaveLength(2);
     expect(body.messages[0].role).toBe("user");
-    // The preserved message must retain the actual tool_result payload
-    const orphanToolCalls = body.messages[0].toolCalls;
-    expect(orphanToolCalls).toBeDefined();
-    expect(orphanToolCalls).toHaveLength(1);
-    expect(orphanToolCalls![0].result).toBe("stale result");
+    expect(body.messages[0].toolCalls).toBeUndefined();
     expect(body.messages[1].role).toBe("assistant");
     expect(body.messages[1].content).toBe("response");
   });
