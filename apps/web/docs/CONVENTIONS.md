@@ -311,6 +311,19 @@ Quick summary:
 - **`useReducer` is not used** for client state, even within a single hook. See [STATE_MANAGEMENT.md — useReducer is not used](./STATE_MANAGEMENT.md#usereducer-is-not-used-for-client-state).
 - **`useShallow`** is not introduced in new code — atomic selectors avoid the need.
 
+## Event bus
+
+Cross-domain push signals (SSE, app lifecycle, network reachability)
+flow through a single event bus. See
+[`EVENT_BUS.md`](./EVENT_BUS.md).
+
+Quick summary:
+
+- **One SSE connection per tab.** Only `useEventBusInit` calls `subscribeChatEvents`; every other consumer subscribes to `bus.sse.event`.
+- **No per-component `visibilitychange` listeners** for data-refresh. Subscribe to `bus.app.resume` / `bus.app.hidden` instead.
+- **No `window.online` / `window.offline` listeners** in components or stores. Subscribe to `bus.app.online` / `bus.app.offline`.
+- **No polling** for state the daemon could push. Emit a typed event over `/v1/events` and subscribe via the bus.
+
 
 ## Component patterns
 
