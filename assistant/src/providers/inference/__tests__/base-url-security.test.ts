@@ -9,7 +9,7 @@ import { migrateProviderConnectionBaseUrlAndModels } from "../../../memory/migra
 import { migrateStripBaseUrlNonOpenaiCompatible } from "../../../memory/migrations/257-strip-base-url-non-openai-compatible.js";
 import * as schema from "../../../memory/schema.js";
 import { providerConnections } from "../../../memory/schema/inference.js";
-import { createConnection, getConnection } from "../connections.js";
+import { getConnection } from "../connections.js";
 import { resolveAuth } from "../resolve-auth.js";
 
 function createTestDb() {

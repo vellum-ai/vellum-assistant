@@ -217,6 +217,7 @@ export {
 export { migrateProviderConnectionBaseUrlAndModels } from "./250-provider-connection-base-url-and-models.js";
 export { downA2ATasks, migrateA2ATasks } from "./251-a2a-tasks.js";
 export { migrateLlmRequestLogAgentLoopExitReason } from "./252-llm-request-log-agent-loop-exit-reason.js";
+export { migrateConversationLastNotifiedProfile } from "./253-conversation-last-notified-profile.js";
 export { migrateCreateDocumentComments } from "./253-document-comments.js";
 export {
   downExternalConversationBindingChatName,
@@ -227,7 +228,6 @@ export {
   downMemoryV2InjectionEvents,
   migrateMemoryV2InjectionEvents,
 } from "./256-memory-v2-injection-events.js";
-export { migrateConversationLastNotifiedProfile } from "./253-conversation-last-notified-profile.js";
 export { migrateStripBaseUrlNonOpenaiCompatible } from "./257-strip-base-url-non-openai-compatible.js";
 export {
   MIGRATION_REGISTRY,
