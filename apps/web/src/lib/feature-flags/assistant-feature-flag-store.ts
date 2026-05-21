@@ -4,9 +4,9 @@ import { createSelectors } from "@/utils/create-selectors.js";
 import { client } from "@/generated/api/client.gen.js";
 import { ASSISTANT_FLAG_DEFAULTS, storeKeyToLdKey } from "@/lib/feature-flags/feature-flag-catalog.js";
 
+let currentAssistantId: string | null = null;
+
 interface AssistantFeatureFlagActions {
-  assistantId: string | null;
-  setAssistantId: (id: string | null) => void;
   setFlags: (flags: Record<string, boolean>) => void;
   setFlag: (key: string, value: boolean) => void;
 }
@@ -15,12 +15,9 @@ type AssistantFeatureFlagStore = Record<string, boolean> &
   AssistantFeatureFlagActions;
 
 const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
-  (set, get) =>
+  (set) =>
     ({
       ...ASSISTANT_FLAG_DEFAULTS,
-      assistantId: null,
-
-      setAssistantId: (id: string | null) => set({ assistantId: id }),
 
       setFlags: (flags: Record<string, boolean>) =>
         set((prev) => {
@@ -33,11 +30,10 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
       setFlag: (key: string, value: boolean) => {
         set({ [key]: value });
 
-        const { assistantId } = get();
         const ldKey = storeKeyToLdKey(key);
-        if (assistantId && ldKey) {
+        if (currentAssistantId && ldKey) {
           void client.patch({
-            url: `/v1/assistants/${assistantId}/feature-flags/${ldKey}`,
+            url: `/v1/assistants/${currentAssistantId}/feature-flags/${ldKey}`,
             body: { enabled: value },
             throwOnError: false,
           } as Parameters<typeof client.patch>[0]);
@@ -49,3 +45,7 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
 export const useAssistantFeatureFlagStore = createSelectors(
   useAssistantFeatureFlagStoreBase,
 );
+
+export function setAssistantIdForFlags(id: string | null) {
+  currentAssistantId = id;
+}

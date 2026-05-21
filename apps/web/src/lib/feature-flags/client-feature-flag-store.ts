@@ -63,6 +63,10 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
         } catch {
           // localStorage unavailable
         }
+        const defaultValue = CLIENT_FLAG_DEFAULTS[key];
+        if (defaultValue !== undefined) {
+          set({ [key]: defaultValue });
+        }
       },
     }) as ClientFeatureFlagStore,
 );

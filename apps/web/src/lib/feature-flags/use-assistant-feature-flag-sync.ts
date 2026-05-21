@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { client } from "@/generated/api/client.gen.js";
 import { assertHasResponse } from "@/lib/api-errors.js";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import { useAssistantFeatureFlagStore, setAssistantIdForFlags } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import {
   ASSISTANT_FLAG_DEFAULTS,
   ldKeyToStoreKey,
@@ -65,12 +65,11 @@ export function useAssistantFeatureFlagSync(assistantId: string | null) {
   const prevAssistantId = useRef(assistantId);
 
   useEffect(() => {
-    const store = useAssistantFeatureFlagStore.getState();
     if (prevAssistantId.current !== assistantId) {
-      store.setFlags(ASSISTANT_FLAG_DEFAULTS);
+      useAssistantFeatureFlagStore.getState().setFlags(ASSISTANT_FLAG_DEFAULTS);
       prevAssistantId.current = assistantId;
     }
-    store.setAssistantId(assistantId);
+    setAssistantIdForFlags(assistantId);
   }, [assistantId]);
 
   const { data } = useQuery({
