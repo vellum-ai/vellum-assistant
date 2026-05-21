@@ -53,9 +53,7 @@ const SLACK_ERROR_CODE_MAP: Record<string, SlackErrorCategory> = {
   invalid_blocks: "client_error",
 };
 
-function classifySlackError(
-  errorCode: string | undefined,
-): SlackErrorCategory {
+function classifySlackError(errorCode: string | undefined): SlackErrorCategory {
   if (!errorCode) return "unknown";
   return SLACK_ERROR_CODE_MAP[errorCode] ?? "unknown";
 }
@@ -96,6 +94,20 @@ interface SlackApiResponse {
   ts?: string;
   upload_url?: string;
   file_id?: string;
+}
+
+interface SlackConversationsInfoResponse extends SlackApiResponse {
+  channel?: {
+    id?: unknown;
+    name?: unknown;
+    name_normalized?: unknown;
+  };
+}
+
+export interface SlackConversationInfo {
+  id: string;
+  name?: string;
+  nameNormalized?: string;
 }
 
 /**
@@ -176,6 +188,32 @@ export async function callSlackApi(
   throw new Error(
     `Slack ${method} failed after retries: ${lastError ?? "unknown"}`,
   );
+}
+
+function normalizeSlackString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+export async function getSlackConversationInfo(
+  channelId: string,
+): Promise<SlackConversationInfo | null> {
+  const data = (await callSlackApi("conversations.info", {
+    channel: channelId,
+  })) as SlackConversationsInfoResponse;
+
+  const id = normalizeSlackString(data.channel?.id);
+  if (!id) return null;
+
+  const name = normalizeSlackString(data.channel?.name);
+  const nameNormalized = normalizeSlackString(data.channel?.name_normalized);
+
+  return {
+    id,
+    ...(name ? { name } : {}),
+    ...(nameNormalized ? { nameNormalized } : {}),
+  };
 }
 
 /**
