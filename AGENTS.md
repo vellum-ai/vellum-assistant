@@ -61,11 +61,11 @@ We do **not** pin: `apt-get` packages (Debian rotates), `brew install` formulae 
 
 `dev-release.yaml` and `release.yml` share inline logic (e.g. "Compute migration ceilings"). When changing logic that lives in both, update both in the same PR.
 
-### iOS release dispatch
+### iOS release
 
 The Capacitor iOS source-of-truth lives in [`apps/ios/`](./apps/ios/) and is built locally from `apps/web/` via `bun run ios:open`. See [`apps/ios/README.md`](./apps/ios/README.md) for the local build flow and full release pipeline mapping.
 
-Until the deployment cutover, TestFlight builds still come from `vellum-assistant-platform/web/ios/`: `dev-release.yaml` / `release.yml` fire a `repository_dispatch` to [`vellum-assistant-platform`](https://github.com/vellum-ai/vellum-assistant-platform)'s `release-ios.yaml` with `{ environment, version }`. When the pipeline is migrated, the dispatch becomes a same-repo `needs:` and the platform copy is decommissioned.
+TestFlight builds are produced by the `release-ios.yaml` reusable workflow in this repo. Both `dev-release.yaml` and `release.yml` call it as a same-repo `uses:` job with `{ environment, version }` inputs. The workflow runs on `macos-15`, installs web dependencies, runs `cap sync ios`, generates the Xcode project via XcodeGen, archives, signs, and uploads to TestFlight.
 
 ## Testing
 
