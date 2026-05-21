@@ -89,6 +89,9 @@ export function HomePage({
   const handleRestoreItem = useCallback(
     (itemId: string) => {
       feedQuery.updateStatus.mutate({ itemId, status: "seen" });
+      setSelectedItem((prev) =>
+        prev?.id === itemId ? { ...prev, status: "seen" } : prev,
+      );
     },
     [feedQuery.updateStatus],
   );
