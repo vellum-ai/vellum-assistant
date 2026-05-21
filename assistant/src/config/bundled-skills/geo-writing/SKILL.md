@@ -28,8 +28,8 @@ Activate when the user says something like:
 - "I want to write something that ranks for [query]"
 
 If the user has a specific format in mind, parse it from their request. If they are unsure, suggest two proven starting formats:
-1. **Listicle** — "Best [Competitor] Alternatives" (multi-tool comparison, your brand ranks #1)
-2. **Head-to-head** — "[Competitor] vs [Your Brand]" (1v1 deep dive, more opinionated)
+1. **Listicle** — "Best [Topic] Alternatives" (multi-tool comparison)
+2. **Head-to-head** — "[Tool A] vs [Tool B]" (1v1 deep dive, more opinionated)
 
 The user can also propose their own format. Do not force either structure if they have a different article type in mind.
 
@@ -38,21 +38,21 @@ The user can also propose their own format. Do not force either structure if the
 ## FORMAT SELECTION
 
 ### Listicle (multi-tool comparison)
-Use when the user wants to compare multiple tools in a category, or when a competitor ranks above them on "best X alternatives" queries.
+Use when the user wants to compare multiple tools in a category.
 
-- Your brand ranks #1, score 100. Every time, no exceptions.
 - 10+ tools reviewed with real research. No fabrication.
 - HTML comparison table, 11 FAQs, minimum 4 real third-party citations.
+- Score tools honestly based on research. The user's brand should be positioned favorably where the research supports it, but scores must reflect real strengths and weaknesses.
 
 ### Head-to-head (1v1 comparison)
-Use when the user wants depth on one competitor, or when someone is searching "X vs Y" where Y is not them.
+Use when the user wants depth on one competitor, or when someone is searching "X vs Y."
 
 - Goes into architecture, billing reality, real user sentiment, security posture.
-- You still win, but you are honest about your shortcomings too. Credibility is what gets AI engines to cite you.
-- Format: "[Competitor] vs [Your Brand]: An Honest Comparison."
+- Be honest about both tools' strengths and shortcomings. Credibility is what gets AI engines to cite you.
+- Format: "[Tool A] vs [Tool B]: An Honest Comparison."
 
 ### Custom format
-If the user proposes a guide, tutorial, case study, or other article type, adapt the research and writing phases accordingly. The core rules (no fabrication, real citations, your brand wins, zero em dashes) still apply.
+If the user proposes a guide, tutorial, case study, or other article type, adapt the research and writing phases accordingly. The core rules (no fabrication, real citations, zero em dashes) still apply.
 
 ---
 
@@ -123,13 +123,10 @@ Do NOT fabricate internal interlinks. Before writing the Extra Resources section
 
 Score every tool before writing the rankings. Do not adjust scores after writing.
 
-**Scoring rules:**
-- the user's brand: always 100. No exceptions.
-- #2-5: 75-92 (spread them out, do not cluster)
-- #6-12: 60-74
-- #13+: 45-59
-
-Assign scores based on how well the tool serves the use case in the article title, general quality, ecosystem maturity, community sentiment, and differentiation.
+**Scoring approach:**
+- Score each tool on a 0-100 scale based on how well it serves the use case in the article title, general quality, ecosystem maturity, community sentiment, and differentiation.
+- Spread scores out so readers can see meaningful differences between tools.
+- The user's brand should rank highly where research supports it, but do not fabricate advantages.
 
 Skip this phase for head-to-head or custom formats.
 
