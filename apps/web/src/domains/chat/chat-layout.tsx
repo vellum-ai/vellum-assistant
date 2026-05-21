@@ -191,27 +191,28 @@ export function ChatLayout() {
     layoutAvatar.traits,
   );
 
-  // Layout-scoped event bus (LUM-1812 PR1). Dispatches synthetic
-  // app.resume / app.hidden / app.online / app.offline events from
-  // document.visibilitychange, Capacitor App.appStateChange, and window
-  // online/offline. Does NOT open its own SSE connection — that comes
-  // with the conversation-scoped stream migration that consolidates
-  // both subscribers behind a single daemon connection (the daemon
-  // dedups by clientId today, see assistant-event-hub.ts).
-  useEventBusInit();
+  // Layout-scoped event bus (LUM-1812). Owns the single
+  // assistant-scoped `/v1/events` SSE connection and dispatches
+  // synthetic app.resume / app.hidden / app.online / app.offline events
+  // from document.visibilitychange, Capacitor App.appStateChange, and
+  // window online/offline. Consumers in the chat-layout subtree
+  // (useAssistantSyncStream below, ChatPage's useEventStream)
+  // subscribe to bus events instead of opening their own SSE handles.
+  // This is the only place that opens an SSE connection — the daemon
+  // dedups subscribers by `clientId` (assistant-event-hub.ts) and
+  // would evict any second SSE from this same browser tab.
+  useEventBusInit({
+    assistantId: lifecycle.assistantId,
+    isAssistantActive,
+    checkAssistant: lifecycle.checkAssistant,
+  });
 
-  // Layout-scoped SSE subscriber is disabled. The daemon dedups client
-  // subscribers by `clientId` (assistant-event-hub.ts), so this layout
-  // stream and ChatPage's conversation-scoped stream evict each other
-  // every (re-)subscribe — leaving the conversation stream silent and
-  // the chat composer permanently in "thinking" state after a send.
-  // Restoring the platform behavior of a single conversation-scoped
-  // stream until the dual-subscription support lands. Sibling routes
-  // (home, identity, library, workspace, contacts, inspect) drop back
-  // to the pre-LUM-1791 staleness for now.
-  //
-  // useAssistantSyncStream(lifecycle.assistantId, isAssistantActive);
-  void useAssistantSyncStream;
+  // Layout-scoped consumer for assistant-global sync events.
+  // Subscribes to `bus.sse.event` and routes sync_changed +
+  // home_feed_updated + relationship_state_updated events into the
+  // avatar / identity / config / sounds / schedules / conversation
+  // list caches.
+  useAssistantSyncStream(lifecycle.assistantId, isAssistantActive);
 
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header. Gated on the homePage feature flag so the hook

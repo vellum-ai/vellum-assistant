@@ -112,7 +112,6 @@ import {
 
 export function ChatPage() {
   const authLoading = useAuthStore.use.isLoading();
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
   const authUser = useAuthStore.use.user();
   const showLlmInspector = canUseLlmInspector(authUser);
   const isMobile = useIsMobile();
@@ -715,14 +714,8 @@ export function ChatPage() {
     reachabilityReset: reachability.reset,
     setMessages,
     setError,
-    streamRetryNonce,
-    setStreamRetryNonce,
-    refreshEpoch,
     syncRouterRef,
     conversationListInvalidatedTimerRef,
-    isLoggedIn,
-    isLoading: authLoading,
-    checkAssistant,
   });
 
   // -------------------------------------------------------------------------

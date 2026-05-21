@@ -117,6 +117,33 @@ describe("event-bus-store", () => {
     expect(c).toHaveBeenCalledTimes(2);
   });
 
+  test("sse.opened payload is typed and delivered to subscribers", () => {
+    const bus = useEventBusStore.getState();
+    const handler = mock(() => {});
+    bus.subscribe("sse.opened", handler);
+    bus.publish("sse.opened", { assistantId: "asst-1", cause: "fresh" });
+    expect(handler).toHaveBeenCalledWith({
+      assistantId: "asst-1",
+      cause: "fresh",
+    });
+  });
+
+  test("sse.closed payload is typed and delivered to subscribers", () => {
+    const bus = useEventBusStore.getState();
+    const handler = mock(() => {});
+    bus.subscribe("sse.closed", handler);
+    bus.publish("sse.closed", { reason: "network error" });
+    expect(handler).toHaveBeenCalledWith({ reason: "network error" });
+  });
+
+  test("reachability.retry-requested is delivered to subscribers", () => {
+    const bus = useEventBusStore.getState();
+    const handler = mock(() => {});
+    bus.subscribe("reachability.retry-requested", handler);
+    bus.publish("reachability.retry-requested", {});
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   test("__resetEventBusForTesting clears every subscriber", () => {
     const bus = useEventBusStore.getState();
     const handler = mock(() => {});
