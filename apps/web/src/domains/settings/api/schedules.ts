@@ -3,7 +3,7 @@
  * These endpoints are served via RuntimeProxyView under
  * /v1/assistants/{id}/schedules/* and are not part of the Django OpenAPI schema.
  */
-import { client } from "@/lib/api-client.js";
+import { client } from "@/generated/api/client.gen.js";
 import {
   ApiError,
   assertHasResponse,
