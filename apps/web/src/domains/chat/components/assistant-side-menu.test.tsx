@@ -23,6 +23,7 @@ import {
   ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT,
   AssistantSideMenu,
 } from "@/domains/chat/components/assistant-side-menu.js";
+import { SIDEBAR_CONVERSATION_LIMIT } from "@/domains/chat/use-sidebar-state.js";
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
   return {
@@ -161,18 +162,19 @@ describe("AssistantSideMenu · Show more affordance", () => {
 
   test("wires the same 'Show more' affordance for Slack conversations", () => {
     const src = readFileSync(
-      new URL("./assistant-side-menu.tsx", import.meta.url).pathname,
+      new URL("../use-sidebar-state.ts", import.meta.url).pathname,
       "utf8",
     );
 
     expect(src).toContain(
-      "slack.slice(0, ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT)",
+      "slack.slice(0, SIDEBAR_CONVERSATION_LIMIT)",
     );
     expect(src).toContain(
-      "slack.length > ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT",
+      "slack.length > SIDEBAR_CONVERSATION_LIMIT",
     );
-    expect(src).toContain("showMoreSlackVisible");
-    expect(src).toContain("onSelect={() => setShowAllSlack(true)}");
+    expect(src).toContain("showAllSlack");
+    expect(src).toContain("setShowAllSlack");
+    expect(SIDEBAR_CONVERSATION_LIMIT).toBe(ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT);
   });
 });
 
