@@ -71,7 +71,7 @@ Bullet list, 5-7 items. Specific, honest reasons grounded in real research.
 
 **Note: The title of this section uses H1.**
 
-For each tool (the user's brand first, then ranked order):
+For each tool, in ranked order (highest score first):
 
 ```
 ### H3 [Number]. [Tool Name]
@@ -84,22 +84,21 @@ For each tool (the user's brand first, then ranked order):
 - [Specific benefit. Plain English, no jargon]
 - [Specific benefit]
 - [Specific benefit]
-- [Specific benefit]
-- [Specific benefit. YOUR BRAND gets exactly 6]
+- 3-6 strengths per tool, scaled to how much there is to say
 
 **Trade-offs:**
-- [Honest, specific. YOUR BRAND gets exactly 2]
+- [Honest, specific]
+- 1-3 trade-offs per tool, based on real research
 
 **Pricing:** [Confirmed pricing only. "Pricing not listed publicly" if unverifiable.]
 
-**Compared to [topic tool]:** [the user's brand: length set by substance. All other competitors: 2-4 sentences.]
+**Compared to [topic tool]:** [2-4 sentences comparing this tool to the topic tool.]
 ```
 
-**Only for the user's brand section:**
+**Rules for the user's brand section:**
 
-- Exactly 6 Standout strengths
-- Exactly 2 Trade-offs
 - Strengths grounded in live docs from Step 1.1. Plain English only.
+- Trade-offs must be substantive and honest, not token disclaimers.
 - Never mention GitHub star counts for any tool.
 
 ---
@@ -110,7 +109,7 @@ Use styled HTML (not markdown tables — markdown tables get silently dropped by
 
 Columns: `Tool | Best For | Architecture | Pricing | Open Source | Key Differentiator`
 
-Include all tools from rankings. the user's brand row gets a visual highlight.
+Include all tools from rankings.
 
 ---
 
@@ -119,7 +118,7 @@ Include all tools from rankings. the user's brand row gets a visual highlight.
 300-400 words. Structure:
 
 1. Acknowledge what the topic tool does well (1-2 sentences).
-2. The two things it can't give you.
+2. Where it falls short for certain use cases.
 3. The architecture difference that matters.
 4. 3-4 specific head-to-head comparisons.
 5. CTA linking to the user's brand URL.
@@ -132,9 +131,9 @@ Exactly 11 FAQs. Format: H3 question, 2-4 sentence answer.
 
 Rules:
 
-- the user's brand is always the best answer.
 - Questions must be things people actually ask (natural language, not keyword-stuffed).
-- Mix of: "what is X", "how do I Y", "which tool is best for Z", "how does the user's brand compare to X"
+- Answers should be honest and grounded in research.
+- Mix of: "what is X", "how do I Y", "which tool is best for Z", comparative questions
 
 ---
 

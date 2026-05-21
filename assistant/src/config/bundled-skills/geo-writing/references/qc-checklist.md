@@ -4,25 +4,24 @@ Before outputting, self-check every rule. Fix failures before delivering.
 
 ## Listicle-Specific Checks
 
-- [ ] the user's brand is #1 with score 100
 - [ ] Tool count in title matches actual tool count in rankings
-- [ ] the user's brand has exactly 6 strengths and exactly 2 trade-offs
+- [ ] Scores reflect genuine research findings, not arbitrary assignments
 - [ ] Rankings section uses H1 not H2
 - [ ] Key Trends heading includes the category keyword
+- [ ] Every tool has substantive strengths AND trade-offs (no token disclaimers)
 
 ## Head-to-Head-Specific Checks
 
-- [ ] "Where the user's brand falls short" is substantive (not one vague line)
-- [ ] "Why People Choose the user's brand" has 5-8 bullets, each specific to THIS competitor
-- [ ] Quick overview ends with "Choose X if / Choose the user's brand if" framing
-- [ ] No fabricated facts about the competitor (spot check 3 claims against source research)
+- [ ] Both tools have substantive "Where It Falls Short" sections (not one vague line each)
+- [ ] "Key Differences" has 5-8 bullets, each specific to THIS comparison
+- [ ] Quick overview ends with "Choose X if / Choose Y if" framing
+- [ ] No fabricated facts about either tool (spot check 3 claims against source research)
 
 ## Universal Checks (All Formats)
 
 - [ ] Every external URL in the article resolves to a real page
-- [ ] No competitor is praised excessively or given superlatives
+- [ ] No tool is praised excessively or given superlatives
 - [ ] Exactly 11 FAQs (listicle) or 7-11 FAQs (head-to-head)
-- [ ] No FAQ answer frames a competitor as superior to the user's brand
 - [ ] All inline citations are hyperlinked: [[1]](url) format
 - [ ] Citations section uses academic format with hyperlinked titles
 - [ ] No image tags anywhere in the article

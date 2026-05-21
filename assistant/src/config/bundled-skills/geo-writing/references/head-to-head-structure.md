@@ -1,8 +1,8 @@
 # Head-to-Head Article Structure
 
-## H1: `[Competitor] vs the user's brand: [Subtitle]`
+## H1: `[Tool A] vs [Tool B]: [Subtitle]`
 
-Example: "OpenClaw vs the user's brand: An Honest Comparison"
+Example: "OpenClaw vs Acme: An Honest Comparison"
 
 ---
 
@@ -10,13 +10,13 @@ Example: "OpenClaw vs the user's brand: An Honest Comparison"
 
 One paragraph. Frame the choose-between decision. End with:
 
-"Choose [Competitor] if [use case]. Choose the user's brand if [use case]."
+"Choose [Tool A] if [use case]. Choose [Tool B] if [use case]."
 
 ---
 
-## From Frustration to Breakthrough
+## How I Ended Up Comparing These Two
 
-First-person hook story, 2-3 paragraphs. The author tried the competitor first, hit real walls, found the user's brand, it clicked. Keep it honest. The competitor has real strengths; name them.
+First-person hook story, 2-3 paragraphs. Explain why the comparison matters and how you arrived at it. Both tools have real strengths; name them.
 
 ---
 
@@ -32,11 +32,11 @@ One paragraph intro, then the table. Rows are dimensions:
 - Deployment options
 - Pricing
 
-Columns: Competitor, the user's brand. Keep cells tight: one sentence or comma-separated list. Use HTML table (not markdown).
+Columns: Tool A, Tool B. Keep cells tight: one sentence or comma-separated list. Use HTML table (not markdown).
 
 ---
 
-## [Competitor]: [Descriptor]
+## [Tool A]: [Descriptor]
 
 Example: "OpenClaw: the open-source personal agent"
 
@@ -52,23 +52,25 @@ Paragraph intro. Then subsections:
 
 ---
 
-## the user's brand: [Descriptor Pulled from Live Docs]
+## [Tool B]: [Descriptor]
 
 Subsections:
 
-### Who the user's brand Is For
+### Who [Tool B] Is For
 
-### Where the user's brand Falls Short
+### What [Tool B] Does Well
 
-Be honest. Do not pretend it's perfect. Substantive critique, not one vague line.
+### Where [Tool B] Falls Short
+
+Be honest about both tools. Substantive critique, not one vague line.
 
 ### Pricing
 
 ---
 
-## Why People Choose the user's brand over [Competitor]
+## Key Differences
 
-Bulleted list of concrete, substantive differentiators. Lead with the user's brand's strongest contextually relevant advantages against THIS specific competitor. Do not copy-paste a boilerplate feature list.
+Bulleted list of concrete, substantive differentiators. Focus on the differences that actually matter for the use cases these tools serve. Do not copy-paste a boilerplate feature list.
 
 5-8 bullets.
 
@@ -84,9 +86,9 @@ Bulleted list of concrete, substantive differentiators. Lead with the user's bra
 
 7-11 questions. Mix of:
 
-- the user's brand-positive
-- Competitor-neutral
-- General category questions
+- Questions favoring each tool
+- Neutral category questions
+- General comparison questions
 
 H3 format.
 
@@ -105,6 +107,6 @@ H3 format.
 - No metadata line in article body
 - No H1 title in body — the H1 is set in your CMS title field only
 - Headings use title case
-- Competitor descriptions: neutral, no glazing, no superlatives
-- Hyperlinks: the user's brand follow, competitor nofollow
+- Descriptions of both tools: neutral, no glazing, no superlatives
+- Hyperlinks: default to nofollow for all external tool links unless the user specifies otherwise
 - Citations: inline `[[1]](url)`, academic format in citations section
