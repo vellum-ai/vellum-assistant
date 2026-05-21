@@ -170,7 +170,7 @@ export function DocumentCommentPanel({
   );
 
   return (
-    <div className="flex h-full w-80 flex-col border-l border-[var(--border-base)] bg-[var(--surface-overlay)]">
+    <div className="flex h-full w-80 flex-col border-l border-[var(--border-base)] bg-[var(--surface-lift)]">
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-base)] px-4 py-3">
         <MessageSquareText
           size={16}
