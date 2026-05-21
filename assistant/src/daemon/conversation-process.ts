@@ -378,7 +378,7 @@ function repairPendingToolUseBlocks(
     const msg = messages[i];
     if (msg.role === "user") {
       for (const block of msg.content) {
-        if (block.type === "tool_result") {
+        if (block.type === "tool_result" || block.type === "web_search_tool_result") {
           resolvedToolUseIds.add(block.tool_use_id);
         }
       }

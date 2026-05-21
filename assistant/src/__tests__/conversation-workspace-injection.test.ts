@@ -27,7 +27,7 @@ mock.module("../memory/guardian-action-store.js", () => ({
 
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
-  initializeProviders: () => {},
+  initializeProviders: async () => {},
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -141,6 +141,10 @@ mock.module("../memory/conversation-crud.js", () => ({
   deleteLastExchange: () => 0,
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
+  setLastNotifiedInferenceProfile: () => {},
+  getConversationOverrideProfileFromRow: () => undefined,
+  updateMessageMetadata: () => {},
+  clearStrippedInjectionMetadataForConversation: () => {},
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({

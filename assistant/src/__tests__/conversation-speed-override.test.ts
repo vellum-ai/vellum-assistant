@@ -48,7 +48,7 @@ mock.module("../memory/guardian-action-store.js", () => ({
 
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
-  initializeProviders: () => {},
+  initializeProviders: async () => {},
 }));
 
 // Controllable config mock — speed and feature flag behavior are test-specific.

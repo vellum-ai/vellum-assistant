@@ -117,7 +117,7 @@ mock.module("../providers/registry.js", () => ({
   getProvider: () => undefined,
   listProviders: () => [],
   getProviderRoutingSource: () => undefined,
-  initializeProviders: () => {},
+  initializeProviders: async () => {},
   // Required by `providers/inference/connections.ts` and
   // `providers/connection-resolution.ts`, both loaded transitively when
   // ConfigWatcher's deps resolve. Without these, the import chain throws

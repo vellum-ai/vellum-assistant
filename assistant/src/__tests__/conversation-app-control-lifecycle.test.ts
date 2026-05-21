@@ -22,7 +22,7 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
-  initializeProviders: () => {},
+  initializeProviders: async () => {},
 }));
 
 mock.module("../config/loader.js", () => ({
