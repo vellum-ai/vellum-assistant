@@ -637,7 +637,7 @@ jobs:
 
   publish-production-preview-image-tags:
     needs: [compute-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
-    if: ${{ always() && !cancelled() && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' }}
+    if: ${{ always() && !cancelled() && github.ref_name == 'main' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -839,7 +839,7 @@ jobs:
 
   register-preview-release:
     needs: [compute-version, publish-production-preview-image-tags]
-    if: ${{ always() && !cancelled() && needs.publish-production-preview-image-tags.result == 'success' }}
+    if: ${{ always() && !cancelled() && github.ref_name == 'main' && needs.publish-production-preview-image-tags.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: production
