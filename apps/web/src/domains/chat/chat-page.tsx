@@ -99,6 +99,7 @@ import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
 import type { AssistantIdentity } from "@/assistant/identity.js";
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import { installVellumDebugApi } from "@/domains/chat/api/debug-api.js";
 import {
   ChatRouteContent,
   type ChatRouteContentProps,
@@ -143,6 +144,13 @@ export function ChatPage() {
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
   void showAddCreditsModal;
+
+  // -------------------------------------------------------------------------
+  // Debug API — once on mount (idempotent, safe under StrictMode)
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    installVellumDebugApi();
+  }, []);
   const [restoredDraftConversationKey, setRestoredDraftConversationKey] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [streamRetryNonce, setStreamRetryNonce] = useState(0);

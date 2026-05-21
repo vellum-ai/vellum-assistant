@@ -13,6 +13,12 @@ import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/utils/d
 import { parseAssistantEvent, readEventConversationKey } from "@/domains/chat/api/event-parser.js";
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
+import {
+  markClientEstablished,
+  pushSseEvent,
+  registerSseClient,
+  unregisterSseClient,
+} from "@/domains/chat/api/stream-debug.js";
 
 // ---------------------------------------------------------------------------
 // SSE stream transport
@@ -288,6 +294,10 @@ export function subscribeChatEvents(
     if (cancelled) return;
     const abortController = new AbortController();
     activeAbortController = abortController;
+    const sseDebugClientId = registerSseClient(
+      abortController.signal,
+      requestedConversationKey,
+    );
     // Reset per-attempt liveness counters so each watchdog fire
     // reports state for ITS attempt, not for the entire subscribe
     // lifetime. lastSseAtMs stays null until the first SSE chunk
@@ -339,6 +349,7 @@ export function subscribeChatEvents(
             keepalivesReceivedSinceConnect++;
           } else {
             dataFramesReceivedSinceConnect++;
+            markClientEstablished(sseDebugClientId);
           }
           lastSseAtMs = Date.now();
           armWatchdog(abortController);
@@ -424,6 +435,7 @@ export function subscribeChatEvents(
             parsed.conversationKey ??
             envelopeConversationKey ??
             requestedConversationKey;
+          pushSseEvent(sseDebugClientId, parsed);
           try {
             onEvent(parsed);
           } catch {
@@ -462,6 +474,8 @@ export function subscribeChatEvents(
           err instanceof Error ? err : new Error("Stream connection failed"),
         );
       }
+    } finally {
+      unregisterSseClient(sseDebugClientId);
     }
   };
 
