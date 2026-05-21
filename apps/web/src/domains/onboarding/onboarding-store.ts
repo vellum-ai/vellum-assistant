@@ -53,7 +53,7 @@ import {
   getLocalSetting,
   removeLocalSetting,
   setLocalSetting,
-} from "@/domains/settings/local-settings.js";
+} from "@/lib/local-settings.js";
 
 // ---------------------------------------------------------------------------
 // Storage keys — shared with other surfaces, do NOT rename

@@ -14,7 +14,7 @@ import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill
 import {
   FileMarkdown,
   isMarkdown,
-} from "@/domains/intelligence/components/file-markdown.js";
+} from "@/components/file-markdown.js";
 import {
   fetchSkillFileContent,
   fetchSkillFiles,

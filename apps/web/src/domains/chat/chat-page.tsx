@@ -77,7 +77,7 @@ import { fetchAssistantIdentity } from "@/assistant/identity.js";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
 import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
-import type { UIContext } from "@/domains/chat/utils/turn-selectors.js";
+import type { UIContext } from "@/domains/messaging/turn-selectors.js";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations.js";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu.js";

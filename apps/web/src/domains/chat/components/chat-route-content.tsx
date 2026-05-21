@@ -73,7 +73,7 @@ import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/rec
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination.js";
-import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/chat/utils/turn-selectors.js";
+import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/messaging/turn-selectors.js";
 import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
 
 import type { MainView, OpenedAppState, OpenedDocumentState } from "@/stores/viewer-store.js";

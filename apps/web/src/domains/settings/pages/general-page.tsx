@@ -34,7 +34,7 @@ import {
 import {
   getLocalSetting,
   setLocalSetting,
-} from "@/domains/settings/local-settings.js";
+} from "@/lib/local-settings.js";
 
 function ThemeCard() {
   const velvet = useFeatureFlagStore.use.velvet();
