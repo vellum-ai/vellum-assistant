@@ -129,11 +129,31 @@ export function useDraftInput({
   );
 
   // -----------------------------------------------------------------------
-  // Load drafts from localStorage when assistantId changes
+  // Load drafts from localStorage when assistantId changes.
+  // Flush the outgoing assistant's drafts first so they aren't lost when
+  // both assistantId and activeConversationKey change in the same render
+  // (effects run in declaration order — this must run before the switch
+  // effect below).
   // -----------------------------------------------------------------------
   useEffect(() => {
+    const prevId = assistantIdRef.current;
+    if (prevId && prevId !== assistantId) {
+      // Save any in-progress text before swapping assistants.
+      const prevConvKey = previousKeyRef.current;
+      if (prevConvKey) {
+        const currentInput = inputValueRef.current;
+        if (currentInput.trim()) {
+          draftsRef.current.set(prevConvKey, currentInput);
+        } else {
+          draftsRef.current.delete(prevConvKey);
+        }
+      }
+      persistDrafts(prevId, draftsRef.current);
+    }
+
     if (!assistantId) {
       draftsRef.current = new Map();
+      assistantIdRef.current = null;
       return;
     }
     draftsRef.current = loadDrafts(assistantId);
