@@ -97,6 +97,7 @@ export function DocumentViewerContainer({
     null,
   );
   const [addingInlineComment, setAddingInlineComment] = useState(false);
+  const [commentInputOpen, setCommentInputOpen] = useState(false);
   const [commentAnchors, setCommentAnchors] = useState<CommentAnchor[]>([]);
   const [activeHighlight, setActiveHighlight] = useState<{ start: number; end: number } | null>(null);
 
@@ -210,6 +211,7 @@ export function DocumentViewerContainer({
       });
       setInlineCommentDraft("");
       setTextSelection(null);
+      setCommentInputOpen(false);
       setCommentsPanelOpen(true);
       await refreshComments();
     } finally {
@@ -227,6 +229,7 @@ export function DocumentViewerContainer({
   const handleDismissInlinePopover = useCallback(() => {
     setTextSelection(null);
     setInlineCommentDraft("");
+    setCommentInputOpen(false);
   }, []);
 
   // -------------------------------------------------------------------------
@@ -333,85 +336,104 @@ export function DocumentViewerContainer({
           <TiptapDocumentEditor
             content={content}
             onContentChange={handleContentChange}
-            onTextSelect={(sel) => setTextSelection({
-              start: sel.start,
-              end: sel.end,
-              text: sel.text,
-              rect: {
-                top: sel.rect.top,
-                left: sel.rect.left,
-                bottom: sel.rect.bottom,
-                right: sel.rect.right,
-                width: sel.rect.width,
-                height: sel.rect.height,
-              },
-            })}
+            onTextSelect={(sel) => {
+              setCommentInputOpen(false);
+              setTextSelection({
+                start: sel.start,
+                end: sel.end,
+                text: sel.text,
+                rect: {
+                  top: sel.rect.top,
+                  left: sel.rect.left,
+                  bottom: sel.rect.bottom,
+                  right: sel.rect.right,
+                  width: sel.rect.width,
+                  height: sel.rect.height,
+                },
+              });
+            }}
             commentAnchors={commentAnchors}
             highlightRange={activeHighlight}
             className="h-full"
           />
 
-          {/* Floating inline comment popover anchored to selection */}
+          {/* Floating popover anchored to selection */}
           {textSelection ? (
             <div
-              className="absolute z-10 w-72 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] shadow-lg"
+              className="absolute z-10 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] shadow-[var(--shadow-popover)]"
               style={
                 textSelection.rect && containerRef.current
                   ? (() => {
                       const containerRect = containerRef.current.getBoundingClientRect();
+                      const popoverWidth = commentInputOpen ? 288 : undefined;
                       const top = textSelection.rect!.bottom - containerRect.top + 8;
                       const left = Math.max(8, Math.min(
                         textSelection.rect!.left - containerRect.left,
-                        containerRect.width - 288 - 8,
+                        containerRect.width - (popoverWidth ?? 200) - 8,
                       ));
                       return { top, left };
                     })()
                   : { right: 16, bottom: 16 }
               }
             >
-              <div className="flex items-start gap-2 border-b border-[var(--border-base)] px-3 py-2">
-                <Typography
-                  variant="label-small-default"
-                  className="min-w-0 flex-1 truncate text-[var(--content-tertiary)]"
-                >
-                  &ldquo;{textSelection.text.length > 60
-                    ? textSelection.text.slice(0, 60) + "…"
-                    : textSelection.text}&rdquo;
-                </Typography>
-                <Button
-                  variant="ghost"
-                  size="compact"
-                  iconOnly={<X className="h-3 w-3" />}
-                  aria-label="Dismiss"
-                  onClick={handleDismissInlinePopover}
-                />
-              </div>
-              <div className="p-3">
-                <textarea
-                  className="w-full resize-none rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] px-2 py-1.5 text-sm text-[var(--content-emphasised)] placeholder:text-[var(--content-tertiary)] focus:border-[var(--border-focus)] focus:outline-none"
-                  rows={2}
-                  placeholder="Add your feedback…"
-                  value={inlineCommentDraft}
-                  onChange={(e) => setInlineCommentDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      void handleSubmitInlineComment();
-                    }
-                  }}
-                  autoFocus
-                />
-                <div className="mt-2 flex justify-end">
+              {commentInputOpen ? (
+                <div className="w-72">
+                  <div className="flex items-start gap-2 border-b border-[var(--border-base)] px-3 py-2">
+                    <Typography
+                      variant="label-small-default"
+                      className="min-w-0 flex-1 truncate text-[var(--content-tertiary)]"
+                    >
+                      &ldquo;{textSelection.text.length > 60
+                        ? textSelection.text.slice(0, 60) + "…"
+                        : textSelection.text}&rdquo;
+                    </Typography>
+                    <Button
+                      variant="ghost"
+                      size="compact"
+                      iconOnly={<X />}
+                      aria-label="Dismiss"
+                      onClick={handleDismissInlinePopover}
+                    />
+                  </div>
+                  <div className="p-3">
+                    <textarea
+                      className="w-full resize-none rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] px-3 py-2 text-body-medium-lighter text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-[border-color] duration-150 ease-out focus-visible:border-[var(--border-active)]"
+                      rows={2}
+                      placeholder="Add your feedback…"
+                      value={inlineCommentDraft}
+                      onChange={(e) => setInlineCommentDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          void handleSubmitInlineComment();
+                        }
+                      }}
+                      autoFocus
+                    />
+                    <div className="mt-2 flex justify-end">
+                      <Button
+                        variant="primary"
+                        size="compact"
+                        onClick={() => void handleSubmitInlineComment()}
+                        disabled={addingInlineComment || !inlineCommentDraft.trim()}
+                      >
+                        {addingInlineComment ? "Adding…" : "Comment"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 p-1">
                   <Button
-                    variant="primary"
+                    variant="ghost"
                     size="compact"
-                    onClick={() => void handleSubmitInlineComment()}
-                    disabled={addingInlineComment || !inlineCommentDraft.trim()}
+                    leftIcon={<MessageSquareText />}
+                    onClick={() => setCommentInputOpen(true)}
                   >
-                    {addingInlineComment ? "Adding…" : "Comment"}
+                    Comment
                   </Button>
                 </div>
-              </div>
+              )}
             </div>
           ) : null}
         </div>
