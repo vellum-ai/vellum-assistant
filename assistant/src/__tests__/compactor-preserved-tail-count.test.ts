@@ -33,6 +33,9 @@ mock.module("../memory/attachments-store.js", () => ({
 import { runAssistantDrivenCompaction } from "../context/compactor.js";
 import type { Message, Provider } from "../providers/types.js";
 
+const TAIL_TIMESTAMP =
+  "2026-05-21 (Thursday) 10:00:00 -05:00 (America/Chicago)";
+
 const compactionResponse = `
 <compaction_result>
 <summary>
@@ -43,10 +46,7 @@ Earlier turns summarized here.
 - Nothing critical pending.
 </key_state>
 
-<tail_start>
-<timestamp></timestamp>
-<preview>tail anchor message</preview>
-</tail_start>
+<tail_start timestamp="${TAIL_TIMESTAMP}" preview="tail anchor message" />
 </compaction_result>
 `;
 
@@ -67,6 +67,16 @@ const userText = (text: string): Message => ({
   content: [{ type: "text", text }],
 });
 
+const userTextWithTurnContext = (text: string, timestamp: string): Message => ({
+  role: "user",
+  content: [
+    {
+      type: "text",
+      text: `<turn_context>\ncurrent_time: ${timestamp}\n</turn_context>\n${text}`,
+    },
+  ],
+});
+
 const assistantText = (text: string): Message => ({
   role: "assistant",
   content: [{ type: "text", text }],
@@ -78,7 +88,7 @@ describe("runAssistantDrivenCompaction — preservedTailMessages count", () => {
       userText("old user turn 1"),
       assistantText("old assistant reply 1"),
       userText("old user turn 2"),
-      userText("tail anchor message"),
+      userTextWithTurnContext("tail anchor message", TAIL_TIMESTAMP),
       userText("<system_reminder>\nstale reminder\n</system_reminder>"),
       userText("<knowledge_base>\nstale pkb\n</knowledge_base>"),
       assistantText("most recent assistant reply"),
