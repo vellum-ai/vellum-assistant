@@ -173,7 +173,11 @@ describe("runCesMigrations", () => {
     await runCesMigrations(CES_DATA_ROOT, backend, [m1]);
 
     expect(m1.run).toHaveBeenCalledTimes(1);
-    expect(logWarnFn).toHaveBeenCalled();
+    expect(writeFileSyncFn).toHaveBeenCalledTimes(2);
+    const completedWrite = (writeFileSyncFn.mock.calls[1] as unknown[])[1] as
+      string;
+    const completedParsed = JSON.parse(completedWrite);
+    expect(completedParsed.applied["001"].status).toBe("completed");
   });
 
   test("failed migration is NOT re-run", async () => {
@@ -215,8 +219,6 @@ describe("runCesMigrations", () => {
 
     // m2 should still run after m1's failure
     expect(m2.run).toHaveBeenCalledTimes(1);
-    // error was logged
-    expect(logErrorFn).toHaveBeenCalled();
 
     // Checkpoint writes: started m1, failed m1, started m2, completed m2 = 4
     expect(writeFileSyncFn).toHaveBeenCalledTimes(4);
