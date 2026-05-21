@@ -201,6 +201,51 @@ export function useAttentionTracking({
   });
 
   // -------------------------------------------------------------------------
+  // Post-reconnect reconciliation.
+  //
+  // The bus-owned SSE connection is live-only — it tears down on
+  // `app.hidden` and reopens on `app.resume` or a reachability bounce.
+  // Any `interaction_resolved` event published while the stream is down
+  // is permanently missed, which would leave a stale attention dot on
+  // the sidebar until the user opens the conversation or refreshes.
+  // Re-running the bulk pending-interactions fetch closes that gap:
+  // anything no longer pending is removed from `attentionKeys` /
+  // `processingKeys`, and anything newly pending is promoted to
+  // `attentionKeys`. Skips the very first `sse.opened` (cause ===
+  // "fresh") because the initial-sweep effect below handles that.
+  // -------------------------------------------------------------------------
+  useBusSubscription("sse.opened", ({ cause }) => {
+    if (!assistantId || cause === "fresh") return;
+    void (async () => {
+      let pendingKeys: Set<string>;
+      try {
+        pendingKeys = await listConversationKeysWithPendingInteractions(assistantId);
+      } catch {
+        return; // Best-effort — sse.event will catch subsequent transitions.
+      }
+      const state = useConversationStore.getState();
+      const activeKey = state.activeConversationKey;
+      for (const key of state.attentionKeys) {
+        if (key === activeKey) continue;
+        if (!pendingKeys.has(key)) state.removeAttentionKey(key);
+      }
+      for (const key of state.processingKeys) {
+        if (key === activeKey) continue;
+        if (pendingKeys.has(key)) {
+          state.addAttentionKey(key);
+          state.removeProcessingKey(key);
+        }
+      }
+      for (const key of pendingKeys) {
+        if (key === activeKey) continue;
+        if (!state.attentionKeys.has(key) && !state.processingKeys.has(key)) {
+          state.addAttentionKey(key);
+        }
+      }
+    })();
+  });
+
+  // -------------------------------------------------------------------------
   // One-time sweep on mount: seed attention keys for every non-active
   // conversation with a pending interaction. Single bulk request, intersected
   // with the loaded conversations list so we only flag conversations the
