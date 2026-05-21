@@ -122,7 +122,8 @@ struct ContactsContainerView: View {
                                 contact: contact,
                                 connectionManager: connectionManager,
                                 store: store,
-                                onDelete: {
+                                onDelete: { [contactId] in
+                                    viewModel.contactsStore?.contacts.removeAll { $0.id == contactId }
                                     selection = .assistant
                                     viewModel.loadContacts()
                                 },
@@ -344,10 +345,9 @@ struct ContactsContainerView: View {
                 channels: nil
             )
             if let contact {
-                viewModel.loadContacts()
-                // Small delay to let the contacts list refresh before selecting
-                try? await Task.sleep(nanoseconds: 200_000_000)
+                viewModel.contactsStore?.contacts.append(contact)
                 selection = .contact(contact.id)
+                viewModel.loadContacts()
             }
         } catch {
             createContactError = "Failed to create contact: \(error.localizedDescription)"

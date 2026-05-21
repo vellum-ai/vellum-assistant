@@ -1,9 +1,10 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 
 import { ChevronLeft, ChevronRight, Loader2, Lock, Send, Shield } from "lucide-react";
 import { type FormEvent, useCallback, useMemo, useState } from "react";
 
 import { Toggle } from "@vellum/design-library";
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
 
@@ -89,7 +90,7 @@ function renderField(
             placeholder={field.placeholder}
             className={inputClasses + errorClasses}
           />
-          <p className="mt-1 flex items-center gap-1 text-body-small-default text-stone-400 dark:text-stone-500">
+          <p className="mt-1 flex items-center gap-1 text-body-small-default text-[var(--content-faint)]">
             <Lock className="h-3 w-3" />
             This value will be sent securely and will not be stored in your browser.
           </p>
@@ -284,10 +285,10 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
     : (formData.submitLabel ?? "Submit");
 
   return (
-    <div className="rounded-lg border border-stone-200 bg-white p-4 dark:border-moss-600 dark:bg-moss-700">
+    <div className="rounded-lg border border-stone-200 bg-[var(--surface-lift)] p-4 dark:border-moss-600">
       {surface.title && (
         <div className="mb-3 flex items-center gap-2">
-          <span className="text-title-small text-stone-800 dark:text-stone-200">
+          <span className="text-title-small text-[var(--content-strong)]">
             {surface.title}
           </span>
         </div>
@@ -298,7 +299,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
       )}
 
       {currentPageData.title && isMultiPage && (
-        <h3 className="mb-1 text-title-small text-stone-700 dark:text-stone-300">
+        <h3 className="mb-1 text-title-small text-[var(--content-strong)]">
           {currentPageData.title}
         </h3>
       )}
@@ -306,14 +307,14 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
       {(currentPageData.description || (!isMultiPage && formData.description)) && (
         <ChatMarkdownMessage
           content={(isMultiPage ? currentPageData.description : formData.description) ?? ""}
-          className="mb-3 text-body-medium-lighter text-stone-500 dark:text-stone-400"
+          className="mb-3 text-body-medium-lighter text-[var(--content-quiet)]"
         />
       )}
 
       <form onSubmit={handleSubmit} className="space-y-3">
         {currentPageData.fields.map((field) => (
           <div key={field.id}>
-            <label className="mb-1 block text-body-medium-default text-stone-700 dark:text-stone-300">
+            <label className="mb-1 block text-body-medium-default text-[var(--content-strong)]">
               {field.label}
               {field.required && (
                 <span className="ml-0.5 text-danger-500">*</span>
@@ -335,7 +336,7 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
                 type="button"
                 onClick={handleBack}
                 disabled={isSubmitting}
-                className="flex items-center gap-1 rounded-lg border border-stone-300 bg-white px-3 py-2 text-body-medium-default text-stone-700 transition-colors hover:bg-stone-50 disabled:opacity-50 dark:border-moss-600 dark:bg-moss-700 dark:text-stone-200 dark:hover:bg-moss-600"
+                className="flex items-center gap-1 rounded-lg border border-stone-300 bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-strong)] transition-colors hover:bg-stone-50 disabled:opacity-50 dark:border-moss-600 dark:hover:bg-moss-600"
               >
                 <ChevronLeft className="h-4 w-4" />
                 {backLabel}

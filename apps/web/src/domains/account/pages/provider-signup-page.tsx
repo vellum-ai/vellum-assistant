@@ -12,7 +12,7 @@ import {
   isConflict,
   submitProviderSignup,
 } from "@/lib/auth/allauth-client.js";
-import { resolvePostLoginDestination } from "@/lib/account/login-flow.js";
+import { resolvePostLoginDestination } from "@/domains/account/login-flow.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
 

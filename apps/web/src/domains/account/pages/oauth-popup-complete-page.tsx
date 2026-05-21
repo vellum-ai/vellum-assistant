@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
-import { oauthCompletionStorageKey } from "@/lib/oauth-popup.js";
+import { oauthCompletionStorageKey } from "@/lib/auth/oauth-popup.js";
 import {
   buildOAuthCompleteDeepLink,
   getNativeUrlSchemeForHost,
@@ -103,7 +103,7 @@ const OAUTH_STYLES = `
       --oauth-shadow: 0 1px 3px rgba(0,0,0,0.2), 0 4px 12px rgba(0,0,0,0.3);
     }
   }
-  :root.dark {
+  :root[data-theme="dark"] {
     --oauth-surface: #1A1A18;
     --oauth-surface-card: #2A2A28;
     --oauth-card-border: #3A3A37;

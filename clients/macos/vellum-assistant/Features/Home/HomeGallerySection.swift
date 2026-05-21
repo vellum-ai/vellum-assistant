@@ -146,15 +146,17 @@ struct HomeGallerySection: View {
 
                 GallerySectionHeader(
                     title: "HomeDetailPanel",
-                    description: "Reusable white right-side panel container with a standardized header (icon + title + \"Go to Thread\" action + dismiss)."
+                    description: "Reusable white right-side panel container with a standardized header (icon + title + \"Go to Convo\" action + overflow menu + close)."
                 )
 
                 VStack(spacing: VSpacing.lg) {
                     HomeDetailPanel(
                         icon: .file,
                         title: "Panel title",
-                        onGoToThread: {},
-                        onDismiss: {}
+                        onGoToConvo: {},
+                        onMarkReadUnread: {},
+                        onDismissItem: {},
+                        onClose: {}
                     ) {
                         Text("Detail content goes here.")
                             .padding(VSpacing.lg)
@@ -164,8 +166,11 @@ struct HomeGallerySection: View {
                     HomeDetailPanel(
                         icon: .bell,
                         title: "Assistant-initiated",
-                        onGoToThread: {},
-                        onDismiss: {},
+                        onGoToConvo: {},
+                        onMarkReadUnread: {},
+                        isRead: true,
+                        onDismissItem: {},
+                        onClose: {},
                         showsPersonaAvatar: true
                     ) {
                         Text("Persona avatar replaces the category chip when the row originated from the assistant.")
@@ -250,6 +255,7 @@ struct HomeGallerySection: View {
                 VCard(background: VColor.surfaceBase) {
                     HomeGreetingHeader(
                         onStartNewChat: {},
+                        greeting: nil,
                         name: "Example Assistant"
                     ) {
                         if let image = NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil) {

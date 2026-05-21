@@ -4,10 +4,10 @@ import { memo, type ReactNode } from "react";
 
 import { Notice } from "@vellum/design-library";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/index.js";
-import type { ConfirmationDecision } from "@/domains/chat/lib/api.js";
-import type { TranscriptItem } from "@/domains/chat/lib/transcript/types.js";
+import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body.js";
+import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";
 
 /**
  * Thin dispatcher: render one `TranscriptItem` using the matching existing
@@ -40,14 +40,16 @@ export interface TranscriptRowProps {
   renderPendingConfirmation?: (requestId: string) => ReactNode;
   /** Render-prop override for `kind: "pendingContactRequest"`. */
   renderPendingContactRequest?: (requestId: string) => ReactNode;
+  /** Render-prop override for `kind: "onboardingChoice"`. */
+  renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
     toolName: string;
     riskLevel?: string;
     riskReason?: string;
     input?: Record<string, unknown>;
-    allowlistOptions: import("@/domains/chat/lib/api.js").AllowlistOption[];
-    scopeOptions: import("@/domains/chat/lib/api.js").ScopeOption[];
-    directoryScopeOptions: import("@/domains/chat/lib/api.js").DirectoryScopeOption[];
+    allowlistOptions: import("@/domains/chat/api/event-types.js").AllowlistOption[];
+    scopeOptions: import("@/domains/chat/api/event-types.js").ScopeOption[];
+    directoryScopeOptions: import("@/domains/chat/api/event-types.js").DirectoryScopeOption[];
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
@@ -77,6 +79,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   renderPendingSecret,
   renderPendingConfirmation,
   renderPendingContactRequest,
+  renderOnboardingChoice,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
@@ -206,6 +209,12 @@ export const TranscriptRow = memo(function TranscriptRow({
           {item.message}
         </Notice>
       );
+
+    case "onboardingChoice":
+      if (renderOnboardingChoice) {
+        return <>{renderOnboardingChoice()}</>;
+      }
+      return null;
 
     default: {
       // Exhaustiveness guard — TypeScript narrows `item` to `never` here.

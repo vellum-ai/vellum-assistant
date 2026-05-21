@@ -24,6 +24,11 @@ function formatNumber(value: number | undefined, digits = 2): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(digits);
 }
 
+function formatAggregateScore(value: number | undefined): string {
+  if (value === undefined) return "—";
+  return `${(value * 100).toFixed(2)}%`;
+}
+
 function formatCost(value: number | undefined): string {
   if (value === undefined) return "—";
   return `$${value.toFixed(6)}`;
@@ -254,7 +259,7 @@ function SessionCard({ session }: { session: ReportSessionSummary }) {
           <span className="muted">({session.testIds.join(", ") || "—"})</span>
         </span>
         <span className={`score ${scoreClass(session.scoreTotal)}`}>
-          score {formatNumber(session.scoreTotal)}
+          score {formatAggregateScore(session.scoreTotal)}
         </span>
       </div>
     </a>
@@ -312,6 +317,22 @@ function Crumbs({ trail }: { trail: Array<{ href?: string; label: string }> }) {
   );
 }
 
+function profileRunBreakdown(aggregate: SessionProfileAggregate): string {
+  const parts: string[] = [
+    `${aggregate.runCount} run${aggregate.runCount === 1 ? "" : "s"}`,
+  ];
+  if (aggregate.completedCount > 0) {
+    parts.push(`${aggregate.completedCount} completed`);
+  }
+  if (aggregate.failedCount > 0) {
+    parts.push(`${aggregate.failedCount} failed`);
+  }
+  if (aggregate.runningCount > 0) {
+    parts.push(`${aggregate.runningCount} running`);
+  }
+  return parts.join(" · ");
+}
+
 function ProfileAggregateCard({
   aggregate,
   href,
@@ -322,8 +343,8 @@ function ProfileAggregateCard({
   return (
     <StatCard
       label={aggregate.profileId}
-      value={formatNumber(aggregate.scoreTotal)}
-      sub={`${aggregate.runCount} run${aggregate.runCount === 1 ? "" : "s"} · avg ${formatNumber(aggregate.scoreAverage)}`}
+      value={formatAggregateScore(aggregate.scoreTotal)}
+      sub={profileRunBreakdown(aggregate)}
       href={href}
     />
   );
@@ -336,7 +357,6 @@ function TestRow({
   sessionId: string;
   entry: SessionTestEntry;
 }) {
-  const total = entry.profiles.reduce((sum, p) => sum + p.scoreTotal, 0);
   const url = `/sessions/${encodeURIComponent(sessionId)}/tests/${encodeURIComponent(entry.testId)}`;
   return (
     <tr className="linked">
@@ -353,8 +373,11 @@ function TestRow({
         </a>
       </td>
       <td>
-        <a href={url} className={`row-link score ${scoreClass(total)}`}>
-          {formatNumber(total)}
+        <a
+          href={url}
+          className={`row-link score ${scoreClass(entry.scoreTotal)}`}
+        >
+          {formatAggregateScore(entry.scoreTotal)}
         </a>
       </td>
     </tr>
@@ -450,7 +473,7 @@ function ProfileSummaryRow({
           href={url}
           className={`row-link score ${scoreClass(profile.scoreTotal)}`}
         >
-          {formatNumber(profile.scoreTotal)}
+          {formatAggregateScore(profile.scoreTotal)}
         </a>
       </td>
       <td>
@@ -729,7 +752,7 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
       </div>
 
       <div className="cards">
-        <StatCard label="Score" value={formatNumber(run.scoreTotal)} />
+        <StatCard label="Score" value={formatAggregateScore(run.scoreTotal)} />
         <StatCard label="Metrics" value={run.metricCount} />
         <StatCard label="Turns" value={run.transcriptTurns} />
         <StatCard label="Cost" value={formatCost(run.totalCostUsd)} />

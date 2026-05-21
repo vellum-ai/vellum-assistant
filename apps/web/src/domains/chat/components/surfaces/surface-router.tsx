@@ -1,7 +1,7 @@
 
 import { CheckCircle, XCircle } from "lucide-react";
 
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 
 import { BrowserViewSurface } from "@/domains/chat/components/surfaces/browser-view-surface.js";
 import { CallSummarySurface } from "@/domains/chat/components/surfaces/call-summary-surface.js";
@@ -100,7 +100,7 @@ export function SurfaceRouter({
       // Fallback card for unsupported surface types
       return (
         <SurfaceContainer surface={surface} onAction={onAction}>
-          <p className="text-body-medium-lighter text-stone-500 dark:text-stone-400">
+          <p className="text-body-medium-lighter text-[var(--content-quiet)]">
             {surface.surfaceType
               ? `Unsupported surface type: ${surface.surfaceType}`
               : "Unknown surface"}

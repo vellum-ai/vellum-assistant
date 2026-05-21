@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import {
   deleteDocument,
+  findInDocument,
   getDocumentById,
   getDocumentsForConversation,
   isDocumentAssociatedWithConversation,
+  replaceInDocument,
   saveDocument,
   searchDocumentsByTitle,
   updateDocumentContent,
@@ -17,7 +19,7 @@ function isPrivilegedDocumentActor(context: ToolContext): boolean {
   );
 }
 
-function documentNotFound(surfaceId: string): ToolExecutionResult {
+export function documentNotFound(surfaceId: string): ToolExecutionResult {
   return {
     content: JSON.stringify({
       success: false,
@@ -28,7 +30,10 @@ function documentNotFound(surfaceId: string): ToolExecutionResult {
   };
 }
 
-function canAccessDocument(surfaceId: string, context: ToolContext): boolean {
+export function canAccessDocument(
+  surfaceId: string,
+  context: ToolContext,
+): boolean {
   return (
     isPrivilegedDocumentActor(context) ||
     isDocumentAssociatedWithConversation(surfaceId, context.conversationId)
@@ -236,6 +241,127 @@ export function executeDocumentDelete(
       success: true,
       surface_id: surfaceId,
       message: "Document deleted",
+    }),
+    isError: false,
+  };
+}
+
+export function executeDocumentFind(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): ToolExecutionResult {
+  const surfaceId = input.surface_id as string;
+  const query = input.query as string;
+  const regex = (input.regex as boolean | undefined) ?? false;
+  const caseSensitive = (input.case_sensitive as boolean | undefined) ?? false;
+
+  if (!canAccessDocument(surfaceId, context)) {
+    return documentNotFound(surfaceId);
+  }
+
+  if (regex) {
+    try {
+      new RegExp(query);
+    } catch (e) {
+      return {
+        content: JSON.stringify({
+          success: false,
+          surface_id: surfaceId,
+          error: `Invalid regex: ${e instanceof Error ? e.message : String(e)}`,
+        }),
+        isError: true,
+      };
+    }
+  }
+
+  const result = findInDocument(surfaceId, query, { regex, caseSensitive });
+  if (!result) {
+    return documentNotFound(surfaceId);
+  }
+
+  return {
+    content: JSON.stringify({
+      success: true,
+      surface_id: result.surfaceId,
+      query,
+      total_matches: result.totalMatches,
+      matches: result.matches.map((m) => ({
+        line_number: m.lineNumber,
+        line_content: m.lineContent,
+        match_start: m.matchStart,
+        match_end: m.matchEnd,
+        match_text: m.matchText,
+      })),
+    }),
+    isError: false,
+  };
+}
+
+export function executeDocumentReplaceText(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): ToolExecutionResult {
+  const surfaceId = input.surface_id as string;
+  const find = input.find as string;
+  const replace = (input.replace as string) ?? "";
+  const regex = (input.regex as boolean | undefined) ?? false;
+  const caseSensitive = (input.case_sensitive as boolean | undefined) ?? false;
+  const maxReplacements = input.max_replacements as number | undefined;
+
+  if (!canAccessDocument(surfaceId, context)) {
+    return documentNotFound(surfaceId);
+  }
+
+  if (regex) {
+    try {
+      new RegExp(find);
+    } catch (err) {
+      return {
+        content: JSON.stringify({
+          success: false,
+          error: `Invalid regex: ${err instanceof Error ? err.message : String(err)}`,
+        }),
+        isError: true,
+      };
+    }
+  }
+
+  const result = replaceInDocument(surfaceId, find, replace, {
+    regex,
+    caseSensitive,
+    maxReplacements,
+  });
+
+  if (!result.success) {
+    return {
+      content: JSON.stringify({
+        success: false,
+        surface_id: surfaceId,
+        error: result.error,
+      }),
+      isError: true,
+    };
+  }
+
+  if (context.sendToClient && result.content_changed) {
+    const doc = getDocumentById(surfaceId);
+    if (doc) {
+      context.sendToClient({
+        type: "document_editor_update",
+        conversationId: context.conversationId,
+        surfaceId,
+        markdown: doc.content,
+        mode: "replace",
+      });
+    }
+  }
+
+  return {
+    content: JSON.stringify({
+      success: true,
+      surface_id: surfaceId,
+      replacements_made: result.replacements_made,
+      content_changed: result.content_changed,
     }),
     isError: false,
   };

@@ -96,6 +96,50 @@ function toolDecision(parts: ContentPart[]): SimulatorDecision | undefined {
   };
 }
 
+/**
+ * Recover from the "model returned empty content with stop_reason=end_turn"
+ * failure mode by synthesizing an implicit `end_conversation` decision.
+ *
+ * Anthropic's Haiku 4.5 has been observed to return `content=[]` with
+ * `stop_reason=end_turn` when it judges the conversation is over, instead of
+ * calling the `end_conversation` tool the SPEC + system prompt instruct it to
+ * use. Concrete sighting: `eval-vellum-bare-timeline-recall-20260520135745`
+ * turn 2 — after the assistant said it couldn't find the date, the SPEC's
+ * "acknowledge briefly and end" branch fired and the model just… emitted
+ * nothing (input_tokens=1000, output_tokens=3, so this isn't a context
+ * window or max_tokens cap, it's a model-side decision-to-be-silent).
+ *
+ * We honor the signal: `end_turn` means the model believes the turn is
+ * complete, so treating empty content as "end the conversation" matches the
+ * model's apparent intent and unblocks the metrics pass. Only triggers for
+ * the exact `end_turn` + no-actionable-content shape — `max_tokens`, novel
+ * tool calls, refusals, and whitespace-only text with other stop reasons
+ * keep throwing `SimulatorParseError` so genuine bugs remain visible.
+ */
+function implicitEndDecision(
+  body: AnthropicResponseBody,
+): SimulatorDecision | undefined {
+  if (body.stop_reason !== "end_turn") return undefined;
+  const parts = body.content ?? [];
+  // Only recover when the model gave us *nothing* actionable: no parts at
+  // all, or text parts that trim to empty. If Anthropic returns any other
+  // part shape (including an unexpected tool), keep throwing so the novel
+  // response remains visible in diagnostics instead of being swallowed as a
+  // benign end-turn.
+  const textParts: TextPart[] = [];
+  for (const part of parts) {
+    if (part.type !== "text") return undefined;
+    textParts.push(part);
+  }
+  const hasText = textParts.some((part) => part.text.trim().length > 0);
+  if (hasText) return undefined;
+  return {
+    action: "end",
+    reason:
+      "simulator returned empty content with stop_reason=end_turn; treating as implicit end_conversation",
+  };
+}
+
 function describeContentPart(part: ContentPart): string {
   if (part.type === "text") {
     if (part.text.length === 0) return "text(empty)";
@@ -147,7 +191,8 @@ export class SimulatorParseError extends Error {
 
 function parseDecision(body: AnthropicResponseBody): SimulatorDecision {
   const parts = body.content ?? [];
-  const decision = toolDecision(parts) ?? textDecision(parts);
+  const decision =
+    toolDecision(parts) ?? textDecision(parts) ?? implicitEndDecision(body);
   if (decision) return decision;
   // Surface enough structured info to triage what kind of response came back
   // so we can intentionally handle each failure mode (empty content, hit

@@ -1,4 +1,4 @@
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 
 function normalizeAppId(rawAppId: unknown): string | null {
   if (typeof rawAppId !== "string") return null;

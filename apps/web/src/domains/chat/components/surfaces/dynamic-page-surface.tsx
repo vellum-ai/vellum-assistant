@@ -1,12 +1,13 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 
 import { Minimize2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { client } from "@/generated/api/client.gen.js";
 import { AppCard } from "@/domains/chat/components/app-card.js";
-import { clearAppHtmlCache, getCachedAppHtml } from "@/domains/chat/lib/apps.js";
-import { usePinnedAppsOptional } from "@/domains/chat/lib/pinnedAppsContext.js";
-import type { Surface } from "@/domains/chat/lib/types.js";
+import { clearAppHtmlCache, getCachedAppHtml } from "@/domains/chat/api/apps.js";
+import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 import { getDynamicPageAppId } from "@/domains/chat/components/surfaces/dynamic-page-app-id.js";
 
 // ---------------------------------------------------------------------------
@@ -191,7 +192,8 @@ export function DynamicPageSurface({
   onOpenApp,
   isToolCallComplete = true,
 }: DynamicPageSurfaceProps) {
-  const pinned = usePinnedAppsOptional();
+  const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
+  const togglePin = usePinnedAppsStore.use.togglePin();
   const data = surface.data as unknown as DynamicPageSurfaceData;
   const appId = getDynamicPageAppId(surface);
   const inlineHtml = typeof data.html === "string" && data.html.length > 0
@@ -361,10 +363,10 @@ export function DynamicPageSurface({
   // Always show AppCard for dynamic_page surfaces with preview data
   if (data.preview && !expanded) {
     const cardName = data.preview.title || surface.title || "App";
-    const isPinned = appId ? (pinned?.isPinned(appId) ?? false) : false;
-    const onPin = pinned && appId
+    const isPinned = appId ? pinnedAppIds.has(appId) : false;
+    const onPin = appId
       ? () =>
-          pinned.togglePin({
+          togglePin({
             id: appId,
             name: cardName,
             icon: data.preview?.icon,
@@ -394,10 +396,10 @@ export function DynamicPageSurface({
   const height = data.height ? `${data.height}px` : "400px";
 
   return (
-    <div className="rounded-lg border border-stone-200 bg-white dark:border-moss-600 dark:bg-moss-700">
+    <div className="rounded-lg border border-stone-200 bg-[var(--surface-lift)] dark:border-moss-600">
       {(surface.title || expanded) && (
         <div className="flex items-center justify-between border-b border-stone-200 px-4 py-2 dark:border-moss-600">
-          <span className="text-title-small text-stone-800 dark:text-stone-200">
+          <span className="text-title-small text-[var(--content-strong)]">
             {surface.title}
           </span>
           {expanded && (

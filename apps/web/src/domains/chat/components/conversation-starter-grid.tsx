@@ -1,5 +1,5 @@
 
-import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/lib/empty-state-constants.js";
+import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/utils/empty-state-constants.js";
 
 import { ConversationStarterChip } from "@/domains/chat/components/conversation-starter-chip.js";
 

@@ -13,20 +13,20 @@ import {
   profilePickerLabel,
   visibleProfilesForPicker,
   type ProfilePickerEntry,
-} from "@/domains/assistant/profile-pickers.js";
+} from "@/assistant/profile-pickers.js";
 import {
   deleteConversationOverride,
   getConversationOverride,
   getGlobalThresholds,
   setConversationOverride,
   setGlobalThresholds,
-} from "@/domains/chat/lib/threshold-api.js";
+} from "@/domains/chat/api/threshold-api.js";
 import {
   THRESHOLD_PRESETS,
   overrideAction,
   presetFromThreshold,
   type ThresholdPreset,
-} from "@/domains/chat/lib/threshold-presets.js";
+} from "@/domains/chat/utils/threshold-presets.js";
 
 interface Props {
   assistantId: string;

@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/browser";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useIsIOSWeb } from "@/domains/nudges/ios-app-platform.js";
@@ -16,29 +16,29 @@ import { TaskToneSelectionScreen } from "@/domains/onboarding/screens/task-tone-
 import { ToolSelectionScreen } from "@/domains/onboarding/screens/tool-selection-screen.js";
 import { VibeStepScreen } from "@/domains/onboarding/screens/vibe-step-screen.js";
 import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
-import { usePrefilledInput } from "@/lib/hooks/use-prefilled-input.js";
+import { usePrefilledInput } from "@/hooks/use-prefilled-input.js";
 import {
   setPendingAssistantName,
   setPendingPreChatContext,
   type PreChatOnboardingContext,
-} from "@/lib/onboarding/prechat.js";
+} from "@/domains/onboarding/prechat.js";
 import {
   DEFAULT_GROUP_ID,
   sampleSuggestionNames,
-} from "@/lib/onboarding/prechat-names.js";
+} from "@/domains/onboarding/prechat-names.js";
 import {
   GOOGLE_TOOL_IDS,
   stripOtherPrefix,
-} from "@/lib/onboarding/prechat-tools.js";
+} from "@/domains/onboarding/prechat-tools.js";
 import {
   readOnboardingCompleted,
   readTosAccepted,
   useOnboardingCompleted,
-} from "@/lib/onboarding/prefs.js";
+} from "@/domains/onboarding/prefs.js";
 import {
   clearPrivacyConsent,
   hasRecentPrivacyConsent,
-} from "@/lib/onboarding/signals.js";
+} from "@/domains/onboarding/signals.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
@@ -72,7 +72,27 @@ export function PreChatFlow() {
     (isIOSWeb && !readIOSAppDownloaded()) ||
     (isMacOSWeb && !readMacOsAppDownloaded());
 
+  // Native pre-chat restores its position across reloads via sessionStorage
+  // — without this, an iOS user who's tapped through to the vibe step and
+  // hot-reloads (or returns after the OS reclaims memory) is silently
+  // dropped back to the name step. The key is user-scoped so a stale value
+  // from user A doesn't bleed into user B if they log in next in the same
+  // webview session — `useLayoutEffect` restores before paint once `userId`
+  // is known, so the user never sees an incorrect step momentarily.
+  const screenStorageKey = userId ? `prechat_native_screen:${userId}` : null;
   const [screen, setScreen] = useState<Screen>(0);
+  useLayoutEffect(() => {
+    if (!screenStorageKey) return;
+    try {
+      const saved = sessionStorage.getItem(screenStorageKey);
+      if (saved === "1") setScreen(1);
+    } catch {
+      // sessionStorage can throw under privacy modes — ignore.
+    }
+    // Restore only when the active user changes (mount, or logout→login).
+    // Intentionally omitting `screen` from deps so we don't re-restore mid-flow.
+  }, [screenStorageKey]);
+
   const [selectedTools, setSelectedTools] = useState<Set<string>>(
     () => new Set(),
   );
@@ -190,6 +210,19 @@ export function PreChatFlow() {
   // ── iOS native flow: NameStep → VibeStep → Privacy → Hatching → Chat ──
   if (isNative) {
     if (screen === 0) {
+      // Both Continue and Skip advance to the vibe step and persist the
+      // position so the user lands back here on reload — shared closure
+      // keeps the two callsites from drifting.
+      const goToVibeStep = () => {
+        setScreen(1);
+        if (screenStorageKey) {
+          try {
+            sessionStorage.setItem(screenStorageKey, "1");
+          } catch {
+            // ignore — see initial-state comment.
+          }
+        }
+      };
       return (
         <NameStepScreen
           userName={userName}
@@ -197,8 +230,8 @@ export function PreChatFlow() {
           displayedAssistantNames={displayedAssistantNames}
           onUserNameChange={handleUserNameChange}
           onAssistantNameChange={setAssistantName}
-          onContinue={() => setScreen(1)}
-          onSkip={() => setScreen(1)}
+          onContinue={goToVibeStep}
+          onSkip={goToVibeStep}
           currentStep={0}
           totalSteps={IOS_TOTAL_STEPS}
         />
@@ -223,13 +256,29 @@ export function PreChatFlow() {
       if (trimmedAssistant) {
         setPendingAssistantName(trimmedAssistant);
       }
+      if (screenStorageKey) {
+        try {
+          sessionStorage.removeItem(screenStorageKey);
+        } catch {
+          // ignore — see initial-state comment.
+        }
+      }
       void navigate(routes.onboarding.privacy);
     };
     return (
       <VibeStepScreen
         selectedGroupId={selectedGroupId}
         onGroupChange={setSelectedGroupId}
-        onBack={() => setScreen(0)}
+        onBack={() => {
+          setScreen(0);
+          if (screenStorageKey) {
+            try {
+              sessionStorage.removeItem(screenStorageKey);
+            } catch {
+              // ignore — see initial-state comment.
+            }
+          }
+        }}
         onContinue={finishNativePreChat}
         onSkip={finishNativePreChat}
         currentStep={1}

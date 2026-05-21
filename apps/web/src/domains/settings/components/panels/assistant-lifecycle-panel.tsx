@@ -12,7 +12,7 @@ import {
   assistantsListOptions,
 } from "@/generated/api/@tanstack/react-query.gen.js";
 import type { Assistant } from "@/generated/api/types.gen.js";
-import { hatchAssistant } from "@/domains/assistant/api.js";
+import { hatchAssistant } from "@/assistant/api.js";
 
 export function AssistantLifecyclePanel() {
   const queryClient = useQueryClient();

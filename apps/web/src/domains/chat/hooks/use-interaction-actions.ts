@@ -14,27 +14,18 @@
 import * as Sentry from "@sentry/react";
 import { type Dispatch, type MutableRefObject, type SetStateAction, useCallback, useState } from "react";
 
-import {
-  type AllowlistOption,
-  type ConfirmationDecision,
-  type DirectoryScopeOption,
-  type QuestionResponseEntry,
-  type ScopeOption,
-  submitConfirmation,
-  submitContactPrompt,
-  submitQuestionResponse,
-  submitSecretResponse,
-  submitSurfaceAction,
-} from "@/domains/chat/lib/api.js";
 import { addTrustRule } from "@/domains/trust-rules/api.js";
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
 
 import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils.js";
 import { deriveCommandText } from "@/domains/chat/utils/chat-utils.js";
 import type { ChatError } from "@/domains/chat/types.js";
+import type { AllowlistOption, ConfirmationDecision, DirectoryScopeOption, QuestionResponseEntry, ScopeOption } from "@/domains/chat/api/event-types.js";
+import { submitConfirmation, submitContactPrompt, submitQuestionResponse, submitSecretResponse } from "@/domains/chat/api/interactions.js";
+import { submitSurfaceAction } from "@/domains/chat/api/surfaces.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -165,7 +156,7 @@ export function useInteractionActions({
         useInteractionStore.getState().submitSecretEnd(true);
         const convKey = activeConversationKeyRef.current;
         if (convKey) {
-          useConversationListStore.getState().removeAttentionKey(convKey);
+          useConversationStore.getState().removeAttentionKey(convKey);
         }
         const savedRequestId = pendingSecret.requestId;
         setTimeout(() => {
@@ -192,7 +183,7 @@ export function useInteractionActions({
     useInteractionStore.getState().dismissSecret();
     const convKey = activeConversationKeyRef.current;
     if (convKey) {
-      useConversationListStore.getState().removeAttentionKey(convKey);
+      useConversationStore.getState().removeAttentionKey(convKey);
     }
     useTurnStore.getState().onStreamError();
   }, []);
@@ -267,7 +258,7 @@ export function useInteractionActions({
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       const convKey = activeConversationKeyRef.current;
       if (convKey) {
-        useConversationListStore.getState().removeAttentionKey(convKey);
+        useConversationStore.getState().removeAttentionKey(convKey);
       }
 
       // Clear inline confirmation from the matched tool call by requestId

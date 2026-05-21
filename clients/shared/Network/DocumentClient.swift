@@ -9,6 +9,13 @@ public protocol DocumentClientProtocol {
     func fetchDocument(surfaceId: String) async -> DocumentLoadResponse?
     func saveDocument(surfaceId: String, conversationId: String, title: String, content: String, wordCount: Int) async -> DocumentSaveResponse?
     func exportDocumentPDF(surfaceId: String) async -> Data?
+
+    // MARK: - Comments
+
+    func fetchComments(surfaceId: String, status: String?) async -> [DocumentComment]?
+    func createComment(surfaceId: String, content: String, conversationId: String, anchorStart: Int?, anchorEnd: Int?, anchorText: String?, parentCommentId: String?) async -> DocumentComment?
+    func resolveComment(surfaceId: String, commentId: String) async -> DocumentComment?
+    func deleteComment(surfaceId: String, commentId: String) async -> Bool
 }
 
 /// Gateway-backed implementation of ``DocumentClientProtocol``.
@@ -124,6 +131,92 @@ public struct DocumentClient: DocumentClientProtocol {
         }
     }
 
+    // MARK: - Comments
+
+    public func fetchComments(surfaceId: String, status: String? = nil) async -> [DocumentComment]? {
+        do {
+            var params: [String: String] = [:]
+            if let status { params["status"] = status }
+
+            let response = try await GatewayHTTPClient.get(
+                path: "documents/\(surfaceId)/comments",
+                params: params.isEmpty ? nil : params,
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("fetchComments failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            let rest = try JSONDecoder().decode(RESTCommentListResponse.self, from: response.data)
+            return rest.comments
+        } catch {
+            log.error("fetchComments error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func createComment(surfaceId: String, content: String, conversationId: String, anchorStart: Int? = nil, anchorEnd: Int? = nil, anchorText: String? = nil, parentCommentId: String? = nil) async -> DocumentComment? {
+        do {
+            var body: [String: Any] = [
+                "content": content,
+                "conversationId": conversationId,
+            ]
+            if let anchorStart { body["anchorStart"] = anchorStart }
+            if let anchorEnd { body["anchorEnd"] = anchorEnd }
+            if let anchorText { body["anchorText"] = anchorText }
+            if let parentCommentId { body["parentCommentId"] = parentCommentId }
+
+            let response = try await GatewayHTTPClient.post(
+                path: "documents/\(surfaceId)/comments",
+                json: body,
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("createComment failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            return try JSONDecoder().decode(DocumentComment.self, from: response.data)
+        } catch {
+            log.error("createComment error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func resolveComment(surfaceId: String, commentId: String) async -> DocumentComment? {
+        do {
+            let response = try await GatewayHTTPClient.patch(
+                path: "documents/\(surfaceId)/comments/\(commentId)",
+                json: ["status": "resolved"],
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("resolveComment failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            return try JSONDecoder().decode(DocumentComment.self, from: response.data)
+        } catch {
+            log.error("resolveComment error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func deleteComment(surfaceId: String, commentId: String) async -> Bool {
+        do {
+            let response = try await GatewayHTTPClient.delete(
+                path: "documents/\(surfaceId)/comments/\(commentId)",
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("deleteComment failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("deleteComment error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     // MARK: - REST Response Shapes
 
     private struct RESTDocumentListResponse: Decodable {
@@ -155,5 +248,9 @@ public struct DocumentClient: DocumentClientProtocol {
         let success: Bool
         let surfaceId: String
         let error: String?
+    }
+
+    private struct RESTCommentListResponse: Decodable {
+        let comments: [DocumentComment]
     }
 }

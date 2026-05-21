@@ -1,18 +1,17 @@
 /**
  * Tests for the `ChatComposer` extraction.
  *
- * The web workspace lacks `@testing-library/react` (no jsdom/happy-dom), so
- * we exercise behavior through two channels:
+ * Exercises behavior through two channels:
  *   1. The pure `shouldSubmitOnEnter` policy helper — used by the textarea's
  *      onKeyDown handler in production. Asserting on the helper is equivalent
  *      to asserting on the keyboard handler since the production handler is a
  *      thin shim around it.
- *   2. `renderToStaticMarkup` for HTML surface checks (placeholder, send/stop
- *      button, disabled attribute).
+ *   2. `@testing-library/react` `render` for HTML surface checks (placeholder,
+ *      send/stop button, disabled attribute).
  */
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { createRef } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { cleanup, render } from "@testing-library/react";
 
 import {
   type ChatAttachment,
@@ -279,8 +278,10 @@ describe("computeGhostSuffix", () => {
 // HTML rendering — placeholder and send/stop button surface
 // ---------------------------------------------------------------------------
 
+afterEach(cleanup);
+
 function renderComposer(props: Partial<Parameters<typeof ChatComposer>[0]> = {}) {
-  return renderToStaticMarkup(
+  const { container } = render(
     <ChatComposer
       input=""
       setInput={() => {}}
@@ -299,6 +300,7 @@ function renderComposer(props: Partial<Parameters<typeof ChatComposer>[0]> = {})
       {...props}
     />,
   );
+  return container.innerHTML;
 }
 
 describe("ChatComposer — placeholder", () => {

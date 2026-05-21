@@ -407,6 +407,9 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
         lines.push(`- Chosen assistant name: ${n.assistantName}`);
       if (n.tone) lines.push(`- Preferred initial voice: ${n.tone}`);
       if (n.cohort) lines.push(`- Cohort: ${n.cohort}`);
+      if (n.websiteUrl) lines.push(`- Website URL: ${n.websiteUrl}`);
+      if (n.contentSourceUrl)
+        lines.push(`- Content source URL: ${n.contentSourceUrl}`);
       if (n.googleConnected && n.googleServices?.length) {
         lines.push(
           `- Google connected: yes (${n.googleServices.join(", ")} access granted)`,

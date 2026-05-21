@@ -33,15 +33,15 @@ import {
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { MutableRefObject } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import { newStableId } from "@/domains/chat/lib/stable-id.js";
-import type { PaginatedHistoryResult } from "@/domains/chat/lib/transcript/types.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { newStableId } from "@/domains/chat/utils/stable-id.js";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocked daemon clients. `mock.module` is process-global in bun:test, so we
 // stub the two functions the hook fans out to:
-//   - `fetchLatestHistoryPage` (`@/domains/chat/lib/history`)
-//   - `fetchSurfaceContent`    (`@/domains/chat/lib/api`)
+//   - `fetchLatestHistoryPage` (`@/domains/chat/api/history`)
+//   - `fetchSurfaceContent`    (`@/domains/chat/api/surfaces`)
 // Tests seed the next response on the corresponding holder.
 // ---------------------------------------------------------------------------
 
@@ -61,7 +61,7 @@ let fetchLatestImpl: (
   oldestMessageId: null,
 });
 
-mock.module("@/domains/chat/lib/history", () => ({
+mock.module("@/domains/chat/api/history", () => ({
   fetchLatestHistoryPage: (assistantId: string, conversationKey: string) => {
     fetchLatestCalls.push({ assistantId, conversationKey });
     return fetchLatestImpl(assistantId, conversationKey);
@@ -84,7 +84,7 @@ let fetchSurfaceImpl: (
   data: Record<string, unknown>;
 } | null> = async () => null;
 
-mock.module("@/domains/chat/lib/api", () => ({
+mock.module("@/domains/chat/api/surfaces", () => ({
   fetchSurfaceContent: (
     assistantId: string,
     surfaceId: string,

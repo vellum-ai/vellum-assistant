@@ -58,6 +58,7 @@ import {
   migrateCanonicalGuardianRequesterChatId,
   migrateCapabilityCardColumns,
   migrateChannelInboundDeliveredSegments,
+  migrateChannelInboundDeliveryAttempts,
   migrateChannelInteractionColumns,
   migrateContactChannelsAccessFields,
   migrateContactChannelsTypeChatIdIndex,
@@ -72,6 +73,7 @@ import {
   migrateConversationsLastMessageAt,
   migrateConversationsThreadTypeIndex,
   migrateCreateConversationGraphMemoryState,
+  migrateCreateDocumentComments,
   migrateCreateDocumentConversations,
   migrateCreateMemoryGraphNodeEdits,
   migrateCreateMemoryGraphTables,
@@ -96,6 +98,7 @@ import {
   migrateDropSetupSkillIdColumn,
   migrateDropSimplifiedMemory,
   migrateDropUsageCompositeIndexes,
+  migrateExternalConversationBindingChatName,
   migrateExternalConversationBindingThreadId,
   migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
@@ -122,6 +125,7 @@ import {
   migrateMemoryRecallLogsQueryContext,
   migrateMemoryRetrospectiveState,
   migrateMemoryV2ActivationLogs,
+  migrateMemoryV2InjectionEvents,
   migrateMessageBookmarks,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
@@ -436,6 +440,10 @@ export function initializeDb(): void {
     migrateProviderConnectionBaseUrlAndModels,
     migrateA2ATasks,
     migrateLlmRequestLogAgentLoopExitReason,
+    migrateCreateDocumentComments,
+    migrateExternalConversationBindingChatName,
+    migrateChannelInboundDeliveryAttempts,
+    migrateMemoryV2InjectionEvents,
   ];
 
   // Run each migration step, catching and logging individual failures so one

@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 import {
   Check,
   Crown,
@@ -42,18 +43,18 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen.js";
 import { reportError } from "@/lib/errors/report.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import {
   type LlmCatalogModel,
   PROVIDER_DISPLAY_NAMES,
-} from "@/domains/assistant/llm-model-catalog.js";
+} from "@/assistant/llm-model-catalog.js";
 import {
   WEB_SEARCH_BYOK_PROVIDER_IDS,
   WEB_SEARCH_PROVIDER_DISPLAY_NAMES,
   WEB_SEARCH_PROVIDER_IDS,
   WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS,
   WEB_SEARCH_PROVIDER_KEY_STORAGE,
-} from "@/domains/assistant/generated/web-search-provider-catalog.gen.js";
+} from "@/assistant/generated/web-search-provider-catalog.gen.js";
 import { routes } from "@/utils/routes.js";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags.js";
 import { synthesizeTTS } from "@/domains/voice/tts-synthesize.js";
@@ -100,7 +101,7 @@ export const TOKEN_SLIDER_STEP_TOKENS = 1_000;
 export const DEFAULT_CONTEXT_WINDOW_BUDGET_TOKENS = 200_000;
 
 // Web-search provider list, display names, and key placeholders live in
-// `domains/assistant/generated/web-search-provider-catalog.gen.ts`.
+// `assistant/generated/web-search-provider-catalog.gen.ts`.
 
 // ---------------------------------------------------------------------------
 // TTS / STT provider catalogs — mirror the macOS client catalogs and the
@@ -650,7 +651,7 @@ function TextToSpeechCard() {
     >
       <div className="space-y-4">
         <div className="space-y-1">
-          <label className="block text-body-small-default text-stone-500 dark:text-stone-400">
+          <label className="block text-body-small-default text-[var(--content-quiet)]">
             Provider
           </label>
           <Dropdown
@@ -665,7 +666,7 @@ function TextToSpeechCard() {
         </div>
 
         <div className="space-y-1">
-          <label className="block text-body-small-default text-stone-500 dark:text-stone-400">
+          <label className="block text-body-small-default text-[var(--content-quiet)]">
             API Key
           </label>
           <Input
@@ -679,7 +680,7 @@ function TextToSpeechCard() {
 
         {selectedProvider.supportsVoiceSelection && (
           <div className="space-y-1">
-            <label className="block text-body-small-default text-stone-500 dark:text-stone-400">
+            <label className="block text-body-small-default text-[var(--content-quiet)]">
               Voice ID
             </label>
             <Input
@@ -783,7 +784,7 @@ function SpeechToTextCard() {
     >
       <div className="space-y-4">
         <div className="space-y-1">
-          <label className="block text-body-small-default text-stone-500 dark:text-stone-400">
+          <label className="block text-body-small-default text-[var(--content-quiet)]">
             Provider
           </label>
           <Dropdown
@@ -798,7 +799,7 @@ function SpeechToTextCard() {
         </div>
 
         <div className="space-y-1">
-          <label className="block text-body-small-default text-stone-500 dark:text-stone-400">
+          <label className="block text-body-small-default text-[var(--content-quiet)]">
             API Key
           </label>
           <Input
@@ -855,7 +856,7 @@ interface EmailServiceCardProps {
 function EmailServiceCard({ assistantId }: EmailServiceCardProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { emailRootDomain } = useAppFeatureFlags();
+  const emailRootDomain = useFeatureFlagStore.use.emailRootDomain();
   const [mode, setMode] = useState<ServiceMode>(
     () => getLocalSetting(LS_EMAIL_MODE, "managed") as ServiceMode,
   );

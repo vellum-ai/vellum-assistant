@@ -1,0 +1,140 @@
+# XcodeGen spec for the Capacitor iOS app.
+#
+# Source of truth for the Xcode project structure. The generated
+# `App.xcodeproj/project.pbxproj` is gitignored and recreated by CI on
+# every build via `xcodegen generate`. This avoids committing a
+# Capacitor-generated pbxproj whose objectVersion drifts out of sync
+# with the Xcode toolchain on CI runners.
+#
+# References:
+#   - XcodeGen spec: https://github.com/yonaskolb/XcodeGen/blob/master/Docs/ProjectSpec.md
+#   - Capacitor SPM:  https://capacitorjs.com/docs/ios/spm
+
+name: App
+
+options:
+  deploymentTarget:
+    iOS: "15.0"
+  developmentLanguage: en
+  defaultConfig: Release
+  groupSortPosition: top
+  minimumXcodeGenVersion: "2.42.0"
+  generateEmptyDirectories: true
+
+configs:
+  Debug: debug
+  Release: release
+
+# Project-level base xcconfig. Only Debug uses one (matches the original
+# Capacitor-generated project — Release inherits XcodeGen's defaults).
+configFiles:
+  Debug: ../debug.xcconfig
+
+# Local Swift package containing Capacitor and its plugins. Capacitor's
+# `cap sync` regenerates `CapApp-SPM/Package.swift` based on installed
+# `@capacitor/*` plugins.
+packages:
+  CapApp-SPM:
+    path: CapApp-SPM
+
+targetTemplates:
+  AppEnvironment:
+    type: application
+    platform: iOS
+    sources:
+      # Shared Swift sources, storyboards, assets, and entitlements.
+      # The three `AppIcon-*.icon` directories are excluded here; each
+      # target re-adds the single icon it ships with so that
+      # ASSETCATALOG_COMPILER_APPICON_NAME (set per-target via xcconfig)
+      # resolves to a bundled resource.
+      - path: App
+        excludes:
+          - "Info.plist"
+          - "App.entitlements"
+          - "Config/**"
+          - "AppIcon.icon"
+          - "AppIcon-Dev.icon"
+          - "AppIcon-Staging.icon"
+          - "capacitor.config.json"
+          - "config.xml"
+          - "public"
+      # Capacitor-managed resources. These are produced by `bunx cap
+      # sync ios` and gitignored, so they may not exist when xcodegen
+      # runs locally before the first sync. `optional: true` lets
+      # xcodegen reference them without verifying existence at
+      # generation time; CI runs `cap sync` after `xcodegen generate`,
+      # so they exist by archive time.
+      - path: App/capacitor.config.json
+        optional: true
+        buildPhase: resources
+      - path: App/config.xml
+        optional: true
+        buildPhase: resources
+      - path: App/public
+        optional: true
+        type: folder
+        buildPhase: resources
+    settings:
+      configs:
+        Debug:
+          OTHER_SWIFT_FLAGS: '$(inherited) "-DDEBUG"'
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+        Release:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: ""
+    dependencies:
+      - package: CapApp-SPM
+        product: CapApp-SPM
+    # Auto-generate one scheme per target. The whole `App.xcodeproj/`
+    # tree is gitignored — schemes, pbxproj, contents.xcworkspacedata,
+    # everything inside the bundle is a build-time artifact regenerated
+    # by `xcodegen generate`.
+    scheme:
+      configVariants: []
+    preBuildScripts:
+      # Fails the Xcode build with a clear, actionable error if the
+      # generated project is older than the source-of-truth spec
+      # (`apps/ios/App/project.yml`). This catches the case where a
+      # local dev pulls a project.yml change but forgets to run
+      # `bun run ios:setup` (or `xcodegen generate`) before building.
+      # CI never trips this guard because the workflow runs
+      # `xcodegen generate` immediately before `xcodebuild archive`.
+      - name: Verify project.yml is in sync with App.xcodeproj
+        basedOnDependencyAnalysis: false
+        shell: /bin/bash
+        script: |
+          set -euo pipefail
+          spec="$SRCROOT/project.yml"
+          pbxproj="$PROJECT_FILE_PATH/project.pbxproj"
+          if [ ! -f "$spec" ] || [ ! -f "$pbxproj" ]; then
+            exit 0
+          fi
+          if [ "$spec" -nt "$pbxproj" ]; then
+            echo "error: apps/ios/App/project.yml is newer than App.xcodeproj." >&2
+            echo "error: Run 'bun run ios:setup' from apps/web/ to regenerate the Xcode project." >&2
+            exit 1
+          fi
+
+targets:
+  App:
+    templates: [AppEnvironment]
+    sources:
+      - path: App/AppIcon.icon
+    configFiles:
+      Debug: App/Config/App.xcconfig
+      Release: App/Config/App.xcconfig
+
+  "App Staging":
+    templates: [AppEnvironment]
+    sources:
+      - path: App/AppIcon-Staging.icon
+    configFiles:
+      Debug: App/Config/App-Staging.xcconfig
+      Release: App/Config/App-Staging.xcconfig
+
+  "App Dev":
+    templates: [AppEnvironment]
+    sources:
+      - path: App/AppIcon-Dev.icon
+    configFiles:
+      Debug: App/Config/App-Dev.xcconfig
+      Release: App/Config/App-Dev.xcconfig

@@ -4,8 +4,10 @@ import { useNavigate } from "react-router";
 import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { toast } from "@vellum/design-library/components/toast";
-import { retireAssistantById } from "@/domains/assistant/api.js";
-import { clearOnboardingFlags } from "@/lib/onboarding/prefs.js";
+import { retireAssistantById } from "@/assistant/api.js";
+import { clearOnboardingFlags } from "@/domains/onboarding/prefs.js";
+import { isNativePlatform } from "@/runtime/native-auth.js";
+import { routes } from "@/utils/routes.js";
 
 interface RetireAssistantProps {
   assistantId: string;
@@ -22,7 +24,15 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
       if (result.ok || result.status === 404) {
         clearOnboardingFlags();
         toast.success("Assistant retired.");
-        navigate("/assistant/onboarding/privacy");
+        // Native (iOS) re-onboarding skips the privacy/TOS step — those
+        // are re-shown only when the user explicitly resets prefs.
+        // Web users still see the privacy step to satisfy first-load
+        // consent requirements on a fresh assistant.
+        navigate(
+          isNativePlatform()
+            ? routes.onboarding.prechat
+            : routes.onboarding.privacy,
+        );
       } else {
         const detail =
           typeof result.error?.detail === "string"

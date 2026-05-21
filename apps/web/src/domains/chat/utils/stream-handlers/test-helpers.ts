@@ -1,5 +1,7 @@
 import { mock } from "bun:test";
 
+import { QueryClient } from "@tanstack/react-query";
+
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
 import type { TurnActions, TurnState } from "@/domains/messaging/turn-store.js";
 import { INITIAL_TURN_STATE } from "@/domains/messaging/turn-store.js";
@@ -58,6 +60,7 @@ export function makeCtx(
     contextWindowUsageByConversationRef: { current: new Map() },
     setContextWindowUsage: mock(() => {}),
     scheduleConversationListRefetch: mock(() => {}),
+    queryClient: new QueryClient(),
     setCompactionCircuitOpenUntil: mock(() => {}),
     applyDiskPressureStatusEvent: mock(() => {}),
     refreshAssistantIdentity: mock(() => Promise.resolve()),

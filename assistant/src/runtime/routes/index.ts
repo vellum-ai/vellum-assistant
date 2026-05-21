@@ -33,6 +33,7 @@ import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
 import { ROUTES as CONSOLIDATION_ROUTES } from "./consolidation-routes.js";
 import { CONTACT_PROMPT_ROUTES } from "./contact-prompt-routes.js";
 import { ROUTES as CONTACT_ROUTES } from "./contact-routes.js";
+import { ROUTES as CONTENT_SOURCE_ROUTES } from "./content-source-routes.js";
 import { ROUTES as CONVERSATION_ANALYSIS_ROUTES } from "./conversation-analysis-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
 import { ROUTES as CONVERSATION_CLI_ROUTES } from "./conversation-cli-routes.js";
@@ -49,6 +50,7 @@ import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
 import { ROUTES as DEFER_ROUTES } from "./defer-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
 import { ROUTES as DISK_PRESSURE_ROUTES } from "./disk-pressure-routes.js";
+import { ROUTES as DOCUMENT_COMMENT_ROUTES } from "./document-comments-routes.js";
 import { ROUTES as DOCUMENT_ROUTES } from "./documents-routes.js";
 import { ROUTES as DOMAIN_ROUTES } from "./domain-routes.js";
 import { ROUTES as EMAIL_ROUTES } from "./email-routes.js";
@@ -73,7 +75,7 @@ import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "./inference-profile-
 import { ROUTES as INFERENCE_PROVIDER_CONNECTION_ROUTES } from "./inference-provider-connection-routes.js";
 import { ROUTES as INFERENCE_SEND_ROUTES } from "./inference-send-routes.js";
 import { ROUTES as A2A_ROUTES } from "./integrations/a2a.js";
-import { ROUTES as SLACK_CHANNEL_ROUTES } from "./integrations/slack/channel.js";
+import { ROUTES as SLACK_CHANNEL_CONFIG_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
 import { ROUTES as TELEGRAM_ROUTES } from "./integrations/telegram.js";
 import { ROUTES as TWILIO_ROUTES } from "./integrations/twilio.js";
@@ -101,11 +103,13 @@ import { ROUTES as PUBLISH_ROUTES } from "./publish-routes.js";
 import { ROUTES as QUESTION_ROUTES } from "./question-routes.js";
 import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
+import { ROUTES as SANITY_ROUTES } from "./sanity-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
 import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
 import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
+import { ROUTES as SLACK_CHANNEL_RESOLVE_ROUTES } from "./slack-channel-routes.js";
 import { ROUTES as STT_ROUTES } from "./stt-routes.js";
 import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
 import { ROUTES as SUGGEST_TRUST_RULE_ROUTES } from "./suggest-trust-rule-routes.js";
@@ -153,6 +157,7 @@ export const ROUTES: RouteDefinition[] = [
   ...BTW_ROUTES,
   ...BRAIN_GRAPH_ROUTES,
   ...CLIENT_ROUTES,
+  ...CONTENT_SOURCE_ROUTES,
   ...CONTACT_PROMPT_ROUTES,
   ...CONTACT_ROUTES,
   ...CONVERSATION_ANALYSIS_ROUTES,
@@ -173,6 +178,7 @@ export const ROUTES: RouteDefinition[] = [
   ...DIAGNOSTICS_ROUTES,
   ...DISK_PRESSURE_ROUTES,
   ...DOMAIN_ROUTES,
+  ...DOCUMENT_COMMENT_ROUTES,
   ...DOCUMENT_ROUTES,
   ...EMAIL_ROUTES,
   ...EVENTS_ROUTES,
@@ -219,11 +225,13 @@ export const ROUTES: RouteDefinition[] = [
   ...RECORDING_ROUTES,
   ...RENAME_CONVERSATION_ROUTES,
   ...SCHEDULE_ROUTES,
+  ...SANITY_ROUTES,
   ...SECRET_ROUTES,
   ...SETTINGS_ROUTES,
   ...SKILL_ROUTES,
   ...A2A_ROUTES,
-  ...SLACK_CHANNEL_ROUTES,
+  ...SLACK_CHANNEL_CONFIG_ROUTES,
+  ...SLACK_CHANNEL_RESOLVE_ROUTES,
   ...SLACK_SHARE_ROUTES,
   ...STT_ROUTES,
   ...SUGGEST_TRUST_RULE_ROUTES,

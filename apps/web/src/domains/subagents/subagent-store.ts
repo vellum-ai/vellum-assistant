@@ -13,7 +13,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors.js";
-import type { SubagentStatus, SubagentInnerEvent } from "@/domains/chat/lib/event-types.js";
+import type { SubagentStatus, SubagentInnerEvent } from "@/domains/chat/api/event-types.js";
 
 // ---------------------------------------------------------------------------
 // State

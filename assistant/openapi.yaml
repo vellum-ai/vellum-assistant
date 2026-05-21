@@ -4219,6 +4219,27 @@ paths:
                 limit:
                   type: number
               additionalProperties: false
+  /v1/content-source:
+    post:
+      operationId: contentsource_post
+      summary: Validate and persist a content source URL
+      tags:
+        - content-source
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+              required:
+                - url
+              additionalProperties: false
   /v1/conversation-starters:
     get:
       operationId: conversationstarters_get
@@ -4370,6 +4391,51 @@ paths:
               required:
                 - conversationKey
               additionalProperties: false
+  /v1/conversations/{conversationId}/slack-channel/resolve:
+    post:
+      operationId: conversations_by_conversationId_slackchannel_resolve_post
+      summary: Resolve Slack channel name
+      description: Resolve and persist a friendly Slack channel name for an external conversation binding.
+      tags:
+        - conversations
+        - slack
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channelId:
+                    type: string
+                  channelName:
+                    type: string
+                  cached:
+                    type: boolean
+                  resolved:
+                    type: boolean
+                  reason:
+                    type: string
+                    enum:
+                      - auth
+                      - dm
+                      - no_name
+                      - not_found
+                      - permission
+                      - rate_limit
+                      - slack_error
+                required:
+                  - channelId
+                  - cached
+                  - resolved
+                additionalProperties: false
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/conversations/{id}:
     delete:
       operationId: conversations_by_id_delete
@@ -6593,6 +6659,268 @@ paths:
           required: true
           schema:
             type: string
+  /v1/documents/{id}/comments:
+    get:
+      operationId: documents_by_id_comments_get
+      summary: List comments for a document
+      description: Return comments for a document, optionally filtered by status.
+      tags:
+        - documents
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  comments:
+                    type: array
+                    items: {}
+                    description: Comment records
+                required:
+                  - comments
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - open
+              - resolved
+              - all
+          description: "Filter by comment status (default: all)"
+    post:
+      operationId: documents_by_id_comments_post
+      summary: Create a comment on a document
+      description: Add a new comment to a document.
+      tags:
+        - documents
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  surfaceId:
+                    type: string
+                  conversationId:
+                    type: string
+                  author:
+                    type: string
+                  content:
+                    type: string
+                  status:
+                    type: string
+                  createdAt:
+                    type: number
+                  updatedAt:
+                    type: number
+                required:
+                  - id
+                  - surfaceId
+                  - conversationId
+                  - author
+                  - content
+                  - status
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+                  description: Comment text content
+                author:
+                  default: user
+                  description: Comment author
+                  type: string
+                  const: user
+                anchorStart:
+                  description: Selection start offset
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                anchorEnd:
+                  description: Selection end offset
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                anchorText:
+                  description: Anchored text snippet
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                parentCommentId:
+                  description: Parent comment ID for replies
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                conversationId:
+                  type: string
+                  description: Owning conversation ID
+              required:
+                - content
+                - conversationId
+              additionalProperties: false
+  /v1/documents/{id}/comments/{commentId}:
+    delete:
+      operationId: documents_by_id_comments_by_commentId_delete
+      summary: Delete a document comment
+      description: Permanently delete a comment.
+      tags:
+        - documents
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                required:
+                  - success
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+    patch:
+      operationId: documents_by_id_comments_by_commentId_patch
+      summary: Update a document comment
+      description: Update the status or content of a comment.
+      tags:
+        - documents
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  surfaceId:
+                    type: string
+                  content:
+                    type: string
+                  status:
+                    type: string
+                  updatedAt:
+                    type: number
+                required:
+                  - id
+                  - surfaceId
+                  - content
+                  - status
+                  - updatedAt
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  description: New comment status
+                  type: string
+                  enum:
+                    - open
+                    - resolved
+                content:
+                  description: Updated comment text
+                  type: string
+                  minLength: 1
+                resolvedBy:
+                  description: Who resolved the comment
+                  type: string
+              additionalProperties: false
+  /v1/documents/{id}/conversations:
+    post:
+      operationId: documents_by_id_conversations_post
+      summary: Link a document to a conversation
+      description: Associate a document with a conversation so the assistant sees it as context.
+      tags:
+        - documents
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                required:
+                  - success
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  description: Conversation to link
+              required:
+                - conversationId
+              additionalProperties: false
   /v1/documents/{id}/pdf:
     get:
       operationId: documents_by_id_pdf_get
@@ -9720,6 +10048,18 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/integrations/a2a/invite/accept:
+    post:
+      operationId: integrations_a2a_invite_accept_post
+      summary: Accept A2A invite (self-hosted broker)
+      description:
+        Orchestrate cross-daemon invite acceptance for self-hosted deployments. Calls the sender's invite/complete,
+        then creates a local contact via invite/redeem.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
   /v1/integrations/a2a/invite/complete:
     post:
       operationId: integrations_a2a_invite_complete_post
@@ -12519,6 +12859,49 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/sanity/connect:
+    post:
+      operationId: sanity_connect_post
+      summary: Finalise Sanity connection and write sidecar file
+      tags:
+        - sanity
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                projectId:
+                  type: string
+                dataset:
+                  type: string
+              required:
+                - projectId
+                - dataset
+              additionalProperties: false
+  /v1/sanity/discover:
+    post:
+      operationId: sanity_discover_post
+      summary: Discover Sanity projects and datasets using the stored API token
+      tags:
+        - sanity
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                projectId:
+                  type: string
+              additionalProperties: false
   /v1/schedules:
     get:
       operationId: schedules_get

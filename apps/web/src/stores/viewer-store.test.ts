@@ -23,8 +23,8 @@ const SAMPLE_DOC = { surfaceId: "surf-1", conversationId: "conv-1", documentName
 
 describe("setMainView", () => {
   it("switches the main view", () => {
-    getState().setMainView("intelligence");
-    expect(getState().mainView).toBe("intelligence");
+    getState().setMainView("app");
+    expect(getState().mainView).toBe("app");
   });
 
   it("is a no-op when view is unchanged", () => {
@@ -172,12 +172,12 @@ describe("openSubagentDetail", () => {
   it("preserves existing viewBeforeSubagentDetail when already in subagent-detail", () => {
     useViewerStore.setState({
       mainView: "subagent-detail",
-      viewBeforeSubagentDetail: "intelligence",
+      viewBeforeSubagentDetail: "app",
       activeSubagentId: "sa-1",
     });
     getState().openSubagentDetail("sa-2");
     const state = getState();
-    expect(state.viewBeforeSubagentDetail).toBe("intelligence");
+    expect(state.viewBeforeSubagentDetail).toBe("app");
     expect(state.activeSubagentId).toBe("sa-2");
   });
 
@@ -204,12 +204,12 @@ describe("closeSubagentDetail", () => {
   it("restores a non-chat view", () => {
     useViewerStore.setState({
       mainView: "subagent-detail",
-      viewBeforeSubagentDetail: "library",
+      viewBeforeSubagentDetail: "app",
       activeSubagentId: "sa-1",
     });
     getState().closeSubagentDetail();
     const state = getState();
-    expect(state.mainView).toBe("library");
+    expect(state.mainView).toBe("app");
     expect(state.activeSubagentId).toBeNull();
   });
 });
@@ -220,21 +220,21 @@ describe("closeSubagentDetail", () => {
 
 describe("openDocument", () => {
   it("saves current view as viewBeforeDocument and switches to document", () => {
-    useViewerStore.setState({ mainView: "intelligence" });
+    useViewerStore.setState({ mainView: "app" });
     getState().openDocument();
     const state = getState();
     expect(state.mainView).toBe("document");
-    expect(state.viewBeforeDocument).toBe("intelligence");
+    expect(state.viewBeforeDocument).toBe("app");
     expect(state.openedDocumentState).toBeNull();
   });
 
   it("preserves existing viewBeforeDocument when already in document view", () => {
     useViewerStore.setState({
       mainView: "document",
-      viewBeforeDocument: "library",
+      viewBeforeDocument: "app",
     });
     getState().openDocument();
-    expect(getState().viewBeforeDocument).toBe("library");
+    expect(getState().viewBeforeDocument).toBe("app");
   });
 });
 
@@ -249,12 +249,12 @@ describe("handleDocumentLoadFailed", () => {
   it("restores viewBeforeDocument and clears document state", () => {
     useViewerStore.setState({
       mainView: "document",
-      viewBeforeDocument: "library",
+      viewBeforeDocument: "app",
       openedDocumentState: SAMPLE_DOC,
     });
     getState().handleDocumentLoadFailed();
     const state = getState();
-    expect(state.mainView).toBe("library");
+    expect(state.mainView).toBe("app");
     expect(state.openedDocumentState).toBeNull();
   });
 });
@@ -286,83 +286,6 @@ describe("refreshAssets", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Share / Deploy
-// ---------------------------------------------------------------------------
-
-describe("startSharing", () => {
-  it("sets isSharing to true", () => {
-    getState().startSharing();
-    expect(getState().isSharing).toBe(true);
-  });
-});
-
-describe("finishSharing", () => {
-  it("sets isSharing to false", () => {
-    useViewerStore.setState({ isSharing: true });
-    getState().finishSharing();
-    expect(getState().isSharing).toBe(false);
-  });
-});
-
-describe("startDeploying", () => {
-  it("sets isDeploying to true", () => {
-    getState().startDeploying();
-    expect(getState().isDeploying).toBe(true);
-  });
-});
-
-describe("finishDeploying", () => {
-  it("sets isDeploying to false and keeps pendingDeployAppId by default", () => {
-    useViewerStore.setState({ isDeploying: true, pendingDeployAppId: "app-1" });
-    getState().finishDeploying();
-    const state = getState();
-    expect(state.isDeploying).toBe(false);
-    expect(state.pendingDeployAppId).toBe("app-1");
-  });
-
-  it("clears pendingDeployAppId when clearPendingAppId is true", () => {
-    useViewerStore.setState({ isDeploying: true, pendingDeployAppId: "app-1" });
-    getState().finishDeploying(true);
-    const state = getState();
-    expect(state.isDeploying).toBe(false);
-    expect(state.pendingDeployAppId).toBeNull();
-  });
-});
-
-describe("showTokenDialog", () => {
-  it("opens dialog, sets pending app, and stops deploying", () => {
-    useViewerStore.setState({ isDeploying: true });
-    getState().showTokenDialog("app-1");
-    const state = getState();
-    expect(state.isTokenDialogOpen).toBe(true);
-    expect(state.pendingDeployAppId).toBe("app-1");
-    expect(state.isDeploying).toBe(false);
-  });
-});
-
-describe("hideTokenDialog", () => {
-  it("closes the dialog", () => {
-    useViewerStore.setState({ isTokenDialogOpen: true });
-    getState().hideTokenDialog();
-    expect(getState().isTokenDialogOpen).toBe(false);
-  });
-});
-
-describe("setComplexDeployApp", () => {
-  it("sets the complex deploy app", () => {
-    const app = { appId: "app-1", name: "My App" };
-    getState().setComplexDeployApp(app);
-    expect(getState().complexDeployApp).toBe(app);
-  });
-
-  it("clears the complex deploy app when null", () => {
-    useViewerStore.setState({ complexDeployApp: { appId: "app-1", name: "My App" } });
-    getState().setComplexDeployApp(null);
-    expect(getState().complexDeployApp).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Reset
 // ---------------------------------------------------------------------------
 
@@ -372,17 +295,11 @@ describe("reset", () => {
       mainView: "app",
       activeAppId: "app-1",
       openedAppState: SAMPLE_APP,
-      isSharing: true,
-      isDeploying: true,
-      isTokenDialogOpen: true,
     });
     getState().reset();
     const state = getState();
     expect(state.mainView).toBe("chat");
     expect(state.activeAppId).toBeNull();
     expect(state.openedAppState).toBeNull();
-    expect(state.isSharing).toBe(false);
-    expect(state.isDeploying).toBe(false);
-    expect(state.isTokenDialogOpen).toBe(false);
   });
 });

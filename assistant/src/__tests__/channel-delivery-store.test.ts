@@ -7,6 +7,15 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    slack: {
+      teamId: "T123",
+      teamUrl: "https://example.slack.com/",
+    },
+  }),
+}));
+
 import { eq } from "drizzle-orm";
 
 import {
@@ -25,8 +34,11 @@ import {
 import {
   acknowledgeDelivery,
   getDeadLetterEvents,
+  getRetryableDeliveryEvents,
   getRetryableEvents,
+  markDeliveryDelivered,
   markProcessed,
+  recordDeliveryFailure,
   recordProcessingFailure,
   replayDeadLetters,
 } from "../memory/delivery-status.js";
@@ -52,6 +64,7 @@ function resetTables() {
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversation_keys");
+  db.run("DELETE FROM external_conversation_bindings");
   db.run("DELETE FROM conversations");
 }
 
@@ -421,6 +434,7 @@ describe("channel-delivery-store", () => {
       conversationId: result.conversationId,
       sourceChannel: "slack",
       externalChatId: "C0123ABCDEF",
+      externalChatName: "engineering",
       externalThreadId: "1710000000.000100",
     });
 
@@ -429,12 +443,105 @@ describe("channel-delivery-store", () => {
     expect(detail?.conversation.channelBinding).toMatchObject({
       sourceChannel: "slack",
       externalChatId: "C0123ABCDEF",
+      externalChatName: "engineering",
       externalThreadId: "1710000000.000100",
       slackThread: {
         channelId: "C0123ABCDEF",
         threadTs: "1710000000.000100",
+        link: {
+          appUrl:
+            "slack://channel?team=T123&id=C0123ABCDEF&message=1710000000.000100",
+          webUrl:
+            "https://example.slack.com/archives/C0123ABCDEF/p1710000000000100",
+        },
+      },
+      slackChannel: {
+        channelId: "C0123ABCDEF",
+        name: "engineering",
+        link: {
+          webUrl: "https://example.slack.com/archives/C0123ABCDEF",
+        },
       },
     });
+  });
+
+  test("conversation detail exposes Slack channel id fallback without stored channel name", () => {
+    const result = recordInbound("slack", "C0123ABCDEF", "msg-1", {
+      sourceThreadId: "1710000000.000100",
+    });
+
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalThreadId: "1710000000.000100",
+    });
+
+    const detail = buildConversationDetailResponse(result.conversationId);
+
+    expect(detail?.conversation.channelBinding).toMatchObject({
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalChatName: "C0123ABCDEF",
+      slackChannel: {
+        channelId: "C0123ABCDEF",
+        name: "C0123ABCDEF",
+        link: {
+          webUrl: "https://example.slack.com/archives/C0123ABCDEF",
+        },
+      },
+    });
+  });
+
+  test("binding upsert preserves existing chat name when incoming name is missing", () => {
+    const result = recordInbound("slack", "C0123ABCDEF", "msg-1", {
+      sourceThreadId: "1710000000.000100",
+    });
+
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalChatName: "engineering",
+      externalThreadId: "1710000000.000100",
+    });
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalThreadId: "1710000000.000100",
+    });
+
+    expect(
+      getBindingByChannelChatThread("slack", "C0123ABCDEF", "1710000000.000100")
+        ?.externalChatName,
+    ).toBe("engineering");
+  });
+
+  test("binding upsert preserves existing chat name when incoming name is blank", () => {
+    const result = recordInbound("slack", "C0123ABCDEF", "msg-1", {
+      sourceThreadId: "1710000000.000100",
+    });
+
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalChatName: "engineering",
+      externalThreadId: "1710000000.000100",
+    });
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalChatName: "   ",
+      externalThreadId: "1710000000.000100",
+    });
+
+    expect(
+      getBindingByChannelChatThread("slack", "C0123ABCDEF", "1710000000.000100")
+        ?.externalChatName,
+    ).toBe("engineering");
   });
 
   // ── Deduplication ─────────────────────────────────────────────────
@@ -506,9 +613,95 @@ describe("channel-delivery-store", () => {
     expect(row!.deliveryStatus).toBe("delivered");
   });
 
+  test("acknowledgeDelivery accepts late acks after retryable delivery failure", () => {
+    const result = recordInbound("telegram", "chat-1", "msg-1");
+    markProcessed(result.eventId);
+    recordDeliveryFailure(result.eventId, new Error("fetch failed"));
+
+    const ack = acknowledgeDelivery("telegram", "chat-1", "msg-1");
+    expect(ack).toBe(true);
+
+    const db = getDb();
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .get();
+    expect(row!.deliveryStatus).toBe("delivered");
+    expect(row!.retryAfter).toBeNull();
+  });
+
   test("acknowledgeDelivery returns false for unknown event", () => {
     const ack = acknowledgeDelivery("telegram", "chat-1", "nonexistent");
     expect(ack).toBe(false);
+  });
+
+  test("delivery failures are retryable without changing processing status", () => {
+    const result = recordInbound("telegram", "chat-1", "msg-1");
+    markProcessed(result.eventId);
+
+    recordDeliveryFailure(result.eventId, new Error("fetch failed"));
+
+    const db = getDb();
+    let row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .get();
+    expect(row!.processingStatus).toBe("processed");
+    expect(row!.deliveryStatus).toBe("failed");
+    expect(row!.processingAttempts).toBe(0);
+    expect(row!.deliveryAttempts).toBe(1);
+    expect(row!.lastProcessingError).toBe("fetch failed");
+    expect(row!.retryAfter).toBeGreaterThan(0);
+
+    db.update(channelInboundEvents)
+      .set({ retryAfter: Date.now() - 10_000, deliveredSegmentCount: 2 })
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .run();
+
+    const retryable = getRetryableDeliveryEvents();
+    expect(retryable).toHaveLength(1);
+    expect(retryable[0].id).toBe(result.eventId);
+    expect(retryable[0].deliveredSegmentCount).toBe(2);
+
+    markDeliveryDelivered(result.eventId);
+
+    row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .get();
+    expect(row!.processingStatus).toBe("processed");
+    expect(row!.deliveryStatus).toBe("delivered");
+    expect(row!.retryAfter).toBeNull();
+    expect(getRetryableDeliveryEvents()).toHaveLength(0);
+  });
+
+  test("delivery dead letters are listed and replayed as delivery retries", () => {
+    const result = recordInbound("telegram", "chat-1", "msg-1");
+    markProcessed(result.eventId);
+
+    recordDeliveryFailure(result.eventId, { status: 400, message: "bad" });
+
+    const deadLetters = getDeadLetterEvents();
+    expect(deadLetters).toHaveLength(1);
+    expect(deadLetters[0].id).toBe(result.eventId);
+
+    const count = replayDeadLetters([result.eventId]);
+    expect(count).toBe(1);
+
+    const db = getDb();
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .get();
+    expect(row!.processingStatus).toBe("processed");
+    expect(row!.deliveryStatus).toBe("failed");
+    expect(row!.deliveryAttempts).toBe(0);
+    expect(row!.lastProcessingError).toBeNull();
+    expect(row!.retryAfter).toBeGreaterThan(0);
   });
 
   // ── Processing status transitions ─────────────────────────────────

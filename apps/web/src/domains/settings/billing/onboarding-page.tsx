@@ -23,7 +23,7 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 
 export const DOMAIN_EXIT_DELAY_MS = 800;
@@ -409,7 +409,7 @@ function MachineSizeStep({
 }
 
 function DomainStep({ onExit }: { onExit: () => void }) {
-  const { emailRootDomain } = useAppFeatureFlags();
+  const emailRootDomain = useFeatureFlagStore.use.emailRootDomain();
   const [subdomain, setSubdomain] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);

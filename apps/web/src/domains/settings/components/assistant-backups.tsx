@@ -1,3 +1,5 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
+
 import { AlertTriangle, Clock, Loader2, RotateCcw, Save } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -11,7 +13,7 @@ import {
   createAssistantBackup,
   listAssistantBackups,
   restoreAssistantBackup,
-} from "@/domains/assistant/api.js";
+} from "@/assistant/api.js";
 
 const MAX_POINT_IN_TIME_BACKUPS = 3;
 

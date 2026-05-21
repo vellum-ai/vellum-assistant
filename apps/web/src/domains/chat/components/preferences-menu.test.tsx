@@ -38,9 +38,15 @@ mock.module("@/stores/auth-store.js", () => {
 
 const flagsRef = { referralCodes: false, referralCodesAdmin: false };
 
-mock.module("@/lib/feature-flags/app.js", () => ({
-  useAppFeatureFlags: () => flagsRef,
-}));
+mock.module("@/lib/feature-flags/feature-flag-store.js", () => {
+  const store = () => null;
+  store.use = {
+    referralCodes: () => flagsRef.referralCodes,
+    referralCodesAdmin: () => flagsRef.referralCodesAdmin,
+  };
+  store.getState = () => flagsRef;
+  return { useFeatureFlagStore: store };
+});
 
 const billingRef = { data: undefined as { effective_balance: string } | undefined };
 

@@ -67,6 +67,7 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
 import {
   ALWAYS_INJECTED_ENV_VARS,
   buildSanitizedEnv,
+  KATA_INJECTED_ENV_VARS,
   KATA_SAFE_ENV_VARS,
   SAFE_ENV_VARS,
 } from "../tools/terminal/safe-env.js";
@@ -145,7 +146,7 @@ describe("buildSanitizedEnv", () => {
     process.env.VELLUM_SANDBOX_RUNTIME = "gvisor";
     process.env.PATH = "/usr/bin";
     process.env.VELLUM_APT_DATA_ROOT = "/data/system";
-    process.env.LD_LIBRARY_PATH = "/data/system/usr/lib";
+    process.env.LD_LIBRARY_PATH = "/host/lib";
 
     let env = buildSanitizedEnv();
     expect(env.VELLUM_APT_DATA_ROOT).toBeUndefined();
@@ -161,6 +162,7 @@ describe("buildSanitizedEnv", () => {
     expect(env.LD_LIBRARY_PATH.split(":")).toContain(
       "/data/system/usr/local/lib",
     );
+    expect(env.LD_LIBRARY_PATH.split(":")).not.toContain("/host/lib");
   });
 
   test("defaults LANG and LC_ALL to UTF-8 when unset", () => {
@@ -181,12 +183,20 @@ describe("buildSanitizedEnv", () => {
     delete process.env.GATEWAY_PORT;
   });
 
+  test("Kata entrypoint initializes apt root without inheriting apt loader paths", () => {
+    const entrypoint = readFileSync("docker-entrypoint.sh", "utf8");
+
+    expect(entrypoint).toContain("/app/assistant/docker-init-apt-root.sh");
+    expect(entrypoint).not.toContain(". /app/assistant/docker-kata-apt-env.sh");
+  });
+
   test("result is a plain object with no prototype-inherited secrets", () => {
     const env = buildSanitizedEnv();
     const keys = Object.keys(env);
     const safeKeys: string[] = [
       ...SAFE_ENV_VARS,
       ...KATA_SAFE_ENV_VARS,
+      ...KATA_INJECTED_ENV_VARS,
       ...ALWAYS_INJECTED_ENV_VARS,
     ];
     for (const key of keys) {

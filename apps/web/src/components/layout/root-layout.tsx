@@ -69,6 +69,12 @@ export function RootLayout() {
       >
         <Outlet />
       </div>
+
+      {/* Portal target for mobile overlays that use `position: fixed`.
+          Lives outside the inner wrapper so the keyboard-following
+          `translate3d(...)` doesn't shift the overlay's containing block.
+          See: https://www.w3.org/TR/css-transforms-1/#transform-rendering */}
+      <div id="viewport-overlays" />
     </div>
   );
 }

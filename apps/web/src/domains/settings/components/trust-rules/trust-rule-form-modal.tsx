@@ -9,7 +9,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { useAppRootContainer } from "@/components/app-root-context.js";
 import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Input } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
@@ -44,7 +43,6 @@ export function TrustRuleFormModal({
   onClose,
   onSaved,
 }: TrustRuleFormModalProps) {
-  const portalTarget = useAppRootContainer();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState(existingRule.tool);
   const [pattern, setPattern] = useState(existingRule.pattern);
@@ -94,8 +92,6 @@ export function TrustRuleFormModal({
     },
     [onClose],
   );
-
-  if (!portalTarget) return null;
 
   return createPortal(
     <div
@@ -213,6 +209,6 @@ export function TrustRuleFormModal({
         </form>
       </div>
     </div>,
-    portalTarget,
+    document.body,
   );
 }

@@ -976,7 +976,7 @@ export async function executeWebFetch(
 class WebFetchTool implements Tool {
   name = "web_fetch";
   description =
-    "Fetch a webpage and return LLM-friendly extracted text with metadata. Use this after web_search when you need to read a specific result.";
+    "Fetch a webpage and return LLM-friendly extracted text with metadata. Use this after web_search when you need to read a specific result. To find pages on a site without guessing slugs, fetch /sitemap.xml first — it has ground-truth paths and works even when pages are JS-rendered.";
   category = "network";
   defaultRiskLevel = RiskLevel.Low;
 

@@ -22,8 +22,29 @@ import type { DiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 // Stub the DB-backed override-profile read so unit tests don't need a
 // real SQLite database. The wake helper calls this on every invocation
 // to honor the conversation's pinned inference profile.
+// `getConversation` is consumed by `defaultResolveTarget` — most tests
+// pass explicit `deps.resolveTarget` and bypass it, but the
+// trust-context threading test below drives the default resolver and
+// needs the existence/archived check to pass.
 mock.module("../../memory/conversation-crud.js", () => ({
   getConversationOverrideProfile: () => undefined,
+  getConversation: () => ({ archivedAt: null }),
+}));
+
+const mockGetOrCreateConversationCalls: Array<{
+  conversationId: string;
+  options: unknown;
+}> = [];
+mock.module("../../daemon/conversation-store.js", () => ({
+  getOrCreateConversation: (conversationId: string, options?: unknown) => {
+    mockGetOrCreateConversationCalls.push({ conversationId, options });
+    return Promise.resolve({ __mockConversation: true });
+  },
+}));
+
+let mockResolverTarget: unknown = null;
+mock.module("../../daemon/wake-target-adapter.js", () => ({
+  conversationToWakeTarget: () => mockResolverTarget,
 }));
 
 mock.module("../../config/loader.js", () => ({
@@ -248,6 +269,8 @@ function makeTarget(options: {
 beforeEach(() => {
   __resetWakeChainForTests();
   recordRequestLogCalls.length = 0;
+  mockGetOrCreateConversationCalls.length = 0;
+  mockResolverTarget = null;
   mockDiskPressureStatus = {
     enabled: false,
     state: "disabled",
@@ -1586,5 +1609,196 @@ describe("wakeAgentForOpportunity", () => {
     expect(target.persistedTailCalls).toHaveLength(1);
     // No log row was inserted because JSON.stringify threw.
     expect(recordRequestLogCalls).toHaveLength(0);
+  });
+
+  // Regression guard for fork-based memory retrospectives: PR #31260
+  // forked a conversation and waked it with a guardian trustContext,
+  // but the wake's default resolver called
+  // `getOrCreateConversation(conversationId)` with no options, so the
+  // store hydrated with `trustContext === undefined`. `loadFromDb`
+  // fail-closes to `trustClass: "unknown"` and filters out every
+  // guardian-provenance message — so the LLM saw an empty history and
+  // every fork sent `messages: []`. Threading trustContext through
+  // ensures `setTrustContext` + `ensureActorScopedHistory` run during
+  // hydration.
+  const makeDefaultResolverTarget = (conversationId: string): WakeTarget => {
+    const history: Message[] = [];
+    let processing = false;
+    return {
+      conversationId,
+      agentLoop: { run: async (input) => input },
+      getMessages: () => history,
+      pushMessage: () => {},
+      emitAgentEvent: () => {},
+      isProcessing: () => processing,
+      markProcessing: (on) => {
+        processing = on;
+      },
+      persistTailMessage: async () => {},
+    };
+  };
+
+  test("default resolver threads WakeOptions.trustContext into getOrCreateConversation", async () => {
+    mockResolverTarget = makeDefaultResolverTarget("conv-thread-trust");
+    const trustContext = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    } as const;
+
+    await wakeAgentForOpportunity({
+      conversationId: "conv-thread-trust",
+      hint: "consolidate",
+      source: "memory_v2_consolidation",
+      trustContext,
+    });
+
+    expect(mockGetOrCreateConversationCalls).toEqual([
+      { conversationId: "conv-thread-trust", options: { trustContext } },
+    ]);
+  });
+
+  test("default resolver passes trustContext: undefined when WakeOptions.trustContext is omitted", async () => {
+    // Inbound user-turn wakes get trust via processMessage(); the wake
+    // must not synthesize a trust context out of thin air.
+    mockResolverTarget = makeDefaultResolverTarget("conv-no-trust-default");
+
+    await wakeAgentForOpportunity({
+      conversationId: "conv-no-trust-default",
+      hint: "x",
+      source: "unit-test",
+    });
+
+    expect(mockGetOrCreateConversationCalls).toEqual([
+      {
+        conversationId: "conv-no-trust-default",
+        options: { trustContext: undefined },
+      },
+    ]);
+  });
+
+  describe("suppressWakeSurface option", () => {
+    function makeCheckpointTarget(): {
+      target: WakeTarget;
+      persistedTailCalls: Message[];
+      wakeProducedOutputCalls: string[];
+    } {
+      const firstAssistant: Message = {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu-1", name: "some_tool", input: {} },
+        ],
+      };
+      const toolResult: Message = {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }],
+      };
+      const persistedTailCalls: Message[] = [];
+      const baseline: Message[] = [
+        { role: "user", content: [{ type: "text", text: "hi" }] },
+      ];
+      const history: Message[] = [...baseline];
+      let processing = false;
+      const wakeProducedOutputCalls: string[] = [];
+
+      const target: WakeTarget = {
+        conversationId: "conv-suppress-surface",
+        agentLoop: {
+          run: async (_input, _onEvent, _signal, _requestId, onCheckpoint) => {
+            const runHistory: Message[] = [..._input];
+            runHistory.push(firstAssistant);
+            runHistory.push(toolResult);
+            await onCheckpoint!({
+              turnIndex: 0,
+              toolCount: 1,
+              hasToolUse: true,
+              history: runHistory,
+            });
+            return runHistory;
+          },
+        },
+        getMessages: () => history,
+        pushMessage: (msg) => {
+          history.push(msg);
+        },
+        emitAgentEvent: () => {},
+        isProcessing: () => processing,
+        markProcessing: (on) => {
+          processing = on;
+        },
+        persistTailMessage: async (msg) => {
+          persistedTailCalls.push(msg);
+        },
+        onWakeProducedOutput: (_source, _hint, surfaceId) => {
+          wakeProducedOutputCalls.push(surfaceId);
+        },
+      };
+      return { target, persistedTailCalls, wakeProducedOutputCalls };
+    }
+
+    test(
+      "default (suppressWakeSurface omitted) still injects the ui_surface " +
+        "card and calls onWakeProducedOutput",
+      async () => {
+        const { target, persistedTailCalls, wakeProducedOutputCalls } =
+          makeCheckpointTarget();
+
+        await wakeAgentForOpportunity(
+          {
+            conversationId: "conv-suppress-surface",
+            hint: "do the thing",
+            source: "memory_v2_consolidation",
+          },
+          { resolveTarget: async () => target },
+        );
+
+        // Existing behavior: card injected, broadcast fired exactly once.
+        expect(wakeProducedOutputCalls).toHaveLength(1);
+        const persistedFirst = persistedTailCalls[0];
+        expect(persistedFirst).toBeDefined();
+        const blocks = Array.isArray(persistedFirst!.content)
+          ? persistedFirst!.content
+          : [];
+        const uiBlock = blocks.find(
+          (b: { type?: string }) => b.type === "ui_surface",
+        );
+        expect(uiBlock).toBeDefined();
+      },
+    );
+
+    test(
+      "suppressWakeSurface: true produces output but skips the ui_surface " +
+        "card injection and the onWakeProducedOutput broadcast",
+      async () => {
+        const { target, persistedTailCalls, wakeProducedOutputCalls } =
+          makeCheckpointTarget();
+
+        await wakeAgentForOpportunity(
+          {
+            conversationId: "conv-suppress-surface",
+            hint: "do the thing",
+            source: "memory_v2_consolidation",
+            suppressWakeSurface: true,
+          },
+          { resolveTarget: async () => target },
+        );
+
+        // Tail still persisted (wake produced real output).
+        const persistedFirst = persistedTailCalls[0];
+        expect(persistedFirst).toBeDefined();
+        // First assistant tail message should NOT have a ui_surface block
+        // prepended at the front.
+        const blocks = Array.isArray(persistedFirst!.content)
+          ? persistedFirst!.content
+          : [];
+        const firstBlock = blocks[0] as { type?: string } | undefined;
+        expect(firstBlock?.type).not.toBe("ui_surface");
+        const uiBlock = blocks.find(
+          (b: { type?: string }) => b.type === "ui_surface",
+        );
+        expect(uiBlock).toBeUndefined();
+        // Live broadcast was suppressed.
+        expect(wakeProducedOutputCalls).toHaveLength(0);
+      },
+    );
   });
 });

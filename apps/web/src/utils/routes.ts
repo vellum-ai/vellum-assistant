@@ -56,6 +56,10 @@ export const routes = {
     app: (slug: string) => dyn(r("/assistant/library"), slug),
   },
 
+  document: (surfaceId: string) => dyn(r("/assistant/documents"), surfaceId),
+
+  connect: r("/assistant/connect"),
+
   contacts: {
     root: r("/assistant/contacts"),
     detail: (id: string) => dyn(r("/assistant/contacts"), id),

@@ -12,9 +12,14 @@ import { findGuardianForChannel } from "../../../contacts/contact-store.js";
 import type { ServerMessage } from "../../../daemon/message-protocol.js";
 import type { TrustContext } from "../../../daemon/trust-context.js";
 import { updateDeliveredSegmentCount } from "../../../memory/delivery-channels.js";
-import { linkMessage } from "../../../memory/delivery-crud.js";
 import {
+  linkMessage,
+  storeReplyMessageId,
+} from "../../../memory/delivery-crud.js";
+import {
+  markDeliveryDelivered,
   markProcessed,
+  recordDeliveryFailure,
   recordProcessingFailure,
 } from "../../../memory/delivery-status.js";
 import {
@@ -190,8 +195,10 @@ export function processChannelMessageInBackground(
     // rejected as already-processing and our update would erase that
     // in-flight turn's mapping. Snapshot the prior state here and restore
     // it in the `already processing` rejection path below.
-    let priorSlackMapping: { threadTs: string; channelId: string } | null =
-      null;
+    let priorSlackMapping: {
+      threadTs: string;
+      channelId: string;
+    } | null = null;
     let slackMappingMutated = false;
     if (sourceChannel === "slack" && replyCallbackUrl) {
       priorSlackMapping = peekThreadMapping(conversationId);
@@ -219,76 +226,103 @@ export function processChannelMessageInBackground(
                 : {}),
             }
           : undefined;
-      const { messageId: userMessageId } = await processMessage(
-        conversationId,
-        content,
-        attachmentIds,
-        {
-          transport: {
-            channelId: sourceChannel,
-            hints: metadataHints.length > 0 ? metadataHints : undefined,
-            uxBrief: metadataUxBrief,
-            chatType,
+      let replyMessageId: string | undefined;
+      const observeAgentEvent = (msg: ServerMessage): void => {
+        if (
+          msg.type === "message_complete" &&
+          (msg.source === undefined || msg.source === "main") &&
+          typeof msg.messageId === "string"
+        ) {
+          replyMessageId = msg.messageId;
+        }
+        slackThinkingStatus?.observeEvent(msg);
+      };
+
+      let userMessageId: string | undefined;
+      try {
+        const result = await processMessage(
+          conversationId,
+          content,
+          attachmentIds,
+          {
+            transport: {
+              channelId: sourceChannel,
+              hints: metadataHints.length > 0 ? metadataHints : undefined,
+              uxBrief: metadataUxBrief,
+              chatType,
+            },
+            assistantId,
+            trustContext: trustCtx,
+            isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
+            ...(displayContent !== undefined ? { displayContent } : {}),
+            ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
+            ...(slackRuntimeContextNotice ? { slackRuntimeContextNotice } : {}),
+            ...(slackInbound ? { slackInbound } : {}),
+            onEvent: observeAgentEvent,
           },
-          assistantId,
-          trustContext: trustCtx,
-          isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
-          ...(displayContent !== undefined ? { displayContent } : {}),
-          ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
-          ...(slackRuntimeContextNotice ? { slackRuntimeContextNotice } : {}),
-          ...(slackInbound ? { slackInbound } : {}),
-          ...(slackThinkingStatus
-            ? {
-                onEvent: (msg: ServerMessage) =>
-                  slackThinkingStatus.observeEvent(msg),
-              }
-            : {}),
-        },
-        sourceChannel,
-        sourceInterface,
-      );
-      linkMessage(eventId, userMessageId);
-      markProcessed(eventId);
+          sourceChannel,
+          sourceInterface,
+        );
+        userMessageId = result.messageId;
+        linkMessage(eventId, userMessageId);
+        markProcessed(eventId);
+        replyMessageId ??= result.assistantMessageId;
+        if (replyMessageId) {
+          storeReplyMessageId(eventId, replyMessageId);
+        }
+      } catch (err) {
+        // When another turn is already processing this conversation,
+        // `prepareConversationForMessage` throws before any of this turn's
+        // work runs. Our pre-await mapping update would otherwise stomp the
+        // in-flight turn's mapping, causing its outbound persistence to
+        // record `slackMeta` with the wrong (or missing) `threadTs`. Restore
+        // the snapshot so the in-flight turn sees the mapping it installed.
+        if (
+          slackMappingMutated &&
+          err instanceof Error &&
+          err.message.includes("already processing a message")
+        ) {
+          if (priorSlackMapping) {
+            setThreadTs(
+              conversationId,
+              priorSlackMapping.channelId,
+              priorSlackMapping.threadTs,
+            );
+          } else {
+            clearThreadTs(conversationId);
+          }
+        }
+        log.error(
+          { err, conversationId },
+          "Background channel message processing failed",
+        );
+        recordProcessingFailure(eventId, err);
+        return;
+      }
 
       if (replyCallbackUrl) {
-        await deliverReplyViaCallback(
-          conversationId,
-          externalChatId,
-          replyCallbackUrl,
-          assistantId,
-          {
-            onSegmentDelivered: (count) =>
-              updateDeliveredSegmentCount(eventId, count),
-          },
-        );
-      }
-    } catch (err) {
-      // When another turn is already processing this conversation,
-      // `prepareConversationForMessage` throws before any of this turn's
-      // work runs. Our pre-await mapping update would otherwise stomp the
-      // in-flight turn's mapping, causing its outbound persistence to
-      // record `slackMeta` with the wrong (or missing) `threadTs`. Restore
-      // the snapshot so the in-flight turn sees the mapping it installed.
-      if (
-        slackMappingMutated &&
-        err instanceof Error &&
-        err.message.includes("already processing a message")
-      ) {
-        if (priorSlackMapping) {
-          setThreadTs(
+        try {
+          await deliverReplyViaCallback(
             conversationId,
-            priorSlackMapping.channelId,
-            priorSlackMapping.threadTs,
+            externalChatId,
+            replyCallbackUrl,
+            assistantId,
+            {
+              messageId: replyMessageId,
+              sinceMessageId: userMessageId,
+              onSegmentDelivered: (count) =>
+                updateDeliveredSegmentCount(eventId, count),
+            },
           );
-        } else {
-          clearThreadTs(conversationId);
+          markDeliveryDelivered(eventId);
+        } catch (err) {
+          log.error(
+            { err, conversationId },
+            "Background channel reply delivery failed",
+          );
+          recordDeliveryFailure(eventId, err);
         }
       }
-      log.error(
-        { err, conversationId },
-        "Background channel message processing failed",
-      );
-      recordProcessingFailure(eventId, err);
     } finally {
       stopTypingHeartbeat?.();
       slackThinkingStatus?.stop();
@@ -363,6 +397,20 @@ type SlackThinkingStatusController = {
   stop: () => void;
 };
 
+type SlackThinkingStatusHandle = {
+  updateLoadingMessages: (loadingMessages?: string[]) => void;
+  clear: () => void;
+};
+
+type TaskProgressStep = {
+  label: string;
+  status: "pending" | "in_progress" | "completed" | "failed";
+};
+
+type TaskProgressData = {
+  steps: TaskProgressStep[];
+};
+
 const NO_RESPONSE_RE = /^\s*<no_response\s*\/?>\s*$/i;
 const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/gi;
 const NO_RESPONSE_SENTINEL_FORMS = [
@@ -431,16 +479,51 @@ function createSlackThinkingStatusController(params: {
   const callbackUrl = replyCallbackUrl;
 
   let stopped = false;
-  let clearSlackThinkingStatus: (() => void) | undefined;
+  let slackThinkingStatus: SlackThinkingStatusHandle | undefined;
   let observedAssistantText = "";
+  let currentLoadingMessages: string[] | undefined = startImmediately
+    ? [...SLACK_GENERIC_LOADING_MESSAGES]
+    : undefined;
+  let lastSentLoadingMessageKey: string | undefined;
+  const taskProgressBySurfaceId = new Map<string, TaskProgressData>();
 
   const start = (): void => {
-    if (stopped || clearSlackThinkingStatus) return;
-    clearSlackThinkingStatus = setSlackThinkingStatus(
+    if (stopped || slackThinkingStatus) return;
+    slackThinkingStatus = setSlackThinkingStatus(
       callbackUrl,
       chatId,
       assistantId,
+      currentLoadingMessages,
     );
+    lastSentLoadingMessageKey = getLoadingMessagesKey(currentLoadingMessages);
+  };
+
+  const maybeUpdateLoadingMessages = (): void => {
+    const nextLoadingMessageKey = getLoadingMessagesKey(currentLoadingMessages);
+    if (nextLoadingMessageKey === lastSentLoadingMessageKey) return;
+    lastSentLoadingMessageKey = nextLoadingMessageKey;
+    slackThinkingStatus?.updateLoadingMessages(currentLoadingMessages);
+  };
+
+  const observeTaskProgress = (msg: ServerMessage): void => {
+    if (msg.type === "ui_surface_show") {
+      const progress = getTaskProgressDataFromSurfaceData(msg.data);
+      if (!progress) return;
+      taskProgressBySurfaceId.set(msg.surfaceId, progress);
+    } else if (msg.type === "ui_surface_update") {
+      const existing = taskProgressBySurfaceId.get(msg.surfaceId);
+      const progress = mergeTaskProgressData(existing, msg.data);
+      if (!progress) return;
+      taskProgressBySurfaceId.set(msg.surfaceId, progress);
+    } else {
+      return;
+    }
+
+    currentLoadingMessages =
+      getTaskProgressLoadingMessage(
+        taskProgressBySurfaceId.get(msg.surfaceId),
+      ) ?? [];
+    maybeUpdateLoadingMessages();
   };
 
   if (startImmediately) {
@@ -449,8 +532,14 @@ function createSlackThinkingStatusController(params: {
 
   return {
     observeEvent(msg) {
-      if (stopped || clearSlackThinkingStatus) return;
-      if (msg.type !== "assistant_text_delta") return;
+      if (stopped) return;
+
+      if (msg.type === "ui_surface_show" || msg.type === "ui_surface_update") {
+        observeTaskProgress(msg);
+        return;
+      }
+
+      if (slackThinkingStatus || msg.type !== "assistant_text_delta") return;
 
       observedAssistantText += msg.text;
       if (shouldStartSlackThinkingStatusForText(observedAssistantText)) {
@@ -459,16 +548,95 @@ function createSlackThinkingStatusController(params: {
     },
     stop() {
       stopped = true;
-      clearSlackThinkingStatus?.();
+      slackThinkingStatus?.clear();
     },
   };
 }
 
 const SLACK_THINKING_MAX_DURATION_MS = 120_000;
+const SLACK_GENERIC_LOADING_MESSAGES = ["Working on it..."] as const;
+const SLACK_THINKING_STATUSES = [
+  "is grinding",
+  "is working",
+  "is touching grass",
+] as const;
+
+function getRandomSlackThinkingStatus(): string {
+  return SLACK_THINKING_STATUSES[
+    Math.floor(Math.random() * SLACK_THINKING_STATUSES.length)
+  ]!;
+}
+
+function getLoadingMessagesKey(loadingMessages?: string[]): string | undefined {
+  return loadingMessages?.join("\n");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getTaskProgressDataFromSurfaceData(
+  data: unknown,
+): TaskProgressData | undefined {
+  if (!isRecord(data)) return undefined;
+  if (data.template !== "task_progress") return undefined;
+  return parseTaskProgressData(data.templateData);
+}
+
+function parseTaskProgressData(value: unknown): TaskProgressData | undefined {
+  if (!isRecord(value) || !Array.isArray(value.steps)) return undefined;
+
+  const steps = value.steps.flatMap((step): TaskProgressStep[] => {
+    if (!isRecord(step)) return [];
+    if (typeof step.label !== "string") return [];
+    if (
+      step.status !== "pending" &&
+      step.status !== "in_progress" &&
+      step.status !== "completed" &&
+      step.status !== "failed"
+    ) {
+      return [];
+    }
+    return [{ label: step.label, status: step.status }];
+  });
+
+  return steps.length > 0 ? { steps } : undefined;
+}
+
+function mergeTaskProgressData(
+  existing: TaskProgressData | undefined,
+  data: unknown,
+): TaskProgressData | undefined {
+  if (!isRecord(data)) return existing;
+  const update = getTaskProgressDataFromSurfaceData(data);
+  if (update) return update;
+  if (!existing || !("templateData" in data)) return existing;
+
+  return parseTaskProgressData({
+    steps: existing.steps,
+    ...(isRecord(data.templateData) ? data.templateData : {}),
+  });
+}
+
+function getTaskProgressLoadingMessage(
+  progress: TaskProgressData | undefined,
+): string[] | undefined {
+  if (!progress) return undefined;
+
+  const activeStepIndex = progress.steps.findIndex(
+    (step) => step.status === "in_progress",
+  );
+  if (activeStepIndex < 0) return undefined;
+
+  const activeStep = progress.steps[activeStepIndex]!;
+  return [
+    `In progress (${activeStepIndex + 1}/${progress.steps.length}): ${activeStep.label}`,
+  ];
+}
 
 /**
- * Set the Slack Assistants API "is thinking..." status on the thread and
- * return a cleanup function that clears it. Both operations are fire-and-forget.
+ * Set Slack Assistants API status on the thread and return a handle for
+ * updating loading messages or clearing the indicator.
  *
  * A safety timer auto-clears the status after {@link SLACK_THINKING_MAX_DURATION_MS}
  * to prevent a stuck indicator when `processMessage` hangs.
@@ -477,7 +645,8 @@ function setSlackThinkingStatus(
   callbackUrl: string,
   chatId: string,
   assistantId?: string,
-): () => void {
+  loadingMessages?: string[],
+): SlackThinkingStatusHandle {
   let cleared = false;
 
   // Extract the thread timestamp from the callback URL so we can target
@@ -487,7 +656,12 @@ function setSlackThinkingStatus(
   // For non-threaded DMs, fall back to emoji reaction on the original message.
   if (!threadTs) {
     const messageTs = extractMessageTsFromCallbackUrl(callbackUrl);
-    if (!messageTs) return () => {};
+    if (!messageTs) {
+      return {
+        updateLoadingMessages: () => {},
+        clear: () => {},
+      };
+    }
 
     const addPromise = deliverChannelReply(callbackUrl, {
       chatId,
@@ -500,7 +674,7 @@ function setSlackThinkingStatus(
       );
     });
 
-    const clearReaction = () => {
+    const clearReaction = (): void => {
       if (cleared) return;
       cleared = true;
       clearTimeout(safetyTimer);
@@ -524,28 +698,55 @@ function setSlackThinkingStatus(
     );
     (safetyTimer as { unref?: () => void }).unref?.();
 
-    return clearReaction;
+    return {
+      updateLoadingMessages: () => {},
+      clear: clearReaction,
+    };
   }
 
   // Track the set promise so clear waits for it to settle first,
   // preventing a race where clear arrives at Slack before set.
-  const setPromise = deliverChannelReply(callbackUrl, {
+  let statusPromise = deliverChannelReply(callbackUrl, {
     chatId,
     assistantId,
     assistantThreadStatus: {
       channel: chatId,
       threadTs,
-      status: "is thinking...",
+      status: getRandomSlackThinkingStatus(),
+      ...(loadingMessages ? { loadingMessages } : {}),
     },
   }).catch((err) => {
     log.debug({ err, chatId, threadTs }, "Failed to set Slack thinking status");
   });
 
-  const clearStatus = () => {
+  const updateLoadingMessages = (nextLoadingMessages?: string[]): void => {
+    if (cleared) return;
+    statusPromise = statusPromise.then(() =>
+      deliverChannelReply(callbackUrl, {
+        chatId,
+        assistantId,
+        assistantThreadStatus: {
+          channel: chatId,
+          threadTs,
+          status: getRandomSlackThinkingStatus(),
+          ...(nextLoadingMessages
+            ? { loadingMessages: nextLoadingMessages }
+            : {}),
+        },
+      }).catch((err) => {
+        log.debug(
+          { err, chatId, threadTs },
+          "Failed to update Slack thinking status",
+        );
+      }),
+    );
+  };
+
+  const clearStatus = (): void => {
     if (cleared) return;
     cleared = true;
     clearTimeout(safetyTimer);
-    void setPromise.then(() =>
+    void statusPromise.then(() =>
       deliverChannelReply(callbackUrl, {
         chatId,
         assistantId,
@@ -566,7 +767,10 @@ function setSlackThinkingStatus(
   const safetyTimer = setTimeout(clearStatus, SLACK_THINKING_MAX_DURATION_MS);
   (safetyTimer as { unref?: () => void }).unref?.();
 
-  return clearStatus;
+  return {
+    updateLoadingMessages,
+    clear: clearStatus,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -34,8 +34,15 @@ export function NameStepScreen({
     <OnboardingLayout>
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-6 pb-40 text-[var(--content-default)]">
         <div
-          className="grid w-full grid-cols-[auto_1fr_auto] items-center pb-4 pt-4"
-          style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
+          className="grid w-full grid-cols-[auto_1fr_auto] items-center pb-4"
+          style={{
+            // Respect the iOS safe-area inset on top of the standard
+            // 1rem padding so the header clears the status bar / Dynamic
+            // Island instead of sliding under it.
+            paddingTop:
+              "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1rem)",
+            animation: "fadeInUp 0.3s ease-out 0.1s both",
+          }}
         >
           {onBack ? (
             <Button

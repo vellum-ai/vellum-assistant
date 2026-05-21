@@ -1,6 +1,6 @@
 import { type DragEventHandler, type ReactNode } from "react";
 
-import { Eye, Paperclip } from "lucide-react";
+import { Eye, Paperclip, Square } from "lucide-react";
 
 import { ChatScrollArea, type ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area.js";
 import {
@@ -9,7 +9,7 @@ import {
 } from "@/domains/chat/refresh-feedback-pill.js";
 import { ScrollToLatestButton } from "@/domains/chat/components/scroll-to-latest-button.js";
 import { ChatComposer, type ChatComposerProps } from "@/domains/chat/components/chat-composer/chat-composer.js";
-import { Notice } from "@vellum/design-library";
+import { Button, Notice } from "@vellum/design-library";
 
 /**
  * Single composition of a chat panel: a scrollable messages/empty-state
@@ -90,6 +90,11 @@ export interface ChatBodyProps {
 
   /** When true, a read-only banner replaces the composer entirely. */
   isChannelReadonly: boolean;
+  /**
+   * True when the read-only banner should expose the active turn
+   * cancellation control.
+   */
+  canStopGenerating?: boolean;
 
   /**
    * Optional pre-rendered banner stack (mobile-app nudge / GitHub / Discord)
@@ -113,6 +118,12 @@ export interface ChatBodyProps {
   questionPromptSlot?: ReactNode;
 
   /**
+   * Optional pre-rendered footer rendered inside the max-width wrapper
+   * immediately above the composer or read-only banner.
+   */
+  channelFooterSlot?: ReactNode;
+
+  /**
    * Optional conversation-starter chip grid rendered inside the max-width
    * wrapper directly below the composer. Visible only on the empty state;
    * the parent passes `undefined` once messages arrive. Rendered as a
@@ -127,11 +138,28 @@ export interface ChatBodyProps {
  * bound to an external channel (Slack, Telegram, voice/phone, etc.).
  * Mirrors the macOS read-only banner in `ChatView.swift`.
  */
-function ChatReadonlyBanner() {
+function ChatReadonlyBanner({
+  canStopGenerating = false,
+  onStopGenerating,
+}: {
+  canStopGenerating?: boolean;
+  onStopGenerating: () => void;
+}) {
   return (
-    <div className="flex items-center justify-center gap-2 py-4 text-body-small-default text-[var(--content-tertiary)]">
-      <Eye size={14} />
-      <span>Read-only conversation</span>
+    <div className="flex items-center justify-center gap-3 py-4 text-body-small-default text-[var(--content-tertiary)]">
+      <div className="flex items-center gap-2">
+        <Eye size={14} />
+        <span>Read-only conversation</span>
+      </div>
+      {canStopGenerating && (
+        <Button
+          variant="primary"
+          iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
+          onClick={onStopGenerating}
+          aria-label="Stop generating"
+          title="Stop generation"
+        />
+      )}
     </div>
   );
 }
@@ -150,9 +178,11 @@ export function ChatBody({
   onRetryRefresh,
   genericChatError,
   isChannelReadonly,
+  canStopGenerating,
   bannerSlot,
   queuedDrawerSlot,
   questionPromptSlot,
+  channelFooterSlot,
   startersSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
@@ -226,7 +256,15 @@ export function ChatBody({
           )}
           {queuedDrawerSlot}
           {questionPromptSlot}
-          {isChannelReadonly ? <ChatReadonlyBanner /> : <ChatComposer {...composerProps} />}
+          {channelFooterSlot}
+          {isChannelReadonly ? (
+            <ChatReadonlyBanner
+              canStopGenerating={canStopGenerating}
+              onStopGenerating={composerProps.onStopGenerating}
+            />
+          ) : (
+            <ChatComposer {...composerProps} />
+          )}
           {startersSlot}
         </div>
       </div>

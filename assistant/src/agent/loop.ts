@@ -69,21 +69,22 @@ export interface CheckpointInfo {
 export type CheckpointDecision = "continue" | "yield";
 
 /**
- * Why an {@link AgentLoop.run} invocation exited its `while (true)` body.
+ * Why an agent turn reached a terminal state.
  *
- * Emitted exactly once per run as part of an {@link AgentEvent} of type
- * `agent_loop_exit`, then persisted onto the **final** `llm_request_logs`
- * row of the run. Rows from intermediate turns keep a NULL
- * `agent_loop_exit_reason`, which is how downstream tooling (and the LLM
- * Context Inspector) distinguishes "loop kept going" from "loop is done".
+ * Emitted as part of an {@link AgentEvent} of type `agent_loop_exit`, then
+ * persisted onto the **final** `llm_request_logs` row of the turn. Rows from
+ * intermediate turns keep a NULL `agent_loop_exit_reason`, which is how
+ * downstream tooling (and the LLM Context Inspector) distinguishes "loop kept
+ * going" from "loop is done".
  *
  * Values are stable wire/DB strings — they are written to SQLite and
  * surfaced over the inspector wire format, so renaming any of them is a
  * breaking change.
  *
- * Cardinality matches the nine `break;`/`throw` sites currently inside the
- * loop body. Keep in sync with `emitExit` call sites in
- * {@link AgentLoop.run}.
+ * Keep in sync with `emitExit` call sites in {@link AgentLoop.run} and the
+ * outer conversation orchestrator paths that terminate after a checkpoint
+ * yield. A checkpoint yield used for budget compaction is intentionally not
+ * a terminal reason — it is a control transfer before re-entering the loop.
  */
 export type AgentLoopExitReason =
   /** `if (signal?.aborted) break;` at the top of the loop. */
@@ -98,8 +99,12 @@ export type AgentLoopExitReason =
   | "aborted_during_tools"
   /** A tool result requested handing back to the user. */
   | "yield_to_user"
-  /** The orchestrator's `onCheckpoint` callback returned `"yield"`. */
-  | "checkpoint_yield"
+  /** The orchestrator yielded at checkpoint to process a queued message. */
+  | "checkpoint_handoff"
+  /** Context-window recovery exhausted and the turn ended with an error. */
+  | "context_too_large"
+  /** User cancellation landed after a non-terminal checkpoint yield. */
+  | "aborted_after_checkpoint"
   /** Signal aborted while the catch handler was synthesizing an error turn. */
   | "aborted_via_error"
   /** Catch-block fallback: an unhandled error broke the loop. */
@@ -223,10 +228,11 @@ export type AgentEvent =
     }
   | {
       /**
-       * Emitted exactly once at the end of {@link AgentLoop.run}, after the
-       * loop body has exited (whether via `break;`, an unhandled error in
-       * the catch block, or the empty-response throw path). Consumers
-       * persist `reason` onto the final `llm_request_logs` row for the run;
+       * Emitted when an agent turn reaches a terminal state. Checkpoint
+       * yields used for orchestration (handoff or budget compaction) are not
+       * emitted by {@link AgentLoop.run}; the outer orchestrator emits a
+       * terminal reason only if that control transfer truly ends the turn.
+       * Consumers persist `reason` onto the final `llm_request_logs` row;
        * intermediate rows keep `agent_loop_exit_reason = NULL`, which is the
        * canonical "loop kept going" signal.
        */
@@ -1268,7 +1274,6 @@ export class AgentLoop {
             history,
           });
           if (decision === "yield") {
-            await emitExit("checkpoint_yield");
             break;
           }
         }

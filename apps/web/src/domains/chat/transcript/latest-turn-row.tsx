@@ -2,11 +2,11 @@
 import { Fragment, memo, type ReactNode } from "react";
 
 import { SubagentProgressCard } from "@/domains/chat/components/subagent-progress-card.js";
-import type { ConfirmationDecision } from "@/domains/chat/lib/api.js";
 import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
-import type { MessageItem, TranscriptItem } from "@/domains/chat/lib/transcript/types.js";
+import type { MessageItem, TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row.js";
+import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";
 
 /**
  * Renders the newest user message (the "anchor") plus any response items that
@@ -41,14 +41,15 @@ export interface LatestTurnRowProps {
   renderPendingSecret?: (requestId: string) => ReactNode;
   renderPendingConfirmation?: (requestId: string) => ReactNode;
   renderPendingContactRequest?: (requestId: string) => ReactNode;
+  renderOnboardingChoice?: () => ReactNode;
   onOpenRuleEditor?: (context: {
     toolName: string;
     riskLevel?: string;
     riskReason?: string;
     input?: Record<string, unknown>;
-    allowlistOptions: import("@/domains/chat/lib/api.js").AllowlistOption[];
-    scopeOptions: import("@/domains/chat/lib/api.js").ScopeOption[];
-    directoryScopeOptions: import("@/domains/chat/lib/api.js").DirectoryScopeOption[];
+    allowlistOptions: import("@/domains/chat/api/event-types.js").AllowlistOption[];
+    scopeOptions: import("@/domains/chat/api/event-types.js").ScopeOption[];
+    directoryScopeOptions: import("@/domains/chat/api/event-types.js").DirectoryScopeOption[];
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
@@ -91,6 +92,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   renderPendingSecret,
   renderPendingConfirmation,
   renderPendingContactRequest,
+  renderOnboardingChoice,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
@@ -124,6 +126,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         renderPendingSecret={renderPendingSecret}
         renderPendingConfirmation={renderPendingConfirmation}
         renderPendingContactRequest={renderPendingContactRequest}
+        renderOnboardingChoice={renderOnboardingChoice}
         onOpenRuleEditor={onOpenRuleEditor}
         unknownNudgeToolCallIds={unknownNudgeToolCallIds}
         onDismissUnknownNudge={onDismissUnknownNudge}
@@ -149,6 +152,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             renderPendingSecret={renderPendingSecret}
             renderPendingConfirmation={renderPendingConfirmation}
             renderPendingContactRequest={renderPendingContactRequest}
+            renderOnboardingChoice={renderOnboardingChoice}
             onOpenRuleEditor={onOpenRuleEditor}
             unknownNudgeToolCallIds={unknownNudgeToolCallIds}
             onDismissUnknownNudge={onDismissUnknownNudge}

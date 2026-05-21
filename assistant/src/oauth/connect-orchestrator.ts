@@ -20,6 +20,7 @@
  */
 
 import { emitPostConnectNudge } from "../home/post-connect-feed.js";
+import { invalidateAssistantSuggestedPromptsCache } from "../home/suggested-prompts.js";
 import type { TokenEndpointAuthMethod } from "../security/oauth2.js";
 import { prepareOAuth2Flow, startOAuth2Flow } from "../security/oauth2.js";
 import { getLogger } from "../util/logger.js";
@@ -252,6 +253,7 @@ export async function orchestrateOAuthConnect(
               },
               "Deferred OAuth2 flow completed — tokens stored",
             );
+            invalidateAssistantSuggestedPromptsCache();
             void emitPostConnectNudge(options.service);
             options.onDeferredComplete?.({
               success: true,
@@ -375,6 +377,7 @@ export async function orchestrateOAuthConnect(
       "orchestrateOAuthConnect: tokens stored, connect complete",
     );
 
+    invalidateAssistantSuggestedPromptsCache();
     void emitPostConnectNudge(options.service);
 
     return {

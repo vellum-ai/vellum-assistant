@@ -112,22 +112,33 @@ describe("HermesAgent", () => {
       "gateway",
       "run",
     ]);
-    expect(calls[2]).toContain("docker");
-    expect(calls[2]).toContain("rm");
-    expect(calls[2]).toContain("eval-hermes-1-hermes-egress-jail");
-    expect(calls[3]).toEqual(
-      expect.arrayContaining([
-        "docker",
-        "run",
-        "--rm",
-        "--name",
-        "eval-hermes-1-hermes-egress-jail",
-        "--network",
-        "container:eval-hermes-1-hermes",
-      ]),
-    );
-    expect(calls[3]).toContain("--cap-add");
-    expect(calls[4]).toEqual([
+    // Recording sidecar now includes build + run (detached) instead of rm + run (--rm)
+    expect(calls[2]).toEqual([
+      "docker",
+      "rm",
+      "-f",
+      "eval-hermes-1-hermes-egress-jail",
+    ]);
+    // Build command
+    expect(calls[3][0]).toBe("docker");
+    expect(calls[3][1]).toBe("build");
+    expect(calls[3][2]).toBe("-t");
+    expect(calls[3][3]).toBe("vellum-evals-recording-jail:local");
+    // Run command (detached with recording mount)
+    expect(calls[4].slice(0, 6)).toEqual([
+      "docker",
+      "run",
+      "-d",
+      "--name",
+      "eval-hermes-1-hermes-egress-jail",
+      "--network",
+    ]);
+    expect(calls[4]).toContain("container:eval-hermes-1-hermes");
+    expect(calls[4]).toContain("--cap-add");
+    expect(calls[4]).toContain("NET_ADMIN");
+    expect(calls[4]).toContain("evals.vellum.ai/egress-recording=1");
+    // Setup command
+    expect(calls[5]).toEqual([
       "docker",
       "exec",
       "--env",
@@ -256,13 +267,14 @@ describe("HermesAgent", () => {
     const payload = JSON.parse(stdin);
     expect(payload).toEqual({
       db_path: HERMES_STATE_DB_PATH,
-      session_id: "evals_timeline-recall_eval-hermes-seed",
-      source: HERMES_EVAL_SESSION_SOURCE,
-      title: "evals seed: timeline-recall",
       messages: [
         { role: "user", content: "remember this exact note" },
         { role: "assistant", content: "noted" },
       ],
+      schema_wait_timeout_seconds: 20,
+      session_id: "evals_timeline-recall_eval-hermes-seed",
+      source: HERMES_EVAL_SESSION_SOURCE,
+      title: "evals seed: timeline-recall",
     });
 
     // conversationKey now routes subsequent send/events at the seeded

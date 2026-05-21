@@ -168,6 +168,10 @@ export async function handleChannelInbound({
   }
 
   const sourceChannel = body.sourceChannel;
+  const slackChannelName =
+    sourceChannel === "slack" && typeof sourceMetadata?.channelName === "string"
+      ? sourceMetadata.channelName.trim() || null
+      : null;
 
   if (!body.interface || typeof body.interface !== "string") {
     throw new BadRequestError("interface is required");
@@ -547,6 +551,7 @@ export async function handleChannelInbound({
       conversationId: result.conversationId,
       sourceChannel,
       externalChatId: conversationExternalId,
+      externalChatName: slackChannelName,
       externalThreadId: slackThreadTs ?? null,
       externalUserId: canonicalSenderId ?? rawSenderId ?? null,
       displayName: body.actorDisplayName ?? null,
@@ -1047,6 +1052,7 @@ export async function handleChannelInbound({
         sourceChannel === "slack"
           ? {
               channelId: conversationExternalId,
+              ...(slackChannelName ? { channelName: slackChannelName } : {}),
               channelTs: sourceMessageId ?? externalMessageId,
               ...(slackThreadTs ? { threadTs: slackThreadTs } : {}),
               ...((body.actorDisplayName ?? body.actorUsername)
@@ -1075,13 +1081,16 @@ export async function handleChannelInbound({
         sourceChannel === "slack" && sourceMetadata?.slackBotMentioned === true;
 
       // ── DM cold-start backfill ──
-      // First time a Slack DM lands in a conversation that has fewer than
-      // SLACK_DM_BACKFILL_WARM_THRESHOLD stored slackMeta messages, fetch a
-      // window of recent history so the agent sees prior context. One-shot:
-      // once persistence warms up past the threshold, subsequent DMs no
-      // longer trigger backfill. Failures are non-fatal — the new message
-      // proceeds without backfilled history.
-      if (sourceChannel === "slack" && sourceChatType === "im") {
+      // First time a Slack DM without thread_ts lands in a conversation that
+      // has fewer than SLACK_DM_BACKFILL_WARM_THRESHOLD stored slackMeta
+      // messages, fetch a window of recent history so the agent sees prior
+      // context. Threaded Slack DMs use the thread gap/delta path below so
+      // separate app conversations do not pull unrelated whole-DM history.
+      if (
+        sourceChannel === "slack" &&
+        sourceChatType === "im" &&
+        !slackThreadTs
+      ) {
         // Exclude the just-arrived webhook message from the history window —
         // the normal inbound persistence path writes it separately, so
         // including it here would produce duplicate user turns. Only pass a
@@ -1102,16 +1111,17 @@ export async function handleChannelInbound({
       }
 
       // ── Thread gap/delta backfill ──
-      // When a Slack thread reply arrives, compare the stored thread state
-      // with the inbound message's ts and fetch only the bounded unseen
-      // window. Initial late-join turns hydrate the earliest thread messages
-      // plus a recent window adjacent to the inbound reply; later turns use
-      // a delta window after the latest stored thread ts and before the
-      // inbound ts. Awaited (mirrors the DM cold-start path above) so the
-      // agent loop dispatched immediately afterwards observes hydrated
-      // context. A late-join notice is added only to the current turn's
-      // runtime context, not persisted as durable Slack metadata. Failures
-      // are swallowed inside the helper so they never block dispatch.
+      // When a Slack thread reply arrives, including app/agent DMs that carry
+      // thread_ts, compare the stored thread state with the inbound message's
+      // ts and fetch only the bounded unseen window. Initial late-join turns
+      // hydrate the earliest thread messages plus a recent window adjacent to
+      // the inbound reply; later turns use a delta window after the latest
+      // stored thread ts and before the inbound ts. Awaited (mirrors the DM
+      // cold-start path above) so the agent loop dispatched immediately
+      // afterwards observes hydrated context. A late-join notice is added only
+      // to the current turn's runtime context, not persisted as durable Slack
+      // metadata. Failures are swallowed inside the helper so they never block
+      // dispatch.
       if (slackThreadTs) {
         const backfillResult = await triggerSlackThreadBackfillIfNeeded({
           conversationId: result.conversationId,

@@ -7,8 +7,8 @@
  *     throw → catch-block fallback case).
  *  2. **Reason matches break site** — for each reachable break site, the
  *     emitted reason is the one documented in `AgentLoopExitReason`.
- *  3. **Always the last AgentEvent of the run** — consumers can rely on
- *     positional ordering to find it.
+ *  3. **Always the last AgentEvent of terminal runs** — consumers can rely on
+ *     positional ordering to find it when a run reaches a terminal state.
  *
  * Sites not exercised here (`empty_response_exhausted`, `aborted_via_error`)
  * require deeper provider fakery and are best covered by integration tests
@@ -172,7 +172,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
     expect(lastExitEvent(events)?.reason).toBe("yield_to_user");
   });
 
-  test("emits 'checkpoint_yield' when onCheckpoint returns 'yield'", async () => {
+  test("does not emit agent_loop_exit when onCheckpoint yields control", async () => {
     const { provider } = createMockProvider([
       toolUseResponse("t1", "read_file", { path: "/a.txt" }),
       textResponse("never reached"),
@@ -198,8 +198,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
       onCheckpoint,
     );
 
-    expect(countExitEvents(events)).toBe(1);
-    expect(lastExitEvent(events)?.reason).toBe("checkpoint_yield");
+    expect(countExitEvents(events)).toBe(0);
   });
 
   test("emits 'error' when provider throws an unhandled error", async () => {

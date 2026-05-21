@@ -1,0 +1,240 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "document_create",
+      "description": "Create a new long-form document with a rich text editor. Use this when the user asks to write a blog post, article, or any long-form content. The editor opens in workspace mode with chat docked to the side.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Initial title for the document (optional, can be updated later)"
+          },
+          "initial_content": {
+            "type": "string",
+            "description": "Initial Markdown content to populate the editor (optional)"
+          }
+        }
+      },
+      "executor": "tools/document-create.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "document_update",
+      "description": "Update content in an open document editor. Use this to stream generated content or apply edits.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The ID of the document surface to update"
+          },
+          "content": {
+            "type": "string",
+            "description": "Markdown content to set or append"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["replace", "append"],
+            "description": "Whether to replace all content or append to the end. Defaults to append."
+          }
+        },
+        "required": ["surface_id", "content"]
+      },
+      "executor": "tools/document-update.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "document_read",
+      "description": "Read the current content of a document by its surface_id when it belongs to the current conversation, or when the current actor is the guardian/local user. Use this to verify document state before making edits.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The ID of the document to read"
+          }
+        },
+        "required": ["surface_id"]
+      },
+      "executor": "tools/document-read.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "document_list",
+      "description": "List documents. Without a query, lists documents in the current conversation. With a query, searches documents by title; guardian/local users can search across conversations, while other actors are scoped to the current conversation.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search documents by title. Omit to list only the current conversation's documents."
+          }
+        }
+      },
+      "executor": "tools/document-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "document_delete",
+      "description": "Delete a document by its surface_id.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The ID of the document to delete"
+          }
+        },
+        "required": ["surface_id"]
+      },
+      "executor": "tools/document-delete.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "document_find",
+      "description": "Search for text or a regex pattern within a document. Returns matching lines with line numbers and context — like grep. Use this to locate specific content before making targeted edits with document_replace_text.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The document surface ID"
+          },
+          "query": {
+            "type": "string",
+            "description": "Text or regex pattern to search for"
+          },
+          "regex": {
+            "type": "boolean",
+            "description": "Treat query as a regex pattern. Defaults to false (literal match)."
+          },
+          "case_sensitive": {
+            "type": "boolean",
+            "description": "Match case-sensitively. Defaults to false."
+          }
+        },
+        "required": ["surface_id", "query"]
+      },
+      "executor": "tools/document-find.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "document_replace_text",
+      "description": "Find and replace text within a document — like sed. Performs targeted replacements without rewriting the entire document. Supports literal text and regex patterns. Use document_find first to preview what will be matched.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The document surface ID"
+          },
+          "find": {
+            "type": "string",
+            "description": "Text or regex pattern to find"
+          },
+          "replace": {
+            "type": "string",
+            "description": "Replacement text. When using regex, supports backreferences ($1, $2, etc.)."
+          },
+          "regex": {
+            "type": "boolean",
+            "description": "Treat find as a regex pattern. Defaults to false (literal match)."
+          },
+          "case_sensitive": {
+            "type": "boolean",
+            "description": "Match case-sensitively. Defaults to false."
+          },
+          "max_replacements": {
+            "type": "number",
+            "description": "Maximum number of replacements to make. Omit to replace all occurrences."
+          }
+        },
+        "required": ["surface_id", "find", "replace"]
+      },
+      "executor": "tools/document-replace-text.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "comment_list",
+      "description": "List open comments on a document. Returns all unresolved comments with their content, anchor text, and thread context so you can address user feedback.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The document surface ID"
+          }
+        },
+        "required": ["surface_id"]
+      },
+      "executor": "tools/comment-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "comment_resolve",
+      "description": "Mark a comment as resolved after you have addressed the feedback. Use this after editing the document to satisfy the comment.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The document surface ID"
+          },
+          "comment_id": {
+            "type": "string",
+            "description": "The comment ID to resolve"
+          }
+        },
+        "required": ["surface_id", "comment_id"]
+      },
+      "executor": "tools/comment-resolve.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "comment_reply",
+      "description": "Reply to a comment thread. Use this to ask clarifying questions or explain your approach before or after making changes.",
+      "category": "document-editor",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "surface_id": {
+            "type": "string",
+            "description": "The document surface ID"
+          },
+          "comment_id": {
+            "type": "string",
+            "description": "The parent comment ID to reply to"
+          },
+          "content": {
+            "type": "string",
+            "description": "Reply text"
+          }
+        },
+        "required": ["surface_id", "comment_id", "content"]
+      },
+      "executor": "tools/comment-reply.ts",
+      "execution_target": "host"
+    }
+  ]
+}

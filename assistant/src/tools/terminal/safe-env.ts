@@ -61,11 +61,12 @@ export const SAFE_ENV_VARS = [
 ] as const;
 
 export const KATA_SAFE_ENV_VARS = [
-  "LD_LIBRARY_PATH",
   "VELLUM_APT_DATA_ROOT",
   "VELLUM_APT_DATA_SUITE",
   "VELLUM_APT_DATA_MIRROR",
 ] as const;
+
+export const KATA_INJECTED_ENV_VARS = ["LD_LIBRARY_PATH"] as const;
 
 const KATA_APT_DATA_ROOT = "/data/system";
 
@@ -132,7 +133,7 @@ export function buildSanitizedEnv(): Record<string, string> {
     env.VELLUM_APT_DATA_ROOT = kataAptDataRoot;
     env.PATH = appendUniquePathEntries(env.PATH, kataAptPaths(kataAptDataRoot));
     env.LD_LIBRARY_PATH = appendUniquePathEntries(
-      env.LD_LIBRARY_PATH,
+      undefined,
       kataAptLibraryPaths(kataAptDataRoot),
     );
   }

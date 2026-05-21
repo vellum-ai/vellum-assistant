@@ -66,6 +66,7 @@
     "@types/react-dom": "19.2.3",
     "@vitest/browser": "4.1.6",
     "@vitest/browser-playwright": "4.1.6",
+    "@vitest/coverage-v8": "4.1.6",
     "@playwright/browser-chromium": "1.60.0",
     "@vitest/runner": "4.1.6",
     "class-variance-authority": "0.7.1",

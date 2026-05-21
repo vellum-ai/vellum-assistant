@@ -1,0 +1,24 @@
+App/build
+App/Pods
+App/output
+App/App/public
+DerivedData
+xcuserdata
+
+# Cordova plugins for Capacitor
+capacitor-cordova-ios-plugins
+
+# Generated Config files
+App/App/capacitor.config.json
+App/App/config.xml
+
+# Generated Xcode project. `App.xcodeproj/` is regenerated from
+# `App/project.yml` on every CI run via `xcodegen generate` (see
+# `.github/workflows/release-ios.yaml` and
+# `.github/workflows/build-ios-slot.yaml`). Local devs run
+# `xcodegen generate` after `cap sync ios` and before
+# `open App.xcodeproj` — see `web/ios/README.md`. Nothing inside this
+# tree should ever be committed; the SPM lockfile that Xcode normally
+# writes here is unnecessary because `CapApp-SPM/Package.swift`
+# already pins `capacitor-swift-pm` with `exact:`.
+App/App.xcodeproj/

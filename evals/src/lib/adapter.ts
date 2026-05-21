@@ -37,5 +37,6 @@ export interface BaseAgent {
   send(message: AgentMessage): Promise<void>;
   runSetupCommand(command: TestSetupCommand): Promise<void>;
   events(): AsyncIterable<AgentEvent>;
+  readUsageRecords?(): Promise<Array<Record<string, unknown>>>;
   shutdown(): Promise<void>;
 }

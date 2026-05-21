@@ -34,6 +34,7 @@ import {
 import { getOrCreateConversation as getOrCreateConversationInstance } from "../../daemon/conversation-store.js";
 import { canonicalizeTimeZone } from "../../daemon/date-context.js";
 import {
+  buildScanFirstMessage,
   getCannedFirstGreeting,
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
@@ -68,6 +69,7 @@ import {
 } from "../../memory/canonical-guardian-store.js";
 import {
   addMessage,
+  getConversation,
   getMessages,
   getMessagesPaginated,
   hasMessages,
@@ -137,31 +139,64 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
   );
 }
 
+/**
+ * True when a message's persisted metadata explicitly flags it as hidden.
+ * Used to suppress internal scaffolding messages from UI history while
+ * leaving them in the LLM-side context.
+ */
+function isHiddenMessage(metadata: string | null): boolean {
+  if (!metadata) return false;
+  try {
+    const meta = JSON.parse(metadata) as { hidden?: unknown };
+    return meta?.hidden === true;
+  } catch {
+    return false;
+  }
+}
+
 function buildSlackHistoryMessage(
   slackMeta: SlackMessageMetadata | null,
 ): RuntimeMessagePayload["slackMessage"] | undefined {
   if (!slackMeta) return undefined;
 
   const slackConfig = getConfig().slack;
+  const replyThreadTs =
+    slackMeta.threadTs && slackMeta.threadTs !== slackMeta.channelTs
+      ? slackMeta.threadTs
+      : undefined;
   const messageLink = buildSlackMessageDeepLinks({
     teamId: slackConfig?.teamId,
     teamUrl: slackConfig?.teamUrl,
     channelId: slackMeta.channelId,
     messageTs: slackMeta.channelTs,
+    ...(replyThreadTs ? { threadTs: replyThreadTs } : {}),
   });
-  const threadLink = slackMeta.threadTs
+  const threadLink = replyThreadTs
     ? buildSlackMessageDeepLinks({
         teamId: slackConfig?.teamId,
         teamUrl: slackConfig?.teamUrl,
         channelId: slackMeta.channelId,
-        messageTs: slackMeta.threadTs,
+        messageTs: replyThreadTs,
       })
     : undefined;
 
   return {
     channelId: slackMeta.channelId,
+    ...(slackMeta.channelName ? { channelName: slackMeta.channelName } : {}),
     channelTs: slackMeta.channelTs,
     ...(slackMeta.threadTs ? { threadTs: slackMeta.threadTs } : {}),
+    ...(slackMeta.displayName || slackMeta.actorExternalUserId
+      ? {
+          sender: {
+            ...(slackMeta.displayName
+              ? { displayName: slackMeta.displayName }
+              : {}),
+            ...(slackMeta.actorExternalUserId
+              ? { externalUserId: slackMeta.actorExternalUserId }
+              : {}),
+          },
+        }
+      : {}),
     ...(messageLink ? { messageLink } : {}),
     ...(threadLink ? { threadLink } : {}),
   };
@@ -389,8 +424,20 @@ export function handleListMessages({
   if (conversationId) {
     resolvedConversationId = conversationId;
   } else if (conversationKey) {
+    // Dual lookup, key-first: prefer the `conversation_keys` table — the
+    // canonical channel/external → internal-id mapping — so legacy or
+    // externally-sourced keys keep their explicit mapping precedence and
+    // never collide with an unrelated `conversations.id`. Fall back to a
+    // direct id lookup only when no mapping exists, which covers
+    // background/scheduled conversations bootstrapped without a
+    // `conversation_keys` row (web clients use the conversation list's
+    // `id` as `conversationKey` for those).
     const mapping = getConversationByKey(conversationKey);
-    resolvedConversationId = mapping?.conversationId;
+    if (mapping) {
+      resolvedConversationId = mapping.conversationId;
+    } else if (getConversation(conversationKey)) {
+      resolvedConversationId = conversationKey;
+    }
   } else {
     throw new BadRequestError(
       "conversationKey or conversationId query parameter is required",
@@ -457,6 +504,13 @@ export function handleListMessages({
   } else {
     rawMessages = getMessages(resolvedConversationId);
   }
+
+  // Drop messages flagged as hidden in metadata (e.g. internal scaffolding
+  // like retrospective instructions). The LLM-side history loader
+  // (`getMessages` in memory/conversation-crud.ts) intentionally does not
+  // filter — hidden messages remain in agent context but are suppressed from
+  // the UI list.
+  rawMessages = rawMessages.filter((m) => !isHiddenMessage(m.metadata));
 
   // During streaming, tool_use (assistant) and tool_result (user) events are
   // assembled client-side into a single assistant ChatMessage. On reload, they
@@ -1034,6 +1088,8 @@ export function persistOnboardingArtifacts(onboarding: {
   userName?: string;
   assistantName?: string;
   cohort?: string;
+  websiteUrl?: string;
+  contentSourceUrl?: string;
 }): void {
   writeOnboardingSidecar(onboarding);
 
@@ -1112,6 +1168,8 @@ export async function handleSendMessage(
       googleConnected?: boolean;
       googleScopes?: string[];
       cohort?: string;
+      websiteUrl?: string;
+      contentSourceUrl?: string;
     };
   };
 
@@ -1443,12 +1501,30 @@ export async function handleSendMessage(
     );
   }
 
-  // ── Canned first-greeting fast path ──
-  // On a completely fresh workspace, skip LLM inference for the macOS
-  // wake-up greeting and return a pre-written response. When onboarding
-  // context is present the greeting is personalized using the selections;
-  // otherwise a generic greeting is served. Both paths are instant.
-  if (isWakeUpGreeting(trimmedContent, conversation.getMessages().length)) {
+  // ── URL scan path: rewrite first message for scan onboarding ──
+  // When onboarding provides a websiteUrl or contentSourceUrl and the
+  // first message is the macOS wake-up greeting, bypass the canned
+  // greeting and rewrite the user message to a scan instruction so real
+  // LLM inference runs against the URL.
+  const sanitizeUrl = (u?: string) =>
+    u?.trim().replace(/[\r\n\t]/g, "") || undefined;
+  const websiteUrl = sanitizeUrl(body.onboarding?.websiteUrl);
+  const contentSourceUrl = sanitizeUrl(body.onboarding?.contentSourceUrl);
+  const scanUrl = websiteUrl || contentSourceUrl;
+  const isWakeUp = isWakeUpGreeting(
+    trimmedContent,
+    conversation.getMessages().length,
+  );
+  const isScanPath = !!scanUrl && isWakeUp;
+
+  let effectiveContent: string | undefined;
+  if (isScanPath) {
+    const scanVariant = websiteUrl
+      ? ("website" as const)
+      : ("content-source" as const);
+    effectiveContent = buildScanFirstMessage(scanUrl, scanVariant);
+    // Fall through to normal inference path below
+  } else if (isWakeUp) {
     const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
 
     conversation.processing = true;
@@ -1572,6 +1648,11 @@ export async function handleSendMessage(
     }
   }
 
+  // When the scan path rewrote the first message, prefer the rewritten
+  // content for all downstream consumers (guardian reply, enqueue, agent
+  // loop) so they see the scan instruction rather than the wake-up greeting.
+  const contentAfterScan = effectiveContent ?? content ?? "";
+
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
     : [];
@@ -1591,7 +1672,7 @@ export async function handleSendMessage(
       conversationId: mapping.conversationId,
       sourceChannel,
       sourceInterface,
-      content: content ?? "",
+      content: contentAfterScan,
       attachments,
       conversation,
       onEvent: broadcastMessage,
@@ -1625,7 +1706,7 @@ export async function handleSendMessage(
     // Queue the message so it's processed when the current turn completes
     const requestId = crypto.randomUUID();
     const enqueueResult = conversation.enqueueMessage(
-      content ?? "",
+      contentAfterScan,
       attachments,
       broadcastMessage,
       requestId,
@@ -1744,7 +1825,9 @@ export async function handleSendMessage(
   await conversation.ensureActorScopedHistory();
 
   // Resolve slash commands before persisting or running the agent loop.
-  const rawContent = content ?? "";
+  // `contentAfterScan` already carries the scan-rewritten content when
+  // applicable; reuse it here for consistency.
+  const rawContent = contentAfterScan;
   const slashContext = buildSlashContextForContent(rawContent, {
     conversationId: mapping.conversationId,
     messageCount: conversation.getMessages().length,

@@ -6,7 +6,7 @@ import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-lay
 import {
   PERSONALITY_GROUPS,
   type PersonalityGroup,
-} from "@/lib/onboarding/prechat-names.js";
+} from "@/domains/onboarding/prechat-names.js";
 
 interface NameExchangeScreenProps {
   userName: string;

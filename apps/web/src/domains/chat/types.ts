@@ -6,14 +6,9 @@
  * inlined in a single consumer.
  */
 
-import type {
-  AllowlistOption,
-  DirectoryScopeOption,
-  QuestionEntry,
-  ScopeOption,
-} from "@/domains/chat/lib/api.js";
 
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+import type { AllowlistOption, DirectoryScopeOption, QuestionEntry, ScopeOption } from "@/domains/chat/api/event-types.js";
 
 // ---------------------------------------------------------------------------
 // Assistant state

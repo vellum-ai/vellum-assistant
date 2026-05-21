@@ -219,7 +219,7 @@ function buildMarkdownComponents(
       </div>
     ),
     thead: ({ children }) => (
-      <thead className="bg-stone-50 dark:bg-moss-800">{children}</thead>
+      <thead className="bg-[var(--surface-sunken)]">{children}</thead>
     ),
     th: ({ children }) => (
        
@@ -233,7 +233,7 @@ function buildMarkdownComponents(
       </td>
     ),
     hr: () => (
-      <hr className="my-3 border-stone-200 dark:border-moss-600" />
+      <hr className="my-3 border-[var(--border-subtle)]" />
     ),
     img: ({ src, alt }) => {
       const srcStr = typeof src === "string" ? src : "";

@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentMessage } from "../adapter";
+import type { AgentEvent, AgentMessage, BaseAgent } from "../adapter";
 import {
   appendAssistantEvents,
   appendProgressEvent,
@@ -6,6 +6,7 @@ import {
   appendTranscriptTurn,
   ensureRunArtifacts,
   readTranscript,
+  readUsage,
   runMetrics,
   type MetricResult,
   writeMetricResults,
@@ -15,7 +16,7 @@ import {
 import type { Profile } from "../profile";
 import type { TestDef } from "../test-def";
 import type { TranscriptTurn } from "../transcript";
-import { summarizeAssistantUsage } from "../usage";
+import { mergeUsageSummaries, summarizeAssistantUsage } from "../usage";
 import {
   SimulatorParseError,
   UserSimulator,
@@ -50,6 +51,32 @@ export interface EvalRunResult {
   metrics: MetricResult[];
 }
 
+/** Decimals used when rendering a `fraction`-unit metric score in the CLI log. */
+const FRACTION_SCORE_DECIMALS = 2;
+/** Decimals used when rendering a `raw`-unit metric score (e.g. dollars) in the CLI log. */
+const RAW_SCORE_DECIMALS = 4;
+
+/**
+ * Render the per-metric score list as a single-line `name=score, …` string
+ * for the `result` progress event's `detail` field. Each metric's unit
+ * decides the precision: `fraction` scores get two decimals (matches the
+ * 0–1 range humans expect from quality metrics), `raw` scores get four
+ * decimals (enough to read sub-cent dollar costs without padding zeros).
+ *
+ * Returns `"no metrics"` when the test has no metric files configured so
+ * the log line still says something rather than dangling an empty suffix.
+ */
+function formatMetricSummary(metrics: MetricResult[]): string {
+  if (metrics.length === 0) return "no metrics";
+  return metrics
+    .map((m) => {
+      const decimals =
+        m.unit === "raw" ? RAW_SCORE_DECIMALS : FRACTION_SCORE_DECIMALS;
+      return `${m.name}=${m.score.toFixed(decimals)}`;
+    })
+    .join(", ");
+}
+
 /**
  * Pull the text payload an event contributes to the assistant's transcript
  * turn, or `undefined` if the event is not an assistant content event.
@@ -69,12 +96,46 @@ export function assistantContent(event: AgentEvent): string | undefined {
   return event.message.text ?? event.message.chunk;
 }
 
-async function collectAndPersistEvents(input: {
+export interface CollectAndPersistEventsResult {
+  /**
+   * Total number of events the collector returned. Zero means the
+   * assistant produced no events at all during the quiet/max window —
+   * a pipeline failure (no model response, dead event stream, …) that
+   * the caller should treat as a hard error.
+   */
+  eventCount: number;
+  /**
+   * Number of events that contributed a transcript turn (i.e. carried
+   * non-empty `text`/`chunk` after adapter-side normalization).
+   * `transcriptTurnCount === 0` with `eventCount > 0` is legitimate:
+   * the assistant responded with tool-use-only events that don't have
+   * a textual payload.
+   */
+  transcriptTurnCount: number;
+}
+
+/**
+ * Collect the next batch of assistant events from the live stream,
+ * append them to the cumulative `assistantEvents` array and the on-disk
+ * event log, optionally emit transcript turns for events that carry
+ * text, and rewrite the persisted usage summary.
+ *
+ * **The usage write is an overwrite, not a merge.** `input.assistantEvents`
+ * is the cumulative-across-turns array (every turn pushes into it),
+ * so `summarizeAssistantUsage(input.assistantEvents)` is the complete
+ * event-sourced usage state for the run. Merging it with the on-disk
+ * value would double-count every prior turn's records (Codex bot +
+ * Devin bot caught this on PR #31348; the recording-sidecar usage
+ * lands separately via `mergeRecordedUsage` once at end-of-run).
+ *
+ * Exported for unit-tests; only `runEvalOnce` calls it in production.
+ */
+export async function collectAndPersistEvents(input: {
   runId: string;
   collector: AgentEventCollector;
   assistantEvents: AgentEvent[];
   includeInTranscript: boolean;
-}): Promise<void> {
+}): Promise<CollectAndPersistEventsResult> {
   const events = await input.collector.collectUntilQuiet({
     quietMs: EVENT_QUIET_MS,
     maxMs: EVENT_MAX_MS,
@@ -82,6 +143,7 @@ async function collectAndPersistEvents(input: {
   input.assistantEvents.push(...events);
   await appendAssistantEvents(input.runId, events);
 
+  let transcriptTurnCount = 0;
   if (input.includeInTranscript) {
     for (const event of events) {
       const content = assistantContent(event);
@@ -91,11 +153,29 @@ async function collectAndPersistEvents(input: {
           content: content.trim(),
           emittedAt: event.emittedAt ?? new Date().toISOString(),
         });
+        transcriptTurnCount += 1;
       }
     }
   }
 
   await writeUsage(input.runId, summarizeAssistantUsage(input.assistantEvents));
+  return { eventCount: events.length, transcriptTurnCount };
+}
+
+async function mergeRecordedUsage(input: {
+  runId: string;
+  agent: BaseAgent;
+}): Promise<void> {
+  const records = await input.agent.readUsageRecords?.();
+  if (!records || records.length === 0) return;
+  const existingUsage = await readUsage(input.runId);
+  const recordedUsage = summarizeAssistantUsage(
+    records.map((usage) => ({ message: { type: "usage", usage } })),
+  );
+  await writeUsage(
+    input.runId,
+    mergeUsageSummaries(existingUsage, recordedUsage),
+  );
 }
 
 async function sendAndPersistSimulatorMessage(input: {
@@ -229,7 +309,11 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       progress({
         step: "simulator",
         status: "start",
-        message: `Asking simulator for turn ${simulatorTurns + 1}`,
+        // Turn number is rendered by the reporter as the `turn N` suffix —
+        // keeping it out of the message avoids the doubled `turn 2  turn 2`
+        // output observed in `eval-vellum-bare-timeline-recall-
+        // 20260520135745`.
+        message: "Asking simulator",
         turn: simulatorTurns + 1,
       });
       const decision = await simulator.decide({
@@ -276,19 +360,40 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         message: "Waiting for assistant response",
         turn: simulatorTurns + 1,
       });
-      await collectAndPersistEvents({
-        runId: input.runId,
-        collector,
-        assistantEvents,
-        includeInTranscript: true,
-      });
+      const { eventCount, transcriptTurnCount } = await collectAndPersistEvents(
+        {
+          runId: input.runId,
+          collector,
+          assistantEvents,
+          includeInTranscript: true,
+        },
+      );
+      // A zero-event window means the event stream went silent for the
+      // full quiet/max budget without delivering anything — a pipeline
+      // failure (dead subscription, model never replied). Throw so the
+      // run fails loudly instead of dribbling into metrics with no
+      // assistant response.
+      //
+      // We deliberately do NOT throw on `transcriptTurnCount === 0`
+      // alone: tool-use-only responses (assistant emits a tool_use_*
+      // event sequence with no `assistant_text_delta`) are legitimate
+      // and produce zero transcript turns while still being a real
+      // response. Devin caught this regression on PR #31348.
+      if (eventCount === 0) {
+        throw new Error(
+          `assistant response collection produced no events for turn ${simulatorTurns + 1}`,
+        );
+      }
       progress({
         step: "events",
         status: "done",
         message: "Assistant response collected",
+        detail: `${eventCount} event${eventCount === 1 ? "" : "s"} · ${transcriptTurnCount} transcript turn${transcriptTurnCount === 1 ? "" : "s"}`,
         turn: simulatorTurns + 1,
       });
     }
+
+    await mergeRecordedUsage({ runId: input.runId, agent });
 
     progress({
       step: "metrics",
@@ -314,6 +419,17 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       startedAt,
       completedAt: new Date().toISOString(),
       artifactDir: artifacts.runDir,
+    });
+    // Surface the per-metric scores through the progress reporter so the
+    // CLI logs them in the same timestamped/labeled format as every other
+    // step, instead of dumping a `console.log(JSON.stringify(result))`
+    // blob onto stdout. The detail string lists each metric inline so a
+    // tail of the eval log immediately shows what the profile achieved.
+    progress({
+      step: "result",
+      status: "done",
+      message: `${input.profile.id}/${input.test.id}`,
+      detail: formatMetricSummary(metrics),
     });
     return {
       runId: input.runId,

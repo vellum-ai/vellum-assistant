@@ -1,3 +1,5 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
+
 import { useQuery } from "@tanstack/react-query";
 import {
   ChevronDown,
@@ -18,7 +20,7 @@ import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
 import { assistantsOauthConnectionsListOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import type { OAuthConnection } from "@/generated/api/types.gen.js";
-import { type Assistant, getAssistant } from "@/domains/assistant/api.js";
+import { type Assistant, getAssistant } from "@/assistant/api.js";
 import {
   fetchOAuthProviders,
   type OAuthProviderSummary,

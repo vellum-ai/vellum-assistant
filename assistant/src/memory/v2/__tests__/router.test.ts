@@ -194,7 +194,10 @@ function makePage(
 // fields the router actually reads. Cast through `as unknown` because the
 // production type is a heavy nested schema; we only exercise the v2.router
 // branch in this test file.
-function makeConfig(overrides?: { maxPageIds?: number }) {
+function makeConfig(overrides?: {
+  maxPageIds?: number;
+  batchSize?: number | null;
+}) {
   return {
     memory: {
       v2: {
@@ -202,6 +205,7 @@ function makeConfig(overrides?: { maxPageIds?: number }) {
         router: {
           enabled: true,
           max_page_ids: overrides?.maxPageIds ?? 25,
+          batch_size: overrides?.batchSize ?? null,
         },
       },
     },
@@ -527,5 +531,166 @@ describe("runRouter — failure modes", () => {
     expect(providerCalls).toHaveLength(1);
     // Signal must be forwarded — otherwise the stub's aborted-check wouldn't fire.
     expect(providerCalls[0].options?.signal).toBe(controller.signal);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Batched routing (config.memory.v2.router.batch_size).
+// ---------------------------------------------------------------------------
+
+describe("runRouter — batched (batch_size set)", () => {
+  beforeEach(async () => {
+    // 5 pages → at batch_size=2 we get ceil(5/2)=3 batches.
+    await writePage(workspaceDir, makePage("alpha", { summary: "A" }));
+    await writePage(workspaceDir, makePage("bravo", { summary: "B" }));
+    await writePage(workspaceDir, makePage("charlie", { summary: "C" }));
+    await writePage(workspaceDir, makePage("delta", { summary: "D" }));
+    await writePage(workspaceDir, makePage("echo", { summary: "E" }));
+  });
+
+  test("fires one provider call per batch in parallel", async () => {
+    // Every batch returns its local id 1 → at most 3 distinct slugs in the
+    // union (one per batch), but we don't assert WHICH slugs the FNV
+    // bucketing picks; just that the provider was called once per batch.
+    providerStub = makeProvider(toolUseResponse([1]));
+
+    const result = await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ batchSize: 2 }),
+    });
+
+    expect(result.failureReason).toBeNull();
+    expect(providerCalls.length).toBeGreaterThan(1);
+    expect(providerCalls.length).toBeLessThanOrEqual(3);
+    // Every batch picked its own local id 1 → distinct slugs in union.
+    expect(result.selectedSlugs.length).toBe(providerCalls.length);
+    expect(new Set(result.selectedSlugs).size).toBe(
+      result.selectedSlugs.length,
+    );
+  });
+
+  test("each batch's system prompt contains only its own subset of slugs", async () => {
+    providerStub = makeProvider(toolUseResponse([1]));
+    await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ batchSize: 2 }),
+    });
+
+    // Across all batch calls, every slug appears in exactly one prompt.
+    const allSlugs = ["alpha", "bravo", "charlie", "delta", "echo"];
+    const appearances = new Map<string, number>(allSlugs.map((s) => [s, 0]));
+    for (const call of providerCalls) {
+      for (const slug of allSlugs) {
+        if (call.systemPrompt?.includes(slug)) {
+          appearances.set(slug, (appearances.get(slug) ?? 0) + 1);
+        }
+      }
+    }
+    for (const slug of allSlugs) {
+      expect(appearances.get(slug)).toBe(1);
+    }
+  });
+
+  test("union of selected slugs is deduplicated across batches", async () => {
+    // Every batch returns its local id 1. Same slug could appear in only
+    // one batch (since each slug lives in exactly one batch), so the union
+    // is naturally unique. Sanity-check the dedup path with a 2-call response.
+    providerStub = makeProvider(toolUseResponse([1, 1]));
+    const result = await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ batchSize: 2 }),
+    });
+    expect(result.failureReason).toBeNull();
+    expect(new Set(result.selectedSlugs).size).toBe(
+      result.selectedSlugs.length,
+    );
+  });
+
+  test("priorEverInjected is filtered to the batch's own slugs as local IDs", async () => {
+    providerStub = makeProvider(toolUseResponse([1]));
+    await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      priorEverInjected: [
+        { slug: "alpha", turn: 1 },
+        { slug: "echo", turn: 1 },
+      ],
+      config: makeConfig({ batchSize: 2 }),
+    });
+
+    // Exactly the batches containing alpha or echo should mention any
+    // already_injected_id; other batches should have an empty list.
+    for (const call of providerCalls) {
+      const text =
+        (call.messages[0].content as Array<{ text?: string }>)[1]?.text ?? "";
+      const hasAlpha = call.systemPrompt?.includes("alpha");
+      const hasEcho = call.systemPrompt?.includes("echo");
+      const expectsId = hasAlpha || hasEcho;
+      // Block contents: "<already_injected_ids>\n{ids}\n</already_injected_ids>"
+      const match = text.match(
+        /<already_injected_ids>\n([^\n]*)\n<\/already_injected_ids>/,
+      );
+      const idsStr = match?.[1] ?? "";
+      if (expectsId) {
+        expect(idsStr.trim().length).toBeGreaterThan(0);
+      } else {
+        expect(idsStr.trim()).toBe("");
+      }
+    }
+  });
+
+  test("partial failure: one batch fails, others succeed → union returned with success", async () => {
+    let callCount = 0;
+    providerStub = {
+      name: "partial-failure",
+      sendMessage: async (messages, tools, systemPrompt, options) => {
+        callCount += 1;
+        providerCalls.push({ messages, tools, systemPrompt, options });
+        if (callCount === 1) throw new Error("batch 1 boom");
+        return toolUseResponse([1]);
+      },
+    };
+
+    const result = await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ batchSize: 2 }),
+    });
+
+    expect(result.failureReason).toBeNull();
+    expect(result.selectedSlugs.length).toBeGreaterThan(0);
+    expect(providerCalls.length).toBeGreaterThan(1);
+  });
+
+  test("all batches fail → unified failure with first batch's reason", async () => {
+    providerStub = {
+      name: "all-fail",
+      sendMessage: async () => {
+        throw new Error("all batches boom");
+      },
+    };
+
+    const result = await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ batchSize: 2 }),
+    });
+
+    expect(result.failureReason).toBe("api_error");
+    expect(result.selectedSlugs).toEqual([]);
+  });
+
+  test("batch_size larger than index size is single batch (same as v3)", async () => {
+    providerStub = makeProvider(toolUseResponse([1]));
+    const result = await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ batchSize: 1000 }),
+    });
+    expect(result.failureReason).toBeNull();
+    expect(providerCalls).toHaveLength(1);
   });
 });

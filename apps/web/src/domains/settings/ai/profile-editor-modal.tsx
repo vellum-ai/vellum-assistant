@@ -14,7 +14,7 @@ import {
   getModelsForProvider,
   MODELS_BY_PROVIDER,
   PROVIDER_DISPLAY_NAMES as INFERENCE_PROVIDER_DISPLAY_NAMES,
-} from "@/domains/assistant/llm-model-catalog.js";
+} from "@/assistant/llm-model-catalog.js";
 
 import { type ProfileEntry, formatCompactTokens } from "@/domains/settings/ai/ai-page.js";
 import { type Profile } from "@/domains/settings/ai/manage-profiles-modal.js";

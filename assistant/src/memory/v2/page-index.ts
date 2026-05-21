@@ -244,3 +244,83 @@ function renderIndex(entries: readonly PageIndexEntry[]): string {
   });
   return lines.length > 0 ? `${lines.join("\n")}\n` : "";
 }
+
+// FNV-1a 32-bit. Stable across runtimes — never change the constants or
+// future releases will silently reshuffle batches and torch every batch's
+// KV cache simultaneously.
+function fnv1aHash(input: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/**
+ * Split a global `PageIndex` into batches of approximately `batchSize`
+ * entries for parallel routing. Each batch is a self-contained `PageIndex`
+ * with batch-local 1-based IDs and a re-rendered prompt block.
+ *
+ * `batchSize === null` or `entries.length <= batchSize` short-circuits to
+ * `[pageIndex]` (the same object) so single-batch callers send a request
+ * bit-identical to the pre-batching code path and reuse v3's KV cache
+ * untouched.
+ *
+ * Assignment uses FNV-1a on the slug: adding or removing one page only
+ * invalidates the KV cache of the one batch it lands in, instead of
+ * cascading through every batch the way index-modulo chunking would.
+ *
+ * Edges are re-resolved to batch-local IDs — edges pointing to pages in
+ * other batches drop silently (the model can't reference them anyway).
+ */
+export function partitionPageIndex(
+  pageIndex: PageIndex,
+  batchSize: number | null,
+): PageIndex[] {
+  if (batchSize === null || pageIndex.entries.length <= batchSize) {
+    return [pageIndex];
+  }
+  const batchCount = Math.ceil(pageIndex.entries.length / batchSize);
+  const buckets: PageIndexEntry[][] = Array.from(
+    { length: batchCount },
+    () => [],
+  );
+  for (const entry of pageIndex.entries) {
+    buckets[fnv1aHash(entry.slug) % batchCount].push(entry);
+  }
+  return buckets
+    .filter((b) => b.length > 0)
+    .map((entries) => {
+      const localBySlug = new Map<string, PageIndexEntry>();
+      const localById = new Map<number, PageIndexEntry>();
+      const localEntries: PageIndexEntry[] = entries.map((src, i) => {
+        const local: PageIndexEntry = {
+          id: i + 1,
+          slug: src.slug,
+          summary: src.summary,
+          edges: [],
+        };
+        localBySlug.set(local.slug, local);
+        localById.set(local.id, local);
+        return local;
+      });
+      for (let i = 0; i < localEntries.length; i++) {
+        const localEdges: number[] = [];
+        for (const globalEdgeId of entries[i].edges) {
+          const target = pageIndex.byId.get(globalEdgeId);
+          if (!target) continue;
+          const localTarget = localBySlug.get(target.slug);
+          if (localTarget) localEdges.push(localTarget.id);
+        }
+        localEdges.sort((a, b) => a - b);
+        localEntries[i].edges = localEdges;
+      }
+      return {
+        entries: localEntries,
+        bySlug: localBySlug,
+        byId: localById,
+        rendered: renderIndex(localEntries),
+      };
+    });
+}

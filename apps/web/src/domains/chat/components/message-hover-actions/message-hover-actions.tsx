@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 
 import { Check, Copy, FileCode, GitBranch } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";

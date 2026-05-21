@@ -11,10 +11,9 @@ import {
 } from "react";
 
 import { SubagentProgressCard } from "@/domains/chat/components/subagent-progress-card.js";
-import type { ConfirmationDecision } from "@/domains/chat/lib/api.js";
 import type { SubagentEntry } from "@/domains/subagents/subagent-store.js";
-import { partitionLatestTurn } from "@/domains/chat/lib/transcript/partition-latest-turn.js";
-import type { TranscriptItem } from "@/domains/chat/lib/transcript/types.js";
+import { partitionLatestTurn } from "@/domains/chat/transcript/partition-latest-turn.js";
+import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row.js";
 import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinner.js";
@@ -24,6 +23,7 @@ import {
   usePullToRefresh,
 } from "@/domains/chat/transcript/use-pull-to-refresh.js";
 import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min-height.js";
+import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";
 
 /** Outcome of a pull-to-refresh, returned by the consumer's
  *  `onPullRefresh` handler so the page can render the right feedback
@@ -57,6 +57,8 @@ export interface TranscriptProps {
   renderPendingConfirmation?: (requestId: string) => ReactNode;
   /** Optional renderer for `kind: "pendingContactRequest"` items. */
   renderPendingContactRequest?: (requestId: string) => ReactNode;
+  /** Optional renderer for `kind: "onboardingChoice"` items. */
+  renderOnboardingChoice?: () => ReactNode;
   /** Click handler on a tool-call risk badge — opens the rule editor. The
    *  ToolCallChip forwards the active tool-call's metadata so the modal can
    *  pre-fill its fields. */
@@ -65,9 +67,9 @@ export interface TranscriptProps {
     riskLevel?: string;
     riskReason?: string;
     input?: Record<string, unknown>;
-    allowlistOptions: import("@/domains/chat/lib/api.js").AllowlistOption[];
-    scopeOptions: import("@/domains/chat/lib/api.js").ScopeOption[];
-    directoryScopeOptions: import("@/domains/chat/lib/api.js").DirectoryScopeOption[];
+    allowlistOptions: import("@/domains/chat/api/event-types.js").AllowlistOption[];
+    scopeOptions: import("@/domains/chat/api/event-types.js").ScopeOption[];
+    directoryScopeOptions: import("@/domains/chat/api/event-types.js").DirectoryScopeOption[];
   }) => void;
   /** Set of tool-call ids that should display the "command not recognized"
    *  nudge below their chip. */
@@ -208,6 +210,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       renderPendingSecret: rest.renderPendingSecret,
       renderPendingConfirmation: rest.renderPendingConfirmation,
       renderPendingContactRequest: rest.renderPendingContactRequest,
+      renderOnboardingChoice: rest.renderOnboardingChoice,
       onOpenRuleEditor: rest.onOpenRuleEditor,
       unknownNudgeToolCallIds: rest.unknownNudgeToolCallIds,
       onDismissUnknownNudge: rest.onDismissUnknownNudge,

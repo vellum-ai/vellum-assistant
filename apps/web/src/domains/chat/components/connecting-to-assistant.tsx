@@ -7,9 +7,9 @@ import { Button, Modal, Typography } from "@vellum/design-library";
 import type {
   ConnectionServerState,
   ReachabilityState,
-} from "@/domains/assistant/use-assistant-reachability.js";
-import { MAX_ATTEMPTS } from "@/domains/assistant/use-assistant-reachability.js";
-import { useAppFeatureFlags } from "@/lib/feature-flags/app.js";
+} from "@/assistant/use-assistant-reachability.js";
+import { MAX_ATTEMPTS } from "@/assistant/use-assistant-reachability.js";
+import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 
 interface ConnectingToAssistantProps {
@@ -115,7 +115,7 @@ const FailureBody: FC<FailureBodyProps> = ({
   lastServerState,
   onRetry,
 }) => {
-  const { doctor: doctorEnabled } = useAppFeatureFlags();
+  const doctorEnabled = useFeatureFlagStore.use.doctor();
   const isCrashLoop = lastServerState === "crash_loop";
 
   const title = isCrashLoop

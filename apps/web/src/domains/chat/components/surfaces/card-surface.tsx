@@ -1,8 +1,9 @@
+/* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 
 import { Circle, CircleCheck, CircleX, Clock, Loader2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container.js";
@@ -96,7 +97,7 @@ function TaskProgressBar({ templateData }: { templateData: Record<string, unknow
 
   return (
     <div className="mt-3">
-      <div className="mb-1 flex items-center justify-between text-body-small-default text-stone-500 dark:text-stone-400">
+      <div className="mb-1 flex items-center justify-between text-body-small-default text-[var(--content-quiet)]">
         <span>
           {completed} / {total} tasks
         </span>
@@ -144,7 +145,7 @@ function TaskStepList({ steps }: { steps: TaskStepItem[] }) {
               {index + 1}
             </span>
             <div className="min-w-0 flex-1">
-              <span className="text-body-medium-default text-stone-800 dark:text-stone-200">
+              <span className="text-body-medium-default text-[var(--content-strong)]">
                 {step.label}
               </span>
               {step.detail && !showDetailOnRight && (
@@ -176,7 +177,7 @@ function TaskProgressDisplay({ templateData }: { templateData: Record<string, un
     return (
       <div>
         <div className="flex items-center justify-between">
-          <span className="text-title-small text-stone-800 dark:text-stone-200">{title}</span>
+          <span className="text-title-small text-[var(--content-strong)]">{title}</span>
           <StatusBadge status={status} />
         </div>
         <TaskStepList steps={steps} />
@@ -209,10 +210,10 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
   return (
     <SurfaceContainer surface={surface} onAction={onAction}>
       <div>
-        <h3 className="text-title-small text-stone-800 dark:text-stone-200">{data.title}</h3>
+        <h3 className="text-title-small text-[var(--content-strong)]">{data.title}</h3>
 
         {data.subtitle && (
-          <p className="mt-0.5 text-body-small-default text-stone-500 dark:text-stone-400">{data.subtitle}</p>
+          <p className="mt-0.5 text-body-small-default text-[var(--content-quiet)]">{data.subtitle}</p>
         )}
 
         {isWeather ? (
@@ -233,10 +234,10 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
               <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
                 {data.metadata.map((item) => (
                   <div key={item.label}>
-                    <dt className="text-body-small-default text-stone-500 dark:text-stone-400">
+                    <dt className="text-body-small-default text-[var(--content-quiet)]">
                       {item.label}
                     </dt>
-                    <dd className="text-body-medium-lighter text-stone-800 dark:text-stone-200">{item.value}</dd>
+                    <dd className="text-body-medium-lighter text-[var(--content-strong)]">{item.value}</dd>
                   </div>
                 ))}
               </div>

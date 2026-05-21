@@ -388,11 +388,7 @@ export async function emitNotificationSignal<TEventName extends string>(
     // Step 5: Mirror background-origin signals into the home activity feed.
     // The helper itself decides whether to write (background filter); we
     // catch and log so a feed-write failure cannot poison the dispatch result.
-    await writeHomeFeedItemForSignal(
-      signal,
-      decision,
-      dispatchResult.deliveryResults,
-    ).catch((err) => {
+    await writeHomeFeedItemForSignal(signal, decision).catch((err) => {
       log.warn({ err, signalId }, "writeHomeFeedItemForSignal threw");
     });
 

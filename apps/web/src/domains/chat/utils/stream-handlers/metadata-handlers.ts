@@ -1,23 +1,13 @@
-import type {
-  AvatarUpdatedEvent,
-  CompactionCircuitClosedEvent,
-  CompactionCircuitOpenEvent,
-  ConversationListInvalidatedEvent,
-  ConversationTitleUpdatedEvent,
-  DiskPressureStatusChangedEvent,
-  IdentityChangedEvent,
-  NotificationIntentEvent,
-  UsageUpdateEvent,
-} from "@/domains/chat/lib/api.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import { saveContextWindowUsage } from "@/domains/chat/lib/contextWindowStorage.js";
+import { saveContextWindowUsage } from "@/domains/chat/utils/contextWindowStorage.js";
 import {
   extractConversationKey,
   postLocalNotification,
   sendNotificationIntentAck,
 } from "@/runtime/notifications.js";
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
+import { patchConversation } from "@/domains/conversations/conversation-queries.js";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types.js";
+import type { AvatarUpdatedEvent, CompactionCircuitClosedEvent, CompactionCircuitOpenEvent, ConversationListInvalidatedEvent, ConversationTitleUpdatedEvent, DiskPressureStatusChangedEvent, IdentityChangedEvent, NotificationIntentEvent, UsageUpdateEvent } from "@/domains/chat/api/event-types.js";
 
 export function handleUsageUpdate(
   event: UsageUpdateEvent,
@@ -66,9 +56,14 @@ export function handleConversationListInvalidated(
 
 export function handleConversationTitleUpdated(
   event: ConversationTitleUpdatedEvent,
-  _ctx: StreamHandlerContext,
+  ctx: StreamHandlerContext,
 ): void {
-  useConversationListStore.getState().patchConversation(event.conversationId, { title: event.title });
+  patchConversation(
+    ctx.queryClient,
+    ctx.assistantIdRef.current,
+    event.conversationId,
+    { title: event.title },
+  );
 }
 
 export function handleNotificationIntent(

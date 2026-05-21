@@ -5,18 +5,20 @@
  * count, and current turn identity. Direct named actions call `set()` to
  * apply pure transitions so render decisions can be derived deterministically.
  *
+ * Wrapped with `createSelectors` for auto-generated per-field hooks.
  * Selector-based subscriptions let each consumer re-render only when its
  * slice changes — critical during streaming where state updates at ~50 ms
  * cadence. Non-React code (stream handlers, reconciliation) reads the
  * latest state synchronously via `useTurnStore.getState()`.
  *
- * References:
- * - {@link https://zustand.docs.pmnd.rs/}
- * - {@link https://zustand.docs.pmnd.rs/learn/guides/flux-inspired-practice}
+ * @see {@link https://zustand.docs.pmnd.rs/}
+ * @see {@link https://zustand.docs.pmnd.rs/learn/guides/flux-inspired-practice}
+ * @see {@link https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors}
  */
 
 import { create } from "zustand";
-import { useShallow } from "zustand/shallow";
+
+import { createSelectors } from "@/utils/create-selectors.js";
 
 // ---------------------------------------------------------------------------
 // State
@@ -261,7 +263,7 @@ function isStale(s: TurnState): boolean {
 // Store
 // ---------------------------------------------------------------------------
 
-export const useTurnStore = create<TurnStore>()((set, get) => ({
+const useTurnStoreBase = create<TurnStore>()((set, get) => ({
   ...INITIAL_TURN_STATE,
 
   // ----- Send flow -----
@@ -514,61 +516,7 @@ export const useTurnStore = create<TurnStore>()((set, get) => ({
   },
 }));
 
-// ---------------------------------------------------------------------------
-// Convenience hooks
-// ---------------------------------------------------------------------------
-
-/**
- * Read-only turn state. Re-renders only when one of the state fields
- * changes. Use `useTurnActions()` if you only need to dispatch.
- */
-export function useTurnState(): TurnState {
-  return useTurnStore(
-    useShallow((s) => ({
-      phase: s.phase,
-      pendingQueuedCount: s.pendingQueuedCount,
-      activeToolCallCount: s.activeToolCallCount,
-      activeTurnId: s.activeTurnId,
-      lastTerminalReason: s.lastTerminalReason,
-      statusText: s.statusText,
-    })),
-  );
-}
-
-/**
- * Stable action references. Does **not** re-render when turn state changes.
- */
-export function useTurnActions(): TurnActions {
-  return useTurnStore(
-    useShallow((s) => ({
-      requestSend: s.requestSend,
-      acceptSend: s.acceptSend,
-      onTextDelta: s.onTextDelta,
-      onToolUseStart: s.onToolUseStart,
-      onToolResult: s.onToolResult,
-      onActivityThinking: s.onActivityThinking,
-      showSurface: s.showSurface,
-      updateSurface: s.updateSurface,
-      dismissSurface: s.dismissSurface,
-      completeSurface: s.completeSurface,
-      onSecretRequest: s.onSecretRequest,
-      onConfirmationRequest: s.onConfirmationRequest,
-      onQuestionRequest: s.onQuestionRequest,
-      onContactRequest: s.onContactRequest,
-      completeTurn: s.completeTurn,
-      handoffGeneration: s.handoffGeneration,
-      cancelGeneration: s.cancelGeneration,
-      onStreamError: s.onStreamError,
-      onSessionError: s.onSessionError,
-      onPollReconciled: s.onPollReconciled,
-      onTurnTimeout: s.onTurnTimeout,
-      resetTurn: s.resetTurn,
-      enqueueMessage: s.enqueueMessage,
-      dequeueMessage: s.dequeueMessage,
-      deleteQueuedMessage: s.deleteQueuedMessage,
-    })),
-  );
-}
+export const useTurnStore = createSelectors(useTurnStoreBase);
 
 // ---------------------------------------------------------------------------
 // Pure reducer (used by tests to verify state transitions in isolation)

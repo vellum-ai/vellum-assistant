@@ -86,6 +86,13 @@ export function HomePage({
     [feedQuery.updateStatus, selectedItem?.id],
   );
 
+  const handleRestoreItem = useCallback(
+    (itemId: string) => {
+      feedQuery.updateStatus.mutate({ itemId, status: "seen" });
+    },
+    [feedQuery.updateStatus],
+  );
+
   const handleUpdateStatus = useCallback(
     (itemId: string, status: FeedItemStatus) => {
       feedQuery.updateStatus.mutate({ itemId, status });
@@ -119,6 +126,7 @@ export function HomePage({
         avatarComponents={avatar.components}
         avatarTraits={avatar.traits}
         avatarImageUrl={avatar.customImageUrl}
+        greeting={feedQuery.data?.contextBanner?.greeting}
         onStartNewChat={onStartNewChat}
       />
       <HomeSuggestionPillBar
@@ -129,6 +137,7 @@ export function HomePage({
         items={feedQuery.data?.items ?? []}
         onSelectItem={handleSelectItem}
         onDismissItem={handleDismissItem}
+        onRestoreItem={handleRestoreItem}
       />
     </>
   );
@@ -141,6 +150,7 @@ export function HomePage({
           onClose={handleCloseDetail}
           onGoToThread={handleGoToThread}
           onUpdateStatus={handleUpdateStatus}
+          onDismiss={handleDismissItem}
         />
       </div>
     );
@@ -150,11 +160,11 @@ export function HomePage({
     return (
       <ResizablePanel
         storageKey="homeDetailPanelWidth"
-        defaultLeftWidth={600}
+        defaultLeftPercent={50}
         minLeftWidth={400}
         minRightWidth={320}
         left={
-          <div className="flex h-full flex-col gap-[var(--app-spacing-xl)] overflow-y-auto px-[var(--app-spacing-xl)] py-[var(--app-spacing-2xl)]">
+          <div className="flex h-full flex-col gap-[var(--app-spacing-xl)] overflow-y-auto px-[var(--app-spacing-xl)] py-[var(--app-spacing-xxl)]">
             {feedContent}
           </div>
         }
@@ -164,6 +174,7 @@ export function HomePage({
             onClose={handleCloseDetail}
             onGoToThread={handleGoToThread}
             onUpdateStatus={handleUpdateStatus}
+            onDismiss={handleDismissItem}
           />
         }
       />
@@ -171,9 +182,11 @@ export function HomePage({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[960px] px-[var(--app-spacing-xl)] py-[var(--app-spacing-2xl)]">
-      <div className="flex flex-col gap-[var(--app-spacing-xl)]">
-        {feedContent}
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="mx-auto w-full max-w-[960px] px-[var(--app-spacing-xl)] py-[var(--app-spacing-xxl)]">
+        <div className="flex flex-col gap-[var(--app-spacing-xl)]">
+          {feedContent}
+        </div>
       </div>
     </div>
   );

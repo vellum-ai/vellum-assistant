@@ -12,7 +12,7 @@ Vellum assistant web app (chat, settings, library, docs).
   `<RouterProvider>`).
 - [Zustand](https://zustand.docs.pmnd.rs/) for shared client state
   (messages, streaming, interactions, conversations). See
-  [`CONVENTIONS.md`](./CONVENTIONS.md#state-management) for store patterns.
+  [`docs/STATE_MANAGEMENT.md`](./docs/STATE_MANAGEMENT.md) for store patterns.
 - [TanStack React Query](https://tanstack.com/query/latest) for server
   state (API calls, caching, mutations).
 - [HeyAPI](https://heyapi.dev/) for OpenAPI client generation with
@@ -79,14 +79,53 @@ bun run typecheck  # bunx tsc --noEmit
 bun run lint       # eslint
 ```
 
+## Testing
+
+```bash
+bun test                         # run all tests (single process, fast)
+bun test src/path/to/file.test.ts  # run one file
+bun run test:ci                  # run each file in its own process (CI)
+```
+
+Tests use [Bun's built-in test runner](https://bun.sh/docs/test) with
+[happy-dom](https://github.com/nicedoc/happy-dom) providing browser
+globals (`window`, `document`, `localStorage`, `fetch`, etc.) so
+component and hook tests run without a real browser.
+
+### Why `test:ci`?
+
+Bun's
+[`mock.module()`](https://bun.sh/docs/test/mocking#mock-module)
+mutates a process-global module registry — mocks set in one test file
+leak into every subsequent file in the same process. `bun run test:ci`
+runs each file in its own subprocess for full isolation. Use it when
+the standard `bun test` shows cross-file contamination, or in CI where
+deterministic results are required.
+
 ## Architecture
 
-See [`CONVENTIONS.md`](./CONVENTIONS.md) for code organization
-(domain-based architecture), state management patterns (Zustand +
-React Query), component conventions, and framework strategy.
+See [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) for code organization
+(domain-based architecture), component conventions, and framework strategy.
+See [`docs/STATE_MANAGEMENT.md`](./docs/STATE_MANAGEMENT.md) for state
+patterns (Zustand + TanStack Query).
 
-See [`STYLE_GUIDE.md`](./STYLE_GUIDE.md) for naming, imports,
+See [`docs/STYLE_GUIDE.md`](./docs/STYLE_GUIDE.md) for naming, imports,
 TypeScript rules, and formatting.
+
+**Feature boundaries are enforced by lint.** Each folder under
+`src/domains/` is meant to be a self-contained feature — its own data,
+components, hooks, and tests. When one feature reaches into another's
+internals, that creates a hidden coupling: changing the source can
+break the consumer, even though they're supposed to be independent.
+The custom ESLint rule [`local/no-cross-domain-imports`](./eslint-rules/no-cross-domain-imports.mjs)
+fails CI on any new `@/domains/<y>/...` import from inside
+`src/domains/<x>/...` when `x !== y`. Existing legacy imports are
+listed in [`.cross-domain-allowlist.json`](./.cross-domain-allowlist.json)
+while we lift the shared pieces up to the top-level shared directories
+(`hooks/`, `stores/`, `utils/`, `types/`, `components/`). That file
+shrinks toward zero over time — fix violations rather than adding
+entries to it. See [docs/CONVENTIONS.md](./docs/CONVENTIONS.md#how-to-decide-where-the-domain-split-is)
+for the full reasoning and the lift-vs-compose decision tree.
 
 ## Directory structure
 
@@ -95,8 +134,9 @@ src/
   App.tsx                    # root layout component
   main.tsx                   # entry point (createRoot, RouterProvider)
   routes.tsx                 # route tree (createBrowserRouter)
+  assistant/                 # core domain — the assistant itself
   stores/                    # app-level Zustand stores (cross-domain)
-  domains/                   # business domain modules
+  domains/                   # feature modules
     messages/                # message lifecycle
     conversations/           # conversation CRUD, grouping, selection
     streaming/               # SSE transport, event parsing

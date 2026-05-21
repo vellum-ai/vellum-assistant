@@ -1,15 +1,31 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { Surface } from "@/domains/chat/lib/types.js";
+import type { Surface } from "@/domains/chat/types/types.js";
 
-mock.module("@/domains/chat/lib/apps", () => ({
+mock.module("@/domains/chat/api/apps", () => ({
   getCachedAppHtml: () => Promise.resolve("<html></html>"),
 }));
 
-mock.module("@/domains/chat/lib/pinnedAppsContext", () => ({
-  usePinnedAppsOptional: () => null,
-}));
+mock.module("@/domains/chat/pinned-apps-store", () => {
+  const emptyStore = {
+    use: {
+      pinnedApps: () => [],
+      pinnedAppIds: () => new Set<string>(),
+      togglePin: () => () => {},
+      isPinned: () => () => false,
+      onUnpin: () => () => () => {},
+    },
+    getState: () => ({
+      pinnedApps: [],
+      pinnedAppIds: new Set<string>(),
+      togglePin: () => {},
+      isPinned: () => false,
+      onUnpin: () => () => {},
+    }),
+  };
+  return { usePinnedAppsStore: emptyStore };
+});
 
 import { DynamicPageSurface } from "@/domains/chat/components/surfaces/dynamic-page-surface.js";
 

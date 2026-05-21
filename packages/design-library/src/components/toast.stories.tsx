@@ -21,6 +21,37 @@ const meta: Meta = {
 export default meta;
 type Story = StoryObj;
 
+export const WithDescription: Story = {
+  render: () => (
+    <Button
+      onClick={() =>
+        toast.info("File uploaded", {
+          description: "your-document.pdf was uploaded successfully.",
+        })
+      }
+    >
+      Toast with description
+    </Button>
+  ),
+};
+
+export const WithAction: Story = {
+  render: () => (
+    <Button
+      onClick={() =>
+        toast.error("Message deleted", {
+          action: {
+            label: "Undo",
+            onClick: () => toast.success("Message restored"),
+          },
+        })
+      }
+    >
+      Toast with action
+    </Button>
+  ),
+};
+
 export const AllVariants: Story = {
   render: () => (
     <div className="flex flex-wrap gap-2">
@@ -55,36 +86,5 @@ export const AllVariants: Story = {
         Success
       </Button>
     </div>
-  ),
-};
-
-export const WithDescription: Story = {
-  render: () => (
-    <Button
-      onClick={() =>
-        toast.info("File uploaded", {
-          description: "your-document.pdf was uploaded successfully.",
-        })
-      }
-    >
-      Toast with description
-    </Button>
-  ),
-};
-
-export const WithAction: Story = {
-  render: () => (
-    <Button
-      onClick={() =>
-        toast.error("Message deleted", {
-          action: {
-            label: "Undo",
-            onClick: () => toast.success("Message restored"),
-          },
-        })
-      }
-    >
-      Toast with action
-    </Button>
   ),
 };

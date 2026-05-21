@@ -1,0 +1,301 @@
+{
+  "src/domains/chat/api/messages.ts": [
+    "onboarding"
+  ],
+  "src/domains/chat/api/stream.test.ts": [
+    "messaging"
+  ],
+  "src/domains/chat/chat-layout.tsx": [
+    "conversations",
+    "subagents"
+  ],
+  "src/domains/chat/chat-page.tsx": [
+    "avatar",
+    "conversations",
+    "interactions",
+    "onboarding",
+    "subagents"
+  ],
+  "src/domains/chat/components/chat-composer/chat-composer.test.tsx": [
+    "messaging"
+  ],
+  "src/domains/chat/components/chat-composer/chat-composer.tsx": [
+    "messaging",
+    "voice"
+  ],
+  "src/domains/chat/components/chat-route-content.tsx": [
+    "avatar",
+    "interactions",
+    "messaging",
+    "nudges",
+    "subagents"
+  ],
+  "src/domains/chat/components/mobile-subagent-detail-overlay.tsx": [
+    "subagents"
+  ],
+  "src/domains/chat/components/subagent-detail-panel.tsx": [
+    "avatar",
+    "subagents"
+  ],
+  "src/domains/chat/components/subagent-progress-card.tsx": [
+    "avatar",
+    "subagents"
+  ],
+  "src/domains/chat/components/subagent-status-badge.tsx": [
+    "subagents"
+  ],
+  "src/domains/chat/components/subagent-timeline.tsx": [
+    "subagents"
+  ],
+  "src/domains/chat/components/voice-input-button.tsx": [
+    "voice"
+  ],
+  "src/domains/chat/hooks/use-app-nudges.ts": [
+    "nudges"
+  ],
+  "src/domains/chat/hooks/use-assistant-lifecycle.ts": [
+    "onboarding"
+  ],
+  "src/domains/chat/hooks/use-conversation-history.ts": [
+    "conversations",
+    "interactions",
+    "messaging",
+    "subagents"
+  ],
+  "src/domains/chat/hooks/use-event-stream.ts": [
+    "conversations",
+    "messaging"
+  ],
+  "src/domains/chat/hooks/use-interaction-actions.ts": [
+    "conversations",
+    "interactions",
+    "messaging",
+    "trust-rules"
+  ],
+  "src/domains/chat/hooks/use-message-queue.ts": [
+    "messaging"
+  ],
+  "src/domains/chat/hooks/use-message-reconciliation.test.tsx": [
+    "messaging"
+  ],
+  "src/domains/chat/hooks/use-message-reconciliation.ts": [
+    "messaging"
+  ],
+  "src/domains/chat/hooks/use-send-message.ts": [
+    "conversations",
+    "interactions",
+    "messaging",
+    "onboarding",
+    "subagents"
+  ],
+  "src/domains/chat/hooks/use-stream-event-handler.ts": [
+    "conversations",
+    "messaging"
+  ],
+  "src/domains/chat/hooks/use-voice-input.ts": [
+    "voice"
+  ],
+  "src/domains/chat/inspector/components/tabs/prompt-tab.tsx": [
+    "intelligence"
+  ],
+  "src/domains/chat/transcript/latest-turn-row.tsx": [
+    "subagents"
+  ],
+  "src/domains/chat/transcript/transcript.tsx": [
+    "subagents"
+  ],
+  "src/domains/chat/utils/stream-handlers/interaction-handlers.test.ts": [
+    "interactions"
+  ],
+  "src/domains/chat/utils/stream-handlers/interaction-handlers.ts": [
+    "interactions"
+  ],
+  "src/domains/chat/utils/stream-handlers/metadata-handlers.test.ts": [
+    "conversations"
+  ],
+  "src/domains/chat/utils/stream-handlers/metadata-handlers.ts": [
+    "conversations"
+  ],
+  "src/domains/chat/utils/stream-handlers/navigation-handlers.ts": [
+    "settings"
+  ],
+  "src/domains/chat/utils/stream-handlers/subagent-handlers.ts": [
+    "subagents"
+  ],
+  "src/domains/chat/utils/stream-handlers/test-helpers.ts": [
+    "messaging"
+  ],
+  "src/domains/chat/utils/stream-handlers/types.ts": [
+    "messaging"
+  ],
+  "src/domains/chat/utils/turn-selectors.ts": [
+    "messaging"
+  ],
+  "src/domains/contacts/components/assistant-channels-detail.tsx": [
+    "settings"
+  ],
+  "src/domains/contacts/components/contact-detail-view.tsx": [
+    "settings"
+  ],
+  "src/domains/contacts/components/guardian-detail-view.tsx": [
+    "settings"
+  ],
+  "src/domains/contacts/connect-page.tsx": [
+    "chat"
+  ],
+  "src/domains/contacts/contacts-page.tsx": [
+    "chat"
+  ],
+  "src/domains/conversations/conversation-queries.test.ts": [
+    "chat"
+  ],
+  "src/domains/conversations/conversation-queries.ts": [
+    "chat"
+  ],
+  "src/domains/conversations/use-attention-tracking.ts": [
+    "chat"
+  ],
+  "src/domains/conversations/use-conversation-actions.test.ts": [
+    "chat"
+  ],
+  "src/domains/conversations/use-conversation-actions.ts": [
+    "chat"
+  ],
+  "src/domains/conversations/use-conversation-group-actions.ts": [
+    "chat"
+  ],
+  "src/domains/conversations/use-conversation-loader.ts": [
+    "chat"
+  ],
+  "src/domains/home/home-greeting-header.tsx": [
+    "avatar"
+  ],
+  "src/domains/home/home-page.tsx": [
+    "avatar"
+  ],
+  "src/domains/intelligence/components/apps/app-viewer-container.tsx": [
+    "chat"
+  ],
+  "src/domains/intelligence/components/apps/document-viewer-container.tsx": [
+    "chat"
+  ],
+  "src/domains/intelligence/components/apps/library-view.tsx": [
+    "chat"
+  ],
+  "src/domains/intelligence/components/constellation-view/constellation-view.tsx": [
+    "avatar"
+  ],
+  "src/domains/intelligence/components/constellation-view/node-view.tsx": [
+    "avatar"
+  ],
+  "src/domains/intelligence/components/identity-tab.tsx": [
+    "avatar"
+  ],
+  "src/domains/intelligence/identity-page.tsx": [
+    "chat"
+  ],
+  "src/domains/interactions/interaction-store.ts": [
+    "chat"
+  ],
+  "src/domains/library/library-detail-page.tsx": [
+    "chat",
+    "intelligence"
+  ],
+  "src/domains/library/library-page.tsx": [
+    "chat",
+    "intelligence"
+  ],
+  "src/domains/logs/components/logs-tab.tsx": [
+    "chat"
+  ],
+  "src/domains/logs/components/usage-tab.tsx": [
+    "chat"
+  ],
+  "src/domains/logs/logs-layout.tsx": [
+    "settings"
+  ],
+  "src/domains/logs/pages/emails-page.tsx": [
+    "settings"
+  ],
+  "src/domains/logs/pages/system-events-page.tsx": [
+    "settings"
+  ],
+  "src/domains/logs/pages/trace-page.tsx": [
+    "settings"
+  ],
+  "src/domains/logs/pages/usage-page.tsx": [
+    "settings"
+  ],
+  "src/domains/messaging/turn-store.test.ts": [
+    "chat"
+  ],
+  "src/domains/nudges/nudge-prefs.ts": [
+    "settings"
+  ],
+  "src/domains/onboarding/onboarding-store.ts": [
+    "settings"
+  ],
+  "src/domains/onboarding/pages/hatching-screen.tsx": [
+    "avatar"
+  ],
+  "src/domains/onboarding/pages/pre-chat-flow.tsx": [
+    "nudges"
+  ],
+  "src/domains/onboarding/prefs.ts": [
+    "settings"
+  ],
+  "src/domains/onboarding/screens/get-ios-app-screen.tsx": [
+    "nudges"
+  ],
+  "src/domains/onboarding/screens/get-macos-app-screen.tsx": [
+    "nudges"
+  ],
+  "src/domains/settings/ai/ai-page.tsx": [
+    "voice"
+  ],
+  "src/domains/settings/components/ios-app-card.tsx": [
+    "nudges"
+  ],
+  "src/domains/settings/components/panels/assistant-terminal-panel.tsx": [
+    "terminal"
+  ],
+  "src/domains/settings/components/panels/debug-controls-panel.tsx": [
+    "onboarding"
+  ],
+  "src/domains/settings/components/profile-card.tsx": [
+    "account"
+  ],
+  "src/domains/settings/components/retire-assistant.tsx": [
+    "onboarding"
+  ],
+  "src/domains/settings/components/risk-tolerance-settings.tsx": [
+    "chat"
+  ],
+  "src/domains/settings/components/voice-panel.tsx": [
+    "voice"
+  ],
+  "src/domains/settings/hooks/use-settings-sync.ts": [
+    "chat"
+  ],
+  "src/domains/settings/pages/archive-page.tsx": [
+    "chat"
+  ],
+  "src/domains/settings/pages/community-page.tsx": [
+    "nudges"
+  ],
+  "src/domains/settings/pages/voice-page.tsx": [
+    "voice"
+  ],
+  "src/domains/subagents/status-helpers.ts": [
+    "chat"
+  ],
+  "src/domains/subagents/subagent-store.ts": [
+    "chat"
+  ],
+  "src/domains/workspace/components/workspace-file-viewer.tsx": [
+    "intelligence"
+  ],
+  "src/domains/workspace/workspace-page.tsx": [
+    "chat"
+  ]
+}

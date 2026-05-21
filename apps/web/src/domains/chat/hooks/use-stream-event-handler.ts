@@ -8,20 +8,16 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useConversationListStore } from "@/domains/conversations/conversation-list-store.js";
-import type {
-  AssistantEvent,
-  AssistantSyncChangedEvent,
-  ChatEventStream,
-} from "@/domains/chat/lib/api.js";
+import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
-import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
+import { useViewerStore } from "@/stores/viewer-store.js";
+import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
 import {
   recordChatDiagnostic,
   summarizeAssistantEvent,
-} from "@/domains/chat/lib/diagnostics.js";
+} from "@/domains/chat/utils/diagnostics.js";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils.js";
 import {
   handleHomeFeedUpdated,
@@ -75,6 +71,8 @@ export type {
 } from "@/domains/chat/types.js";
 
 import type { ChatError } from "@/domains/chat/types.js";
+import type { AssistantEvent, AssistantSyncChangedEvent } from "@/domains/chat/api/event-types.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 
 // ---------------------------------------------------------------------------
 // Params & return types
@@ -96,11 +94,6 @@ export interface UseStreamEventHandlerParams {
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
   needsNewBubbleRef: MutableRefObject<boolean>;
-
-  // --- Processing ---
-  processingSnapshotsRef: MutableRefObject<
-    Map<string, string | undefined>
-  >;
 
   // --- Error & stream lifecycle ---
   setError: Dispatch<SetStateAction<ChatError | null>>;
@@ -177,7 +170,6 @@ export function useStreamEventHandler(
     setMessages,
     messagesRef,
     needsNewBubbleRef,
-    processingSnapshotsRef,
     setError,
     streamRef,
     cancelReconciliation,
@@ -215,13 +207,10 @@ export function useStreamEventHandler(
   invalidateAvatarRef.current = invalidateAvatar;
 
   /** Remove a conversation key from the processing set and snapshots map. */
-  const clearProcessingKey = useCallback(
-    (convKey: string) => {
-      useConversationListStore.getState().removeProcessingKey(convKey);
-      processingSnapshotsRef.current.delete(convKey);
-    },
-    [processingSnapshotsRef],
-  );
+  const clearProcessingKey = useCallback((convKey: string) => {
+    // `removeProcessingKey` clears the matching snapshot in the same set call.
+    useConversationStore.getState().removeProcessingKey(convKey);
+  }, []);
 
   // --- Main event handler ---
 
@@ -294,6 +283,7 @@ export function useStreamEventHandler(
         contextWindowUsageByConversationRef,
         setContextWindowUsage,
         scheduleConversationListRefetch,
+        queryClient,
         setCompactionCircuitOpenUntil,
         applyDiskPressureStatusEvent: (...args) =>
           applyDiskPressureStatusEventRef.current(...args),
@@ -424,6 +414,17 @@ export function useStreamEventHandler(
         case "sync_changed":
           dispatchSyncChanged(event);
           break;
+        case "document_editor_update":
+          useViewerStore.getState().updateDocumentContent(
+            event.surfaceId,
+            event.markdown,
+            event.mode,
+          );
+          break;
+        case "document_comment_created":
+        case "document_comment_resolved":
+        case "document_comment_reopened":
+        case "document_comment_deleted":
         case "unknown":
           break;
         default: {

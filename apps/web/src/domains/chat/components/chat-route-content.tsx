@@ -1,6 +1,6 @@
 /**
  * Chat route content — renders the chat-specific UI (main chat, document panel,
- * app-editing side panel) within the `AssistantShell` layout.
+ * app-editing side panel) inside `ChatLayout`.
  *
  * Extracted from `AssistantPageClient` as Phase 1 of route-level component
  * splitting. This component owns:
@@ -19,10 +19,10 @@
  */
 
 import * as Sentry from "@sentry/react";
-import { Loader2 } from "lucide-react";
 import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, startTransition, useCallback, useEffect, useMemo, useRef } from "react";
 
 import { ChatBody } from "@/domains/chat/components/chat-body.js";
+import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer.js";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid.js";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices.js";
 import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card.js";
@@ -47,6 +47,7 @@ import { DiscordNudgeBanner } from "@/domains/nudges/components/discord-nudge-ba
 import { GitHubNudgeBanner } from "@/domains/nudges/components/github-nudge-banner.js";
 import { IOSAppBanner } from "@/domains/nudges/components/ios-app-banner.js";
 import { MacOSAppBanner } from "@/domains/nudges/components/macos-app-banner.js";
+import { Loader2 } from "lucide-react";
 import { Button, Notice, ResizablePanel } from "@vellum/design-library";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner.js";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer.js";
@@ -56,39 +57,45 @@ import { ChatAvatar } from "@/components/avatar/chat-avatar.js";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu.js";
 import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel.js";
+import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card.js";
+import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice.js";
+import { useIsNativePlatform } from "@/runtime/native-auth.js";
 
 import { Link } from "react-router";
-import type { AssistantIdentity, ChatEventStream, Conversation } from "@/domains/chat/lib/api.js";
-import type { ConversationStarter } from "@/domains/chat/lib/conversation-starters.js";
-import { recordChatDiagnostic, summarizeDisplayMessages } from "@/domains/chat/lib/diagnostics.js";
-import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/lib/edit-app-empty-state.js";
-import { pickRandomPlaceholder } from "@/domains/chat/lib/empty-state-constants.js";
-import { useEmptyStateGreeting } from "@/domains/chat/lib/use-empty-state-greeting.js";
-import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/lib/error-classification.js";
-import { fetchOlderHistoryPage } from "@/domains/chat/lib/history.js";
+import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters.js";
+import { recordChatDiagnostic, summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics.js";
+import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state.js";
+import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants.js";
+import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting.js";
+import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
+import { fetchOlderHistoryPage } from "@/domains/chat/api/history.js";
+import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
-import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/lib/reconcile.js";
-import { buildTranscriptItems } from "@/domains/chat/lib/transcript/build-items.js";
-import type { TranscriptPaginationState } from "@/domains/chat/lib/transcript/types.js";
-import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/chat/lib/turn-selectors.js";
-import { isSurfaceInteractive } from "@/domains/chat/lib/types.js";
+import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
+import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
+import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/chat/utils/turn-selectors.js";
+import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
 
-import type { MainView, OpenedAppState, OpenedDocumentState, ViewerState } from "@/stores/viewer-store.js";
-import { submitQuestionResponse } from "@/domains/chat/lib/api.js";
-import { useActiveProfileModel } from "@/domains/chat/lib/use-active-profile-model.js";
-import { modelSupportsVision } from "@/domains/assistant/model-capabilities.js";
+import type { MainView, OpenedAppState, OpenedDocumentState } from "@/stores/viewer-store.js";
+import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model.js";
+import { modelSupportsVision } from "@/assistant/model-capabilities.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
-import { isChannelConversation as _isChannelConversation } from "@/domains/chat/lib/conversation-channel.js";
-import { getDiskPressureChatBlockReason } from "@/domains/assistant/disk-pressure.js";
-import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
-import { useTurnStore } from "@/domains/messaging/turn-store.js";
-import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/lib/event-types.js";
+import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
+import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";
+import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
+import { isSending, type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
+import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types.js";
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button.js";
+import type { AssistantIdentity } from "@/assistant/identity.js";
+import type { Conversation } from "@/domains/chat/api/conversations.js";
+import { submitQuestionResponse } from "@/domains/chat/api/interactions.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -128,7 +135,6 @@ export interface VoiceInputHandlers {
   setVoiceError: (e: string | null) => void;
   handleVoiceBeforeStart: () => boolean | Promise<boolean>;
   handleVoiceTranscript: (rawText: string) => void;
-  handleVoiceRecordingChange: (isRecording: boolean) => void;
   setVoiceInterim: (text: string) => void;
   handleRetryMicPermission: () => void;
 }
@@ -216,7 +222,6 @@ export interface ChatRouteRefs {
   refreshSettleRef: MutableRefObject<RefreshSettleHandle | null>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
-  processingSnapshotsRef: MutableRefObject<Map<string, string | undefined>>;
   historyLoadedRef: MutableRefObject<boolean>;
   pendingQueuedStableIdsRef: MutableRefObject<string[]>;
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
@@ -270,7 +275,6 @@ export interface ChatRouteContentProps {
 
   // Viewer
   mainView: MainView;
-  viewerState: ViewerState;
   openedAppState: OpenedAppState | null;
   openedDocumentState: OpenedDocumentState | null;
   editingConversationKey: string | null;
@@ -328,6 +332,7 @@ export interface ChatRouteContentProps {
   handleCloseDocument: () => void;
   handleCloseApp: () => void;
   handleCloseEditPanel: () => void;
+  handleEditApp: () => void;
   handleShareApp: () => void;
   handleDeployApp: (() => void) | undefined;
 
@@ -358,6 +363,11 @@ export interface ChatRouteContentProps {
 
   // Is channel readonly (computed in parent, used in topbar + here)
   isChannelReadonly: boolean;
+
+  // Onboarding (iOS post-hatch flow)
+  onboardingTasksEmpty: boolean;
+  didOnboarding: boolean;
+  onboardingConversationKey: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -385,7 +395,6 @@ export function ChatRouteContent({
   activeConversation,
   processingKeys,
   mainView,
-  viewerState,
   openedAppState,
   openedDocumentState,
   editingConversationKey,
@@ -413,6 +422,7 @@ export function ChatRouteContent({
   handleCloseDocument,
   handleCloseApp,
   handleCloseEditPanel,
+  handleEditApp,
   handleShareApp,
   handleDeployApp,
   handleForkConversation,
@@ -429,6 +439,9 @@ export function ChatRouteContent({
   streamRetryNonce: _streamRetryNonce,
   refs,
   isChannelReadonly,
+  onboardingTasksEmpty,
+  didOnboarding,
+  onboardingConversationKey,
 }: ChatRouteContentProps) {
   // Destructure grouped props
   const { avatarComponents, avatarTraits, avatarImageUrl } = avatar;
@@ -450,7 +463,6 @@ export function ChatRouteContent({
     setVoiceError: _setVoiceError,
     handleVoiceBeforeStart,
     handleVoiceTranscript,
-    handleVoiceRecordingChange,
     setVoiceInterim,
     handleRetryMicPermission,
   } = voice;
@@ -491,7 +503,6 @@ export function ChatRouteContent({
     refreshSettleRef,
     streamRef: _streamRef,
     streamEpochRef: _streamEpochRef,
-    processingSnapshotsRef: _processingSnapshotsRef,
     historyLoadedRef: _historyLoadedRef,
     pendingQueuedStableIdsRef: _pendingQueuedStableIdsRef,
     requestIdToStableIdRef: _requestIdToStableIdRef,
@@ -504,7 +515,20 @@ export function ChatRouteContent({
   // -------------------------------------------------------------------------
   // Turn state (read from Zustand store)
   // -------------------------------------------------------------------------
-  const turnState = useTurnStore();
+  const phase = useTurnStore.use.phase();
+  const pendingQueuedCount = useTurnStore.use.pendingQueuedCount();
+  const activeToolCallCount = useTurnStore.use.activeToolCallCount();
+  const activeTurnId = useTurnStore.use.activeTurnId();
+  const lastTerminalReason = useTurnStore.use.lastTerminalReason();
+  const statusText = useTurnStore.use.statusText();
+  const turnState: TurnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText };
+
+  // -------------------------------------------------------------------------
+  // Deploy / share state (from Zustand store)
+  // -------------------------------------------------------------------------
+
+  const isSharing = useDeployStore.use.isSharing();
+  const isDeploying = useDeployStore.use.isDeploying();
 
   // -------------------------------------------------------------------------
   // Interaction state (from Zustand store)
@@ -522,6 +546,25 @@ export function ChatRouteContent({
   const secretSaved = useInteractionStore.use.secretSaved();
   const inlineConfirmationToolCallId = useInteractionStore.use.inlineConfirmationToolCallId();
   const inlineConfirmationAttached = inlineConfirmationToolCallId !== null;
+
+  // -------------------------------------------------------------------------
+  // Onboarding choice card
+  // -------------------------------------------------------------------------
+
+  const isNative = useIsNativePlatform();
+  const {
+    showOnboardingChoice,
+    handleSubmitTasks,
+    dismiss: dismissOnboardingChoice,
+  } = useOnboardingChoice({
+    isNative,
+    didOnboarding,
+    messages,
+    onboardingTasksEmpty,
+    activeConversationKey,
+    onboardingConversationKey,
+    sendMessage,
+  });
 
   // -------------------------------------------------------------------------
   // Derived values
@@ -556,6 +599,8 @@ export function ChatRouteContent({
   };
 
   const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
+  const canStopGenerating =
+    isSending(turnState) && turnState.phase !== "awaiting_user_input";
 
   const diskPressureChatBlockReason = getDiskPressureChatBlockReason({
     monitorEnabled: diskPressure.diskPressureMonitorEnabled,
@@ -800,6 +845,7 @@ export function ChatRouteContent({
         isThinking: showThinking,
         thinkingLabel,
         errorNotice: null,
+        showOnboardingChoice,
       }),
     [
       messages,
@@ -809,6 +855,7 @@ export function ChatRouteContent({
       pendingContactRequest,
       showThinking,
       thinkingLabel,
+      showOnboardingChoice,
     ],
   );
 
@@ -1163,6 +1210,12 @@ export function ChatRouteContent({
     subagentEntries,
     onSubagentClick,
     onStopSubagent,
+    renderOnboardingChoice: () => (
+      <OnboardingChoiceCard
+        onSelectSpecific={dismissOnboardingChoice}
+        onSubmitTasks={handleSubmitTasks}
+      />
+    ),
   };
 
   const sharedComposerNoticeProps = {
@@ -1201,7 +1254,6 @@ export function ChatRouteContent({
     voiceInterim: voiceInterim ?? undefined,
     onVoiceTranscript: (rawText: string) => handleVoiceTranscript(rawText),
     onVoiceInterimTranscript: setVoiceInterim,
-    onVoiceRecordingChange: handleVoiceRecordingChange,
     onVoiceError: _setVoiceError,
     onVoiceBeforeStart: handleVoiceBeforeStart,
     onStopGenerating: handleStopGenerating,
@@ -1292,6 +1344,14 @@ export function ChatRouteContent({
     </div>
   ) : null;
 
+  const channelFooterSlot = (
+    <SlackChannelFooter
+      assistantId={assistantId ?? undefined}
+      conversation={activeConversation}
+      messages={messages}
+    />
+  );
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -1323,7 +1383,9 @@ export function ChatRouteContent({
             onRetryRefresh={handleRetryRefreshFromPill}
             genericChatError={genericChatError}
             isChannelReadonly={isChannelReadonly}
+            canStopGenerating={canStopGenerating}
             questionPromptSlot={questionPromptSlot}
+            channelFooterSlot={channelFooterSlot}
             startersSlot={startersSlot}
           />
         }
@@ -1336,12 +1398,38 @@ export function ChatRouteContent({
             onClose={handleCloseApp}
             onEdit={handleCloseEditPanel}
             onShare={handleShareApp}
-            isSharing={viewerState.isSharing}
+            isSharing={isSharing}
             onDeploy={deployToVercel ? handleDeployApp : undefined}
-            isDeploying={viewerState.isDeploying}
+            isDeploying={isDeploying}
             isEditing
           />
         }
+      />
+    );
+  }
+
+  // Desktop full-width app viewer (non-editing). Mobile uses the portal-based
+  // MobileAppOverlay instead — this branch is desktop-only.
+  if (mainView === "app" && !isMobile) {
+    if (!openedAppState) {
+      return (
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
+        </div>
+      );
+    }
+    return (
+      <AppViewerContainer
+        appId={openedAppState.appId}
+        appName={openedAppState.name}
+        html={openedAppState.html}
+        assistantId={assistantId ?? ""}
+        onClose={handleCloseApp}
+        onEdit={handleEditApp}
+        onShare={handleShareApp}
+        isSharing={isSharing}
+        onDeploy={deployToVercel ? handleDeployApp : undefined}
+        isDeploying={isDeploying}
       />
     );
   }
@@ -1367,53 +1455,35 @@ export function ChatRouteContent({
       onRetryRefresh={handleRetryRefreshFromPill}
       genericChatError={genericChatError}
       isChannelReadonly={isChannelReadonly}
+      canStopGenerating={canStopGenerating}
       bannerSlot={mainBannerSlot}
       queuedDrawerSlot={mainQueuedDrawerSlot}
       questionPromptSlot={questionPromptSlot}
+      channelFooterSlot={channelFooterSlot}
       startersSlot={startersSlot}
     />
   );
 
-  if (mainView === "document" && !isMobile) {
-    const isFullWidth = viewerState.viewBeforeDocument === "library" || viewerState.viewBeforeDocument === "intelligence";
-    if (!openedDocumentState) {
-      if (isFullWidth) {
-        return (
-          <div className="flex flex-1 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
-          </div>
-        );
-      }
-    } else if (isFullWidth) {
-      return (
-        <DocumentViewerContainer
-          documentName={openedDocumentState.documentName}
-          content={openedDocumentState.content}
-          onClose={handleCloseDocument}
-          assistantId={assistantId ?? undefined}
-          surfaceId={openedDocumentState.surfaceId}
-        />
-      );
-    } else {
-      return (
-        <ResizablePanel
-          storageKey="documentPanelWidth"
-          defaultLeftWidth={400}
-          minLeftWidth={300}
-          minRightWidth={400}
-          left={chatContent}
-          right={
-            <DocumentViewerContainer
-              documentName={openedDocumentState.documentName}
-              content={openedDocumentState.content}
-              onClose={handleCloseDocument}
-              assistantId={assistantId ?? undefined}
-              surfaceId={openedDocumentState.surfaceId}
-            />
-          }
-        />
-      );
-    }
+  if (mainView === "document" && !isMobile && openedDocumentState && assistantId) {
+    return (
+      <ResizablePanel
+        storageKey="documentPanelWidth"
+        defaultLeftWidth={400}
+        minLeftWidth={300}
+        minRightWidth={400}
+        left={chatContent}
+        right={
+          <DocumentViewerContainer
+            documentName={openedDocumentState.documentName}
+            content={openedDocumentState.content}
+            onClose={handleCloseDocument}
+            assistantId={assistantId}
+            surfaceId={openedDocumentState.surfaceId}
+            conversationId={openedDocumentState.conversationId}
+          />
+        }
+      />
+    );
   }
 
   if (mainView === "subagent-detail" && activeSubagentId && !isMobile) {

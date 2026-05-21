@@ -3,12 +3,13 @@ import type {
   MutableRefObject,
   SetStateAction,
 } from "react";
-import type { ChatEventStream } from "@/domains/chat/lib/api.js";
+import type { QueryClient } from "@tanstack/react-query";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
-import type { DisplayMessage } from "@/domains/chat/lib/reconcile.js";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { TurnActions, TurnState } from "@/domains/messaging/turn-store.js";
-import type { DiskPressureStatusEventPayload } from "@/domains/assistant/use-disk-pressure-monitor.js";
+import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
 import type { ChatError, PendingQuestionState } from "@/domains/chat/types.js";
+import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 
 export type { PendingQuestionState };
 
@@ -17,13 +18,7 @@ export interface StreamContext {
   conversationKey: string;
 }
 
-/**
- * Minimal push-based navigation adapter.
- *
- * Matches both Next.js App Router (`router.push`) and React Router v7
- * (`navigate`). Stream handlers only need forward navigation, so a
- * single `push` function is sufficient.
- */
+/** Minimal push-based navigation adapter for stream event handlers. */
 export interface Router {
   push(href: string): void;
 }
@@ -77,6 +72,8 @@ export interface StreamHandlerContext {
 
   // --- Conversations ---
   scheduleConversationListRefetch: () => void;
+  /** TanStack Query client used by conversation/group cache helpers. */
+  queryClient: QueryClient;
 
   // --- Compaction ---
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;

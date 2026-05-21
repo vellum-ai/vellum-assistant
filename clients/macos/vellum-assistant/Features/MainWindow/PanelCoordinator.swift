@@ -260,7 +260,11 @@ extension MainWindowView {
     func homeDetailPanelContent() -> some View {
         switch activeHomeDetailPanel {
         case .toolPermission(let item):
-            HomeDetailPanel(icon: nil, title: item.title, onDismiss: { activeHomeDetailPanel = nil }) {
+            HomeDetailPanel(
+                icon: nil,
+                title: item.title,
+                onClose: { activeHomeDetailPanel = nil }
+            ) {
                 HomePermissionDetailCard(item: item)
             }
         case .generic(let item):
@@ -279,18 +283,39 @@ extension MainWindowView {
                 title: headerTitle,
                 iconForeground: iconForegroundForFeedItem(item),
                 iconBackground: iconBackgroundForFeedItem(item),
-                onGoToThread: goToThreadHandler(for: item),
-                onDismiss: { activeHomeDetailPanel = nil },
+                onGoToConvo: goToConvoHandler(for: item),
+                onMarkReadUnread: {
+                    Task {
+                        let nextStatus: FeedItemStatus = isItemRead(item) ? .new : .seen
+                        await feedStore.updateStatus(itemId: item.id, status: nextStatus)
+                    }
+                },
+                isRead: isItemRead(item),
+                onDismissItem: {
+                    Task {
+                        await feedStore.dismiss(itemId: item.id)
+                    }
+                    activeHomeDetailPanel = nil
+                },
+                onClose: { activeHomeDetailPanel = nil },
                 showsPersonaAvatar: item.fromAssistant == true
             ) {
-                Text(item.summary).font(VFont.bodyMediumDefault).foregroundStyle(VColor.contentSecondary).padding(VSpacing.lg)
+                HomeMarkdownContent(text: item.summary)
+                    .padding(VSpacing.lg)
             }
         case nil:
             EmptyView()
         }
     }
 
-    /// Builds the "Go to Thread" handler for the home detail panel.
+    /// Whether the feed item is in a "read" state (`seen` or `actedOn`).
+    private func isItemRead(_ item: FeedItem) -> Bool {
+        let current = feedStore.items.first(where: { $0.id == item.id })
+        let status = current?.status ?? item.status
+        return status == .seen || status == .actedOn
+    }
+
+    /// Builds the "Go to Convo" handler for the home detail panel.
     ///
     /// `FeedItem.conversationId` carries the **daemon-side** conversation
     /// ID (mirrored from `notification_intent.deepLinkMetadata.conversationId`
@@ -305,14 +330,14 @@ extension MainWindowView {
     ///
     /// Returns `nil` when the feed item has no associated conversation —
     /// `HomeDetailPanel` hides the button when the handler is `nil`.
-    private func goToThreadHandler(for item: FeedItem) -> (() -> Void)? {
+    private func goToConvoHandler(for item: FeedItem) -> (() -> Void)? {
         guard let daemonConversationId = item.conversationId else { return nil }
         return {
             Task { @MainActor in
                 let found = await conversationManager.selectConversationByConversationIdAsync(daemonConversationId)
                 let activeLocalId = conversationManager.activeConversationId
                 panelCoordinatorLog.info(
-                    "Go to Thread: daemonConversationId=\(daemonConversationId, privacy: .public) feedItemId=\(item.id, privacy: .public) found=\(found, privacy: .public) activeLocalId=\(activeLocalId?.uuidString ?? "<nil>", privacy: .public)"
+                    "Go to Convo: daemonConversationId=\(daemonConversationId, privacy: .public) feedItemId=\(item.id, privacy: .public) found=\(found, privacy: .public) activeLocalId=\(activeLocalId?.uuidString ?? "<nil>", privacy: .public)"
                 )
                 guard found, let id = activeLocalId else {
                     windowState.showToast(message: "Couldn't open the conversation.", style: .error)

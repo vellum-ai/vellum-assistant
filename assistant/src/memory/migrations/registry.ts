@@ -50,6 +50,8 @@ import { downToolInvocationsMatchedRuleId } from "./236-tool-invocations-matched
 import { downHeartbeatRuns } from "./237-heartbeat-runs.js";
 import { downNormalizeSlackExternalContent } from "./249-normalize-slack-external-content.js";
 import { downA2ATasks } from "./251-a2a-tasks.js";
+import { downExternalConversationBindingChatName } from "./254-external-conversation-binding-chat-name.js";
+import { downMemoryV2InjectionEvents } from "./256-memory-v2-injection-events.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -427,6 +429,21 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Create a2a_tasks table for tracking A2A request/response lifecycle",
     down: downA2ATasks,
+  },
+  {
+    key: "migration_external_conversation_binding_chat_name_v1",
+    version: 50,
+    description:
+      "Add external_chat_name to external conversation bindings for channel footer metadata",
+    down: downExternalConversationBindingChatName,
+  },
+  {
+    key: "migration_memory_v2_injection_events_v1",
+    version: 51,
+    dependsOn: ["migration_memory_v2_activation_logs_v1"],
+    description:
+      "Create memory_v2_injection_events table and backfill from activation logs for EMA-based tier 2 routing",
+    down: downMemoryV2InjectionEvents,
   },
 ];
 

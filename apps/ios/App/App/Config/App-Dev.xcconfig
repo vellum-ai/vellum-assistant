@@ -1,0 +1,10 @@
+// App-Dev.xcconfig — dev target overrides.
+
+#include "Base.xcconfig"
+
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev
+ASSOCIATED_DOMAIN = dev-assistant.vellum.ai
+BUNDLE_DISPLAY_NAME = Vellum Dev
+BUNDLE_URL_SCHEME = vellum-assistant-dev
+CODE_SIGN_ENTITLEMENTS = App/App-Dev.entitlements
+PRODUCT_BUNDLE_IDENTIFIER = ai.vocify-inc.vellum-assistant-ios.dev

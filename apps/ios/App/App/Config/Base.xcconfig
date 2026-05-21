@@ -1,0 +1,20 @@
+// Base.xcconfig — shared build settings for all iOS targets.
+// Per-target xcconfigs #include this file, then override the
+// target-specific keys (bundle ID, display name, icon, URL scheme,
+// associated domain).
+
+// MARKETING_VERSION and CURRENT_PROJECT_VERSION are intentionally not set
+// here. Release builds inject them as xcodebuild CLI overrides at archive
+// time (see .github/workflows/release-ios.yaml), so any value committed
+// here would only affect local Xcode builds and quickly go stale after
+// each release.
+
+CODE_SIGN_ENTITLEMENTS = App/App.entitlements
+CODE_SIGN_STYLE = Automatic
+DEVELOPMENT_TEAM = 7FZDXZR8P5
+INFOPLIST_FILE = App/Info.plist
+IPHONEOS_DEPLOYMENT_TARGET = 15.0
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks
+PRODUCT_NAME = $(TARGET_NAME)
+SWIFT_VERSION = 5.0
+TARGETED_DEVICE_FAMILY = 1,2

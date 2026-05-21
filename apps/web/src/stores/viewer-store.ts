@@ -1,8 +1,8 @@
 /**
  * Zustand store for viewer UI state.
  *
- * Manages panel navigation, app/document viewer lifecycle, and
- * share/deploy operations as direct named actions.
+ * Manages panel navigation and the app/document viewer lifecycle as
+ * direct named actions.
  *
  * **State managed:**
  * - `mainView` — which top-level panel is displayed
@@ -13,20 +13,24 @@
  * - `assetsRefreshKey` — counter bumped to force asset re-fetches
  * - `viewBeforeDocument` / `viewBeforeSubagentDetail` — previous view for restoration
  * - `activeSubagentId` — subagent detail panel
- * - Share/deploy in-flight state
+ *
+ * App share/deploy lifecycle lives in `domains/chat/deploy-store.ts`.
  *
  * Reference: {@link https://zustand.docs.pmnd.rs/}
  */
 
+import * as Sentry from "@sentry/react";
 import { create } from "zustand";
 
+import { openApp, primeAppHtmlCache } from "@/domains/chat/api/apps.js";
+import { fetchDocumentContent } from "@/domains/chat/api/documents.js";
 import { createSelectors } from "@/utils/create-selectors.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type MainView = "chat" | "intelligence" | "library" | "app" | "app-editing" | "document" | "home" | "subagent-detail";
+export type MainView = "chat" | "app" | "app-editing" | "document" | "subagent-detail";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
 
@@ -44,11 +48,6 @@ export interface OpenedDocumentState {
   content: string;
 }
 
-export interface ComplexDeployApp {
-  appId: string;
-  name: string;
-}
-
 // ---------------------------------------------------------------------------
 // State & Actions
 // ---------------------------------------------------------------------------
@@ -57,18 +56,14 @@ export interface ViewerState {
   mainView: MainView;
   activeAppId: string | null;
   openedAppState: OpenedAppState | null;
+  activeDocumentSurfaceId: string | null;
   openedDocumentState: OpenedDocumentState | null;
   isAppMinimized: boolean;
   intelligenceTab: IntelligenceTab;
   assetsRefreshKey: number;
-  viewBeforeDocument: Exclude<MainView, "document">;
+  viewBeforeDocument: Exclude<MainView, "document" | "subagent-detail">;
   activeSubagentId: string | null;
-  viewBeforeSubagentDetail: Exclude<MainView, "subagent-detail">;
-  isSharing: boolean;
-  isDeploying: boolean;
-  isTokenDialogOpen: boolean;
-  pendingDeployAppId: string | null;
-  complexDeployApp: ComplexDeployApp | null;
+  viewBeforeSubagentDetail: Exclude<MainView, "document" | "subagent-detail">;
 }
 
 export interface ViewerActions {
@@ -78,6 +73,7 @@ export interface ViewerActions {
 
   // --- App viewer ---
   openApp: (appId: string) => void;
+  loadApp: (assistantId: string, appId: string) => Promise<void>;
   setLoadedApp: (app: OpenedAppState) => void;
   handleAppLoadFailed: () => void;
   closeApp: () => void;
@@ -92,21 +88,14 @@ export interface ViewerActions {
 
   // --- Document viewer ---
   openDocument: () => void;
+  loadDocument: (assistantId: string, documentSurfaceId: string) => Promise<void>;
   setLoadedDocument: (document: OpenedDocumentState) => void;
+  updateDocumentContent: (surfaceId: string, content: string, mode: string) => void;
   handleDocumentLoadFailed: () => void;
   closeDocument: () => void;
 
   // --- Assets ---
   refreshAssets: () => void;
-
-  // --- Share / Deploy ---
-  startSharing: () => void;
-  finishSharing: () => void;
-  startDeploying: () => void;
-  finishDeploying: (clearPendingAppId?: boolean) => void;
-  showTokenDialog: (pendingAppId: string) => void;
-  hideTokenDialog: () => void;
-  setComplexDeployApp: (app: ComplexDeployApp | null) => void;
 
   // --- Reset ---
   reset: () => void;
@@ -122,6 +111,7 @@ const INITIAL_STATE: ViewerState = {
   mainView: "chat",
   activeAppId: null,
   openedAppState: null,
+  activeDocumentSurfaceId: null,
   openedDocumentState: null,
   isAppMinimized: false,
   intelligenceTab: "identity",
@@ -129,11 +119,6 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeDocument: "chat",
   activeSubagentId: null,
   viewBeforeSubagentDetail: "chat",
-  isSharing: false,
-  isDeploying: false,
-  isTokenDialogOpen: false,
-  pendingDeployAppId: null,
-  complexDeployApp: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -164,6 +149,26 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       openedAppState: null,
       isAppMinimized: false,
     });
+  },
+
+  loadApp: async (assistantId, appId) => {
+    set({
+      mainView: "app",
+      activeAppId: appId,
+      openedAppState: null,
+      isAppMinimized: false,
+    });
+    try {
+      const result = await openApp(assistantId, appId);
+      if (get().activeAppId !== appId) return;
+      const app = { appId: result.appId, dirName: result.dirName, name: result.name, html: result.html };
+      set({ openedAppState: app });
+      primeAppHtmlCache(assistantId, result.appId, result.html);
+    } catch (err) {
+      if (get().activeAppId !== appId) return;
+      Sentry.captureException(err, { tags: { context: "openApp" } });
+      set({ mainView: "chat", activeAppId: null, openedAppState: null });
+    }
   },
 
   setLoadedApp: (app) => {
@@ -218,9 +223,9 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   openSubagentDetail: (subagentId) => {
     const state = get();
     const viewBeforeSubagentDetail =
-      state.mainView === "subagent-detail"
+      state.mainView === "subagent-detail" || state.mainView === "document"
         ? state.viewBeforeSubagentDetail
-        : (state.mainView as Exclude<MainView, "subagent-detail">);
+        : (state.mainView as Exclude<MainView, "document" | "subagent-detail">);
     set({
       mainView: "subagent-detail",
       activeSubagentId: subagentId,
@@ -240,9 +245,9 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   openDocument: () => {
     const state = get();
     const viewBeforeDocument =
-      state.mainView === "document"
+      state.mainView === "document" || state.mainView === "subagent-detail"
         ? state.viewBeforeDocument
-        : (state.mainView as Exclude<MainView, "document">);
+        : (state.mainView as Exclude<MainView, "document" | "subagent-detail">);
     set({
       mainView: "document",
       openedDocumentState: null,
@@ -250,13 +255,55 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     });
   },
 
+  loadDocument: async (assistantId, documentSurfaceId) => {
+    const state = get();
+    const viewBeforeDocument =
+      state.mainView === "document" || state.mainView === "subagent-detail"
+        ? state.viewBeforeDocument
+        : (state.mainView as Exclude<MainView, "document" | "subagent-detail">);
+    set({
+      mainView: "document",
+      activeDocumentSurfaceId: documentSurfaceId,
+      openedDocumentState: null,
+      viewBeforeDocument,
+    });
+    try {
+      const result = await fetchDocumentContent(assistantId, documentSurfaceId);
+      if (get().activeDocumentSurfaceId !== documentSurfaceId) return;
+      if (!result) {
+        set({ mainView: viewBeforeDocument, activeDocumentSurfaceId: null, openedDocumentState: null });
+        return;
+      }
+      set({
+        openedDocumentState: {
+          surfaceId: result.surfaceId,
+          conversationId: result.conversationId,
+          documentName: result.title ?? "Untitled",
+          content: result.content ?? "",
+        },
+      });
+    } catch {
+      if (get().activeDocumentSurfaceId !== documentSurfaceId) return;
+      set({ mainView: viewBeforeDocument, activeDocumentSurfaceId: null, openedDocumentState: null });
+    }
+  },
+
   setLoadedDocument: (document) => {
     set({ openedDocumentState: document });
+  },
+
+  updateDocumentContent: (surfaceId, content, mode) => {
+    const state = get();
+    if (!state.openedDocumentState || state.openedDocumentState.surfaceId !== surfaceId) return;
+    const prev = state.openedDocumentState;
+    const newContent = mode === "append" ? prev.content + content : content;
+    set({ openedDocumentState: { ...prev, content: newContent } });
   },
 
   handleDocumentLoadFailed: () => {
     set({
       mainView: get().viewBeforeDocument,
+      activeDocumentSurfaceId: null,
       openedDocumentState: null,
     });
   },
@@ -264,6 +311,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   closeDocument: () => {
     set({
       mainView: get().viewBeforeDocument,
+      activeDocumentSurfaceId: null,
       openedDocumentState: null,
     });
   },
@@ -274,45 +322,13 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({ assetsRefreshKey: get().assetsRefreshKey + 1 });
   },
 
-  // --- Share / Deploy ---
-
-  startSharing: () => {
-    set({ isSharing: true });
-  },
-
-  finishSharing: () => {
-    set({ isSharing: false });
-  },
-
-  startDeploying: () => {
-    set({ isDeploying: true });
-  },
-
-  finishDeploying: (clearPendingAppId) => {
-    set({
-      isDeploying: false,
-      ...(clearPendingAppId ? { pendingDeployAppId: null } : {}),
-    });
-  },
-
-  showTokenDialog: (pendingAppId) => {
-    set({
-      isTokenDialogOpen: true,
-      pendingDeployAppId: pendingAppId,
-      isDeploying: false,
-    });
-  },
-
-  hideTokenDialog: () => {
-    set({ isTokenDialogOpen: false });
-  },
-
-  setComplexDeployApp: (app) => {
-    set({ complexDeployApp: app });
-  },
-
   // --- Reset ---
 
+  /**
+   * Restore viewer state to its initial value. Does NOT reset share/deploy
+   * state — that lives in `useDeployStore` and has its own `reset()`.
+   * Callers that want a full UI reset should call both.
+   */
   reset: () => set({ ...INITIAL_STATE }),
 }));
 
