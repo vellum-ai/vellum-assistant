@@ -406,7 +406,11 @@ export function TiptapDocumentEditor({
     },
     onSelectionUpdate({ editor: ed }) {
       const { from, to } = ed.state.selection;
-      if (from === to) return; // collapsed selection, nothing to report
+      if (from === to) {
+        const tr = ed.state.tr.setMeta(activeHighlightPluginKey, { range: null });
+        ed.view.dispatch(tr);
+        return;
+      }
 
       const text = ed.state.doc.textBetween(from, to);
       if (!text.trim()) return;
