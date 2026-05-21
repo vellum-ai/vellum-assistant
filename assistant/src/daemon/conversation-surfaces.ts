@@ -402,20 +402,23 @@ function isSlackTaskProgressUiException(
   if (ctx.channelCapabilities?.channel !== "slack") return false;
   if (toolName === "ui_show") {
     const surfaceType = input.surface_type as SurfaceType;
+    if (surfaceType !== "card") return false;
     const rawData = isPlainObject(input.data) ? input.data : {};
-    return (
-      surfaceType === "card" &&
-      (input.template === "task_progress" ||
-        rawData.template === "task_progress")
-    );
+    const data = normalizeCardShowData(input, rawData);
+    return isTaskProgressCardData(data);
   }
   if (toolName === "ui_update") {
     const surfaceId = input.surface_id;
     if (typeof surfaceId !== "string") return false;
     const stored = ctx.surfaceState.get(surfaceId);
-    return (
-      stored?.surfaceType === "card" && isTaskProgressCardData(stored.data)
+    if (!stored || stored.surfaceType !== "card") return false;
+    const rawPatch = isPlainObject(input.data) ? input.data : {};
+    const patch = normalizeTaskProgressCardPatch(
+      stored.data as CardSurfaceData,
+      rawPatch,
     );
+    const mergedData = { ...stored.data, ...patch } as SurfaceData;
+    return isTaskProgressCardData(mergedData);
   }
   return false;
 }

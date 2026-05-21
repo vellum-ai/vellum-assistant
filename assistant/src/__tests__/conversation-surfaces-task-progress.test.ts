@@ -132,6 +132,27 @@ describe("task_progress surface compatibility", () => {
     expect(sent).toHaveLength(0);
   });
 
+  test("blocks Slack ui_show when normalized card data is not task_progress", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent, {
+      channel: "slack",
+      supportsDynamicUi: false,
+    });
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Blocked",
+      template: "task_progress",
+      data: { title: "Blocked", body: "not progress", template: "plain" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'ui_show is unavailable on channel "slack"',
+    );
+    expect(sent).toHaveLength(0);
+  });
+
   test("blocks Slack ui_show for non-card task_progress input when dynamic UI is disabled", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext(sent, {
@@ -370,6 +391,37 @@ describe("task_progress surface compatibility", () => {
       'ui_update is unavailable on channel "slack"',
     );
     expect(sent).toHaveLength(0);
+  });
+
+  test("blocks Slack ui_update that would change task_progress card template", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent, {
+      channel: "slack",
+      supportsDynamicUi: false,
+    });
+    ctx.surfaceState.set("surface-1", {
+      surfaceType: "card",
+      data: {
+        title: "Working",
+        body: "",
+        template: "task_progress",
+        templateData: { status: "in_progress", steps: [] },
+      } satisfies CardSurfaceData,
+    });
+
+    const result = await surfaceProxyResolver(ctx, "ui_update", {
+      surface_id: "surface-1",
+      data: { template: "plain", body: "now a plain card" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'ui_update is unavailable on channel "slack"',
+    );
+    expect(sent).toHaveLength(0);
+    expect(
+      (ctx.surfaceState.get("surface-1")?.data as CardSurfaceData).template,
+    ).toBe("task_progress");
   });
 
   test("blocks Slack ui_update when the surface is not already stored", async () => {
