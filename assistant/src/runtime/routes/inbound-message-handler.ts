@@ -15,6 +15,7 @@ import {
   isChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
+import { getConfig } from "../../config/loader.js";
 import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
@@ -1452,9 +1453,10 @@ function readStoredSlackThreadState(
  *
  * Shared insertion point for any path that hydrates Slack history lazily
  * (DM cold-start backfill, thread gap/delta backfill, etc.). Backfilled Slack
- * rows normally persist as `user` history, but bot-authored rows are replayed
- * as assistant history so prior assistant messages do not enter model context
- * wrapped as external user content.
+ * rows normally persist as `user` history, but rows authored by this
+ * assistant's configured Slack bot are replayed as assistant history so prior
+ * assistant messages do not enter model context wrapped as external user
+ * content.
  * Caller is responsible for dedup checks before invoking; this helper
  * performs no idempotency check itself.
  */
@@ -1492,7 +1494,9 @@ async function persistBackfilledSlackMessage(params: {
     message,
     params.guardianExternalUserId,
   );
-  const role = isBackfilledSlackBotMessage(message) ? "assistant" : "user";
+  const role = isBackfilledSlackAssistantMessage(message)
+    ? "assistant"
+    : "user";
 
   const rawText = message.text ?? "";
 
@@ -1624,8 +1628,18 @@ function isBackfilledSlackGuardianMessage(
   return canonicalSender === canonicalGuardian;
 }
 
-function isBackfilledSlackBotMessage(message: ProviderMessage): boolean {
-  return message.metadata?.isBot === true;
+function isBackfilledSlackAssistantMessage(message: ProviderMessage): boolean {
+  if (message.metadata?.isBot !== true) return false;
+
+  const botUserId = getConfig().slack.botUserId.trim();
+  const rawSenderId = message.sender?.id?.trim();
+  if (!botUserId || !rawSenderId) return false;
+
+  const canonicalSender =
+    canonicalizeInboundIdentity("slack", rawSenderId) ?? rawSenderId;
+  const canonicalBot =
+    canonicalizeInboundIdentity("slack", botUserId) ?? botUserId;
+  return canonicalSender === canonicalBot;
 }
 
 /**
