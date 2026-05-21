@@ -1,13 +1,12 @@
 /**
  * Route definitions for ChatGPT subscription OAuth authentication.
  *
- * POST /v1/inference/chatgpt-subscription/auth — initiate a device-code
- *   OAuth flow against OpenAI, returning the verification URI and user code
- *   for the client to display. Token polling, CES storage, and connection
- *   upsert happen asynchronously in the background.
+ * POST /v1/inference/chatgpt-subscription/auth — generate a PKCE authorize
+ *   URL for the user to visit. Returns `{ authorize_url, state }`.
  *
- * GET /v1/inference/chatgpt-subscription/auth/status — poll the current
- *   state of the device-code flow (idle | pending | completed | failed).
+ * POST /v1/inference/chatgpt-subscription/auth/exchange — accept the
+ *   authorization code + state from the redirect, exchange for tokens,
+ *   store in CES, and upsert the provider connection.
  */
 
 import { z } from "zod";
@@ -18,11 +17,13 @@ import {
   getConnection,
   updateConnection,
 } from "../../providers/inference/connections.js";
-import type { DeviceCodeConfig } from "../../security/oauth2-device-code.js";
+import type { OAuth2Config } from "../../security/oauth2.js";
 import {
-  pollForToken,
-  requestDeviceCode,
-} from "../../security/oauth2-device-code.js";
+  exchangeCodeForTokens,
+  generateCodeChallenge,
+  generateCodeVerifier,
+  generateState,
+} from "../../security/oauth2.js";
 import { setSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -30,48 +31,40 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 const log = getLogger("chatgpt-subscription-auth");
 
 // ---------------------------------------------------------------------------
-// OAuth config (device-code flow)
+// OAuth config
 // ---------------------------------------------------------------------------
 
-const OPENAI_CHATGPT_DEVICE_CODE_CONFIG: DeviceCodeConfig = {
-  deviceCodeUrl: "https://auth.openai.com/oauth/device/code",
-  tokenUrl: "https://auth.openai.com/oauth/token",
+const OPENAI_OAUTH_CONFIG: OAuth2Config = {
+  authorizeUrl: "https://auth.openai.com/oauth/authorize",
+  tokenExchangeUrl: "https://auth.openai.com/oauth/token",
   clientId: "app_EMoamEEZ73f0CkXaXp7hrann",
   scopes: ["openid", "profile", "email", "offline_access"],
+  scopeSeparator: " ",
+  authorizeParams: { id_token_add_organizations: "true" },
 };
 
+const REDIRECT_URI = "http://localhost:1455/auth/callback";
 const CONNECTION_NAME = "chatgpt-subscription";
 
 // ---------------------------------------------------------------------------
-// Module-level flow state
+// Module-level PKCE state storage
 // ---------------------------------------------------------------------------
 
-type FlowStatus = "idle" | "pending" | "completed" | "failed";
+interface PendingAuth {
+  codeVerifier: string;
+  createdAt: number;
+}
 
-let flowStatus: FlowStatus = "idle";
-let flowError: string | undefined;
+const pendingAuths = new Map<string, PendingAuth>();
 
-/** Auto-reset to idle after a terminal state has been read. */
-const TERMINAL_STATE_RESET_MS = 30_000;
-let resetTimer: ReturnType<typeof setTimeout> | undefined;
+const PENDING_AUTH_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
-function setFlowState(status: FlowStatus, error?: string) {
-  flowStatus = status;
-  flowError = error;
-
-  if (resetTimer) {
-    clearTimeout(resetTimer);
-    resetTimer = undefined;
-  }
-
-  if (status === "completed" || status === "failed") {
-    resetTimer = setTimeout(() => {
-      flowStatus = "idle";
-      flowError = undefined;
-      resetTimer = undefined;
-    }, TERMINAL_STATE_RESET_MS);
-    if (typeof resetTimer === "object" && "unref" in resetTimer) {
-      resetTimer.unref();
+/** Remove entries older than 10 minutes. */
+function cleanupExpiredEntries(): void {
+  const cutoff = Date.now() - PENDING_AUTH_TTL_MS;
+  for (const [key, entry] of pendingAuths) {
+    if (entry.createdAt < cutoff) {
+      pendingAuths.delete(key);
     }
   }
 }
@@ -81,124 +74,121 @@ function setFlowState(status: FlowStatus, error?: string) {
 // ---------------------------------------------------------------------------
 
 async function handleStartAuth(_args: RouteHandlerArgs) {
-  const deviceCodeResult = await requestDeviceCode(
-    OPENAI_CHATGPT_DEVICE_CODE_CONFIG,
-  );
+  cleanupExpiredEntries();
 
-  setFlowState("pending");
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = generateCodeChallenge(codeVerifier);
+  const state = generateState();
 
-  // Poll for token in the background. When the user completes authorization,
-  // store tokens in CES and upsert the provider connection.
-  pollForToken(
-    OPENAI_CHATGPT_DEVICE_CODE_CONFIG,
-    deviceCodeResult.deviceCode,
-    deviceCodeResult.interval,
-    deviceCodeResult.expiresIn,
-  )
-    .then(async (tokens) => {
-      // Store tokens in CES
-      const accessStored = await setSecureKeyAsync(
-        "credential/chatgpt/access_token",
-        tokens.accessToken,
-      );
-      if (!accessStored) {
-        log.error("Failed to store ChatGPT access token in CES");
-        setFlowState("failed", "Failed to store access token");
-        return;
-      }
+  pendingAuths.set(state, { codeVerifier, createdAt: Date.now() });
 
-      if (tokens.refreshToken) {
-        const refreshStored = await setSecureKeyAsync(
-          "credential/chatgpt/refresh_token",
-          tokens.refreshToken,
-        );
-        if (!refreshStored) {
-          log.error("Failed to store ChatGPT refresh token in CES");
-          setFlowState("failed", "Failed to store refresh token");
-          return;
-        }
-      }
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: OPENAI_OAUTH_CONFIG.clientId,
+    redirect_uri: REDIRECT_URI,
+    scope: OPENAI_OAUTH_CONFIG.scopes.join(
+      OPENAI_OAUTH_CONFIG.scopeSeparator,
+    ),
+    state,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
+    ...OPENAI_OAUTH_CONFIG.authorizeParams,
+  });
 
-      if (tokens.expiresIn) {
-        const expiresAt = Math.floor(Date.now() / 1000 + tokens.expiresIn);
-        await setSecureKeyAsync(
-          "credential/chatgpt/expires_at",
-          String(expiresAt),
-        );
-      }
+  const authorizeUrl = `${OPENAI_OAUTH_CONFIG.authorizeUrl}?${params.toString()}`;
 
-      // Upsert provider connection
-      const db = getDb();
-      const authInput = {
-        type: "oauth_subscription" as const,
-        credential: "credential/chatgpt/access_token",
-      };
-
-      const existing = getConnection(db, CONNECTION_NAME);
-      if (existing) {
-        const updateResult = updateConnection(db, CONNECTION_NAME, {
-          auth: authInput,
-        });
-        if (!updateResult.ok) {
-          log.error(
-            { error: updateResult.error },
-            "Failed to update chatgpt-subscription connection",
-          );
-          setFlowState("failed", "Failed to update connection");
-          return;
-        }
-      } else {
-        const createResult = createConnection(db, {
-          name: CONNECTION_NAME,
-          provider: "openai",
-          auth: authInput,
-        });
-        if (!createResult.ok) {
-          log.error(
-            { error: createResult.error },
-            "Failed to create chatgpt-subscription connection",
-          );
-          setFlowState("failed", "Failed to create connection");
-          return;
-        }
-      }
-
-      log.info("ChatGPT subscription auth flow completed successfully");
-      setFlowState("completed");
-    })
-    .catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error(
-        { err: message },
-        "ChatGPT subscription auth flow failed",
-      );
-      setFlowState("failed", message);
-    });
-
-  return {
-    device_code: deviceCodeResult.deviceCode,
-    user_code: deviceCodeResult.userCode,
-    verification_uri: deviceCodeResult.verificationUri,
-    verification_uri_complete: deviceCodeResult.verificationUriComplete,
-    expires_in: deviceCodeResult.expiresIn,
-    interval: deviceCodeResult.interval,
-  };
+  return { authorize_url: authorizeUrl, state };
 }
 
-async function handleAuthStatus(_args: RouteHandlerArgs) {
-  const result: { status: FlowStatus; error?: string } = {
-    status: flowStatus,
+async function handleExchange(args: RouteHandlerArgs) {
+  const { code, state } = args.body as { code: string; state: string };
+
+  const pending = pendingAuths.get(state);
+  if (!pending) {
+    throw new Error(
+      "Invalid or expired state parameter. Please restart the auth flow.",
+    );
+  }
+
+  pendingAuths.delete(state);
+
+  // Check TTL
+  if (Date.now() - pending.createdAt > PENDING_AUTH_TTL_MS) {
+    throw new Error("Auth flow expired. Please restart the auth flow.");
+  }
+
+  const { tokens } = await exchangeCodeForTokens(
+    OPENAI_OAUTH_CONFIG,
+    code,
+    REDIRECT_URI,
+    pending.codeVerifier,
+  );
+
+  // Store tokens in CES
+  const accessStored = await setSecureKeyAsync(
+    "credential/chatgpt/access_token",
+    tokens.accessToken,
+  );
+  if (!accessStored) {
+    log.error("Failed to store ChatGPT access token in CES");
+    throw new Error("Failed to store access token");
+  }
+
+  if (tokens.refreshToken) {
+    const refreshStored = await setSecureKeyAsync(
+      "credential/chatgpt/refresh_token",
+      tokens.refreshToken,
+    );
+    if (!refreshStored) {
+      log.error("Failed to store ChatGPT refresh token in CES");
+      throw new Error("Failed to store refresh token");
+    }
+  }
+
+  if (tokens.expiresIn) {
+    const expiresAt = Math.floor(Date.now() / 1000 + tokens.expiresIn);
+    await setSecureKeyAsync(
+      "credential/chatgpt/expires_at",
+      String(expiresAt),
+    );
+  }
+
+  // Upsert provider connection
+  const db = getDb();
+  const authInput = {
+    type: "oauth_subscription" as const,
+    credential: "credential/chatgpt/access_token",
   };
-  if (flowError) {
-    result.error = flowError;
+
+  const existing = getConnection(db, CONNECTION_NAME);
+  if (existing) {
+    const updateResult = updateConnection(db, CONNECTION_NAME, {
+      auth: authInput,
+    });
+    if (!updateResult.ok) {
+      log.error(
+        { error: updateResult.error },
+        "Failed to update chatgpt-subscription connection",
+      );
+      throw new Error("Failed to update connection");
+    }
+  } else {
+    const createResult = createConnection(db, {
+      name: CONNECTION_NAME,
+      provider: "openai",
+      auth: authInput,
+    });
+    if (!createResult.ok) {
+      log.error(
+        { error: createResult.error },
+        "Failed to create chatgpt-subscription connection",
+      );
+      throw new Error("Failed to create connection");
+    }
   }
 
-  // Reset to idle after reading a terminal state
-  if (flowStatus === "completed" || flowStatus === "failed") {
-    setFlowState("idle");
-  }
-
-  return result;
+  log.info("ChatGPT subscription auth flow completed successfully");
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -211,33 +201,32 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "inference/chatgpt-subscription/auth",
     method: "POST",
     policyKey: "inference/provider-connections",
-    summary: "Start ChatGPT subscription OAuth device-code flow",
+    summary: "Start ChatGPT subscription OAuth PKCE flow",
     description:
-      "Initiate a device-code OAuth flow against OpenAI for ChatGPT subscription auth. Returns a verification URI and user code for the client to display. The token polling, exchange, and connection creation happen in the background.",
+      "Generate a PKCE authorize URL for ChatGPT subscription auth. Returns the URL and state for the client to open in a browser.",
     tags: ["inference"],
     responseBody: z.object({
-      device_code: z.string(),
-      user_code: z.string(),
-      verification_uri: z.string(),
-      verification_uri_complete: z.string().optional(),
-      expires_in: z.number(),
-      interval: z.number(),
+      authorize_url: z.string(),
+      state: z.string(),
     }),
     handler: handleStartAuth,
   },
   {
-    operationId: "inference_chatgpt_subscription_auth_status",
-    endpoint: "inference/chatgpt-subscription/auth/status",
-    method: "GET",
+    operationId: "inference_chatgpt_subscription_auth_exchange",
+    endpoint: "inference/chatgpt-subscription/auth/exchange",
+    method: "POST",
     policyKey: "inference/provider-connections",
-    summary: "Poll ChatGPT subscription OAuth flow status",
+    summary: "Exchange ChatGPT subscription OAuth authorization code",
     description:
-      "Returns the current status of the device-code OAuth flow: idle, pending, completed, or failed. Terminal states (completed/failed) reset to idle after being read.",
+      "Accept an authorization code and state from the OAuth redirect, exchange it for tokens, store them in CES, and upsert the provider connection.",
     tags: ["inference"],
-    responseBody: z.object({
-      status: z.enum(["idle", "pending", "completed", "failed"]),
-      error: z.string().optional(),
+    requestBody: z.object({
+      code: z.string(),
+      state: z.string(),
     }),
-    handler: handleAuthStatus,
+    responseBody: z.object({
+      ok: z.boolean(),
+    }),
+    handler: handleExchange,
   },
 ];

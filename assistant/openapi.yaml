@@ -8713,11 +8713,10 @@ paths:
   /v1/inference/chatgpt-subscription/auth:
     post:
       operationId: inference_chatgptsubscription_auth_post
-      summary: Start ChatGPT subscription OAuth device-code flow
+      summary: Start ChatGPT subscription OAuth PKCE flow
       description:
-        Initiate a device-code OAuth flow against OpenAI for ChatGPT subscription auth. Returns a verification URI
-        and user code for the client to display. The token polling, exchange, and connection creation happen in the
-        background.
+        Generate a PKCE authorize URL for ChatGPT subscription auth. Returns the URL and state for the client to
+        open in a browser.
       tags:
         - inference
       responses:
@@ -8728,32 +8727,21 @@ paths:
               schema:
                 type: object
                 properties:
-                  device_code:
+                  authorize_url:
                     type: string
-                  user_code:
+                  state:
                     type: string
-                  verification_uri:
-                    type: string
-                  verification_uri_complete:
-                    type: string
-                  expires_in:
-                    type: number
-                  interval:
-                    type: number
                 required:
-                  - device_code
-                  - user_code
-                  - verification_uri
-                  - expires_in
-                  - interval
+                  - authorize_url
+                  - state
                 additionalProperties: false
-  /v1/inference/chatgpt-subscription/auth/status:
-    get:
-      operationId: inference_chatgptsubscription_auth_status_get
-      summary: Poll ChatGPT subscription OAuth flow status
+  /v1/inference/chatgpt-subscription/auth/exchange:
+    post:
+      operationId: inference_chatgptsubscription_auth_exchange_post
+      summary: Exchange ChatGPT subscription OAuth authorization code
       description:
-        "Returns the current status of the device-code OAuth flow: idle, pending, completed, or failed. Terminal
-        states (completed/failed) reset to idle after being read."
+        Accept an authorization code and state from the OAuth redirect, exchange it for tokens, store them in CES,
+        and upsert the provider connection.
       tags:
         - inference
       responses:
@@ -8764,18 +8752,26 @@ paths:
               schema:
                 type: object
                 properties:
-                  status:
-                    type: string
-                    enum:
-                      - idle
-                      - pending
-                      - completed
-                      - failed
-                  error:
-                    type: string
+                  ok:
+                    type: boolean
                 required:
-                  - status
+                  - ok
                 additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+              required:
+                - code
+                - state
+              additionalProperties: false
   /v1/inference/provider-connections:
     get:
       operationId: inference_providerconnections_get
