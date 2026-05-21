@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import {
@@ -6,6 +8,7 @@ import {
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import {
   getLastScheduledCleanupEnqueueMs,
@@ -75,7 +78,10 @@ import {
   memoryV2MigrateJob,
   memoryV2ReembedJob,
 } from "./v2/backfill-jobs.js";
-import { memoryV2ConsolidateJob } from "./v2/consolidation-job.js";
+import {
+  countBufferLines,
+  memoryV2ConsolidateJob,
+} from "./v2/consolidation-job.js";
 import { memoryV2SweepJob } from "./v2/sweep-job.js";
 
 const log = getLogger("memory-jobs-worker");
@@ -739,11 +745,25 @@ export function maybeEnqueueGraphMaintenanceJobs(
         },
       ];
 
+  let enqueuedV2 = false;
   for (const { key, intervalMs, jobType } of schedule) {
     const lastRun = parseInt(getMemoryCheckpoint(key) ?? "0", 10);
     if (nowMs - lastRun >= intervalMs) {
       enqueueMemoryJob(jobType, {});
       setMemoryCheckpoint(key, String(nowMs));
+      if (jobType === "memory_v2_consolidate") enqueuedV2 = true;
+    }
+  }
+
+  const maxLines = config.memory.v2.consolidation_max_buffer_lines;
+  if (v2Active && !enqueuedV2 && maxLines !== null) {
+    const bufferPath = join(getWorkspaceDir(), "memory", "buffer.md");
+    if (countBufferLines(bufferPath) >= maxLines) {
+      enqueueMemoryJob("memory_v2_consolidate", {});
+      setMemoryCheckpoint(
+        GRAPH_MAINTENANCE_CHECKPOINTS.memoryV2Consolidate,
+        String(nowMs),
+      );
     }
   }
 }
