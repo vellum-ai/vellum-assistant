@@ -18,8 +18,13 @@ const lightManagerTheme = create({
   textColor: "#24292E",
   textMutedColor: "#5A6672",
 
+  // colorPrimary: brand accent (selected toolbar tab underline).
+  // colorSecondary: selected sidebar item background — must contrast with
+  // textColor so item labels stay legible when selected. Using
+  // --surface-active (stone-100 light / moss-500 dark) gives a subtle
+  // highlight that doesn't fight the text.
   colorPrimary: "#17191C",
-  colorSecondary: "#17191C",
+  colorSecondary: "#F2F0EE",
 
   barBg: "#FFFFFF",
   barTextColor: "#5A6672",
@@ -42,7 +47,7 @@ const darkManagerTheme = create({
   textMutedColor: "#A9B2BB",
 
   colorPrimary: "#F6F5F4",
-  colorSecondary: "#F6F5F4",
+  colorSecondary: "#444D56",
 
   barBg: "#17191C",
   barTextColor: "#A9B2BB",
