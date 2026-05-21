@@ -181,4 +181,52 @@ describe("mapRuntimeToDisplayMessage", () => {
       mimeType: "text/csv",
     });
   });
+
+  test("preserves Slack message metadata alongside mapped message fields", () => {
+    const m = makeMessage({
+      id: "msg-slack",
+      daemonMessageId: "daemon-msg-slack",
+      role: "user",
+      content: "Slack reply",
+      metadata: { source: "slack" },
+      slackMessage: {
+        channelId: "C123ABCDEF",
+        channelName: "triage",
+        channelTs: "1710000000.000200",
+        threadTs: "1710000000.000100",
+        sender: {
+          id: "U123",
+          displayName: "Ada Lovelace",
+          username: "ada",
+          avatarUrl: "https://example.com/avatar.png",
+          isBot: false,
+        },
+        messageLink: {
+          appUrl:
+            "slack://channel?team=T123&id=C123ABCDEF&message=1710000000.000200",
+          webUrl:
+            "https://example.slack.com/archives/C123ABCDEF/p1710000000000200",
+        },
+        threadLink: {
+          appUrl:
+            "slack://channel?team=T123&id=C123ABCDEF&message=1710000000.000100",
+          webUrl:
+            "https://example.slack.com/archives/C123ABCDEF/p1710000000000100",
+        },
+      },
+      timestamp: "2026-05-15T12:34:56.000Z",
+    });
+
+    const display = mapRuntimeToDisplayMessage(m);
+
+    expect(display).toMatchObject({
+      id: "msg-slack",
+      daemonMessageId: "daemon-msg-slack",
+      role: "user",
+      content: "Slack reply",
+      metadata: { source: "slack" },
+      slackMessage: m.slackMessage,
+      timestamp: Date.parse("2026-05-15T12:34:56.000Z"),
+    });
+  });
 });

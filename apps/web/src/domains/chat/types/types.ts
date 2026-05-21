@@ -20,6 +20,51 @@ export interface DisplayAttachment {
   previewUrl: string | null;
 }
 
+export interface SlackMessageLink {
+  appUrl?: string;
+  webUrl?: string;
+}
+
+export function parseSlackMessageLink(
+  raw: unknown,
+): SlackMessageLink | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+
+  const record = raw as Record<string, unknown>;
+  const link = {
+    appUrl: typeof record.appUrl === "string" ? record.appUrl : undefined,
+    webUrl: typeof record.webUrl === "string" ? record.webUrl : undefined,
+  };
+
+  return link.appUrl || link.webUrl ? link : undefined;
+}
+
+export function getSlackLinkUrl(
+  link: SlackMessageLink | null | undefined,
+): string | undefined {
+  return link?.webUrl ?? link?.appUrl;
+}
+
+export interface SlackMessageSender {
+  id?: string;
+  externalUserId?: string;
+  name?: string;
+  displayName?: string;
+  username?: string;
+  avatarUrl?: string;
+  isBot?: boolean;
+}
+
+export interface SlackRuntimeMessage {
+  channelId: string;
+  channelName?: string;
+  channelTs: string;
+  threadTs?: string;
+  sender?: SlackMessageSender;
+  messageLink?: SlackMessageLink;
+  threadLink?: SlackMessageLink;
+}
+
 export interface DisplayMessage {
   /** Stable client-side identity that survives optimistic send →
    *  server reconciliation. Assigned at message creation; never mutated.
@@ -39,6 +84,7 @@ export interface DisplayMessage {
   textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
   contentOrder?: Array<{ type: string; id: string }>;
   metadata?: Record<string, unknown>;
+  slackMessage?: SlackRuntimeMessage;
   toolCalls?: ChatMessageToolCall[];
   /** Attachments rendered inside the message bubble. For user messages these
    *  are populated client-side from the upload flow; for assistant messages
