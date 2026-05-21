@@ -1,7 +1,6 @@
 name: CI/CD Main Web
 
 on:
-  workflow_dispatch:
   push:
     branches: [main]
     paths:
