@@ -37,6 +37,16 @@ const FEED_ITEM_URGENCIES: ReadonlySet<string> = new Set<FeedItemUrgency>([
  * Append a `FeedItem` for the given notification signal when the
  * filter criteria pass.
  *
+ * `fallbackConversationId` is used as the feed item's "Go to Convo"
+ * navigation target when `signal.sourceContextId` doesn't resolve to a
+ * real conversation row. The notification broadcaster pairs the vellum
+ * delivery with a conversation (newly created or reused) before this
+ * function runs, so callers can thread that paired id through here for
+ * producers whose `sourceContextId` is a sentinel (heartbeat startup,
+ * credential health, watcher emits, scheduler retries-exhausted) — the
+ * feed item will then carry the paired delivery conversation and the
+ * "Go to Convo" button can render.
+ *
  * Returns the persisted `FeedItem`, or `null` if the signal does not
  * qualify for home-feed mirroring (non-background origin AND no
  * `isAsyncBackground` hint) or if schema validation fails.
@@ -44,8 +54,12 @@ const FEED_ITEM_URGENCIES: ReadonlySet<string> = new Set<FeedItemUrgency>([
 export async function writeHomeFeedItemForSignal(
   signal: NotificationSignal,
   decision: NotificationDecision,
+  fallbackConversationId?: string,
 ): Promise<FeedItem | null> {
-  const { mirror, sourceConversationId } = resolveHomeFeedMirror(signal);
+  const { mirror, sourceConversationId } = resolveHomeFeedMirror(
+    signal,
+    fallbackConversationId,
+  );
   if (!mirror) return null;
 
   const renderedCopy =
@@ -170,7 +184,10 @@ function deriveDetailPanelKind(
  * does not require a background-typed conversation or the
  * `isAsyncBackground` hint.
  */
-function resolveHomeFeedMirror(signal: NotificationSignal): {
+function resolveHomeFeedMirror(
+  signal: NotificationSignal,
+  fallbackConversationId?: string,
+): {
   mirror: boolean;
   sourceConversationId?: string;
 } {
@@ -182,7 +199,14 @@ function resolveHomeFeedMirror(signal: NotificationSignal): {
       sourceRow = null;
     }
   }
-  const sourceConversationId = sourceRow ? signal.sourceContextId : undefined;
+  // Prefer the producer's source context (e.g. the heartbeat / background
+  // job conversation that emitted the signal) for the "Go to Convo" target,
+  // since that's where the work actually happened. Fall back to the paired
+  // delivery conversation only when the source context didn't resolve —
+  // covers producers whose `sourceContextId` is a sentinel string.
+  const sourceConversationId = sourceRow
+    ? signal.sourceContextId
+    : fallbackConversationId;
 
   if (signal.sourceChannel === "assistant_tool") {
     return { mirror: true, sourceConversationId };

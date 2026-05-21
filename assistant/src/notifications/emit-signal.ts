@@ -388,7 +388,19 @@ export async function emitNotificationSignal<TEventName extends string>(
     // Step 5: Mirror background-origin signals into the home activity feed.
     // The helper itself decides whether to write (background filter); we
     // catch and log so a feed-write failure cannot poison the dispatch result.
-    await writeHomeFeedItemForSignal(signal, decision).catch((err) => {
+    // Pass the paired vellum delivery conversation as a fallback so producers
+    // whose `sourceContextId` is a sentinel string (e.g. heartbeat startup,
+    // credential health, watcher emits, scheduler retries-exhausted) still
+    // get a "Go to Convo" button — pointing at the conversation the
+    // broadcaster paired the notification with.
+    const pairedVellumConversationId = dispatchResult.deliveryResults.find(
+      (r) => r.channel === "vellum",
+    )?.conversationId;
+    await writeHomeFeedItemForSignal(
+      signal,
+      decision,
+      pairedVellumConversationId,
+    ).catch((err) => {
       log.warn({ err, signalId }, "writeHomeFeedItemForSignal threw");
     });
 
