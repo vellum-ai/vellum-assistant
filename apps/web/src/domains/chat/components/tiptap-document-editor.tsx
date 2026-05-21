@@ -198,6 +198,28 @@ function BubbleToolbar({ editor, onCommentSubmit, commentSubmitting }: BubbleToo
   const [commentOpen, setCommentOpen] = useState(false);
   const [draft, setDraft] = useState("");
 
+  const toggleComment = useCallback(() => {
+    setCommentOpen((prev) => {
+      const opening = !prev;
+      if (opening && editor) {
+        const { from, to } = editor.state.selection;
+        if (from !== to) {
+          const tr = editor.state.tr.setMeta(activeHighlightPluginKey, {
+            range: {
+              start: pmPosToCharOffset(editor.state.doc, from),
+              end: pmPosToCharOffset(editor.state.doc, to),
+            },
+          });
+          editor.view.dispatch(tr);
+        }
+      } else if (editor) {
+        const tr = editor.state.tr.setMeta(activeHighlightPluginKey, { range: null });
+        editor.view.dispatch(tr);
+      }
+      return opening;
+    });
+  }, [editor]);
+
   if (!editor) return null;
 
   const btnBase = cn(
@@ -261,6 +283,10 @@ function BubbleToolbar({ editor, onCommentSubmit, commentSubmitting }: BubbleToo
     onCommentSubmit?.(draft.trim());
     setDraft("");
     setCommentOpen(false);
+    if (editor) {
+      const tr = editor.state.tr.setMeta(activeHighlightPluginKey, { range: null });
+      editor.view.dispatch(tr);
+    }
   };
 
   return (
@@ -294,7 +320,7 @@ function BubbleToolbar({ editor, onCommentSubmit, commentSubmitting }: BubbleToo
             <button
               type="button"
               className={cn(btnBase, commentOpen && btnActive)}
-              onClick={() => setCommentOpen((prev) => !prev)}
+              onClick={toggleComment}
               aria-label="Comment"
               aria-pressed={commentOpen}
             >
