@@ -22,9 +22,7 @@ all `.xcscheme` files, `contents.xcworkspacedata`, the SPM workspace
 state) is regenerated from `App/project.yml` by
 [XcodeGen](https://github.com/yonaskolb/XcodeGen) every time you build —
 locally via `bun run ios:setup`, in CI via the `xcodegen generate` step
-in `release-ios.yaml`. **Until the deployment cutover, the release
-pipeline still runs from `vellum-assistant-platform/web/ios/`** — the
-workflow migration is a separate follow-up.
+in `.github/workflows/release-ios.yaml`.
 
 What _is_ committed and what generates from where:
 
@@ -276,63 +274,48 @@ On first build after pulling:
 
 ## CI / Release pipeline
 
-> **Migration note**: this directory is the new home for the Capacitor
-> iOS shell. Until the deployment cutover, the actual release pipeline
-> still runs from `vellum-assistant-platform/web/ios/` — that's the
-> copy that gets built and shipped to TestFlight. The description below
-> documents the existing pipeline as it lives in the platform repo;
-> pointing it at this directory is a follow-up task.
-
-iOS builds are triggered **cross-repo** from
-[`vellum-assistant`](https://github.com/vellum-ai/vellum-assistant) via
-GitHub Actions
-[`repository_dispatch`](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#repository_dispatch)
-events. This keeps iOS releases in sync with the macOS release pipeline
-without duplicating version/environment logic.
+iOS builds are produced by `.github/workflows/release-ios.yaml`, a
+reusable workflow called from both `dev-release.yaml` and `release.yml`
+in the same repo. This keeps iOS releases in sync with the macOS
+release pipeline without cross-repo dispatch complexity.
 
 ### How it works
 
-There are three release tracks, each originating in `vellum-assistant`:
+There are three release tracks:
 
 **Dev release** — `dev-release.yaml` runs hourly (cron) or via manual
-`workflow_dispatch`. It builds from `main`, and the `dispatch-ios-release`
-job fires an `ios-release` event with `environment=dev`.
+`workflow_dispatch`. It builds from `main`, and the `release-ios` job
+calls `release-ios.yaml` with `environment=dev`.
 
 **Staging release** — `/release` (slash command) runs `create-release-branch.yml`,
 which creates a `release/v*` branch. Pushing to that branch triggers
-`release.yml` with `is_staging=true`, and the `dispatch-ios-release` job
-fires an `ios-release` event with `environment=staging`. A manual
+`release.yml` with `is_staging=true`, and the `release-ios` job
+calls `release-ios.yaml` with `environment=staging`. A manual
 `workflow_dispatch` of `release.yml` from `main` also produces a staging release.
 
 **Production release** — A manual `workflow_dispatch` of `release.yml` on
 the `release/v*` branch (not `main`) sets `is_staging=false`, and the
-`dispatch-ios-release` job fires an `ios-release` event with
-`environment=production`.
+`release-ios` job calls `release-ios.yaml` with `environment=production`.
 
 ```
-vellum-assistant                           vellum-assistant-platform
-────────────────                           ────────────────────────
-dev-release.yaml (hourly / manual)         release-ios.yaml
-  └─ dispatch-ios-release ──────────────►    repository_dispatch: ios-release
-     environment=dev                           └─ builds App Dev → TestFlight
+dev-release.yaml (hourly / manual)
+  └─ release-ios (uses: release-ios.yaml)
+     environment=dev → builds App Dev → TestFlight
 
-release.yml (push to release/v* or         release-ios.yaml
-             manual dispatch from main)
-  └─ dispatch-ios-release ──────────────►    repository_dispatch: ios-release
-     environment=staging                       └─ builds App Staging → TestFlight
+release.yml (push to release/v* or manual dispatch from main)
+  └─ release-ios (uses: release-ios.yaml)
+     environment=staging → builds App Staging → TestFlight
 
-release.yml (manual dispatch on            release-ios.yaml
-             release/v* branch)
-  └─ dispatch-ios-release ──────────────►    repository_dispatch: ios-release
-     environment=production                    └─ builds App → TestFlight
-
+release.yml (manual dispatch on release/v* branch)
+  └─ release-ios (uses: release-ios.yaml)
+     environment=production → builds App → TestFlight
 ```
 
-### Workflows (currently in `vellum-assistant-platform`)
+### Workflow
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `release-ios.yaml` | `repository_dispatch` from vellum-assistant | Automated release builds (dev/staging/production) |
+| `release-ios.yaml` | `workflow_call` from release workflows | Automated release builds (dev/staging/production) |
 
 ### Environment → scheme mapping
 
@@ -353,11 +336,8 @@ the boolean differs.
 
 ### Notifications
 
-The workflow calls the repo's reusable
-[`slack-build-alert.yml`](.github/workflows/slack-build-alert.yml)
-workflow on completion (`if: always()`), matching the pattern used by
-`main-ci-cd.yaml`, `cd-vembda-assistant-server.yml`, and the Terraform
-apply workflows. Failures surface in `#build-alerts` via
+The workflow uses the `.github/actions/send-build-alert` composite action
+on completion (`if: always()`). Failures surface in `#build-alerts` via
 `SLACK_WEBHOOK_URL`.
 
 ### Why no `bun run build` before `cap sync`
@@ -385,11 +365,10 @@ confirmed on the `macos-15` GitHub Actions runner image
 ### Workflow file conventions
 
 Files are named `.yaml` (not `.yml`) to match the majority convention
-in this repo. The iOS release is a single combined workflow (not
-separate CI/CD files) because it's an atomic operation triggered by
-`repository_dispatch` — there's no separate CI gate. Signing steps are
-not extracted into a reusable workflow because it's the only iOS
-workflow.
+in this repo. The iOS release is a reusable `workflow_call` workflow
+called from the release pipelines — there's no separate CI gate.
+Signing steps are not extracted into their own reusable workflow
+because it's the only iOS workflow.
 
 ### Secrets (GitHub Actions)
 
@@ -402,13 +381,6 @@ All iOS signing secrets are stored as GitHub Actions secrets:
 - `IOS_PROVISIONING_PROFILE_STAGING` / `_DEV` — Per-environment profiles
 - `APPLE_APP_ID_PROD` / `_STAGING` / `_DEV` — Numeric App Store Connect app IDs (e.g. `123456789`), passed as `--apple-id` to [`xcrun altool --upload-package`](https://keith.github.io/xcode-man-pages/altool.7.html). Each environment has its own ASC app record with its own ID.
 - `SLACK_WEBHOOK_URL` — Slack incoming webhook for `#build-alerts` notifications
-
-### Cross-repo auth
-
-The dispatch uses a GitHub App token generated from `VELLUM_AUTOMATION_GITHUB_APP_ID`
-/ `VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY` (stored in `vellum-assistant`), scoped to
-`vellum-assistant-platform` via
-[`actions/create-github-app-token`](https://github.com/actions/create-github-app-token).
 
 ## Structure
 
