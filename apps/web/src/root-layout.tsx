@@ -8,6 +8,10 @@ import {
   useAssistantLifecycle,
   type UseAssistantLifecycleReturn,
 } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+import {
+  isVellumStaffUser,
+  shouldShowHatchVersionSelector,
+} from "@/domains/chat/lib/hatch-version-selection.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
 import { useClientFeatureFlagSync } from "@/lib/feature-flags/use-client-feature-flag-sync.js";
@@ -66,14 +70,22 @@ export function RootLayout() {
 
   const navigate = useNavigate();
   const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const authUser = useAuthStore.use.user();
   const authLoading = useAuthStore.use.isLoading();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
+  const canSelectHatchVersion = shouldShowHatchVersionSelector({
+    isDevOrStaging: isNonProduction,
+    isVellumStaff: isVellumStaffUser(
+      authUser?.email ?? null,
+      authUser?.isStaff ?? false,
+    ),
+  });
   useClientFeatureFlagSync(isLoggedIn && !authLoading);
   const lifecycle = useAssistantLifecycle({
     isLoggedIn,
     isLoading: authLoading,
     isRetired: false,
-    isNonProduction,
+    canSelectHatchVersion,
     onRedirect: navigate,
   });
 

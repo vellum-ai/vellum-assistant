@@ -55,6 +55,8 @@ export function VersionSelectionScreen({ onHatch }: VersionSelectionScreenProps)
           </div>
         ) : (
           <Dropdown
+            className="w-64 max-w-full"
+            aria-label="Assistant version"
             value={selectedVersion}
             onChange={setSelectedVersion}
             options={[

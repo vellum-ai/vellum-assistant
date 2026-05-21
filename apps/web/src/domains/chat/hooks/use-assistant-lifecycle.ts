@@ -47,7 +47,7 @@ interface UseAssistantLifecycleOptions {
   isLoggedIn: boolean;
   isLoading: boolean;
   isRetired: boolean;
-  isNonProduction: boolean;
+  canSelectHatchVersion: boolean;
   /** Framework-agnostic redirect — called instead of router.replace(). */
   onRedirect: (url: string) => void;
 }
@@ -82,7 +82,7 @@ export function useAssistantLifecycle({
   isLoggedIn,
   isLoading,
   isRetired,
-  isNonProduction,
+  canSelectHatchVersion,
   onRedirect,
 }: UseAssistantLifecycleOptions): UseAssistantLifecycleReturn {
   const [assistantState, setAssistantState] = useState<AssistantState>({
@@ -106,8 +106,8 @@ export function useAssistantLifecycle({
   // Stabilize external values with refs so useCallback identities stay stable.
   const isRetiredRef = useRef(isRetired);
   isRetiredRef.current = isRetired;
-  const isNonProductionRef = useRef(isNonProduction);
-  isNonProductionRef.current = isNonProduction;
+  const canSelectHatchVersionRef = useRef(canSelectHatchVersion);
+  canSelectHatchVersionRef.current = canSelectHatchVersion;
   const onRedirectRef = useRef(onRedirect);
   onRedirectRef.current = onRedirect;
 
@@ -210,8 +210,8 @@ export function useAssistantLifecycle({
           onRedirectRef.current(onboardingRedirect);
           return;
         }
-        // In nonprod, let the user pick a release version before hatching.
-        if (isNonProductionRef.current) {
+        // In dev/staging, Vellum staff can pick a release version before hatching.
+        if (canSelectHatchVersionRef.current) {
           setAssistantState({ kind: "awaiting_version_selection" });
           return;
         }
