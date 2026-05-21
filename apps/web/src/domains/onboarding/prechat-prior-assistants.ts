@@ -4,8 +4,7 @@
  * Follows the same shape as `prechat-tools.ts`. The order here is
  * significant -- the screen renders assistants in this order.
  *
- * `logoSrc` is `null` for all entries initially -- the tile component
- * falls back to initials. Logo assets can be added as a follow-up.
+ * `logoSrc` points to SVG icons under `/images/prior-assistants/`.
  *
  * `logoSrcDark` is an optional alternate asset shown in dark mode.
  *
@@ -22,11 +21,11 @@ export interface PreChatPriorAssistantItem {
 }
 
 export const PRECHAT_PRIOR_ASSISTANTS: PreChatPriorAssistantItem[] = [
-  { id: "chatgpt", label: "ChatGPT", logoSrc: null },
-  { id: "claude", label: "Claude", logoSrc: null },
-  { id: "openclaw", label: "OpenClaw", logoSrc: null },
-  { id: "hermes", label: "Hermes", logoSrc: null },
-  { id: "manus", label: "Manus", logoSrc: null },
-  { id: "gemini", label: "Gemini", logoSrc: null },
-  { id: "copilot", label: "Copilot", logoSrc: null },
+  { id: "chatgpt", label: "ChatGPT", logoSrc: "/images/prior-assistants/chatgpt.svg" },
+  { id: "claude", label: "Claude", logoSrc: "/images/prior-assistants/claude.svg" },
+  { id: "openclaw", label: "OpenClaw", logoSrc: "/images/prior-assistants/openclaw.png" },
+  { id: "hermes", label: "Hermes", logoSrc: "/images/prior-assistants/hermes.png" },
+  { id: "manus", label: "Manus", logoSrc: "/images/prior-assistants/manus.svg" },
+  { id: "gemini", label: "Gemini", logoSrc: "/images/prior-assistants/gemini.svg" },
+  { id: "copilot", label: "Copilot", logoSrc: "/images/prior-assistants/copilot.svg" },
 ];
