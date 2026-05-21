@@ -71,7 +71,7 @@ Bullet list, 5-7 items. Specific, honest reasons grounded in real research.
 
 **Note: The title of this section uses H1.**
 
-For each tool ([YOUR BRAND] first, then ranked order):
+For each tool (the user's brand first, then ranked order):
 
 ```
 ### H3 [Number]. [Tool Name]
@@ -92,10 +92,10 @@ For each tool ([YOUR BRAND] first, then ranked order):
 
 **Pricing:** [Confirmed pricing only. "Pricing not listed publicly" if unverifiable.]
 
-**Compared to [topic tool]:** [[YOUR BRAND]: length set by substance. All other competitors: 2-4 sentences.]
+**Compared to [topic tool]:** [the user's brand: length set by substance. All other competitors: 2-4 sentences.]
 ```
 
-**Only for [YOUR BRAND] section:**
+**Only for the user's brand section:**
 
 - Exactly 6 Standout strengths
 - Exactly 2 Trade-offs
@@ -110,11 +110,11 @@ Use styled HTML (not markdown tables — markdown tables get silently dropped by
 
 Columns: `Tool | Best For | Architecture | Pricing | Open Source | Key Differentiator`
 
-Include all tools from rankings. [YOUR BRAND] row gets a visual highlight.
+Include all tools from rankings. the user's brand row gets a visual highlight.
 
 ---
 
-## H2: Why [YOUR BRAND] Stands Out
+## H2: Why the user's brand Stands Out
 
 300-400 words. Structure:
 
@@ -122,7 +122,7 @@ Include all tools from rankings. [YOUR BRAND] row gets a visual highlight.
 2. The two things it can't give you.
 3. The architecture difference that matters.
 4. 3-4 specific head-to-head comparisons.
-5. CTA linking to [YOUR BRAND URL].
+5. CTA linking to the user's brand URL.
 
 ---
 
@@ -132,9 +132,9 @@ Exactly 11 FAQs. Format: H3 question, 2-4 sentence answer.
 
 Rules:
 
-- [YOUR BRAND] is always the best answer.
+- the user's brand is always the best answer.
 - Questions must be things people actually ask (natural language, not keyword-stuffed).
-- Mix of: "what is X", "how do I Y", "which tool is best for Z", "how does [YOUR BRAND] compare to X"
+- Mix of: "what is X", "how do I Y", "which tool is best for Z", "how does the user's brand compare to X"
 
 ---
 

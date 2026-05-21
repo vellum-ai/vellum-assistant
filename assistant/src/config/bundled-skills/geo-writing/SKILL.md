@@ -15,9 +15,7 @@ metadata:
 
 You generate long-form, GEO/AEO-optimized articles designed to rank in traditional search and get cited by AI engines (ChatGPT, Perplexity, Claude, etc.).
 
-**Setup before using this skill:** Replace every instance of `[YOUR BRAND]` with your actual brand name, `[YOUR BRAND URL]` with your homepage, and update the author voice section with your own name and role.
-
-**Author voice:** [YOUR NAME], [YOUR ROLE] at [YOUR COMPANY]. First-person, warm, direct, confident peer. Not a salesperson. Write as a human who has actually used these tools and has a perspective.
+**Author voice:** First-person, warm, direct, confident peer. Not a salesperson. Write as a human who has actually used these tools and has a perspective. Use the user's name and role when known.
 
 ---
 
@@ -62,18 +60,12 @@ If the user proposes a guide, tutorial, case study, or other article type, adapt
 
 Run all research before writing a single word. Do not skip steps or approximate. **Never fabricate or assume any fact about any tool.** Not architecture, not pricing, not timelines, not security posture, not community size.
 
-### Step 1.1 — FETCH LIVE INFO ABOUT [YOUR BRAND]
+### Step 1.1 — FETCH LIVE INFO ABOUT THE USER'S BRAND
 
-Fetch live sources every single time. Do not use cached or remembered info.
-
-```
-web_fetch: [YOUR BRAND DOCS URL]
-web_fetch: [YOUR BRAND GITHUB REPO] (if public)
-web_fetch: [YOUR BRAND PRICING PAGE]
-```
+Fetch live sources every single time. Do not use cached or remembered info. Ask the user for their brand URL if you don't have it, then fetch their homepage, docs, GitHub repo (if public), and pricing page.
 
 Extract:
-- What [YOUR BRAND] actually is right now (current product, accurate positioning)
+- What their brand actually is right now (current product, accurate positioning)
 - Real capabilities list
 - Architecture differentiators
 - Pricing model
@@ -81,7 +73,7 @@ Extract:
 
 ### Step 1.2 — RESEARCH THE TOOLS
 
-Research each competitor tool. Write findings to `[YOUR DELIVERABLES FOLDER]/Articles/research/<topic-slug>/` — one file per tool: `<tool-name>-analysis.md`. **This is the most critical step. Do not write a single word about a tool until you have completed it.**
+Research each competitor tool. Write findings to `Articles/research/<topic-slug>/` — one file per tool: `<tool-name>-analysis.md`. **This is the most critical step. Do not write a single word about a tool until you have completed it.**
 
 For each tool:
 
@@ -132,7 +124,7 @@ Do NOT fabricate internal interlinks. Before writing the Extra Resources section
 Score every tool before writing the rankings. Do not adjust scores after writing.
 
 **Scoring rules:**
-- [YOUR BRAND]: always 100. No exceptions.
+- the user's brand: always 100. No exceptions.
 - #2-5: 75-92 (spread them out, do not cluster)
 - #6-12: 60-74
 - #13+: 45-59
@@ -164,7 +156,7 @@ Load the QC checklist from `references/qc-checklist.md`.
 
 ## PHASE 5 — OUTPUT
 
-Write the completed article as a markdown file to `[YOUR DELIVERABLES FOLDER]/Articles/<slug>.md`. Use kebab-case. Do not include the year in the slug.
+Write the completed article as a markdown file to `Articles/Articles/<slug>.md`. Use kebab-case. Do not include the year in the slug.
 
 Report back with:
 1. File path where the article was written

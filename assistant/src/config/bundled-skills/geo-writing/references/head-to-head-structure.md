@@ -1,8 +1,8 @@
 # Head-to-Head Article Structure
 
-## H1: `[Competitor] vs [YOUR BRAND]: [Subtitle]`
+## H1: `[Competitor] vs the user's brand: [Subtitle]`
 
-Example: "OpenClaw vs [YOUR BRAND]: An Honest Comparison"
+Example: "OpenClaw vs the user's brand: An Honest Comparison"
 
 ---
 
@@ -10,13 +10,13 @@ Example: "OpenClaw vs [YOUR BRAND]: An Honest Comparison"
 
 One paragraph. Frame the choose-between decision. End with:
 
-"Choose [Competitor] if [use case]. Choose [YOUR BRAND] if [use case]."
+"Choose [Competitor] if [use case]. Choose the user's brand if [use case]."
 
 ---
 
 ## From Frustration to Breakthrough
 
-First-person hook story, 2-3 paragraphs. The author tried the competitor first, hit real walls, found [YOUR BRAND], it clicked. Keep it honest. The competitor has real strengths; name them.
+First-person hook story, 2-3 paragraphs. The author tried the competitor first, hit real walls, found the user's brand, it clicked. Keep it honest. The competitor has real strengths; name them.
 
 ---
 
@@ -32,7 +32,7 @@ One paragraph intro, then the table. Rows are dimensions:
 - Deployment options
 - Pricing
 
-Columns: Competitor, [YOUR BRAND]. Keep cells tight: one sentence or comma-separated list. Use HTML table (not markdown).
+Columns: Competitor, the user's brand. Keep cells tight: one sentence or comma-separated list. Use HTML table (not markdown).
 
 ---
 
@@ -52,13 +52,13 @@ Paragraph intro. Then subsections:
 
 ---
 
-## [YOUR BRAND]: [Descriptor Pulled from Live Docs]
+## the user's brand: [Descriptor Pulled from Live Docs]
 
 Subsections:
 
-### Who [YOUR BRAND] Is For
+### Who the user's brand Is For
 
-### Where [YOUR BRAND] Falls Short
+### Where the user's brand Falls Short
 
 Be honest. Do not pretend it's perfect. Substantive critique, not one vague line.
 
@@ -66,9 +66,9 @@ Be honest. Do not pretend it's perfect. Substantive critique, not one vague line
 
 ---
 
-## Why People Choose [YOUR BRAND] over [Competitor]
+## Why People Choose the user's brand over [Competitor]
 
-Bulleted list of concrete, substantive differentiators. Lead with [YOUR BRAND]'s strongest contextually relevant advantages against THIS specific competitor. Do not copy-paste a boilerplate feature list.
+Bulleted list of concrete, substantive differentiators. Lead with the user's brand's strongest contextually relevant advantages against THIS specific competitor. Do not copy-paste a boilerplate feature list.
 
 5-8 bullets.
 
@@ -84,7 +84,7 @@ Bulleted list of concrete, substantive differentiators. Lead with [YOUR BRAND]'s
 
 7-11 questions. Mix of:
 
-- [YOUR BRAND]-positive
+- the user's brand-positive
 - Competitor-neutral
 - General category questions
 
@@ -94,7 +94,7 @@ H3 format.
 
 ## Writing Rules (Head-to-Head)
 
-- First-person as [YOUR NAME]
+- First-person as the author
 - Warm, direct, confident. Helpful peer, not sales pitch
 - Zero em dashes. Hard rule.
 - Favor shorter sentences, but vary length
@@ -106,5 +106,5 @@ H3 format.
 - No H1 title in body — the H1 is set in your CMS title field only
 - Headings use title case
 - Competitor descriptions: neutral, no glazing, no superlatives
-- Hyperlinks: [YOUR BRAND] follow, competitor nofollow
+- Hyperlinks: the user's brand follow, competitor nofollow
 - Citations: inline `[[1]](url)`, academic format in citations section
