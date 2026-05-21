@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
-import { PRECHAT_TASKS } from "@/domains/onboarding/prechat-tasks.js";
+import { PRECHAT_TASKS } from "@/types/prechat-tasks.js";
 
 interface UseOnboardingChoiceOptions {
   isNative: boolean;
