@@ -320,14 +320,17 @@ describe("renderHistoryContent", () => {
     expect(output.toolCallsBeforeText).toBe(false);
   });
 
-  test("handles orphan tool_result without matching tool_use", () => {
+  test("drops orphan tool_result without matching tool_use", () => {
     const output = renderHistoryContent([
       { type: "tool_result", tool_use_id: "missing", content: "some result" },
     ]);
 
-    expect(output.toolCalls).toEqual([
-      { name: "unknown", input: {}, result: "some result", isError: false },
-    ]);
+    // Orphans are dropped — without the parent tool_use we can't tell the user
+    // what tool ran, so the result is meaningless. See shared.ts comment.
+    expect(output.toolCalls).toEqual([]);
+    expect(output.text).toBe("");
+    expect(output.textSegments).toEqual([]);
+    expect(output.contentOrder).toEqual([]);
   });
 
   test("produces textSegments for text-tool-text interleaving", () => {

@@ -497,17 +497,14 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
           matched.imageData = imageDataList[0];
           matched.imageDataList = imageDataList;
         }
-      } else {
-        toolCalls.push({
-          name: "unknown",
-          input: {},
-          result: resultContent,
-          isError,
-          ...(imageDataList.length > 0
-            ? { imageData: imageDataList[0], imageDataList }
-            : {}),
-        });
       }
+      // Orphan tool_result with no matching tool_use — drop it. Synthesizing
+      // a "name: 'unknown'" phantom entry rendered in chat as "Used unknown"
+      // / "Completed 1 step" with no context, with a timestamp later than
+      // the assistant's final answer. Most commonly orphans appear when
+      // context-window compaction trims the parent tool_use block while
+      // leaving the paired tool_result. Losing the orphan's result content
+      // is correct: without the parent we can't tell the user what tool ran.
       continue;
     }
   }
