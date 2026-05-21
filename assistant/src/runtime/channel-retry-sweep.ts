@@ -292,6 +292,7 @@ export async function sweepFailedEvents(
             replyCallbackUrl,
             assistantId,
             {
+              sinceMessageId: userMessageId,
               startFromSegment: 0,
               onSegmentDelivered: (count) =>
                 updateDeliveredSegmentCount(event.id, count),

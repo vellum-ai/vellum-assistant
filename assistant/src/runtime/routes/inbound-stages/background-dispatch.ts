@@ -257,6 +257,7 @@ export function processChannelMessageInBackground(
           replyCallbackUrl,
           assistantId,
           {
+            sinceMessageId: userMessageId,
             onSegmentDelivered: (count) =>
               updateDeliveredSegmentCount(eventId, count),
           },

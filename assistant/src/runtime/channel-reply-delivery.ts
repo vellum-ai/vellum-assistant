@@ -1,8 +1,12 @@
-import { renderHistoryContent } from "../daemon/handlers/shared.js";
+import {
+  type RenderedHistoryContent,
+  renderHistoryContent,
+} from "../daemon/handlers/shared.js";
 import { getAttachmentMetadataForMessage } from "../memory/attachments-store.js";
 import {
   getMessageById,
   getMessages,
+  getMessagesAfter,
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
@@ -74,6 +78,18 @@ function toDeliverableTextSegments(
     return [fallbackText];
   }
   return [];
+}
+
+function hasDeliverableReply(
+  rendered: RenderedHistoryContent,
+  attachments: RuntimeAttachmentMetadata[],
+): boolean {
+  return (
+    toDeliverableTextSegments(rendered.textSegments, rendered.text).length >
+      0 ||
+    attachments.length > 0 ||
+    hasNoResponseMarker(rendered.textSegments)
+  );
 }
 
 export async function deliverRenderedReplyViaCallback(
@@ -169,6 +185,11 @@ export async function deliverRenderedReplyViaCallback(
 }
 
 export type DeliverReplyOptions = {
+  /**
+   * Internal conversation message id for the user row that started this
+   * delivery. When set, fallback scans never cross into older turns.
+   */
+  sinceMessageId?: string;
   startFromSegment?: number;
   onSegmentDelivered?: (deliveredCount: number) => void;
   /** Deliver as ephemeral (visible only to `user`). Fire-and-forget. */
@@ -188,7 +209,11 @@ export async function deliverReplyViaCallback(
   assistantId?: string,
   options?: DeliverReplyOptions,
 ): Promise<void> {
-  const msgs = getMessages(conversationId);
+  const msgs =
+    options?.sinceMessageId === undefined
+      ? getMessages(conversationId)
+      : getMessagesAfter(conversationId, options.sinceMessageId);
+
   for (let i = msgs.length - 1; i >= 0; i--) {
     if (msgs[i].role !== "assistant") continue;
 
@@ -208,6 +233,10 @@ export async function deliverReplyViaCallback(
       sizeBytes: a.sizeBytes,
       kind: a.kind,
     }));
+
+    if (!hasDeliverableReply(rendered, replyAttachments)) {
+      continue;
+    }
 
     // Compose an `onMessageTs` that reconciles `slackMeta.channelTs` on the
     // persisted assistant row once Slack returns the authoritative ts. The
