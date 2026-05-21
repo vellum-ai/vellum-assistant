@@ -9062,8 +9062,8 @@ paths:
       operationId: identity_intro_get
       summary: Get identity intro text
       description:
-        Returns a deterministic greeting derived from the assistant name in IDENTITY.md, falling back to
-        LLM-generated cache.
+        "Returns a greeting for the empty-state hero. Priority: SOUL.md ## Greetings (random pick), ## Identity
+        Intro section, 'Hi, I'm {name}!' from IDENTITY.md, then LLM-generated cache."
       tags:
         - identity
       responses:
