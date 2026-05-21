@@ -431,6 +431,21 @@ export interface AssistantActivityState {
 }
 
 /**
+ * Emitted when the query complexity auto-router selects a non-default
+ * profile for the current turn. Clients use this to show an inline
+ * notification (e.g. "Using Quality for this response"). Only fires when
+ * the router picks a profile — not when the user explicitly pinned one.
+ */
+export interface TurnProfileAutoRouted {
+  type: "turn_profile_auto_routed";
+  conversationId: string;
+  /** Profile key (e.g. "quality-optimized"). */
+  profile: string;
+  /** Human-readable label (e.g. "Quality"). */
+  profileLabel: string;
+}
+
+/**
  * Broadcast to clients when a conversation's inference-profile override
  * changes. `profile` is the profile name (a key in `llm.profiles`) or
  * `null` when the override is cleared and the conversation falls back to
@@ -505,4 +520,5 @@ export type _MessagesServerMessages =
   | TraceEvent
   | ConfirmationStateChanged
   | AssistantActivityState
+  | TurnProfileAutoRouted
   | ConversationInferenceProfileUpdated;

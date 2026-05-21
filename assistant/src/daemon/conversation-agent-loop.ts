@@ -729,6 +729,18 @@ export async function runAgentLoopImpl(
     }
   }
 
+  // Notify clients when the auto-router selected a non-default profile.
+  if (turnOverrideProfile && turnOverrideProfile !== userExplicitOverride) {
+    const profileEntry = config.llm.profiles?.[turnOverrideProfile];
+    const label = profileEntry?.label ?? turnOverrideProfile;
+    broadcastMessage({
+      type: "turn_profile_auto_routed",
+      conversationId: ctx.conversationId,
+      profile: turnOverrideProfile,
+      profileLabel: label,
+    });
+  }
+
   // Falls through to auto-routed profile so mid-turn profile refresh
   // doesn't revert the routing when the conversation row has no explicit
   // override set.
