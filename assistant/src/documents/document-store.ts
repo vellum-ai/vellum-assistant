@@ -433,7 +433,10 @@ export function replaceInDocument(
       : new RegExp(escapeRegExpChars(find), flags);
 
     const totalMatches = [...row.content.matchAll(pattern)].length;
-    if (totalMatches === 0) {
+    if (
+      totalMatches === 0 ||
+      (options.maxReplacements != null && options.maxReplacements <= 0)
+    ) {
       return { success: true, replacements_made: 0, content_changed: false };
     }
 
