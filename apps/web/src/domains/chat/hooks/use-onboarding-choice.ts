@@ -42,6 +42,15 @@ export function useOnboardingChoice({
   // Latch ref: once an assistant message is seen, skip the .some() scan on
   // subsequent renders. Only computed while phase === "pending".
   const greetingSeenRef = useRef(false);
+  const greetingConversationKeyRef = useRef<string | null>(null);
+
+  // Reset the greeting latch when the conversation changes so an assistant
+  // message in one thread can't satisfy the latch for a different thread.
+  if (greetingConversationKeyRef.current !== activeConversationKey) {
+    greetingConversationKeyRef.current = activeConversationKey;
+    greetingSeenRef.current = false;
+  }
+
   if (!greetingSeenRef.current && phase === "pending") {
     greetingSeenRef.current = messages.some((m) => m.role === "assistant");
   }
@@ -62,6 +71,8 @@ export function useOnboardingChoice({
       visibleConversationKeyRef.current = activeConversationKey;
       setPhase("visible");
     }
+    // `messages` is not read in the body; listed so this effect re-fires
+    // when a new message arrives and greetingSeenRef may have just latched.
   }, [phase, isNative, didOnboarding, messages, onboardingTasksEmpty, activeConversationKey]);
 
   // Dismiss if the user switches to a different conversation.

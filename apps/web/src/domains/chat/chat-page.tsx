@@ -227,8 +227,8 @@ export function ChatPage() {
   const dismissedSurfaceIdsRef = useRef<Set<string>>(new Set());
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
   const onboardingDraftConversationKeyRef = useRef<string | null>(null);
-  const didOnboardingRef = useRef(false);
-  const onboardingTasksEmptyRef = useRef(false);
+  const [didOnboarding, setDidOnboarding] = useState(false);
+  const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
   const draftKeyResolutionRef = useRef(false);
   const previousConversationKeyRef = useRef<string | null>(null);
   const pendingQueuedStableIdsRef = useRef<string[]>([]);
@@ -433,7 +433,7 @@ export function ChatPage() {
   useEffect(() => {
     if (searchParams.get("onboarding") !== "1") return;
     autoGreetRef.current = true;
-    didOnboardingRef.current = true;
+    setDidOnboarding(true);
     setAutoGreetPending(true);
     if (awaitingAutoGreetTimeoutRef.current) {
       clearTimeout(awaitingAutoGreetTimeoutRef.current);
@@ -454,10 +454,17 @@ export function ChatPage() {
       pendingOnboardingContextRef.current = consumePendingPreChatContext();
     }
     if (pendingOnboardingContextRef.current) {
-      onboardingTasksEmptyRef.current =
-        pendingOnboardingContextRef.current.tasks.length === 0;
+      setOnboardingTasksEmpty(
+        pendingOnboardingContextRef.current.tasks.length === 0,
+      );
     }
     void navigate(routes.conversation(onboardingDraftKey), { replace: true });
+    return () => {
+      if (awaitingAutoGreetTimeoutRef.current) {
+        clearTimeout(awaitingAutoGreetTimeoutRef.current);
+        awaitingAutoGreetTimeoutRef.current = null;
+      }
+    };
   }, [searchParams, navigate]);
 
   // -------------------------------------------------------------------------
@@ -1175,8 +1182,8 @@ export function ChatPage() {
       reconcileAfterNextStreamOpenRef,
     },
     isChannelReadonly,
-    onboardingTasksEmpty: onboardingTasksEmptyRef.current,
-    didOnboarding: didOnboardingRef.current,
+    onboardingTasksEmpty,
+    didOnboarding,
   };
 
   // -------------------------------------------------------------------------
