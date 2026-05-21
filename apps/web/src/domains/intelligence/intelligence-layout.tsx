@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation } from "react-router";
+import { NavLink, Outlet, useLocation, useOutletContext } from "react-router";
 
 import { cn } from "@vellum/design-library";
 
@@ -28,6 +28,7 @@ const INTELLIGENCE_TABS = [
 export function IntelligenceLayout() {
   const assistantName = useAssistantIdentityStore.use.name();
   const { pathname } = useLocation();
+  const outletContext = useOutletContext();
 
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-6 py-5">
@@ -65,7 +66,7 @@ export function IntelligenceLayout() {
       </nav>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <Outlet />
+        <Outlet context={outletContext} />
       </div>
     </div>
   );
