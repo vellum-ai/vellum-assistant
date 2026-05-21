@@ -27,7 +27,10 @@ import {
   recordProcessingFailure,
 } from "../memory/delivery-status.js";
 import { getLogger } from "../util/logger.js";
-import { deliverReplyViaCallback } from "./channel-reply-delivery.js";
+import {
+  deliverReplyViaCallback,
+  findAssistantReplyMessageIdForTurn,
+} from "./channel-reply-delivery.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { MessageProcessor } from "./http-types.js";
 import { resolveRoutingStateFromRuntime } from "./trust-context-resolver.js";
@@ -267,28 +270,30 @@ export async function sweepFailedEvents(
     };
 
     try {
-      const { messageId: userMessageId } = await processMessage(
-        event.conversationId,
-        content,
-        attachmentIds,
-        {
-          transport: {
-            channelId: sourceChannel,
-            hints: metadataHints.length > 0 ? metadataHints : undefined,
-            uxBrief: metadataUxBrief,
-            chatType: metadataChatType,
+      const { messageId: userMessageId, assistantMessageId } =
+        await processMessage(
+          event.conversationId,
+          content,
+          attachmentIds,
+          {
+            transport: {
+              channelId: sourceChannel,
+              hints: metadataHints.length > 0 ? metadataHints : undefined,
+              uxBrief: metadataUxBrief,
+              chatType: metadataChatType,
+            },
+            assistantId,
+            trustContext,
+            isInteractive:
+              resolveRoutingStateFromRuntime(trustContext).promptWaitingAllowed,
+            onEvent: observeAgentEvent,
           },
-          assistantId,
-          trustContext,
-          isInteractive:
-            resolveRoutingStateFromRuntime(trustContext).promptWaitingAllowed,
-          onEvent: observeAgentEvent,
-        },
-        sourceChannel,
-        sourceInterface,
-      );
+          sourceChannel,
+          sourceInterface,
+        );
       linkMessage(event.id, userMessageId);
       markProcessed(event.id);
+      replyMessageId ??= assistantMessageId;
       if (replyMessageId) {
         storeReplyMessageId(event.id, replyMessageId);
       }
@@ -370,7 +375,7 @@ export async function sweepFailedEvents(
       typeof payload.externalChatId === "string"
         ? payload.externalChatId
         : undefined;
-    const replyMessageId =
+    let replyMessageId =
       typeof payload.replyMessageId === "string"
         ? payload.replyMessageId
         : undefined;
@@ -382,6 +387,15 @@ export async function sweepFailedEvents(
         new Error("Stored payload is missing delivery callback details"),
       );
       continue;
+    }
+    if (!replyMessageId && event.messageId) {
+      replyMessageId = findAssistantReplyMessageIdForTurn(
+        event.conversationId,
+        event.messageId,
+      );
+      if (replyMessageId) {
+        storeReplyMessageId(event.id, replyMessageId);
+      }
     }
     if (!replyMessageId) {
       recordDeliveryFailure(

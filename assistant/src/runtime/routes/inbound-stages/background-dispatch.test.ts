@@ -264,6 +264,45 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
 
     clearThreadTs(conversationId);
   });
+
+  test("stores assistant reply ids returned by non-agent-loop fast paths", async () => {
+    const conversationId = "conv-fast-path-reply";
+    const channelId = "C-FAST-PATH";
+
+    const processMessage: MessageProcessor = async () => ({
+      messageId: "user-msg-fast-path",
+      assistantMessageId: "assistant-msg-fast-path",
+    });
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-fast-path",
+      content: "/unknown",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+    });
+
+    await flush();
+
+    expect(markedProcessedEvents).toEqual(["evt-fast-path"]);
+    expect(storedReplyMessageIds).toEqual([
+      {
+        eventId: "evt-fast-path",
+        replyMessageId: "assistant-msg-fast-path",
+      },
+    ]);
+    expect(replyDeliveryCalls).toEqual([
+      { messageId: "assistant-msg-fast-path" },
+    ]);
+    expect(deliveredEvents).toEqual(["evt-fast-path"]);
+
+    clearThreadTs(conversationId);
+  });
 });
 
 describe("Slack thinking status timing", () => {

@@ -613,6 +613,25 @@ describe("channel-delivery-store", () => {
     expect(row!.deliveryStatus).toBe("delivered");
   });
 
+  test("acknowledgeDelivery does not overwrite failed delivery state", () => {
+    const result = recordInbound("telegram", "chat-1", "msg-1");
+    markProcessed(result.eventId);
+    recordDeliveryFailure(result.eventId, new Error("fetch failed"));
+
+    const ack = acknowledgeDelivery("telegram", "chat-1", "msg-1");
+    expect(ack).toBe(true);
+
+    const db = getDb();
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .get();
+    expect(row!.deliveryStatus).toBe("failed");
+    expect(row!.retryAfter).not.toBeNull();
+    expect(row!.retryAfter ?? 0).toBeGreaterThan(0);
+  });
+
   test("acknowledgeDelivery returns false for unknown event", () => {
     const ack = acknowledgeDelivery("telegram", "chat-1", "nonexistent");
     expect(ack).toBe(false);

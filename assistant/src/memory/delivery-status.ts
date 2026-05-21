@@ -28,7 +28,10 @@ export function acknowledgeDelivery(
   const now = Date.now();
 
   const existing = db
-    .select({ id: channelInboundEvents.id })
+    .select({
+      id: channelInboundEvents.id,
+      deliveryStatus: channelInboundEvents.deliveryStatus,
+    })
     .from(channelInboundEvents)
     .where(
       and(
@@ -40,6 +43,12 @@ export function acknowledgeDelivery(
     .get();
 
   if (!existing) return false;
+  if (
+    existing.deliveryStatus === "failed" ||
+    existing.deliveryStatus === "dead_letter"
+  ) {
+    return true;
+  }
 
   db.update(channelInboundEvents)
     .set({
@@ -247,6 +256,7 @@ export function getRetryableEvents(limit = 20): Array<{
 export function getRetryableDeliveryEvents(limit = 20): Array<{
   id: string;
   conversationId: string;
+  messageId: string | null;
   processingAttempts: number;
   rawPayload: string | null;
   deliveredSegmentCount: number;
@@ -257,6 +267,7 @@ export function getRetryableDeliveryEvents(limit = 20): Array<{
     .select({
       id: channelInboundEvents.id,
       conversationId: channelInboundEvents.conversationId,
+      messageId: channelInboundEvents.messageId,
       processingAttempts: channelInboundEvents.processingAttempts,
       rawPayload: channelInboundEvents.rawPayload,
       deliveredSegmentCount: channelInboundEvents.deliveredSegmentCount,

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -44,6 +44,28 @@ mock.module("../runtime/channel-reply-delivery.js", () => ({
       assistantId,
       options,
     );
+  },
+  findAssistantReplyMessageIdForTurn: (
+    conversationId: string,
+    userMessageId: string,
+  ): string | undefined => {
+    const rows = getDb()
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(asc(messages.createdAt))
+      .all();
+    const userIndex = rows.findIndex((row) => row.id === userMessageId);
+    if (userIndex === -1) return undefined;
+    let candidate: string | undefined;
+    for (let i = userIndex + 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.role === "user") break;
+      if (row.role === "assistant") {
+        candidate = row.id;
+      }
+    }
+    return candidate;
   },
 }));
 
@@ -458,5 +480,93 @@ describe("channel-retry-sweep", () => {
     expect(row?.processingStatus).toBe("processed");
     expect(row?.deliveryStatus).toBe("delivered");
     expect(row?.retryAfter).toBeNull();
+  });
+
+  test("delivery retry resolves missing reply id from the linked user turn", async () => {
+    const inbound = deliveryCrud.recordInbound(
+      "telegram",
+      "chat-delivery-fallback",
+      "msg-delivery-fallback",
+    );
+    deliveryCrud.storePayload(inbound.eventId, {
+      content: "already processed",
+      sourceChannel: "telegram",
+      interface: "telegram",
+      externalChatId: "chat-delivery-fallback",
+      replyCallbackUrl: "https://example.test/deliver/telegram",
+      assistantId: "assistant-1",
+    });
+
+    const db = getDb();
+    db.insert(messages)
+      .values([
+        {
+          id: "user-delivery-fallback",
+          conversationId: inbound.conversationId,
+          role: "user",
+          content: JSON.stringify([
+            { type: "text", text: "already processed" },
+          ]),
+          createdAt: 1_000,
+        },
+        {
+          id: "assistant-delivery-fallback",
+          conversationId: inbound.conversationId,
+          role: "assistant",
+          content: JSON.stringify([{ type: "text", text: "reply" }]),
+          createdAt: 1_001,
+        },
+        {
+          id: "user-unrelated",
+          conversationId: inbound.conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "newer turn" }]),
+          createdAt: 1_002,
+        },
+        {
+          id: "assistant-unrelated",
+          conversationId: inbound.conversationId,
+          role: "assistant",
+          content: JSON.stringify([{ type: "text", text: "newer reply" }]),
+          createdAt: 1_003,
+        },
+      ])
+      .run();
+    deliveryCrud.linkMessage(inbound.eventId, "user-delivery-fallback");
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "processed",
+        deliveryStatus: "failed",
+        retryAfter: Date.now() - 1,
+      })
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .run();
+
+    let processMessageCalls = 0;
+    await sweepFailedEvents(async () => {
+      processMessageCalls++;
+      throw new Error("processMessage should not be called");
+    });
+
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .get();
+    expect(processMessageCalls).toBe(0);
+    expect(deliveryCalls).toEqual([
+      {
+        conversationId: inbound.conversationId,
+        externalChatId: "chat-delivery-fallback",
+        callbackUrl: "https://example.test/deliver/telegram",
+        assistantId: "assistant-1",
+        messageId: "assistant-delivery-fallback",
+        startFromSegment: 0,
+      },
+    ]);
+    expect(
+      row?.rawPayload ? JSON.parse(row.rawPayload).replyMessageId : undefined,
+    ).toBe("assistant-delivery-fallback");
+    expect(row?.deliveryStatus).toBe("delivered");
   });
 });

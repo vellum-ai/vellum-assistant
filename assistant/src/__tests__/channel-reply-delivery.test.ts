@@ -127,8 +127,11 @@ mock.module("../daemon/handlers/shared.js", () => ({
   renderHistoryContent: () => renderedHistoryContent,
 }));
 
-const { deliverRenderedReplyViaCallback, deliverReplyViaCallback } =
-  await import("../runtime/channel-reply-delivery.js");
+const {
+  deliverRenderedReplyViaCallback,
+  deliverReplyViaCallback,
+  findAssistantReplyMessageIdForTurn,
+} = await import("../runtime/channel-reply-delivery.js");
 
 describe("channel-reply-delivery", () => {
   beforeEach(() => {
@@ -147,6 +150,40 @@ describe("channel-reply-delivery", () => {
       surfaces: [],
       thinkingSegments: [],
     };
+  });
+
+  it("finds the assistant reply in the linked user turn", () => {
+    conversationMessages.push(
+      {
+        id: "user-target",
+        role: "user",
+        content: "target",
+      },
+      {
+        id: "assistant-tool-call",
+        role: "assistant",
+        content: "tool call",
+      },
+      {
+        id: "assistant-target",
+        role: "assistant",
+        content: "final reply",
+      },
+      {
+        id: "user-newer",
+        role: "user",
+        content: "newer",
+      },
+      {
+        id: "assistant-newer",
+        role: "assistant",
+        content: "newer reply",
+      },
+    );
+
+    expect(findAssistantReplyMessageIdForTurn("conv-1", "user-target")).toBe(
+      "assistant-target",
+    );
   });
 
   it("sends non-empty text segments as separate messages and puts attachments on the last segment", async () => {

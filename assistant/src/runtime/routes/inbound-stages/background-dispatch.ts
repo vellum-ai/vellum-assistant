@@ -195,8 +195,10 @@ export function processChannelMessageInBackground(
     // rejected as already-processing and our update would erase that
     // in-flight turn's mapping. Snapshot the prior state here and restore
     // it in the `already processing` rejection path below.
-    let priorSlackMapping: { threadTs: string; channelId: string } | null =
-      null;
+    let priorSlackMapping: {
+      threadTs: string;
+      channelId: string;
+    } | null = null;
     let slackMappingMutated = false;
     if (sourceChannel === "slack" && replyCallbackUrl) {
       priorSlackMapping = peekThreadMapping(conversationId);
@@ -237,31 +239,35 @@ export function processChannelMessageInBackground(
       };
 
       try {
-        const { messageId: userMessageId } = await processMessage(
-          conversationId,
-          content,
-          attachmentIds,
-          {
-            transport: {
-              channelId: sourceChannel,
-              hints: metadataHints.length > 0 ? metadataHints : undefined,
-              uxBrief: metadataUxBrief,
-              chatType,
+        const { messageId: userMessageId, assistantMessageId } =
+          await processMessage(
+            conversationId,
+            content,
+            attachmentIds,
+            {
+              transport: {
+                channelId: sourceChannel,
+                hints: metadataHints.length > 0 ? metadataHints : undefined,
+                uxBrief: metadataUxBrief,
+                chatType,
+              },
+              assistantId,
+              trustContext: trustCtx,
+              isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
+              ...(displayContent !== undefined ? { displayContent } : {}),
+              ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
+              ...(slackRuntimeContextNotice
+                ? { slackRuntimeContextNotice }
+                : {}),
+              ...(slackInbound ? { slackInbound } : {}),
+              onEvent: observeAgentEvent,
             },
-            assistantId,
-            trustContext: trustCtx,
-            isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
-            ...(displayContent !== undefined ? { displayContent } : {}),
-            ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
-            ...(slackRuntimeContextNotice ? { slackRuntimeContextNotice } : {}),
-            ...(slackInbound ? { slackInbound } : {}),
-            onEvent: observeAgentEvent,
-          },
-          sourceChannel,
-          sourceInterface,
-        );
+            sourceChannel,
+            sourceInterface,
+          );
         linkMessage(eventId, userMessageId);
         markProcessed(eventId);
+        replyMessageId ??= assistantMessageId;
         if (replyMessageId) {
           storeReplyMessageId(eventId, replyMessageId);
         }

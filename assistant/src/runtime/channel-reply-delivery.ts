@@ -185,6 +185,25 @@ export type DeliverReplyOptions = {
 
 type PersistedMessage = ReturnType<typeof getMessages>[number];
 
+export function findAssistantReplyMessageIdForTurn(
+  conversationId: string,
+  userMessageId: string,
+): string | undefined {
+  const msgs = getMessages(conversationId);
+  const userIndex = msgs.findIndex((msg) => msg.id === userMessageId);
+  if (userIndex === -1) return undefined;
+
+  let candidate: string | undefined;
+  for (let i = userIndex + 1; i < msgs.length; i++) {
+    const msg = msgs[i];
+    if (msg.role === "user") break;
+    if (msg.role === "assistant") {
+      candidate = msg.id;
+    }
+  }
+  return candidate;
+}
+
 async function deliverPersistedAssistantMessageViaCallback(
   msg: PersistedMessage,
   externalChatId: string,
