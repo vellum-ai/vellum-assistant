@@ -202,6 +202,17 @@ export function PreChatFlow() {
   // ── iOS native flow: NameStep → VibeStep → Privacy → Hatching → Chat ──
   if (isNative) {
     if (screen === 0) {
+      // Both Continue and Skip advance to the vibe step and persist the
+      // position so the user lands back here on reload — shared closure
+      // keeps the two callsites from drifting.
+      const goToVibeStep = () => {
+        setScreen(1);
+        try {
+          sessionStorage.setItem("prechat_native_screen", "1");
+        } catch {
+          // ignore — see initial-state comment.
+        }
+      };
       return (
         <NameStepScreen
           userName={userName}
@@ -209,22 +220,8 @@ export function PreChatFlow() {
           displayedAssistantNames={displayedAssistantNames}
           onUserNameChange={handleUserNameChange}
           onAssistantNameChange={setAssistantName}
-          onContinue={() => {
-            setScreen(1);
-            try {
-              sessionStorage.setItem("prechat_native_screen", "1");
-            } catch {
-              // ignore — see initial-state comment.
-            }
-          }}
-          onSkip={() => {
-            setScreen(1);
-            try {
-              sessionStorage.setItem("prechat_native_screen", "1");
-            } catch {
-              // ignore — see initial-state comment.
-            }
-          }}
+          onContinue={goToVibeStep}
+          onSkip={goToVibeStep}
           currentStep={0}
           totalSteps={IOS_TOTAL_STEPS}
         />
