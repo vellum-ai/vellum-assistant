@@ -229,6 +229,7 @@ export function ChatPage() {
   const onboardingDraftConversationKeyRef = useRef<string | null>(null);
   const [didOnboarding, setDidOnboarding] = useState(false);
   const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
+  const [onboardingConversationKey, setOnboardingConversationKey] = useState<string | null>(null);
   const draftKeyResolutionRef = useRef(false);
   const previousConversationKeyRef = useRef<string | null>(null);
   const pendingQueuedStableIdsRef = useRef<string[]>([]);
@@ -444,6 +445,7 @@ export function ChatPage() {
     const onboardingDraftKey =
       onboardingDraftConversationKeyRef.current ?? createDraftConversationKey();
     onboardingDraftConversationKeyRef.current = onboardingDraftKey;
+    setOnboardingConversationKey(onboardingDraftKey);
     // Drain pending PreChat context from sessionStorage at the same moment
     // the auto-greet is armed so the payload rides along the single greet
     // send and doesn't leak onto a later message.
@@ -1184,6 +1186,7 @@ export function ChatPage() {
     isChannelReadonly,
     onboardingTasksEmpty,
     didOnboarding,
+    onboardingConversationKey,
   };
 
   // -------------------------------------------------------------------------

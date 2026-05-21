@@ -18,6 +18,7 @@ interface UseOnboardingChoiceOptions {
   messages: DisplayMessage[];
   onboardingTasksEmpty: boolean;
   activeConversationKey: string | null;
+  onboardingConversationKey: string | null;
   sendMessage: (content: string) => void;
 }
 
@@ -33,6 +34,7 @@ export function useOnboardingChoice({
   messages,
   onboardingTasksEmpty,
   activeConversationKey,
+  onboardingConversationKey,
   sendMessage,
 }: UseOnboardingChoiceOptions): UseOnboardingChoiceReturn {
   const [phase, setPhase] = useState<"pending" | "visible" | "dismissed">(
@@ -66,14 +68,15 @@ export function useOnboardingChoice({
       isNative &&
       didOnboarding &&
       greetingSeenRef.current &&
-      onboardingTasksEmpty
+      onboardingTasksEmpty &&
+      activeConversationKey === onboardingConversationKey
     ) {
       visibleConversationKeyRef.current = activeConversationKey;
       setPhase("visible");
     }
     // `messages` is not read in the body; listed so this effect re-fires
     // when a new message arrives and greetingSeenRef may have just latched.
-  }, [phase, isNative, didOnboarding, messages, onboardingTasksEmpty, activeConversationKey]);
+  }, [phase, isNative, didOnboarding, messages, onboardingTasksEmpty, activeConversationKey, onboardingConversationKey]);
 
   // Dismiss if the user switches to a different conversation.
   useEffect(() => {

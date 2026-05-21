@@ -364,6 +364,7 @@ export interface ChatRouteContentProps {
   // Onboarding (iOS post-hatch flow)
   onboardingTasksEmpty: boolean;
   didOnboarding: boolean;
+  onboardingConversationKey: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +437,7 @@ export function ChatRouteContent({
   isChannelReadonly,
   onboardingTasksEmpty,
   didOnboarding,
+  onboardingConversationKey,
 }: ChatRouteContentProps) {
   // Destructure grouped props
   const { avatarComponents, avatarTraits, avatarImageUrl } = avatar;
@@ -556,6 +558,7 @@ export function ChatRouteContent({
     messages,
     onboardingTasksEmpty,
     activeConversationKey,
+    onboardingConversationKey,
     sendMessage,
   });
 
