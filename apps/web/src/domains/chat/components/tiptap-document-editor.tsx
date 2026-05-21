@@ -1,8 +1,5 @@
 /**
- * Tiptap/ProseMirror-based WYSIWYG document editor.
- *
- * Replaces the sandboxed iframe approach (`editor-bridge.ts`) with a native
- * React component that supports:
+ * Tiptap/ProseMirror-based WYSIWYG document editor React component that supports:
  * - Rich-text editing of markdown content
  * - Floating bubble menu toolbar (bold, italic, strike, code, link)
  * - Comment anchor highlight decorations (yellow)
@@ -323,16 +320,9 @@ export function TiptapDocumentEditor({
       const start = pmPosToCharOffset(ed.state.doc, from);
       const end = pmPosToCharOffset(ed.state.doc, to);
 
-      // Build bounding rect from ProseMirror coords
-      const coordsFrom = ed.view.coordsAtPos(from);
-      const coordsTo = ed.view.coordsAtPos(to);
-      const rect = new DOMRect(
-        Math.min(coordsFrom.left, coordsTo.left),
-        Math.min(coordsFrom.top, coordsTo.top),
-        Math.abs(coordsTo.right - coordsFrom.left),
-        Math.max(coordsTo.bottom, coordsFrom.bottom) -
-          Math.min(coordsFrom.top, coordsTo.top),
-      );
+      const domSelection = ed.view.dom.ownerDocument.getSelection();
+      if (!domSelection || domSelection.rangeCount === 0) return;
+      const rect = domSelection.getRangeAt(0).getBoundingClientRect();
 
       onTextSelectRef.current?.({ start, end, text, rect });
     },

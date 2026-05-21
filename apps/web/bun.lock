@@ -37,6 +37,7 @@
         "@tiptap/core": "3.23.5",
         "@tiptap/extension-bubble-menu": "3.23.5",
         "@tiptap/extension-link": "3.23.5",
+        "@tiptap/pm": "3.23.5",
         "@tiptap/react": "3.23.5",
         "@tiptap/starter-kit": "3.23.5",
         "@vellum/design-library": "file:../../packages/design-library",
