@@ -75,13 +75,27 @@ export type RouterFailureReason =
   | "empty_index";
 
 /**
+ * Tags which batch a router-selected slug came from. Tier 3 carries the
+ * batch index so the inspector can distinguish e.g. `tier3:0` from
+ * `tier3:3` — useful for debugging hash bucketing and batch-quality
+ * regressions per tier 3 bucket.
+ */
+export type RouterSource = "tier1" | "tier2" | `tier3:${number}`;
+
+/**
  * Result of a single router call. `selectedSlugs` preserves the order the
  * model returned and is already capped at `config.memory.v2.router.max_page_ids`
- * with out-of-range IDs dropped.
+ * with out-of-range IDs dropped. `sourceBySlug` attributes each selection
+ * to the batch it came from for inspector display.
  */
 export interface RouterResult {
   /** Selected page slugs in the order the model returned them. */
   selectedSlugs: string[];
+  /**
+   * Per-slug provenance covering every entry in `selectedSlugs`. Empty when
+   * `failureReason !== null` or no batch returned any selections.
+   */
+  sourceBySlug: ReadonlyMap<string, RouterSource>;
   /** `null` on success; one of the failure reasons above otherwise. */
   failureReason: RouterFailureReason | null;
 }
@@ -120,8 +134,24 @@ const RouterResultSchema = z.object({
   page_ids: z.array(z.number().int()),
 });
 
-/** Empty-result helper so call sites don't reconstruct the shape inline. */
+/**
+ * Per-batch internal result. The orchestrator stamps provenance during the
+ * union so individual batches never need to know their own tier tag.
+ */
+interface RouterBatchResult {
+  selectedSlugs: string[];
+  failureReason: RouterFailureReason | null;
+}
+
+/** Empty orchestrator result. */
 function emptyResult(reason: RouterFailureReason | null): RouterResult {
+  return { selectedSlugs: [], sourceBySlug: new Map(), failureReason: reason };
+}
+
+/** Empty batch result — slimmer shape; orchestrator builds provenance. */
+function emptyBatchResult(
+  reason: RouterFailureReason | null,
+): RouterBatchResult {
   return { selectedSlugs: [], failureReason: reason };
 }
 
@@ -209,19 +239,24 @@ export async function runRouter(
   const tier3Batches = partitionPageIndex(afterTier2, batchSize).filter(
     (b) => b.entries.length > 0,
   );
-  const batches: PageIndex[] = [];
-  if (tier1) batches.push(tier1);
-  if (tier2) batches.push(tier2);
-  batches.push(...tier3Batches);
-  if (batches.length === 0) {
+
+  // Tag each batch with its provenance string. Tier 3 batches carry their
+  // bucket index so the inspector can attribute selections per-bucket.
+  const taggedBatches: Array<{ source: RouterSource; index: PageIndex }> = [];
+  if (tier1) taggedBatches.push({ source: "tier1", index: tier1 });
+  if (tier2) taggedBatches.push({ source: "tier2", index: tier2 });
+  tier3Batches.forEach((index, i) => {
+    taggedBatches.push({ source: `tier3:${i}` as const, index });
+  });
+  if (taggedBatches.length === 0) {
     return emptyResult("empty_index");
   }
 
   const batchResults = await Promise.all(
-    batches.map((batch) =>
+    taggedBatches.map(({ index }) =>
       runRouterBatch({
         ...params,
-        batchIndex: batch,
+        batchIndex: index,
         priorEverInjected,
         provider,
       }),
@@ -236,13 +271,17 @@ export async function runRouter(
   }
 
   // Union selected slugs preserving first-seen order across batches; batch
-  // ordering is deterministic (hash bucket index) so the union is stable.
-  const seen = new Set<string>();
+  // ordering is deterministic so the union and provenance map are stable.
+  // First-seen wins if a slug somehow appears in multiple batches (shouldn't
+  // happen — tier 1/2/3 partition is disjoint — but be defensive).
+  const sourceBySlug = new Map<string, RouterSource>();
   const selectedSlugs: string[] = [];
-  for (const result of batchResults) {
+  for (let i = 0; i < batchResults.length; i++) {
+    const result = batchResults[i];
+    const source = taggedBatches[i].source;
     for (const slug of result.selectedSlugs) {
-      if (seen.has(slug)) continue;
-      seen.add(slug);
+      if (sourceBySlug.has(slug)) continue;
+      sourceBySlug.set(slug, source);
       selectedSlugs.push(slug);
     }
   }
@@ -258,7 +297,7 @@ export async function runRouter(
       "Some router batches failed; returning union of successful batches",
     );
   }
-  return { selectedSlugs, failureReason: null };
+  return { selectedSlugs, sourceBySlug, failureReason: null };
 }
 
 interface RunRouterBatchParams extends RunRouterParams {
@@ -274,7 +313,7 @@ interface RunRouterBatchParams extends RunRouterParams {
  */
 async function runRouterBatch(
   params: RunRouterBatchParams,
-): Promise<RouterResult> {
+): Promise<RouterBatchResult> {
   const {
     workspaceDir,
     userMessage,
@@ -338,7 +377,7 @@ async function runRouterBatch(
     );
   } catch (err) {
     log.warn({ err }, "Router provider call threw; treating as api_error");
-    return emptyResult("api_error");
+    return emptyBatchResult("api_error");
   }
 
   const toolBlock = extractToolUse(response);
@@ -347,7 +386,7 @@ async function runRouterBatch(
       { stopReason: response.stopReason },
       "Router model returned no select_pages_to_inject tool_use block",
     );
-    return emptyResult("tool_use_missing");
+    return emptyBatchResult("tool_use_missing");
   }
 
   const parsed = RouterResultSchema.safeParse(toolBlock.input);
@@ -356,7 +395,7 @@ async function runRouterBatch(
       { error: parsed.error.message },
       "Router tool input did not match schema",
     );
-    return emptyResult("schema_mismatch");
+    return emptyBatchResult("schema_mismatch");
   }
 
   const N = batchIndex.entries.length;

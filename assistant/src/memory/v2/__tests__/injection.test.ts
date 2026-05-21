@@ -260,6 +260,8 @@ mock.module("../page-store.js", () => ({
 interface RouterResultStub {
   selectedSlugs: string[];
   failureReason: string | null;
+  /** Tier provenance per slug. Defaults to `tier3:0` for any selected slug. */
+  sourceBySlug?: Map<string, string>;
 }
 
 const routerState = {
@@ -270,12 +272,20 @@ const routerState = {
 mock.module("../router.js", () => ({
   runRouter: async () => {
     routerState.callCount++;
-    return (
-      routerState.nextResult ?? {
-        selectedSlugs: [],
-        failureReason: null,
-      }
-    );
+    const result = routerState.nextResult ?? {
+      selectedSlugs: [],
+      failureReason: null,
+    };
+    // Synthesize a default sourceBySlug for stubs that don't set one — pre-
+    // tier-provenance tests stage `selectedSlugs` only and expect every pick
+    // to flow through as a router selection. Treating them as `tier3:0` is
+    // the closest equivalent under the new model.
+    if (!result.sourceBySlug) {
+      const map = new Map<string, string>();
+      for (const slug of result.selectedSlugs) map.set(slug, "tier3:0");
+      result.sourceBySlug = map;
+    }
+    return result;
   },
 }));
 
@@ -1825,7 +1835,9 @@ describe("injectMemoryV2Block", () => {
       expect(row.mode).toBe("router");
       const aliceRow = row.concepts.find((c) => c.slug === "alice-vscode");
       expect(aliceRow).toBeDefined();
-      expect(aliceRow!.source).toBe("router");
+      // Default-stub provenance is `tier3:0` (single-batch path); see the
+      // runRouter mock for the synthesis rule.
+      expect(aliceRow!.source).toBe("tier3:0");
       expect(aliceRow!.status).toBe("injected");
       expect(aliceRow!.finalActivation).toBe(0);
       expect(aliceRow!.ownActivation).toBe(0);
@@ -2007,7 +2019,7 @@ describe("injectMemoryV2Block", () => {
       );
       expect(phantom).toBeDefined();
       expect(phantom!.status).toBe("page_missing");
-      expect(phantom!.source).toBe("router");
+      expect(phantom!.source).toBe("tier3:0");
     });
 
     test("flag-on: router re-picking a prior-everInjected slug does NOT re-render it; non-overlapping picks render and append to everInjected", async () => {
@@ -2112,7 +2124,7 @@ describe("injectMemoryV2Block", () => {
       expect(bobRow).toBeDefined();
       expect(aliceRow!.source).toBe("carry_over");
       expect(aliceRow!.status).toBe("in_context");
-      expect(bobRow!.source).toBe("router");
+      expect(bobRow!.source).toBe("tier3:0");
       expect(bobRow!.status).toBe("injected");
     });
 

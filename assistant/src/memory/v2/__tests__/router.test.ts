@@ -260,6 +260,7 @@ describe("runRouter — early bails", () => {
 
     expect(result).toEqual({
       selectedSlugs: [],
+      sourceBySlug: new Map(),
       failureReason: "empty_index",
     });
     // Provider must NOT be invoked when there is nothing to route.
@@ -315,6 +316,7 @@ describe("runRouter — successful tool_use", () => {
 
     expect(result).toEqual({
       selectedSlugs: [],
+      sourceBySlug: new Map(),
       failureReason: null,
     });
   });
@@ -942,6 +944,36 @@ describe("runRouter — tier 2 (highest EMA)", () => {
     const tier2Prompt = providerCalls[0].systemPrompt ?? "";
     expect(tier2Prompt).toContain("[1] bravo");
     expect(tier2Prompt).not.toMatch(/^\[\d+\] alpha/m);
+  });
+
+  test("sourceBySlug tags each selection with its batch tier", async () => {
+    scoresStub.set("bravo", 5.0);
+    scoresStub.set("delta", 3.0);
+
+    providerStub = makeProvider(toolUseResponse([1]));
+    const result = await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ tier1Size: 1, tier2Size: 1 }),
+      database: stubDb,
+    });
+
+    // Every selected slug should have a tier tag — exactly one of:
+    // "tier1", "tier2", or "tier3:N" (N starts at 0).
+    for (const slug of result.selectedSlugs) {
+      const source = result.sourceBySlug.get(slug);
+      expect(source).toBeDefined();
+      expect(
+        source === "tier1" ||
+          source === "tier2" ||
+          source!.startsWith("tier3:"),
+      ).toBe(true);
+    }
+    // Tier 1 + tier 2 + (some tier 3 batches) ≥ 3 batches → at least one
+    // slug per tier should be present in the source map across the union.
+    const tags = new Set(result.sourceBySlug.values());
+    expect(tags.has("tier1")).toBe(true);
+    expect(tags.has("tier2")).toBe(true);
   });
 
   test("tier2_size set without database logs a warn and skips tier 2", async () => {
