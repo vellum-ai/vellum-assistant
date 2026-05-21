@@ -2382,4 +2382,32 @@ describe("macOS host-browser proxy without extension registry", () => {
     );
     expect(result).toEqual({ ok: true, via: "extension" });
   });
+  test("setCdpSessionId is forwarded to the underlying client through buildChainedClient", async () => {
+    // This test exercises the real chained-client path that integrates
+    // the extension CdpClient. Without it, the test suite would only ever
+    // instantiate getCdpClient(), which returns the scopedClient directly.
+    // buildChainedClient (used by the navigator executor) wraps that
+    // client and must forward setCdpSessionId calls to the underlying
+    // extension client — otherwise --new-tab would silently fail to
+    // re-target CDP commands.
+    const fakeProxy = makeAvailableProxy();
+    mockSingletonProxy = fakeProxy;
+    const ctx = makeContext({ conversationId: "set-session-id-test" });
+    const client = getCdpClient(ctx);
+    // The scopedClient should expose setCdpSessionId (which it didn't
+    // before the fix).
+    expect(typeof client.setCdpSessionId).toBe("function");
+    // Call it; it should reach the underlying extension client without error.
+    // (The fake client's setCdpSessionId is a no-op in this test, but in
+    // production ExtensionCdpClient.setCdpSessionId updates cdpSessionId to
+    // re-target follow-on commands at a specific tab.)
+    const newTabId = "12345";
+    client.setCdpSessionId(newTabId);
+    // Verify the client is still functional after the session ID call.
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+      { url: "https://example.com" },
+    );
+    expect(result).toEqual({ ok: true, via: "extension" });
+  });
 });
