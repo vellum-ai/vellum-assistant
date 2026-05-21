@@ -34,7 +34,24 @@ export function SettingsSidebarTree({
           active={isActive}
           trailingIcon={ChevronRight}
           trailingIconClassName="md:hidden"
-          onSelect={() => navigate(item.href)}
+          href={item.href}
+          onClick={(e) => {
+            // Modifier and middle clicks fall through to the native <a> so
+            // Cmd/Ctrl-click opens a new tab, Shift-click opens a window,
+            // and "Copy link address" works. Plain left-clicks become SPA
+            // navigation via react-router.
+            if (
+              e.metaKey ||
+              e.ctrlKey ||
+              e.shiftKey ||
+              e.altKey ||
+              e.button !== 0
+            ) {
+              return;
+            }
+            e.preventDefault();
+            navigate(item.href);
+          }}
         />
         {!isLast && (
           <div
