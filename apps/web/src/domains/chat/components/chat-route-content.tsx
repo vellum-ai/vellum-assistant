@@ -721,7 +721,7 @@ export function ChatRouteContent({
 
   const loadOlder = useCallback(() => {
     historyPagination.fetchOlderPage();
-  }, [historyPagination]);
+  }, [historyPagination.fetchOlderPage]);
 
   // -------------------------------------------------------------------------
   // Transcript items
