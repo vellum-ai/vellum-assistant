@@ -19,6 +19,7 @@ import type {
   AssistantOutboundAttachment,
   ConversationListInvalidatedReason,
   DirectoryScopeOption,
+  InteractionKind,
   QuestionEntry,
   QuestionOption,
   ScopeOption,
@@ -719,7 +720,7 @@ export function parseAssistantEvent(
           | "answered"
           | "cancelled"
           | "superseded",
-        kind,
+        kind: kind as InteractionKind,
       };
     }
 

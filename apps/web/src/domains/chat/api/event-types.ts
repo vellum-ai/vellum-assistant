@@ -702,6 +702,48 @@ export type InteractionResolutionState =
   | "superseded";
 
 /**
+ * Mirrors the daemon's `PendingInteraction["kind"]` union
+ * (`assistant/src/runtime/pending-interactions.ts`). Split into user-facing
+ * kinds (prompts that block the conversation waiting for a person) and
+ * host-proxy kinds (intermediate tool steps that resolve mid-turn).
+ *
+ * Keep in sync with the daemon enum — adding a kind on one side without the
+ * other causes the attention-tracking allowlist to silently miss or
+ * incorrectly clear processing indicators.
+ */
+export type UserFacingInteractionKind =
+  | "confirmation"
+  | "secret"
+  | "question"
+  | "acp_confirmation";
+
+export type HostProxyInteractionKind =
+  | "host_bash"
+  | "host_file"
+  | "host_cu"
+  | "host_browser"
+  | "host_app_control"
+  | "host_transfer";
+
+export type InteractionKind =
+  | UserFacingInteractionKind
+  | HostProxyInteractionKind;
+
+/**
+ * Allowlist of interaction kinds that signal the daemon has handed control
+ * back to a person (vs intermediate host-proxy tool steps). Attention
+ * tracking uses this to decide whether to clear processing/attention state
+ * on `interaction_resolved`.
+ */
+export const USER_FACING_INTERACTION_KINDS: ReadonlySet<string> =
+  new Set<UserFacingInteractionKind>([
+    "confirmation",
+    "secret",
+    "question",
+    "acp_confirmation",
+  ]);
+
+/**
  * Emitted when a daemon-side pending interaction (confirmation, secret,
  * question, host-proxy request) transitions to a resolved state. Drives
  * push-based attention reconciliation in the sidebar.
@@ -713,7 +755,7 @@ export interface InteractionResolvedEvent {
   conversationKey: string;
   state: InteractionResolutionState;
   /** Kind of the resolved interaction (e.g. `"confirmation"`, `"secret"`). */
-  kind: string;
+  kind: InteractionKind;
 }
 
 export type AssistantEvent =
