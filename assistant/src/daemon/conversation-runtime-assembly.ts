@@ -693,20 +693,11 @@ export function injectChannelCapabilityContext(
         "- Present information as well-formatted text instead of dynamic UI.",
       );
     }
-    lines.push(
-      "- Defer dashboard-specific actions (e.g. accent color selection) by telling the user",
-    );
-    lines.push("  they can complete those steps later from the desktop app.");
-
     if (caps.channel === "whatsapp") {
       lines.push(
         "- Do NOT use markdown tables — use bullet lists instead. No markdown headers — use **bold** or CAPS for emphasis.",
       );
     }
-  }
-
-  if (!caps.supportsVoiceInput) {
-    lines.push("- Do NOT ask the user to use voice or microphone input.");
   }
 
   // Inject group chat etiquette only when the chat type indicates a multi-party

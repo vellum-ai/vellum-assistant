@@ -245,7 +245,7 @@ describe("injectChannelCapabilityContext", () => {
     expect(text).toContain("CHANNEL CONSTRAINTS");
     expect(text).toContain("Do NOT reference the dashboard UI");
     expect(text).toContain("Do NOT use ui_show");
-    expect(text).toContain("Do NOT ask the user to use voice");
+    expect(text).not.toContain("microphone");
     expect(text).toContain("dashboard_capable: false");
   });
 
@@ -654,7 +654,8 @@ describe("trust-gating via channel capabilities", () => {
     expect(injected).toContain("Do NOT reference the dashboard UI");
     expect(injected).toContain("Do NOT use ui_show, ui_update, or app_create");
     expect(injected).toContain("Present information as well-formatted text");
-    expect(injected).toContain("desktop app");
+    expect(injected).not.toContain("accent color selection");
+    expect(injected).not.toContain("complete those steps");
   });
 
   test("vellum web interface allows dynamic UI but constrains dashboard references", () => {
