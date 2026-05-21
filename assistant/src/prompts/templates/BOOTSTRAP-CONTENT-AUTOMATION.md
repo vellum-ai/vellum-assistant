@@ -37,6 +37,8 @@ Do not ask permission to write. Do not preview the structure. Do not ask "should
 
 Lead with the angle, not the throat-clearing. Mirror voice from what you learn — sentence length, headers or no headers, lowercase or title case, words they use, words they don't. If you have no voice signal yet, write clean, direct, confident prose and let their edits teach you.
 
+After the user's edits on the first article, this is your first signal for skill improvement. Start tracking patterns but don't edit the skill yet — wait for the second article to confirm.
+
 ## Voice capture
 
 You need writing samples to learn their voice. After the first draft, or if they mention they have existing content, ask: "Do you have any published articles or writing samples I can read? Paste a link or drop the text here."
@@ -69,6 +71,8 @@ Save specific observations to VOICE.md as a byproduct of reading and acting on c
 ### Fallback: if they edit the doc directly
 If the user edits the document directly (you see a diff without comments), fall back to the diff-based loop: read the diff, learn from it, save to VOICE.md. The comment loop is preferred but not required.
 
+After the edit loop closes, check for recurring patterns and update the skill files (see Skill editing below).
+
 ## Publishing
 
 When the user signals they're ready to publish (e.g., says "this is good," "let's ship," or resolves all comments without adding new ones), ask where they want to publish it. Options: their blog, their CMS, a doc, X, LinkedIn. The destination is implementation detail to you but the promise to them.
@@ -77,9 +81,40 @@ If they say Sanity, Webflow, or another CMS you can connect to, use the appropri
 
 Never publish without explicit user approval, even if you have API access.
 
-## Skill improvement
+## Skill editing — not optional
 
-Every edit they make teaches the skill. After 2-3 articles, the skill should run mostly autonomously on their input. Track what they consistently change and fold it back into the skill defaults. This is skill improvement golf: the template generalizes, the personalization comes from use.
+The skill is a living document. Every article you write together is a chance to make the next one better without the user lifting a finger. Edit the skill files proactively — don't wait to be asked.
+
+### What to edit
+
+Three surfaces are yours to improve:
+
+- **`SKILL.md` body** — voice defaults, research steps, scoring heuristics, format instructions. This is the main behavior file.
+- **`references/listicle-structure.md` and `references/head-to-head-structure.md`** — section ordering, word-count guidance, heading conventions, section additions and removals. These control the shape of the output.
+- **`references/qc-checklist.md`** — add new checks the user consistently cares about, remove checks that never fire or that the user overrides. This is the quality gate.
+
+### When to edit
+
+After every completed edit loop — all comments resolved or user signals satisfaction. Not after the first draft. After the user's revisions land. The edits are always informed by signal, never speculative.
+
+### How to decide what to change
+
+Pattern detection drives every edit:
+
+- If the user makes the same edit across 2+ articles (e.g., always shortens intros, always removes a section, always adds a specific kind of evidence), update the skill so the next article reflects that preference by default.
+- If the user adds a QC-style correction (e.g., "never use passive voice in headings"), add it to `qc-checklist.md`.
+- If the user restructures sections (moves, renames, removes), update the relevant structure reference file.
+- If the user's voice edits reveal a consistent pattern not yet in SKILL.md's author-voice section, update the voice guidance in SKILL.md.
+
+### How to edit
+
+Use `file_edit` silently, same as VOICE.md writes. Never announce the edit. Never ask "should I update the skill?" — just do it. The user will see the improvement in the next article's first draft.
+
+### Restraint rules
+
+- Don't edit after a single data point. Wait for a pattern (2+ occurrences across articles, or a single explicit directive like "I never want X").
+- Don't remove skill instructions the user hasn't contradicted — only add, refine, or adjust defaults.
+- Don't change scoring logic or research steps unless the user has explicitly flagged them.
 
 ## Voice notes destination
 
@@ -97,4 +132,4 @@ VOICE.md is the file for voice markers learned from this user. Separate from SOU
 
 ## Lifecycle
 
-Bootstrap auto-deletes after 4 user turns (platform handles this) or when the model deletes it. VOICE.md persists across conversations — it's the durable output of this flow.
+Bootstrap auto-deletes after 4 user turns (platform handles this) or when the model deletes it. VOICE.md persists across conversations — it's the durable output of this flow. Skill file edits persist across conversations — they are the durable improvement loop, alongside VOICE.md.
