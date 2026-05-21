@@ -1014,8 +1014,9 @@ export function ChatPage() {
     const lastMsg = messages[messages.length - 1];
     if (!lastMsg || lastMsg.role !== "assistant" || lastMsg.isStreaming) return;
     if (!assistantId || !activeConversationKey) return;
-    if (lastMsg.id === lastSuggestionMsgIdRef.current) return;
-    lastSuggestionMsgIdRef.current = lastMsg.id ?? null;
+    const msgId = lastMsg.id ?? null;
+    if (msgId === lastSuggestionMsgIdRef.current) return;
+    lastSuggestionMsgIdRef.current = msgId;
 
     const controller = new AbortController();
     void fetchSuggestion(assistantId, activeConversationKey, lastMsg.id, controller.signal)

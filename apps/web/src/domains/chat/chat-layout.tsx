@@ -476,6 +476,7 @@ export function ChatLayout() {
       handleOpenIdentity,
       isLibraryActive,
       handleOpenLibrary,
+      footerBanner,
     ],
   );
 
