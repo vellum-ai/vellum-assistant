@@ -322,19 +322,25 @@ export function DocumentViewerContainer({
           <TiptapDocumentEditor
             content={content}
             onContentChange={handleContentChange}
-            onTextSelect={(sel) => setTextSelection({
-              start: sel.start,
-              end: sel.end,
-              text: sel.text,
-              rect: {
-                top: sel.rect.top,
-                left: sel.rect.left,
-                bottom: sel.rect.bottom,
-                right: sel.rect.right,
-                width: sel.rect.width,
-                height: sel.rect.height,
-              },
-            })}
+            onTextSelect={(sel) => {
+              if (!sel) {
+                setTextSelection(null);
+                return;
+              }
+              setTextSelection({
+                start: sel.start,
+                end: sel.end,
+                text: sel.text,
+                rect: {
+                  top: sel.rect.top,
+                  left: sel.rect.left,
+                  bottom: sel.rect.bottom,
+                  right: sel.rect.right,
+                  width: sel.rect.width,
+                  height: sel.rect.height,
+                },
+              });
+            }}
             commentAnchors={commentAnchors}
             highlightRange={activeHighlight}
             onCommentSubmit={(text) => void handleCommentSubmit(text)}

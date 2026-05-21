@@ -45,7 +45,7 @@ interface TiptapDocumentEditorProps {
     end: number;
     text: string;
     rect: DOMRect;
-  }) => void;
+  } | null) => void;
   commentAnchors?: CommentAnchor[];
   highlightRange?: { start: number; end: number } | null;
   onCommentSubmit?: (comment: string) => void;
@@ -409,6 +409,7 @@ export function TiptapDocumentEditor({
       if (from === to) {
         const tr = ed.state.tr.setMeta(activeHighlightPluginKey, { range: null });
         ed.view.dispatch(tr);
+        onTextSelectRef.current?.(null);
         return;
       }
 
