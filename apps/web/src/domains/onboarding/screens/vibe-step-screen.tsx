@@ -28,8 +28,14 @@ export function VibeStepScreen({
     <OnboardingLayout>
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-6 pb-40 text-[var(--content-default)]">
         <div
-          className="grid w-full grid-cols-[auto_1fr_auto] items-center pb-4 pt-4"
-          style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
+          className="grid w-full grid-cols-[auto_1fr_auto] items-center pb-4"
+          style={{
+            // Match name-step's safe-area handling — iOS status bar /
+            // Dynamic Island would otherwise overlap the back button row.
+            paddingTop:
+              "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1rem)",
+            animation: "fadeInUp 0.3s ease-out 0.1s both",
+          }}
         >
           <Button
             variant="ghost"
