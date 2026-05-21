@@ -42,7 +42,10 @@ import {
   resolveDraftKey,
 } from "@/domains/conversations/conversation-queries.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
-import type { PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import {
+  consumePendingPreChatContext,
+  type PreChatOnboardingContext,
+} from "@/domains/onboarding/prechat.js";
 
 import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters.js";
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat-utils.js";
@@ -221,7 +224,8 @@ export function useSendMessage({
           resolvedConversationKey,
         });
 
-      const onboardingContext = pendingOnboardingContextRef.current;
+      const onboardingContext =
+        pendingOnboardingContextRef.current ?? consumePendingPreChatContext();
       const postResult = await postChatMessage(
         requestAssistantId,
         requestConversationKey,
