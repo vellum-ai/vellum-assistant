@@ -17,7 +17,7 @@ import {
 import {
   loadLastViewedConversationKey,
   saveLastViewedConversationKey,
-} from "@/domains/chat/utils/lastViewedConversationStorage.js";
+} from "@/domains/chat/utils/last-viewed-conversation-storage.js";
 import {
   formatLatency,
   formatTimelineTimestamp,

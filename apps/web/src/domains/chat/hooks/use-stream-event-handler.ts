@@ -26,24 +26,36 @@ import {
 import {
   handleOpenUrl,
   handleNavigateSettings,
+} from "@/domains/chat/utils/stream-handlers/navigation-handlers.js";
+import {
   handleAssistantTextDelta,
   handleAssistantActivityState,
   handleMessageComplete,
   handleGenerationHandoff,
   handleGenerationCancelled,
+} from "@/domains/chat/utils/stream-handlers/message-handlers.js";
+import {
   handleStreamError,
   handleConversationErrorEvent,
+} from "@/domains/chat/utils/stream-handlers/error-handlers.js";
+import {
   handleSecretRequest,
   handleConfirmationRequest,
   handleContactRequest,
   handleQuestionRequest,
+} from "@/domains/chat/utils/stream-handlers/interaction-handlers.js";
+import {
   handleUISurfaceShow,
   handleUISurfaceUpdate,
   handleUISurfaceDismiss,
   handleUISurfaceComplete,
+} from "@/domains/chat/utils/stream-handlers/surface-handlers.js";
+import {
   handleToolUseStart,
   handleToolProgress,
   handleToolResult,
+} from "@/domains/chat/utils/stream-handlers/tool-call-handlers.js";
+import {
   handleUsageUpdate,
   handleConversationListInvalidated,
   handleConversationTitleUpdated,
@@ -53,16 +65,22 @@ import {
   handleDiskPressureStatusChanged,
   handleIdentityChanged,
   handleAvatarUpdated,
+} from "@/domains/chat/utils/stream-handlers/metadata-handlers.js";
+import {
   handleMessageQueued,
   handleMessageDequeued,
   handleMessageQueuedDeleted,
   handleMessageRequestComplete,
+} from "@/domains/chat/utils/stream-handlers/queue-handlers.js";
+import {
   handleSubagentSpawned,
   handleSubagentStatusChanged,
   handleSubagentEvent,
-  type StreamHandlerContext,
-  type StreamContext,
-} from "@/domains/chat/utils/stream-handlers/index.js";
+} from "@/domains/chat/utils/stream-handlers/subagent-handlers.js";
+import type {
+  StreamHandlerContext,
+  StreamContext,
+} from "@/domains/chat/utils/stream-handlers/types.js";
 
 export type {
   ChatError,

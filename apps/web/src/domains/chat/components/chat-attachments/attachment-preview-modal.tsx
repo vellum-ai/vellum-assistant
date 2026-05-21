@@ -8,8 +8,8 @@ import { Button } from "@vellum/design-library";
 import { Typography } from "@vellum/design-library";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store.js";
 
-import { PdfPreview } from "@/domains/chat/components/chat-attachments/PdfPreview.js";
-import { TextPreview } from "@/domains/chat/components/chat-attachments/TextPreview.js";
+import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview.js";
+import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview.js";
 import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils.js";
 
 // File extensions we route to the TextPreview branch even when the upstream

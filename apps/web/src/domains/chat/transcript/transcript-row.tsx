@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { memo, type ReactNode } from "react";
 
 import { Notice } from "@vellum/design-library";
-import { SurfaceRouter } from "@/domains/chat/components/surfaces/index.js";
+import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router.js";
 import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body.js";

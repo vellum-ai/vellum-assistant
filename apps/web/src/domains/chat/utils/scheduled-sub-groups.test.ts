@@ -5,7 +5,7 @@ import type { Conversation } from "@/domains/chat/api/conversations.js";
 import {
   formatScheduledSubGroupLabel,
   groupScheduledConversationsByJobId,
-} from "@/domains/chat/utils/scheduledSubGroups.js";
+} from "@/domains/chat/utils/scheduled-sub-groups.js";
 
 function makeConversation(
   conversationKey: string,

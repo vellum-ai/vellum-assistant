@@ -31,7 +31,7 @@ mock.module("@/components/assistant/surfaces", () => ({
   SurfaceRouter: () => <div data-testid="surface-router" />,
 }));
 
-mock.module("@/domains/chat/components/chat-attachments/index.js", () => ({
+mock.module("@/domains/chat/components/chat-attachments/message-attachments.js", () => ({
   MessageAttachments: () => <div data-testid="message-attachments" />,
 }));
 

@@ -39,7 +39,7 @@ mock.module("@/domains/chat/components/tool-call-chip/tool-call-chip.js", () => 
   ToolCallChip: () => <div data-testid="tool-call" />,
 }));
 
-mock.module("@/domains/chat/components/chat-attachments/index.js", () => ({
+mock.module("@/domains/chat/components/chat-attachments/message-attachments.js", () => ({
   MessageAttachments: () => <div data-testid="attachments" />,
 }));
 

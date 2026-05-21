@@ -80,7 +80,7 @@ import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js"
 import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
 import type { UIContext } from "@/domains/chat/utils/turn-selectors.js";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
-import { buildMoveToGroupTargets } from "@/domains/chat/utils/groupConversations.js";
+import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations.js";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu.js";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill.js";
 import { CommandPalette } from "@/components/command-palette/command-palette.js";

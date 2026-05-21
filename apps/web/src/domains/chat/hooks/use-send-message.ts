@@ -31,7 +31,7 @@ import { resolveEditChatDraftKey } from "@/domains/chat/utils/edit-chat-session.
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure.js";
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
 import { newStableId } from "@/domains/chat/utils/stable-id.js";
-import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissedSurfacesStorage.js";
+import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage.js";
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";

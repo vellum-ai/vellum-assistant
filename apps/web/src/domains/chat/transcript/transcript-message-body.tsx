@@ -9,10 +9,10 @@ import {
 } from "react";
 import { ExternalLink } from "lucide-react";
 
-import { MessageAttachments } from "@/domains/chat/components/chat-attachments/index.js";
+import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments.js";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message.js";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions.js";
-import { SurfaceRouter } from "@/domains/chat/components/surfaces/index.js";
+import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router.js";
 import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types.js";

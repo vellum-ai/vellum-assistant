@@ -16,8 +16,8 @@ import { flushSync } from "react-dom";
 import {
   AttachFileButton,
   ChatAttachmentsStrip,
-  type ChatAttachment,
-} from "@/domains/chat/components/chat-attachments/index.js";
+} from "@/domains/chat/components/chat-attachments/chat-attachments.js";
+import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
 import { Button, Popover } from "@vellum/design-library";
 import {
   VoiceInputButton,

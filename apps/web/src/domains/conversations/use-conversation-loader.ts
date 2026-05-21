@@ -18,11 +18,11 @@ import {
   createDraftConversationKey,
   resolveBootstrappedConversationKey,
 } from "@/domains/chat/utils/conversation-selection.js";
-import { loadContextWindowUsageMap } from "@/domains/chat/utils/contextWindowStorage.js";
+import { loadContextWindowUsageMap } from "@/domains/chat/utils/context-window-storage.js";
 import {
   loadLastViewedConversationKey,
   saveLastViewedConversationKey,
-} from "@/domains/chat/utils/lastViewedConversationStorage.js";
+} from "@/domains/chat/utils/last-viewed-conversation-storage.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 

@@ -16,7 +16,7 @@ import {
 import {
   filterDismissedSurfaces,
   loadDismissedSurfaceIds,
-} from "@/domains/chat/utils/dismissedSurfacesStorage.js";
+} from "@/domains/chat/utils/dismissed-surfaces-storage.js";
 import { fetchLatestHistoryPage } from "@/domains/chat/api/history.js";
 import {
   recordChatDiagnostic,

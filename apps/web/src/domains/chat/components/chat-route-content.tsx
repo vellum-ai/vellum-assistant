@@ -37,9 +37,7 @@ import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-sc
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
 import type { ChatError } from "@/domains/chat/types.js";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
-import {
-  useChatAttachmentDropZone,
-} from "@/domains/chat/components/chat-attachments/index.js";
+import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone.js";
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state.js";
 import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner.js";

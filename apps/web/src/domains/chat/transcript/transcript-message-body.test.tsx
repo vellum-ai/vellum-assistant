@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-mock.module("@/domains/chat/components/chat-attachments/index.js", () => ({
+mock.module("@/domains/chat/components/chat-attachments/message-attachments.js", () => ({
   MessageAttachments: () => <div data-testid="attachments" />,
 }));
 
@@ -11,7 +11,7 @@ mock.module("@/domains/chat/components/chat-markdown-message.js", () => ({
   ),
 }));
 
-mock.module("@/domains/chat/components/surfaces/index.js", () => ({
+mock.module("@/domains/chat/components/surfaces/surface-router.js", () => ({
   SurfaceRouter: ({ surface }: { surface: { surfaceId: string } }) => (
     <div data-testid="surface" data-surface-id={surface.surfaceId} />
   ),
