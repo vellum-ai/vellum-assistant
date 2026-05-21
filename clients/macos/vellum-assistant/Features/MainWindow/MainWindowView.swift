@@ -86,7 +86,6 @@ struct MainWindowView: View {
     let onSendWakeUp: (() -> Void)?
 
     @State var showConversationSwitcher = false
-    @State var showEarnCreditsModal = false
     @State var conversationSwitcherTriggerFrame: CGRect = .zero
     /// Selected conversation currently being activated from a user navigation
     /// action. While non-nil, the chat surface renders a switch-loading
@@ -623,10 +622,6 @@ struct MainWindowView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .overlay { preferencesDismissLayer }
             .overlay(alignment: .bottomLeading) { preferencesDrawerLayer }
-            .sheet(isPresented: $showEarnCreditsModal) {
-                EarnCreditsModal()
-                    .preferredColorScheme(themePreference == "light" ? .light : (themePreference == "dark" || themePreference == "velvet") ? .dark : systemIsDark ? .dark : .light)
-            }
             .overlay { conversationSwitcherDismissLayer }
             .overlay(alignment: .topLeading) { conversationSwitcherDrawerLayer }
             .ignoresSafeArea(edges: .top)

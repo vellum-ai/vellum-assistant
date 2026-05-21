@@ -1775,7 +1775,6 @@ function buildSlackDmRequest(
 
 interface SlackInboundProcessOptions {
   displayContent?: string;
-  slackRuntimeContextNotice?: string;
   slackInbound?: {
     channelId: string;
     channelTs: string;
@@ -1934,18 +1933,15 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     ]);
 
     let capturedHints: string[] | undefined;
-    let capturedSlackNotice: string | undefined;
     const processMessage = async (
       _conversationId: string,
       _content: string,
       _attachmentIds?: string[],
       options?: {
         transport?: { hints?: string[] };
-        slackRuntimeContextNotice?: string;
       },
     ): Promise<{ messageId: string }> => {
       capturedHints = options?.transport?.hints;
-      capturedSlackNotice = options?.slackRuntimeContextNotice;
       return { messageId: "agent-result-id" };
     };
     setAdapterProcessMessage(processMessage);
@@ -1992,16 +1988,7 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     expect(channelTimestamps.has("1234.0")).toBe(true);
     expect(channelTimestamps.has("1234.1")).toBe(true);
 
-    expect(
-      capturedHints?.some((hint) => hint.includes("joined an existing thread")),
-    ).not.toBe(true);
-    expect(capturedSlackNotice).toContain("joined an existing thread");
-    const contents = db.$client
-      .prepare("SELECT content FROM messages")
-      .all() as Array<{ content: string }>;
-    expect(
-      contents.some((row) => row.content.includes("Slack context note")),
-    ).toBe(false);
+    expect(capturedHints ?? []).toEqual([]);
   });
 
   test("live Slack non-guardian passes raw displayContent while wrapping model content", async () => {

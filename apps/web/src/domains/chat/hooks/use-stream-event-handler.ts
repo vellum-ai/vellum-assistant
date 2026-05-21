@@ -447,6 +447,11 @@ export function useStreamEventHandler(
         case "document_comment_resolved":
         case "document_comment_reopened":
         case "document_comment_deleted":
+        case "interaction_resolved":
+          // Attention reconciliation lives in `useAttentionTracking`, which
+          // subscribes to the event bus directly. The chat-stream handler
+          // is intentionally a no-op here.
+          break;
         case "unknown":
           break;
         default: {

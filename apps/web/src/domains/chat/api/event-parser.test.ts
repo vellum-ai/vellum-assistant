@@ -183,6 +183,55 @@ describe("parseAssistantEvent", () => {
     });
   });
 
+  test("parses interaction_resolved with explicit conversationKey", () => {
+    const event = parseAssistantEvent("interaction_resolved", {
+      requestId: "req-1",
+      conversationKey: "conv-1",
+      state: "approved",
+      kind: "confirmation",
+    });
+    expect(event).toEqual({
+      type: "interaction_resolved",
+      requestId: "req-1",
+      conversationKey: "conv-1",
+      state: "approved",
+      kind: "confirmation",
+    });
+  });
+
+  test("interaction_resolved falls back to conversationId when conversationKey is absent", () => {
+    const event = parseAssistantEvent("interaction_resolved", {
+      requestId: "req-2",
+      conversationId: "conv-internal",
+      state: "answered",
+      kind: "secret",
+    });
+    expect(event).toMatchObject({
+      type: "interaction_resolved",
+      requestId: "req-2",
+      conversationKey: "conv-internal",
+      state: "answered",
+    });
+  });
+
+  test("interaction_resolved with an invalid state degrades to unknown", () => {
+    const event = parseAssistantEvent("interaction_resolved", {
+      requestId: "req-3",
+      conversationKey: "conv-3",
+      state: "exploded",
+      kind: "confirmation",
+    });
+    expect(event.type).toBe("unknown");
+  });
+
+  test("interaction_resolved without a requestId degrades to unknown", () => {
+    const event = parseAssistantEvent("interaction_resolved", {
+      conversationKey: "conv-4",
+      state: "cancelled",
+    });
+    expect(event.type).toBe("unknown");
+  });
+
   test("returns unknown event for unrecognized type", () => {
     const data = { foo: "bar" };
     const event = parseAssistantEvent("some_future_event", data);

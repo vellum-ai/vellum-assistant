@@ -150,7 +150,7 @@ export function resolveHostBrowserResultByRequestId(
   const normalizedContent = typeof content === "string" ? content : "";
   const normalizedIsError = typeof isError === "boolean" ? isError : false;
 
-  const interaction = pendingInteractions.resolve(requestId);
+  const interaction = pendingInteractions.resolve(requestId, "answered");
   interaction?.rpcResolve?.({
     content: normalizedContent,
     isError: normalizedIsError,

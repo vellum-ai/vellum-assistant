@@ -185,7 +185,7 @@ export class HostBashProxy extends HostProxyBase<
       timedOut: boolean;
     },
   ): void {
-    pendingInteractions.resolve(requestId);
+    pendingInteractions.resolve(requestId, "answered");
     this.resolve(requestId, response);
   }
 }

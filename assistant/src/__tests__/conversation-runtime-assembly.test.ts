@@ -245,7 +245,7 @@ describe("injectChannelCapabilityContext", () => {
     expect(text).toContain("CHANNEL CONSTRAINTS");
     expect(text).toContain("Do NOT reference the dashboard UI");
     expect(text).toContain("Do NOT use ui_show");
-    expect(text).toContain("Do NOT ask the user to use voice");
+    expect(text).not.toContain("microphone");
     expect(text).toContain("dashboard_capable: false");
   });
 
@@ -654,7 +654,8 @@ describe("trust-gating via channel capabilities", () => {
     expect(injected).toContain("Do NOT reference the dashboard UI");
     expect(injected).toContain("Do NOT use ui_show, ui_update, or app_create");
     expect(injected).toContain("Present information as well-formatted text");
-    expect(injected).toContain("desktop app");
+    expect(injected).not.toContain("accent color selection");
+    expect(injected).not.toContain("complete those steps");
   });
 
   test("vellum web interface allows dynamic UI but constrains dashboard references", () => {
@@ -3013,37 +3014,6 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .join("\n");
     expect(allText).not.toContain("<transport_hints>");
     expect(allText).not.toContain("dm context");
-  });
-
-  test("slack late-join notice is model-facing and non-persisted", async () => {
-    const slackChannelCaps: ChannelCapabilities = {
-      channel: "slack",
-      dashboardCapable: false,
-      supportsDynamicUi: false,
-      supportsVoiceInput: false,
-      chatType: "channel",
-    };
-    const notice =
-      "Slack context note: this turn joined an existing thread. 3 earlier thread messages were backfilled before the current message.";
-
-    const { messages: result, blocks } = await applyRuntimeInjections(
-      [{ role: "user", content: [{ type: "text", text: "current turn" }] }],
-      {
-        channelCapabilities: slackChannelCaps,
-        slackRuntimeContextNotice: notice,
-        transportHints: [notice],
-      },
-    );
-
-    const allText = result
-      .flatMap((m) => m.content)
-      .filter((b): b is { type: "text"; text: string } => b.type === "text")
-      .map((b) => b.text)
-      .join("\n");
-    expect(allText).toContain("<slack_context_notice>");
-    expect(allText).toContain(notice);
-    expect(allText).not.toContain("<transport_hints>");
-    expect(JSON.stringify(blocks)).not.toContain(notice);
   });
 
   // ── transport_hints kept for non-slack channels ───────────────────────

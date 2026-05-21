@@ -26,7 +26,16 @@ let mockCuClients: Array<{
 ];
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: unknown) => sentMessages.push(msg),
+  broadcastMessage: (msg: unknown) => {
+    // `interaction_resolved` envelopes are emitted by the
+    // pending-interactions tracker for every resolution. They are
+    // orthogonal to the surface-proxy wire messages these tests assert
+    // on, so swallow them here.
+    if ((msg as { type?: string } | null)?.type === "interaction_resolved") {
+      return;
+    }
+    sentMessages.push(msg);
+  },
   assistantEventHub: {
     getMostRecentClientByCapability: (cap: string) =>
       cap === "host_cu" && mockHasClient ? { id: "mock-client" } : null,

@@ -466,16 +466,12 @@ export async function processMessage(
   }
 
   try {
-    conversation.setSlackRuntimeContextNotice(
-      options?.slackRuntimeContextNotice,
-    );
     await conversation.runAgentLoop(resolvedContent, messageId, emitEvent, {
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
     });
   } finally {
-    conversation.setSlackRuntimeContextNotice(undefined);
     if (
       options?.isInteractive === true &&
       conversation.getCurrentSender() === broadcastMessage
@@ -532,7 +528,6 @@ export async function processMessageInBackground(
     getSubagentManager().updateParentSender(conversationId, broadcastMessage);
   }
 
-  conversation.setSlackRuntimeContextNotice(options?.slackRuntimeContextNotice);
   conversation
     .runAgentLoop(content, messageId, emitEvent, {
       isInteractive: options?.isInteractive ?? false,
@@ -540,7 +535,6 @@ export async function processMessageInBackground(
       ...(options?.callSite ? { callSite: options.callSite } : {}),
     })
     .finally(() => {
-      conversation.setSlackRuntimeContextNotice(undefined);
       if (
         options?.isInteractive === true &&
         conversation.getCurrentSender() === broadcastMessage

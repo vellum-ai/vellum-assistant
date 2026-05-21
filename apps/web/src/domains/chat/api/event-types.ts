@@ -690,6 +690,32 @@ export interface AssistantSyncChangedEvent extends SyncChangedEvent {
   conversationKey?: string;
 }
 
+/**
+ * Lifecycle outcome reported alongside `interaction_resolved`. Mirrors the
+ * daemon-side `InteractionResolutionState` union.
+ */
+export type InteractionResolutionState =
+  | "approved"
+  | "rejected"
+  | "answered"
+  | "cancelled"
+  | "superseded";
+
+/**
+ * Emitted when a daemon-side pending interaction (confirmation, secret,
+ * question, host-proxy request) transitions to a resolved state. Drives
+ * push-based attention reconciliation in the sidebar.
+ */
+export interface InteractionResolvedEvent {
+  type: "interaction_resolved";
+  requestId: string;
+  /** Conversation key the resolved interaction was registered against. */
+  conversationKey: string;
+  state: InteractionResolutionState;
+  /** Kind of the resolved interaction (e.g. `"confirmation"`, `"secret"`). */
+  kind: string;
+}
+
 export type AssistantEvent =
   | AssistantTextDeltaEvent
   | MessageCompleteEvent
@@ -735,4 +761,5 @@ export type AssistantEvent =
   | DocumentCommentReopenedSseEvent
   | DocumentCommentDeletedSseEvent
   | DocumentEditorUpdateEvent
+  | InteractionResolvedEvent
   | UnknownEvent;

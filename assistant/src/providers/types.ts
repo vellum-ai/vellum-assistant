@@ -27,6 +27,15 @@ export interface FileContent {
     filename: string;
   };
   extracted_text?: string;
+  /**
+   * Internal id linking this block to a row in the attachments table.
+   * Set when the file block originates from a persisted user-message
+   * attachment so downstream consumers (DB joins, inline-chip
+   * positioning) can correlate the block back to its attachment id.
+   * Stripped by `daemon/handlers/shared.ts` before sending to the
+   * model.
+   */
+  _attachmentId?: string;
 }
 
 export interface ToolUseContent {

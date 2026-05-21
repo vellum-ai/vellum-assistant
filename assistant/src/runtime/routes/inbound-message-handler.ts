@@ -772,7 +772,6 @@ export async function handleChannelInbound({
           typeof hint === "string" && hint.trim().length > 0,
       )
     : [];
-  let slackRuntimeContextNotice: string | undefined;
 
   // Inject channel-scoped permission hints for Slack channel messages
   if (sourceChannel === "slack") {
@@ -1118,12 +1117,10 @@ export async function handleChannelInbound({
       // the inbound reply; later turns use a delta window after the latest
       // stored thread ts and before the inbound ts. Awaited (mirrors the DM
       // cold-start path above) so the agent loop dispatched immediately
-      // afterwards observes hydrated context. A late-join notice is added only
-      // to the current turn's runtime context, not persisted as durable Slack
-      // metadata. Failures are swallowed inside the helper so they never block
-      // dispatch.
+      // afterwards observes hydrated context. Failures are swallowed inside
+      // the helper so they never block dispatch.
       if (slackThreadTs) {
-        const backfillResult = await triggerSlackThreadBackfillIfNeeded({
+        await triggerSlackThreadBackfillIfNeeded({
           conversationId: result.conversationId,
           channelId: conversationExternalId,
           threadTs: slackThreadTs,
@@ -1131,8 +1128,6 @@ export async function handleChannelInbound({
           account: slackAccount,
           guardianExternalUserId: trustCtx.guardianExternalUserId,
         });
-        const lateJoinNotice = buildSlackLateJoinNotice(backfillResult);
-        if (lateJoinNotice) slackRuntimeContextNotice = lateJoinNotice;
       }
 
       // Wrap non-guardian inbound content in external_content boundaries so
@@ -1165,7 +1160,6 @@ export async function handleChannelInbound({
         externalChatId: conversationExternalId,
         trustCtx,
         metadataHints,
-        slackRuntimeContextNotice,
         metadataUxBrief,
         commandIntent,
         sourceLanguageCode,
@@ -2176,18 +2170,6 @@ function sortSlackProviderMessages(
     if (compared !== null) return compared;
     return left.id.localeCompare(right.id);
   });
-}
-
-function buildSlackLateJoinNotice(
-  result: SlackThreadBackfillResult,
-): string | null {
-  if (result.reason !== "thread_late_join" || result.persisted === 0) {
-    return null;
-  }
-  const omitted = result.omittedMiddle
-    ? " Some middle thread messages were intentionally omitted from this turn's hydrated context to keep latency bounded."
-    : "";
-  return `Slack context note: this turn joined an existing thread. ${result.persisted} earlier thread message${result.persisted === 1 ? " was" : "s were"} backfilled before the current message.${omitted}`;
 }
 
 /**

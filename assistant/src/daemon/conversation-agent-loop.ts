@@ -546,7 +546,6 @@ export interface AgentLoopConversationContext {
   assistantId?: string;
   voiceCallControlPrompt?: string;
   transportHints?: string[];
-  slackRuntimeContextNotice?: string;
   clientTimezone?: string;
 
   readonly coreToolNames: Set<string>;
@@ -682,8 +681,9 @@ export async function runAgentLoopImpl(
   let yieldedForHandoff = false;
   let yieldedForBudget = false;
   let pendingCheckpointYield: "budget" | "handoff" | null = null;
-  let emitTerminalExit: ((reason: AgentLoopExitReason) => Promise<void>) | null =
-    null;
+  let emitTerminalExit:
+    | ((reason: AgentLoopExitReason) => Promise<void>)
+    | null = null;
 
   // Default user-initiated turns to the `mainAgent` call site. Other
   // invocation contexts (heartbeat, filing, analyze, etc.) pass their own
@@ -751,7 +751,9 @@ export async function runAgentLoopImpl(
       : undefined;
   const readCurrentOverrideProfile = (): string | undefined =>
     options?.overrideProfile ??
-    getConversationOverrideProfileFromRow(getConversation(ctx.conversationId)) ??
+    getConversationOverrideProfileFromRow(
+      getConversation(ctx.conversationId),
+    ) ??
     complexityRoutedProfile;
 
   const effectiveContextWindow = resolveEffectiveContextWindow({
@@ -1584,13 +1586,8 @@ export async function runAgentLoopImpl(
         overrideProfile: turnOverrideProfile ?? undefined,
       });
       const label = profileEntry?.label ?? effectiveProfileKey;
-      modelProfileStr = resolved.model
-        ? `${label} (${resolved.model})`
-        : label;
-      setLastNotifiedInferenceProfile(
-        ctx.conversationId,
-        effectiveProfileKey,
-      );
+      modelProfileStr = resolved.model ? `${label} (${resolved.model})` : label;
+      setLastNotifiedInferenceProfile(ctx.conversationId, effectiveProfileKey);
     }
 
     const baseTurnContext = {
@@ -1758,7 +1755,6 @@ export async function runAgentLoopImpl(
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
-      slackRuntimeContextNotice: ctx.slackRuntimeContextNotice ?? null,
       isNonInteractive: !isInteractiveResolved,
       isBackgroundConversation: isBackgroundConversationType(
         turnStartConversation?.conversationType,
@@ -3511,7 +3507,6 @@ export async function runAgentLoopImpl(
     ctx.diskPressureCleanupModeActive = false;
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
-    ctx.slackRuntimeContextNotice = undefined;
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;

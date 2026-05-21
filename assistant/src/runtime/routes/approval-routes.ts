@@ -78,7 +78,10 @@ function handleConfirm({ body }: RouteHandlerArgs) {
   // ACP permissions: resolve directly without a Conversation object.
   // No PermissionPrompter involved, so the route owns deregistration.
   if (interaction.directResolve) {
-    pendingInteractions.resolve(requestId);
+    pendingInteractions.resolve(
+      requestId,
+      effectiveDecision === "allow" ? "approved" : "rejected",
+    );
     interaction.directResolve(effectiveDecision as UserDecision);
     return { accepted: true };
   }

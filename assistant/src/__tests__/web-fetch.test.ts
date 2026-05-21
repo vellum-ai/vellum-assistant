@@ -1622,8 +1622,8 @@ describe("web_fetch tool", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Extracted text content is very short");
-    expect(result.content).toContain("JavaScript rendering");
+    expect(result.content).toContain("Extracted only");
+    expect(result.content).toContain("JavaScript-rendered");
   });
 
   test("does not suggest browser skill when HTML page has substantial content", async () => {

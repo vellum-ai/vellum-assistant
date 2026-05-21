@@ -693,20 +693,11 @@ export function injectChannelCapabilityContext(
         "- Present information as well-formatted text instead of dynamic UI.",
       );
     }
-    lines.push(
-      "- Defer dashboard-specific actions (e.g. accent color selection) by telling the user",
-    );
-    lines.push("  they can complete those steps later from the desktop app.");
-
     if (caps.channel === "whatsapp") {
       lines.push(
         "- Do NOT use markdown tables — use bullet lists instead. No markdown headers — use **bold** or CAPS for emphasis.",
       );
     }
-  }
-
-  if (!caps.supportsVoiceInput) {
-    lines.push("- Do NOT ask the user to use voice or microphone input.");
   }
 
   // Inject group chat etiquette only when the chat type indicates a multi-party
@@ -1045,17 +1036,6 @@ export function stripChannelCapabilityContext(messages: Message[]): Message[] {
 
 function injectTransportHints(message: Message, hints: string[]): Message {
   const block = `<transport_hints>\n${hints.join("\n")}\n</transport_hints>`;
-  return {
-    ...message,
-    content: [{ type: "text", text: block }, ...message.content],
-  };
-}
-
-function injectSlackRuntimeContextNotice(
-  message: Message,
-  notice: string,
-): Message {
-  const block = `<slack_context_notice>\n${notice}\n</slack_context_notice>`;
   return {
     ...message,
     content: [{ type: "text", text: block }, ...message.content],
@@ -1700,7 +1680,6 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<pkb>", // backward-compat: strip legacy tag from pre-rename history
   "<system_reminder>",
   "<transport_hints>",
-  "<slack_context_notice>",
   // The Slack active-thread focus block is non-persisted and injected on
   // the FINAL user turn only. Strip it here so re-assembly during compaction
   // and overflow recovery does not duplicate it across turns.
@@ -1994,7 +1973,6 @@ export interface RuntimeInjectionOptions {
    */
   isBackgroundConversation?: boolean;
   transportHints?: string[] | null;
-  slackRuntimeContextNotice?: string | null;
   /**
    * Pre-rendered Slack chronological transcript that replaces the
    * default `runMessages` history for any Slack conversation (channels
@@ -2331,23 +2309,6 @@ export async function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectChannelCapabilityContext(userTail, options.channelCapabilities),
-      ];
-    }
-  }
-
-  if (
-    mode === "full" &&
-    slackConversation &&
-    options.slackRuntimeContextNotice
-  ) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectSlackRuntimeContextNotice(
-          userTail,
-          options.slackRuntimeContextNotice,
-        ),
       ];
     }
   }

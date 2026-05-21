@@ -688,6 +688,41 @@ export function parseAssistantEvent(
       return { type: rawType as "document_comment_reopened" | "document_comment_deleted", ...base };
     }
 
+    case "interaction_resolved": {
+      const requestId =
+        typeof data.requestId === "string" ? data.requestId : "";
+      const stateRaw = typeof data.state === "string" ? data.state : "";
+      const validStates = new Set([
+        "approved",
+        "rejected",
+        "answered",
+        "cancelled",
+        "superseded",
+      ]);
+      if (!requestId || !validStates.has(stateRaw)) {
+        return { type: "unknown", rawType, data };
+      }
+      const conversationKey =
+        typeof data.conversationKey === "string"
+          ? data.conversationKey
+          : typeof data.conversationId === "string"
+            ? data.conversationId
+            : "";
+      const kind = typeof data.kind === "string" ? data.kind : "";
+      return {
+        type: "interaction_resolved",
+        requestId,
+        conversationKey,
+        state: stateRaw as
+          | "approved"
+          | "rejected"
+          | "answered"
+          | "cancelled"
+          | "superseded",
+        kind,
+      };
+    }
+
     case "document_editor_update": {
       const surfaceId =
         typeof data.surfaceId === "string" ? data.surfaceId : "";
