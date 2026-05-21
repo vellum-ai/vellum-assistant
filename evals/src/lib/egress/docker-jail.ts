@@ -9,16 +9,13 @@ export interface DockerEgressJailConfig {
   containerName: string;
   /** Hostnames allowed for outbound model traffic. */
   allowHosts?: string[];
-  /** Image containing sh, iptables, and getent. */
-  jailImage?: string;
-  /** Optional override for the host-side policy script path. */
-  scriptPath?: string;
   /**
-   * Host-side run artifact directory. When set, evals launches the recording
-   * mitmproxy sidecar instead of the non-recording one and mounts this dir at
-   * `/recording` so usage records land in `egress-usage.ndjson`.
+   * Host-side run artifact directory. The recording mitmproxy sidecar
+   * mounts this dir at `/recording` so usage records land in
+   * `egress-usage.ndjson`. Required: evals always run with the recording
+   * sidecar now, so the host-side destination must always be provided.
    */
-  recordingDir?: string;
+  recordingDir: string;
   /** Prebuilt recording sidecar image. Defaults to a local evals image tag. */
   recordingImage?: string;
   /** Optional override for the recording sidecar Dockerfile directory. */
@@ -36,16 +33,11 @@ export const DEFAULT_MODEL_ALLOW_HOSTS = [
   "generativelanguage.googleapis.com",
 ];
 
-const DEFAULT_JAIL_IMAGE = "ghcr.io/nicolaka/netshoot:v0.13";
 const DEFAULT_RECORDING_IMAGE = "vellum-evals-recording-jail:local";
 const RECORDING_USAGE_FILENAME = "egress-usage.ndjson";
 
 function egressDir(): string {
   return dirname(fileURLToPath(import.meta.url));
-}
-
-function defaultScriptPath(): string {
-  return resolve(egressDir(), "docker-egress-jail.sh");
 }
 
 function defaultRecordingDockerfileDir(): string {
@@ -57,9 +49,8 @@ function usagePath(recordingDir: string): string {
 }
 
 async function readRecordingUsage(
-  recordingDir: string | undefined,
+  recordingDir: string,
 ): Promise<Array<Record<string, unknown>>> {
-  if (!recordingDir) return [];
   let raw: string;
   try {
     raw = await readFile(usagePath(recordingDir), "utf8");
@@ -83,10 +74,16 @@ export function dockerEgressJailContainerName(containerName: string): string {
  * Apply a block-by-default outbound policy to an already-created Docker
  * container without requiring changes to the species being evaluated.
  *
- * The helper launches a short-lived NET_ADMIN sidecar in the target
- * container's network namespace. The sidecar installs iptables rules there,
- * then exits. The policy remains attached to the namespace until the target
+ * Launches the recording mitmproxy sidecar attached to the target
+ * container's network namespace. The sidecar installs the iptables
+ * allowlist AND tees every outbound model request through mitmproxy
+ * so token-counting + cost reconstruction works end-to-end. The policy
+ * and the recording remain attached to the namespace until the target
  * container is retired.
+ *
+ * This is the only egress-jail mode evals support — the previous
+ * non-recording variant was removed per PR #31348 review feedback so
+ * every eval run produces ground-truth usage out of the box.
  */
 export async function applyDockerEgressJail(
   runner: CommandRunner,
@@ -94,63 +91,26 @@ export async function applyDockerEgressJail(
 ): Promise<DockerEgressJail> {
   const allowHosts = config.allowHosts ?? DEFAULT_MODEL_ALLOW_HOSTS;
   const jailContainer = dockerEgressJailContainerName(config.containerName);
-  const jailImage = config.jailImage ?? DEFAULT_JAIL_IMAGE;
-  const scriptPath = config.scriptPath ?? defaultScriptPath();
   const recordingDir = config.recordingDir;
+  const recordingImage = config.recordingImage ?? DEFAULT_RECORDING_IMAGE;
+  const dockerfileDir =
+    config.recordingDockerfileDir ?? defaultRecordingDockerfileDir();
 
   await runner
     .run("docker", ["rm", "-f", jailContainer])
     .catch(() => undefined);
 
-  if (recordingDir) {
-    const recordingImage = config.recordingImage ?? DEFAULT_RECORDING_IMAGE;
-    const dockerfileDir =
-      config.recordingDockerfileDir ?? defaultRecordingDockerfileDir();
-    const build = await runner.run("docker", [
-      "build",
-      "-t",
-      recordingImage,
-      dockerfileDir,
-    ]);
-    assertSuccess(build, `build recording egress jail image ${recordingImage}`);
-
-    const result = await runner.run("docker", [
-      "run",
-      "-d",
-      "--name",
-      jailContainer,
-      "--network",
-      `container:${config.containerName}`,
-      "--cap-add",
-      "NET_ADMIN",
-      "--label",
-      "evals.vellum.ai/egress-jail=1",
-      "--label",
-      "evals.vellum.ai/egress-recording=1",
-      "-e",
-      `ALLOW_HOSTS=${allowHosts.join(",")}`,
-      "-v",
-      `${resolve(recordingDir)}:/recording`,
-      recordingImage,
-    ]);
-    assertSuccess(
-      result,
-      `apply recording docker egress jail to ${config.containerName}`,
-    );
-
-    return {
-      readUsageRecords: () => readRecordingUsage(recordingDir),
-      stop: async () => {
-        await runner
-          .run("docker", ["rm", "-f", jailContainer])
-          .catch(() => undefined);
-      },
-    };
-  }
+  const build = await runner.run("docker", [
+    "build",
+    "-t",
+    recordingImage,
+    dockerfileDir,
+  ]);
+  assertSuccess(build, `build recording egress jail image ${recordingImage}`);
 
   const result = await runner.run("docker", [
     "run",
-    "--rm",
+    "-d",
     "--name",
     jailContainer,
     "--network",
@@ -159,18 +119,21 @@ export async function applyDockerEgressJail(
     "NET_ADMIN",
     "--label",
     "evals.vellum.ai/egress-jail=1",
+    "--label",
+    "evals.vellum.ai/egress-recording=1",
     "-e",
     `ALLOW_HOSTS=${allowHosts.join(",")}`,
     "-v",
-    `${scriptPath}:/evals/apply-egress-jail.sh:ro`,
-    jailImage,
-    "sh",
-    "/evals/apply-egress-jail.sh",
+    `${resolve(recordingDir)}:/recording`,
+    recordingImage,
   ]);
-  assertSuccess(result, `apply docker egress jail to ${config.containerName}`);
+  assertSuccess(
+    result,
+    `apply recording docker egress jail to ${config.containerName}`,
+  );
 
   return {
-    readUsageRecords: async () => [],
+    readUsageRecords: () => readRecordingUsage(recordingDir),
     stop: async () => {
       await runner
         .run("docker", ["rm", "-f", jailContainer])
