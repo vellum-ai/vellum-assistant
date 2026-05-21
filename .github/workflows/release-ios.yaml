@@ -237,7 +237,7 @@ jobs:
           BUILD_VERSION: ${{ steps.version.outputs.build_version }}
         run: |
           mkdir -p ~/.private_keys
-          echo "$ASC_KEY_P8" | base64 -D > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
+          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
 
           APPLE_APP_ID_KEY="${{ steps.config.outputs.apple_app_id_key }}"
           APPLE_APP_ID="${!APPLE_APP_ID_KEY}"
