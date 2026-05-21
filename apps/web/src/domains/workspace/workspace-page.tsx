@@ -1,4 +1,4 @@
-import { useActiveAssistantContext } from "@/domains/chat/active-assistant-gate.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
 import { WorkspaceBrowser } from "@/domains/workspace/components/workspace-browser.js";
 
 export function WorkspacePage() {

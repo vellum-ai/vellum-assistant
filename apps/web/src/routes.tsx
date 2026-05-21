@@ -46,8 +46,8 @@ import { DesktopOAuthCompletePage } from "@/domains/account/pages/desktop-oauth-
 import { LogoutPage } from "@/domains/account/pages/logout-page.js";
 import { OAuthPopupCompletePage } from "@/domains/account/pages/oauth-popup-complete-page.js";
 import { PasswordResetPage } from "@/domains/account/pages/password-reset-page.js";
-import { useActiveAssistantContext } from "@/domains/chat/active-assistant-gate.js";
-import { ActiveAssistantGate } from "@/domains/chat/active-assistant-gate.js";
+import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
+import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate.js";
 import { HatchingScreen } from "@/domains/onboarding/pages/hatching-screen.js";
 import { PreChatFlow } from "@/domains/onboarding/pages/pre-chat-flow.js";
 import { PrivacyScreen } from "@/domains/onboarding/pages/privacy-screen.js";
