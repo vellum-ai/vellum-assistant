@@ -340,6 +340,7 @@ export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
         stepCount={webSearchData.stepCount}
         steps={webSearchData.steps}
         state={webSearchData.state}
+        carouselItems={webSearchData.carouselItems}
       />
     );
   }

@@ -75,6 +75,21 @@ export interface WebSearchCardData {
    * per-step row tense in the expanded body.
    */
   state: "loading" | "complete";
+  /**
+   * Results from the most recently completed `web_search` in the turn,
+   * suitable for feeding the collapsed-header `WebsiteCarousel`.
+   *
+   * The daemon emits `web_search` results atomically on `tool_result` — there
+   * is no mid-stream progress event. So this stays empty until at least one
+   * search returns, and re-feeds each time a subsequent search completes
+   * (the carousel always reflects the most recent search batch).
+   *
+   * Sourced from `liveWebActivity[tc.id]` first, falling back to the
+   * persisted `tc.activityMetadata` for historical reopens. Skips
+   * error-state results (an `errorMessage` with empty `results` would yield
+   * nothing to show anyway).
+   */
+  carouselItems: WebSearchResultItem[];
 }
 
 /**
@@ -267,6 +282,35 @@ function deriveCurrentStepTitle(
 }
 
 /**
+ * Results to feed the collapsed-header `WebsiteCarousel` (favicon + title
+ * chips rotating). Returns the result list from the most recently completed
+ * `web_search` tool call, or an empty array when nothing has landed yet.
+ *
+ * Why the *latest* search only (not a flatMap across all searches):
+ * - Keeps the carousel "current" — what the model just looked at rotates,
+ *   re-feeding as each subsequent search completes.
+ * - Bounds the rotation cycle to a single search's `resultCount` (~5 items
+ *   @2.5s = ~12.5s full loop), so the carousel doesn't drag through a
+ *   20-item backlog by the end of a long turn.
+ *
+ * Skips searches with no results — both empty-results-with-error rows and
+ * pristine in-flight calls — so the carousel only ever feeds on real data.
+ */
+function deriveCarouselItems(
+  toolCalls: ChatMessageToolCall[],
+  liveWebActivity: Record<string, ToolActivityMetadata>,
+): WebSearchResultItem[] {
+  for (let i = toolCalls.length - 1; i >= 0; i--) {
+    const tc = toolCalls[i]!;
+    if (tc.toolName !== "web_search") continue;
+    const metadata = resolveMetadata(tc, liveWebActivity);
+    const results = metadata?.webSearch?.results;
+    if (results && results.length > 0) return results;
+  }
+  return [];
+}
+
+/**
  * Per-step gray subtext shown in the collapsed header. The card carousels
  * through this value alongside `currentStepTitle` so each transition reads
  * as a discrete step. Driven by the *most recent* web tool call.
@@ -435,6 +479,7 @@ export function computeWebSearchCardData(
   const state: "loading" | "complete" = anyInFlight ? "loading" : "complete";
   const currentStepTitle = deriveCurrentStepTitle(toolCalls, liveWebActivity);
   const currentStepInfo = deriveCurrentStepInfo(toolCalls, liveWebActivity);
+  const carouselItems = deriveCarouselItems(toolCalls, liveWebActivity);
   const stepCount = `${steps.length} step${steps.length === 1 ? "" : "s"}`;
 
   return {
@@ -443,5 +488,6 @@ export function computeWebSearchCardData(
     stepCount,
     steps,
     state,
+    carouselItems,
   };
 }

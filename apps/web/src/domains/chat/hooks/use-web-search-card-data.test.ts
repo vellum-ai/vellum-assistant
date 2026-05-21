@@ -977,6 +977,109 @@ describe("computeWebSearchCardData — state", () => {
 });
 
 // ---------------------------------------------------------------------------
+// carouselItems
+// ---------------------------------------------------------------------------
+
+describe("computeWebSearchCardData — carouselItems", () => {
+  test("is empty when no web_search has completed", () => {
+    const tc = makeToolCall({
+      id: "tc1",
+      toolName: "web_search",
+      status: "running",
+      input: { query: "foo" },
+    });
+    const result = computeWebSearchCardData([tc], {});
+    expect(result?.carouselItems).toEqual([]);
+  });
+
+  test("feeds from the most recent completed web_search's results", () => {
+    const olderResults = [makeResult(1, { title: "Old A" })];
+    const newerResults = [
+      makeResult(1, { title: "New A" }),
+      makeResult(2, { title: "New B" }),
+    ];
+    const tc1 = makeToolCall({ id: "tc1", toolName: "web_search" });
+    const tc2 = makeToolCall({ id: "tc2", toolName: "web_search" });
+    const live: Record<string, ToolActivityMetadata> = {
+      tc1: { webSearch: { query: "old", provider: "anthropic-native", resultCount: 1, durationMs: 100, results: olderResults } },
+      tc2: { webSearch: { query: "new", provider: "anthropic-native", resultCount: 2, durationMs: 100, results: newerResults } },
+    };
+    const result = computeWebSearchCardData([tc1, tc2], live);
+    // Most recent (`tc2`) wins; earlier search is not concatenated.
+    expect(result?.carouselItems).toEqual(newerResults);
+  });
+
+  test("skips an in-flight latest call to use the previous completed search's results", () => {
+    const completedResults = [makeResult(1, { title: "Old A" })];
+    const tc1 = makeToolCall({ id: "tc1", toolName: "web_search" });
+    const tc2 = makeToolCall({
+      id: "tc2",
+      toolName: "web_search",
+      status: "running",
+      input: { query: "next" },
+    });
+    const live: Record<string, ToolActivityMetadata> = {
+      tc1: { webSearch: { query: "old", provider: "anthropic-native", resultCount: 1, durationMs: 100, results: completedResults } },
+    };
+    const result = computeWebSearchCardData([tc1, tc2], live);
+    expect(result?.carouselItems).toEqual(completedResults);
+  });
+
+  test("skips error-state searches (errorMessage + empty results)", () => {
+    const tc = makeToolCall({ id: "tc1", toolName: "web_search", status: "error" });
+    const live: Record<string, ToolActivityMetadata> = {
+      tc1: {
+        webSearch: {
+          query: "bad",
+          provider: "anthropic-native",
+          resultCount: 0,
+          durationMs: 100,
+          results: [],
+          errorMessage: "rate limited",
+        },
+      },
+    };
+    const result = computeWebSearchCardData([tc], live);
+    expect(result?.carouselItems).toEqual([]);
+  });
+
+  test("does not include web_fetch results in the carousel", () => {
+    const tc = makeToolCall({ id: "tc1", toolName: "web_fetch" });
+    const live: Record<string, ToolActivityMetadata> = {
+      tc1: {
+        webFetch: {
+          url: "https://x.test",
+          finalUrl: "https://x.test",
+          status: 200,
+          byteCount: 1,
+          charCount: 1,
+          truncated: false,
+          domain: "x.test",
+          redirectCount: 0,
+          durationMs: 100,
+          title: "X",
+        },
+      },
+    };
+    const result = computeWebSearchCardData([tc], live);
+    expect(result?.carouselItems).toEqual([]);
+  });
+
+  test("reads persisted tc.activityMetadata when liveWebActivity is empty", () => {
+    const results = [makeResult(1, { title: "Persisted A" })];
+    const tc = makeToolCall({
+      id: "tc1",
+      toolName: "web_search",
+      activityMetadata: {
+        webSearch: { query: "x", provider: "anthropic-native", resultCount: 1, durationMs: 100, results },
+      },
+    });
+    const result = computeWebSearchCardData([tc], {});
+    expect(result?.carouselItems).toEqual(results);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // formatMs
 // ---------------------------------------------------------------------------
 

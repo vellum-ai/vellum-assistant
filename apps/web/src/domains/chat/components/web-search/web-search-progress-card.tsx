@@ -10,6 +10,7 @@ import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip.j
 import { StepRow } from "@/domains/chat/components/web-search/step-row.js";
 import { ThinkingChip } from "@/domains/chat/components/web-search/thinking-chip.js";
 import { ThreeDotIndicator } from "@/domains/chat/components/web-search/three-dot-indicator.js";
+import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel.js";
 
 /**
  * Live progress card rendered while an assistant turn is actively searching the
@@ -40,6 +41,9 @@ import { ThreeDotIndicator } from "@/domains/chat/components/web-search/three-do
  * - `"web_search_error"` → renders a red AlertCircle + the provider's
  *   `errorMessage` inside a negatively-toned chip. Used when the search
  *   itself failed and there are no results to surface.
+ *
+ * The plan reserves richer `web_fetch` rendering for a follow-up; the PR-8
+ * selector currently maps fetches to a `thinking` step ("Reading <title>").
  */
 export type StepDescriptor =
   | { kind: "thinking"; durationLabel: string; text: string }
@@ -86,6 +90,17 @@ export interface WebSearchProgressCardProps {
    *   card is rendering a finished search result set.
    */
   state?: "loading" | "complete";
+  /**
+   * Optional websites to feed the collapsed-header rotating carousel.
+   * When non-empty AND `state === "loading"`, the info slot in the header
+   * swaps from text (`currentStepInfo`) to a `WebsiteCarousel` rotating
+   * through these favicon + title chips. Empty → text mode stays.
+   *
+   * Populated by `useWebSearchCardData` from the most recently completed
+   * `web_search`'s results — see `WebSearchCardData.carouselItems` for the
+   * derivation contract.
+   */
+  carouselItems?: WebSearchResultItem[];
 }
 
 /**
@@ -141,6 +156,13 @@ function ErrorChip({ message }: { message: string }) {
  * once the previous has been on-screen long enough to register.
  */
 const HEADER_STEP_MIN_DWELL_MS = 400;
+
+/**
+ * Stable empty-array reference used as the `carouselItems` default. Avoids
+ * a fresh `[]` per render that would needlessly tick the
+ * `useCarousel` boolean back and forth (and remount `WebsiteCarousel`).
+ */
+const EMPTY_CAROUSEL_ITEMS: WebSearchResultItem[] = [];
 
 /**
  * Latch a value to its previous render until at least `minDwellMs` has
@@ -278,6 +300,45 @@ function HeaderStepCarousel({
   );
 }
 
+/**
+ * Header layout used when the carousel feed is non-empty during an active
+ * search. Mirrors `HeaderStepCarousel`'s flex shell so the title hugs the
+ * left, the dimmed pipe separator follows, and the carousel fills the
+ * remaining width.
+ *
+ * The title text isn't tuple-throttled here because — in carousel mode —
+ * the only meaningful title transition is `Searching → Searched` (which
+ * only occurs once the carousel hands off back to text mode on
+ * `state === "complete"`). The carousel itself owns the rotation animation.
+ */
+function HeaderTitleWithCarousel({
+  currentStepTitle,
+  carouselItems,
+}: {
+  currentStepTitle: string;
+  carouselItems: WebSearchResultItem[];
+}) {
+  return (
+    <span className="flex min-w-0 flex-1 items-center gap-1">
+      <Typography
+        variant="body-medium-default"
+        className="ml-1 shrink-0 whitespace-nowrap text-[var(--content-emphasised)]"
+      >
+        {currentStepTitle}
+      </Typography>
+      <span
+        aria-hidden="true"
+        className="shrink-0 text-[var(--content-tertiary)] opacity-10"
+      >
+        |
+      </span>
+      <span className="block min-w-0 flex-1">
+        <WebsiteCarousel items={carouselItems} />
+      </span>
+    </span>
+  );
+}
+
 export function WebSearchProgressCard({
   currentStepTitle,
   currentStepInfo,
@@ -285,7 +346,12 @@ export function WebSearchProgressCard({
   steps,
   defaultExpanded = false,
   state = "loading",
+  carouselItems = EMPTY_CAROUSEL_ITEMS,
 }: WebSearchProgressCardProps) {
+  // Carousel mode supersedes text mode in the collapsed-header info slot,
+  // but only during the active search — `complete` state stays text-only so
+  // the final-result title reads as the resting visual.
+  const useCarousel = state === "loading" && carouselItems.length > 0;
   const [expanded, setExpanded] = useState(defaultExpanded);
   const reduce = useReducedMotion();
 
@@ -297,7 +363,12 @@ export function WebSearchProgressCard({
     // Hover ownership lives on the inner Button. Padding ownership lives on
     // the inner Button (header) and the steps section (when expanded) — the
     // outer wrapper provides only the card chrome (border, radius, base bg)
-    // and no padding of its own.
+    // and no padding of its own. The Button's `rounded-*` is conditional so
+    // its hover bg paints into the correct corners without clipping its
+    // focus ring (overflow:hidden on the wrapper would clip the ring):
+    //   - Collapsed: the Button IS the whole card content → fully rounded.
+    //   - Expanded: the Button is just the header → rounded only on top so
+    //     the divider + steps section flow flush below.
     <div
       data-testid="web-search-progress-card"
       className="flex w-full flex-col rounded-[var(--radius-lg)] border-b border-[var(--border-base)] bg-[var(--surface-overlay)]"
@@ -331,14 +402,25 @@ export function WebSearchProgressCard({
               className="shrink-0"
             />
           )}
-          {/* Animated step carousel: the title + info tuple slides in/out as
-              new steps stream in. Always rendered (both collapsed and
-              expanded) so the header reads as a coherent per-step row in
-              both modes. */}
-          <HeaderStepCarousel
-            currentStepTitle={currentStepTitle}
-            currentStepInfo={currentStepInfo}
-          />
+          {/* Header info slot.
+              - Carousel mode (loading + at least one completed search):
+                static title + a `WebsiteCarousel` rotating through the most
+                recent search's favicon-title chips. The carousel handles its
+                own rotation animation independently of the per-step text
+                carousel below.
+              - Text mode (default): the existing throttled tuple animation
+                slides through `(title, info)` as new steps stream in. */}
+          {useCarousel ? (
+            <HeaderTitleWithCarousel
+              currentStepTitle={currentStepTitle}
+              carouselItems={carouselItems}
+            />
+          ) : (
+            <HeaderStepCarousel
+              currentStepTitle={currentStepTitle}
+              currentStepInfo={currentStepInfo}
+            />
+          )}
         </span>
         <span className="flex shrink-0 items-center rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[6px] py-[4px]">
           <Typography

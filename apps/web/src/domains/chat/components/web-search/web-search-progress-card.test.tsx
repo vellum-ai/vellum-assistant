@@ -127,6 +127,61 @@ describe("WebSearchProgressCard — collapsed state", () => {
     expect(getByText("Tigers — Wikipedia")).toBeTruthy();
     expect(getByText("Searching the web")).toBeTruthy();
   });
+
+  test("renders WebsiteCarousel in the info slot when carouselItems are provided in loading state", () => {
+    // Carousel mode supersedes the text info slot — `currentStepInfo` is not
+    // rendered, the carousel's current item title is.
+    const items: WebSearchResultItem[] = [
+      makeResult(1, { title: "Sotheby's — Auctions" }),
+    ];
+    const { getByText, queryByText } = render(
+      <WebSearchProgressCard
+        currentStepTitle="Searching the web"
+        currentStepInfo="should be hidden"
+        stepCount="2 steps"
+        steps={TWO_THINKING_STEPS}
+        state="loading"
+        carouselItems={items}
+      />,
+    );
+    expect(getByText("Searching the web")).toBeTruthy();
+    expect(getByText("Sotheby's — Auctions")).toBeTruthy();
+    expect(queryByText("should be hidden")).toBeNull();
+  });
+
+  test("falls back to text mode when carouselItems is empty", () => {
+    const { getByText } = render(
+      <WebSearchProgressCard
+        currentStepTitle="Searching the web"
+        currentStepInfo="Tigers — Wikipedia"
+        stepCount="2 steps"
+        steps={TWO_THINKING_STEPS}
+        state="loading"
+        carouselItems={[]}
+      />,
+    );
+    expect(getByText("Tigers — Wikipedia")).toBeTruthy();
+  });
+
+  test("does not render the carousel in complete state even with items", () => {
+    // Complete state is the resting visual — the user-facing label should be
+    // the final result title, not a still-rotating carousel.
+    const items: WebSearchResultItem[] = [
+      makeResult(1, { title: "Sotheby's — Auctions" }),
+    ];
+    const { getByText, queryByText } = render(
+      <WebSearchProgressCard
+        currentStepTitle="Searched the web"
+        currentStepInfo="Final result title"
+        stepCount="2 steps"
+        steps={TWO_THINKING_STEPS}
+        state="complete"
+        carouselItems={items}
+      />,
+    );
+    expect(getByText("Final result title")).toBeTruthy();
+    expect(queryByText("Sotheby's — Auctions")).toBeNull();
+  });
 });
 
 describe("WebSearchProgressCard — expanded state", () => {
