@@ -32,6 +32,7 @@ import { OfflineBanner } from "@/components/offline-banner.js";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
+import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import { ChatLayoutHeader } from "./chat-layout-header.js";
 
 /**
@@ -234,7 +235,11 @@ export function ChatLayout() {
   const canGoForward = historyIndexRef.current < maxHistoryIndexRef.current;
 
   const handleStartNewConversation = useCallback(() => {
-    navigate(routes.assistant);
+    haptic.light();
+    useViewerStore.getState().setMainView("chat");
+    const draftKey = createDraftConversationKey();
+    useConversationStore.getState().setActiveKey(draftKey);
+    void navigate(routes.conversation(draftKey));
   }, [navigate]);
 
   const handleOpenHome = useCallback(() => {
