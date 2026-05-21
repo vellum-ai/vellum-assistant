@@ -51,6 +51,9 @@ let lastCheckArgs:
 /** Optional override for getTool — lets tests supply skill-origin tools. */
 let getToolOverride: ((name: string) => Tool | undefined) | undefined;
 
+/** Optional override for getAllTools — lets tests supply a registry snapshot. */
+let getAllToolsOverride: (() => Tool[]) | undefined;
+
 /** Override the check() result for tests that need to trigger prompting. */
 let checkResultOverride: { decision: string; reason: string } | undefined;
 
@@ -144,7 +147,7 @@ mock.module("../tools/registry.js", () => ({
       execute: async () => fakeToolResult,
     };
   },
-  getAllTools: () => [],
+  getAllTools: () => (getAllToolsOverride ? getAllToolsOverride() : []),
 }));
 
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
@@ -179,6 +182,7 @@ describe("ToolExecutor allowedToolNames gating", () => {
     fakeToolResult = { content: "ok", isError: false };
     lastCheckArgs = undefined;
     getToolOverride = undefined;
+    getAllToolsOverride = undefined;
     checkResultOverride = undefined;
     checkFnOverride = undefined;
     cachedAssessmentOverride = undefined;
@@ -270,6 +274,41 @@ describe("ToolExecutor allowedToolNames gating", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("file_read");
     expect(result.content).toContain("not currently active");
+  });
+
+  test("unknown tool suggestion list is scoped to allowedToolNames", async () => {
+    // Surfacing every globally registered tool would leak tools active in
+    // other sessions and misdirect the model to tools it cannot invoke.
+    const makeTool = (name: string): Tool =>
+      ({
+        name,
+        description: "test tool",
+        category: "test",
+        defaultRiskLevel: RiskLevel.Low,
+        getDefinition: () => ({
+          name,
+          description: "test tool",
+          input_schema: { type: "object" as const, properties: {} },
+        }),
+        execute: async () => fakeToolResult,
+      }) as unknown as Tool;
+    getAllToolsOverride = () => [
+      makeTool("file_read"),
+      makeTool("file_write"),
+      makeTool("secret_skill_tool"),
+    ];
+    const executor = new ToolExecutor(makePrompter());
+    const allowed = new Set(["file_read", "file_write"]);
+    const result = await executor.execute(
+      "unknown_tool",
+      { foo: "bar" },
+      makeContext({ allowedToolNames: allowed }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe(
+      "Unknown tool: unknown_tool. Available tools: file_read, file_write",
+    );
+    expect(result.content).not.toContain("secret_skill_tool");
   });
 
   test("unknown tool name reports 'Unknown tool' even when allowedToolNames is set", async () => {

@@ -50,7 +50,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-21T14:57:56-04:00"
+      "updatedAt": "2026-05-21T17:01:42-04:00"
     },
     {
       "id": "chatgpt-import",
@@ -198,6 +198,23 @@
       },
       "compatibility": "Designed for Vellum personal assistants",
       "updatedAt": "2026-05-14T09:15:31-06:00"
+    },
+    {
+      "id": "geo-writing",
+      "name": "geo-writing",
+      "description": "Generates GEO/AEO-optimized articles designed to get AI engines (ChatGPT, Perplexity, Claude, Gemini) to cite your brand. Handles research, writing, and file output. Suggests listicle or head-to-head as starting formats if the user is unsure.",
+      "metadata": {
+        "emoji": "✍️",
+        "vellum": {
+          "display-name": "GEO Article Writer",
+          "activation-hints": [
+            "GEO content writing, SEO article optimization",
+            "AI search engine optimization, blog posts for AI citations"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-05-21T13:10:14-04:00"
     },
     {
       "id": "gmail",

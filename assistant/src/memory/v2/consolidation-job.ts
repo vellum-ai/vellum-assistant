@@ -245,6 +245,20 @@ function readBufferContent(bufferPath: string): string {
 }
 
 /**
+ * Count non-empty lines in `memory/buffer.md`. Used by the scheduler to
+ * implement the size-based consolidation trigger. Missing file → 0.
+ *
+ * Each entry is one line (`- [Mon D, h:mm AM/PM] …\n`), so non-empty-line
+ * count == entry count for a well-formed buffer; blank lines and trailing
+ * newlines don't inflate the count.
+ */
+export function countBufferLines(bufferPath: string): number {
+  const content = readBufferContent(bufferPath);
+  if (content.length === 0) return 0;
+  return content.split("\n").filter((line) => line.trim().length > 0).length;
+}
+
+/**
  * Atomically create the lock file with `wx` (O_CREAT | O_EXCL) flags. Returns
  * `null` on success, or the current holder string (file contents, typically
  * `pid timestamp`) when the file already exists and the holder is still alive.

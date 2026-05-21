@@ -297,6 +297,21 @@ export async function runRouter(
       "Some router batches failed; returning union of successful batches",
     );
   }
+
+  // Each per-batch call caps at max_page_ids, but the union across batches can
+  // exceed it (e.g. 10 batches × 10 selections each ≫ 25 cap). Apply a final
+  // truncation so RouterResult honors the contract that injection.ts trusts.
+  // Iteration order above is tier 1 → tier 2 → tier 3:0 → … so earlier-tier
+  // slugs win the truncation.
+  const maxPageIds = config.memory?.v2?.router?.max_page_ids ?? 25;
+  if (selectedSlugs.length > maxPageIds) {
+    log.warn(
+      { unionSize: selectedSlugs.length, max: maxPageIds },
+      "Router union across batches exceeded max_page_ids; truncating",
+    );
+    const dropped = selectedSlugs.splice(maxPageIds);
+    for (const slug of dropped) sourceBySlug.delete(slug);
+  }
   return { selectedSlugs, sourceBySlug, failureReason: null };
 }
 

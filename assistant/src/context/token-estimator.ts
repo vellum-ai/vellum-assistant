@@ -53,14 +53,22 @@ const IMAGE_TOKENS_PER_PIXEL = 1 / 750;
 const IMAGE_MAX_TOKENS = 1_600;
 
 // Gemini prices images differently: any side ≤384px counts as a single 258-token
-// tile; anything larger is split into 768x768 tiles at 258 tokens each. A
-// 4000x4000 image is ceil(4000/768)^2 = 36 tiles ≈ 9,288 tokens — well above
-// the dimension-based cap — so under-counting these as ~1,600 tokens lets
-// shouldCompact() skip compaction and hit upstream context overflow.
+// tile; anything larger is resized so the longest side is ≤3072px and then
+// split into 768x768 tiles at 258 tokens each. A 4000x4000 image clamps to
+// 3072x3072 → ceil(3072/768)^2 = 16 tiles = 4,128 tokens. Without the clamp
+// we'd over-count it as 36 tiles (~9,288 tokens) and trigger spurious
+// compaction. The clamped 16-tile, 4,128-token figure is also the per-image
+// ceiling we fall back to when dimensions are unparseable (e.g. HEIC/HEIF
+// from iOS attachments) — the generic 1,600 cap can under-count Gemini
+// images by ~2.5x.
 // See: https://ai.google.dev/gemini-api/docs/tokens#multimodal-tokens
 const GEMINI_IMAGE_SMALL_THRESHOLD = 384;
 const GEMINI_IMAGE_TILE_SIZE = 768;
 const GEMINI_IMAGE_TOKENS_PER_TILE = 258;
+const GEMINI_IMAGE_MAX_DIMENSION = 3072;
+const GEMINI_IMAGE_MAX_TOKENS =
+  Math.ceil(GEMINI_IMAGE_MAX_DIMENSION / GEMINI_IMAGE_TILE_SIZE) ** 2 *
+  GEMINI_IMAGE_TOKENS_PER_TILE;
 
 // Anthropic renders each PDF page as an image (~1,568 tokens at standard
 // resolution) plus any extracted text. Typical PDF pages are 50-150 KB.
@@ -146,8 +154,11 @@ function estimateGeminiImageTokens(width: number, height: number): number {
   ) {
     return GEMINI_IMAGE_TOKENS_PER_TILE;
   }
-  const tilesWide = Math.ceil(width / GEMINI_IMAGE_TILE_SIZE);
-  const tilesHigh = Math.ceil(height / GEMINI_IMAGE_TILE_SIZE);
+  // Gemini resizes images so the longest side is ≤3072px before tiling.
+  const clampedWidth = Math.min(width, GEMINI_IMAGE_MAX_DIMENSION);
+  const clampedHeight = Math.min(height, GEMINI_IMAGE_MAX_DIMENSION);
+  const tilesWide = Math.ceil(clampedWidth / GEMINI_IMAGE_TILE_SIZE);
+  const tilesHigh = Math.ceil(clampedHeight / GEMINI_IMAGE_TILE_SIZE);
   return tilesWide * tilesHigh * GEMINI_IMAGE_TOKENS_PER_TILE;
 }
 
@@ -162,9 +173,15 @@ function estimateImageTokens(
     }
     return estimateImageTokensByDimensions(dims.width, dims.height);
   }
-  // Dimensions unparseable (corrupt header, exotic format): use the per-image
-  // cap rather than the raw base64 length, which over-counts by 30-100x for
-  // non-Anthropic providers and trips spurious compaction.
+  // Dimensions unparseable (corrupt header, or formats parseImageDimensions
+  // doesn't recognize like HEIC/HEIF coming from iOS attachments). Fall back
+  // to the per-provider per-image ceiling rather than the raw base64 length,
+  // which over-counts by 30-100x. Gemini's tile pricing tops out well above
+  // the universal 1,600-token cap, so use its max-tile budget instead to
+  // avoid under-counting large iPhone screenshots.
+  if (options?.providerName === "gemini") {
+    return GEMINI_IMAGE_MAX_TOKENS;
+  }
   return IMAGE_MAX_TOKENS;
 }
 

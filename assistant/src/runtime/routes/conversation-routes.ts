@@ -494,24 +494,31 @@ export function handleListMessages({
   let rawMessages: MessageRow[];
   let hasMore = false;
 
+  // Drop messages flagged as hidden in metadata (e.g. internal scaffolding
+  // like retrospective instructions). The LLM-side history loader
+  // (`getMessages` in memory/conversation-crud.ts) intentionally does not
+  // filter — hidden messages remain in agent context but are suppressed from
+  // the UI list. Filtering is pushed into the paginated query so `hasMore`
+  // and the cursor reflect visible rows; otherwise a fully-hidden page would
+  // return `hasMore: true` with no cursor and stall the web client.
+  // Hidden tool_use/tool_result pairs must be hidden together — if a hidden
+  // assistant message has tool_use blocks but its matching user tool_result
+  // is left visible, the result will render as a standalone orphan because
+  // `mergeToolResultsIntoAssistantMessages` has nothing to merge it into.
+  const visibleFilter = (m: MessageRow) => !isHiddenMessage(m.metadata);
+
   if (isPaginated) {
     const result = getMessagesPaginated(
       resolvedConversationId,
       limit,
       beforeTimestamp,
+      visibleFilter,
     );
     rawMessages = result.messages;
     hasMore = result.hasMore;
   } else {
-    rawMessages = getMessages(resolvedConversationId);
+    rawMessages = getMessages(resolvedConversationId).filter(visibleFilter);
   }
-
-  // Drop messages flagged as hidden in metadata (e.g. internal scaffolding
-  // like retrospective instructions). The LLM-side history loader
-  // (`getMessages` in memory/conversation-crud.ts) intentionally does not
-  // filter — hidden messages remain in agent context but are suppressed from
-  // the UI list.
-  rawMessages = rawMessages.filter((m) => !isHiddenMessage(m.metadata));
 
   // During streaming, tool_use (assistant) and tool_result (user) events are
   // assembled client-side into a single assistant ChatMessage. On reload, they

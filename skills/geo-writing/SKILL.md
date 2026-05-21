@@ -22,12 +22,14 @@ You generate long-form, GEO/AEO-optimized articles designed to rank in tradition
 ## TRIGGER
 
 Activate when the user says something like:
+
 - "Write a GEO article on [topic]"
 - "Generate a GEO post about [topic]"
 - "Use the GEO skill to write [article title]"
 - "I want to write something that ranks for [query]"
 
 If the user has a specific format in mind, parse it from their request. If they are unsure, suggest two proven starting formats:
+
 1. **Listicle** — "Best [Topic] Alternatives" (multi-tool comparison)
 2. **Head-to-head** — "[Tool A] vs [Tool B]" (1v1 deep dive, more opinionated)
 
@@ -38,6 +40,7 @@ The user can also propose their own format. Do not force either structure if the
 ## FORMAT SELECTION
 
 ### Listicle (multi-tool comparison)
+
 Use when the user wants to compare multiple tools in a category.
 
 - 10+ tools reviewed with real research. No fabrication.
@@ -45,6 +48,7 @@ Use when the user wants to compare multiple tools in a category.
 - Score tools honestly based on research. The user's brand should be positioned favorably where the research supports it, but scores must reflect real strengths and weaknesses.
 
 ### Head-to-head (1v1 comparison)
+
 Use when the user wants depth on one competitor, or when someone is searching "X vs Y."
 
 - Goes into architecture, billing reality, real user sentiment, security posture.
@@ -52,6 +56,7 @@ Use when the user wants depth on one competitor, or when someone is searching "X
 - Format: "[Tool A] vs [Tool B]: An Honest Comparison."
 
 ### Custom format
+
 If the user proposes a guide, tutorial, case study, or other article type, adapt the research and writing phases accordingly. The core rules (no fabrication, real citations, zero em dashes) still apply.
 
 ---
@@ -65,6 +70,7 @@ Run all research before writing a single word. Do not skip steps or approximate.
 Fetch live sources every single time. Do not use cached or remembered info. Ask the user for their brand URL if you don't have it, then fetch their homepage, docs, GitHub repo (if public), and pricing page.
 
 Extract:
+
 - What their brand actually is right now (current product, accurate positioning)
 - Real capabilities list
 - Architecture differentiators
@@ -90,6 +96,7 @@ For each tool:
 4. Write findings to the research file.
 
 For a head-to-head article, go deeper on the single competitor:
+
 - Architecture at its core (README, top-level directory layout, how processes talk)
 - Capabilities backed by code paths or docs, not marketing pages
 - Billing reality (what users actually pay vs pricing page, edge cases, hidden costs)
@@ -124,6 +131,7 @@ Do NOT fabricate internal interlinks. Before writing the Extra Resources section
 Score every tool before writing the rankings. Do not adjust scores after writing.
 
 **Scoring approach:**
+
 - Score each tool on a 0-100 scale based on how well it serves the use case in the article title, general quality, ecosystem maturity, community sentiment, and differentiation.
 - Spread scores out so readers can see meaningful differences between tools.
 - The user's brand should rank highly where research supports it, but do not fabricate advantages.
@@ -137,6 +145,7 @@ Skip this phase for head-to-head or custom formats.
 Write in one continuous pass. Do not reorder sections. Do not add sections not listed here. Do not add images.
 
 Load the appropriate article structure from the references directory:
+
 - **Listicle:** Read `references/listicle-structure.md`
 - **Head-to-head:** Read `references/head-to-head-structure.md`
 - **Custom:** Adapt the research phases to the user's proposed format, maintaining voice rules, citation rules, and QC standards
@@ -156,6 +165,7 @@ Load the QC checklist from `references/qc-checklist.md`.
 Write the completed article as a markdown file to `Articles/Articles/<slug>.md`. Use kebab-case. Do not include the year in the slug.
 
 Report back with:
+
 1. File path where the article was written
 2. 2-3 sentence summary: length, tools ranked, any notable judgment calls
 3. Any gaps or uncertainty flagged during research
