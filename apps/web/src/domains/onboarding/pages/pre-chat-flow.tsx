@@ -180,10 +180,10 @@ export function PreChatFlow() {
     userId,
   ]);
 
-  // ── Content-automation cohort: skip all pre-chat screens ──
+  // ── Content-automation cohort: skip all pre-chat screens (web only) ──
   const autoSkippedRef = useRef(false);
   useEffect(() => {
-    if (cohort !== "content-automation") return;
+    if (cohort !== "content-automation" || isNative) return;
     if (isAuthLoading || !isLoggedIn || consentDecision !== "ok") return;
     if (readOnboardingCompleted()) return;
     if (autoSkippedRef.current) return;
@@ -206,7 +206,7 @@ export function PreChatFlow() {
     }
     clearPrivacyConsent();
     void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
-  }, [cohort, isAuthLoading, isLoggedIn, consentDecision, navigate, setOnboardingCompleted]);
+  }, [cohort, isNative, isAuthLoading, isLoggedIn, consentDecision, navigate, setOnboardingCompleted]);
 
   function finish(connectedScopes?: string[]): void {
     const context: PreChatOnboardingContext = {
@@ -254,7 +254,7 @@ export function PreChatFlow() {
     return null;
   }
 
-  if (cohort === "content-automation") {
+  if (cohort === "content-automation" && !isNative) {
     return null;
   }
 
