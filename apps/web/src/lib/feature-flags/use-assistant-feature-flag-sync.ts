@@ -65,10 +65,12 @@ export function useAssistantFeatureFlagSync(assistantId: string | null) {
   const prevAssistantId = useRef(assistantId);
 
   useEffect(() => {
+    const store = useAssistantFeatureFlagStore.getState();
     if (prevAssistantId.current !== assistantId) {
-      useAssistantFeatureFlagStore.getState().setFlags(ASSISTANT_FLAG_DEFAULTS);
+      store.setFlags(ASSISTANT_FLAG_DEFAULTS);
       prevAssistantId.current = assistantId;
     }
+    store.setAssistantId(assistantId);
   }, [assistantId]);
 
   const { data } = useQuery({
