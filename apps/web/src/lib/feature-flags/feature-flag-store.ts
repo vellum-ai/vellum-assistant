@@ -10,9 +10,9 @@
  * API is wired into the Developer → Feature Flags debug panel so
  * flags can be overridden during development.
  *
- * Flag evaluation from a remote source (LaunchDarkly, platform API)
- * is not yet wired — see LUM-1710 for context. When a fetch mechanism
- * is added, call `setFlags()` with the evaluated values.
+ * Flag evaluation is hydrated from the platform backend via
+ * `useFeatureFlagSync`, which fetches from
+ * `/v1/feature-flags/client-flag-values/` and calls `setFlags()`.
  *
  * @see {@link https://zustand.docs.pmnd.rs/}
  * @see {@link https://zustand.docs.pmnd.rs/guides/auto-generating-selectors}
@@ -95,7 +95,13 @@ export type FeatureFlagStore = AppFeatureFlags & FeatureFlagActions;
 const useFeatureFlagStoreBase = create<FeatureFlagStore>()((set) => ({
   ...DEFAULT_FLAGS,
 
-  setFlags: (flags) => set(flags),
+  setFlags: (flags) =>
+    set((prev) => {
+      const changed = (Object.keys(flags) as (keyof AppFeatureFlags)[]).some(
+        (k) => flags[k] !== prev[k],
+      );
+      return changed ? flags : prev;
+    }),
 
   setFlag: (key, value) => set({ [key]: value }),
 }));

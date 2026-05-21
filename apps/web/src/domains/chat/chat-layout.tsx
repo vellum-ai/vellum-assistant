@@ -29,6 +29,7 @@ import { useAttentionTracking } from "@/domains/conversations/use-attention-trac
 import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions.js";
 import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useFeatureFlagSync } from "@/lib/feature-flags/use-feature-flag-sync.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 
@@ -123,6 +124,7 @@ export function ChatLayout() {
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const authLoading = useAuthStore.use.isLoading();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
+  useFeatureFlagSync(isLoggedIn && !authLoading);
 
   const lifecycle = useAssistantLifecycle({
     isLoggedIn,
