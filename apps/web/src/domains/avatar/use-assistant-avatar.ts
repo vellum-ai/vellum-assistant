@@ -14,9 +14,9 @@ interface AvatarData {
   customImageUrl: string | null;
 }
 
-const AVATAR_QUERY_KEY_PREFIX = "assistantAvatar";
+export const AVATAR_QUERY_KEY_PREFIX = "assistantAvatar";
 
-function avatarQueryKey(assistantId: string) {
+export function avatarQueryKey(assistantId: string) {
   return [AVATAR_QUERY_KEY_PREFIX, assistantId] as const;
 }
 

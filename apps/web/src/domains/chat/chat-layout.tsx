@@ -13,6 +13,7 @@ import { routes } from "@/utils/routes.js";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+import { useAssistantSyncStream } from "@/domains/chat/hooks/use-assistant-sync-stream.js";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
 import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
 import { useDynamicFavicon } from "@/domains/avatar/use-dynamic-favicon.js";
@@ -186,6 +187,14 @@ export function ChatLayout() {
     layoutAvatar.components,
     layoutAvatar.traits,
   );
+
+  // Layout-scoped SSE subscriber for assistant-global sync events.
+  // ChatPage owns the conversation-scoped stream; this one keeps the
+  // avatar / identity / config / sounds / schedules / conversation list
+  // caches reactive on every assistant route — not just inside a
+  // conversation. See use-assistant-sync-stream.ts for the event
+  // routing contract.
+  useAssistantSyncStream(lifecycle.assistantId, isAssistantActive);
 
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header. Gated on the homePage feature flag so the hook
