@@ -234,7 +234,7 @@ export interface ChatRouteContentProps {
   assistantIdentity: AssistantIdentity | null;
 
   // Feature flags
-  chatPullToRefresh: boolean;
+  chatPullToRefreshEnabled: boolean;
   deployToVercel: boolean;
   doctor: boolean;
 
@@ -373,7 +373,7 @@ export function ChatRouteContent({
   assistantId,
   assistantState,
   assistantIdentity: _assistantIdentity,
-  chatPullToRefresh,
+  chatPullToRefreshEnabled,
   deployToVercel,
   doctor: doctorEnabled,
   isMobile,
@@ -1117,7 +1117,7 @@ export function ChatRouteContent({
           )
         : undefined,
     onPullRefresh: handlePullRefresh,
-    pullRefreshEnabled: chatPullToRefresh && touchSupported,
+    pullRefreshEnabled: chatPullToRefreshEnabled && touchSupported,
     subagentEntries,
     onSubagentClick,
     onStopSubagent,

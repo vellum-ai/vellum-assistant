@@ -131,7 +131,7 @@ export function ChatPage() {
     setOnSearchClick,
     setFooterBanner,
   } = useAssistantContext();
-  const chatPullToRefresh = useFeatureFlagStore.use.chatPullToRefresh();
+  const chatPullToRefreshEnabled = useFeatureFlagStore.use.chatPullToRefreshEnabled();
   const deployToVercel = useFeatureFlagStore.use.deployToVercel();
   const doctor = useFeatureFlagStore.use.doctor();
   const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
@@ -1148,7 +1148,7 @@ export function ChatPage() {
     assistantId,
     assistantState,
     assistantIdentity,
-    chatPullToRefresh,
+    chatPullToRefreshEnabled,
     deployToVercel,
     doctor,
     isMobile,

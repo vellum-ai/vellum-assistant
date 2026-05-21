@@ -17,7 +17,7 @@ import { useSettingsSync } from "@/domains/settings/hooks/use-settings-sync.js";
  * fresh while the user is on any settings page.
  */
 export function SettingsLayout() {
-  const developerSettings = useFeatureFlagStore.use.developerSettings();
+  const settingsDeveloperNav = useFeatureFlagStore.use.settingsDeveloperNav();
   const platformNotifications = useFeatureFlagStore.use.platformNotifications();
   const sounds = useFeatureFlagStore.use.sounds();
   const { pathname } = useLocation();
@@ -41,10 +41,10 @@ export function SettingsLayout() {
 
   const bottomItems = useMemo(
     () =>
-      developerSettings
+      settingsDeveloperNav
         ? SETTINGS_SIDEBAR.filter((item) => item.id === "developer")
         : [],
-    [developerSettings],
+    [settingsDeveloperNav],
   );
 
   const pageTitle = useMemo(() => {

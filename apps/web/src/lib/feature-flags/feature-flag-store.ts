@@ -30,10 +30,10 @@ export interface AppFeatureFlags {
   a2aChannel: boolean;
   accountDeletion: boolean;
   analyzeConversation: boolean;
-  chatPullToRefresh: boolean;
+  chatPullToRefreshEnabled: boolean;
   conversationGroupsUI: boolean;
   deployToVercel: boolean;
-  developerSettings: boolean;
+  settingsDeveloperNav: boolean;
   doctor: boolean;
   homePage: boolean;
   multiPlatformAssistant: boolean;
@@ -56,10 +56,10 @@ export const DEFAULT_FLAGS: AppFeatureFlags = {
   a2aChannel: false,
   accountDeletion: false,
   analyzeConversation: false,
-  chatPullToRefresh: false,
+  chatPullToRefreshEnabled: false,
   conversationGroupsUI: false,
   deployToVercel: false,
-  developerSettings: false,
+  settingsDeveloperNav: false,
   doctor: false,
   homePage: false,
   multiPlatformAssistant: false,
