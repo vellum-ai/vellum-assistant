@@ -14,6 +14,7 @@ import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 import { useAssistantSyncStream } from "@/domains/chat/hooks/use-assistant-sync-stream.js";
+import { useEventBusInit } from "@/hooks/use-event-bus-init.js";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
 import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
 import { useDynamicFavicon } from "@/domains/avatar/use-dynamic-favicon.js";
@@ -189,6 +190,15 @@ export function ChatLayout() {
     layoutAvatar.components,
     layoutAvatar.traits,
   );
+
+  // Layout-scoped event bus (LUM-1812 PR1). Dispatches synthetic
+  // app.resume / app.hidden / app.online / app.offline events from
+  // document.visibilitychange, Capacitor App.appStateChange, and window
+  // online/offline. Does NOT open its own SSE connection — that comes
+  // with the conversation-scoped stream migration that consolidates
+  // both subscribers behind a single daemon connection (the daemon
+  // dedups by clientId today, see assistant-event-hub.ts).
+  useEventBusInit();
 
   // Layout-scoped SSE subscriber is disabled. The daemon dedups client
   // subscribers by `clientId` (assistant-event-hub.ts), so this layout
