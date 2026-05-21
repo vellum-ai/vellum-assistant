@@ -41,6 +41,8 @@ export interface AdapterCreateOpts {
   baseURL?: string;
   /** Forwarded to providers that wire native provider-side web search. */
   useNativeWebSearch: boolean;
+  /** When true, the OpenAI adapter targets the Codex subscription endpoint. */
+  codexSubscription?: boolean;
 }
 
 type AdapterFactory = (opts: AdapterCreateOpts) => Provider;
@@ -65,10 +67,18 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),
-  openai: ({ apiKey, model, streamTimeoutMs, baseURL, useNativeWebSearch }) =>
+  openai: ({
+    apiKey,
+    model,
+    streamTimeoutMs,
+    baseURL,
+    useNativeWebSearch,
+    codexSubscription,
+  }) =>
     new OpenAIResponsesProvider(apiKey, model, {
       useNativeWebSearch,
       streamTimeoutMs,
+      codexSubscription,
       ...(baseURL ? { baseURL } : {}),
     }),
   gemini: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
@@ -176,12 +186,16 @@ export function createAdapterFromConnection(
   const baseURL =
     resolvedAuth.kind === "header" ? resolvedAuth.baseUrl : undefined;
 
+  const codexSubscription =
+    connection.auth.type === "oauth_subscription" && provider === "openai";
+
   const adapter = buildProviderAdapter(provider, {
     apiKey,
     model: opts.model,
     streamTimeoutMs: opts.streamTimeoutMs ?? 1_800_000,
     baseURL,
     useNativeWebSearch: opts.useNativeWebSearch ?? false,
+    codexSubscription,
   });
   if (!adapter) return null;
 

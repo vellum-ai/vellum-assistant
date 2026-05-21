@@ -9134,6 +9134,68 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/inference/chatgpt-subscription/auth:
+    post:
+      operationId: inference_chatgptsubscription_auth_post
+      summary: Start ChatGPT subscription OAuth PKCE flow
+      description:
+        Generate a PKCE authorize URL for ChatGPT subscription auth. Returns the URL and state for the client to
+        open in a browser.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authorize_url:
+                    type: string
+                  state:
+                    type: string
+                required:
+                  - authorize_url
+                  - state
+                additionalProperties: false
+  /v1/inference/chatgpt-subscription/auth/exchange:
+    post:
+      operationId: inference_chatgptsubscription_auth_exchange_post
+      summary: Exchange ChatGPT subscription OAuth authorization code
+      description:
+        Accept an authorization code and state from the OAuth redirect, exchange it for tokens, store them in CES,
+        and upsert the provider connection.
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+              required:
+                - code
+                - state
+              additionalProperties: false
   /v1/inference/provider-connections:
     get:
       operationId: inference_providerconnections_get

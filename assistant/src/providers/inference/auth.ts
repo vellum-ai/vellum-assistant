@@ -9,13 +9,13 @@ import { PROVIDER_CATALOG } from "../model-catalog.js";
 /**
  * Auth configuration stored in the `provider_connections` table.
  *
- * v1 runtime-supported variants:
+ * Runtime-supported variants:
  *   - api_key: look up `credential` in vault, inject as bearer/provider header.
  *   - platform: route via Vellum managed proxy; no client-side credential.
  *   - none: no auth (e.g. Ollama running locally).
+ *   - oauth_subscription: OAuth-based subscription auth (e.g. ChatGPT Codex).
  *
- * v2 schema-accepted variants (runtime rejects with a clear "not yet shipped" error):
- *   - oauth_subscription: OAuth-based subscription auth.
+ * Schema-accepted variants (runtime rejects with a clear "not yet shipped" error):
  *   - service_account: service-account credentials (Vertex AI, Bedrock).
  */
 export const AuthSchema = z.discriminatedUnion("type", [

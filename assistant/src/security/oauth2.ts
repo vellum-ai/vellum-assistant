@@ -86,6 +86,10 @@ export interface OAuth2FlowOptions {
    *  instead of an OS-assigned random port. Required for providers like Slack that
    *  need pre-registered redirect URIs. */
   loopbackPort?: number;
+  /** Override the loopback callback path. Defaults to `/oauth/callback`.
+   *  Required for providers with pre-registered redirect URIs that use a
+   *  different path (e.g. OpenAI Codex uses `/auth/callback`). */
+  loopbackCallbackPath?: string;
 }
 
 export interface OAuth2FlowResult {
@@ -98,15 +102,15 @@ export interface OAuth2FlowResult {
 // PKCE helpers
 // ---------------------------------------------------------------------------
 
-function generateCodeVerifier(): string {
+export function generateCodeVerifier(): string {
   return randomBytes(32).toString("base64url");
 }
 
-function generateCodeChallenge(verifier: string): string {
+export function generateCodeChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url");
 }
 
-function generateState(): string {
+export function generateState(): string {
   return randomBytes(16).toString("hex");
 }
 
@@ -114,7 +118,7 @@ function generateState(): string {
 // Token exchange (shared between transports)
 // ---------------------------------------------------------------------------
 
-async function exchangeCodeForTokens(
+export async function exchangeCodeForTokens(
   config: OAuth2Config,
   code: string,
   redirectUri: string,
@@ -293,6 +297,7 @@ async function runLoopbackFlow(
   codeChallenge: string,
   state: string,
   loopbackPort?: number,
+  callbackPath?: string,
 ): Promise<OAuth2FlowResult> {
   const { code, redirectUri } = await startLoopbackServerAndWaitForCode(
     config,
@@ -300,6 +305,7 @@ async function runLoopbackFlow(
     codeChallenge,
     state,
     loopbackPort,
+    callbackPath,
   );
 
   return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
@@ -317,7 +323,9 @@ function startLoopbackServerAndWaitForCode(
   codeChallenge: string,
   state: string,
   loopbackPort?: number,
+  callbackPath?: string,
 ): Promise<{ code: string; redirectUri: string }> {
+  const effectiveCallbackPath = callbackPath ?? LOOPBACK_CALLBACK_PATH;
   return new Promise((resolve, reject) => {
     let settled = false;
     let boundRedirectUri = "";
@@ -340,7 +348,7 @@ function startLoopbackServerAndWaitForCode(
 
       const url = new URL(req.url ?? "/", `http://127.0.0.1`);
 
-      if (url.pathname !== LOOPBACK_CALLBACK_PATH) {
+      if (url.pathname !== effectiveCallbackPath) {
         log.info(
           { pathname: url.pathname },
           "oauth2 loopback: non-callback path, returning 404",
@@ -426,7 +434,7 @@ function startLoopbackServerAndWaitForCode(
 
     server.listen(loopbackPort ?? 0, "localhost", () => {
       const addr = server.address() as { port: number };
-      boundRedirectUri = `http://localhost:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
+      boundRedirectUri = `http://localhost:${addr.port}${effectiveCallbackPath}`;
 
       log.info(
         { port: addr.port, redirectUri: boundRedirectUri },
@@ -497,7 +505,11 @@ export async function prepareOAuth2Flow(
   const transport = options?.callbackTransport ?? "loopback";
 
   if (transport === "loopback") {
-    return prepareLoopbackFlow(config, options?.loopbackPort);
+    return prepareLoopbackFlow(
+      config,
+      options?.loopbackPort,
+      options?.loopbackCallbackPath,
+    );
   }
 
   // Dynamic imports required here to avoid circular dependencies with
@@ -555,6 +567,7 @@ export async function prepareOAuth2Flow(
 async function prepareLoopbackFlow(
   config: OAuth2Config,
   loopbackPort?: number,
+  callbackPath?: string,
 ): Promise<OAuth2PreparedFlow> {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
@@ -563,6 +576,7 @@ async function prepareLoopbackFlow(
   const { redirectUri, codePromise } = await startLoopbackServerForPreparedFlow(
     state,
     loopbackPort,
+    callbackPath,
   );
 
   const authParams = new URLSearchParams({
@@ -599,7 +613,9 @@ async function prepareLoopbackFlow(
 function startLoopbackServerForPreparedFlow(
   state: string,
   loopbackPort?: number,
+  callbackPath?: string,
 ): Promise<{ redirectUri: string; codePromise: Promise<string> }> {
+  const effectiveCallbackPath = callbackPath ?? LOOPBACK_CALLBACK_PATH;
   return new Promise((resolveSetup, rejectSetup) => {
     let settled = false;
     let listening = false;
@@ -619,7 +635,7 @@ function startLoopbackServerForPreparedFlow(
 
       const url = new URL(req.url ?? "/", `http://127.0.0.1`);
 
-      if (url.pathname !== LOOPBACK_CALLBACK_PATH) {
+      if (url.pathname !== effectiveCallbackPath) {
         res.writeHead(404, { "Content-Type": "text/plain" });
         res.end("Not found");
         return;
@@ -683,7 +699,7 @@ function startLoopbackServerForPreparedFlow(
 
     server.listen(loopbackPort ?? 0, "localhost", () => {
       const addr = server.address() as { port: number };
-      const redirectUri = `http://localhost:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
+      const redirectUri = `http://localhost:${addr.port}${effectiveCallbackPath}`;
       listening = true;
       resolveSetup({ redirectUri, codePromise });
     });
@@ -784,6 +800,7 @@ export async function startOAuth2Flow(
     codeChallenge,
     state,
     options?.loopbackPort,
+    options?.loopbackCallbackPath,
   );
 }
 

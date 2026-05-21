@@ -29,6 +29,7 @@ import { ROUTES as CHANNEL_AVAILABILITY_ROUTES } from "./channel-availability-ro
 import { ROUTES as CHANNEL_READINESS_ROUTES } from "./channel-readiness-routes.js";
 import { CHANNEL_ROUTES } from "./channel-route-definitions.js";
 import { ROUTES as CHANNEL_VERIFICATION_ROUTES } from "./channel-verification-routes.js";
+import { ROUTES as CHATGPT_SUBSCRIPTION_AUTH_ROUTES } from "./chatgpt-subscription-auth-routes.js";
 import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
 import { ROUTES as CONSOLIDATION_ROUTES } from "./consolidation-routes.js";
 import { CONTACT_PROMPT_ROUTES } from "./contact-prompt-routes.js";
@@ -149,6 +150,7 @@ export const ROUTES: RouteDefinition[] = [
   ...BOOKMARK_ROUTES,
   ...CACHE_ROUTES,
   ...CALL_ROUTES,
+  ...CHATGPT_SUBSCRIPTION_AUTH_ROUTES,
   ...CHANNEL_ROUTES,
   ...CHANNEL_VERIFICATION_ROUTES,
   ...CHANNEL_AVAILABILITY_ROUTES,
