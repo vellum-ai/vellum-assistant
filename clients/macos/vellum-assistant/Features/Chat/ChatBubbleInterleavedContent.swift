@@ -24,6 +24,7 @@ extension ChatBubble {
         case toolCalls([Int])
         case surface(Int)
         case thinking([Int])
+        case attachment(Int)
 
         /// Stable identity based on the first index in the group.
         /// Using \.self as ForEach identity causes SwiftUI to destroy and recreate
@@ -35,6 +36,7 @@ extension ChatBubble {
             case .toolCalls(let indices): return "tc\(indices.first ?? 0)"
             case .surface(let i): return "s\(i)"
             case .thinking(let indices): return "th\(indices.first ?? 0)"
+            case .attachment(let i): return "a\(i)"
             }
         }
     }
@@ -158,7 +160,7 @@ extension ChatBubble {
                 }
                 pendingThinkingIndices.append(contentsOf: indices)
                 pendingGroupStableIds.append(group.stableId)
-            case .texts, .surface:
+            case .texts, .surface, .attachment:
                 flushBurst()
             }
         }
@@ -298,7 +300,7 @@ extension ChatBubble {
         for ref in contentOrder {
             switch ref {
             case .text: hasTextBlock = true
-            case .toolCall, .surface, .thinking: hasNonText = true
+            case .toolCall, .surface, .thinking, .attachment: hasNonText = true
             }
             if hasTextBlock && hasNonText { return true }
         }
@@ -334,6 +336,8 @@ extension ChatBubble {
                 } else {
                     groups.append(.thinking([i]))
                 }
+            case .attachment(let i):
+                groups.append(.attachment(i))
             }
         }
 
@@ -349,7 +353,7 @@ extension ChatBubble {
         // Post-process: coalesce text groups that are only separated by tool call
         // groups so that the user can drag-select across text that spans a tool
         // invocation (tool calls render as EmptyView and produce no visual gap).
-        // Only .surface entries break a text run because they render visible content.
+        // Only visible groups (.surface, .thinking, .attachment) break a text run.
         var coalesced: [ContentGroup] = []
         var pendingTexts: [Int]?
         var pendingToolCalls: [ContentGroup] = []
@@ -370,8 +374,8 @@ extension ChatBubble {
                 } else {
                     coalesced.append(group)
                 }
-            case .surface, .thinking:
-                // A surface or thinking block breaks the text run — flush pending state.
+            case .surface, .thinking, .attachment:
+                // A surface, thinking, or attachment block breaks the text run.
                 if let texts = pendingTexts {
                     coalesced.append(.texts(texts))
                     coalesced.append(contentsOf: pendingToolCalls)
@@ -614,6 +618,22 @@ extension ChatBubble {
             return false
         })?.stableId
 
+        // Attachments referenced by contentOrder render inline at their position;
+        // the rest (orphans — e.g. messages with attachments but no `attachment:N`
+        // entries) render after the last text group as before.
+        let inlineAttachmentIndices: Set<Int> = {
+            var set = Set<Int>()
+            for group in groups {
+                if case .attachment(let i) = group { set.insert(i) }
+            }
+            return set
+        }()
+        let orphanAttachments: [ChatAttachment] = message.attachments
+            .enumerated()
+            .compactMap { (idx, att) in
+                inlineAttachmentIndices.contains(idx) ? nil : att
+            }
+
         // Render all content groups in order: text, burst cards, and surfaces.
         ForEach(groups, id: \.stableId) { group in
             switch group {
@@ -639,9 +659,11 @@ extension ChatBubble {
                     }
                     inlineToolCallImages(from: deferredCalls)
                 }
-                // Render attachments right after the last text group
+                // Render orphan attachments right after the last text group.
+                // Attachments referenced by `attachment:N` entries render inline
+                // at their own position in the .attachment case below.
                 if group.stableId == lastTextGroupId {
-                    inlineAttachments
+                    inlineAttachments(for: orphanAttachments)
                 }
             case .toolCalls(let indices):
                 if shouldRenderToolProgressInline {
@@ -680,6 +702,10 @@ extension ChatBubble {
                 if i < message.inlineSurfaces.count,
                    message.inlineSurfaces[i].id != activeSurfaceId {
                     InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
+                }
+            case .attachment(let i):
+                if i < message.attachments.count {
+                    inlineAttachments(for: [message.attachments[i]])
                 }
             case .thinking:
                 if burstForGroup[group.stableId] != nil {
@@ -728,18 +754,22 @@ extension ChatBubble {
             }
         }
 
-        // Fallback: if there are no text groups, render attachments after all content groups.
+        // Fallback: if there are no text groups, render orphan attachments
+        // after all content groups (inline attachments already rendered above).
         if lastTextGroupId == nil {
-            inlineAttachments
+            inlineAttachments(for: orphanAttachments)
         }
         attachmentWarningBanners(message.attachmentWarnings)
     }
 
-    /// Renders all non-tool-block attachments (images, videos, audios, files)
-    /// inline at the current position in the content flow.
+    /// Renders the given subset of attachments (images, videos, audios, files)
+    /// inline at the current position in the content flow. The subset is what
+    /// lets a `.attachment(N)` group render a single chip in the middle of a
+    /// message while the trailing slot renders only attachments not referenced
+    /// by any inline contentOrder entry.
     @ViewBuilder
-    private var inlineAttachments: some View {
-        let partitioned = partitionedAttachments
+    private func inlineAttachments(for attachments: [ChatAttachment]) -> some View {
+        let partitioned = partitionAttachments(attachments)
         let visibleImages = visibleAttachmentImages(partitioned.images)
         if !visibleImages.isEmpty {
             attachmentImageGrid(visibleImages)
