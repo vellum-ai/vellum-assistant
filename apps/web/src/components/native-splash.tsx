@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { publicAsset } from "@/lib/public-asset.js";
+
 /**
  * Full-screen branded splash shown on native iOS during:
  * - Initial login (behind the ASWebAuthenticationSession Safari sheet)
@@ -13,14 +15,14 @@ export function NativeSplash({ children }: { children?: ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[var(--surface-base)] text-[var(--content-default)]">
       <img
-        src="/vellum-logo.svg"
+        src={publicAsset("/vellum-logo.svg")}
         alt="Vellum"
         width={220}
         height={66}
         className="block dark:hidden"
       />
       <img
-        src="/vellum-logo-white.svg"
+        src={publicAsset("/vellum-logo-white.svg")}
         alt="Vellum"
         width={220}
         height={66}
@@ -33,7 +35,7 @@ export function NativeSplash({ children }: { children?: ReactNode }) {
         style={{ bottom: 0 }}
       >
         <img
-          src="/login-background-characters.svg"
+          src={publicAsset("/login-background-characters.svg")}
           alt=""
           width={880}
           height={182}

@@ -1,3 +1,5 @@
+import { publicAsset } from "@/lib/public-asset.js";
+
 /**
  * Decorative background for the branded `/account/login` screen.
  *
@@ -10,7 +12,7 @@ export function LoginBackground() {
     <>
       <div className="pointer-events-none absolute top-[120px] left-1/2 z-0 -translate-x-1/2">
         <img
-          src="/vellum-logo-white.svg"
+          src={publicAsset("/vellum-logo-white.svg")}
           alt="Vellum"
           width={92}
           height={28}
@@ -21,7 +23,7 @@ export function LoginBackground() {
         className="pointer-events-none absolute right-0 bottom-0 left-1/2 z-0 w-full max-w-[1100px] -translate-x-1/2"
       >
         <img
-          src="/login-background-characters.svg"
+          src={publicAsset("/login-background-characters.svg")}
           alt=""
           width={880}
           height={182}
