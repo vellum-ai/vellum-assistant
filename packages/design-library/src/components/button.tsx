@@ -1,4 +1,4 @@
-import { Slot } from "@radix-ui/react-slot";
+import { Slot, Slottable } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import {
   type ButtonHTMLAttributes,
@@ -287,13 +287,21 @@ export function Button({
       ) : leftIcon == null && rightIcon == null ? (
         children
       ) : (
+        // When `asChild` is set, `Comp` is Radix's `Slot`, which forwards its
+        // props (e.g. `type`, `disabled`) onto its single React-element child.
+        // A bare Fragment can't accept those props — React 19 hard-errors with
+        // "Invalid prop `type` supplied to React.Fragment". `Slottable` marks
+        // `children` as the prop target so Slot clones the caller's element
+        // and re-parents the icons as its children. In the non-asChild path
+        // (`Comp === "button"`) Slottable is a transparent Fragment, so this
+        // is safe for both branches.
         <>
           {leftIcon != null ? (
             <span aria-hidden="true" style={iconStyle}>
               {leftIcon}
             </span>
           ) : null}
-          {children}
+          <Slottable>{children}</Slottable>
           {rightIcon != null ? (
             <span aria-hidden="true" style={iconStyle}>
               {rightIcon}
