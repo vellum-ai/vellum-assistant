@@ -56,6 +56,7 @@ import * as commentReply from "./bundled-skills/document-editor/tools/comment-re
 import * as commentResolve from "./bundled-skills/document-editor/tools/comment-resolve.js";
 import * as documentCreate from "./bundled-skills/document-editor/tools/document-create.js";
 import * as documentDelete from "./bundled-skills/document-editor/tools/document-delete.js";
+import * as documentFind from "./bundled-skills/document-editor/tools/document-find.js";
 import * as documentList from "./bundled-skills/document-editor/tools/document-list.js";
 import * as documentRead from "./bundled-skills/document-editor/tools/document-read.js";
 import * as documentReplaceText from "./bundled-skills/document-editor/tools/document-replace-text.js";
@@ -179,6 +180,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["document-editor:tools/document-read.ts", documentRead],
   ["document-editor:tools/document-list.ts", documentList],
   ["document-editor:tools/document-delete.ts", documentDelete],
+  ["document-editor:tools/document-find.ts", documentFind],
   ["document-editor:tools/document-replace-text.ts", documentReplaceText],
   ["document-editor:tools/comment-list.ts", commentList],
   ["document-editor:tools/comment-resolve.ts", commentResolve],

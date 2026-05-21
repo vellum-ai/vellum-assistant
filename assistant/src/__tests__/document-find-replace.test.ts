@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getDocumentById } from "../documents/document-store.js";
 import { getSqlite, resetDb } from "../memory/db-connection.js";
-import { executeDocumentReplaceText } from "../tools/document/document-tool.js";
+import {
+  executeDocumentFind,
+  executeDocumentReplaceText,
+} from "../tools/document/document-tool.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
@@ -82,6 +85,175 @@ function seedDocument(params: {
     )
     .run(params.surfaceId, params.conversationId, params.updatedAt);
 }
+
+// ---------------------------------------------------------------------------
+// document_find tests
+// ---------------------------------------------------------------------------
+
+interface FindResultBody {
+  success: boolean;
+  surface_id?: string;
+  query?: string;
+  total_matches?: number;
+  matches?: Array<{
+    line_number: number;
+    line_content: string;
+    match_start: number;
+    match_end: number;
+    match_text: string;
+  }>;
+  error?: string;
+}
+
+const MULTILINE_CONTENT = [
+  "Hello World",
+  "This is line two with some numbers 42 and 100",
+  "hello again on line three",
+  "HELLO UPPERCASE LINE FOUR",
+  "Final line with special chars: foo-bar_baz",
+].join("\n");
+
+describe("document_find", () => {
+  beforeEach(() => {
+    bootstrapDocumentTables();
+    seedDocument({
+      surfaceId: "doc-find-test",
+      conversationId: "conv-current",
+      title: "Find Test Doc",
+      content: MULTILINE_CONTENT,
+      updatedAt: 1000,
+    });
+    seedDocument({
+      surfaceId: "doc-other-conv",
+      conversationId: "conv-other",
+      title: "Other Conv Doc",
+      content: "secret content here",
+      updatedAt: 2000,
+    });
+  });
+
+  test("literal search finds exact matches with correct line numbers", () => {
+    const result = executeDocumentFind(
+      { surface_id: "doc-find-test", query: "Hello" },
+      makeContext(),
+    );
+    const body = parseResult<FindResultBody>(result);
+
+    expect(body.success).toBe(true);
+    expect(body.total_matches).toBe(3);
+    expect(body.matches![0].line_number).toBe(1);
+    expect(body.matches![0].match_text).toBe("Hello");
+    expect(body.matches![1].line_number).toBe(3);
+    expect(body.matches![1].match_text).toBe("hello");
+    expect(body.matches![2].line_number).toBe(4);
+    expect(body.matches![2].match_text).toBe("HELLO");
+  });
+
+  test("case-insensitive search (default) matches regardless of case", () => {
+    const result = executeDocumentFind(
+      { surface_id: "doc-find-test", query: "hello" },
+      makeContext(),
+    );
+    const body = parseResult<FindResultBody>(result);
+
+    expect(body.success).toBe(true);
+    expect(body.total_matches).toBe(3);
+    const lineNumbers = body.matches!.map((m) => m.line_number);
+    expect(lineNumbers).toEqual([1, 3, 4]);
+  });
+
+  test("case-sensitive search only matches exact case", () => {
+    const result = executeDocumentFind(
+      { surface_id: "doc-find-test", query: "Hello", case_sensitive: true },
+      makeContext(),
+    );
+    const body = parseResult<FindResultBody>(result);
+
+    expect(body.success).toBe(true);
+    expect(body.total_matches).toBe(1);
+    expect(body.matches![0].line_number).toBe(1);
+    expect(body.matches![0].match_text).toBe("Hello");
+  });
+
+  test("regex search works", () => {
+    const result = executeDocumentFind(
+      { surface_id: "doc-find-test", query: "\\d+", regex: true },
+      makeContext(),
+    );
+    const body = parseResult<FindResultBody>(result);
+
+    expect(body.success).toBe(true);
+    expect(body.total_matches).toBe(2);
+    expect(body.matches![0].match_text).toBe("42");
+    expect(body.matches![0].line_number).toBe(2);
+    expect(body.matches![1].match_text).toBe("100");
+    expect(body.matches![1].line_number).toBe(2);
+  });
+
+  test("invalid regex returns error gracefully", () => {
+    const result = executeDocumentFind(
+      { surface_id: "doc-find-test", query: "[invalid", regex: true },
+      makeContext(),
+    );
+    const body = parseResult<FindResultBody>(result);
+
+    expect(result.isError).toBe(true);
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/Invalid regex/);
+  });
+
+  test("no matches returns success with empty array", () => {
+    const result = executeDocumentFind(
+      { surface_id: "doc-find-test", query: "nonexistent-text-xyz" },
+      makeContext(),
+    );
+    const body = parseResult<FindResultBody>(result);
+
+    expect(body.success).toBe(true);
+    expect(body.total_matches).toBe(0);
+    expect(body.matches).toEqual([]);
+  });
+
+  test("access control blocks non-guardian from searching documents outside their conversation", () => {
+    const result = executeDocumentFind(
+      { surface_id: "doc-other-conv", query: "secret" },
+      makeContext({
+        trustClass: "trusted_contact",
+        executionChannel: "slack",
+        conversationId: "conv-current",
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    const body = parseResult<FindResultBody>(result);
+    expect(body.error).toBe("Document not found");
+  });
+
+  test("results are capped at 50 matches", () => {
+    const lines = Array.from({ length: 100 }, (_, i) => `match line ${i}`);
+    seedDocument({
+      surfaceId: "doc-many-matches",
+      conversationId: "conv-current",
+      title: "Many Matches",
+      content: lines.join("\n"),
+      updatedAt: 3000,
+    });
+
+    const result = executeDocumentFind(
+      { surface_id: "doc-many-matches", query: "match" },
+      makeContext(),
+    );
+    const body = parseResult<FindResultBody>(result);
+
+    expect(body.success).toBe(true);
+    expect(body.total_matches).toBe(50);
+    expect(body.matches!.length).toBe(50);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// document_replace_text tests
+// ---------------------------------------------------------------------------
 
 describe("document_replace_text", () => {
   beforeEach(() => {
@@ -228,7 +400,6 @@ describe("document_replace_text", () => {
     expect(body.success).toBe(true);
     expect(body.replacements_made).toBe(1);
     expect(body.content_changed).toBe(true);
-    // Only the first "foo" should be replaced
     expect(getDocumentById("doc-replace")?.content).toBe("qux bar foo baz foo");
   });
 
@@ -245,16 +416,13 @@ describe("document_replace_text", () => {
     expect(body.success).toBe(true);
     expect(body.replacements_made).toBe(0);
     expect(body.content_changed).toBe(false);
-    // Content should be unchanged
     expect(getDocumentById("doc-replace")?.content).toBe("foo bar foo baz foo");
   });
 
   test("word_count is recalculated after replacement", () => {
-    // Original: "foo bar foo baz foo" = 5 words
     const before = getDocumentById("doc-replace");
     expect(before?.wordCount).toBe(5);
 
-    // Replace "foo" with "one two" => "one two bar one two baz one two" = 8 words
     executeDocumentReplaceText(
       { surface_id: "doc-replace", find: "foo", replace: "one two" },
       makeContext({ sendToClient: () => {} }),
@@ -276,7 +444,6 @@ describe("document_replace_text", () => {
     expect(result.isError).toBe(true);
     const body = parseResult<{ error: string }>(result);
     expect(body.error).toBe("Document not found");
-    // Content should be unchanged
     expect(getDocumentById("doc-other")?.content).toBe("other content");
   });
 

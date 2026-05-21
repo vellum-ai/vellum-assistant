@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   deleteDocument,
+  findInDocument,
   getDocumentById,
   getDocumentsForConversation,
   isDocumentAssociatedWithConversation,
@@ -245,6 +246,57 @@ export function executeDocumentDelete(
   };
 }
 
+export function executeDocumentFind(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): ToolExecutionResult {
+  const surfaceId = input.surface_id as string;
+  const query = input.query as string;
+  const regex = (input.regex as boolean | undefined) ?? false;
+  const caseSensitive = (input.case_sensitive as boolean | undefined) ?? false;
+
+  if (!canAccessDocument(surfaceId, context)) {
+    return documentNotFound(surfaceId);
+  }
+
+  if (regex) {
+    try {
+      new RegExp(query);
+    } catch (e) {
+      return {
+        content: JSON.stringify({
+          success: false,
+          surface_id: surfaceId,
+          error: `Invalid regex: ${e instanceof Error ? e.message : String(e)}`,
+        }),
+        isError: true,
+      };
+    }
+  }
+
+  const result = findInDocument(surfaceId, query, { regex, caseSensitive });
+  if (!result) {
+    return documentNotFound(surfaceId);
+  }
+
+  return {
+    content: JSON.stringify({
+      success: true,
+      surface_id: result.surfaceId,
+      query,
+      total_matches: result.totalMatches,
+      matches: result.matches.map((m) => ({
+        line_number: m.lineNumber,
+        line_content: m.lineContent,
+        match_start: m.matchStart,
+        match_end: m.matchEnd,
+        match_text: m.matchText,
+      })),
+    }),
+    isError: false,
+  };
+}
+
 export function executeDocumentReplaceText(
   input: Record<string, unknown>,
   context: ToolContext,
@@ -260,7 +312,6 @@ export function executeDocumentReplaceText(
     return documentNotFound(surfaceId);
   }
 
-  // Validate regex before calling the store to surface a clean error
   if (regex) {
     try {
       new RegExp(find);
@@ -292,7 +343,6 @@ export function executeDocumentReplaceText(
     };
   }
 
-  // Notify client with the updated content
   if (context.sendToClient && result.content_changed) {
     const doc = getDocumentById(surfaceId);
     if (doc) {
