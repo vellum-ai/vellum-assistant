@@ -240,6 +240,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/avatar-routes.ts", // avatar generate route reads platform_base_url from credential store
       "cli/commands/keys.ts", // CLI provider key management
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification
+      "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription OAuth token storage
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
