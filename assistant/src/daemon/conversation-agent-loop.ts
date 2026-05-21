@@ -741,13 +741,18 @@ export async function runAgentLoopImpl(
     });
   }
 
-  // Falls through to auto-routed profile so mid-turn profile refresh
-  // doesn't revert the routing when the conversation row has no explicit
-  // override set.
+  // Only use the complexity-routed profile as a fallback — not the initial
+  // explicit override. If a mid-turn session expiry clears the conversation
+  // override, the old behavior (return undefined → revert to workspace
+  // defaults) must be preserved for non-routed turns.
+  const complexityRoutedProfile =
+    turnOverrideProfile !== userExplicitOverride
+      ? turnOverrideProfile
+      : undefined;
   const readCurrentOverrideProfile = (): string | undefined =>
     options?.overrideProfile ??
     getConversationOverrideProfileFromRow(getConversation(ctx.conversationId)) ??
-    turnOverrideProfile;
+    complexityRoutedProfile;
 
   const effectiveContextWindow = resolveEffectiveContextWindow({
     llm: config.llm,
