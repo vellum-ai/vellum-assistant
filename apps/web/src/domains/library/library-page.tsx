@@ -32,12 +32,10 @@ export function LibraryPage() {
   if (!assistantId) return null;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)]">
-      <LibraryView
-        assistantId={assistantId}
-        onNewConversation={handleNewConversation}
-        onOpenDocument={handleOpenDocument}
-      />
-    </div>
+    <LibraryView
+      assistantId={assistantId}
+      onNewConversation={handleNewConversation}
+      onOpenDocument={handleOpenDocument}
+    />
   );
 }
