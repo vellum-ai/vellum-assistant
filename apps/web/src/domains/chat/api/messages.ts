@@ -332,6 +332,7 @@ export type PostMessageResult =
     assistantId: string;
     conversationKey: string;
     resolvedConversationId?: string;
+    requestId?: string;
   }
   | { ok: false; status: number; error: { code?: string; detail?: string } };
 
@@ -524,6 +525,7 @@ export async function postChatMessage(
       assistantId,
       conversationKey,
       resolvedConversationId,
+      requestId: typeof sendData.requestId === "string" ? sendData.requestId : undefined,
     };
   }
 
@@ -542,6 +544,30 @@ export async function postChatMessage(
     messageId: sendData.messageId,
     resolvedConversationId,
   };
+}
+
+/**
+ * Steer the assistant to a queued message by aborting the current
+ * generation and promoting the message to the head of the queue.
+ */
+export async function steerToMessage(
+  assistantId: string,
+  conversationKey: string,
+  requestId: string,
+): Promise<boolean> {
+  try {
+    const encoded = encodeURIComponent(requestId);
+    const { response } = await client.post<unknown, unknown>({
+      ...SDK_BASE_OPTIONS,
+      url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}/steer`,
+      path: { assistant_id: assistantId },
+      query: { conversationId: conversationKey },
+      throwOnError: false,
+    });
+    return response?.ok ?? false;
+  } catch {
+    return false;
+  }
 }
 
 /**

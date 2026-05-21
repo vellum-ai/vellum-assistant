@@ -606,6 +606,7 @@ export function ChatPage() {
     queuedMessages,
     handleCancelQueuedMessage,
     handleCancelAllQueued,
+    handleSteerMessage,
     handleEditQueueTail,
   } = useSendMessage({
     assistantId,
@@ -1242,6 +1243,7 @@ export function ChatPage() {
       queuedMessages,
       handleCancelQueuedMessage,
       handleCancelAllQueued,
+      handleSteerMessage,
       handleEditQueueTail,
     },
     interactionActions: {

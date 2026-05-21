@@ -19,7 +19,7 @@ import {
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
-import { deleteQueuedMessage } from "@/domains/chat/api/messages.js";
+import { deleteQueuedMessage, steerToMessage } from "@/domains/chat/api/messages.js";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -103,6 +103,25 @@ export function useMessageQueue({
     }
   }, [queuedMessages, handleCancelQueuedMessage]);
 
+  const handleSteerMessage = useCallback(
+    (stableId: string) => {
+      if (!assistantId || !activeConversationKey) {
+        return;
+      }
+      let targetRequestId: string | undefined;
+      for (const [reqId, sId] of requestIdToStableIdRef.current.entries()) {
+        if (sId === stableId) {
+          targetRequestId = reqId;
+          break;
+        }
+      }
+      if (targetRequestId) {
+        void steerToMessage(assistantId, activeConversationKey, targetRequestId);
+      }
+    },
+    [assistantId, activeConversationKey],
+  );
+
   const handleEditQueueTail = useCallback(() => {
     if (queuedMessages.length === 0) {
       return;
@@ -120,6 +139,7 @@ export function useMessageQueue({
     queuedMessages,
     handleCancelQueuedMessage,
     handleCancelAllQueued,
+    handleSteerMessage,
     handleEditQueueTail,
   };
 }

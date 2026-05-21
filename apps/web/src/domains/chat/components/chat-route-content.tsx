@@ -66,6 +66,7 @@ import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constant
 import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting.js";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
 
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { useDeployStore } from "@/domains/chat/deploy-store.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
@@ -167,6 +168,7 @@ export interface SendMessageHandlers {
   queuedMessages: DisplayMessage[];
   handleCancelQueuedMessage: (stableId: string) => void;
   handleCancelAllQueued: () => void;
+  handleSteerMessage: (stableId: string) => void;
   handleEditQueueTail: () => void;
 }
 
@@ -470,6 +472,7 @@ export function ChatRouteContent({
     queuedMessages,
     handleCancelQueuedMessage,
     handleCancelAllQueued,
+    handleSteerMessage,
     handleEditQueueTail,
   } = send;
   const {
@@ -522,6 +525,12 @@ export function ChatRouteContent({
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
+
+  // -------------------------------------------------------------------------
+  // Feature flags
+  // -------------------------------------------------------------------------
+
+  const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
 
   // -------------------------------------------------------------------------
   // Interaction state (from Zustand store)
@@ -1238,6 +1247,8 @@ export function ChatRouteContent({
       queuedMessages={queuedMessages}
       onCancelMessage={handleCancelQueuedMessage}
       onCancelAll={handleCancelAllQueued}
+      onSteer={handleSteerMessage}
+      showSteer={queueSteering}
       onEditTail={handleEditQueueTail}
     />
   );
