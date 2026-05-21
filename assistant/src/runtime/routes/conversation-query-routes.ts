@@ -67,6 +67,7 @@ import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { getDb } from "../../memory/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
+import type { LogRow } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
@@ -884,7 +885,7 @@ async function handleGetConversationLlmContext({
   const conversationKey = queryParams.conversationKey;
   const requestedConversationId = queryParams.conversationId;
 
-  let conversationId = requestedConversationId;
+  let conversationId: string | undefined = requestedConversationId;
   if (!conversationId && conversationKey) {
     const mapping = getConversationByKey(conversationKey);
     conversationId = mapping?.conversationId;
@@ -1220,27 +1221,15 @@ export const ROUTES: RouteDefinition[] = [
         description: "Internal conversation identifier.",
       },
     ],
-    responseSchema: {
-      type: "object",
-      properties: {
-        conversationKey: { type: ["string", "null"] },
-        conversationId: { type: ["string", "null"] },
-        conversationKind: { type: "string" },
-        conversationTotalEstimatedCostUsd: { type: ["number", "null"] },
-        logs: { type: "array", items: { type: "object" } },
-        memoryRecall: { type: ["object", "null"] },
-        memoryV2Activation: { type: ["object", "null"] },
-      },
-      required: [
-        "conversationId",
-        "conversationKind",
-        "conversationTotalEstimatedCostUsd",
-        "logs",
-        "memoryRecall",
-        "memoryV2Activation",
-      ],
-      additionalProperties: true,
-    },
+    responseBody: z.object({
+      conversationKey: z.string().nullable().optional(),
+      conversationId: z.string().nullable(),
+      conversationKind: z.enum(CONVERSATION_KINDS),
+      conversationTotalEstimatedCostUsd: z.number().nullable(),
+      logs: z.array(z.unknown()),
+      memoryRecall: z.object({}).passthrough().nullable(),
+      memoryV2Activation: z.object({}).passthrough().nullable(),
+    }),
     handler: handleGetConversationLlmContext,
   },
   {

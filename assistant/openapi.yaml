@@ -5432,6 +5432,76 @@ paths:
           schema:
             type: string
           description: Optional conversation ID filter
+  /v1/conversations/llm-context:
+    get:
+      operationId: conversations_llmcontext_get
+      summary: Get LLM context for a conversation
+      description: Returns normalized LLM request/response logs for an entire conversation.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationKey:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  conversationId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  conversationKind:
+                    type: string
+                    enum:
+                      - user
+                      - background
+                      - background_memory_consolidation
+                      - scheduled
+                  conversationTotalEstimatedCostUsd:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  logs:
+                    type: array
+                    items: {}
+                  memoryRecall:
+                    anyOf:
+                      - type: object
+                        properties: {}
+                        additionalProperties: {}
+                      - type: "null"
+                  memoryV2Activation:
+                    anyOf:
+                      - type: object
+                        properties: {}
+                        additionalProperties: {}
+                      - type: "null"
+                required:
+                  - conversationId
+                  - conversationKind
+                  - conversationTotalEstimatedCostUsd
+                  - logs
+                  - memoryRecall
+                  - memoryV2Activation
+                additionalProperties: false
+      parameters:
+        - name: conversationKey
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Stable external conversation key.
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Internal conversation identifier.
   /v1/conversations/rename:
     post:
       operationId: conversations_rename_post
