@@ -36,6 +36,7 @@ describe("MemoryV2ConfigSchema", () => {
         enabled: true,
         max_page_ids: 25,
         router_prompt_path: null,
+        batch_size: null,
       },
     });
   });

@@ -1,12 +1,9 @@
-import {
-  type RenderedHistoryContent,
-  renderHistoryContent,
-} from "../daemon/handlers/shared.js";
+import type { RenderedHistoryContent } from "../daemon/handlers/shared.js";
+import { renderHistoryContent } from "../daemon/handlers/shared.js";
 import { getAttachmentMetadataForMessage } from "../memory/attachments-store.js";
 import {
   getMessageById,
   getMessages,
-  getMessagesAfter,
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
@@ -185,6 +182,8 @@ export async function deliverRenderedReplyViaCallback(
 }
 
 export type DeliverReplyOptions = {
+  /** Persisted assistant message row to deliver; defaults to latest assistant. */
+  messageId?: string;
   /**
    * Internal conversation message id for the user row that started this
    * delivery. When set, fallback scans never cross into older turns.
@@ -202,6 +201,125 @@ export type DeliverReplyOptions = {
   onMessageTs?: (ts: string) => void;
 };
 
+type PersistedMessage = ReturnType<typeof getMessages>[number];
+
+function readPersistedAssistantReply(msg: PersistedMessage): {
+  rendered: RenderedHistoryContent;
+  replyAttachments: RuntimeAttachmentMetadata[];
+} {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(msg.content);
+  } catch {
+    parsed = msg.content;
+  }
+  const rendered = renderHistoryContent(parsed);
+
+  const linked = getAttachmentMetadataForMessage(msg.id);
+  const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({
+    id: a.id,
+    filename: a.originalFilename,
+    mimeType: a.mimeType,
+    sizeBytes: a.sizeBytes,
+    kind: a.kind,
+  }));
+
+  return { rendered, replyAttachments };
+}
+
+function isToolResultUserMessage(msg: PersistedMessage): boolean {
+  if (msg.role !== "user") return false;
+  try {
+    const parsed = JSON.parse(msg.content) as unknown;
+    return (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every(
+        (block) =>
+          block !== null &&
+          typeof block === "object" &&
+          (block as Record<string, unknown>).type === "tool_result",
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function findAssistantReplyMessageIdForTurn(
+  conversationId: string,
+  userMessageId: string,
+): string | undefined {
+  const msgs = getMessages(conversationId);
+  const userIndex = msgs.findIndex((msg) => msg.id === userMessageId);
+  if (userIndex === -1) return undefined;
+
+  let turnEndIndex = msgs.length;
+  for (let i = userIndex + 1; i < msgs.length; i++) {
+    const msg = msgs[i];
+    if (msg.role === "user" && !isToolResultUserMessage(msg)) {
+      turnEndIndex = i;
+      break;
+    }
+  }
+
+  for (let i = turnEndIndex - 1; i > userIndex; i--) {
+    const msg = msgs[i];
+    if (msg.role === "assistant") {
+      const { rendered, replyAttachments } = readPersistedAssistantReply(msg);
+      if (hasDeliverableReply(rendered, replyAttachments)) {
+        return msg.id;
+      }
+    }
+  }
+  return undefined;
+}
+
+async function deliverPersistedAssistantMessageViaCallback(
+  msg: PersistedMessage,
+  externalChatId: string,
+  callbackUrl: string,
+  assistantId: string | undefined,
+  options: DeliverReplyOptions | undefined,
+): Promise<boolean> {
+  const { rendered, replyAttachments } = readPersistedAssistantReply(msg);
+  if (!hasDeliverableReply(rendered, replyAttachments)) {
+    return false;
+  }
+
+  // Compose an `onMessageTs` that reconciles `slackMeta.channelTs` on the
+  // persisted assistant row once Slack returns the authoritative ts. The
+  // assistant row was written BEFORE the gateway POST in
+  // `handleMessageComplete`, so the partial `slackMeta` it carries is
+  // missing `channelTs` and would otherwise be rejected by
+  // `readSlackMetadata`, dropping the row out of chronological/thread-tag
+  // rendering. We only act on the FIRST ts (top-level segment); any
+  // subsequent split segments become independent Slack messages with
+  // their own ts and are not represented as separate DB rows.
+  const reconcileOnMessageTs = makeChannelTsReconciler(msg.id);
+  const callerOnMessageTs = options?.onMessageTs;
+  const composedOnMessageTs = (ts: string): void => {
+    reconcileOnMessageTs(ts);
+    callerOnMessageTs?.(ts);
+  };
+
+  await deliverRenderedReplyViaCallback({
+    callbackUrl,
+    chatId: externalChatId,
+    textSegments: rendered.textSegments,
+    fallbackText: rendered.text,
+    attachments: replyAttachments,
+    assistantId,
+    startFromSegment: options?.startFromSegment,
+    onSegmentDelivered: options?.onSegmentDelivered,
+    ephemeral: options?.ephemeral,
+    user: options?.user,
+    messageTs: options?.messageTs,
+    onMessageTs: composedOnMessageTs,
+  });
+  return true;
+}
+
 export async function deliverReplyViaCallback(
   conversationId: string,
   externalChatId: string,
@@ -209,66 +327,54 @@ export async function deliverReplyViaCallback(
   assistantId?: string,
   options?: DeliverReplyOptions,
 ): Promise<void> {
-  const msgs =
-    options?.sinceMessageId === undefined
-      ? getMessages(conversationId)
-      : getMessagesAfter(conversationId, options.sinceMessageId);
+  if (options?.messageId) {
+    const msg = getMessageById(options.messageId, conversationId);
+    if (!msg || msg.role !== "assistant") {
+      throw new Error(
+        `Target assistant reply message not found: ${options.messageId}`,
+      );
+    }
+    await deliverPersistedAssistantMessageViaCallback(
+      msg,
+      externalChatId,
+      callbackUrl,
+      assistantId,
+      options,
+    );
+    return;
+  }
 
+  if (options?.sinceMessageId) {
+    const replyMessageId = findAssistantReplyMessageIdForTurn(
+      conversationId,
+      options.sinceMessageId,
+    );
+    if (replyMessageId) {
+      const msg = getMessageById(replyMessageId, conversationId);
+      if (msg && msg.role === "assistant") {
+        await deliverPersistedAssistantMessageViaCallback(
+          msg,
+          externalChatId,
+          callbackUrl,
+          assistantId,
+          options,
+        );
+      }
+    }
+    return;
+  }
+
+  const msgs = getMessages(conversationId);
   for (let i = msgs.length - 1; i >= 0; i--) {
     if (msgs[i].role !== "assistant") continue;
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(msgs[i].content);
-    } catch {
-      parsed = msgs[i].content;
-    }
-    const rendered = renderHistoryContent(parsed);
-
-    const linked = getAttachmentMetadataForMessage(msgs[i].id);
-    const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({
-      id: a.id,
-      filename: a.originalFilename,
-      mimeType: a.mimeType,
-      sizeBytes: a.sizeBytes,
-      kind: a.kind,
-    }));
-
-    if (!hasDeliverableReply(rendered, replyAttachments)) {
-      continue;
-    }
-
-    // Compose an `onMessageTs` that reconciles `slackMeta.channelTs` on the
-    // persisted assistant row once Slack returns the authoritative ts. The
-    // assistant row was written BEFORE the gateway POST in
-    // `handleMessageComplete`, so the partial `slackMeta` it carries is
-    // missing `channelTs` and would otherwise be rejected by
-    // `readSlackMetadata`, dropping the row out of chronological/thread-tag
-    // rendering. We only act on the FIRST ts (top-level segment); any
-    // subsequent split segments become independent Slack messages with
-    // their own ts and are not represented as separate DB rows.
-    const reconcileOnMessageTs = makeChannelTsReconciler(msgs[i].id);
-    const callerOnMessageTs = options?.onMessageTs;
-    const composedOnMessageTs = (ts: string): void => {
-      reconcileOnMessageTs(ts);
-      callerOnMessageTs?.(ts);
-    };
-
-    await deliverRenderedReplyViaCallback({
+    const delivered = await deliverPersistedAssistantMessageViaCallback(
+      msgs[i],
+      externalChatId,
       callbackUrl,
-      chatId: externalChatId,
-      textSegments: rendered.textSegments,
-      fallbackText: rendered.text,
-      attachments: replyAttachments,
       assistantId,
-      startFromSegment: options?.startFromSegment,
-      onSegmentDelivered: options?.onSegmentDelivered,
-      ephemeral: options?.ephemeral,
-      user: options?.user,
-      messageTs: options?.messageTs,
-      onMessageTs: composedOnMessageTs,
-    });
-    break;
+      options,
+    );
+    if (delivered) break;
   }
 }
 

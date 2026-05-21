@@ -84,6 +84,95 @@ describe("task_progress surface compatibility", () => {
     expect(sent).toHaveLength(0);
   });
 
+  test("allows Slack ui_show for task_progress card when dynamic UI is otherwise disabled", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent, {
+      channel: "slack",
+      supportsDynamicUi: false,
+    });
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Working",
+      template: "task_progress",
+      templateData: {
+        status: "in_progress",
+        steps: [{ label: "Start", status: "in_progress" }],
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    );
+    expect(showMessage).toBeDefined();
+    if (!showMessage || showMessage.surfaceType !== "card") return;
+    expect((showMessage.data as CardSurfaceData).template).toBe(
+      "task_progress",
+    );
+  });
+
+  test("blocks Slack ui_show for non-task_progress card when dynamic UI is disabled", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent, {
+      channel: "slack",
+      supportsDynamicUi: false,
+    });
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Blocked",
+      data: { title: "Blocked", body: "not progress" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'ui_show is unavailable on channel "slack"',
+    );
+    expect(sent).toHaveLength(0);
+  });
+
+  test("blocks Slack ui_show when normalized card data is not task_progress", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent, {
+      channel: "slack",
+      supportsDynamicUi: false,
+    });
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Blocked",
+      template: "task_progress",
+      data: { title: "Blocked", body: "not progress", template: "plain" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'ui_show is unavailable on channel "slack"',
+    );
+    expect(sent).toHaveLength(0);
+  });
+
+  test("blocks Slack ui_show for non-card task_progress input when dynamic UI is disabled", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent, {
+      channel: "slack",
+      supportsDynamicUi: false,
+    });
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "dynamic_page",
+      title: "Blocked",
+      data: { template: "task_progress", html: "<p>Blocked</p>" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'ui_show is unavailable on channel "slack"',
+    );
+    expect(sent).toHaveLength(0);
+  });
+
   test("ui_show maps legacy top-level task_progress fields into card data", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext(sent);
@@ -247,6 +336,137 @@ describe("task_progress surface compatibility", () => {
     const templateData = updatedCard.templateData as Record<string, unknown>;
     expect(templateData.status).toBe("completed");
     expect(Array.isArray(templateData.steps)).toBe(true);
+  });
+
+  test("allows Slack ui_update for stored task_progress card when dynamic UI is disabled", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent, {
+      channel: "slack",
+      supportsDynamicUi: false,
+    });
+    ctx.surfaceState.set("surface-1", {
+      surfaceType: "card",
+      data: {
+        title: "Working",
+        body: "",
+        template: "task_progress",
+        templateData: { status: "in_progress", steps: [] },
+      } satisfies CardSurfaceData,
+    });
+
+    const result = await surfaceProxyResolver(ctx, "ui_update", {
+      surface_id: "surface-1",
+      data: { status: "completed" },
+    });
+
+    expect(result.isError).toBe(false);
+    const updateMessage = sent.find(
+      (msg): msg is UiSurfaceUpdate => msg.type === "ui_surface_update",
+    );
+    expect(updateMessage).toBeDefined();
+    if (!updateMessage) return;
+    const templateData = (updateMessage.data as CardSurfaceData)
+      .templateData as Record<string, unknown>;
+    expect(templateData.status).toBe("completed");
+  });
+
+  test("blocks Slack ui_update when stored surface is not a task_progress card", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent, {
+      channel: "slack",
+      supportsDynamicUi: false,
+    });
+    ctx.surfaceState.set("surface-1", {
+      surfaceType: "card",
+      data: { title: "Plain", body: "No progress" } satisfies CardSurfaceData,
+    });
+
+    const result = await surfaceProxyResolver(ctx, "ui_update", {
+      surface_id: "surface-1",
+      data: { body: "still blocked" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'ui_update is unavailable on channel "slack"',
+    );
+    expect(sent).toHaveLength(0);
+  });
+
+  test("blocks Slack ui_update that would convert a plain card to task_progress", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent, {
+      channel: "slack",
+      supportsDynamicUi: false,
+    });
+    ctx.surfaceState.set("surface-1", {
+      surfaceType: "card",
+      data: { title: "Plain", body: "No progress" } satisfies CardSurfaceData,
+    });
+
+    const result = await surfaceProxyResolver(ctx, "ui_update", {
+      surface_id: "surface-1",
+      data: {
+        template: "task_progress",
+        templateData: { status: "in_progress", steps: [] },
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'ui_update is unavailable on channel "slack"',
+    );
+    expect(sent).toHaveLength(0);
+  });
+
+  test("blocks Slack ui_update that would change task_progress card template", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent, {
+      channel: "slack",
+      supportsDynamicUi: false,
+    });
+    ctx.surfaceState.set("surface-1", {
+      surfaceType: "card",
+      data: {
+        title: "Working",
+        body: "",
+        template: "task_progress",
+        templateData: { status: "in_progress", steps: [] },
+      } satisfies CardSurfaceData,
+    });
+
+    const result = await surfaceProxyResolver(ctx, "ui_update", {
+      surface_id: "surface-1",
+      data: { template: "plain", body: "now a plain card" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'ui_update is unavailable on channel "slack"',
+    );
+    expect(sent).toHaveLength(0);
+    expect(
+      (ctx.surfaceState.get("surface-1")?.data as CardSurfaceData).template,
+    ).toBe("task_progress");
+  });
+
+  test("blocks Slack ui_update when the surface is not already stored", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent, {
+      channel: "slack",
+      supportsDynamicUi: false,
+    });
+
+    const result = await surfaceProxyResolver(ctx, "ui_update", {
+      surface_id: "missing-surface",
+      data: { status: "completed" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'ui_update is unavailable on channel "slack"',
+    );
+    expect(sent).toHaveLength(0);
   });
 
   test("ui_show rejects new interactive surface when a non-dynamic_page pending surface exists", async () => {

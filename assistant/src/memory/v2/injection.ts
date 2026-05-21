@@ -43,6 +43,7 @@ import {
   isCliCommandSlug,
 } from "./cli-command-store.js";
 import { getEdgeIndex } from "./edge-index.js";
+import { recordInjectionEvents } from "./injection-events.js";
 import { readPage, renderPageContent } from "./page-store.js";
 import { runRouter } from "./router.js";
 import { getSkillCapability, isSkillSlug } from "./skill-store.js";
@@ -554,6 +555,15 @@ async function injectViaRouter(args: {
     config,
     ...(signal ? { signal } : {}),
   });
+
+  // Record router selections to the EMA event log. The router decided these
+  // slugs are relevant THIS turn (regardless of whether they're newly
+  // rendered or re-picked from prior context). The helper swallows its own
+  // errors — a SQLite write must not abort the turn on top of a successful
+  // routing decision the rest of this function depends on.
+  if (routerResult.failureReason === null) {
+    recordInjectionEvents(database, routerResult.selectedSlugs, Date.now());
+  }
 
   if (routerResult.failureReason !== null) {
     log.warn(

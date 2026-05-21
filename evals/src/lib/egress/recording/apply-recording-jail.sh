@@ -28,7 +28,8 @@ if [ -z "$ALLOW_HOSTS" ]; then
   exit 64
 fi
 
-# ---- filter table: outbound allowlist (same shape as docker-egress-jail.sh)
+# ---- filter table: outbound allowlist (block-by-default; only the
+# resolved ALLOW_HOSTS IPs may egress)
 iptables -F OUTPUT
 iptables -P OUTPUT DROP
 iptables -A OUTPUT -o lo -j ACCEPT

@@ -22,6 +22,7 @@ import * as Sentry from "@sentry/react";
 import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, startTransition, useCallback, useEffect, useMemo, useRef } from "react";
 
 import { ChatBody } from "@/domains/chat/components/chat-body.js";
+import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer.js";
 import { ConversationStarterGrid } from "@/domains/chat/components/conversation-starter-grid.js";
 import { ComposerNotices } from "@/domains/chat/components/composer-notices.js";
 import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-prompt-card.js";
@@ -1343,6 +1344,14 @@ export function ChatRouteContent({
     </div>
   ) : null;
 
+  const channelFooterSlot = (
+    <SlackChannelFooter
+      assistantId={assistantId ?? undefined}
+      conversation={activeConversation}
+      messages={messages}
+    />
+  );
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -1376,6 +1385,7 @@ export function ChatRouteContent({
             isChannelReadonly={isChannelReadonly}
             canStopGenerating={canStopGenerating}
             questionPromptSlot={questionPromptSlot}
+            channelFooterSlot={channelFooterSlot}
             startersSlot={startersSlot}
           />
         }
@@ -1449,6 +1459,7 @@ export function ChatRouteContent({
       bannerSlot={mainBannerSlot}
       queuedDrawerSlot={mainQueuedDrawerSlot}
       questionPromptSlot={questionPromptSlot}
+      channelFooterSlot={channelFooterSlot}
       startersSlot={startersSlot}
     />
   );

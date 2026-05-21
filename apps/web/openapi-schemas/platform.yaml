@@ -1147,6 +1147,195 @@ paths:
           description: No response body
       x-vellum-api-clients:
       - platform
+  /v1/assistants/{assistant_id}/release-channel/:
+    get:
+      operationId: assistants_release_channel_retrieve
+      description: Read release-channel state and preview safety backups for an assistant.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleaseChannelStatus'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/release-channel/preview/opt-in/:
+    post:
+      operationId: assistants_release_channel_preview_opt_in_create
+      description: Switch a stable-channel assistant to the preview release channel.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewChannelOptInResult'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '504':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/release-channel/preview/opt-out/:
+    post:
+      operationId: assistants_release_channel_preview_opt_out_create
+      description: Switch a preview-channel assistant back to the stable release channel.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreviewChannelOptOutRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PreviewChannelOptOutRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PreviewChannelOptOutRequestRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewChannelOptOutResult'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/{assistant_id}/system-events/:
     get:
       operationId: assistants_system_events_list
@@ -5373,6 +5562,14 @@ components:
       required:
       - debug_pod_name
       - enabled
+    ModeEnum:
+      enum:
+      - restore_backup
+      - standard_upgrade
+      type: string
+      description: |-
+        * `restore_backup` - restore_backup
+        * `standard_upgrade` - standard_upgrade
     MyReferralCodeResponse:
       type: object
       properties:
@@ -6057,6 +6254,79 @@ components:
       - ios
       type: string
       description: '* `ios` - ios'
+    PreviewChannelOptInResult:
+      type: object
+      properties:
+        detail:
+          type: string
+        release_channel:
+          type: string
+        version:
+          type: string
+        backup:
+          $ref: '#/components/schemas/PreviewSafetyBackup'
+      required:
+      - backup
+      - detail
+      - release_channel
+      - version
+    PreviewChannelOptOutRequestRequest:
+      type: object
+      properties:
+        mode:
+          $ref: '#/components/schemas/ModeEnum'
+        snapshot_name:
+          type: string
+          minLength: 1
+      required:
+      - mode
+    PreviewChannelOptOutResult:
+      type: object
+      properties:
+        detail:
+          type: string
+        release_channel:
+          type: string
+        version:
+          type: string
+          nullable: true
+        backup:
+          $ref: '#/components/schemas/PreviewSafetyBackup'
+        restore:
+          type: object
+          additionalProperties: {}
+      required:
+      - detail
+      - release_channel
+      - version
+    PreviewSafetyBackup:
+      type: object
+      properties:
+        snapshot_name:
+          type: string
+        pvc:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        ready_to_use:
+          type: boolean
+        backup_type:
+          type: string
+        source_release_channel:
+          type: string
+          nullable: true
+        source_release_version:
+          type: string
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - backup_type
+      - ready_to_use
+      - snapshot_name
     ProMachineResizeRequestRequest:
       type: object
       properties:
@@ -6128,6 +6398,51 @@ components:
       description: |-
         * `stable` - Stable
         * `preview` - Preview
+    ReleaseChannelRelease:
+      type: object
+      properties:
+        version:
+          type: string
+        released_at:
+          type: string
+          format: date-time
+      required:
+      - released_at
+      - version
+    ReleaseChannelStatus:
+      type: object
+      properties:
+        feature_enabled:
+          type: boolean
+        current_channel:
+          type: string
+        latest_stable_release:
+          allOf:
+          - $ref: '#/components/schemas/ReleaseChannelRelease'
+          nullable: true
+        latest_preview_release:
+          allOf:
+          - $ref: '#/components/schemas/ReleaseChannelRelease'
+          nullable: true
+        preview_backups:
+          type: array
+          items:
+            $ref: '#/components/schemas/PreviewSafetyBackup'
+        preview_backup_count:
+          type: integer
+        preview_backup_limit:
+          type: integer
+        preview_backup_limit_reached:
+          type: boolean
+      required:
+      - current_channel
+      - feature_enabled
+      - latest_preview_release
+      - latest_stable_release
+      - preview_backup_count
+      - preview_backup_limit
+      - preview_backup_limit_reached
+      - preview_backups
     ReleaseListItem:
       type: object
       properties:

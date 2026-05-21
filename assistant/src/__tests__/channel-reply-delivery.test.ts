@@ -133,6 +133,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 mock.module("../memory/attachments-store.js", () => ({
   getAttachmentMetadataForMessage: (messageId: string) =>
     attachmentsByMessageId.get(messageId) ?? [],
+  getFilePathForAttachment: () => null,
 }));
 
 mock.module("../daemon/handlers/shared.js", () => ({
@@ -140,8 +141,11 @@ mock.module("../daemon/handlers/shared.js", () => ({
     renderedHistoryContentQueue.shift() ?? renderedHistoryContent,
 }));
 
-const { deliverRenderedReplyViaCallback, deliverReplyViaCallback } =
-  await import("../runtime/channel-reply-delivery.js");
+const {
+  deliverRenderedReplyViaCallback,
+  deliverReplyViaCallback,
+  findAssistantReplyMessageIdForTurn,
+} = await import("../runtime/channel-reply-delivery.js");
 
 describe("channel-reply-delivery", () => {
   beforeEach(() => {
@@ -161,6 +165,49 @@ describe("channel-reply-delivery", () => {
       surfaces: [],
       thinkingSegments: [],
     };
+  });
+
+  it("finds the assistant reply in the linked user turn", () => {
+    conversationMessages.push(
+      {
+        id: "user-target",
+        role: "user",
+        content: "target",
+      },
+      {
+        id: "assistant-tool-call",
+        role: "assistant",
+        content: "tool call",
+      },
+      {
+        id: "assistant-target",
+        role: "assistant",
+        content: "final reply",
+      },
+      {
+        id: "user-newer",
+        role: "user",
+        content: "newer",
+      },
+      {
+        id: "assistant-newer",
+        role: "assistant",
+        content: "newer reply",
+      },
+    );
+    renderedHistoryContentQueue.push({
+      text: "Final reply.",
+      textSegments: ["Final reply."],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    });
+
+    expect(findAssistantReplyMessageIdForTurn("conv-1", "user-target")).toBe(
+      "assistant-target",
+    );
   });
 
   it("sends non-empty text segments as separate messages and puts attachments on the last segment", async () => {
@@ -321,6 +368,15 @@ describe("channel-reply-delivery", () => {
         surfaces: [],
         thinkingSegments: [],
       },
+      {
+        text: "Current answer.",
+        textSegments: ["Current answer."],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0"],
+        surfaces: [],
+        thinkingSegments: [],
+      },
     );
 
     await deliverReplyViaCallback(
@@ -386,6 +442,15 @@ describe("channel-reply-delivery", () => {
         content: '[{"type":"text","text":"<no_response/>"}]',
       },
     );
+    renderedHistoryContentQueue.push({
+      text: "<no_response/>",
+      textSegments: ["<no_response/>"],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    });
     renderedHistoryContentQueue.push({
       text: "<no_response/>",
       textSegments: ["<no_response/>"],
@@ -629,6 +694,74 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls[0].payload.text).toBe("Beta.");
     expect(deliveryCalls[1].payload.text).toBe("Gamma.");
     expect(delivered).toEqual([2, 3]);
+  });
+
+  it("targets an explicit assistant message instead of the latest reply", async () => {
+    conversationMessages.push(
+      { id: "msg-u", role: "user", content: "hi" },
+      { id: "msg-old", role: "assistant", content: '"old reply"' },
+      { id: "msg-new", role: "assistant", content: '"new reply"' },
+    );
+    attachmentsByMessageId.set("msg-old", [
+      {
+        id: "att-old",
+        originalFilename: "old.txt",
+        mimeType: "text/plain",
+        sizeBytes: 11,
+        kind: "uploaded",
+      },
+    ]);
+    attachmentsByMessageId.set("msg-new", [
+      {
+        id: "att-new",
+        originalFilename: "new.txt",
+        mimeType: "text/plain",
+        sizeBytes: 22,
+        kind: "uploaded",
+      },
+    ]);
+    renderedHistoryContent = {
+      text: "Reply.",
+      textSegments: ["Reply."],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    };
+
+    await deliverReplyViaCallback(
+      "conv-target",
+      "chat-target",
+      "http://gateway/deliver/telegram",
+      "assistant-3",
+      { messageId: "msg-old" },
+    );
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.attachments).toEqual([
+      {
+        id: "att-old",
+        filename: "old.txt",
+        mimeType: "text/plain",
+        sizeBytes: 11,
+        kind: "uploaded",
+      },
+    ]);
+  });
+
+  it("rejects an explicit target that is not an assistant message", async () => {
+    conversationMessages.push({ id: "msg-u", role: "user", content: "hi" });
+
+    await expect(
+      deliverReplyViaCallback(
+        "conv-target",
+        "chat-target",
+        "http://gateway/deliver/telegram",
+        "assistant-3",
+        { messageId: "msg-u" },
+      ),
+    ).rejects.toThrow("Target assistant reply message not found");
   });
 
   // ── slackMeta.channelTs reconciliation (post-send) ─────────────────────

@@ -90,6 +90,7 @@ export interface ViewerActions {
   openDocument: () => void;
   loadDocument: (assistantId: string, documentSurfaceId: string) => Promise<void>;
   setLoadedDocument: (document: OpenedDocumentState) => void;
+  updateDocumentContent: (surfaceId: string, content: string, mode: string) => void;
   handleDocumentLoadFailed: () => void;
   closeDocument: () => void;
 
@@ -289,6 +290,14 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   setLoadedDocument: (document) => {
     set({ openedDocumentState: document });
+  },
+
+  updateDocumentContent: (surfaceId, content, mode) => {
+    const state = get();
+    if (!state.openedDocumentState || state.openedDocumentState.surfaceId !== surfaceId) return;
+    const prev = state.openedDocumentState;
+    const newContent = mode === "append" ? prev.content + content : content;
+    set({ openedDocumentState: { ...prev, content: newContent } });
   },
 
   handleDocumentLoadFailed: () => {

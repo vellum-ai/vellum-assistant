@@ -34,8 +34,11 @@ import {
 import {
   acknowledgeDelivery,
   getDeadLetterEvents,
+  getRetryableDeliveryEvents,
   getRetryableEvents,
+  markDeliveryDelivered,
   markProcessed,
+  recordDeliveryFailure,
   recordProcessingFailure,
   replayDeadLetters,
 } from "../memory/delivery-status.js";
@@ -610,9 +613,95 @@ describe("channel-delivery-store", () => {
     expect(row!.deliveryStatus).toBe("delivered");
   });
 
+  test("acknowledgeDelivery accepts late acks after retryable delivery failure", () => {
+    const result = recordInbound("telegram", "chat-1", "msg-1");
+    markProcessed(result.eventId);
+    recordDeliveryFailure(result.eventId, new Error("fetch failed"));
+
+    const ack = acknowledgeDelivery("telegram", "chat-1", "msg-1");
+    expect(ack).toBe(true);
+
+    const db = getDb();
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .get();
+    expect(row!.deliveryStatus).toBe("delivered");
+    expect(row!.retryAfter).toBeNull();
+  });
+
   test("acknowledgeDelivery returns false for unknown event", () => {
     const ack = acknowledgeDelivery("telegram", "chat-1", "nonexistent");
     expect(ack).toBe(false);
+  });
+
+  test("delivery failures are retryable without changing processing status", () => {
+    const result = recordInbound("telegram", "chat-1", "msg-1");
+    markProcessed(result.eventId);
+
+    recordDeliveryFailure(result.eventId, new Error("fetch failed"));
+
+    const db = getDb();
+    let row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .get();
+    expect(row!.processingStatus).toBe("processed");
+    expect(row!.deliveryStatus).toBe("failed");
+    expect(row!.processingAttempts).toBe(0);
+    expect(row!.deliveryAttempts).toBe(1);
+    expect(row!.lastProcessingError).toBe("fetch failed");
+    expect(row!.retryAfter).toBeGreaterThan(0);
+
+    db.update(channelInboundEvents)
+      .set({ retryAfter: Date.now() - 10_000, deliveredSegmentCount: 2 })
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .run();
+
+    const retryable = getRetryableDeliveryEvents();
+    expect(retryable).toHaveLength(1);
+    expect(retryable[0].id).toBe(result.eventId);
+    expect(retryable[0].deliveredSegmentCount).toBe(2);
+
+    markDeliveryDelivered(result.eventId);
+
+    row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .get();
+    expect(row!.processingStatus).toBe("processed");
+    expect(row!.deliveryStatus).toBe("delivered");
+    expect(row!.retryAfter).toBeNull();
+    expect(getRetryableDeliveryEvents()).toHaveLength(0);
+  });
+
+  test("delivery dead letters are listed and replayed as delivery retries", () => {
+    const result = recordInbound("telegram", "chat-1", "msg-1");
+    markProcessed(result.eventId);
+
+    recordDeliveryFailure(result.eventId, { status: 400, message: "bad" });
+
+    const deadLetters = getDeadLetterEvents();
+    expect(deadLetters).toHaveLength(1);
+    expect(deadLetters[0].id).toBe(result.eventId);
+
+    const count = replayDeadLetters([result.eventId]);
+    expect(count).toBe(1);
+
+    const db = getDb();
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, result.eventId))
+      .get();
+    expect(row!.processingStatus).toBe("processed");
+    expect(row!.deliveryStatus).toBe("failed");
+    expect(row!.deliveryAttempts).toBe(0);
+    expect(row!.lastProcessingError).toBeNull();
+    expect(row!.retryAfter).toBeGreaterThan(0);
   });
 
   // ── Processing status transitions ─────────────────────────────────
