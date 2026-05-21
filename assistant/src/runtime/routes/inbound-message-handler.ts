@@ -1452,9 +1452,9 @@ function readStoredSlackThreadState(
  *
  * Shared insertion point for any path that hydrates Slack history lazily
  * (DM cold-start backfill, thread gap/delta backfill, etc.). Backfilled Slack
- * rows are always persisted as `user` history: `assistant` rows are reserved
- * for messages produced by the local assistant loop, not third-party channel
- * replay.
+ * rows normally persist as `user` history, but bot-authored rows are replayed
+ * as assistant history so prior assistant messages do not enter model context
+ * wrapped as external user content.
  * Caller is responsible for dedup checks before invoking; this helper
  * performs no idempotency check itself.
  */
@@ -1492,7 +1492,7 @@ async function persistBackfilledSlackMessage(params: {
     message,
     params.guardianExternalUserId,
   );
-  const role = "user";
+  const role = isBackfilledSlackBotMessage(message) ? "assistant" : "user";
 
   const rawText = message.text ?? "";
 
@@ -1622,6 +1622,10 @@ function isBackfilledSlackGuardianMessage(
     canonicalizeInboundIdentity("slack", guardianExternalUserId) ??
     guardianExternalUserId.trim();
   return canonicalSender === canonicalGuardian;
+}
+
+function isBackfilledSlackBotMessage(message: ProviderMessage): boolean {
+  return message.metadata?.isBot === true;
 }
 
 /**

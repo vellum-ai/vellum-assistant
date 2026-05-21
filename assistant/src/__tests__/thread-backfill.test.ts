@@ -978,7 +978,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(contextImage).toBeDefined();
   });
 
-  test("backfilled bot Slack image files are persisted as user image history", async () => {
+  test("backfilled bot Slack image files are persisted as assistant image history", async () => {
     const conv = createTestConversation();
 
     seedSlackRow(conv.id, "1234.0", undefined, "parent already here");
@@ -1020,7 +1020,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       row.content.includes("bot posted a diagram"),
     );
     expect(botRow).toBeDefined();
-    expect(botRow?.role).toBe("user");
+    expect(botRow?.role).toBe("assistant");
     const blocks = JSON.parse(botRow!.content) as Message["content"];
     const textBlock = blocks.find(
       (block): block is Extract<Message["content"][number], { type: "text" }> =>
@@ -1042,6 +1042,27 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     });
 
     expect(context).not.toBeNull();
+    const contextBotMessage = context!.messages.find(
+      (message) =>
+        message.role === "assistant" &&
+        message.content.some(
+          (block) =>
+            block.type === "text" &&
+            block.text.includes("bot posted a diagram"),
+        ),
+    );
+    expect(contextBotMessage).toBeDefined();
+    expect(
+      contextBotMessage!.content
+        .filter(
+          (
+            block,
+          ): block is Extract<Message["content"][number], { type: "text" }> =>
+            block.type === "text",
+        )
+        .map((block) => block.text)
+        .join("\n"),
+    ).not.toContain("<external_content");
     const contextImage = context!.messages
       .flatMap((message) => message.content)
       .find((block) => block.type === "image");
@@ -1115,7 +1136,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(persisted.provenanceRequesterIdentifier).toBe("U_GUARDIAN");
   });
 
-  test("backfilled bot-authored text is persisted raw as user history", async () => {
+  test("backfilled bot-authored text is persisted raw as assistant history", async () => {
     const conv = createTestConversation();
 
     backfillThreadMock.mockImplementation(async () => [
@@ -1138,13 +1159,25 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       (p) => p.channelTs === "1234.0",
     );
     expect(persisted).toBeDefined();
-    expect(persisted.role).toBe("user");
+    expect(persisted.role).toBe("assistant");
     expect(persisted.rawContent).toBe("earlier assistant reply");
     expect(persisted.rawContent).not.toContain("<external_content");
     expect(persisted.actorExternalUserId).toBe("U_BOT");
     expect(persisted.provenanceTrustClass).toBe("unknown");
     expect(persisted.provenanceSourceChannel).toBe("slack");
     expect(persisted.provenanceRequesterIdentifier).toBe("U_BOT");
+
+    const context = loadSlackChronologicalContext(conv.id, SLACK_CHANNEL_CAPS, {
+      loader: readMessageRowsByConversation,
+      trustClass: "guardian",
+    });
+    expect(context).not.toBeNull();
+    expect(context!.messages).toEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "earlier assistant reply" }],
+      },
+    ]);
   });
 
   test("backfilled non-bot message with empty text is persisted unwrapped", async () => {
