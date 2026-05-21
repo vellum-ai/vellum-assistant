@@ -1,7 +1,7 @@
 /* eslint-disable no-restricted-syntax -- LUM-1768: file contains dark: pairs pending semantic-token migration */
 
 import { AlertTriangle, File, Loader2, Upload, X } from "lucide-react";
-import { type DragEvent, useCallback, useRef, useState } from "react";
+import { type ChangeEvent, type DragEvent, useCallback, useRef, useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types.js";
 
@@ -200,7 +200,7 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
   }, []);
 
   const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    (e: ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files ?? []);
       if (files.length > 0) addFiles(files);
       // Reset the input so the same file can be re-selected

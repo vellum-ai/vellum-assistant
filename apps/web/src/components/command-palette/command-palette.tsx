@@ -6,6 +6,7 @@ import {
   useEffect,
   useRef,
   type FC,
+  type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
 } from "react";
@@ -53,7 +54,7 @@ export interface CommandPaletteProps {
   /** Called when an item is selected (clicked or Enter pressed). */
   onItemSelect?: (item: CommandPaletteItemData, index: number) => void;
   /** Key-down handler from useCommandPalette for keyboard navigation. */
-  onKeyDown: (e: React.KeyboardEvent) => void;
+  onKeyDown: (e: KeyboardEvent) => void;
 }
 
 // ---------------------------------------------------------------------------

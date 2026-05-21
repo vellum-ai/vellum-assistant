@@ -1,5 +1,5 @@
 import { motion, useReducedMotion } from "motion/react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type CSSProperties } from "react";
 
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 import { AnimatedAvatar } from "./animated-avatar.js";
@@ -61,7 +61,7 @@ export function ChatAvatar({
   const hasCharacter = !!components && !!effectiveTraits;
   const preferCharacter = hasCharacter && (!!traits || !customImageUrl);
 
-  const wrapperStyle: React.CSSProperties = {
+  const wrapperStyle: CSSProperties = {
     width: size,
     height: size,
     flexShrink: 0,

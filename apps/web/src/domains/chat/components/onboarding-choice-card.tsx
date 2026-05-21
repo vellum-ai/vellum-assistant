@@ -10,7 +10,7 @@
  */
 
 import { Check, MessageSquare } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import { Button, Card } from "@vellum/design-library";
 import { TASK_ICONS } from "@/components/prechat-task-icons.js";
@@ -180,7 +180,7 @@ export function OnboardingChoiceCard({
                     rows={1}
                     placeholder="What do you need help with?"
                     className="mt-0.5 w-full resize-none overflow-hidden border-none bg-transparent p-0 text-body-small-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:outline-none"
-                    style={{ fieldSizing: "content" } as React.CSSProperties}
+                    style={{ fieldSizing: "content" } as CSSProperties}
                   />
                 ) : (
                   <div>
