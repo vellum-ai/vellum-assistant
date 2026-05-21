@@ -332,6 +332,7 @@ export interface ChatRouteContentProps {
 
   // Conversation secondary actions
   handleForkConversation: (throughMessageId: string) => Promise<void>;
+  handleInspectMessage?: (messageId: string) => void;
 
   // Subagent
   subagentEntries: SubagentEntry[];
@@ -425,6 +426,7 @@ export function ChatRouteContent({
   handleShareApp,
   handleDeployApp,
   handleForkConversation,
+  handleInspectMessage,
   subagentEntries,
   subagentState,
   activeSubagentId,
@@ -1069,6 +1071,7 @@ export function ChatRouteContent({
     onForkConversation: (messageId) => {
       void handleForkConversation(messageId);
     },
+    onInspectMessage: handleInspectMessage,
     renderPendingSecret: () =>
       pendingSecret ? (
         <SecretPromptCard

@@ -1,5 +1,6 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 
 mock.module("@/domains/chat/components/chat-attachments/message-attachments.js", () => ({
   MessageAttachments: () => <div data-testid="attachments" />,
@@ -18,15 +19,6 @@ mock.module("@/domains/chat/components/surfaces/surface-router.js", () => ({
 }));
 
 mock.module(
-  "@/domains/chat/components/message-hover-actions/message-hover-actions.js",
-  () => ({
-    MessageHoverActions: ({ timestamp }: { timestamp?: number }) => (
-      <div data-testid="hover-actions" data-timestamp={timestamp ?? ""} />
-    ),
-  }),
-);
-
-mock.module(
   "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js",
   () => ({
     ToolCallProgressCard: () => <div data-testid="tool-progress-card" />,
@@ -39,13 +31,24 @@ import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-mess
 
 const noop = () => {};
 
-function renderMessage(message: DisplayMessage): string {
+afterAll(() => {
+  mock.restore();
+});
+afterEach(() => {
+  cleanup();
+});
+
+function renderMessage(
+  message: DisplayMessage,
+  props: { onInspectMessage?: (messageId: string) => void } = {},
+): string {
   return renderToStaticMarkup(
     <TranscriptMessageBody
       message={message}
       expandedToolCallIds={new Set()}
       expandedCardIds={new Map()}
       onSurfaceAction={noop}
+      onInspectMessage={props.onInspectMessage}
     />,
   );
 }
@@ -70,8 +73,8 @@ describe("TranscriptMessageBody", () => {
       ],
     });
 
-    expect(html).toContain('data-testid="hover-actions"');
-    expect(html).toContain('data-timestamp="2000"');
+    expect(html).toContain("title=");
+    expect(html).toContain(":02");
   });
 
   test("falls back to the tool start time for active tool-only messages", () => {
@@ -92,6 +95,50 @@ describe("TranscriptMessageBody", () => {
       ],
     });
 
-    expect(html).toContain('data-timestamp="1500"');
+    expect(html).toContain("title=");
+    expect(html).toContain(":01");
+  });
+
+  test("passes daemon message id to inspect handler", () => {
+    const inspectedIds: string[] = [];
+    const { getByTitle } = render(
+      <TranscriptMessageBody
+        message={{
+          stableId: "stable-1",
+          id: "local-1",
+          daemonMessageId: "daemon-1",
+          role: "assistant",
+          content: "hello",
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+        onInspectMessage={(messageId) => inspectedIds.push(messageId)}
+      />,
+    );
+
+    fireEvent.click(getByTitle("Inspect"));
+    expect(inspectedIds).toEqual(["daemon-1"]);
+  });
+
+  test("falls back to message id for inspect handler", () => {
+    const inspectedIds: string[] = [];
+    const { getByTitle } = render(
+      <TranscriptMessageBody
+        message={{
+          stableId: "stable-1",
+          id: "message-1",
+          role: "user",
+          content: "hello",
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+        onInspectMessage={(messageId) => inspectedIds.push(messageId)}
+      />,
+    );
+
+    fireEvent.click(getByTitle("Inspect"));
+    expect(inspectedIds).toEqual(["message-1"]);
   });
 });
