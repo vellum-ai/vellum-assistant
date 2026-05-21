@@ -174,8 +174,14 @@ async function deliverSlack(
       channel,
       threadTs: statusThreadTs,
       status,
+      loadingMessages,
     } = payload.assistantThreadStatus;
-    await sendSlackAssistantThreadStatus(channel, statusThreadTs, status);
+    await sendSlackAssistantThreadStatus(
+      channel,
+      statusThreadTs,
+      status,
+      loadingMessages,
+    );
     return { ok: true };
   }
 
