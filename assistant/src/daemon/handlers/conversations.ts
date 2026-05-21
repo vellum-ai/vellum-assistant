@@ -202,6 +202,85 @@ export function deleteQueuedMessage(
   return { removed: false, reason: "message_not_found" };
 }
 
+/**
+ * Steer a conversation to a specific queued message.
+ * Promotes the message to the head of the queue, marks the conversation
+ * as needing tool-result repair, and aborts the current generation so the
+ * drain path picks up the promoted message.
+ *
+ * Returns `{ steered: true }` on success, or `{ steered: false, reason }` on failure.
+ */
+export function steerToMessage(
+  conversationId: string,
+  requestId: string,
+):
+  | { steered: true }
+  | {
+      steered: false;
+      reason:
+        | "conversation_not_found"
+        | "message_not_found"
+        | "not_processing";
+    } {
+  const conversation = findConversation(conversationId);
+  if (!conversation) {
+    log.warn(
+      { conversationId, requestId },
+      "No conversation found for steer_to_message",
+    );
+    return { steered: false, reason: "conversation_not_found" };
+  }
+
+  if (!conversation.isProcessing()) {
+    log.warn(
+      { conversationId, requestId },
+      "Cannot steer: conversation is not processing",
+    );
+    return { steered: false, reason: "not_processing" };
+  }
+
+  const promoted = conversation.queue.promoteToHead(requestId);
+  if (!promoted) {
+    log.warn(
+      { conversationId, requestId },
+      "Queued message not found for steering",
+    );
+    return { steered: false, reason: "message_not_found" };
+  }
+
+  // Mark the conversation for tool-result repair so the drain path can
+  // inject synthetic tool results for any pending tool_use blocks that
+  // were abandoned by the aborted generation.
+  conversation.pendingSteerRepair = true;
+
+  // Broadcast the steer event so clients can update their UI.
+  broadcastMessage({
+    type: "message_steered",
+    conversationId,
+    requestId,
+  });
+
+  log.info(
+    { conversationId, requestId },
+    "Steering to queued message — aborting current generation",
+  );
+
+  // Abort the in-flight generation. The agent loop's finally block calls
+  // drainQueue, which will pick up the promoted message at the head.
+  // Unlike abortConversation, we do NOT clear the queue or dispose
+  // prompters — we want the queue to drain with the promoted message first.
+  const reason = createAbortReason(
+    "preempted_by_new_message",
+    "steerToMessage",
+    conversationId,
+  );
+  conversation.abortController?.abort(reason);
+  // Deny pending confirmations so the abort unblocks immediately.
+  conversation.denyAllPendingConfirmations();
+
+  return { steered: true };
+}
+
 // ---------------------------------------------------------------------------
 // HTTP handler (delegates to shared logic)
 // ---------------------------------------------------------------------------
