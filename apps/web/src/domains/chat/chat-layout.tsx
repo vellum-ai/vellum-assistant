@@ -188,13 +188,18 @@ export function ChatLayout() {
     layoutAvatar.traits,
   );
 
-  // Layout-scoped SSE subscriber for assistant-global sync events.
-  // ChatPage owns the conversation-scoped stream; this one keeps the
-  // avatar / identity / config / sounds / schedules / conversation list
-  // caches reactive on every assistant route — not just inside a
-  // conversation. See use-assistant-sync-stream.ts for the event
-  // routing contract.
-  useAssistantSyncStream(lifecycle.assistantId, isAssistantActive);
+  // Layout-scoped SSE subscriber is disabled. The daemon dedups client
+  // subscribers by `clientId` (assistant-event-hub.ts), so this layout
+  // stream and ChatPage's conversation-scoped stream evict each other
+  // every (re-)subscribe — leaving the conversation stream silent and
+  // the chat composer permanently in "thinking" state after a send.
+  // Restoring the platform behavior of a single conversation-scoped
+  // stream until the dual-subscription support lands. Sibling routes
+  // (home, identity, library, workspace, contacts, inspect) drop back
+  // to the pre-LUM-1791 staleness for now.
+  //
+  // useAssistantSyncStream(lifecycle.assistantId, isAssistantActive);
+  void useAssistantSyncStream;
 
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header. Gated on the homePage feature flag so the hook
