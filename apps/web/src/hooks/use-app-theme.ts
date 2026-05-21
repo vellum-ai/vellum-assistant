@@ -8,7 +8,7 @@
  */
 import { useEffect } from "react";
 
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import {
   applyThemePreference,
   normalizeThemePreference,
@@ -25,7 +25,7 @@ function readRawStoredTheme(): string | null {
 }
 
 export function useAppTheme() {
-  const velvet = useFeatureFlagStore.use.velvet();
+  const velvet = useClientFeatureFlagStore.use.velvet();
 
   useEffect(() => {
     const stored = readRawStoredTheme();

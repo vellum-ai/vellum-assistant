@@ -20,7 +20,7 @@ import { groupConversations, type CustomGroup } from "@/domains/chat/utils/group
 import { groupBackgroundConversationsBySource } from "@/domains/chat/utils/background-sub-groups.js";
 import { groupScheduledConversationsByJobId } from "@/domains/chat/utils/scheduled-sub-groups.js";
 import type { SubGroup } from "@/domains/chat/utils/sub-group-utils.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store.js";
 
 // ---------------------------------------------------------------------------
@@ -80,7 +80,7 @@ export function useSidebarState({
   conversationGroups,
   attentionConversationKeys,
 }: UseSidebarStateParams): SidebarState {
-  const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
+  const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
 
   // --- Collapse store hydration ---
 

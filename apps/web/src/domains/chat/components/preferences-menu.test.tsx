@@ -38,11 +38,18 @@ mock.module("@/stores/auth-store.js", () => {
 
 const flagsRef = {};
 
-mock.module("@/lib/feature-flags/feature-flag-store.js", () => {
+mock.module("@/lib/feature-flags/client-feature-flag-store.js", () => {
   const store = () => null;
   store.use = {};
   store.getState = () => flagsRef;
-  return { useFeatureFlagStore: store };
+  return { useClientFeatureFlagStore: store };
+});
+
+mock.module("@/lib/feature-flags/assistant-feature-flag-store.js", () => {
+  const store = () => null;
+  store.use = {};
+  store.getState = () => flagsRef;
+  return { useAssistantFeatureFlagStore: store };
 });
 
 const billingRef = { data: undefined as { effective_balance: string } | undefined };
