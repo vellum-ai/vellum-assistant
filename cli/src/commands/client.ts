@@ -55,8 +55,6 @@ interface ParsedArgs {
   bearerToken?: string;
   /** Interface identifier sent as X-Vellum-Interface-Id on all requests. */
   interfaceId: SupportedInterface;
-  project?: string;
-  zone?: string;
 }
 
 function readAssistantName(entry: AssistantEntry | null): string | undefined {
@@ -178,8 +176,6 @@ function parseArgs(): ParsedArgs {
     platformToken,
     bearerToken,
     interfaceId,
-    project: entry?.project,
-    zone: entry?.zone,
   };
 }
 
@@ -352,8 +348,6 @@ export async function client(): Promise<void> {
     platformToken,
     bearerToken,
     interfaceId,
-    project,
-    zone,
   } = parseArgs();
 
   if (interfaceId === WEB_INTERFACE_ID) {
@@ -413,6 +407,6 @@ export async function client(): Promise<void> {
       console.log(`${ANSI.dim}Disconnected.${ANSI.reset}`);
       process.exit(0);
     },
-    { auth, project, zone, assistantName },
+    { auth, assistantName },
   );
 }
