@@ -119,14 +119,11 @@ describe("renderSlackTranscript — basics", () => {
     expect(out).toEqual([textMsg("user", "[11/14/23 14:25 @alice]: hi")]);
   });
 
-  test("renders thread reply with parent alias arrow", () => {
+  test("renders thread reply without parent alias arrow", () => {
     const out = renderSlackTranscript([
       userMsg(TS_14_28, "@bob", "got it", { threadTs: TS_14_25 }),
     ]);
-    const alias = parentAlias(TS_14_25);
-    expect(out).toEqual([
-      textMsg("user", `[11/14/23 14:28 @bob → ${alias}]: got it`),
-    ]);
+    expect(out).toEqual([textMsg("user", "[11/14/23 14:28 @bob]: got it")]);
   });
 
   test("renders edited message with editedAt suffix", () => {
@@ -153,18 +150,17 @@ describe("renderSlackTranscript — basics", () => {
     ]);
   });
 
-  test("edited message in a thread renders both arrow and edit suffix", () => {
+  test("edited message in a thread renders edit suffix without thread arrow", () => {
     const out = renderSlackTranscript([
       userMsg(TS_14_28, "@bob", "got it (edit)", {
         threadTs: TS_14_25,
         editedAt: MS_14_30,
       }),
     ]);
-    const alias = parentAlias(TS_14_25);
     expect(out).toEqual([
       textMsg(
         "user",
-        `[11/14/23 14:28 @bob → ${alias}, edited 11/14/23 14:30]: got it (edit)`,
+        "[11/14/23 14:28 @bob, edited 11/14/23 14:30]: got it (edit)",
       ),
     ]);
   });
@@ -865,13 +861,12 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
       userMsg(replyTs, "@dan", "I'll join", { threadTs: aliceTopTs }),
     ];
     const out = renderSlackTranscript(messages);
-    const aliceAlias = parentAlias(aliceTopTs);
     expect(extractTagLineTexts(out)).toEqual([
       "[11/14/23 14:25 @alice]: lunch?",
-      `[11/14/23 14:26 @bob → ${aliceAlias}]: yes!`,
-      `[11/14/23 14:27 @alice → ${aliceAlias}]: 12:30 ok?`,
+      "[11/14/23 14:26 @bob]: yes!",
+      "[11/14/23 14:27 @alice]: 12:30 ok?",
       "[11/14/23 14:28 @carol]: standup soon",
-      `[11/14/23 14:28 @dan → ${aliceAlias}]: I'll join`,
+      "[11/14/23 14:28 @dan]: I'll join",
     ]);
   });
 
@@ -883,12 +878,8 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
       userMsg(replyTs, "@ed", "joining now", { threadTs: carolTopTs }),
     ];
     const out = renderSlackTranscript(messages);
-    const carolAlias = parentAlias(carolTopTs);
     const texts = extractTagLineTexts(out);
-    // The reply tag points at carol's alias; carol's top stays untagged.
-    expect(texts[texts.length - 1]).toBe(
-      `[11/14/23 14:28 @ed → ${carolAlias}]: joining now`,
-    );
+    expect(texts[texts.length - 1]).toBe("[11/14/23 14:28 @ed]: joining now");
     expect(texts[3]).toBe("[11/14/23 14:28 @carol]: standup soon");
   });
 
@@ -900,11 +891,8 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
       userMsg(replyTs, "@frank", "+1", { threadTs: carolTopTs }),
     ];
     const out = renderSlackTranscript(messages);
-    const carolAlias = parentAlias(carolTopTs);
     const texts = extractTagLineTexts(out);
-    expect(texts[texts.length - 1]).toBe(
-      `[11/14/23 14:28 @frank → ${carolAlias}]: +1`,
-    );
+    expect(texts[texts.length - 1]).toBe("[11/14/23 14:28 @frank]: +1");
   });
 
   test("scenario: new top-level message (no threadTs)", () => {
@@ -924,7 +912,7 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
 // ── mixed legacy + post-upgrade fixture ──────────────────────────────────────
 
 describe("renderSlackTranscript — mixed legacy + post-upgrade", () => {
-  test("legacy rows render flat with no thread tag and intermix chronologically", () => {
+  test("legacy rows intermix chronologically with post-upgrade rows", () => {
     const messages: RenderableSlackMessage[] = [
       // Post-upgrade: 14:28 reply in alice's thread
       userMsg("1699972080.000900", "@bob", "yes!", { threadTs: TS_14_25 }),
@@ -935,16 +923,14 @@ describe("renderSlackTranscript — mixed legacy + post-upgrade", () => {
       userMsg(TS_14_25, "@alice", "lunch?"),
     ];
     const out = renderSlackTranscript(messages);
-    const alias = parentAlias(TS_14_25);
 
     const texts = extractTagLineTexts(out);
     expect(texts).toEqual([
       "[11/14/23 14:25 @alice]: lunch?",
       "[11/14/23 14:26 @dana]: drive-by note",
-      `[11/14/23 14:28 @bob → ${alias}]: yes!`,
+      "[11/14/23 14:28 @bob]: yes!",
     ]);
-    // Ensure the legacy row has no arrow.
-    expect(texts[1].includes("→")).toBe(false);
+    expect(texts.every((text) => !text.includes("→"))).toBe(true);
   });
 
   test("legacy assistant row carries assistant role and emits content verbatim", () => {
