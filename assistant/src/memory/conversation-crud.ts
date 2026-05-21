@@ -1259,10 +1259,14 @@ interface PaginatedMessagesResult {
   hasMore: boolean;
 }
 
+const PAGINATION_CHUNK_MIN = 50;
+const PAGINATION_SCAN_CAP = 10_000;
+
 export function getMessagesPaginated(
   conversationId: string,
   limit: number | undefined,
   beforeTimestamp?: number,
+  filter?: (row: MessageRow) => boolean,
 ): PaginatedMessagesResult {
   const db = getDb();
 
@@ -1278,30 +1282,69 @@ export function getMessagesPaginated(
       .orderBy(asc(messages.createdAt))
       .all()
       .map(parseMessage);
-    return { messages: rows, hasMore: false };
+    return {
+      messages: filter ? rows.filter(filter) : rows,
+      hasMore: false,
+    };
   }
 
-  const conditions = [eq(messages.conversationId, conversationId)];
-  if (beforeTimestamp !== undefined) {
-    conditions.push(lt(messages.createdAt, beforeTimestamp));
+  // Walk pages newest→oldest, applying `filter` in TS (metadata parsing is
+  // JSON, not a structured column). Keep fetching until we have `limit + 1`
+  // visible rows or the DB is exhausted, so `hasMore` and the cursor reflect
+  // the visible page rather than the unfiltered row count. Without this loop,
+  // a fully-hidden page returns `{ messages: [], hasMore: true }` with no
+  // cursor, which stalls the web client's older-page fetch.
+  let cursorCreatedAt = beforeTimestamp;
+  let cursorMessageId: string | undefined;
+  const visible: MessageRow[] = [];
+  const chunkSize = Math.max(limit + 1, PAGINATION_CHUNK_MIN);
+  // Bound the work a single request can do when `filter` rejects nearly every
+  // row — otherwise a pathological filter against a huge conversation would
+  // tie up a connection for thousands of roundtrips.
+  let rowsScanned = 0;
+
+  while (visible.length < limit + 1 && rowsScanned < PAGINATION_SCAN_CAP) {
+    const cursorPredicate =
+      cursorCreatedAt === undefined
+        ? undefined
+        : cursorMessageId === undefined
+          ? lt(messages.createdAt, cursorCreatedAt)
+          : or(
+              lt(messages.createdAt, cursorCreatedAt),
+              and(
+                eq(messages.createdAt, cursorCreatedAt),
+                lt(messages.id, cursorMessageId),
+              ),
+            );
+
+    const chunk = db
+      .select()
+      .from(messages)
+      .where(and(eq(messages.conversationId, conversationId), cursorPredicate))
+      .orderBy(desc(messages.createdAt), desc(messages.id))
+      .limit(chunkSize)
+      .all()
+      .map(parseMessage);
+
+    if (chunk.length === 0) break;
+    rowsScanned += chunk.length;
+
+    for (const row of chunk) {
+      if (!filter || filter(row)) visible.push(row);
+      if (visible.length >= limit + 1) break;
+    }
+
+    if (chunk.length < chunkSize) break;
+    const lastRow = chunk[chunk.length - 1];
+    cursorCreatedAt = lastRow.createdAt;
+    cursorMessageId = lastRow.id;
   }
 
-  const rows = db
-    .select()
-    .from(messages)
-    .where(and(...conditions))
-    .orderBy(desc(messages.createdAt))
-    .limit(limit + 1)
-    .all()
-    .map(parseMessage);
+  const hasMore = visible.length > limit;
+  if (hasMore) visible.splice(limit);
+  visible.reverse();
 
-  const hasMore = rows.length > limit;
-  if (hasMore) {
-    rows.splice(limit);
-  }
-  rows.reverse();
-
-  return { messages: rows, hasMore };
+  return { messages: visible, hasMore };
 }
 
 export function getLastUserTimestampBefore(
