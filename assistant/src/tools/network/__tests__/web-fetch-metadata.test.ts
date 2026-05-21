@@ -89,13 +89,10 @@ describe("web_fetch activityMetadata", () => {
           headers: { location: "https://example.com/final" },
         });
       }
-      return new Response(
-        "<!doctype html><title>Final</title><p>done</p>",
-        {
-          status: 200,
-          headers: { "content-type": "text/html; charset=utf-8" },
-        },
-      );
+      return new Response("<!doctype html><title>Final</title><p>done</p>", {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
     }) as unknown as typeof globalThis.fetch;
 
     const result = await executeWithMockFetch({
@@ -154,6 +151,65 @@ describe("web_fetch activityMetadata", () => {
     expect(meta?.url).toBe("https://example.com/missing");
     expect(meta?.finalUrl).toBe("https://example.com/missing");
     expect(meta?.domain).toBe("example.com");
+  });
+
+  test("flags mayRequireJavaScript when HTML compresses to <5% text and exceeds 10KB", async () => {
+    const scriptPayload = `var x = ${JSON.stringify("a".repeat(40_000))};`;
+    const body =
+      "<!doctype html><html><head><title>App</title></head>" +
+      `<body><div id="root"></div><script>${scriptPayload}</script></body></html>`;
+    globalThis.fetch = (async () =>
+      new Response(body, {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      })) as unknown as typeof globalThis.fetch;
+
+    const result = await executeWithMockFetch({ url: "https://example.com/" });
+    expect(result.isError).toBe(false);
+
+    const meta = result.activityMetadata?.webFetch;
+    expect(meta?.mayRequireJavaScript).toBe(true);
+    expect(result.status).toContain("Content may be JavaScript-rendered");
+    expect(result.status).toContain(`${meta?.byteCount} bytes`);
+  });
+
+  test("flags mayRequireJavaScript when extracted text is under 200 chars", async () => {
+    const body =
+      '<!doctype html><html><head><title>Tiny</title></head><body><div id="app"></div></body></html>';
+    globalThis.fetch = (async () =>
+      new Response(body, {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      })) as unknown as typeof globalThis.fetch;
+
+    const result = await executeWithMockFetch({ url: "https://example.com/" });
+    expect(result.isError).toBe(false);
+
+    const meta = result.activityMetadata?.webFetch;
+    expect(meta?.mayRequireJavaScript).toBe(true);
+    expect(result.status).toContain("Content may be JavaScript-rendered");
+  });
+
+  test("does not flag mayRequireJavaScript for content-heavy HTML", async () => {
+    const paragraph =
+      "<p>" +
+      "The quick brown fox jumps over the lazy dog. ".repeat(20) +
+      "</p>";
+    const body =
+      "<!doctype html><html><head><title>Article</title></head>" +
+      `<body>${paragraph.repeat(40)}</body></html>`;
+    globalThis.fetch = (async () =>
+      new Response(body, {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      })) as unknown as typeof globalThis.fetch;
+
+    const result = await executeWithMockFetch({ url: "https://example.com/" });
+    expect(result.isError).toBe(false);
+
+    const meta = result.activityMetadata?.webFetch;
+    expect(meta?.mayRequireJavaScript).toBeUndefined();
+    expect(result.status ?? "").not.toContain("JavaScript-rendered");
   });
 
   test("populates metadata for blocked private-network targets", async () => {
