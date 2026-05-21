@@ -81,6 +81,7 @@ import {
 import {
   getConversationByKey,
   getOrCreateConversation,
+  resolveConversationId,
 } from "../../memory/conversation-key-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
 import { recordOnboardingEvent } from "../../memory/onboarding-events-store.js";
@@ -405,8 +406,14 @@ export function handleListMessages({
   if (conversationId) {
     resolvedConversationId = conversationId;
   } else if (conversationKey) {
-    const mapping = getConversationByKey(conversationKey);
-    resolvedConversationId = mapping?.conversationId;
+    // Dual lookup: try the keys table first (the canonical channel/external
+    // → internal-id mapping), then fall back to treating the key as a direct
+    // conversation id. Background/scheduled conversations are bootstrapped
+    // without a `conversation_keys` row, so callers that pass their id as a
+    // key (web clients use the conversation list's `id` as `conversationKey`)
+    // would otherwise get an empty result.
+    resolvedConversationId =
+      resolveConversationId(conversationKey) ?? undefined;
   } else {
     throw new BadRequestError(
       "conversationKey or conversationId query parameter is required",
