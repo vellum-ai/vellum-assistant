@@ -329,6 +329,64 @@ export function createHostBrowserDispatcher(
       // BEFORE `resolveTarget()` — otherwise `resolveTarget(undefined)`
       // falls back to querying for the active tab, which throws when no
       // focused window/tab exists (minimized, no active tab, etc.).
+      // Synthetic Vellum.createTab — open a fresh browser tab and return
+      // its tabId. Used by `assistant browser navigate --new-tab` so the
+      // executor can pin subsequent CDP commands to the new tab via
+      // `cdpSessionId`, leaving the user's currently-active tab (often
+      // the tab they're chatting with the assistant from) undisturbed.
+      // Does not require a resolved CDP target, so dispatched before
+      // `resolveTarget()`.
+      if (envelope.cdpMethod === 'Vellum.createTab') {
+        if (!deps.createTab) {
+          // Honour the cancel contract: don't post an error envelope
+          // for a request that's already been cancelled.
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({
+              code: -32601,
+              message: 'Vellum.createTab is not supported by this extension build',
+            }),
+            isError: true,
+          });
+          return;
+        }
+        try {
+          const newTarget = await deps.createTab();
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+          if (newTarget.tabId === undefined) {
+            await deps.postResult({
+              requestId,
+              content: JSON.stringify({
+                code: -32000,
+                message: 'createTab returned no tabId',
+              }),
+              isError: true,
+            });
+            return;
+          }
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({ tabId: String(newTarget.tabId) }),
+            isError: false,
+          });
+        } catch (createErr) {
+          // Honour the cancel contract: if the request was cancelled while
+          // deps.createTab() was in flight and then threw, don't emit a
+          // late error envelope (ghost completion). Mirrors the happy-path
+          // guard above and matches the cancel suppression used elsewhere
+          // in this dispatcher.
+          if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
+          const message = createErr instanceof Error ? createErr.message : String(createErr);
+          await deps.postResult({
+            requestId,
+            content: JSON.stringify({ code: -32000, message }),
+            isError: true,
+          });
+        }
+        return;
+      }
+
       if (envelope.cdpMethod === 'Vellum.findTab') {
         const urlPattern = (envelope.cdpParams as { urlPattern?: string } | undefined)?.urlPattern;
         if (!urlPattern) {

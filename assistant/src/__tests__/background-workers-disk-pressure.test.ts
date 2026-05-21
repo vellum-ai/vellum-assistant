@@ -155,6 +155,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationSlackContextWatermark: mock(() => {}),
   updateConversationTitle: mock(() => {}),
   updateConversationUsage: mock(() => {}),
+  setLastNotifiedInferenceProfile: mock(() => {}),
   wipeConversation: mock(() => ({ memoryIds: [] })),
 }));
 

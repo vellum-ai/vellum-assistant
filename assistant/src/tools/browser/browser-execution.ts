@@ -70,6 +70,7 @@ import type {
   CdpClient,
   CdpClientKind,
 } from "./cdp-client/types.js";
+import { clearPinnedTab, setPinnedTab } from "./pinned-tabs.js";
 import { checkBrowserRuntime } from "./runtime-check.js";
 
 const log = getLogger("headless-browser");
@@ -471,6 +472,15 @@ function wrapWithKindMemo(
     dispose(): void {
       inner.dispose();
     },
+    // Proxy the optional setCdpSessionId through to the underlying
+    // client so the navigate executor's --new-tab path can pin the
+    // freshly-created tab onto the extension CDP client. We define
+    // the method unconditionally here (rather than only when the
+    // inner client implements it) so callers can use a simple optional
+    // chain on this wrapper without re-walking the inner reference.
+    setCdpSessionId(cdpSessionId: string): void {
+      inner.setCdpSessionId?.(cdpSessionId);
+    },
   };
 }
 
@@ -623,6 +633,89 @@ export async function executeBrowserNavigate(
   const acquired = acquireCdpClientWithMode(input, context);
   if (acquired.errorResult) return acquired.errorResult;
   const { cdp, browserMode } = acquired;
+
+  // --new-tab: open a fresh tab via the extension's Vellum.createTab
+  // pseudo-CDP method, then pin this client (and the conversation) to
+  // the returned tabId so this Page.navigate and every subsequent
+  // command on the same conversation routes to the new tab instead of
+  // the user's currently-active tab. Extension backend only; the local
+  // (Playwright) backend manages its own isolated browser and the
+  // cdp-inspect backend connects to a single tab by URL pattern.
+  const newTab = input.new_tab === true;
+  if (newTab && cdp.kind === "extension") {
+    try {
+      const result = await cdp.send<{ tabId?: number | string }>(
+        "Vellum.createTab",
+        {},
+        context.signal,
+      );
+      const tabId =
+        typeof result?.tabId === "number"
+          ? String(result.tabId)
+          : typeof result?.tabId === "string"
+            ? result.tabId
+            : undefined;
+      if (!tabId) {
+        // Malformed createTab response (no tabId). We're nominally falling
+        // back to active-tab routing — but the live `cdp` instance was
+        // already constructed with whatever pin was in scope for this
+        // conversation, AND the pin store still holds it for future
+        // client construction. Clear both: the pin store (so the next
+        // executeBrowserNavigate builds a clean client) AND the current
+        // cdp instance's session (so the Page.navigate that runs in a
+        // few lines targets the active tab rather than the stale pin).
+        // Without the setCdpSessionId(undefined) call, the warn message
+        // is a lie: navigation would still route to the dead tab via the
+        // already-injected cdpSessionId and likely fail with
+        // cdp_session_not_found.
+        clearPinnedTab(context.conversationId);
+        cdp.setCdpSessionId?.(undefined);
+        log.warn(
+          { conversationId: context.conversationId, result },
+          "Vellum.createTab returned no tabId; cleared stale pin and live session, falling back to active-tab routing",
+        );
+      } else {
+        cdp.setCdpSessionId?.(tabId);
+        setPinnedTab(context.conversationId, tabId);
+        log.debug(
+          { conversationId: context.conversationId, tabId },
+          "Opened new tab via --new-tab; pinned subsequent ops to it",
+        );
+      }
+    } catch (err) {
+      // Surface the failure rather than silently clobbering the active
+      // tab — that's exactly the behavior --new-tab is supposed to
+      // avoid. Clear any stale pin so subsequent ops don't route to a
+      // dead tab. Note: an old extension build without Vellum.createTab
+      // support will land here (CDP returns an "unknown method" error).
+      // We're early-returning before the main try/finally block below,
+      // so we must dispose the cdp client manually to avoid leaking it.
+      clearPinnedTab(context.conversationId);
+      const message =
+        err instanceof Error ? err.message : String(err);
+      log.warn(
+        { conversationId: context.conversationId, err },
+        "Vellum.createTab failed; aborting --new-tab navigate",
+      );
+      try {
+        cdp.dispose();
+      } catch (disposeErr) {
+        log.warn(
+          { conversationId: context.conversationId, err: disposeErr },
+          "Failed to dispose CDP client after Vellum.createTab failure",
+        );
+      }
+      return {
+        content: `Error: Failed to open a new tab for navigation: ${message}. The Chrome extension may need an update to support --new-tab.`,
+        isError: true,
+      };
+    }
+  } else if (newTab && cdp.kind !== "extension") {
+    log.debug(
+      { conversationId: context.conversationId, backendKind: cdp.kind },
+      "--new-tab requested but backend does not support it; ignoring",
+    );
+  }
 
   // Screencast + handoff are Playwright-backed and only meaningful
   // for the local sacrificial-profile path. On the extension path the

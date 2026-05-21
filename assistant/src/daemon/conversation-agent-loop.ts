@@ -26,12 +26,12 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   contextWindowConfigFromEffective,
   type EffectiveContextWindow,
   resolveEffectiveContextWindow,
 } from "../config/llm-context-resolution.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
@@ -66,9 +66,9 @@ import {
   getConversationOriginInterface,
   getConversationOverrideProfileFromRow,
   getLastUserTimestampBefore,
-  setLastNotifiedInferenceProfile,
   getMessageById,
   provenanceFromTrustContext,
+  setLastNotifiedInferenceProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
 } from "../memory/conversation-crud.js";
@@ -222,12 +222,12 @@ import {
   SYNC_TAGS,
 } from "./message-types/sync.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
-import type { TraceEmitter } from "./trace-emitter.js";
-import type { TrustContext } from "./trust-context.js";
 import {
   classifyQueryComplexity,
   complexityTierToProfileKey,
 } from "./query-complexity-router.js";
+import type { TraceEmitter } from "./trace-emitter.js";
+import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");

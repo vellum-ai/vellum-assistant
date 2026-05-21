@@ -43,7 +43,7 @@ export class ExtensionCdpClient implements ScopedCdpClient {
   constructor(
     private readonly proxy: HostBrowserProxy,
     public readonly conversationId: string,
-    private readonly cdpSessionId?: string,
+    private cdpSessionId?: string,
     /**
      * Caller's actor principal id. When provided, the proxy will refuse to
      * dispatch this CDP command to a host_browser-capable client owned by a
@@ -181,6 +181,20 @@ export class ExtensionCdpClient implements ScopedCdpClient {
     // HostBrowserProxy is owned by the conversation — do NOT dispose
     // it here. In-flight requests will be cancelled by the AbortSignal
     // the tool passes in, or by conversation teardown.
+  }
+
+  /**
+   * Update the `cdpSessionId` used on subsequent {@link send} calls.
+   *
+   * Used by the navigate executor after opening a new tab via the
+   * `Vellum.createTab` pseudo-CDP method: the returned tabId becomes
+   * this client's pinned target so the follow-on `Page.navigate`
+   * (and every command on this conversation thereafter) routes to
+   * the freshly-created tab instead of the user's currently-active
+   * tab.
+   */
+  setCdpSessionId(cdpSessionId: string | undefined): void {
+    this.cdpSessionId = cdpSessionId;
   }
 }
 

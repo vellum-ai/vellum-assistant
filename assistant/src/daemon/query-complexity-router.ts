@@ -1,10 +1,10 @@
-import { getLogger } from "../util/logger.js";
 import {
   createTimeout,
   extractText,
   getConfiguredProvider,
   userMessage,
 } from "../providers/provider-send-message.js";
+import { getLogger } from "../util/logger.js";
 
 const log = getLogger("query-complexity-router");
 

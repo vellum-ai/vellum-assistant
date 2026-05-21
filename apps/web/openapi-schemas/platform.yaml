@@ -6434,6 +6434,8 @@ components:
           type: integer
         preview_backup_limit_reached:
           type: boolean
+        standard_upgrade_available:
+          type: boolean
       required:
       - current_channel
       - feature_enabled
@@ -6443,6 +6445,7 @@ components:
       - preview_backup_limit
       - preview_backup_limit_reached
       - preview_backups
+      - standard_upgrade_available
     ReleaseListItem:
       type: object
       properties:

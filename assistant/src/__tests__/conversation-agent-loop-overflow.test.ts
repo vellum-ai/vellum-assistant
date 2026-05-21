@@ -195,6 +195,9 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateMessageContent: () => {},
   updateMessageMetadata: () => {},
   clearStrippedInjectionMetadataForConversation: () => {},
+  setLastNotifiedInferenceProfile: () => {},
+  getLastUserTimestampBefore: () => 0,
+  getConversationOverrideProfileFromRow: () => undefined,
 }));
 
 afterAll(() => {

@@ -197,6 +197,7 @@ function makePage(
 function makeConfig(overrides?: {
   maxPageIds?: number;
   batchSize?: number | null;
+  tier1Size?: number | null;
 }) {
   return {
     memory: {
@@ -206,6 +207,7 @@ function makeConfig(overrides?: {
           enabled: true,
           max_page_ids: overrides?.maxPageIds ?? 25,
           batch_size: overrides?.batchSize ?? null,
+          tier1_size: overrides?.tier1Size ?? null,
         },
       },
     },
@@ -691,6 +693,119 @@ describe("runRouter — batched (batch_size set)", () => {
       config: makeConfig({ batchSize: 1000 }),
     });
     expect(result.failureReason).toBeNull();
+    expect(providerCalls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tier 1 (recently modified) splitting.
+// ---------------------------------------------------------------------------
+
+const { utimes } = await import("node:fs/promises");
+
+describe("runRouter — tier 1 (recently modified)", () => {
+  async function setMtime(slug: string, epochMs: number): Promise<void> {
+    const seconds = epochMs / 1000;
+    await utimes(
+      join(workspaceDir, "memory", "concepts", `${slug}.md`),
+      seconds,
+      seconds,
+    );
+  }
+
+  beforeEach(async () => {
+    await writePage(workspaceDir, makePage("alpha", { summary: "A" }));
+    await writePage(workspaceDir, makePage("bravo", { summary: "B" }));
+    await writePage(workspaceDir, makePage("charlie", { summary: "C" }));
+    await writePage(workspaceDir, makePage("delta", { summary: "D" }));
+    await writePage(workspaceDir, makePage("echo", { summary: "E" }));
+  });
+
+  test("tier1_size + batch_size both null is the v3 single-batch path", async () => {
+    providerStub = makeProvider(toolUseResponse([1]));
+    const result = await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig(),
+    });
+    expect(result.failureReason).toBeNull();
+    expect(providerCalls).toHaveLength(1);
+  });
+
+  test("tier1_size=2 + batch_size=null produces 2 batches (tier1 + rest)", async () => {
+    providerStub = makeProvider(toolUseResponse([1]));
+    const result = await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ tier1Size: 2 }),
+    });
+    expect(result.failureReason).toBeNull();
+    expect(providerCalls).toHaveLength(2);
+  });
+
+  test("tier 1 contains the most recently modified pages", async () => {
+    // Stamp distinct mtimes so the ordering is unambiguous.
+    await setMtime("alpha", 1_000_000);
+    await setMtime("bravo", 5_000_000); // most recent
+    await setMtime("charlie", 2_000_000);
+    await setMtime("delta", 4_000_000); // 2nd most recent
+    await setMtime("echo", 3_000_000);
+
+    providerStub = makeProvider(toolUseResponse([1]));
+    await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ tier1Size: 2 }),
+    });
+
+    // Tier 1 is the first provider call. Match `[N] slug` lines specifically
+    // — string-search on slug name alone would false-positive on prompt
+    // template text that may mention the same words.
+    const tier1Prompt = providerCalls[0].systemPrompt ?? "";
+    const indexedSlugs = new Set(
+      [...tier1Prompt.matchAll(/^\[\d+\] (\S+)/gm)].map((m) => m[1]),
+    );
+    expect(indexedSlugs).toEqual(new Set(["bravo", "delta"]));
+  });
+
+  test("tier1_size=2 + batch_size=2 puts every slug in exactly one batch", async () => {
+    providerStub = makeProvider(toolUseResponse([1]));
+    await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ tier1Size: 2, batchSize: 2 }),
+    });
+    // 5 pages, tier1=2, rest=3 → 1 tier1 batch + 1-or-2 tier3 batches
+    // depending on whether FNV hash distributes the 3 rest slugs into both
+    // buckets. The empty-batch filter drops a bucket that lands empty, so
+    // the strong invariant is "every slug appears in exactly one batch."
+    expect(providerCalls.length).toBeGreaterThanOrEqual(2);
+    expect(providerCalls.length).toBeLessThanOrEqual(3);
+
+    const allSlugs = ["alpha", "bravo", "charlie", "delta", "echo"];
+    const appearances = new Map<string, number>(
+      allSlugs.map((s) => [s, 0] as [string, number]),
+    );
+    for (const call of providerCalls) {
+      for (const slug of allSlugs) {
+        if (call.systemPrompt?.includes(slug)) {
+          appearances.set(slug, (appearances.get(slug) ?? 0) + 1);
+        }
+      }
+    }
+    for (const slug of allSlugs) {
+      expect(appearances.get(slug)).toBe(1);
+    }
+  });
+
+  test("tier1_size >= total pages → single tier 1 batch, no rest", async () => {
+    providerStub = makeProvider(toolUseResponse([1]));
+    await runRouter({
+      workspaceDir,
+      ...COMMON_PARAMS,
+      config: makeConfig({ tier1Size: 100 }),
+    });
+    // 5 pages, tier1_size=100 → only tier 1 fires; the empty rest is dropped.
     expect(providerCalls).toHaveLength(1);
   });
 });

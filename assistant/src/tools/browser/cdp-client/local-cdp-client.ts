@@ -156,6 +156,15 @@ export class LocalCdpClient implements ScopedCdpClient {
     }
   }
 
+  /**
+   * LocalCdpClient doesn't support re-targeting to a specific tab/session.
+   * The local Chromium instance manages all tabs globally, not per-client.
+   * This method is a no-op to satisfy the {@link ScopedCdpClient} interface.
+   */
+  setCdpSessionId(): void {
+    // no-op
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

@@ -261,6 +261,24 @@ export async function readPage(
 }
 
 /**
+ * File mtime for a concept page, in epoch ms. Returns 0 when the file is
+ * missing or unreadable — callers treat 0 as "no mtime" so tier-1 sorting
+ * can rank synthetic entries (skills, CLI commands) below real pages.
+ */
+export async function getPageMtimeMs(
+  workspaceDir: string,
+  slug: string,
+): Promise<number> {
+  validateSlug(slug);
+  try {
+    const s = await stat(getPagePath(workspaceDir, slug));
+    return s.mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Write a concept page atomically (temp file + rename). A crash between the
  * temp write and the rename leaves the prior file intact; a crash after the
  * rename leaves the new file. Readers therefore never observe a partial page.
