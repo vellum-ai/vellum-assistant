@@ -96,12 +96,46 @@ export function assistantContent(event: AgentEvent): string | undefined {
   return event.message.text ?? event.message.chunk;
 }
 
-async function collectAndPersistEvents(input: {
+export interface CollectAndPersistEventsResult {
+  /**
+   * Total number of events the collector returned. Zero means the
+   * assistant produced no events at all during the quiet/max window —
+   * a pipeline failure (no model response, dead event stream, …) that
+   * the caller should treat as a hard error.
+   */
+  eventCount: number;
+  /**
+   * Number of events that contributed a transcript turn (i.e. carried
+   * non-empty `text`/`chunk` after adapter-side normalization).
+   * `transcriptTurnCount === 0` with `eventCount > 0` is legitimate:
+   * the assistant responded with tool-use-only events that don't have
+   * a textual payload.
+   */
+  transcriptTurnCount: number;
+}
+
+/**
+ * Collect the next batch of assistant events from the live stream,
+ * append them to the cumulative `assistantEvents` array and the on-disk
+ * event log, optionally emit transcript turns for events that carry
+ * text, and rewrite the persisted usage summary.
+ *
+ * **The usage write is an overwrite, not a merge.** `input.assistantEvents`
+ * is the cumulative-across-turns array (every turn pushes into it),
+ * so `summarizeAssistantUsage(input.assistantEvents)` is the complete
+ * event-sourced usage state for the run. Merging it with the on-disk
+ * value would double-count every prior turn's records (Codex bot +
+ * Devin bot caught this on PR #31348; the recording-sidecar usage
+ * lands separately via `mergeRecordedUsage` once at end-of-run).
+ *
+ * Exported for unit-tests; only `runEvalOnce` calls it in production.
+ */
+export async function collectAndPersistEvents(input: {
   runId: string;
   collector: AgentEventCollector;
   assistantEvents: AgentEvent[];
   includeInTranscript: boolean;
-}): Promise<number> {
+}): Promise<CollectAndPersistEventsResult> {
   const events = await input.collector.collectUntilQuiet({
     quietMs: EVENT_QUIET_MS,
     maxMs: EVENT_MAX_MS,
@@ -124,10 +158,8 @@ async function collectAndPersistEvents(input: {
     }
   }
 
-  const eventUsage = summarizeAssistantUsage(input.assistantEvents);
-  const existingUsage = await readUsage(input.runId);
-  await writeUsage(input.runId, mergeUsageSummaries(existingUsage, eventUsage));
-  return transcriptTurnCount;
+  await writeUsage(input.runId, summarizeAssistantUsage(input.assistantEvents));
+  return { eventCount: events.length, transcriptTurnCount };
 }
 
 async function mergeRecordedUsage(input: {
@@ -328,22 +360,35 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         message: "Waiting for assistant response",
         turn: simulatorTurns + 1,
       });
-      const assistantTranscriptTurns = await collectAndPersistEvents({
-        runId: input.runId,
-        collector,
-        assistantEvents,
-        includeInTranscript: true,
-      });
-      if (assistantTranscriptTurns === 0) {
+      const { eventCount, transcriptTurnCount } = await collectAndPersistEvents(
+        {
+          runId: input.runId,
+          collector,
+          assistantEvents,
+          includeInTranscript: true,
+        },
+      );
+      // A zero-event window means the event stream went silent for the
+      // full quiet/max budget without delivering anything — a pipeline
+      // failure (dead subscription, model never replied). Throw so the
+      // run fails loudly instead of dribbling into metrics with no
+      // assistant response.
+      //
+      // We deliberately do NOT throw on `transcriptTurnCount === 0`
+      // alone: tool-use-only responses (assistant emits a tool_use_*
+      // event sequence with no `assistant_text_delta`) are legitimate
+      // and produce zero transcript turns while still being a real
+      // response. Devin caught this regression on PR #31348.
+      if (eventCount === 0) {
         throw new Error(
-          `assistant response collection produced no transcript text for turn ${simulatorTurns + 1}`,
+          `assistant response collection produced no events for turn ${simulatorTurns + 1}`,
         );
       }
       progress({
         step: "events",
         status: "done",
         message: "Assistant response collected",
-        detail: `${assistantTranscriptTurns} transcript turn${assistantTranscriptTurns === 1 ? "" : "s"}`,
+        detail: `${eventCount} event${eventCount === 1 ? "" : "s"} · ${transcriptTurnCount} transcript turn${transcriptTurnCount === 1 ? "" : "s"}`,
         turn: simulatorTurns + 1,
       });
     }
