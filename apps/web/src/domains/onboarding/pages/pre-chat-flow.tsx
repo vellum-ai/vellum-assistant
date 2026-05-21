@@ -360,7 +360,10 @@ export function PreChatFlow() {
         onChange={setSelectedPriorAssistants}
         onBack={() => setScreen(2)}
         onContinue={advancePastPriorAssistants}
-        onSkip={advancePastPriorAssistants}
+        onSkip={() => {
+          setSelectedPriorAssistants(new Set());
+          advancePastPriorAssistants();
+        }}
       />
     );
   }

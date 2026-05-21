@@ -1594,6 +1594,7 @@ export async function handleSendMessage(
             tone: body.onboarding!.tone,
             googleConnected: body.onboarding!.googleConnected,
             googleScopes: body.onboarding!.googleScopes,
+            priorAssistants: body.onboarding!.priorAssistants,
           });
         } catch (err) {
           log.warn({ err }, "Failed to record onboarding telemetry event");
@@ -1648,6 +1649,7 @@ export async function handleSendMessage(
         tone: body.onboarding!.tone,
         googleConnected: body.onboarding!.googleConnected,
         googleScopes: body.onboarding!.googleScopes,
+        priorAssistants: body.onboarding!.priorAssistants,
       });
     } catch (err) {
       log.warn({ err }, "Failed to record onboarding telemetry event");

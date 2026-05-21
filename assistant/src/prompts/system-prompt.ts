@@ -424,21 +424,6 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
         "Apply this context quietly. Do not recap it as a list unless the user asks.",
       );
       systemParts.push(lines.join("\n"));
-
-      if (n.priorAssistants?.length) {
-        systemParts.push(
-          "## Species Migration\n\n" +
-            "This user has prior experience with other AI assistants. " +
-            "During the first conversation, after the initial greeting and rapport, " +
-            "gently mention that you can help them bring over anything they've built " +
-            "with their previous assistant — memory, skills, workflows, integrations — " +
-            "using the species-migration skill. Frame it as an offer, not a push: " +
-            "\"I noticed you've used [X] before — if you've built anything there you'd like to bring over, " +
-            "I can help with that whenever you're ready.\" " +
-            "Only proceed with migration if the user expresses interest. " +
-            "Do not load or activate the species-migration skill preemptively.",
-        );
-      }
     }
   }
   // Configuration section removed — workspace files are self-describing,
