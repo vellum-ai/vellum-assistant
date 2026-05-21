@@ -494,6 +494,35 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(botRow?.provenanceRequesterIdentifier).toBe("B_BOT");
   });
 
+  test("skips Slack assistant new-thread placeholder during DM backfill", async () => {
+    backfillDmMock.mockImplementation(async () => [
+      makeBackfilledMessage({
+        id: "1700000000.000001",
+        text: "New Assistant Thread",
+        sender: { id: "B_ASSISTANT", name: "Ada" },
+        metadata: { isBot: true },
+      }),
+      makeBackfilledMessage({
+        id: "1700000000.000002",
+        text: "real bot context",
+        sender: { id: "B_ASSISTANT", name: "Ada" },
+        metadata: { isBot: true },
+      }),
+    ]);
+
+    await handleChannelInbound(
+      buildDmRequest("live new DM"),
+      noopProcessMessage,
+      TEST_BEARER_TOKEN,
+    );
+
+    const rows = readPersistedSlackRows();
+    expect(rows.map((row) => row.rawContent).sort()).toEqual([
+      "real bot context",
+    ]);
+    expect(rows[0]?.slackMeta?.actorExternalUserId).toBe("B_ASSISTANT");
+  });
+
   test("backfill skips channelTs values already stored", async () => {
     // First DM: backfill returns three rows.
     backfillDmMock.mockImplementation(async () => [

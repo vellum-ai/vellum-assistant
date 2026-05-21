@@ -4239,6 +4239,38 @@ describe("assembleSlackChronologicalMessages", () => {
     }
   });
 
+  test("Slack context skips persisted assistant new-thread placeholder rows", () => {
+    const placeholderMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_25,
+      eventKind: "message",
+      actorExternalUserId: "B_ASSISTANT",
+    };
+    const realBotMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_28,
+      eventKind: "message",
+      actorExternalUserId: "B_ASSISTANT",
+    };
+    const rows: SlackTranscriptInputRow[] = [
+      row(
+        "user",
+        "New Assistant Thread",
+        MS_14_25,
+        metadataEnvelope(placeholderMeta),
+      ),
+      row("user", "real bot context", MS_14_28, metadataEnvelope(realBotMeta)),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
+    expect(result).not.toBeNull();
+    const rendered = JSON.stringify(result);
+    expect(rendered).not.toContain("New Assistant Thread");
+    expect(rendered).toContain("real bot context");
+  });
+
   test("legacy-DM fixture: pre-upgrade rows (no slackMeta) interleave with post-upgrade rows", () => {
     // Mix:
     //  - Two pre-upgrade rows (created before PR 16 wired slackMeta into

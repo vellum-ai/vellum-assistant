@@ -1268,6 +1268,28 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
   };
 }
 
+const SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT = "New Assistant Thread";
+
+function isSlackAssistantThreadPlaceholder(
+  message: RenderableSlackMessage,
+): boolean {
+  return (
+    message.role === "user" &&
+    message.metadata?.eventKind === "message" &&
+    message.metadata.actorExternalUserId?.startsWith("B") === true &&
+    message.content.replace(/\s+/g, " ").trim() ===
+      SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT
+  );
+}
+
+function rowsToRenderableSlackMessages(
+  rows: SlackTranscriptInputRow[],
+): RenderableSlackMessage[] {
+  return rows
+    .map(rowToRenderable)
+    .filter((message) => !isSlackAssistantThreadPlaceholder(message));
+}
+
 /**
  * Compatibility projection for callers that still need the legacy
  * `Message[] | null` shape. New runtime callers should use
@@ -1363,7 +1385,7 @@ function assembleSlackChronologicalContext(
   if (capabilities.channel !== "slack") {
     return null;
   }
-  const renderable = rows.map(rowToRenderable);
+  const renderable = rowsToRenderableSlackMessages(rows);
   const rendered = renderSlackTranscriptWithProvenance(renderable);
   const contextSummary = options.contextSummary?.trim();
   const renderedMessages = rendered.renderedMessages;
@@ -1605,7 +1627,7 @@ export function assembleSlackActiveThreadFocusBlock(
   // conversation and omits the field for DMs, so gate the focus block
   // on the positive `"channel"` match.
   if (capabilities.chatType !== "channel") return null;
-  const renderable = rows.map(rowToRenderable);
+  const renderable = rowsToRenderableSlackMessages(rows);
   const activeThreadTs = detectActiveThreadTs(renderable);
   if (!activeThreadTs) return null;
   return buildActiveThreadBlockFromRenderable(renderable, activeThreadTs);

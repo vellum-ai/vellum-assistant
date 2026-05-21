@@ -253,8 +253,8 @@ function mapMessage(
   renderedText: string,
 ): Message {
   // Bot-authored when Slack sets `subtype: "bot_message"` or attributes the
-  // row to a `bot_id` with no user. Backfill callers rely on this flag to
-  // avoid rehydrating assistant/bot replies as user turns.
+  // row to a `bot_id` with no user. Backfill callers use this flag for
+  // bot-specific filtering while preserving real bot rows as channel replay.
   const isBot =
     msg.subtype === "bot_message" || (msg.bot_id != null && !msg.user);
   const slackFiles = mapSlackFiles(msg.files);

@@ -1630,6 +1630,16 @@ function isBackfilledSlackGuardianMessage(
   return canonicalSender === canonicalGuardian;
 }
 
+const SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT = "New Assistant Thread";
+
+function isSlackAssistantThreadPlaceholder(message: ProviderMessage): boolean {
+  if (message.metadata?.isBot !== true) return false;
+  return (
+    message.text.replace(/\s+/g, " ").trim() ===
+    SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT
+  );
+}
+
 /**
  * Transient view of `slackFiles` that preserves the download URLs added by
  * `mapSlackFiles` on the in-flight `ProviderMessage`. These URLs never reach
@@ -1755,6 +1765,7 @@ async function runBackfillSlackDmIfCold(params: {
     const ordered = [...fetched].reverse();
     for (const message of ordered) {
       if (seen.has(message.id)) continue;
+      if (isSlackAssistantThreadPlaceholder(message)) continue;
       try {
         await persistBackfilledSlackMessage({
           conversationId: params.conversationId,
@@ -2330,6 +2341,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     for (const message of fetched) {
       if (!message.id) continue;
       if (threadState.storedChannelTs.has(message.id)) continue;
+      if (isSlackAssistantThreadPlaceholder(message)) continue;
       try {
         await persistBackfilledSlackMessage({
           conversationId,
