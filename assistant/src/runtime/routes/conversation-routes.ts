@@ -69,6 +69,7 @@ import {
 } from "../../memory/canonical-guardian-store.js";
 import {
   addMessage,
+  getConversation,
   getMessages,
   getMessagesPaginated,
   hasMessages,
@@ -81,7 +82,6 @@ import {
 import {
   getConversationByKey,
   getOrCreateConversation,
-  resolveConversationId,
 } from "../../memory/conversation-key-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
 import { recordOnboardingEvent } from "../../memory/onboarding-events-store.js";
@@ -406,14 +406,20 @@ export function handleListMessages({
   if (conversationId) {
     resolvedConversationId = conversationId;
   } else if (conversationKey) {
-    // Dual lookup: try the keys table first (the canonical channel/external
-    // → internal-id mapping), then fall back to treating the key as a direct
-    // conversation id. Background/scheduled conversations are bootstrapped
-    // without a `conversation_keys` row, so callers that pass their id as a
-    // key (web clients use the conversation list's `id` as `conversationKey`)
-    // would otherwise get an empty result.
-    resolvedConversationId =
-      resolveConversationId(conversationKey) ?? undefined;
+    // Dual lookup, key-first: prefer the `conversation_keys` table — the
+    // canonical channel/external → internal-id mapping — so legacy or
+    // externally-sourced keys keep their explicit mapping precedence and
+    // never collide with an unrelated `conversations.id`. Fall back to a
+    // direct id lookup only when no mapping exists, which covers
+    // background/scheduled conversations bootstrapped without a
+    // `conversation_keys` row (web clients use the conversation list's
+    // `id` as `conversationKey` for those).
+    const mapping = getConversationByKey(conversationKey);
+    if (mapping) {
+      resolvedConversationId = mapping.conversationId;
+    } else if (getConversation(conversationKey)) {
+      resolvedConversationId = conversationKey;
+    }
   } else {
     throw new BadRequestError(
       "conversationKey or conversationId query parameter is required",
