@@ -91,47 +91,26 @@ describe("maybeReseedBootstrapForCohort — content-automation template", () => 
     return readFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "utf-8");
   }
 
-  test("produces BOOTSTRAP.md containing credential_store prompt instructions", () => {
+  test("loads the geo-writing skill on first turn", () => {
     const content = reseedAndRead();
-    expect(content).toContain("credential_store");
-    expect(content).toContain("action `prompt`");
+    expect(content).toContain("geo-writing");
   });
 
-  test("routes to website scrape path when Website URL is in user context", () => {
+  test("uses skill-first onboarding approach", () => {
     const content = reseedAndRead();
-    expect(content).toContain("Website URL in user context");
-    expect(content).toContain("Website scrape path");
+    expect(content).toContain("Skill-First Onboarding");
+    expect(content).toContain("The skill is the onboarding");
   });
 
-  test("routes to Sanity path when sanity-connection.json sidecar exists", () => {
+  test("includes comment-driven edit loop", () => {
     const content = reseedAndRead();
-    expect(content).toContain("data/sanity-connection.json");
-    expect(content).toContain("Sanity path");
+    expect(content).toContain("comment-driven");
+    expect(content).toContain("comment_resolve");
+    expect(content).toContain("document_update");
   });
 
-  test("routes to website scrape path when content-source.json sidecar exists", () => {
+  test("references VOICE.md for voice capture", () => {
     const content = reseedAndRead();
-    expect(content).toContain("data/content-source.json");
-    expect(content).toContain("Website scrape path");
-  });
-
-  test("website scrape path includes web_fetch instructions for homepage, blog, and posts", () => {
-    const content = reseedAndRead();
-    expect(content).toContain("Scrape homepage");
-    expect(content).toContain("web_fetch");
-    expect(content).toContain("scrape blog index");
-    expect(content).toContain("Scrape top content pages");
-  });
-
-  test("website scrape path infers topics and voice to VOICE.md", () => {
-    const content = reseedAndRead();
-    expect(content).toContain("## Topics");
-    expect(content).toContain("## Style");
-    expect(content).toContain("## Audience");
-  });
-
-  test("references assistant oauth request --provider sanity for authenticated API calls", () => {
-    const content = reseedAndRead();
-    expect(content).toContain("assistant oauth request --provider sanity");
+    expect(content).toContain("VOICE.md");
   });
 });
