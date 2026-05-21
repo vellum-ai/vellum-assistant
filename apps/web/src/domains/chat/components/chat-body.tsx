@@ -73,10 +73,13 @@ export interface ChatBodyProps {
    */
   isKeyboardOpen: boolean;
 
-  /** True when the scroll-to-latest button should be shown above the composer. */
+  /** True when the "Go to Newest" pill should be shown above the composer. */
   showScrollToLatest: boolean;
-  /** Click handler for the scroll-to-latest button. */
+  /** Click handler for the "Go to Newest" pill. */
   onScrollToLatest: () => void;
+  /** True when an assistant response is currently streaming — drives the
+   *  animated dots indicator inside the "Go to Newest" pill. */
+  isStreaming?: boolean;
 
   /** Active refresh-feedback pill, or `null` when no pill is shown. */
   refreshFeedback: RefreshFeedback | null;
@@ -173,6 +176,7 @@ export function ChatBody({
   isKeyboardOpen,
   showScrollToLatest,
   onScrollToLatest,
+  isStreaming = false,
   refreshFeedback,
   onDismissRefreshFeedback,
   onRetryRefresh,
@@ -242,7 +246,10 @@ export function ChatBody({
           <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex flex-col items-center">
             {showScrollToLatest && (
               <div className="pointer-events-auto pb-2.5">
-                <ScrollToLatestButton onClick={onScrollToLatest} />
+                <ScrollToLatestButton
+                  onClick={onScrollToLatest}
+                  isStreaming={isStreaming}
+                />
               </div>
             )}
             {bannerSlot}

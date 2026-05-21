@@ -107,6 +107,10 @@ interface SendMessageResponse {
   queued?: boolean;
   conversationId?: string;
   assistantMessage?: RuntimeMessage;
+  /** Set when `queued` is true — the daemon's request id for the
+   *  queued message, used by the steer/cancel endpoints. Added by
+   *  #7484 (queue steering) but the interface field was missed. */
+  requestId?: string;
 }
 
 interface ListMessagesResponse {

@@ -597,6 +597,8 @@ export function ChatRouteContent({
   };
 
   const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
+  const isAssistantStreaming =
+    showThinking || messages.some((m) => m.isStreaming);
   const canStopGenerating =
     isSending(turnState) && turnState.phase !== "awaiting_user_input";
 
@@ -859,8 +861,13 @@ export function ChatRouteContent({
       shouldFocusInputRef.current = true;
     }
     haptic.medium();
+    // Engage the auto-pin window so the new turn lands at the bottom
+    // — even if the user had scrolled up while composing — and so the
+    // initial response render (which expands LatestTurnRow via
+    // useViewportMinHeight) stays anchored at the latest message.
+    scrollCoordinator.scrollToLatest({ behavior: "auto" });
     await sendMessage(trimmed, attachmentsToSend);
-  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationKey, chatAttachments, resetChatAttachments, sendMessage, setInput, setSuggestion, clearDraft, inputRef]);
+  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationKey, chatAttachments, resetChatAttachments, sendMessage, setInput, setSuggestion, clearDraft, inputRef, scrollCoordinator]);
 
   const handleSelectStarter = (starter: { prompt: string }) => {
     setInput(starter.prompt);
@@ -1106,9 +1113,7 @@ export function ChatRouteContent({
               customImageUrl={avatarImageUrl}
               size={56}
               interactive
-              isStreaming={
-                showThinking || messages.some((m) => m.isStreaming)
-              }
+              isStreaming={isAssistantStreaming}
             />
           )
         : undefined,
@@ -1285,6 +1290,7 @@ export function ChatRouteContent({
               scrollCoordinator.showScrollToLatest && messages.length > 0
             }
             onScrollToLatest={handleScrollToLatest}
+            isStreaming={isAssistantStreaming}
             refreshFeedback={refreshFeedback}
             onDismissRefreshFeedback={handleDismissRefreshFeedback}
             onRetryRefresh={handleRetryRefreshFromPill}
@@ -1357,6 +1363,7 @@ export function ChatRouteContent({
         scrollCoordinator.showScrollToLatest && messages.length > 0
       }
       onScrollToLatest={handleScrollToLatest}
+      isStreaming={isAssistantStreaming}
       refreshFeedback={refreshFeedback}
       onDismissRefreshFeedback={handleDismissRefreshFeedback}
       onRetryRefresh={handleRetryRefreshFromPill}
