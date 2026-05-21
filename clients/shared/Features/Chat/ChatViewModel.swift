@@ -1762,6 +1762,39 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         sendCoordinator.sendDirectQueuedMessage(messageId: messageId)
     }
 
+    /// Steer the agent to a queued message via the HTTP steer endpoint.
+    /// Promotes the message to the head of the queue and aborts the current generation.
+    public func steerQueuedMessage(messageId: UUID) {
+        guard let conversationId else { return }
+
+        // Find the requestId for this message
+        guard let entry = requestIdToMessageId.first(where: { $0.value == messageId }) else {
+            log.warning("Cannot steer: no requestId for message \(messageId)")
+            return
+        }
+
+        Task {
+            let success = await conversationQueueClient.steerQueuedMessage(
+                conversationId: conversationId,
+                requestId: entry.key
+            )
+            if !success {
+                log.error("Failed to steer queued message")
+            }
+        }
+    }
+
+    /// Update local queue positions after the server confirms a message was steered.
+    /// The steered message is promoted to position 1; it will be dequeued shortly
+    /// when the abort triggers queue drain.
+    func applyMessageSteered(requestId: String) {
+        guard let messageId = requestIdToMessageId[requestId] else { return }
+        // Set the steered message to position 1 (head of queue)
+        if let idx = messages.firstIndex(where: { $0.id == messageId }) {
+            messages[idx].status = .queued(position: 1)
+        }
+    }
+
     /// If a send-direct is pending, populate the composer and fire sendMessage.
     /// Called from all cancel-completion paths (generationCancelled, timeout, disconnected, etc.).
     func dispatchPendingSendDirect() {

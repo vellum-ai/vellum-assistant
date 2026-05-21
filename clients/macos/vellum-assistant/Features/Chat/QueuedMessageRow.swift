@@ -20,6 +20,8 @@ struct QueuedMessageRow: View {
     let positionLabel: String
     let isTail: Bool
     let isComposerEmpty: Bool
+    let showSteer: Bool
+    let onSteer: () -> Void
     let onEdit: () -> Void
     let onCancel: () -> Void
 
@@ -54,10 +56,14 @@ struct QueuedMessageRow: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // (d) Trailing icon cluster: pencil only when tail, xmark always.
+            // (d) Trailing icon cluster: steer, pencil (tail only), xmark.
             // Pencil is disabled when the composer has content so we don't
             // clobber the user's in-progress draft.
             HStack(spacing: VSpacing.xs) {
+                if showSteer {
+                    QueuedRowIconButton(icon: .arrowUp, accessibilityLabel: "Push to agent now", action: onSteer)
+                        .help("Push to agent now")
+                }
                 if isTail {
                     QueuedRowIconButton(icon: .pencil, accessibilityLabel: "Edit queued message", action: onEdit)
                         .disabled(!isComposerEmpty)
