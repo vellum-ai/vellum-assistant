@@ -4,7 +4,7 @@ import { Link, useSearchParams } from "react-router";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@vellum/design-library";
-import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { useActiveAssistantContext } from "@/domains/chat/active-assistant-gate.js";
 import {
   buildInspectorExportFilename,
   buildInspectorExportZipBlob,
@@ -47,14 +47,14 @@ export function MessageInspectorView({
   conversationKey,
   messageId,
 }: MessageInspectorViewProps): ReactNode {
-  const { assistantId } = useAssistantContext();
+  const { assistantId } = useActiveAssistantContext();
   const {
     data,
     isLoading: isLoadingContext,
     isError,
     error,
     refetch,
-  } = useLlmContext(assistantId ?? undefined, messageId);
+  } = useLlmContext(assistantId, messageId);
 
   const logs = useMemo(() => data?.logs ?? [], [data?.logs]);
   const [searchParams] = useSearchParams();
@@ -120,7 +120,7 @@ export function MessageInspectorView({
 }
 
 interface HeaderProps {
-  assistantId: string | null;
+  assistantId: string;
   conversationKey: string;
   context: LlmContextResponse | undefined;
   messageId: string;
@@ -138,10 +138,10 @@ function Header({
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  const canExport = Boolean(assistantId && context && context.logs.length > 0);
+  const canExport = Boolean(context && context.logs.length > 0);
 
   async function handleExport(): Promise<void> {
-    if (!assistantId || !context || isExporting) return;
+    if (!context || isExporting) return;
     setIsExporting(true);
     setExportError(null);
     try {
@@ -240,7 +240,7 @@ interface LoadedProps {
   selectedLog: LLMRequestLogEntry | null;
   selectedLogId: string | undefined;
   buildCallHref: (logId: string) => string;
-  assistantId: string | null;
+  assistantId: string;
 }
 
 function Loaded({
@@ -296,7 +296,7 @@ function Loaded({
 interface TabContentProps {
   tab: Exclude<InspectorTab, "memory">;
   entry: LLMRequestLogEntry;
-  assistantId: string | null;
+  assistantId: string;
   conversationTotalEstimatedCostUsd: number | null | undefined;
 }
 
@@ -319,7 +319,7 @@ function TabContent({
     case "response":
       return <ResponseTab entry={entry} />;
     case "raw":
-      return <RawTab entry={entry} assistantId={assistantId ?? undefined} />;
+      return <RawTab entry={entry} assistantId={assistantId} />;
   }
 }
 

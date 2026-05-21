@@ -45,7 +45,8 @@ import { DesktopOAuthCompletePage } from "@/domains/account/pages/desktop-oauth-
 import { LogoutPage } from "@/domains/account/pages/logout-page.js";
 import { OAuthPopupCompletePage } from "@/domains/account/pages/oauth-popup-complete-page.js";
 import { PasswordResetPage } from "@/domains/account/pages/password-reset-page.js";
-import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { useActiveAssistantContext } from "@/domains/chat/active-assistant-gate.js";
+import { ActiveAssistantGate } from "@/domains/chat/active-assistant-gate.js";
 import { HatchingScreen } from "@/domains/onboarding/pages/hatching-screen.js";
 import { PreChatFlow } from "@/domains/onboarding/pages/pre-chat-flow.js";
 import { PrivacyScreen } from "@/domains/onboarding/pages/privacy-screen.js";
@@ -75,12 +76,7 @@ function ConversationKeyRedirect() {
 
 function HomePageRoute() {
   const navigate = useNavigate();
-  const { assistantId } = useAssistantContext();
-  // Mirror the platform's `mainView === "home" && assistantId` gate
-  // (AssistantPageClient.tsx). Rendering HomePage with a null assistantId
-  // leaves useHomeFeedQuery disabled forever and the page silently
-  // degrades to the empty-fallback state.
-  if (!assistantId) return null;
+  const { assistantId } = useActiveAssistantContext();
   return (
     <HomePage
       assistantId={assistantId}
@@ -181,22 +177,35 @@ export const router = createBrowserRouter([
       {
         element: <ChatLayout />,
         children: [
+          // ChatPage / DocumentViewerPage own their own lifecycle UI
+          // (loading screens, hatching, version-selection, errors) and
+          // must render in every assistant state — they are NOT placed
+          // under <ActiveAssistantGate>.
           { index: true, element: <ConversationKeyRedirect /> },
           { path: "conversations/:conversationKey", element: <ChatPage /> },
           { path: "documents/:surfaceId", element: <DocumentViewerPage /> },
-          { path: "home", element: <HomePageRoute /> },
+          // Everything below requires a resolved assistantId AND an
+          // active daemon. The gate defers child rendering until the
+          // lifecycle resolves so route components can rely on a
+          // non-null assistantId via useActiveAssistantContext().
           {
-            element: <IntelligenceLayout />,
+            element: <ActiveAssistantGate />,
             children: [
-              { path: "identity", element: <IdentityPage /> },
-              { path: "library", element: <LibraryPage /> },
-              { path: "workspace", element: <WorkspacePage /> },
-              { path: "contacts", element: <ContactsPage /> },
+              { path: "home", element: <HomePageRoute /> },
+              {
+                element: <IntelligenceLayout />,
+                children: [
+                  { path: "identity", element: <IdentityPage /> },
+                  { path: "library", element: <LibraryPage /> },
+                  { path: "workspace", element: <WorkspacePage /> },
+                  { path: "contacts", element: <ContactsPage /> },
+                ],
+              },
+              { path: "library/:appId", element: <LibraryDetailPage /> },
+              { path: "connect", element: <ConnectPage /> },
+              { path: "inspect", element: <InspectPage /> },
             ],
           },
-          { path: "library/:appId", element: <LibraryDetailPage /> },
-          { path: "connect", element: <ConnectPage /> },
-          { path: "inspect", element: <InspectPage /> },
         ],
       },
 

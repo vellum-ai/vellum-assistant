@@ -39,7 +39,7 @@ import type {
   ContactPayload,
   ContactSelection,
 } from "@/domains/contacts/types.js";
-import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { useActiveAssistantContext } from "@/domains/chat/active-assistant-gate.js";
 import { fetchAssistantIdentity } from "@/assistant/identity.js";
 import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
@@ -53,12 +53,8 @@ const ASSISTANT_SETUP_PROMPTS: Record<AssistantChannelState["key"], string> = {
 const READINESS_REFETCH_MS = 15000;
 
 export function ContactsPage() {
-  const { assistantId } = useAssistantContext();
+  const { assistantId } = useActiveAssistantContext();
   const navigate = useNavigate();
-
-  if (!assistantId) {
-    return null;
-  }
 
   return (
     <ContactsPageInner

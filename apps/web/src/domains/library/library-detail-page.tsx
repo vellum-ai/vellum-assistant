@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router";
 
 import { toast } from "@vellum/design-library";
 
-import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { useActiveAssistantContext } from "@/domains/chat/active-assistant-gate.js";
 import { openApp, shareApp } from "@/domains/chat/api/apps.js";
 import { AppViewerContainer } from "@/domains/intelligence/components/apps/app-viewer-container.js";
 import { routes } from "@/utils/routes.js";
@@ -18,7 +18,7 @@ interface LoadedApp {
 
 export function LibraryDetailPage() {
   const { appId } = useParams<{ appId: string }>();
-  const { assistantId } = useAssistantContext();
+  const { assistantId } = useActiveAssistantContext();
   const navigate = useNavigate();
 
   const [app, setApp] = useState<LoadedApp | null>(null);
@@ -27,7 +27,7 @@ export function LibraryDetailPage() {
   const requestRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!assistantId || !appId) return;
+    if (!appId) return;
     requestRef.current = appId;
     setApp(null);
     setError(null);
@@ -57,7 +57,7 @@ export function LibraryDetailPage() {
   }, [navigate]);
 
   const handleShare = useCallback(async () => {
-    if (!assistantId || !app || isSharing) return;
+    if (!app || isSharing) return;
     setIsSharing(true);
     try {
       await shareApp(assistantId, app.appId, app.name);
@@ -71,7 +71,7 @@ export function LibraryDetailPage() {
     }
   }, [assistantId, app, isSharing]);
 
-  if (!assistantId || !appId) return null;
+  if (!appId) return null;
 
   if (error) {
     return (

@@ -1,12 +1,12 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router";
 
-import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { useActiveAssistantContext } from "@/domains/chat/active-assistant-gate.js";
 import { LibraryView } from "@/domains/intelligence/components/apps/library-view.js";
 import { routes } from "@/utils/routes.js";
 
 export function LibraryPage() {
-  const { assistantId } = useAssistantContext();
+  const { assistantId } = useActiveAssistantContext();
   const navigate = useNavigate();
 
   const handleNewConversation = useCallback(
@@ -28,8 +28,6 @@ export function LibraryPage() {
     },
     [navigate],
   );
-
-  if (!assistantId) return null;
 
   return (
     <LibraryView

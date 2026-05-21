@@ -1,8 +1,7 @@
-import { useAssistantContext } from "@/domains/chat/assistant-context.js";
+import { useActiveAssistantContext } from "@/domains/chat/active-assistant-gate.js";
 import { IdentityTab } from "@/domains/intelligence/components/identity-tab.js";
 
 export function IdentityPage() {
-  const { assistantId } = useAssistantContext();
-  if (!assistantId) return null;
+  const { assistantId } = useActiveAssistantContext();
   return <IdentityTab assistantId={assistantId} />;
 }
