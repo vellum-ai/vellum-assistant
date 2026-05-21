@@ -174,6 +174,8 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
 });
 
 describe("Slack thinking status timing", () => {
+  const slackStatusLabels = ["is grinding", "is working", "is touching grass"];
+
   const trustCtx: TrustContext = {
     trustClass: "guardian",
     guardianExternalUserId: "guardian-1",
@@ -281,9 +283,13 @@ describe("Slack thinking status timing", () => {
         {
           channel: channelId,
           threadTs,
-          status: "is thinking...",
+          status: expect.any(String),
+          loadingMessages: ["Working on it..."],
         },
       );
+      const threadStatus = deliveredChannelReplies[0]!.payload
+        .assistantThreadStatus as { status: string };
+      expect(slackStatusLabels).toContain(threadStatus.status);
       return { messageId: "user-msg-mention-immediate" };
     };
 
@@ -309,7 +315,8 @@ describe("Slack thinking status timing", () => {
         | undefined;
       return status?.status;
     });
-    expect(statuses).toEqual(["is thinking...", ""]);
+    expect(slackStatusLabels).toContain(statuses[0]!);
+    expect(statuses[1]).toBe("");
   });
 
   test("does not set Slack thinking status for no_response text deltas", async () => {
@@ -396,6 +403,226 @@ describe("Slack thinking status timing", () => {
         | undefined;
       return status?.status;
     });
-    expect(statuses).toEqual(["is thinking...", ""]);
+    expect(slackStatusLabels).toContain(statuses[0]!);
+    expect(statuses[1]).toBe("");
+  });
+
+  test("buffers task_progress for ambiguous Slack turns until deliverable text appears", async () => {
+    const conversationId = "conv-progress-buffered";
+    const channelId = "C-PROGRESS-BUFFERED";
+    const threadTs = "1700000000.000012";
+
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      _attachmentIds,
+      options,
+    ) => {
+      options?.onEvent?.({
+        type: "ui_surface_show",
+        conversationId,
+        surfaceId: "surface-progress",
+        surfaceType: "card",
+        data: {
+          title: "Task progress",
+          body: "Working",
+          template: "task_progress",
+          templateData: {
+            steps: [
+              { label: "Search docs", status: "in_progress" },
+              { label: "Summarize", status: "pending" },
+            ],
+          },
+        },
+      });
+      expect(deliveredChannelReplies).toEqual([]);
+
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "I found the answer.",
+        conversationId,
+      });
+      return { messageId: "user-msg-progress-buffered" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-progress-buffered",
+      content: "ambient request",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
+    });
+
+    await flush();
+
+    const statuses = deliveredChannelReplies.map(
+      (entry) => entry.payload.assistantThreadStatus,
+    );
+    expect(statuses).toEqual([
+      {
+        channel: channelId,
+        threadTs,
+        status: expect.any(String),
+        loadingMessages: ["In progress (1/2): Search docs"],
+      },
+      {
+        channel: channelId,
+        threadTs,
+        status: "",
+      },
+    ]);
+    expect(slackStatusLabels).toContain(
+      (statuses[0] as { status: string }).status,
+    );
+  });
+
+  test("keeps ambiguous Slack no_response turns quiet even with task_progress", async () => {
+    const conversationId = "conv-progress-no-response";
+    const channelId = "C-PROGRESS-NO-RESPONSE";
+    const threadTs = "1700000000.000013";
+
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      _attachmentIds,
+      options,
+    ) => {
+      options?.onEvent?.({
+        type: "ui_surface_show",
+        conversationId,
+        surfaceId: "surface-progress-no-response",
+        surfaceType: "card",
+        data: {
+          title: "Task progress",
+          body: "Working",
+          template: "task_progress",
+          templateData: {
+            steps: [{ label: "Inspect", status: "in_progress" }],
+          },
+        },
+      });
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "<no_response/>",
+        conversationId,
+      });
+      return { messageId: "user-msg-progress-no-response" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-progress-no-response",
+      content: "ambient chatter",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
+    });
+
+    await flush();
+
+    expect(deliveredChannelReplies).toEqual([]);
+  });
+
+  test("updates Slack loading message when task_progress changes", async () => {
+    const conversationId = "conv-progress-update";
+    const channelId = "C-PROGRESS-UPDATE";
+    const threadTs = "1700000000.000014";
+
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      _attachmentIds,
+      options,
+    ) => {
+      options?.onEvent?.({
+        type: "ui_surface_show",
+        conversationId,
+        surfaceId: "surface-progress-update",
+        surfaceType: "card",
+        data: {
+          title: "Task progress",
+          body: "Working",
+          template: "task_progress",
+          templateData: {
+            steps: [
+              { label: "Read request", status: "in_progress" },
+              { label: "Write answer", status: "pending" },
+            ],
+          },
+        },
+      });
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "On it.",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "ui_surface_update",
+        conversationId,
+        surfaceId: "surface-progress-update",
+        data: {
+          templateData: {
+            steps: [
+              { label: "Read request", status: "completed" },
+              { label: "Write answer", status: "in_progress" },
+            ],
+          },
+        },
+      });
+      return { messageId: "user-msg-progress-update" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-progress-update",
+      content: "please respond",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
+    });
+
+    await flush();
+
+    const statuses = deliveredChannelReplies.map(
+      (entry) => entry.payload.assistantThreadStatus,
+    );
+    expect(statuses).toEqual([
+      {
+        channel: channelId,
+        threadTs,
+        status: expect.any(String),
+        loadingMessages: ["In progress (1/2): Read request"],
+      },
+      {
+        channel: channelId,
+        threadTs,
+        status: expect.any(String),
+        loadingMessages: ["In progress (2/2): Write answer"],
+      },
+      {
+        channel: channelId,
+        threadTs,
+        status: "",
+      },
+    ]);
+    expect(slackStatusLabels).toContain(
+      (statuses[0] as { status: string }).status,
+    );
+    expect(slackStatusLabels).toContain(
+      (statuses[1] as { status: string }).status,
+    );
   });
 });
