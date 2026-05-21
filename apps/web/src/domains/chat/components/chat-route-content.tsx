@@ -57,6 +57,7 @@ import { ComposerSettingsMenu } from "@/domains/chat/components/composer-setting
 import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel.js";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card.js";
+import { SlackChannelFooter } from "./slack-channel-footer.js";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 
@@ -520,7 +521,8 @@ export function ChatRouteContent({
   const activeTurnId = useTurnStore.use.activeTurnId();
   const lastTerminalReason = useTurnStore.use.lastTerminalReason();
   const statusText = useTurnStore.use.statusText();
-  const turnState: TurnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText };
+  const liveWebActivity = useTurnStore.use.liveWebActivity();
+  const turnState: TurnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText, liveWebActivity };
 
   // -------------------------------------------------------------------------
   // Deploy / share state (from Zustand store)
@@ -554,7 +556,8 @@ export function ChatRouteContent({
   const {
     showOnboardingChoice,
     handleSubmitTasks,
-    dismiss: dismissOnboardingChoice,
+    handleSelectSpecific,
+    dismiss: _dismissOnboardingChoice,
   } = useOnboardingChoice({
     isNative,
     didOnboarding,
@@ -592,6 +595,8 @@ export function ChatRouteContent({
     hasStreamingAssistantMessage: messages.some((m) => m.isStreaming),
     hasPendingSecret: !!pendingSecret,
     hasPendingConfirmation: !!pendingConfirmation,
+    hasPendingQuestion: !!pendingQuestion,
+    hasPendingContactRequest: !!pendingContactRequest,
     hasUncompletedVisibleSurface,
     activeConversationIsProcessing,
     hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
@@ -1211,7 +1216,7 @@ export function ChatRouteContent({
     onStopSubagent,
     renderOnboardingChoice: () => (
       <OnboardingChoiceCard
-        onSelectSpecific={dismissOnboardingChoice}
+        onSelectSpecific={handleSelectSpecific}
         onSubmitTasks={handleSubmitTasks}
       />
     ),
@@ -1330,6 +1335,10 @@ export function ChatRouteContent({
     />
   );
 
+  const channelFooterSlot = (
+    <SlackChannelFooter conversation={activeConversation} messages={messages} />
+  );
+
   const questionPromptSlot = pendingQuestion ? (
     <div className="mb-2">
       <QuestionPromptCard
@@ -1376,6 +1385,7 @@ export function ChatRouteContent({
             isChannelReadonly={isChannelReadonly}
             canStopGenerating={canStopGenerating}
             questionPromptSlot={questionPromptSlot}
+            channelFooterSlot={channelFooterSlot}
             startersSlot={startersSlot}
           />
         }
@@ -1449,6 +1459,7 @@ export function ChatRouteContent({
       bannerSlot={mainBannerSlot}
       queuedDrawerSlot={mainQueuedDrawerSlot}
       questionPromptSlot={questionPromptSlot}
+      channelFooterSlot={channelFooterSlot}
       startersSlot={startersSlot}
     />
   );

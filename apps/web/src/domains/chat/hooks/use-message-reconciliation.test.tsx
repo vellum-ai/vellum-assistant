@@ -325,6 +325,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -349,6 +350,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: null,
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -372,6 +374,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -394,6 +397,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -423,6 +427,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -450,6 +455,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -476,6 +482,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -509,6 +516,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -542,6 +550,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -586,6 +595,7 @@ describe("reconcileActiveConversation", () => {
         activeTurnId: "turn-old",
         lastTerminalReason: null,
         statusText: null,
+        liveWebActivity: {},
       },
     });
     await reconcileActiveConversation();
@@ -609,6 +619,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: null,
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -639,6 +650,7 @@ describe("reconcileActiveConversation", () => {
       activeTurnId: "turn-42",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -680,6 +692,7 @@ describe("reconcileActiveConversation", () => {
         activeTurnId: "turn-99",
         lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
       };
       const { reconcileActiveConversation } = createHarness({
         streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -708,6 +721,7 @@ describe("reconcileActiveConversation — fetch failure", () => {
       activeTurnId: "turn-stuck",
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -766,7 +780,8 @@ describe("startReconciliationLoop", () => {
           activeToolCallCount: 0,
           activeTurnId: "turn-resume",
           lastTerminalReason: null,
-      statusText: null,
+          statusText: null,
+          liveWebActivity: {},
         },
       });
 

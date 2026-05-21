@@ -10,7 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { client } from "@/domains/chat/api/client.js";
-import { normalizeContentOrder, normalizeTextSegments, postChatMessage } from "@/domains/chat/api/messages.js";
+import { getChatHistory, normalizeContentOrder, normalizeTextSegments, postChatMessage } from "@/domains/chat/api/messages.js";
 
 // ---------------------------------------------------------------------------
 // Spy setup — replace client.post per-test, restore after
@@ -19,6 +19,7 @@ import { normalizeContentOrder, normalizeTextSegments, postChatMessage } from "@
 let capturedBody: Record<string, unknown> | null = null;
 let nextPostResult: { data: unknown; error: unknown; response: Response };
 const originalPost = client.post;
+const originalGet = client.get;
 
 beforeEach(() => {
   capturedBody = null;
@@ -37,6 +38,7 @@ beforeEach(() => {
 
 afterEach(() => {
   client.post = originalPost;
+  client.get = originalGet;
 });
 
 // ---------------------------------------------------------------------------
@@ -204,5 +206,65 @@ describe("normalizeTextSegments", () => {
       null as unknown as string,
     ]);
     expect(result).toEqual([{ type: "text", content: "valid" }]);
+  });
+});
+
+describe("getChatHistory", () => {
+  test("uses shared runtime mapping for Slack metadata and timestamps", async () => {
+    const slackMessage = {
+      channelId: "C123ABCDEF",
+      channelName: "triage",
+      channelTs: "1710000000.000200",
+      threadTs: "1710000000.000100",
+      sender: {
+        id: "U123",
+        displayName: "Ada Lovelace",
+        username: "ada",
+        avatarUrl: "https://example.com/avatar.png",
+        isBot: false,
+      },
+      messageLink: {
+        appUrl:
+          "slack://channel?team=T123&id=C123ABCDEF&message=1710000000.000200",
+        webUrl:
+          "https://example.slack.com/archives/C123ABCDEF/p1710000000000200",
+      },
+    };
+
+    client.get = mock(async () => ({
+      data: {
+        messages: [
+          {
+            id: "msg-slack",
+            daemonMessageId: "daemon-msg-slack",
+            role: "user",
+            content:
+              "Slack reply\n[File attachment] file.pdf, type=application/pdf",
+            metadata: { source: "slack" },
+            slackMessage,
+            timestamp: "2026-05-15T12:34:56.000Z",
+          },
+        ],
+      },
+      error: null,
+      response: new Response(null, { status: 200 }),
+    })) as typeof client.get;
+
+    const result = await getChatHistory("assistant-1", "conv-key");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    expect(result.messages[0]).toMatchObject({
+      id: "msg-slack",
+      daemonMessageId: "daemon-msg-slack",
+      role: "user",
+      content: "Slack reply",
+      metadata: { source: "slack" },
+      slackMessage,
+      timestamp: Date.parse("2026-05-15T12:34:56.000Z"),
+    });
+    expect(result.messages[0]?.stableId.startsWith("server-")).toBe(true);
   });
 });

@@ -97,7 +97,7 @@ export function OnboardingChoiceCard({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid auto-rows-fr grid-cols-2 gap-2">
               {PRECHAT_TASKS.map((task) => {
                 const Icon = TASK_ICONS[task.iconKey];
                 const isSelected = selectedTasks.has(task.id);
@@ -126,7 +126,7 @@ export function OnboardingChoiceCard({
                         </div>
                       )}
                     </div>
-                    <div>
+                    <div className="flex flex-col gap-2">
                       <div className="text-body-small-default text-[var(--content-default)]">
                         {task.label}
                       </div>

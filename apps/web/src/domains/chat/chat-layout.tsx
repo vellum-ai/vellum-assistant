@@ -14,6 +14,7 @@ import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useAssistantLifecycle } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
+import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge.js";
 import type { AssistantContextValue } from "@/domains/chat/assistant-context.js";
 
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
@@ -130,6 +131,7 @@ export function ChatLayout() {
   // inherits a populated sidebar on direct navigation — not just /assistant.
   // TanStack Query handles dedup with any other consumer using the same key.
   const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
+  const homePageEnabled = useFeatureFlagStore.use.homePage();
   const isAssistantActive = lifecycle.assistantState.kind === "active";
   const { conversations } = useConversationListQuery(
     lifecycle.assistantId,
@@ -169,6 +171,13 @@ export function ChatLayout() {
     assistantId: lifecycle.assistantId,
     assistantStateKind: lifecycle.assistantState.kind,
   });
+
+  // Home page unread indicator — drives the red dot on the Home button in
+  // the layout header. Gated on the homePage feature flag so the hook
+  // doesn't fire its query when the home route is disabled.
+  const { hasUnreadHome } = useHomeUnreadBadge(
+    homePageEnabled ? lifecycle.assistantId : null,
+  );
 
   // --- Layout slot state for child route content ---
   const [topBarCenter, setTopBarCenter] = useState<ReactNode>(null);
@@ -414,6 +423,7 @@ export function ChatLayout() {
           <PreferencesMenu
             assistantId={lifecycle.assistantId}
             assistantVersion={assistantVersion}
+            activeConversationKey={activeConversationKey}
           />
         }
         onClose={args.onClose}
@@ -457,6 +467,7 @@ export function ChatLayout() {
         onGoForward={handleGoForward}
         onOpenHome={handleOpenHome}
         isHomeActive={isHomeActive}
+        hasUnreadHome={hasUnreadHome}
         onSearchClick={() => onSearchClickRef.current?.()}
       />
 

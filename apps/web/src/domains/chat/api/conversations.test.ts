@@ -58,3 +58,87 @@ describe("parseConversation — originChannel plumbing", () => {
     expect(parsed?.originChannel).toBe("notification:reminder");
   });
 });
+
+describe("parseConversation — Slack channel binding", () => {
+  test("preserves Slack channel binding with id, name, and link", () => {
+    const parsed = parseConversation({
+      conversationKey: "conv-123",
+      channelBinding: {
+        sourceChannel: "slack",
+        externalChatId: "C0123ABCDEF",
+        externalThreadId: "1710000000.000100",
+        externalChatName: "product",
+        slackChannel: {
+          id: "C0123ABCDEF",
+          name: "product",
+          link: "slack://channel?team=T0123&id=C0123ABCDEF",
+        },
+        slackThread: {
+          channelId: "C0123ABCDEF",
+          threadTs: "1710000000.000100",
+          link: {
+            appUrl: "slack://channel?team=T0123&id=C0123ABCDEF",
+            webUrl: "https://example.slack.com/archives/C0123ABCDEF/p1710000000000100",
+          },
+        },
+      },
+      conversationOriginChannel: "vellum",
+    });
+
+    expect(parsed?.originChannel).toBe("slack");
+    expect(parsed?.channelBinding).toEqual({
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalThreadId: "1710000000.000100",
+      externalChatName: "product",
+      slackChannel: {
+        id: "C0123ABCDEF",
+        name: "product",
+        link: "slack://channel?team=T0123&id=C0123ABCDEF",
+      },
+      slackThread: {
+        channelId: "C0123ABCDEF",
+        threadTs: "1710000000.000100",
+        link: {
+          appUrl: "slack://channel?team=T0123&id=C0123ABCDEF",
+          webUrl: "https://example.slack.com/archives/C0123ABCDEF/p1710000000000100",
+        },
+      },
+    });
+  });
+
+  test("falls back to conversationOriginChannel when channelBinding is absent", () => {
+    const parsed = parseConversation({
+      conversationKey: "conv-123",
+      conversationOriginChannel: "slack",
+    });
+
+    expect(parsed?.originChannel).toBe("slack");
+    expect(parsed?.channelBinding).toBeUndefined();
+  });
+
+  test("does not throw for malformed or absent channelBinding", () => {
+    expect(
+      parseConversation({
+        conversationKey: "conv-123",
+        channelBinding: "slack",
+      })?.channelBinding,
+    ).toBeUndefined();
+
+    const parsed = parseConversation({
+      conversationKey: "conv-456",
+      channelBinding: {
+        sourceChannel: "slack",
+        externalChatId: 123,
+        slackChannel: {
+          id: 123,
+          name: "product",
+        },
+      },
+      conversationOriginChannel: "telegram",
+    });
+
+    expect(parsed?.originChannel).toBe("slack");
+    expect(parsed?.channelBinding).toBeUndefined();
+  });
+});

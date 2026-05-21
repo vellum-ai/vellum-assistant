@@ -213,6 +213,7 @@ describe("polling reconciliation with state machine", () => {
       pendingQueuedCount: 0,
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const afterDelta = turnReducer(forcedIdle, { type: "ASSISTANT_TEXT_DELTA" });
     expect(afterDelta.phase).toBe("streaming");
@@ -241,6 +242,7 @@ describe("polling reconciliation with state machine", () => {
       pendingQueuedCount: 0,
       lastTerminalReason: null,
       statusText: null,
+      liveWebActivity: {},
     };
     const afterTool = turnReducer(forcedIdle, { type: "TOOL_USE_START" });
     expect(afterTool.phase).toBe("thinking");

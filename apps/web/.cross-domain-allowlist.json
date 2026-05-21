@@ -95,6 +95,9 @@
   "src/domains/chat/hooks/use-voice-input.ts": [
     "voice"
   ],
+  "src/domains/chat/hooks/use-web-search-card-data.ts": [
+    "messaging"
+  ],
   "src/domains/chat/inspector/components/tabs/prompt-tab.tsx": [
     "intelligence"
   ],

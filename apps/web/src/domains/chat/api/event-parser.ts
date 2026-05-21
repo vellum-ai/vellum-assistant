@@ -27,6 +27,7 @@ import type {
   UISurfaceShowEvent,
 } from "@/domains/chat/api/event-types.js";
 import type { DisplayAttachment } from "@/domains/chat/types/types.js";
+import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 import type { SyncInvalidationTag } from "@/lib/sync/types.js";
 
 export function readEventConversationKey(
@@ -390,7 +391,33 @@ export function parseAssistantEvent(
         directoryScopeOptions: Array.isArray(data.riskDirectoryScopeOptions)
           ? (data.riskDirectoryScopeOptions as DirectoryScopeOption[])
           : undefined,
+        // Daemon emits `activityMetadata` on tool_result for tools that report
+        // structured activity (currently Anthropic-native web_search). Treated
+        // as opaque on the wire — the downstream consumer (turn-state) keys
+        // off the discriminated child fields (webSearch/webFetch).
+        activityMetadata:
+          typeof data.activityMetadata === "object" &&
+          data.activityMetadata !== null &&
+          !Array.isArray(data.activityMetadata)
+            ? (data.activityMetadata as ToolActivityMetadata)
+            : undefined,
       };
+
+    case "tool_progress": {
+      const toolName = typeof data.toolName === "string" ? data.toolName : "unknown";
+      const elapsedSec = typeof data.elapsedSec === "number" ? data.elapsedSec : 0;
+      const timeoutSec = typeof data.timeoutSec === "number" ? data.timeoutSec : 0;
+      return {
+        type: "tool_progress",
+        toolName,
+        elapsedSec,
+        timeoutSec,
+        conversationId:
+          typeof data.conversationId === "string" ? data.conversationId : undefined,
+        toolUseId:
+          typeof data.toolUseId === "string" ? data.toolUseId : undefined,
+      };
+    }
 
     case "conversation_list_invalidated": {
       const rawReason = typeof data.reason === "string" ? data.reason : "";

@@ -938,6 +938,22 @@ export function ChatPage() {
     return () => { setTopBarCenter(null); };
   }, [topBarCenterContent, setTopBarCenter]);
 
+  const handleOpenApp = useCallback(
+    (appId: string) => {
+      haptic.light();
+      if (assistantId) void useViewerStore.getState().loadApp(assistantId, appId);
+    },
+    [assistantId],
+  );
+
+  const handleOpenDocument = useCallback(
+    (surfaceId: string) => {
+      haptic.light();
+      if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
+    },
+    [assistantId],
+  );
+
   const topBarRightContent = useMemo(() => {
     if (!activeConversation?.conversationKey || !assistantId) return null;
     return (
@@ -945,17 +961,11 @@ export function ChatPage() {
         assistantId={assistantId}
         conversationId={activeConversation.conversationKey}
         refreshKey={assetsRefreshKey}
-        onOpenApp={(appId) => {
-          haptic.light();
-          if (assistantId) void useViewerStore.getState().loadApp(assistantId, appId);
-        }}
-        onOpenDocument={(surfaceId) => {
-          haptic.light();
-          if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
-        }}
+        onOpenApp={handleOpenApp}
+        onOpenDocument={handleOpenDocument}
       />
     );
-  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey]);
+  }, [activeConversation?.conversationKey, assistantId, assetsRefreshKey, handleOpenApp, handleOpenDocument]);
 
   useEffect(() => {
     setTopBarRightSlot(topBarRightContent);
@@ -984,11 +994,15 @@ export function ChatPage() {
 
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
+  const pendingQuestion = useInteractionStore.use.pendingQuestion();
+  const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
 
   const _uiContext: UIContext = {
     hasStreamingAssistantMessage: messages.some((m) => m.isStreaming),
     hasPendingSecret: !!pendingSecret,
     hasPendingConfirmation: !!pendingConfirmation,
+    hasPendingQuestion: !!pendingQuestion,
+    hasPendingContactRequest: !!pendingContactRequest,
     hasUncompletedVisibleSurface,
     activeConversationIsProcessing,
     hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
@@ -1135,14 +1149,8 @@ export function ChatPage() {
       unknownNudgeToolCallIds: interactionActions.unknownNudgeToolCallIds,
       setUnknownNudgeToolCallIds: interactionActions.setUnknownNudgeToolCallIds,
     },
-    handleOpenApp: (appId: string) => {
-      haptic.light();
-      if (assistantId) void useViewerStore.getState().loadApp(assistantId, appId);
-    },
-    handleOpenDocument: (surfaceId: string) => {
-      haptic.light();
-      if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
-    },
+    handleOpenApp,
+    handleOpenDocument,
     handleCloseDocument: () => {
       useViewerStore.getState().closeDocument();
     },
