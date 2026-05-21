@@ -73,7 +73,13 @@ import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/rec
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination.js";
-import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/messaging/turn-selectors.js";
+import {
+  canStopGeneration,
+  getThinkingStatusText,
+  isSendDisabled,
+  shouldShowThinkingIndicator,
+  type UIContext,
+} from "@/domains/messaging/turn-selectors.js";
 import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
 
 import type { MainView, OpenedAppState, OpenedDocumentState } from "@/stores/viewer-store.js";
@@ -85,7 +91,7 @@ import { haptic } from "@/utils/haptics.js";
 import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
-import { isSending, type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
+import { type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
 import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types.js";
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
@@ -583,8 +589,10 @@ export function ChatRouteContent({
     [messages],
   );
 
+  const hasStreamingAssistantMessage = messages.some((m) => m.isStreaming);
+
   const uiContext: UIContext = {
-    hasStreamingAssistantMessage: messages.some((m) => m.isStreaming),
+    hasStreamingAssistantMessage,
     hasPendingSecret: !!pendingSecret,
     hasPendingConfirmation: !!pendingConfirmation,
     hasPendingQuestion: !!pendingQuestion,
@@ -596,9 +604,8 @@ export function ChatRouteContent({
 
   const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
   const isAssistantStreaming =
-    showThinking || messages.some((m) => m.isStreaming);
-  const canStopGenerating =
-    isSending(turnState) && turnState.phase !== "awaiting_user_input";
+    showThinking || hasStreamingAssistantMessage;
+  const canStopGenerating = canStopGeneration(turnState, uiContext);
 
   const diskPressureChatBlockReason = getDiskPressureChatBlockReason({
     monitorEnabled: diskPressure.diskPressureMonitorEnabled,
