@@ -35,7 +35,7 @@ import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcrip
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll.js";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
 import type { ChatError } from "@/domains/chat/types.js";
-import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+import type { AssistantState } from "@/stores/assistant-lifecycle-store.js";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone.js";
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments.js";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state.js";

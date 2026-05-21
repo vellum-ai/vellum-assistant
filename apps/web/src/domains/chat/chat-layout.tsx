@@ -4,7 +4,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
@@ -12,7 +14,7 @@ import { haptic } from "@/utils/haptics.js";
 import { routes } from "@/utils/routes.js";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useAssistantSyncStream } from "@/domains/chat/hooks/use-assistant-sync-stream.js";
-import { useRootOutletContext } from "@/root-layout.js";
+import { useAssistantLifecycleStore } from "@/stores/assistant-lifecycle-store.js";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init.js";
 import { useAssistantAvatar } from "@/domains/avatar/use-assistant-avatar.js";
 import { useDynamicFavicon } from "@/domains/avatar/use-dynamic-favicon.js";
@@ -118,7 +120,17 @@ interface SideMenuRenderArgs {
 export function ChatLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { lifecycle } = useRootOutletContext();
+
+  // Read the lifecycle directly from the Zustand store — atomic
+  // selectors keep this component subscribed only to the fields it
+  // renders against.
+  const assistantId = useAssistantLifecycleStore.use.assistantId();
+  const assistantState = useAssistantLifecycleStore.use.assistantState();
+  const checkAssistant = useAssistantLifecycleStore.use.checkAssistant();
+  const retryAssistant = useAssistantLifecycleStore.use.retryAssistant();
+  const hatchVersion = useAssistantLifecycleStore.use.hatchVersion();
+  const setAssistantIdAction = useAssistantLifecycleStore.use.setAssistantId();
+  const autoGreet = useAssistantLifecycleStore.use.autoGreet();
 
   // Subscribe to the sidebar conversation list at the layout level so every
   // chat-layout child route (home, library, contacts, identity, chat)
@@ -126,13 +138,13 @@ export function ChatLayout() {
   // TanStack Query handles dedup with any other consumer using the same key.
   const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
   const homePageEnabled = useFeatureFlagStore.use.homePage();
-  const isAssistantActive = lifecycle.assistantState.kind === "active";
+  const isAssistantActive = assistantState.kind === "active";
   const { conversations } = useConversationListQuery(
-    lifecycle.assistantId,
+    assistantId,
     isAssistantActive,
   );
   const { conversationGroups } = useConversationGroupsQuery(
-    lifecycle.assistantId,
+    assistantId,
     isAssistantActive && conversationGroupsUI,
   );
 
@@ -143,8 +155,8 @@ export function ChatLayout() {
   // `useAssistantContext()` would crash here since this hook runs inside
   // the layout that PROVIDES that context (no parent outlet to read from).
   useAttentionTracking({
-    assistantId: lifecycle.assistantId,
-    assistantStateKind: lifecycle.assistantState.kind,
+    assistantId,
+    assistantStateKind: assistantState.kind,
   });
 
   // Group CRUD handlers live at the layout level since the sidebar's
@@ -153,7 +165,7 @@ export function ChatLayout() {
   // it can live wherever the sidebar lives.
   const { handleCreateGroup, handleRenameGroup, handleDeleteGroup } =
     useConversationGroupActions({
-      assistantId: lifecycle.assistantId,
+      assistantId,
       conversationGroups,
     });
 
@@ -162,8 +174,8 @@ export function ChatLayout() {
   // route — not only inside a conversation where ChatPage owns the
   // fetch.
   useAssistantIdentityInit({
-    assistantId: lifecycle.assistantId,
-    assistantStateKind: lifecycle.assistantState.kind,
+    assistantId,
+    assistantStateKind: assistantState.kind,
   });
 
   // Sync the browser favicon to the assistant's avatar across every
@@ -171,7 +183,7 @@ export function ChatLayout() {
   // layout keeps the favicon live while the user is on identity,
   // library, workspace, contacts, or home (where ChatPage isn't
   // mounted). The hook is a no-op when assistantId is null.
-  const layoutAvatar = useAssistantAvatar(lifecycle.assistantId);
+  const layoutAvatar = useAssistantAvatar(assistantId);
   useDynamicFavicon(
     layoutAvatar.customImageUrl,
     layoutAvatar.components,
@@ -182,13 +194,37 @@ export function ChatLayout() {
   // avatar / identity / config / sounds / schedules / conversation
   // list query caches so the sidebar stays live on every chat-layout
   // child route.
-  useAssistantSyncStream(lifecycle.assistantId, isAssistantActive);
+  useAssistantSyncStream(assistantId, isAssistantActive);
 
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header. Gated on the homePage feature flag so the hook
   // doesn't fire its query when the home route is disabled.
   const { hasUnreadHome } = useHomeUnreadBadge(
-    homePageEnabled ? lifecycle.assistantId : null,
+    homePageEnabled ? assistantId : null,
+  );
+
+  // `autoGreetRef` is exposed on the outlet context for shape-compat
+  // with existing consumers. The store now owns the auto-greet flag,
+  // so we mirror it into a stable ref each render — read-only from
+  // the context consumer's perspective.
+  const autoGreetRef = useRef(autoGreet);
+  autoGreetRef.current = autoGreet;
+
+  // `setAssistantId` shape on the outlet context is
+  // `Dispatch<SetStateAction<string | null>>` for back-compat with
+  // existing consumers; the store's action only accepts a value, so
+  // resolve any updater function against the current store value.
+  const setAssistantId = useCallback<Dispatch<SetStateAction<string | null>>>(
+    (next) => {
+      if (typeof next === "function") {
+        const current =
+          useAssistantLifecycleStore.getState().assistantId;
+        setAssistantIdAction(next(current));
+      } else {
+        setAssistantIdAction(next);
+      }
+    },
+    [setAssistantIdAction],
   );
 
   // --- Layout slot state for child route content ---
@@ -206,26 +242,26 @@ export function ChatLayout() {
 
   const assistantContext = useMemo<AssistantContextValue>(
     () => ({
-      assistantId: lifecycle.assistantId,
-      assistantState: lifecycle.assistantState,
-      checkAssistant: lifecycle.checkAssistant,
-      retryAssistant: lifecycle.retryAssistant,
-      hatchVersion: lifecycle.hatchVersion,
-      setAssistantId: lifecycle.setAssistantId,
-      autoGreetRef: lifecycle.autoGreetRef,
+      assistantId,
+      assistantState,
+      checkAssistant,
+      retryAssistant,
+      hatchVersion,
+      setAssistantId,
+      autoGreetRef,
       setTopBarCenter,
       setTopBarRightSlot,
       setOnSearchClick,
       setFooterBanner,
     }),
     [
-      lifecycle.assistantId,
-      lifecycle.assistantState,
-      lifecycle.checkAssistant,
-      lifecycle.retryAssistant,
-      lifecycle.hatchVersion,
-      lifecycle.setAssistantId,
-      lifecycle.autoGreetRef,
+      assistantId,
+      assistantState,
+      checkAssistant,
+      retryAssistant,
+      hatchVersion,
+      setAssistantId,
+      autoGreetRef,
       setOnSearchClick,
       setFooterBanner,
     ],
@@ -429,7 +465,7 @@ export function ChatLayout() {
   const renderSideMenu = useCallback(
     (args: SideMenuRenderArgs): ReactNode => (
       <AssistantSideMenu
-        assistantId={lifecycle.assistantId ?? ""}
+        assistantId={assistantId ?? ""}
         assistantName={assistantName}
         collapsed={args.collapsed}
         variant={args.variant}
@@ -450,7 +486,7 @@ export function ChatLayout() {
         footerBanner={footerBanner}
         footerAction={
           <PreferencesMenu
-            assistantId={lifecycle.assistantId}
+            assistantId={assistantId}
             assistantVersion={assistantVersion}
             activeConversationKey={activeConversationKey}
           />
@@ -460,7 +496,7 @@ export function ChatLayout() {
       />
     ),
     [
-      lifecycle.assistantId,
+      assistantId,
       assistantName,
       assistantVersion,
       conversations,

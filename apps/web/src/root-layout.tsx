@@ -1,15 +1,12 @@
-import { Outlet, useNavigate, useOutletContext } from "react-router";
+import { useCallback } from "react";
+import { Outlet, useNavigate } from "react-router";
 
 import { useAppTheme } from "@/hooks/use-app-theme.js";
+import { useAssistantLifecycleBootstrap } from "@/hooks/use-assistant-lifecycle-bootstrap.js";
 import { useEventBusInit } from "@/hooks/use-event-bus-init.js";
 import { useIsMobile } from "@/hooks/use-is-mobile.js";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport.js";
-import {
-  useAssistantLifecycle,
-  type UseAssistantLifecycleReturn,
-} from "@/domains/chat/hooks/use-assistant-lifecycle.js";
-import { useAuthStore } from "@/stores/auth-store.js";
-import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
+import { useAssistantLifecycleStore } from "@/stores/assistant-lifecycle-store.js";
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
@@ -19,32 +16,13 @@ import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
 const KEYBOARD_OPEN_THRESHOLD_PX = 100;
 
 /**
- * Outlet-context shape provided by `RootLayout`. Child layouts
- * (`ChatLayout`, `SettingsLayout`, `LogsLayout`, onboarding routes)
- * consume the lifecycle through `useRootOutletContext()`.
- */
-export interface RootOutletContext {
-  lifecycle: UseAssistantLifecycleReturn;
-}
-
-/**
- * Read the assistant lifecycle from the root outlet context. Child
- * layouts (`ChatLayout`, `SettingsLayout`, `LogsLayout`) call this to
- * avoid running a duplicate `useAssistantLifecycle` state machine.
- */
-export function useRootOutletContext(): RootOutletContext {
-  return useOutletContext<RootOutletContext>();
-}
-
-/**
  * App-level layout route. Owns three cross-route concerns:
  *
  * 1. Safe-area insets and iOS visual-viewport keyboard tracking.
- * 2. The single assistant lifecycle (`useAssistantLifecycle`), passed
- *    to every child layout via outlet context. Resolving lifecycle here
- *    means SettingsLayout / LogsLayout / onboarding routes can see the
- *    current assistant without each layout running its own polling
- *    state machine.
+ * 2. The single assistant lifecycle (bootstrapped via
+ *    `useAssistantLifecycleBootstrap`, with state held in
+ *    `useAssistantLifecycleStore`). All child layouts read the
+ *    lifecycle directly from the store — no outlet-context plumbing.
  * 3. The event-bus owner (`useEventBusInit`). Bus producers (SSE
  *    connection, visibility / online / offline listeners, Capacitor
  *    app-state) need to be alive on every authenticated route — not
@@ -53,7 +31,6 @@ export function useRootOutletContext(): RootOutletContext {
  *
  * References:
  * - React Router layout routes: https://reactrouter.com/start/data/routing
- * - React Router outlet context: https://reactrouter.com/start/framework/outlet
  * - env() safe-area-inset: https://developer.mozilla.org/en-US/docs/Web/CSS/env
  * - Visual Viewport API: https://developer.mozilla.org/en-US/docs/Web/API/Visual_Viewport_API
  */
@@ -63,21 +40,22 @@ export function RootLayout() {
   const visibleViewport = useVisibleViewport();
 
   const navigate = useNavigate();
-  const isLoggedIn = useAuthStore.use.isLoggedIn();
-  const authLoading = useAuthStore.use.isLoading();
-  const isNonProduction = useEnvironmentStore.use.isNonProduction();
-  const lifecycle = useAssistantLifecycle({
-    isLoggedIn,
-    isLoading: authLoading,
-    isRetired: false,
-    isNonProduction,
-    onRedirect: navigate,
-  });
+  useAssistantLifecycleBootstrap({ onRedirect: navigate });
+
+  const assistantId = useAssistantLifecycleStore.use.assistantId();
+  const assistantState = useAssistantLifecycleStore.use.assistantState();
+
+  // Stable wrapper around the store's `checkAssistant` action — gives
+  // the event-bus init a referentially-stable callback for its effect
+  // dependencies without forcing the bus hook to import the store.
+  const checkAssistant = useCallback(() => {
+    void useAssistantLifecycleStore.getState().checkAssistant();
+  }, []);
 
   useEventBusInit({
-    assistantId: lifecycle.assistantId,
-    isAssistantActive: lifecycle.assistantState.kind === "active",
-    checkAssistant: lifecycle.checkAssistant,
+    assistantId,
+    isAssistantActive: assistantState.kind === "active",
+    checkAssistant,
   });
 
   const keyboardOpen =
@@ -93,8 +71,6 @@ export function RootLayout() {
   const innerTransform = followVisualViewport
     ? `translate3d(${visibleViewport.offsetLeft}px, ${visibleViewport.offsetTop}px, 0)`
     : undefined;
-
-  const outletContext: RootOutletContext = { lifecycle };
 
   return (
     <div
@@ -123,7 +99,7 @@ export function RootLayout() {
           transformOrigin: innerTransform ? "0 0" : undefined,
         }}
       >
-        <Outlet context={outletContext} />
+        <Outlet />
       </div>
 
       {/* Portal target for mobile overlays that use `position: fixed`.

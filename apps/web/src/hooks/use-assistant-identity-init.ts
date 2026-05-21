@@ -30,7 +30,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { fetchAssistantIdentity } from "@/assistant/identity.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
-import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+import type { AssistantState } from "@/stores/assistant-lifecycle-store.js";
 
 export const ASSISTANT_IDENTITY_QUERY_KEY = "assistant-identity" as const;
 

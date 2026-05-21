@@ -11,7 +11,7 @@ import {
 } from "@/domains/conversations/conversation-queries.js";
 import { markConversationSeen } from "@/domains/chat/api/conversations.js";
 import { listConversationKeysWithPendingInteractions } from "@/domains/chat/api/interactions.js";
-import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+import type { AssistantState } from "@/stores/assistant-lifecycle-store.js";
 
 interface UseAttentionTrackingParams {
   /** From `useAssistantLifecycle` in `ChatLayout`. */

@@ -2,11 +2,11 @@
  * Typed outlet context for the assistant lifecycle and layout slot
  * registration.
  *
- * `RootLayout` owns `useAssistantLifecycle` and passes it down via
- * outlet context. `ChatLayout` reads it via `useRootOutletContext()`
- * and re-publishes the chat-scoped slice as `AssistantContextValue`
- * for its own children, which consume it through
- * `useAssistantContext()`.
+ * The assistant lifecycle lives in `useAssistantLifecycleStore`.
+ * `ChatLayout` reads from the store via atomic selectors and
+ * publishes a slice of those values plus its layout-slot setters as
+ * `AssistantContextValue` for its child routes, which consume it
+ * through `useAssistantContext()`.
  *
  * Layout slot setters (`setTopBarCenter`, `setTopBarRightSlot`) allow
  * child routes to register content for the header without prop drilling.
@@ -18,22 +18,27 @@
  * - https://reactrouter.com/start/framework/outlet
  * - https://reactrouter.com/start/framework/routing#layout-routes
  */
-import type { ReactNode } from "react";
+import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "react";
 import { useOutletContext } from "react-router";
 
 import type {
   AssistantState,
-  UseAssistantLifecycleReturn,
-} from "@/domains/chat/hooks/use-assistant-lifecycle.js";
+  AssistantLifecycleStore,
+} from "@/stores/assistant-lifecycle-store.js";
 
 export interface AssistantContextValue {
   assistantId: string | null;
   assistantState: AssistantState;
-  checkAssistant: UseAssistantLifecycleReturn["checkAssistant"];
-  retryAssistant: UseAssistantLifecycleReturn["retryAssistant"];
-  hatchVersion: UseAssistantLifecycleReturn["hatchVersion"];
-  setAssistantId: UseAssistantLifecycleReturn["setAssistantId"];
-  autoGreetRef: UseAssistantLifecycleReturn["autoGreetRef"];
+  checkAssistant: AssistantLifecycleStore["checkAssistant"];
+  retryAssistant: AssistantLifecycleStore["retryAssistant"];
+  hatchVersion: AssistantLifecycleStore["hatchVersion"];
+  /** Accepts a value or an updater function — same shape as
+   *  `React.useState`'s setter so call sites can pass either form. */
+  setAssistantId: Dispatch<SetStateAction<string | null>>;
+  /** Stable ref whose `.current` mirrors the store's `autoGreet`
+   *  flag. Kept on the context for shape parity with existing
+   *  consumers; the source of truth is the store. */
+  autoGreetRef: MutableRefObject<boolean>;
   setTopBarCenter: (node: ReactNode) => void;
   setTopBarRightSlot: (node: ReactNode) => void;
   setOnSearchClick: (cb: (() => void) | null) => void;
