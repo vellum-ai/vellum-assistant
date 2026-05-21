@@ -1151,12 +1151,13 @@ jobs:
           # Each line: "<first line of commit message> — @<author>", oldest first.
           # Escape Slack mrkdwn metacharacters in the message text.
           ESCAPE='gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;")'
+          LINKIFY='gsub("\\(#(?<n>[0-9]+)\\)"; "(<https://github.com/'"${REPO}"'/pull/\(.n)|#\(.n)>)")'
 
           if [ -n "$PREV_SHA" ] && [ "$PREV_SHA" != "$HEAD_SHA" ]; then
             COMPARE_URL="https://github.com/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}"
             TOTAL=$(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --jq '.total_commits')
             mapfile -t LINES < <(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --paginate \
-              --jq ".commits[] | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE}) — @\(.author.login // .commit.author.name)\"")
+              --jq ".commits[] | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(.author.login // .commit.author.name)\"")
           else
             # First tracked release (or no new commits): fall back to HEAD itself.
             COMPARE_URL="https://github.com/${REPO}/commit/${HEAD_SHA}"
@@ -1166,7 +1167,7 @@ jobs:
             else
               TOTAL=1
               mapfile -t LINES < <(gh api "repos/${REPO}/commits/${HEAD_SHA}" \
-                --jq "\"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE}) — @\(.author.login // .commit.author.name)\"")
+                --jq "\"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(.author.login // .commit.author.name)\"")
             fi
           fi
 
@@ -1182,9 +1183,6 @@ jobs:
           fi
 
           # ── Build the message blocks ──────────────────────────────────────
-          # Header, summary line, and the action buttons. The commit list is
-          # appended below as fenced code blocks, which Slack collapses behind
-          # a "Show more" expander when long.
           BLOCKS=$(jq -n \
             --arg version "$VERSION" \
             --arg header "$HEADER_TEXT" \
@@ -1199,22 +1197,19 @@ jobs:
               ] }
             ]')
 
-          # Append one collapsible code-block section per chunk of commits.
-          append_code_section() {
+          append_section() {
             BLOCKS=$(echo "$BLOCKS" | jq --arg t "$1" \
-              '. + [{ type: "section", text: { type: "mrkdwn", text: ("```\n" + $t + "\n```") } }]')
+              '. + [{ type: "section", text: { type: "mrkdwn", text: $t } }]')
           }
 
           if [ "$COUNT" -gt 0 ]; then
-            # Chunk the numbered list to stay under Slack's 3000-char section
-            # limit (the ``` fences add a few chars, so cap the body at 2800).
             CHUNK=""
             IDX=0
             for line in "${LINES[@]}"; do
               IDX=$((IDX + 1))
               ENTRY="${IDX}. ${line}"
               if [ -n "$CHUNK" ] && [ $(( ${#CHUNK} + ${#ENTRY} + 1 )) -gt 2800 ]; then
-                append_code_section "$CHUNK"
+                append_section "$CHUNK"
                 CHUNK="$ENTRY"
               elif [ -z "$CHUNK" ]; then
                 CHUNK="$ENTRY"
@@ -1222,7 +1217,7 @@ jobs:
                 CHUNK="${CHUNK}"$'\n'"${ENTRY}"
               fi
             done
-            [ -n "$CHUNK" ] && append_code_section "$CHUNK"
+            [ -n "$CHUNK" ] && append_section "$CHUNK"
 
             if [ "$TOTAL" -gt "$COUNT" ]; then
               BLOCKS=$(echo "$BLOCKS" | jq \
