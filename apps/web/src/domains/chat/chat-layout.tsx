@@ -246,6 +246,10 @@ export function ChatLayout() {
     navigate(routes.home);
   }, [navigate]);
 
+  const handleOpenIdentity = useCallback(() => {
+    navigate(routes.identity);
+  }, [navigate]);
+
   const handleGoBack = useCallback(() => {
     navigate(-1);
   }, [navigate]);
@@ -255,6 +259,7 @@ export function ChatLayout() {
   }, [navigate]);
 
   const isHomeActive = location.pathname === routes.home;
+  const isIdentityActive = location.pathname === routes.identity;
 
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
@@ -417,8 +422,8 @@ export function ChatLayout() {
         attentionConversationKeys={attentionKeys}
         onSelectConversation={handleSelectConversation}
         onStartNewConversation={handleStartNewConversation}
-        isIntelligenceActive={isHomeActive}
-        onOpenIntelligence={handleOpenHome}
+        isIntelligenceActive={isIdentityActive}
+        onOpenIntelligence={handleOpenIdentity}
         isLibraryActive={isLibraryActive}
         onOpenLibrary={handleOpenLibrary}
         onCreateGroup={handleCreateGroup}
@@ -449,8 +454,8 @@ export function ChatLayout() {
       handleCreateGroup,
       handleRenameGroup,
       handleDeleteGroup,
-      isHomeActive,
-      handleOpenHome,
+      isIdentityActive,
+      handleOpenIdentity,
       isLibraryActive,
       handleOpenLibrary,
     ],
