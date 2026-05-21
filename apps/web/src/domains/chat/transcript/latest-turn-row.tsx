@@ -175,7 +175,15 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             )}
         </Fragment>
       ))}
-      {avatarSlot && responseItems.length > 0 && (
+      {avatarSlot && (
+        // Render whenever a slot is provided — including the "user just
+        // sent, response hasn't streamed yet" gap. Gating on
+        // `responseItems.length > 0` here causes the avatar to unmount
+        // and remount across the turn boundary, replaying the
+        // ChatAvatar entrance spring as a visible flicker. Keeping the
+        // slot mounted preserves DOM identity; the avatar's already-
+        // wired `isStreaming` prop drives the "thinking" beat while V
+        // composes a reply.
         <div
           data-latest-assistant-avatar="true"
           className="flex justify-start pl-1 pt-3 pb-2"
