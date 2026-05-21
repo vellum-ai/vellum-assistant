@@ -134,7 +134,7 @@ export const router = createBrowserRouter([
         path: "settings",
         element: <SettingsLayout />,
         children: [
-          { index: true, element: <GeneralPage /> },
+          { index: true, element: <Navigate to="general" replace /> },
           { path: "general", element: <GeneralPage /> },
           { path: "ai", element: <AiPage /> },
           { path: "integrations", element: <IntegrationsPage /> },
@@ -164,7 +164,7 @@ export const router = createBrowserRouter([
         path: "logs",
         element: <LogsLayout />,
         children: [
-          { index: true, element: <TracePage /> },
+          { index: true, element: <Navigate to="usage" replace /> },
           { path: "trace", element: <TracePage /> },
           { path: "usage", element: <UsagePage /> },
           { path: "system-events", element: <SystemEventsPage /> },

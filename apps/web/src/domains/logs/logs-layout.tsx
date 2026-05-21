@@ -21,7 +21,7 @@ export function LogsLayout() {
       (item) =>
         pathname === item.href || pathname.startsWith(item.href + "/"),
     );
-    return match?.label ?? "Logs";
+    return match?.label ?? "Logs & Usage";
   }, [pathname]);
 
   return (
