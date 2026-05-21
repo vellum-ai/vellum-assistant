@@ -1,4 +1,4 @@
-name: CI Main Web Checks
+name: CI/CD Main Web
 
 on:
   workflow_dispatch:
@@ -118,6 +118,17 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: bun run build
 
+      # Hand the built SPA off to the deploy jobs so we publish exactly what CI
+      # built (and verified) rather than rebuilding. Source maps are stripped by
+      # the Sentry plugin during the build, so dist contains no .map files.
+      - name: Upload SPA build artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: web-spa-dist
+          path: apps/web/dist
+          if-no-files-found: error
+          retention-days: 7
+
   checks:
     name: Lint, Type Check & Build
     needs: [lint, typecheck, test, build]
@@ -142,9 +153,68 @@ jobs:
             fi
           done
 
+  # ── CD: build + publish the SPA to each environment's GCS bucket ──────────
+  # Runs only after every CI check passes (a `needs` dependency on a failed job
+  # skips this job automatically). One matrix leg per GitHub environment so the
+  # GCP_* secrets — including the project id that names the bucket — resolve to
+  # that environment. `production` will gate here if it has required reviewers.
+  deploy:
+    name: Deploy SPA (${{ matrix.environment }})
+    needs: [checks]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, staging, production]
+    environment: ${{ matrix.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download SPA build artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: web-spa-dist
+          path: dist
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Publish SPA to GCS
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          TARGET_ENV: ${{ matrix.environment }}
+        run: |
+          set -euo pipefail
+          BUCKET="${PROJECT_ID}-assistant-spa"
+
+          if [ ! -f dist/index.html ]; then
+            echo "::error::dist/index.html not found — the build artifact is missing or empty."
+            exit 1
+          fi
+
+          # 1. Upload the whole build, additive (no deletion). Leaving old hashed
+          #    chunks in place means clients that loaded the previous index.html can
+          #    still fetch their lazy-loaded chunks during the rollout. Fingerprinted
+          #    assets are immutable, so they get a long-lived cache.
+          gcloud storage cp -r \
+            --cache-control="public, max-age=31536000, immutable" \
+            dist/* "gs://${BUCKET}/"
+
+          # 2. Re-upload the HTML entrypoint last with no-cache so the new release is
+          #    served immediately instead of from a stale edge/browser cache.
+          gcloud storage cp \
+            --cache-control="no-cache, max-age=0, must-revalidate" \
+            dist/index.html "gs://${BUCKET}/index.html"
+
+          echo "Published SPA to gs://${BUCKET}/ (environment=${TARGET_ENV})"
+
   notify-web:
     name: Slack Notification (Web)
-    needs: [checks]
+    needs: [checks, deploy]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -157,9 +227,9 @@ jobs:
         run: |
           GITHUB_USER="${{ github.actor }}"
 
-          if [[ "${{ needs.checks.result }}" == "failure" ]]; then
+          if [[ "${{ needs.checks.result }}" == "failure" || "${{ needs.deploy.result }}" == "failure" ]]; then
             STATUS="failure"
-          elif [[ "${{ needs.checks.result }}" == "cancelled" ]]; then
+          elif [[ "${{ needs.checks.result }}" == "cancelled" || "${{ needs.deploy.result }}" == "cancelled" ]]; then
             STATUS="cancelled"
           elif [[ "${{ needs.checks.result }}" == "skipped" ]]; then
             STATUS="skipped"
