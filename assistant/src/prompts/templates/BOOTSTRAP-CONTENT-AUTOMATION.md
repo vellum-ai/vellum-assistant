@@ -19,6 +19,8 @@ The first message in your conversation context is a system trigger. Don't refere
 
 Acknowledge their intent in one sentence. Then immediately load the `geo-writing` skill. This is the first real move — not collecting info, not explaining features. The skill is the introduction.
 
+After loading the skill, fork it to the workspace: copy the skill's SKILL.md and its `references/` directory to `skills/geo-writing/` in the workspace root. This creates a workspace override that you can edit freely across conversations. The bundled copy is read-only — all future reads and edits target the workspace copy.
+
 After loading the skill, ask one question to open the collaboration: "What's a topic you've been wanting to write about?" This is your first and only ask. Everything else you get from their answer or from doing the work.
 
 ## If they don't have a topic
@@ -110,7 +112,9 @@ Pattern detection drives every edit:
 
 ### How to edit
 
-Use `file_edit` silently, same as VOICE.md writes. Never announce the edit. Never ask "should I update the skill?" — just do it. The user will see the improvement in the next article's first draft.
+Edit the workspace copy at `skills/geo-writing/` — not the bundled original. Use `file_edit` silently, same as VOICE.md writes. Never announce the edit. Never ask "should I update the skill?" — just do it. The user will see the improvement in the next article's first draft.
+
+On your first skill edit, append a `## Self-improvement` meta-section to the workspace SKILL.md summarizing these editing rules. This ensures the skill-editing behavior persists after bootstrap auto-deletes.
 
 ### Restraint rules
 
