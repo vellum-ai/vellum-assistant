@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { client } from "@/generated/api/client.gen.js";
 import { assertHasResponse } from "@/lib/api-errors.js";
 import {
+  DEFAULT_FLAGS,
   useFeatureFlagStore,
   type AppFeatureFlags,
 } from "@/lib/feature-flags/feature-flag-store.js";
@@ -12,27 +13,14 @@ interface ClientFlagValuesResponse {
   flags: Record<string, boolean>;
 }
 
-const LD_KEY_TO_STORE_KEY: Record<string, keyof AppFeatureFlags> = {
-  "a2a-channel": "a2aChannel",
-  "account-deletion": "accountDeletion",
-  "analyze-conversation": "analyzeConversation",
-  "chat-pull-to-refresh-enabled": "chatPullToRefresh",
-  "conversation-groups-ui": "conversationGroupsUI",
-  "deploy-to-vercel": "deployToVercel",
-  "settings-developer-nav": "developerSettings",
-  doctor: "doctor",
-  "home-page": "homePage",
-  "multi-platform-assistant": "multiPlatformAssistant",
-  "openai-compatible-endpoints": "openAICompatibleEndpoints",
-  "platform-notifications": "platformNotifications",
-  "pro-plan-adjust": "proPlanAdjust",
-  "rollback-enabled": "rollbackEnabled",
-  "safe-storage-limits": "safeStorageLimits",
-  "self-hosted-assistant": "selfHostedAssistant",
-  "settings-sleep-policy": "settingsSleepPolicy",
-  sounds: "sounds",
-  velvet: "velvet",
-};
+const NORMALIZED_TO_STORE_KEY: Record<string, keyof AppFeatureFlags> = {};
+for (const key of Object.keys(DEFAULT_FLAGS) as (keyof AppFeatureFlags)[]) {
+  NORMALIZED_TO_STORE_KEY[key.toLowerCase()] = key;
+}
+
+function ldKeyToStoreKey(ldKey: string): keyof AppFeatureFlags | undefined {
+  return NORMALIZED_TO_STORE_KEY[ldKey.replace(/-/g, "").toLowerCase()];
+}
 
 const FEATURE_FLAG_QUERY_KEY = ["feature-flag-values"] as const;
 
@@ -57,7 +45,7 @@ function mapFlags(
 ): Partial<AppFeatureFlags> {
   const mapped: Partial<AppFeatureFlags> = {};
   for (const [ldKey, value] of Object.entries(serverFlags)) {
-    const storeKey = LD_KEY_TO_STORE_KEY[ldKey];
+    const storeKey = ldKeyToStoreKey(ldKey);
     if (storeKey) {
       Object.assign(mapped, { [storeKey]: value });
     }

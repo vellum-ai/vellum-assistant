@@ -47,7 +47,7 @@ const FLAG_DEFINITIONS: Record<string, FlagDefinition> = {
       "Show the 'Analyze' option in conversation context menus and title actions dropdown.",
     defaultValue: false,
   },
-  chatPullToRefresh: {
+  chatPullToRefreshEnabled: {
     ldKey: "chat-pull-to-refresh-enabled",
     label: "Chat Pull to Refresh",
     description: "Enable pull-to-refresh gesture in the chat view.",
@@ -67,7 +67,7 @@ const FLAG_DEFINITIONS: Record<string, FlagDefinition> = {
       "Enable the Deploy to Vercel / Publish option in the app workspace header share menu.",
     defaultValue: false,
   },
-  developerSettings: {
+  settingsDeveloperNav: {
     ldKey: "settings-developer-nav",
     label: "Settings Developer Nav",
     description: "Control Developer nav visibility in settings.",
