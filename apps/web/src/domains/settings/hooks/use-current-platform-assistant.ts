@@ -22,8 +22,6 @@ export interface UseCurrentPlatformAssistantResult {
 export function useCurrentPlatformAssistant(): UseCurrentPlatformAssistantResult {
   const orgId = useOrganizationStore.use.currentOrganizationId();
   const byOrg = useCurrentPlatformAssistantStore.use.byOrg();
-  const setAssistantIdAction =
-    useCurrentPlatformAssistantStore.use.setAssistantId();
 
   const storedId = orgId ? (byOrg[orgId] ?? null) : null;
 
@@ -52,23 +50,18 @@ export function useCurrentPlatformAssistant(): UseCurrentPlatformAssistantResult
     if (platformAssistants.length === 0) return;
     if (resolvedId === storedId) return;
     if (resolvedId != null && orgId) {
-      setAssistantIdAction(orgId, resolvedId);
+      useCurrentPlatformAssistantStore
+        .getState()
+        .setAssistantId(orgId, resolvedId);
     }
-  }, [
-    isListLoaded,
-    platformAssistants.length,
-    resolvedId,
-    storedId,
-    orgId,
-    setAssistantIdAction,
-  ]);
+  }, [isListLoaded, platformAssistants.length, resolvedId, storedId, orgId]);
 
   const setAssistantId = useCallback(
     (id: string | null) => {
       if (!orgId) return;
-      setAssistantIdAction(orgId, id);
+      useCurrentPlatformAssistantStore.getState().setAssistantId(orgId, id);
     },
-    [orgId, setAssistantIdAction],
+    [orgId],
   );
 
   return {

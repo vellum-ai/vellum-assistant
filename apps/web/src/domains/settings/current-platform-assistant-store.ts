@@ -11,6 +11,17 @@
  * directly, so the on-disk format stays compatible with the prior
  * hand-rolled implementation.
  *
+ * **Multi-tab safety:**
+ *
+ * The persist middleware hands us the *full* in-memory state on every
+ * write, but the in-memory snapshot is only as fresh as the last
+ * rehydrate. Treating it as authoritative — and removing localStorage
+ * keys not present in it — would let a stale tab clobber another
+ * tab's writes for an unrelated org. Instead the storage adapter
+ * writes per-org keys additively (only when the value differs), and
+ * deletions are issued imperatively by `setAssistantId` against the
+ * specific affected key.
+ *
  * **Cross-tab sync:**
  *
  * The persist middleware doesn't subscribe to `storage` events on its
@@ -42,7 +53,6 @@ export interface CurrentPlatformAssistantState {
 
 export interface CurrentPlatformAssistantActions {
   setAssistantId: (orgId: string, id: string | null) => void;
-  getAssistantId: (orgId: string) => string | null;
 }
 
 export type CurrentPlatformAssistantStore = CurrentPlatformAssistantState &
@@ -66,37 +76,25 @@ function readByOrgFromLocalStorage(): Record<string, string> {
   return byOrg;
 }
 
-function writeByOrgToLocalStorage(byOrg: Record<string, string>): void {
+function storageKeyForOrg(orgId: string): string {
+  return `${PLATFORM_ASSISTANT_STORAGE_PREFIX}${orgId}`;
+}
+
+function removeStoredAssistantId(orgId: string): void {
   if (typeof window === "undefined") return;
   try {
-    const existing: string[] = [];
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const key = window.localStorage.key(i);
-      if (key && key.startsWith(PLATFORM_ASSISTANT_STORAGE_PREFIX)) {
-        existing.push(key);
-      }
-    }
-    for (const key of existing) {
-      const orgId = key.slice(PLATFORM_ASSISTANT_STORAGE_PREFIX.length);
-      if (byOrg[orgId] == null) {
-        window.localStorage.removeItem(key);
-      }
-    }
-    for (const [orgId, id] of Object.entries(byOrg)) {
-      window.localStorage.setItem(
-        `${PLATFORM_ASSISTANT_STORAGE_PREFIX}${orgId}`,
-        id,
-      );
-    }
+    window.localStorage.removeItem(storageKeyForOrg(orgId));
   } catch {
     // ignore storage failures
   }
 }
 
 /**
- * Translates the single-name `name` view that `persist` expects into
- * per-org reads and writes against the existing
- * `vellum_current_assistant_id__{orgId}` localStorage keys.
+ * Translates the single-name view that `persist` expects into per-org
+ * reads and writes against the existing
+ * `vellum_current_assistant_id__{orgId}` localStorage keys. Writes are
+ * additive — see the file header for why deletions are not handled
+ * here.
  */
 const perOrgStorage: StateStorage = {
   getItem: () => {
@@ -104,6 +102,7 @@ const perOrgStorage: StateStorage = {
     return JSON.stringify({ state: { byOrg }, version: 0 });
   },
   setItem: (_name, value) => {
+    if (typeof window === "undefined") return;
     let parsed: { state?: { byOrg?: Record<string, string> } };
     try {
       parsed = JSON.parse(value) as typeof parsed;
@@ -111,10 +110,20 @@ const perOrgStorage: StateStorage = {
       return;
     }
     const byOrg = parsed.state?.byOrg ?? {};
-    writeByOrgToLocalStorage(byOrg);
+    try {
+      for (const [orgId, id] of Object.entries(byOrg)) {
+        const key = storageKeyForOrg(orgId);
+        if (window.localStorage.getItem(key) !== id) {
+          window.localStorage.setItem(key, id);
+        }
+      }
+    } catch {
+      // ignore storage failures
+    }
   },
   removeItem: () => {
-    writeByOrgToLocalStorage({});
+    // No-op. The store doesn't expose `clearStorage()`, and deletions
+    // for a single org are handled directly by the action.
   },
 };
 
@@ -123,10 +132,15 @@ const CURRENT_PLATFORM_ASSISTANT_STORE_NAME =
 
 const useCurrentPlatformAssistantStoreBase = create<CurrentPlatformAssistantStore>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       byOrg: readByOrgFromLocalStorage(),
 
-      setAssistantId: (orgId, id) =>
+      setAssistantId: (orgId, id) => {
+        if (id == null) {
+          // Drop the specific key directly — the persist setItem path
+          // is additive only and will not remove it for us.
+          removeStoredAssistantId(orgId);
+        }
         set((state) => {
           const next = { ...state.byOrg };
           if (id == null) {
@@ -135,9 +149,8 @@ const useCurrentPlatformAssistantStoreBase = create<CurrentPlatformAssistantStor
             next[orgId] = id;
           }
           return { byOrg: next };
-        }),
-
-      getAssistantId: (orgId) => get().byOrg[orgId] ?? null,
+        });
+      },
     }),
     {
       name: CURRENT_PLATFORM_ASSISTANT_STORE_NAME,
