@@ -62,9 +62,17 @@ describe("readSlackMetadata", () => {
       eventKind: "message",
       editedAt: "not-a-number",
     });
+    const badChannelName = JSON.stringify({
+      source: "slack",
+      channelId: "C123",
+      channelName: 42,
+      channelTs: "1700000000.000100",
+      eventKind: "message",
+    });
     expect(readSlackMetadata(badThreadTs)).toBeNull();
     expect(readSlackMetadata(badReactionOp)).toBeNull();
     expect(readSlackMetadata(badEditedAt)).toBeNull();
+    expect(readSlackMetadata(badChannelName)).toBeNull();
   });
 
   test("strips unknown top-level keys from the returned object", () => {
@@ -111,6 +119,7 @@ describe("readSlackMetadata", () => {
     const meta: SlackMessageMetadata = {
       source: "slack",
       channelId: "C123",
+      channelName: "engineering",
       channelTs: "1700000000.000100",
       threadTs: "1699999999.000000",
       displayName: "Alice",
@@ -174,6 +183,7 @@ describe("writeSlackMetadata", () => {
     const meta: SlackMessageMetadata = {
       source: "slack",
       channelId: "C123",
+      channelName: "engineering",
       channelTs: "1700000000.000100",
       threadTs: "1699999999.000000",
       displayName: "Alice",

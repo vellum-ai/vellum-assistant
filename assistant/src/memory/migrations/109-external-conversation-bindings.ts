@@ -11,6 +11,7 @@ export function createExternalConversationBindingsTables(
       conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
       source_channel TEXT NOT NULL,
       external_chat_id TEXT NOT NULL,
+      external_chat_name TEXT,
       external_thread_id TEXT,
       external_user_id TEXT,
       display_name TEXT,

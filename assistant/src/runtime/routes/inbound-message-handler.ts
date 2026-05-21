@@ -168,6 +168,10 @@ export async function handleChannelInbound({
   }
 
   const sourceChannel = body.sourceChannel;
+  const slackChannelName =
+    sourceChannel === "slack" && typeof sourceMetadata?.channelName === "string"
+      ? sourceMetadata.channelName.trim() || null
+      : null;
 
   if (!body.interface || typeof body.interface !== "string") {
     throw new BadRequestError("interface is required");
@@ -547,6 +551,7 @@ export async function handleChannelInbound({
       conversationId: result.conversationId,
       sourceChannel,
       externalChatId: conversationExternalId,
+      externalChatName: slackChannelName,
       externalThreadId: slackThreadTs ?? null,
       externalUserId: canonicalSenderId ?? rawSenderId ?? null,
       displayName: body.actorDisplayName ?? null,
@@ -1047,6 +1052,7 @@ export async function handleChannelInbound({
         sourceChannel === "slack"
           ? {
               channelId: conversationExternalId,
+              ...(slackChannelName ? { channelName: slackChannelName } : {}),
               channelTs: sourceMessageId ?? externalMessageId,
               ...(slackThreadTs ? { threadTs: slackThreadTs } : {}),
               ...((body.actorDisplayName ?? body.actorUsername)

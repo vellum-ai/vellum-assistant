@@ -7,6 +7,15 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    slack: {
+      teamId: "T123",
+      teamUrl: "https://example.slack.com/",
+    },
+  }),
+}));
+
 import { eq } from "drizzle-orm";
 
 import {
@@ -55,6 +64,7 @@ function resetTables() {
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversation_keys");
+  db.run("DELETE FROM external_conversation_bindings");
   db.run("DELETE FROM conversations");
 }
 
@@ -424,6 +434,7 @@ describe("channel-delivery-store", () => {
       conversationId: result.conversationId,
       sourceChannel: "slack",
       externalChatId: "C0123ABCDEF",
+      externalChatName: "engineering",
       externalThreadId: "1710000000.000100",
     });
 
@@ -432,12 +443,105 @@ describe("channel-delivery-store", () => {
     expect(detail?.conversation.channelBinding).toMatchObject({
       sourceChannel: "slack",
       externalChatId: "C0123ABCDEF",
+      externalChatName: "engineering",
       externalThreadId: "1710000000.000100",
       slackThread: {
         channelId: "C0123ABCDEF",
         threadTs: "1710000000.000100",
+        link: {
+          appUrl:
+            "slack://channel?team=T123&id=C0123ABCDEF&message=1710000000.000100",
+          webUrl:
+            "https://example.slack.com/archives/C0123ABCDEF/p1710000000000100",
+        },
+      },
+      slackChannel: {
+        channelId: "C0123ABCDEF",
+        name: "engineering",
+        link: {
+          webUrl: "https://example.slack.com/archives/C0123ABCDEF",
+        },
       },
     });
+  });
+
+  test("conversation detail exposes Slack channel id fallback without stored channel name", () => {
+    const result = recordInbound("slack", "C0123ABCDEF", "msg-1", {
+      sourceThreadId: "1710000000.000100",
+    });
+
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalThreadId: "1710000000.000100",
+    });
+
+    const detail = buildConversationDetailResponse(result.conversationId);
+
+    expect(detail?.conversation.channelBinding).toMatchObject({
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalChatName: "C0123ABCDEF",
+      slackChannel: {
+        channelId: "C0123ABCDEF",
+        name: "C0123ABCDEF",
+        link: {
+          webUrl: "https://example.slack.com/archives/C0123ABCDEF",
+        },
+      },
+    });
+  });
+
+  test("binding upsert preserves existing chat name when incoming name is missing", () => {
+    const result = recordInbound("slack", "C0123ABCDEF", "msg-1", {
+      sourceThreadId: "1710000000.000100",
+    });
+
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalChatName: "engineering",
+      externalThreadId: "1710000000.000100",
+    });
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalThreadId: "1710000000.000100",
+    });
+
+    expect(
+      getBindingByChannelChatThread("slack", "C0123ABCDEF", "1710000000.000100")
+        ?.externalChatName,
+    ).toBe("engineering");
+  });
+
+  test("binding upsert preserves existing chat name when incoming name is blank", () => {
+    const result = recordInbound("slack", "C0123ABCDEF", "msg-1", {
+      sourceThreadId: "1710000000.000100",
+    });
+
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalChatName: "engineering",
+      externalThreadId: "1710000000.000100",
+    });
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "slack",
+      externalChatId: "C0123ABCDEF",
+      externalChatName: "   ",
+      externalThreadId: "1710000000.000100",
+    });
+
+    expect(
+      getBindingByChannelChatThread("slack", "C0123ABCDEF", "1710000000.000100")
+        ?.externalChatName,
+    ).toBe("engineering");
   });
 
   // ── Deduplication ─────────────────────────────────────────────────
