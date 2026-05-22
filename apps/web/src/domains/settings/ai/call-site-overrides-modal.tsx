@@ -180,8 +180,11 @@ function CallSiteOverridesModalInner({
     refetchOnWindowFocus: false,
   });
 
+  // mainAgent is controlled by the main inference card / Default Profile, not this
+  // modal. Filter it out here so we don't render a row whose edits we'd silently
+  // drop in Save/Reset (LUM-1830).
   const gatedCallSites = useMemo(() => {
-    const all = catalog?.callSites ?? [];
+    const all = (catalog?.callSites ?? []).filter((cs) => cs.id !== "mainAgent");
     if (analyzeConversationEnabled) return all;
     return all.filter((cs) => cs.id !== "analyzeConversation");
   }, [catalog, analyzeConversationEnabled]);
@@ -232,7 +235,6 @@ function CallSiteOverridesModalInner({
     () =>
       Object.entries(persistedOverrides).some(
         ([id, s]) =>
-          id !== "mainAgent" &&
           gatedCallSiteIdSet.has(id) &&
           (s?.profile != null || s?.provider != null || s?.model != null),
       ),
@@ -247,7 +249,6 @@ function CallSiteOverridesModalInner({
     // Use catalog IDs only (keys of drafts) — orphaned stale overrides in
     // persistedOverrides that aren't in the catalog stay untouched.
     for (const id of Object.keys(drafts)) {
-      if (id === "mainAgent") continue;
       if (!draftsEqual(drafts[id], persistedOverrides[id])) return true;
     }
     return false;
@@ -393,7 +394,6 @@ function CallSiteOverridesModalInner({
       // Use catalog IDs only (keys of drafts) — orphaned stale overrides stay untouched.
       const patch: Record<string, CallSiteOverrideDraft | null> = {};
       for (const id of Object.keys(drafts)) {
-        if (id === "mainAgent") continue; // managed by the main inference card, not this modal
         const d = drafts[id] ?? null;
         patch[id] = isDraftActive(d)
           ? { profile: d?.profile ?? null, provider: d?.provider ?? null, model: d?.model ?? null }
@@ -428,7 +428,6 @@ function CallSiteOverridesModalInner({
       // Use catalog IDs only (keys of drafts) — orphaned stale overrides stay untouched.
       const resetPatch: Record<string, null> = {};
       for (const id of Object.keys(drafts)) {
-        if (id === "mainAgent") continue; // managed by the main inference card, not this modal
         resetPatch[id] = null;
       }
       await client.patch({
