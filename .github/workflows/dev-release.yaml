@@ -1080,11 +1080,19 @@ jobs:
             fi
           done
 
-  # ── Notify #dev-releases with the commit changelog ─────────────────────
-  # Posts a single summary message to Slack once the release is registered.
-  # The full ordered commit list (message + author) goes inside fenced code
-  # blocks, which Slack renders as a collapsible "Show more" element, so the
-  # channel stays tidy even when a release spans many commits.
+  # ── Notify #dev-releases (changelog on success, alert on failure) ──────
+  # Runs on every completed (non-cancelled) run. The dev release is considered
+  # successful when the register-release job succeeded — the same signal the
+  # changelog uses to anchor its diff — so a failure in a downstream job (e.g.
+  # build-macos) still posts the success changelog.
+  #
+  # On success: posts a single summary message with the ordered commit list
+  # (message + author) inside sections that Slack renders as a collapsible
+  # "Show more" element, so the channel stays tidy even when a release spans
+  # many commits. The diff is taken since the last *successful* dev release
+  # (skipping any intervening failed runs), so no commits are dropped.
+  #
+  # On failure: posts a short alert without a changelog.
   #
   # Posts via a #dev-releases incoming webhook stored in the repo secret
   # SLACK_DEV_RELEASES_WEBHOOK_URL. The channel is baked into the webhook URL
@@ -1094,6 +1102,10 @@ jobs:
 
   notify-dev-release:
     needs: [compute-version, register-release, register-preview-release]
+    # Run on success and failure alike, but not when the run was cancelled
+    # (e.g. superseded by a newer hourly run via cancel-in-progress) — a
+    # cancelled run is not a real failure and should not alert the channel.
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     # A Slack outage must not fail the release run: that would both mar the run
     # conclusion (poisoning notify-releases' first-failure detection) and is
@@ -1114,6 +1126,10 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
           RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Treat the dev release as successful iff register-release succeeded.
+          # This is the same anchor the changelog walk-back uses below, so a
+          # failure downstream of register-release still posts the changelog.
+          RELEASE_RESULT: ${{ needs.register-release.result }}
         run: |
           set -euo pipefail
 
@@ -1123,6 +1139,31 @@ jobs:
             exit 0
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
+
+          # ── Failure path ──────────────────────────────────────────────────
+          # The release did not register (job failed, was skipped because an
+          # upstream image build failed, etc.). Post a short alert without a
+          # changelog and skip the commit diffing entirely.
+          if [ "${RELEASE_RESULT}" != "success" ]; then
+            echo "register-release result: ${RELEASE_RESULT} — building failure notification."
+            jq -n \
+              --arg run_url "$RUN_URL" \
+              --arg body "The dev release run failed — no new dev build was published. See the workflow run for details." \
+              '{
+                unfurl_links: false,
+                unfurl_media: false,
+                text: "Dev Release failed",
+                blocks: [
+                  { type: "header", text: { type: "plain_text", text: "🚨 Dev Release failed", emoji: true } },
+                  { type: "section", text: { type: "mrkdwn", text: $body } },
+                  { type: "actions", elements: [
+                    { type: "button", text: { type: "plain_text", text: "View workflow run" }, url: $run_url }
+                  ] }
+                ]
+              }' > "${RUNNER_TEMP}/dev-release-slack-payload.json"
+            echo "Built Slack failure payload."
+            exit 0
+          fi
 
           # Find the SHA of the last actually-released dev build to diff against.
           # We key off the register-release JOB conclusion, not the overall run
