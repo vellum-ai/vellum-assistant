@@ -210,7 +210,18 @@ function getRootLogger(): pino.Logger {
     }
 
     try {
-      const logPath = getLogPath();
+      // Mirror the rotating filename pattern used by initLogger() so that
+      // logs written before initLogger() runs (e.g. early lifecycle.ts
+      // startup, or any process where config.logFile.dir is unset and
+      // initLogger() never runs at all) land in the same daily file as
+      // post-initLogger() logs. Without this, getLogPath() resolves to a
+      // static vellum.log and we end up with a split-brain log situation:
+      // early logs in vellum.log, later logs in assistant-YYYY-MM-DD.log.
+      //
+      // getLogPath() returns "<dataDir>/logs/vellum.log"; join(.., "..")
+      // gives us the logs dir to plug into logFilePathForDate().
+      const logDir = join(getLogPath(), "..");
+      const logPath = logFilePathForDate(logDir, new Date());
       // Use sync: true so the fd is opened immediately. This prevents
       // "sonic boom is not ready yet" errors when commander calls
       // process.exit(0) for --help/--version before the async fd is ready.
