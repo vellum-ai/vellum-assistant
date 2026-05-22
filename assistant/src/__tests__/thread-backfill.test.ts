@@ -1333,6 +1333,56 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(persisted.provenanceRequesterIdentifier).toBe("U_OTHER_BOT");
   });
 
+  test("skips Slack assistant new-thread placeholder during backfill", async () => {
+    const conv = createTestConversation();
+
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.0",
+        text: "New Assistant Thread",
+        threadId: undefined,
+        sender: { id: "B_ASSISTANT", name: "Ada" },
+        metadata: { isBot: true, slackBotId: "B_ASSISTANT" },
+      }),
+      makeBackfillMessage({
+        id: "1234.1",
+        text: "real bot context",
+        threadId: "1234.0",
+        sender: { id: "B_ASSISTANT", name: "Ada" },
+        metadata: { isBot: true, slackBotId: "B_ASSISTANT" },
+      }),
+      makeBackfillMessage({
+        id: "1234.2",
+        text: "New Assistant Thread",
+        threadId: undefined,
+        sender: { id: "B_OTHER", name: "Build Bot" },
+        metadata: { isBot: true, slackBotId: "B_OTHER" },
+      }),
+    ]);
+
+    const result = await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+    });
+
+    expect(result.fetched).toBe(3);
+    expect(result.persisted).toBe(2);
+    const rows = readPersistedSlackRows(conv.id);
+    expect(rows.map((row) => row.rawContent).sort()).toEqual([
+      "New Assistant Thread",
+      "real bot context",
+    ]);
+    const assistantRow = rows.find(
+      (row) => row.rawContent === "real bot context",
+    );
+    expect(assistantRow?.role).toBe("assistant");
+    expect(assistantRow?.actorExternalUserId).toBe("B_ASSISTANT");
+    expect(rows.some((row) => row.actorExternalUserId === "B_OTHER")).toBe(
+      true,
+    );
+  });
+
   test("backfilled non-bot message with empty text is persisted unwrapped", async () => {
     const conv = createTestConversation();
 

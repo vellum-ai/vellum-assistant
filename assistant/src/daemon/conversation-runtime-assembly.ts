@@ -9,6 +9,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
+import { getConfig } from "../config/loader.js";
 import { createContextSummaryMessage } from "../context/window-manager.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
 import {
@@ -46,6 +47,7 @@ import {
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
+import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { filterMessagesForUntrustedActor } from "./conversation-lifecycle.js";
@@ -1265,6 +1267,60 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
   };
 }
 
+const SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT = "New Assistant Thread";
+
+function isSlackAssistantThreadPlaceholder(
+  message: RenderableSlackMessage,
+  canonicalConfiguredBotUserId: string | null,
+): boolean {
+  if (!canonicalConfiguredBotUserId) return false;
+  const metadata = message.metadata;
+  if (!metadata || metadata.eventKind !== "message") return false;
+  const actorExternalUserId = metadata.actorExternalUserId?.trim();
+  if (!actorExternalUserId) return false;
+
+  const canonicalActor =
+    canonicalizeInboundIdentity("slack", actorExternalUserId) ??
+    actorExternalUserId;
+  const isThreadRoot =
+    metadata.threadTs === undefined || metadata.threadTs === metadata.channelTs;
+  const hasSlackFiles =
+    Array.isArray(metadata.slackFiles) && metadata.slackFiles.length > 0;
+
+  return (
+    message.role === "user" &&
+    canonicalActor === canonicalConfiguredBotUserId &&
+    isThreadRoot &&
+    !hasSlackFiles &&
+    message.content.replace(/\s+/g, " ").trim() ===
+      SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT
+  );
+}
+
+function getCanonicalConfiguredSlackBotUserId(): string | null {
+  const configuredBotUserId = getConfig().slack.botUserId.trim();
+  if (!configuredBotUserId) return null;
+  return (
+    canonicalizeInboundIdentity("slack", configuredBotUserId) ??
+    configuredBotUserId
+  );
+}
+
+function rowsToRenderableSlackMessages(
+  rows: SlackTranscriptInputRow[],
+): RenderableSlackMessage[] {
+  const canonicalConfiguredBotUserId = getCanonicalConfiguredSlackBotUserId();
+  return rows
+    .map(rowToRenderable)
+    .filter(
+      (message) =>
+        !isSlackAssistantThreadPlaceholder(
+          message,
+          canonicalConfiguredBotUserId,
+        ),
+    );
+}
+
 /**
  * Compatibility projection for callers that still need the legacy
  * `Message[] | null` shape. New runtime callers should use
@@ -1360,7 +1416,7 @@ function assembleSlackChronologicalContext(
   if (capabilities.channel !== "slack") {
     return null;
   }
-  const renderable = rows.map(rowToRenderable);
+  const renderable = rowsToRenderableSlackMessages(rows);
   const rendered = renderSlackTranscriptWithProvenance(renderable);
   const contextSummary = options.contextSummary?.trim();
   const renderedMessages = rendered.renderedMessages;
@@ -1603,7 +1659,7 @@ export function assembleSlackActiveThreadFocusBlock(
   // conversation and omits the field for DMs, so gate the focus block
   // on the positive `"channel"` match.
   if (capabilities.chatType !== "channel") return null;
-  const renderable = rows.map(rowToRenderable);
+  const renderable = rowsToRenderableSlackMessages(rows);
   const activeThreadTs = detectActiveThreadTs(renderable);
   if (!activeThreadTs) return null;
   return buildActiveThreadBlockFromRenderable(renderable, activeThreadTs);

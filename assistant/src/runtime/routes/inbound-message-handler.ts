@@ -1733,6 +1733,26 @@ function isBackfilledSlackGuardianMessage(
   return canonicalSender === canonicalGuardian;
 }
 
+const SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT = "New Assistant Thread";
+
+async function isSlackAssistantThreadPlaceholder(
+  message: ProviderMessage,
+  account: string | undefined,
+): Promise<boolean> {
+  if (message.metadata?.isBot !== true) return false;
+  const hasSlackFiles =
+    Array.isArray(message.metadata.slackFiles) &&
+    message.metadata.slackFiles.length > 0;
+  return (
+    message.text.replace(/\s+/g, " ").trim() ===
+      SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT &&
+    (message.threadId === undefined || message.threadId === message.id) &&
+    message.hasAttachments !== true &&
+    !hasSlackFiles &&
+    (await isBackfilledSlackAssistantMessage(message, account))
+  );
+}
+
 async function isBackfilledSlackAssistantMessage(
   message: ProviderMessage,
   account: string | undefined,
@@ -1899,6 +1919,9 @@ async function runBackfillSlackDmIfCold(params: {
     const ordered = [...fetched].reverse();
     for (const message of ordered) {
       if (seen.has(message.id)) continue;
+      if (await isSlackAssistantThreadPlaceholder(message, params.account)) {
+        continue;
+      }
       try {
         await persistBackfilledSlackMessage({
           conversationId: params.conversationId,
@@ -2462,6 +2485,9 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     for (const message of fetched) {
       if (!message.id) continue;
       if (threadState.storedChannelTs.has(message.id)) continue;
+      if (await isSlackAssistantThreadPlaceholder(message, account)) {
+        continue;
+      }
       try {
         await persistBackfilledSlackMessage({
           conversationId,

@@ -12,6 +12,7 @@ mock.module("../config/loader.js", () => ({
     return {
       ...real,
       memory: { ...real.memory, v2: { ...real.memory.v2, enabled: false } },
+      slack: { ...real.slack, botUserId: "U_BOT" },
     };
   },
 }));
@@ -4173,6 +4174,7 @@ describe("assembleSlackChronologicalMessages", () => {
   // Anchor times mirror the renderer's HH:MM (UTC) output.
   // 14:25:00 UTC on 2023-11-14 = epoch second 1699971900.
   const TS_14_25 = "1699971900.000100"; // 14:25 UTC
+  const TS_14_26 = "1699971960.000200"; // 14:26 UTC
   const TS_14_28 = "1699972080.000300"; // 14:28 UTC
   const MS_14_25 = 1699971900_000;
   const MS_14_26 = 1699971960_000;
@@ -4361,6 +4363,55 @@ describe("assembleSlackChronologicalMessages", () => {
         )}`,
       ],
     );
+  });
+
+  test("Slack context skips configured assistant new-thread placeholder rows", () => {
+    const placeholderMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_25,
+      eventKind: "message",
+      displayName: "Ada",
+      actorExternalUserId: "U_BOT",
+    };
+    const otherBotMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_26,
+      eventKind: "message",
+      displayName: "Build Bot",
+      actorExternalUserId: "B_OTHER",
+    };
+    const realBotMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_28,
+      eventKind: "message",
+      actorExternalUserId: "B_ASSISTANT",
+    };
+    const rows: SlackTranscriptInputRow[] = [
+      row(
+        "user",
+        "New Assistant Thread",
+        MS_14_25,
+        metadataEnvelope(placeholderMeta),
+      ),
+      row(
+        "user",
+        "New Assistant Thread",
+        MS_14_26,
+        metadataEnvelope(otherBotMeta),
+      ),
+      row("user", "real bot context", MS_14_28, metadataEnvelope(realBotMeta)),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
+    expect(result).not.toBeNull();
+    const rendered = JSON.stringify(result);
+    expect(rendered).not.toContain("Ada");
+    expect(rendered.split("New Assistant Thread").length - 1).toBe(1);
+    expect(rendered).toContain("Build Bot");
+    expect(rendered).toContain("real bot context");
   });
 
   test("legacy-DM fixture: pre-upgrade rows (no slackMeta) interleave with post-upgrade rows", () => {
