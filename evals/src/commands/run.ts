@@ -1,24 +1,28 @@
 /** `evals run` — Cartesian profile × test runner. */
 import type { Command } from "commander";
-import {
-  readFileSync,
-  writeFileSync,
-  readdirSync,
-  existsSync,
-} from "node:fs";
-import { join } from "node:path";
 
 import { runEvalOnce } from "../lib/runner/run-once";
 import {
   createConsoleReporter,
   createSummaryOnlyReporter,
 } from "../lib/runner/progress";
-import { scavengeAbandonedRuns } from "../lib/metrics";
+import {
+  abandonAllRunningRunsSync,
+  scavengeAbandonedRuns,
+} from "../lib/metrics";
 import { loadProfile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
 import { openInBrowser, startReportServer } from "./server";
 
-const RUNS_DIR = ".runs";
+/**
+ * Exit codes for the signals we handle. POSIX convention: 128 + signal
+ * number (SIGINT=2 → 130, SIGTERM=15 → 143) so wrapping shells can
+ * distinguish a signal-killed `evals run` from a normal failure exit.
+ */
+const SIGNAL_EXIT_CODES: Record<"SIGINT" | "SIGTERM", number> = {
+  SIGINT: 130,
+  SIGTERM: 143,
+};
 
 function splitCsv(raw: string): string[] {
   return raw
@@ -50,40 +54,6 @@ function sessionId(label: string | undefined, timestamp: string): string {
 
 function runId(profileId: string, testId: string, timestamp: string): string {
   return `eval-${profileId}-${testId}-${timestamp}`;
-}
-
-/**
- * Mark all runs in the current session as abandoned due to signal reception.
- * Uses sync I/O because this runs in a signal handler (async operations are
- * unsafe in signal context). Called via process.once so it only fires once
- * per process, not once per run.
- */
-function markAllRunsAbandoned(signal: NodeJS.Signals): void {
-  try {
-    if (!existsSync(RUNS_DIR)) return;
-
-    const runs = readdirSync(RUNS_DIR).filter((f) => !f.startsWith("."));
-    const now = new Date().toISOString();
-
-    for (const run of runs) {
-      try {
-        const metaPath = join(RUNS_DIR, run, "metadata.json");
-        if (!existsSync(metaPath)) continue;
-
-        const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
-        if (meta.status === "running") {
-          meta.status = "abandoned";
-          meta.completedAt = now;
-          meta.error = `Received signal ${signal} (process terminated by user or system)`;
-          writeFileSync(metaPath, JSON.stringify(meta, null, 2));
-        }
-      } catch {
-        // Ignore per-run errors; continue with others
-      }
-    }
-  } catch {
-    // Ignore any failure during signal cleanup
-  }
 }
 
 export function registerRunCommand(program: Command): void {
@@ -122,21 +92,24 @@ export function registerRunCommand(program: Command): void {
         quiet?: boolean;
         serve?: boolean;
       }) => {
-        // Register global signal handlers. We use process.once so they only
-        // fire once per `evals run` invocation (not once per run), and they
-        // mark all in-flight runs as abandoned before exit. This prevents
-        // runs from dangling in "running" if the entire command is killed.
-        process.once("SIGINT", () => {
-          markAllRunsAbandoned("SIGINT");
-          process.exit(130); // SIGINT exit code
-        });
-        process.once("SIGTERM", () => {
-          markAllRunsAbandoned("SIGTERM");
-          process.exit(143); // SIGTERM exit code
-        });
+        // Register signal handlers ONCE per `evals run` invocation (not
+        // once per (profile, test) iteration — that would leak listeners
+        // and trigger MaxListenersExceededWarning past ~10 runs). On
+        // SIGINT/SIGTERM, synchronously flip every `running` run on disk
+        // to `abandoned` so they don't dangle, then exit with the POSIX
+        // 128+signal convention so wrapping shells see a real exit code.
+        for (const signal of ["SIGINT", "SIGTERM"] as const) {
+          process.once(signal, () => {
+            abandonAllRunningRunsSync({ signal });
+            process.exit(SIGNAL_EXIT_CODES[signal]);
+          });
+        }
 
         // Before starting a new run, clean up any stale runs that crashed
-        // or were killed without properly finalizing their status.
+        // or were killed without properly finalizing their status. This is
+        // the async variant — uses the 60s heartbeat threshold, so it only
+        // flips genuinely dead runs (not in-flight ones from a parallel
+        // `evals run` against the same .runs/ directory).
         await scavengeAbandonedRuns();
 
         const profiles = await Promise.all(
