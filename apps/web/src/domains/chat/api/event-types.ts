@@ -491,6 +491,14 @@ export interface SubagentInnerEvent {
   input?: Record<string, unknown>;
   toolName?: string;
   isError?: boolean;
+  /**
+   * Tool-use block ID for client-side correlation. Present on
+   * `tool_use_start` and `tool_result` envelopes; used to pair a result
+   * with its originating call when a subagent emits parallel calls to
+   * the same tool (e.g. two `bash` calls) which `toolName` alone cannot
+   * disambiguate.
+   */
+  toolUseId?: string;
 }
 
 export interface SubagentEventWrapperEvent {
