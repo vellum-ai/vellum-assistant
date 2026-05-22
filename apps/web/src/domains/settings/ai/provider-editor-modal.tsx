@@ -185,7 +185,7 @@ export function ProviderEditorContent({
   async function handleChatgptSignIn() {
     setChatgptOAuthState("starting");
     setChatgptOAuthError(null);
-    const popup = window.open("about:blank", "_blank", "noopener");
+    const popup = window.open("about:blank", "_blank");
     try {
       const { authorize_url, state } =
         await startChatgptSubscriptionAuth(assistantId);
@@ -193,7 +193,7 @@ export function ProviderEditorContent({
       if (popup) {
         popup.location.href = authorize_url;
       } else {
-        window.open(authorize_url, "_blank", "noopener");
+        window.open(authorize_url, "_blank");
       }
       setChatgptOAuthState("paste_url");
     } catch {
