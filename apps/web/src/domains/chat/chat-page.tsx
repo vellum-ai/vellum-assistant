@@ -667,15 +667,18 @@ export function ChatPage() {
   // Auto-send onboarding initial message once the conversation is ready.
   // The message is read from sessionStorage (not a ref) because ChatPage
   // unmounts and remounts during the onboarding redirect (index route →
-  // /conversations/:key), which resets all refs.
+  // /conversations/:key), which resets all refs. Gate on reachability so
+  // we don't consume the message before the daemon can accept it — the
+  // POST would fail and the message would be lost.
   const initialMessageConsumedRef = useRef(false);
   useEffect(() => {
     if (initialMessageConsumedRef.current || !assistantId || !activeConversationKey) return;
+    if (reachability.state.phase !== "ready") return;
     const message = consumePendingInitialMessage();
     if (!message) return;
     initialMessageConsumedRef.current = true;
     void sendMessage(message);
-  }, [activeConversationKey, assistantId, sendMessage]);
+  }, [activeConversationKey, assistantId, reachability.state.phase, sendMessage]);
 
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
   const deepLinkAppConsumed = useRef(false);
