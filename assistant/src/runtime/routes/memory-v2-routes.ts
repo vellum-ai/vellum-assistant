@@ -467,6 +467,12 @@ export async function handleSimulateRouter({
     ...(profileOverride !== undefined
       ? { overrideProfile: profileOverride }
       : {}),
+    // Always return the full union — the simulator's job is to surface
+    // what the router actually picked across all batches, not what
+    // injection.ts would have trimmed it to. The `max_page_ids` knob is
+    // still echoed in `effectiveConfig` so the UI can show the live cap
+    // as informational context.
+    disableUnionCap: true,
   });
 
   const pageIndex = await getPageIndex(workspaceDir);

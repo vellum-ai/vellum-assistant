@@ -180,6 +180,13 @@ interface RunRouterParams {
    * router callers leave it unset.
    */
   overrideProfile?: string;
+  /**
+   * Skip the post-union truncation to `max_page_ids`. Used by the
+   * simulator so the playground can show the full untruncated router
+   * output across all batches. Live callers (`injectViaRouter`) leave
+   * this unset so the bounded-injection contract holds.
+   */
+  disableUnionCap?: boolean;
 }
 
 /**
@@ -314,15 +321,18 @@ export async function runRouter(
   // exceed it (e.g. 10 batches × 10 selections each ≫ 25 cap). Apply a final
   // truncation so RouterResult honors the contract that injection.ts trusts.
   // Iteration order above is tier 1 → tier 2 → tier 3:0 → … so earlier-tier
-  // slugs win the truncation.
-  const maxPageIds = config.memory?.v2?.router?.max_page_ids ?? 25;
-  if (selectedSlugs.length > maxPageIds) {
-    log.warn(
-      { unionSize: selectedSlugs.length, max: maxPageIds },
-      "Router union across batches exceeded max_page_ids; truncating",
-    );
-    const dropped = selectedSlugs.splice(maxPageIds);
-    for (const slug of dropped) sourceBySlug.delete(slug);
+  // slugs win the truncation. The simulator passes `disableUnionCap` so the
+  // playground can show the full untruncated union for analysis.
+  if (!params.disableUnionCap) {
+    const maxPageIds = config.memory?.v2?.router?.max_page_ids ?? 25;
+    if (selectedSlugs.length > maxPageIds) {
+      log.warn(
+        { unionSize: selectedSlugs.length, max: maxPageIds },
+        "Router union across batches exceeded max_page_ids; truncating",
+      );
+      const dropped = selectedSlugs.splice(maxPageIds);
+      for (const slug of dropped) sourceBySlug.delete(slug);
+    }
   }
   return { selectedSlugs, sourceBySlug, failureReason: null };
 }
