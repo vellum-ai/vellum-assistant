@@ -67,6 +67,11 @@ export interface TranscriptRowProps {
   onOpenDocument?: (documentSurfaceId: string) => void;
   /** Forwarded to inline app surfaces so they can render live preview iframes. */
   assistantId?: string | null;
+  /** Click handler when the user clicks the "open timeline" button on an
+   *  inline subagent progress card. */
+  onSubagentClick?: (subagentId: string) => void;
+  /** Callback to abort/stop a running subagent from an inline card. */
+  onStopSubagent?: (subagentId: string) => void;
 }
 
 export const TranscriptRow = memo(function TranscriptRow({
@@ -94,6 +99,8 @@ export const TranscriptRow = memo(function TranscriptRow({
   onOpenApp,
   onOpenDocument,
   assistantId,
+  onSubagentClick,
+  onStopSubagent,
 }: TranscriptRowProps) {
   switch (item.kind) {
     case "message":
@@ -116,6 +123,8 @@ export const TranscriptRow = memo(function TranscriptRow({
           onOpenApp={onOpenApp}
           onOpenDocument={onOpenDocument}
           assistantId={assistantId}
+          onSubagentClick={onSubagentClick}
+          onStopSubagent={onStopSubagent}
         />
       );
 

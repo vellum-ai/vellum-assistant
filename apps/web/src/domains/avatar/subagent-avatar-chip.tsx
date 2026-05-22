@@ -7,7 +7,7 @@
  * subagent tool-call card, per Figma node `4922-103839`.
  *
  * Does not introduce a new bundle; reuses `BUNDLED_COMPONENTS` already
- * consumed by `SubagentProgressCard`.
+ * consumed by `SubagentInlineProgressCard`.
  */
 
 import { AvatarRenderer } from "@/components/avatar-renderer.js";
