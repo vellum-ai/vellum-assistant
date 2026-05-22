@@ -394,6 +394,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "preview-channel",
+      "scope": "client",
+      "key": "preview-channel",
+      "label": "Preview Channel",
+      "description": "Enable user-facing Preview release channel controls in assistant settings.",
+      "defaultEnabled": false
+    },
+    {
       "id": "rollback-enabled",
       "scope": "assistant",
       "key": "rollback-enabled",
