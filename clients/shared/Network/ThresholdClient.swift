@@ -138,6 +138,12 @@ public struct ThresholdClient: ThresholdClientProtocol {
         let response = try await GatewayHTTPClient.get(
             path: "permissions/thresholds/conversations/\(conversationId)", timeout: 10
         )
+        // Older gateways returned 404 to mean "no override". Newer gateways
+        // return 200 with { "threshold": null }. Tolerate both so the macOS
+        // app keeps working against gateways that haven't been upgraded yet.
+        if response.statusCode == 404 {
+            return nil
+        }
         guard response.isSuccess else {
             log.error("getConversationOverride failed (HTTP \(response.statusCode))")
             throw ThresholdClientError.requestFailed(response.statusCode)
