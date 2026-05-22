@@ -16,7 +16,7 @@ export function DevModeVersionUnlock({
   loading,
 }: DevModeVersionUnlockProps) {
   const tapCountRef = useRef(0);
-  const dismissTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const handleClick = useCallback(() => {
@@ -29,15 +29,24 @@ export function DevModeVersionUnlock({
       setMessage(
         nowEnabled ? "Developer mode enabled" : "Developer mode disabled",
       );
-      clearTimeout(dismissTimerRef.current);
-      dismissTimerRef.current = setTimeout(
-        () => setMessage(null),
-        MESSAGE_DURATION_MS,
-      );
+      if (dismissTimerRef.current !== null) {
+        clearTimeout(dismissTimerRef.current);
+      }
+      dismissTimerRef.current = setTimeout(() => {
+        setMessage(null);
+        dismissTimerRef.current = null;
+      }, MESSAGE_DURATION_MS);
     }
   }, []);
 
-  useEffect(() => () => clearTimeout(dismissTimerRef.current), []);
+  useEffect(
+    () => () => {
+      if (dismissTimerRef.current !== null) {
+        clearTimeout(dismissTimerRef.current);
+      }
+    },
+    [],
+  );
 
   if (loading) {
     return (
