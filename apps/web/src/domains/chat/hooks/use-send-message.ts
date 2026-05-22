@@ -166,6 +166,7 @@ export function useSendMessage({
     queuedMessages,
     handleCancelQueuedMessage,
     handleCancelAllQueued,
+    handleSteerMessage,
     handleEditQueueTail,
   } = useMessageQueue({
     assistantId,
@@ -508,6 +509,9 @@ export function useSendMessage({
             }
             return;
           }
+          if (postResult.requestId) {
+            requestIdToStableIdRef.current.set(postResult.requestId, userMessage.stableId);
+          }
         } catch {
           revertQueuedMessage(userMessage.stableId);
           setError({ message: "Failed to queue message. Please try again." });
@@ -622,6 +626,7 @@ export function useSendMessage({
     queuedMessages,
     handleCancelQueuedMessage,
     handleCancelAllQueued,
+    handleSteerMessage,
     handleEditQueueTail,
   };
 }
