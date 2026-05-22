@@ -24,6 +24,9 @@ import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 import { normalizeOnboardingContext } from "./normalize-onboarding.js";
 import { renderWorkspaceSections } from "./sections.js";
+import { isTemplateContent } from "./template-detection.js";
+
+export { isTemplateContent };
 
 export { SYSTEM_PROMPT_CACHE_BOUNDARY };
 
@@ -49,7 +52,7 @@ const COHORT_BOOTSTRAP_TEMPLATES: Record<string, string> = {
 
 const log = getLogger("system-prompt");
 
-const PROMPT_FILES = ["SOUL.md", "IDENTITY.md"] as const;
+const PROMPT_FILES = ["IDENTITY.md", "SOUL.md"] as const;
 
 function hasPopulatedUsersDir(): boolean {
   try {
@@ -274,9 +277,13 @@ export function maybeReseedBootstrapForCohort(cohort: string): void {
  * Build the system prompt from ~/.vellum prompt files.
  *
  * Composition:
- *   1. Base prompt: IDENTITY.md + SOUL.md (guaranteed to exist after ensurePromptFiles)
- *   2. Append the resolved user persona from users/<slug>.md (via options.userPersona)
- *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
+ *   1. Bundled static sections (`renderWorkspaceSections`), in id-sort
+ *      order.  This includes `08-identity` (IDENTITY.md) and `09-soul`
+ *      (SOUL.md), both backed by workspace files.
+ *   2. User and channel persona (via `options.userPersona` /
+ *      `options.channelPersona`) and accumulated VOICE.md, after the
+ *      cache boundary.
+ *   3. If BOOTSTRAP.md exists, the first-run ritual block.
  */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
@@ -297,6 +304,19 @@ export interface BuildSystemPromptOptions {
  * files change between turns.
  */
 export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
+  // One-shot cohort swap: if the user has a cohort and BOOTSTRAP.md is still
+  // the generic template, replace it with the cohort-specific variant before
+  // the prompt reads the file.
+  if (options?.onboardingContext?.cohort) {
+    maybeReseedBootstrapForCohort(options.onboardingContext.cohort);
+  }
+
+  // Read BOOTSTRAP.md up front so `includeBootstrap` is on `ctx` for the
+  // `08-identity` section transform, which gates the unmodified IDENTITY.md
+  // template behind bootstrap presence.
+  const bootstrap = readPromptFile(getWorkspacePromptPath("BOOTSTRAP.md"));
+  const includeBootstrap = !!bootstrap && !options?.excludeBootstrap;
+
   // Section render context.  Workspace section frontmatter `enabled:`
   // predicates and `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation
   // both resolve against this map, so anything the renderer needs to see
@@ -309,58 +329,20 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     ...options,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
+    includeBootstrap,
   };
-
-  // One-shot cohort swap: if the user has a cohort and BOOTSTRAP.md is still
-  // the generic template, replace it with the cohort-specific variant before
-  // the prompt reads the file.
-  if (options?.onboardingContext?.cohort) {
-    maybeReseedBootstrapForCohort(options.onboardingContext.cohort);
-  }
 
   // Single array.  Everything pushed before `dynamicStart` lands in the
   // static (cached) prefix; everything after lands in the dynamic suffix.
   // The two halves are joined around `SYSTEM_PROMPT_CACHE_BOUNDARY` so the
   // Anthropic provider can key its prompt cache on the prefix.
+  //
+  // IDENTITY.md and SOUL.md both render via workspace-backed bundled
+  // sections (`08-identity` / `09-soul`) inside `renderWorkspaceSections`,
+  // so they sit in the static prefix in that order.
   const systemParts: string[] = [...renderWorkspaceSections(ctx)];
   const dynamicStart = systemParts.length;
 
-  // SOUL.md is rendered by the `09-soul` workspace-backed section
-  // (see templates/system-sections.ts) — no inline read needed here.
-  const identityPath = getWorkspacePromptPath("IDENTITY.md");
-  const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
-
-  const identity = readPromptFile(identityPath);
-  const bootstrap = readPromptFile(bootstrapPath);
-
-  const includeBootstrap = !!bootstrap && !options?.excludeBootstrap;
-
-  // Template prompt files contain placeholder fields and meta-instructions
-  // meant for the assistant to fill in during onboarding.  When included
-  // verbatim in the system prompt, the model can leak internal details and
-  // narrate its own setup process instead of following the BOOTSTRAP.md
-  // ritual.  Detect unmodified templates by comparing against the bundled
-  // source and skip them — SOUL.md provides sufficient personality defaults
-  // until onboarding completes.
-  const identityIsTemplate = isTemplateContent(identity, "IDENTITY.md");
-
-  if (identity && (!identityIsTemplate || includeBootstrap)) {
-    if (identityIsTemplate) {
-      // During bootstrap the model needs to see the template structure
-      // so it can produce a valid file_write with the right fields.
-      systemParts.push(identity);
-    } else {
-      // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
-      // the model doesn't treat unresolved fields as prompts to ask the user.
-      const cleanedIdentity = identity
-        .split("\n")
-        .filter((line) => !/_\(not yet (?:chosen|established)\)_/.test(line))
-        .join("\n");
-      if (cleanedIdentity.trim()) {
-        systemParts.push(cleanedIdentity);
-      }
-    }
-  }
   if (options?.userPersona) systemParts.push(options.userPersona);
   if (options?.channelPersona) systemParts.push(options.channelPersona);
 
@@ -482,34 +464,6 @@ function buildIntegrationSection(): string {
 
 // Re-export from shared util so existing importers don't break.
 export { stripCommentLines } from "../util/strip-comment-lines.js";
-
-/**
- * Returns true when the prompt file content is still the unmodified template
- * shipped with the daemon.  Compares the stripped workspace content against
- * the stripped bundled template source so the check stays accurate even if
- * templates are edited in future releases.
- */
-export function isTemplateContent(
-  content: string | null,
-  templateFileName: string,
-): boolean {
-  if (content == null) return false;
-  const templatesDir = resolveBundledDir(
-    import.meta.dirname ?? __dirname,
-    "templates",
-    "templates",
-  );
-  const templatePath = join(templatesDir, templateFileName);
-  if (!existsSync(templatePath)) return false;
-  try {
-    const templateContent = stripCommentLines(
-      readFileSync(templatePath, "utf-8"),
-    );
-    return content === templateContent;
-  } catch {
-    return false;
-  }
-}
 
 export function readPromptFile(path: string): string | null {
   if (!existsSync(path)) return null;
