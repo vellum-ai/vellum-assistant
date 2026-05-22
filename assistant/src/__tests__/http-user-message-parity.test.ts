@@ -41,6 +41,15 @@ const addMessageMock = mock(
     id: role === "user" ? "persisted-user-id" : "persisted-assistant-id",
   }),
 );
+const getConversationMock = mock((conversationId: string) => ({
+  id: conversationId,
+  conversationType: "standard",
+}));
+const getOrCreateConversationByKeyMock = mock(() => ({
+  conversationId: "conv-parity-test",
+  conversationType: "standard",
+  created: false,
+}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -50,7 +59,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../memory/conversation-key-store.js", () => ({
-  getOrCreateConversation: () => ({ conversationId: "conv-parity-test" }),
+  getOrCreateConversation: getOrCreateConversationByKeyMock,
   getConversationByKey: () => null,
 }));
 
@@ -100,6 +109,8 @@ mock.module("../memory/conversation-crud.js", () => ({
     content: string,
     metadata?: Record<string, unknown>,
   ) => addMessageMock(conversationId, role, content, metadata),
+  getConversation: getConversationMock,
+  hasMessages: () => false,
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
@@ -198,6 +209,11 @@ const _testAuthContext: AuthContext = {
   ]),
   policyEpoch: 1,
 };
+
+beforeEach(() => {
+  getConversationMock.mockClear();
+  getOrCreateConversationByKeyMock.mockClear();
+});
 
 // ── Helper: create a minimal mock conversation ─────────────────────────────
 function makeConversation(overrides: Record<string, unknown> = {}) {
@@ -336,6 +352,55 @@ describe("HTTP POST /v1/messages does not intercept recording intents (by design
     expect(res.status).toBe(202);
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("HTTP POST /v1/messages conversation identifiers", () => {
+  beforeEach(() => {
+    routeGuardianReplyMock.mockClear();
+    listPendingByDestinationMock.mockClear();
+    listCanonicalMock.mockClear();
+    addMessageMock.mockClear();
+  });
+
+  test("uses conversationId directly without treating it as a conversationKey", async () => {
+    const persistUserMessage = mock(async () => "persisted-msg-id");
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+    let capturedConversationId: string | undefined;
+
+    const res = await sendMessage(
+      "hello",
+      conversation,
+      {
+        conversationKey: undefined,
+        conversationId: "conv-direct-123",
+      },
+      {
+        onGetOrCreateConversation: (conversationId) => {
+          capturedConversationId = conversationId;
+        },
+      },
+    );
+
+    expect(res.status).toBe(202);
+    expect(capturedConversationId).toBe("conv-direct-123");
+    expect(getConversationMock).toHaveBeenCalledWith("conv-direct-123");
+    expect(getOrCreateConversationByKeyMock).not.toHaveBeenCalled();
+    expect(persistUserMessage).toHaveBeenCalledTimes(1);
+    expect(runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+
+  test("rejects requests that provide both conversationId and conversationKey", async () => {
+    const conversation = makeConversation();
+
+    const res = await sendMessage("hello", conversation, {
+      conversationId: "conv-direct-123",
+    });
+
+    expect(res.status).toBe(400);
+    expect(getConversationMock).not.toHaveBeenCalled();
+    expect(getOrCreateConversationByKeyMock).not.toHaveBeenCalled();
   });
 });
 

@@ -193,6 +193,7 @@ describe("buildSseShedSentryContext", () => {
     heartbeatsSent: 3,
     clientId: "client-xyz",
     interfaceId: "macos",
+    conversationId: null,
     // Channel-backed conversation key embedding a phone number.
     conversationKey: "asst:self:whatsapp:447123456789",
   };

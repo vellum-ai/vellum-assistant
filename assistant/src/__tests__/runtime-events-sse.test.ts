@@ -151,6 +151,42 @@ describe("SSE assistant-events endpoint", () => {
     expect(frame).toContain('"type":"pong"');
   });
 
+  test("stream can be scoped directly by conversationId", async () => {
+    const conversationId = "conversation-id-sse";
+    const ac = new AbortController();
+
+    const { AssistantEventHub } =
+      await import("../runtime/assistant-event-hub.js");
+    const testHub = new AssistantEventHub();
+
+    const { handleSubscribeAssistantEvents } =
+      await import("../runtime/routes/events-routes.js");
+    const stream = handleSubscribeAssistantEvents(
+      {
+        queryParams: { conversationId },
+        abortSignal: ac.signal,
+      },
+      { hub: testHub },
+    );
+
+    const reader = stream.getReader();
+    const heartbeat = await reader.read();
+    expect(heartbeat.done).toBe(false);
+    expect(new TextDecoder().decode(heartbeat.value)).toBe(": heartbeat\n\n");
+
+    await testHub.publish(
+      buildAssistantEvent({ type: "pong" }, conversationId),
+    );
+
+    const { value, done } = await reader.read();
+    ac.abort();
+
+    expect(done).toBe(false);
+    const frame = new TextDecoder().decode(value);
+    expect(frame).toContain(`"conversationId":"${conversationId}"`);
+    expect(frame).toContain('"type":"pong"');
+  });
+
   // ── Unfiltered subscription ──────────────────────────────────────────────
 
   test("streams all events when conversationKey is omitted", async () => {

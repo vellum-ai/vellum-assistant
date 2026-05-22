@@ -56,11 +56,29 @@ async function handleBtw({
   body,
   abortSignal,
 }: RouteHandlerArgs): Promise<ReadableStream<Uint8Array>> {
-  const conversationKey = body?.conversationKey as string | undefined;
-  const content = body?.content as string | undefined;
+  const requestBody =
+    body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const conversationId =
+    typeof requestBody.conversationId === "string"
+      ? requestBody.conversationId.trim()
+      : undefined;
+  const conversationKey =
+    typeof requestBody.conversationKey === "string"
+      ? requestBody.conversationKey
+      : undefined;
+  const content =
+    typeof requestBody.content === "string" ? requestBody.content : undefined;
 
-  if (!conversationKey) {
-    throw new BadRequestError("conversationKey is required");
+  if ("conversationId" in requestBody && !conversationId) {
+    throw new BadRequestError("conversationId must not be empty");
+  }
+  if (conversationId && conversationKey) {
+    throw new BadRequestError(
+      "conversationId and conversationKey are mutually exclusive",
+    );
+  }
+  if (!conversationId && !conversationKey) {
+    throw new BadRequestError("conversationId or conversationKey is required");
   }
   if (!content || typeof content !== "string") {
     throw new BadRequestError("content must be a non-empty string");
@@ -104,12 +122,15 @@ async function handleBtw({
   }
 
   // Look up an existing conversation or create an ephemeral one.
-  const mapping = getConversationByKey(conversationKey);
-  const conversationId = mapping?.conversationId ?? conversationKey;
+  const mapping = conversationKey
+    ? getConversationByKey(conversationKey)
+    : null;
+  const resolvedConversationId =
+    conversationId ?? mapping?.conversationId ?? conversationKey!;
 
   let conversation;
   try {
-    conversation = await getOrCreateConversation(conversationId);
+    conversation = await getOrCreateConversation(resolvedConversationId);
   } catch {
     throw new ServiceUnavailableError("Message processing is not available");
   }
@@ -144,6 +165,7 @@ async function handleBtw({
             log.warn(
               {
                 conversationKey,
+                conversationId: resolvedConversationId,
                 messageCount: conversation.getMessages().length + 1,
               },
               "btw side-chain completed with no text deltas",
@@ -196,8 +218,13 @@ export const ROUTES: RouteDefinition[] = [
       Connection: "keep-alive",
     },
     requestBody: z.object({
+      conversationId: z
+        .string()
+        .optional()
+        .describe("Conversation ID to scope the call"),
       conversationKey: z
         .string()
+        .optional()
         .describe("Conversation key to scope the call"),
       content: z.string().describe("User prompt content"),
     }),

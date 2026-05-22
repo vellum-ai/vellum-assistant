@@ -225,6 +225,16 @@ describe("POST /v1/btw", () => {
     expect((error as BadRequestError).message).toContain("conversationKey");
   });
 
+  test("throws BadRequestError when conversationId and conversationKey are both provided", async () => {
+    const { error } = await callHandler({
+      conversationId: "conv-test-123",
+      conversationKey: "key",
+      content: "hello",
+    });
+    expect(error).toBeInstanceOf(BadRequestError);
+    expect((error as BadRequestError).message).toContain("mutually exclusive");
+  });
+
   test("throws BadRequestError for missing content", async () => {
     const { error } = await callHandler({ conversationKey: "key" });
     expect(error).toBeInstanceOf(BadRequestError);
@@ -267,6 +277,23 @@ describe("POST /v1/btw", () => {
 
     const text = await readStream(result as ReadableStream<Uint8Array>);
     expect(text).toContain(`event: btw_text_delta\ndata: {"text":"hello"}`);
+  });
+
+  test("accepts conversationId without looking up a conversationKey", async () => {
+    mockGetConversationByKey.mockClear();
+    mockGetOrCreateConversation.mockClear();
+    const session = makeMockSession();
+    mockGetOrCreateConversation.mockImplementationOnce(async () => session);
+
+    const { result } = await callHandler({
+      conversationId: "conv-direct-123",
+      content: "hello",
+    });
+    expect(result).toBeInstanceOf(ReadableStream);
+    await readStream(result as ReadableStream<Uint8Array>);
+
+    expect(mockGetConversationByKey).not.toHaveBeenCalled();
+    expect(mockGetOrCreateConversation).toHaveBeenCalledWith("conv-direct-123");
   });
 
   test("response ends with btw_complete", async () => {

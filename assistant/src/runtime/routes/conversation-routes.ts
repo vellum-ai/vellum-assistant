@@ -121,7 +121,12 @@ import {
   resolveTrustContext,
   withSourceChannel,
 } from "../trust-context-resolver.js";
-import { BadRequestError, InternalError, RouteError } from "./errors.js";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+  RouteError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
 
@@ -1239,6 +1244,7 @@ export async function handleSendMessage(
   },
 ): Promise<unknown> {
   const body = (rawBody ?? {}) as {
+    conversationId?: string;
     conversationKey?: string;
     content?: string;
     attachmentIds?: string[];
@@ -1273,6 +1279,18 @@ export async function handleSendMessage(
   const principalType = headers?.["x-vellum-principal-type"];
 
   const { conversationKey, content, attachmentIds } = body;
+  const requestedConversationId =
+    typeof body.conversationId === "string"
+      ? body.conversationId.trim()
+      : undefined;
+  if ("conversationId" in body && !requestedConversationId) {
+    throw new BadRequestError("conversationId must not be empty");
+  }
+  if (requestedConversationId && conversationKey) {
+    throw new BadRequestError(
+      "conversationId and conversationKey are mutually exclusive",
+    );
+  }
   const clientMessageId =
     typeof body.clientMessageId === "string" ? body.clientMessageId : undefined;
   const requestedInferenceProfile =
@@ -1340,12 +1358,6 @@ export async function handleSendMessage(
       ? (canonicalizeTimeZone(body.clientTimezone) ?? undefined)
       : undefined;
 
-  // When conversationKey is omitted, derive a stable default from
-  // sourceChannel + sourceInterface so that repeated calls from the same
-  // channel/interface pair share a single conversation thread.
-  const resolvedConversationKey =
-    conversationKey ?? `default:${sourceChannel}:${sourceInterface}`;
-
   // Reject non-string content values (numbers, objects, etc.)
   if (content != null && typeof content !== "string") {
     throw new BadRequestError("content must be a string");
@@ -1409,9 +1421,33 @@ export async function handleSendMessage(
   // timer so the next heartbeat is a full interval after this interaction.
   HeartbeatService.getInstance()?.resetTimer();
 
-  const mapping = getOrCreateConversation(resolvedConversationKey, {
-    conversationType: "standard",
-  });
+  let mapping: {
+    conversationId: string;
+    conversationType: string;
+    created: boolean;
+  };
+  if (requestedConversationId) {
+    const existingConversation = getConversation(requestedConversationId);
+    if (!existingConversation) {
+      throw new NotFoundError(
+        `Conversation ${requestedConversationId} not found`,
+      );
+    }
+    mapping = {
+      conversationId: requestedConversationId,
+      conversationType: existingConversation.conversationType,
+      created: false,
+    };
+  } else {
+    // When conversationKey is omitted, derive a stable default from
+    // sourceChannel + sourceInterface so repeated calls from the same
+    // channel/interface pair share a single conversation thread.
+    const resolvedConversationKey =
+      conversationKey ?? `default:${sourceChannel}:${sourceInterface}`;
+    mapping = getOrCreateConversation(resolvedConversationKey, {
+      conversationType: "standard",
+    });
+  }
 
   if (requestedRiskThreshold !== undefined) {
     const result = await ipcCall("set_conversation_threshold", {
@@ -2599,6 +2635,7 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["messages"],
     responseStatus: "202",
     requestBody: z.object({
+      conversationId: z.string().optional(),
       conversationKey: z.string().optional(),
       content: z.string().describe("Message text content"),
       attachments: z

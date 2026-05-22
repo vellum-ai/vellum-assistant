@@ -1,15 +1,15 @@
 /**
  * Route handler for the assistant-events SSE endpoint.
  *
- * GET /v1/events?conversationKey=...
+ * GET /v1/events?conversationId=... or /v1/events?conversationKey=...
  *
  * JWT bearer auth is enforced by RuntimeHttpServer before this handler
  * is called. The AuthContext is threaded through from the HTTP server
  * layer, so no additional actor-token verification is needed here.
  *
- * When `conversationKey` is provided, subscribers receive events scoped to
- * that conversation. When omitted, subscribers receive events from ALL
- * conversations for this assistant (unfiltered).
+ * When `conversationId` or `conversationKey` is provided, subscribers receive
+ * events scoped to that conversation. When omitted, subscribers receive events
+ * from ALL conversations for this assistant (unfiltered).
  *
  * Client registration:
  *   Clients may send `X-Vellum-Client-Id` and `X-Vellum-Interface-Id`
@@ -134,6 +134,7 @@ export interface SseSubscriberInstrumentation {
   heartbeatsSent: number;
   clientId: string | null;
   interfaceId: string | null;
+  conversationId: string | null;
   conversationKey: string | null;
 }
 
@@ -198,7 +199,11 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
     Date.now(),
   );
   log.warn(
-    { ...sentryContext, conversation_key: inst.conversationKey },
+    {
+      ...sentryContext,
+      conversation_id: inst.conversationId,
+      conversation_key: inst.conversationKey,
+    },
     "sse subscriber shed under backpressure",
   );
 
@@ -220,9 +225,12 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
  * Stream assistant events as Server-Sent Events.
  *
  * Query params:
- *   conversationKey -- optional; when provided, scopes the stream to one
- *                      conversation. When omitted, the stream delivers events
- *                      from ALL conversations for this assistant.
+ *   conversationId -- optional; when provided, scopes the stream directly to
+ *                     one conversation by ID.
+ *   conversationKey -- optional legacy key lookup; when provided, scopes the
+ *                      stream to the mapped conversation.
+ *   When both are omitted, the stream delivers events from ALL conversations
+ *   for this assistant.
  *
  * Headers (optional):
  *   X-Vellum-Client-Id    -- stable per-install UUID identifying this client.
@@ -248,9 +256,18 @@ export function handleSubscribeAssistantEvents(
 ): ReadableStream<Uint8Array> {
   const { queryParams, headers, abortSignal } = args;
 
+  const conversationId = queryParams?.conversationId;
   const conversationKey = queryParams?.conversationKey;
+  if ("conversationId" in (queryParams ?? {}) && !conversationId?.trim()) {
+    throw new BadRequestError("conversationId must not be empty");
+  }
   if ("conversationKey" in (queryParams ?? {}) && !conversationKey?.trim()) {
     throw new BadRequestError("conversationKey must not be empty");
+  }
+  if (conversationId && conversationKey) {
+    throw new BadRequestError(
+      "conversationId and conversationKey are mutually exclusive",
+    );
   }
 
   // ── Client identity from headers ──────────────────────────────────────
@@ -294,7 +311,9 @@ export function handleSubscribeAssistantEvents(
   ];
 
   const filter: AssistantEventFilter = {};
-  if (conversationKey) {
+  if (conversationId) {
+    filter.conversationId = conversationId;
+  } else if (conversationKey) {
     const mapping = getOrCreateConversation(conversationKey);
     filter.conversationId = mapping.conversationId;
   }
@@ -316,6 +335,7 @@ export function handleSubscribeAssistantEvents(
     heartbeatsSent: 0,
     clientId,
     interfaceId,
+    conversationId: conversationId ?? null,
     conversationKey: conversationKey ?? null,
   };
 
@@ -471,8 +491,12 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["events"],
     queryParams: [
       {
+        name: "conversationId",
+        description: "Scope to a single conversation by ID",
+      },
+      {
         name: "conversationKey",
-        description: "Scope to a single conversation",
+        description: "Scope to a single conversation by legacy key",
       },
     ],
     responseHeaders: {
