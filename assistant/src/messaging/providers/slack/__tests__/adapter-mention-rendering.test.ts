@@ -79,6 +79,21 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
       };
     }
 
+    if (parsed.searchParams.get("channel") === "C_USERINFO_RETRY") {
+      return {
+        ok: true,
+        has_more: false,
+        messages: [
+          {
+            type: "message",
+            ts: "1700000007.000800",
+            user: "URETRY",
+            text: "Retry sender message",
+          },
+        ],
+      };
+    }
+
     if (parsed.searchParams.get("channel") === "C_TIMEZONE_CACHE") {
       return {
         ok: true,
@@ -218,7 +233,87 @@ function fakeUserInfoResponse(userId: string): Record<string, unknown> {
     };
   }
 
+  if (userId === "URETRY") {
+    const retryCalls = userInfoCalls.filter((call) => call === userId).length;
+    if (retryCalls === 1) {
+      return { ok: false, error: "temporarily_unavailable" };
+    }
+    return {
+      ok: true,
+      user: {
+        id: "URETRY",
+        name: "retry_sender",
+        tz: "America/Chicago",
+        tz_label: "Central Time",
+        tz_offset: -21600,
+        profile: { display_name: "Retry Sender" },
+      },
+    };
+  }
+
   return { ok: false, error: "user_not_found" };
+}
+
+function makeOAuthConnection(
+  id: string,
+  accountInfo: string,
+  displayName: string,
+  timezone: string,
+  timezoneLabel: string,
+  timezoneOffsetSeconds: number,
+): OAuthConnection {
+  return {
+    id,
+    provider: "slack",
+    accountInfo,
+    request: async (req) => {
+      if (req.path === "/conversations.history") {
+        return {
+          status: 200,
+          headers: {},
+          body: {
+            ok: true,
+            has_more: false,
+            messages: [
+              {
+                type: "message",
+                ts: "1700000008.000900",
+                user: "USAME",
+                text: "Account scoped sender",
+              },
+            ],
+          },
+        };
+      }
+      if (req.path === "/users.info") {
+        const userId = req.query?.user;
+        userInfoCalls.push(`${id}:${userId}`);
+        return {
+          status: 200,
+          headers: {},
+          body: {
+            ok: true,
+            user: {
+              id: "USAME",
+              name: displayName.toLowerCase().replaceAll(" ", "_"),
+              tz: timezone,
+              tz_label: timezoneLabel,
+              tz_offset: timezoneOffsetSeconds,
+              profile: { display_name: displayName },
+            },
+          },
+        };
+      }
+      return {
+        status: 200,
+        headers: {},
+        body: { ok: true },
+      };
+    },
+    withToken: async <T>(_fn: (token: string) => Promise<T>): Promise<T> => {
+      throw new Error("withToken was not expected");
+    },
+  };
 }
 
 describe("Slack adapter mention rendering", () => {
@@ -328,6 +423,84 @@ describe("Slack adapter mention rendering", () => {
     ).toHaveLength(1);
     expect(messages[0].sender).toEqual({ id: "UMISSING", name: "UMISSING" });
     expect(messages[0].metadata).toBeUndefined();
+  });
+
+  test("getHistory does not permanently cache fallback user info after users.info fails", async () => {
+    const firstMessages = await slackProvider.getHistory(
+      undefined,
+      "C_USERINFO_RETRY",
+    );
+    const secondMessages = await slackProvider.getHistory(
+      undefined,
+      "C_USERINFO_RETRY",
+    );
+
+    expect(userInfoCalls.filter((userId) => userId === "URETRY")).toHaveLength(
+      2,
+    );
+    expect(firstMessages[0].sender).toEqual({
+      id: "URETRY",
+      name: "URETRY",
+    });
+    expect(firstMessages[0].metadata).toBeUndefined();
+    expect(secondMessages[0].sender).toEqual({
+      id: "URETRY",
+      name: "Retry Sender",
+    });
+    expect(secondMessages[0].metadata).toEqual({
+      actorTimezone: "America/Chicago",
+      actorTimezoneLabel: "Central Time",
+      actorTimezoneOffsetSeconds: -21600,
+    });
+  });
+
+  test("getHistory scopes Slack user info cache by OAuth connection", async () => {
+    const workspaceA = makeOAuthConnection(
+      "conn-workspace-a",
+      "workspace-a",
+      "Workspace A Sender",
+      "America/Los_Angeles",
+      "Pacific Time",
+      -28800,
+    );
+    const workspaceB = makeOAuthConnection(
+      "conn-workspace-b",
+      "workspace-b",
+      "Workspace B Sender",
+      "Europe/London",
+      "Greenwich Mean Time",
+      0,
+    );
+
+    const messagesA = await slackProvider.getHistory(
+      workspaceA,
+      "C_ACCOUNT_SCOPE",
+    );
+    const messagesB = await slackProvider.getHistory(
+      workspaceB,
+      "C_ACCOUNT_SCOPE",
+    );
+
+    expect(userInfoCalls).toContain("conn-workspace-a:USAME");
+    expect(userInfoCalls).toContain("conn-workspace-b:USAME");
+    expect(messagesA[0].sender).toEqual({
+      id: "USAME",
+      name: "Workspace A Sender",
+    });
+    expect(messagesA[0].metadata).toEqual({
+      actorTimezone: "America/Los_Angeles",
+      actorTimezoneLabel: "Pacific Time",
+      actorTimezoneOffsetSeconds: -28800,
+    });
+    expect(messagesB[0].sender).toEqual({
+      id: "USAME",
+      name: "Workspace B Sender",
+    });
+    expect(messagesB[0].metadata).toEqual({
+      actorTimezone: "Europe/London",
+      actorTimezoneLabel: "Greenwich Mean Time",
+      actorTimezoneOffsetSeconds: 0,
+    });
   });
 
   test("getThreadReplies renders Slack user mentions for model-facing text without changing sender identity", async () => {

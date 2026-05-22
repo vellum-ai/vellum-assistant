@@ -45,8 +45,13 @@ interface NormalizedSlackUserInfo {
   timezoneOffsetSeconds?: number;
 }
 
+interface SlackUserInfoLookupResult {
+  info: NormalizedSlackUserInfo;
+  cacheable: boolean;
+}
+
 // Cache normalized Slack user facts to avoid repeated API calls within a session.
-const userInfoCache = new Map<string, Promise<NormalizedSlackUserInfo>>();
+const userInfoCache = new Map<string, Promise<SlackUserInfoLookupResult>>();
 
 /**
  * Cached auth resolved during resolveConnection(), split by direction.
@@ -202,18 +207,30 @@ async function resolveUserInfo(
   userId: string,
 ): Promise<NormalizedSlackUserInfo> {
   if (!userId) return { displayName: "unknown" };
-  const cached = userInfoCache.get(userId);
-  if (cached) return cached;
+  const cacheKey = slackUserInfoCacheKey(auth, userId);
+  const cached = userInfoCache.get(cacheKey);
+  if (cached) return (await cached).info;
 
-  const resolved = resolveUserInfoUncached(auth, userId);
-  userInfoCache.set(userId, resolved);
-  return resolved;
+  const resolved = resolveUserInfoUncached(auth, userId).then(
+    (result) => {
+      if (!result.cacheable) {
+        userInfoCache.delete(cacheKey);
+      }
+      return result;
+    },
+    (err) => {
+      userInfoCache.delete(cacheKey);
+      throw err;
+    },
+  );
+  userInfoCache.set(cacheKey, resolved);
+  return (await resolved).info;
 }
 
 async function resolveUserInfoUncached(
   auth: OAuthConnection | string,
   userId: string,
-): Promise<NormalizedSlackUserInfo> {
+): Promise<SlackUserInfoLookupResult> {
   let contactDisplayName: string | undefined;
   try {
     const result = findContactChannel({
@@ -229,10 +246,27 @@ async function resolveUserInfoUncached(
 
   try {
     const resp = await slack.userInfo(auth, userId);
-    return normalizeSlackUserInfo(resp.user, contactDisplayName);
+    return {
+      info: normalizeSlackUserInfo(resp.user, contactDisplayName),
+      cacheable: true,
+    };
   } catch {
-    return { displayName: contactDisplayName ?? userId };
+    return {
+      info: { displayName: contactDisplayName ?? userId },
+      cacheable: false,
+    };
   }
+}
+
+function slackUserInfoCacheKey(
+  auth: OAuthConnection | string,
+  userId: string,
+): string {
+  const authScope =
+    typeof auth === "string"
+      ? `token:${auth}`
+      : `connection:${auth.id}:${auth.accountInfo ?? ""}`;
+  return `${authScope}:user:${userId}`;
 }
 
 function normalizeSlackUserInfo(
