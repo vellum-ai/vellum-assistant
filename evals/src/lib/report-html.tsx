@@ -80,6 +80,7 @@ const COST_REASON_LABELS: Record<CostDiagnosticReason, string> = {
 function statusClass(status: string): string {
   if (status === "completed") return "good";
   if (status === "failed") return "bad";
+  if (status === "abandoned") return "bad";
   if (status === "running") return "warn";
   if (status === "partial") return "warn";
   return "muted";
@@ -177,6 +178,32 @@ pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px;
 .cost-diag-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .cost-diag-table th, .cost-diag-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); }
 .cost-diag-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
+.debug-section { border: 1px solid rgba(251, 113, 133, .24); background: rgba(251, 113, 133, .06); }
+.debug-item { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+.debug-item:last-child { margin-bottom: 0; }
+.debug-item code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(0,0,0,.3); padding: 2px 6px; border-radius: 4px; font-size: 12px; flex: 1; overflow: auto; }
+.debug-item.bad { color: var(--bad); }
+.action-buttons { display: flex; gap: 12px; margin-top: 16px; }
+button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,.08); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s ease; }
+button:hover { background: rgba(139,92,246,.18); border-color: rgba(139,92,246,.4); }
+button.bad { color: var(--bad); border-color: rgba(251,113,133,.4); }
+button.bad:hover { background: rgba(251,113,133,.15); border-color: var(--bad); }
+.panel-actions { display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 16px; }
+.confirm-action { position: relative; }
+.confirm-action > summary { display: inline-block; padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(251,113,133,.4); background: rgba(255,255,255,.08); color: var(--bad); font-size: 13px; font-weight: 600; cursor: pointer; list-style: none; transition: .15s ease; user-select: none; }
+.confirm-action > summary::-webkit-details-marker { display: none; }
+.confirm-action > summary:hover { background: rgba(251,113,133,.15); border-color: var(--bad); }
+.confirm-action[open] > summary { background: rgba(251,113,133,.18); border-color: var(--bad); }
+.confirm-form { margin-top: 10px; padding: 14px; border-radius: 10px; border: 1px solid rgba(251,113,133,.35); background: rgba(251,113,133,.06); display: flex; flex-direction: column; gap: 10px; max-width: 480px; }
+.confirm-prompt { margin: 0; font-size: 13px; color: var(--text); line-height: 1.5; }
+.confirm-prompt code { padding: 1px 6px; border-radius: 4px; background: rgba(0,0,0,.4); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--accent2); }
+.confirm-form button[type="submit"] { align-self: flex-start; }
+.artifact-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.artifact-list li { padding: 10px 14px; border-radius: 12px; background: rgba(0,0,0,.28); border: 1px solid var(--border); transition: .15s ease; }
+.artifact-list li:hover { border-color: rgba(34,211,238,.4); background: rgba(34,211,238,.06); }
+.artifact-link { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--accent2); display: inline-flex; align-items: center; gap: 8px; word-break: break-all; }
+.artifact-link::before { content: "↗"; opacity: .65; font-size: 12px; }
+.artifact-link:hover { color: var(--text); text-decoration: underline; }
 @media (max-width: 980px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .shell { padding: 18px; } .cards { grid-template-columns: 1fr; } .hero { display: block; } }
 `;
@@ -289,11 +316,31 @@ function IndexPage({ sessions }: { sessions: ReportSessionSummary[] }) {
             first.
           </div>
         ) : (
-          <div className="session-list">
-            {sessions.map((session) => (
-              <SessionCard key={session.sessionId} session={session} />
-            ))}
-          </div>
+          <>
+            <div className="panel-actions">
+              <details className="confirm-action">
+                <summary className="bad">Delete all non-running</summary>
+                <form
+                  className="confirm-form"
+                  method="post"
+                  action="/api/runs/delete-all"
+                >
+                  <p className="confirm-prompt">
+                    This deletes every run on disk that isn&rsquo;t currently
+                    running. It cannot be undone.
+                  </p>
+                  <button className="bad" type="submit">
+                    Yes, delete every non-running run
+                  </button>
+                </form>
+              </details>
+            </div>
+            <div className="session-list">
+              {sessions.map((session) => (
+                <SessionCard key={session.sessionId} session={session} />
+              ))}
+            </div>
+          </>
         )}
       </section>
     </>
@@ -757,6 +804,99 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
         <StatCard label="Turns" value={run.transcriptTurns} />
         <StatCard label="Cost" value={formatCost(run.totalCostUsd)} />
       </div>
+
+      {(run.status === "abandoned" ||
+        run.status === "failed" ||
+        run.metadata?.error ||
+        run.metadata?.lastHeartbeatAt) && (
+        <section className="section debug-section">
+          <h2>Debug info</h2>
+          {run.metadata?.error && (
+            <div className="debug-item bad">
+              <strong>Error:</strong>
+              <code>{run.metadata.error}</code>
+            </div>
+          )}
+          {run.metadata?.lastHeartbeatAt && (
+            <div className="debug-item">
+              <strong>Last heartbeat:</strong>
+              <span>{run.metadata.lastHeartbeatAt}</span>
+            </div>
+          )}
+          <div className="action-buttons">
+            <details className="confirm-action">
+              <summary className="bad">Delete run</summary>
+              <form
+                className="confirm-form"
+                method="post"
+                action={`/api/runs/${encodeURIComponent(run.runId)}/delete`}
+              >
+                <input
+                  type="hidden"
+                  name="backToSession"
+                  value={run.sessionId}
+                />
+                <p className="confirm-prompt">
+                  This deletes <code>{run.runId}</code> permanently. It cannot
+                  be undone.
+                </p>
+                <button className="bad" type="submit">
+                  Yes, delete this run
+                </button>
+              </form>
+            </details>
+          </div>
+        </section>
+      )}
+
+      {run.dockerArtifacts.length > 0 && (
+        <section className="section debug-section">
+          <h2>Docker snapshot</h2>
+          <p className="section-subtle">
+            Container forensics captured at hatch failure, before{" "}
+            <code>vellum retire</code> removed the container.
+          </p>
+          <ul className="artifact-list">
+            {run.dockerArtifacts.map((name) => (
+              <li key={name}>
+                <a
+                  className="artifact-link"
+                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(name)}`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  {name}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {run.subprocessLogs.length > 0 && (
+        <section className="section">
+          <h2>Subprocess logs</h2>
+          <p className="section-subtle">
+            Raw stdout/stderr from every CLI subprocess the adapter spawned —
+            useful when a hatch or setup step failed silently and the error
+            message alone doesn't tell you why.
+          </p>
+          <ul className="artifact-list">
+            {run.subprocessLogs.map((name) => (
+              <li key={name}>
+                <a
+                  className="artifact-link"
+                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(name)}`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  {name}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="section">
         <h2>Metric card</h2>

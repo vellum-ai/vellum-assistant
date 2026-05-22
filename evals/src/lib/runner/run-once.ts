@@ -5,9 +5,11 @@ import {
   appendSimulatorMessage,
   appendTranscriptTurn,
   ensureRunArtifacts,
+  readRunMetadata,
   readTranscript,
   readUsage,
   runMetrics,
+  updateHeartbeat,
   type MetricResult,
   writeMetricResults,
   writeRunMetadata,
@@ -222,6 +224,9 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       ...event,
       emittedAt: new Date().toISOString(),
     }).catch(() => undefined);
+    // Update the heartbeat on every progress event to signal that the
+    // process is alive. This is best-effort and never blocks the run.
+    void updateHeartbeat(input.runId).catch(() => undefined);
   };
   const agent = createAgent({
     profile: input.profile,
@@ -230,6 +235,21 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
   });
   const simulator =
     input.simulator ?? new UserSimulator({ maxTurns: input.maxTurns });
+
+  // Per-run heartbeat ticker. Cleared in the `finally` so the timer never
+  // outlives a return/throw — and so we never accumulate Node listeners
+  // across multiple runs in the same `evals run` invocation (the SIGINT/
+  // SIGTERM handlers live one level up in `commands/run.ts` and only
+  // register once per process, not once per run).
+  const heartbeatInterval = setInterval(() => {
+    void updateHeartbeat(input.runId).catch(() => undefined);
+  }, 5_000);
+  // setInterval would keep the event loop alive past a normal completion
+  // because Node treats every active timer as a reason to stay up. Using
+  // unref() removes that contribution so a successful run still exits
+  // cleanly; clearInterval() in the finally is still the primary stop.
+  heartbeatInterval.unref();
+
   progress({
     step: "artifacts",
     status: "start",
@@ -477,6 +497,7 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
     }
     throw err;
   } finally {
+    clearInterval(heartbeatInterval);
     progress({
       step: "shutdown",
       status: "start",
@@ -490,5 +511,16 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       message: "Assistant shut down",
       detail: agent.id,
     });
+    // Verify the run didn't somehow exit "running" by accident.
+    const finalMetadata = await readRunMetadata(input.runId);
+    if (finalMetadata?.status === "running") {
+      await writeRunMetadata(input.runId, {
+        ...finalMetadata,
+        status: "failed",
+        completedAt: new Date().toISOString(),
+        error:
+          "Run exited without final status — this should never happen; please file a bug.",
+      });
+    }
   }
 }
