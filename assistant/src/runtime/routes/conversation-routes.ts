@@ -2642,10 +2642,31 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return an LLM-generated follow-up suggestion for the most recent assistant message.",
     tags: ["messages"],
+    queryParams: [
+      {
+        name: "conversationId",
+        type: "string",
+        description:
+          "Conversation ID to fetch a suggestion for. Either this or conversationKey is required.",
+      },
+      {
+        name: "conversationKey",
+        type: "string",
+        description:
+          "Legacy conversation key. Either this or conversationId is required.",
+      },
+      {
+        name: "messageId",
+        type: "string",
+        description:
+          "Optional. Latest assistant message ID the client has seen — used to detect staleness.",
+      },
+    ],
     responseBody: z.object({
-      suggestion: z.string(),
-      messageId: z.string(),
+      suggestion: z.string().nullable(),
+      messageId: z.string().nullable(),
       source: z.string(),
+      stale: z.boolean().optional(),
     }),
     handler: async (args) =>
       handleGetSuggestion(args, {
