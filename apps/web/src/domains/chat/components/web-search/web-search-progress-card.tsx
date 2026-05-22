@@ -1,12 +1,12 @@
 
-import { AlertCircle } from "lucide-react";
 import { useMemo } from "react";
 
-import { Typography } from "@vellum/design-library";
-
 import type { WebSearchResultItem } from "@/assistant/web-activity-types.js";
-import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip.js";
 import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel.js";
+import {
+  WebSearchErrorRow,
+  WebSearchStepRow,
+} from "@/domains/chat/components/web-search/web-search-step-row.js";
 import {
   DefaultStepPill,
   PhaseGroupedStepList,
@@ -26,7 +26,9 @@ import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-d
  *   - `PhaseGroupedStepList` (expanded: phase-section headers + indented
  *     per-step content; the web card passes a `renderStep` override so
  *     `web_search` steps keep their favicon-chip cluster)
- *   - `FaviconChip` (expanded: a web_search step's result chips)
+ *   - `WebSearchStepRow` / `WebSearchErrorRow` (shared with the unified
+ *     `ToolCallProgressCard`'s `ExpandedStep` — single source of truth for
+ *     the favicon chip cluster, overflow pill, and error chip)
  *   - `WebsiteCarousel` (collapsed-header info slot during an active search
  *     with at least one completed `web_search` to feed the rotation)
  *
@@ -97,8 +99,12 @@ export interface WebSearchProgressCardProps {
    *   `WebsiteCarousel` in the collapsed header.
    * - `"complete"` → static green `CheckCircle2` icon + no carousel; the
    *   card is rendering a finished search result set.
+   * - `"error"` / `"denied"` → red `AlertCircle` icon + no carousel. Used
+   *   by the unified dispatcher when a purely-web group ends with a tool
+   *   error or a denied confirmation so the icon matches the chrome
+   *   shown for non-web groups.
    */
-  state?: "loading" | "complete";
+  state?: ToolProgressCardState;
   /**
    * Optional websites to feed the collapsed-header rotating carousel.
    * When non-empty AND `state === "loading"`, the info slot in the header
@@ -110,50 +116,6 @@ export interface WebSearchProgressCardProps {
    * derivation contract.
    */
   carouselItems?: WebSearchResultItem[];
-}
-
-/**
- * Small "+N more" pill used at the tail of a `web_search` row's result list.
- * Mirrors Figma node 4922:104082 — filled `--surface-base` pill with the
- * `body-small-emphasised` (Semi Bold 12) typography variant.
- */
-function OverflowChip({ count }: { count: number }) {
-  return (
-    <div className="rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[10px] py-[6px]">
-      <Typography
-        variant="body-small-emphasised"
-        className="text-[var(--content-default)]"
-      >
-        +{count} more
-      </Typography>
-    </div>
-  );
-}
-
-/**
- * Negatively-toned chip used inside a `web_search_error` step row to
- * surface the provider's `errorMessage`. Mirrors the default pill's
- * outlined geometry but swaps the border + foreground tokens for the
- * `--system-negative-*` family so the failure reads as distinct from a
- * normal reasoning step.
- */
-function ErrorChip({ message }: { message: string }) {
-  return (
-    <div
-      data-testid="web-search-error-chip"
-      className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)] px-[10px] py-[6px]"
-    >
-      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-        <AlertCircle className="h-[14px] w-[14px] text-[var(--system-negative-strong)]" />
-      </span>
-      <Typography
-        variant="body-small-default"
-        className="text-[var(--system-negative-strong)]"
-      >
-        {message}
-      </Typography>
-    </div>
-  );
 }
 
 /**
@@ -188,14 +150,14 @@ export function WebSearchProgressCard({
 
   const headerInfo = useCarousel ? carouselNode : currentStepInfo;
 
-  const shellState: ToolProgressCardState =
-    state === "complete" ? "complete" : "loading";
-
   return (
     <ToolProgressCardShell
       data-testid="web-search-progress-card"
       statusIndicatorTestId="web-search-status-indicator"
-      state={shellState}
+      // `error` / `denied` propagate to the shell's red `AlertCircle` chrome
+      // when the unified dispatcher supplies them. The legacy two-value
+      // contract (`loading` / `complete`) is still valid by construction.
+      state={state}
       currentStepTitle={currentStepTitle}
       currentStepInfo={headerInfo}
       stepCount={stepCount}
@@ -206,29 +168,10 @@ export function WebSearchProgressCard({
           steps={steps as ToolCallCardStep[]}
           renderStep={(step) => {
             if (step.kind === "web_search") {
-              return (
-                <div className="flex flex-wrap items-center gap-1">
-                  {step.results.map((r) => (
-                    // Key by `rank` (the documented uniqueness invariant
-                    // on `WebSearchResultItem`) rather than `url` —
-                    // providers occasionally return duplicate URLs, which
-                    // would collide as React keys and cause stale/missing
-                    // chips during live updates.
-                    <FaviconChip
-                      key={r.rank}
-                      faviconUrl={r.faviconUrl}
-                      title={r.title}
-                      domain={r.domain}
-                    />
-                  ))}
-                  {step.overflow && step.overflow > 0 ? (
-                    <OverflowChip count={step.overflow} />
-                  ) : null}
-                </div>
-              );
+              return <WebSearchStepRow step={step} />;
             }
             if (step.kind === "web_search_error") {
-              return <ErrorChip message={step.errorMessage} />;
+              return <WebSearchErrorRow step={step} />;
             }
             return <DefaultStepPill step={step} />;
           }}

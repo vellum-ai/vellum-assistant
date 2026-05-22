@@ -34,7 +34,19 @@ describe("SubagentAvatarChip", () => {
       <SubagentAvatarChip subagentId="alpha" className="ml-1" />,
     );
     expect(html).toContain('aria-label="Subagent alpha"');
-    expect(html).toContain('class="ml-1"');
+    // The wrapper composes `inline-flex` (so the avatar still flows inline)
+    // with any caller-supplied className.
+    expect(html).toContain("ml-1");
+    expect(html).toContain("inline-flex");
+  });
+
+  test("renders the wrapper as a div (not a span) — see HTML validity fix", () => {
+    // The wrapper used to be a `<span>`, but `AvatarRenderer` renders a
+    // `<div>` inside. `<div>` inside `<span>` is invalid HTML and browsers
+    // auto-close the span, dropping the className and aria-label. Use a
+    // `<div>` wrapper so the chrome stays valid.
+    const html = renderToStaticMarkup(<SubagentAvatarChip subagentId="alpha" />);
+    expect(html.startsWith("<div")).toBe(true);
   });
 
   test("defaults to 16px size when none provided", () => {

@@ -78,8 +78,10 @@ export type ToolCallCardStep =
  * `steps` is a `ToolCallCardStep[]` that covers web and non-web tools alike.
  * `state` widens to include `"error"` / `"denied"` so cards that mix
  * successful and failed tool calls can render a distinct chrome state.
- * `leadingIcon` is reserved for PR 7's subagent-group rendering (always
- * `null` for non-subagent groups today).
+ *
+ * The subagent leading-icon slot (`<SubagentAvatarChip>`) is plumbed directly
+ * through the shell's `leadingIcon` ReactNode prop by
+ * `SubagentInlineProgressCard`, so this data shape doesn't need to carry it.
  */
 export interface ToolCallCardData {
   /**
@@ -109,11 +111,6 @@ export interface ToolCallCardData {
   state: "loading" | "complete" | "error" | "denied";
   /** Results to feed the collapsed-header rotating carousel (web-search only). */
   carouselItems: WebSearchResultItem[];
-  /**
-   * Optional leading icon for subagent-rooted tool groups. PR 7 populates
-   * this; for now every non-subagent group leaves it as `null`.
-   */
-  leadingIcon: { kind: "subagent"; subagentId: string } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -455,6 +452,15 @@ export function computeToolCallCardData(
   liveWebActivity: Record<string, ToolActivityMetadata>,
   leadingThinkingText: string | null,
 ): ToolCallCardData {
+  // `subagent_spawn` calls are rendered inline by `SubagentInlineProgressCard`
+  // at the transcript level — surfacing them as steps inside the unified card
+  // would render the spawn twice. Filter them out here so the data layer
+  // alone handles suppression, and downstream consumers (header derivation,
+  // step list, state) all stay in lockstep.
+  const renderableToolCalls = toolCalls.filter(
+    (tc) => tc.toolName !== "subagent_spawn",
+  );
+
   const steps: ToolCallCardStep[] = [];
 
   if (leadingThinkingText) {
@@ -465,7 +471,7 @@ export function computeToolCallCardData(
     });
   }
 
-  for (const tc of toolCalls) {
+  for (const tc of renderableToolCalls) {
     if (!isWebTool(tc)) {
       steps.push(buildToolStep(tc));
       continue;
@@ -491,10 +497,19 @@ export function computeToolCallCardData(
     }
   }
 
-  const state = deriveCardState(toolCalls);
-  const currentStepTitle = deriveCurrentStepTitle(toolCalls, liveWebActivity);
-  const currentStepInfo = deriveCurrentStepInfo(toolCalls, liveWebActivity);
-  const carouselItems = deriveCarouselItems(toolCalls, liveWebActivity);
+  const state = deriveCardState(renderableToolCalls);
+  const currentStepTitle = deriveCurrentStepTitle(
+    renderableToolCalls,
+    liveWebActivity,
+  );
+  const currentStepInfo = deriveCurrentStepInfo(
+    renderableToolCalls,
+    liveWebActivity,
+  );
+  const carouselItems = deriveCarouselItems(
+    renderableToolCalls,
+    liveWebActivity,
+  );
   const stepCount = `${steps.length} step${steps.length === 1 ? "" : "s"}`;
 
   return {
@@ -504,7 +519,6 @@ export function computeToolCallCardData(
     steps,
     state,
     carouselItems,
-    leadingIcon: null,
   };
 }
 

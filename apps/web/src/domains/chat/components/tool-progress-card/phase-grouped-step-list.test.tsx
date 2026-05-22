@@ -153,6 +153,42 @@ describe("PhaseGroupedStepList — phase header status icon", () => {
     expect(icons[0]!.getAttribute("data-status")).toBeNull();
     expect(icons[0]!.children.length).toBe(3);
   });
+
+  test("phase with an in-flight web_search step renders three-dot (not the green check)", () => {
+    // `web_search` carries no explicit status field — its present-tense
+    // title is the canonical in-flight signal. Without this branch the
+    // header reads as completed while the search is still running.
+    const steps: ToolCallCardStep[] = [
+      {
+        kind: "web_search",
+        title: "Searching the web",
+        durationLabel: "",
+        linkCount: 0,
+        results: [],
+      },
+    ];
+    const { getAllByTestId } = render(<PhaseGroupedStepList steps={steps} />);
+    const icons = getAllByTestId("phase-header-status-icon");
+    expect(icons.length).toBe(1);
+    expect(icons[0]!.getAttribute("data-status")).toBeNull();
+    expect(icons[0]!.children.length).toBe(3);
+  });
+
+  test("phase with only terminal web_search steps renders the green check", () => {
+    const steps: ToolCallCardStep[] = [
+      {
+        kind: "web_search",
+        title: "Searched the web",
+        durationLabel: "1s",
+        linkCount: 1,
+        results: [],
+      },
+    ];
+    const { getAllByTestId } = render(<PhaseGroupedStepList steps={steps} />);
+    const icons = getAllByTestId("phase-header-status-icon");
+    expect(icons.length).toBe(1);
+    expect(icons[0]!.getAttribute("data-status")).toBe("completed");
+  });
 });
 
 describe("PhaseGroupedStepList — renderStep override", () => {
