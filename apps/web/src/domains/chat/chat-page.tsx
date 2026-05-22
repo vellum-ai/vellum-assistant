@@ -43,7 +43,7 @@ import type { TranscriptHandle } from "@/domains/chat/transcript/transcript.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
 import { getThinkingStatusText, shouldShowThinkingIndicator, type UIContext } from "@/domains/messaging/turn-selectors.js";
-import { consumePendingInitialMessage, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import { clearPendingInitialMessage, peekPendingInitialMessage, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
 import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
 import type { SyncChangedEvent } from "@/lib/sync/types.js";
@@ -649,17 +649,20 @@ export function ChatPage() {
   }, [searchParams, activeConversationKey, sendMessage]);
 
   // Auto-send onboarding initial message once the conversation is ready.
-  // Read from sessionStorage (not a ref) because ChatPage remounts during
-  // the onboarding redirect. No reachability gate — matches the ?prompt=
-  // pattern above; sendMessage handles unreachable state internally.
+  // Peek at sessionStorage without consuming — only clear after the send
+  // succeeds so a failed attempt (daemon not ready) can retry on the next
+  // effect cycle. Gates on assistantId + reachability so the send doesn't
+  // fire before the daemon can accept it.
   const initialMessageConsumedRef = useRef(false);
   useEffect(() => {
-    if (initialMessageConsumedRef.current || !activeConversationKey) return;
-    const message = consumePendingInitialMessage();
+    if (initialMessageConsumedRef.current || !assistantId || !activeConversationKey) return;
+    if (reachability.state.phase !== "ready") return;
+    const message = peekPendingInitialMessage();
     if (!message) return;
     initialMessageConsumedRef.current = true;
+    clearPendingInitialMessage();
     void sendMessage(message);
-  }, [activeConversationKey, sendMessage]);
+  }, [activeConversationKey, assistantId, reachability.state.phase, sendMessage]);
 
   // Derive onboardingTasksEmpty from the pending context in sessionStorage.
   // Runs once on mount — if initial message key is present, this is an

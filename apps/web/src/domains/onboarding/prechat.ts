@@ -402,3 +402,24 @@ export function consumePendingInitialMessage(): string | null {
     return null;
   }
 }
+
+export function peekPendingInitialMessage(): string | null {
+  const storage = getSessionStorage();
+  if (storage === null) return null;
+  try {
+    const value = storage.getItem(INITIAL_MESSAGE_KEY);
+    return typeof value === "string" && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingInitialMessage(): void {
+  const storage = getSessionStorage();
+  if (storage === null) return;
+  try {
+    storage.removeItem(INITIAL_MESSAGE_KEY);
+  } catch {
+    // Storage unavailable — nothing to clear.
+  }
+}
