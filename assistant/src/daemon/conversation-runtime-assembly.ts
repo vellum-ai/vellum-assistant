@@ -9,6 +9,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
+import { getConfig } from "../config/loader.js";
 import { createContextSummaryMessage } from "../context/window-manager.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
 import {
@@ -48,6 +49,7 @@ import {
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
+import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { filterMessagesForUntrustedActor } from "./conversation-lifecycle.js";
@@ -1272,10 +1274,30 @@ const SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT = "New Assistant Thread";
 function isSlackAssistantThreadPlaceholder(
   message: RenderableSlackMessage,
 ): boolean {
+  const metadata = message.metadata;
+  if (!metadata || metadata.eventKind !== "message") return false;
+  const actorExternalUserId = metadata.actorExternalUserId?.trim();
+  if (!actorExternalUserId) return false;
+
+  const configuredBotUserId = getConfig().slack.botUserId.trim();
+  if (!configuredBotUserId) return false;
+
+  const canonicalActor =
+    canonicalizeInboundIdentity("slack", actorExternalUserId) ??
+    actorExternalUserId;
+  const canonicalConfiguredBot =
+    canonicalizeInboundIdentity("slack", configuredBotUserId) ??
+    configuredBotUserId;
+  const isThreadRoot =
+    metadata.threadTs === undefined || metadata.threadTs === metadata.channelTs;
+  const hasSlackFiles =
+    Array.isArray(metadata.slackFiles) && metadata.slackFiles.length > 0;
+
   return (
     message.role === "user" &&
-    message.metadata?.eventKind === "message" &&
-    message.metadata.actorExternalUserId?.startsWith("B") === true &&
+    canonicalActor === canonicalConfiguredBot &&
+    isThreadRoot &&
+    !hasSlackFiles &&
     message.content.replace(/\s+/g, " ").trim() ===
       SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT
   );
