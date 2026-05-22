@@ -377,7 +377,7 @@ export interface ChatRouteContentProps {
 export function ChatRouteContent({
   assistantId,
   assistantState,
-  assistantIdentity: _assistantIdentity,
+  assistantIdentity,
   chatPullToRefreshEnabled,
   deployToVercel,
   doctor: doctorEnabled,
@@ -1051,6 +1051,7 @@ export function ChatRouteContent({
 
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
+    assistantDisplayName: assistantIdentity?.name?.trim() || undefined,
     expandedToolCallIds: expandedToolCallIdsRef.current,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
     onOpenApp: handleOpenApp,

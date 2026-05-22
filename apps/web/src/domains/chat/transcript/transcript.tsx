@@ -35,6 +35,7 @@ export type RefreshOutcome =
 
 export interface TranscriptProps {
   items: TranscriptItem[];
+  assistantDisplayName?: string | null;
   onSecretSubmit: (requestId: string, value: string) => void;
   onConfirmationDecision: (requestId: string, decision: string) => void;
   onSurfaceAction: (
@@ -221,6 +222,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       renderPendingConfirmation: rest.renderPendingConfirmation,
       renderPendingContactRequest: rest.renderPendingContactRequest,
       renderOnboardingChoice: rest.renderOnboardingChoice,
+      assistantDisplayName: rest.assistantDisplayName,
       onOpenRuleEditor: rest.onOpenRuleEditor,
       unknownNudgeToolCallIds: rest.unknownNudgeToolCallIds,
       onDismissUnknownNudge: rest.onDismissUnknownNudge,
