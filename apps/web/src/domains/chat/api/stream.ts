@@ -10,7 +10,7 @@ import * as Sentry from "@sentry/browser";
 
 import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client.js";
 import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/utils/diagnostics.js";
-import { parseAssistantEvent, readEventConversationKey } from "@/domains/chat/api/event-parser.js";
+import { parseAssistantEvent, readEventConversationId } from "@/domains/chat/api/event-parser.js";
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity.js";
 import {
@@ -431,15 +431,16 @@ export function subscribeChatEvents(
             eventData = data.message as Record<string, unknown>;
           }
 
-          const envelopeConversationKey = readEventConversationKey(data);
+          const envelopeConversationId = readEventConversationId(data);
           const eventType = typeof eventData.type === "string" ? eventData.type : "message";
           const parsed = parseAssistantEvent(eventType, eventData);
-          // SSE event type field still named `conversationKey` (event-types.ts);
-          // batch 2 will rename. Source values are the daemon envelope's
-          // `conversationKey` field and the requested conversationId.
-          parsed.conversationKey =
-            parsed.conversationKey ??
-            envelopeConversationKey ??
+          // Coerce conversationId onto the parsed event from (in order): the
+          // event payload itself, the AssistantEvent envelope's
+          // `conversationId` field, and finally the requestedConversationId
+          // passed into this subscription.
+          parsed.conversationId =
+            parsed.conversationId ??
+            envelopeConversationId ??
             requestedConversationId;
           pushSseEvent(sseDebugClientId, parsed);
           try {
