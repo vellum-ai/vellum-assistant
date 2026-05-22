@@ -29,7 +29,8 @@ import {
 } from "@/domains/conversations/conversation-queries.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useDeployStore } from "@/domains/chat/deploy-store.js";
-import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
+import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/subagents/subagent-store.js";
+import type { SubagentStatus } from "@/domains/chat/api/event-types.js";
 import { useInteractionStore } from "@/domains/interactions/interaction-store.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
@@ -93,7 +94,7 @@ import { ConversationActionsMenu } from "@/domains/chat/components/conversation-
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill.js";
 import { CommandPalette } from "@/components/command-palette/command-palette.js";
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout.js";
-import { abortSubagent } from "@/domains/chat/api/conversations.js";
+import { abortSubagent, fetchSubagentDetail } from "@/domains/chat/api/conversations.js";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay.js";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay.js";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay.js";
@@ -726,6 +727,106 @@ export function ChatPage() {
   useEffect(() => {
     useSubagentStore.getState().reset();
   }, [activeConversationKey]);
+
+  // -------------------------------------------------------------------------
+  // Subagent detail fetching
+  // -------------------------------------------------------------------------
+  const handleRequestSubagentDetail = useCallback(
+    async (subagentId: string) => {
+      if (!assistantId) return;
+      const entry = useSubagentStore.getState().byId[subagentId];
+      if (!entry?.conversationId) return;
+
+      const detail = await fetchSubagentDetail(assistantId, subagentId, entry.conversationId);
+      if (!detail) return;
+
+      let eventCounter = 0;
+      const events: SubagentTimelineEvent[] = [];
+
+      for (const evt of detail.events ?? []) {
+        const rawType = typeof evt.type === "string" ? evt.type : "unknown";
+        let type: SubagentTimelineEvent["type"];
+        switch (rawType) {
+          case "text":
+          case "assistant_text_delta":
+            type = "text";
+            break;
+          case "tool_use":
+          case "tool_use_start":
+            type = "tool_call";
+            break;
+          case "tool_result":
+            type = "tool_result";
+            break;
+          case "error":
+            type = "error";
+            break;
+          default:
+            continue;
+        }
+
+        const content =
+          typeof evt.content === "string"
+            ? evt.content
+            : typeof evt.text === "string"
+              ? evt.text
+              : typeof evt.result === "string"
+                ? evt.result
+                : "";
+
+        if (type === "text" && content === "") continue;
+
+        // Coalesce consecutive text events
+        const prev = events[events.length - 1];
+        if (type === "text" && prev && prev.type === "text") {
+          prev.content += "\n\n" + content;
+          continue;
+        }
+
+        events.push({
+          id: `detail-${++eventCounter}`,
+          type,
+          content,
+          toolName: typeof evt.toolName === "string" ? evt.toolName : undefined,
+          isError: typeof evt.isError === "boolean" ? evt.isError : undefined,
+          timestamp: typeof evt.timestamp === "number" ? evt.timestamp : Date.now(),
+        });
+      }
+
+      useSubagentStore.getState().loadDetail({
+        subagentId,
+        status: (detail.status as SubagentStatus) || undefined,
+        objective: detail.objective,
+        inputTokens: detail.usage?.inputTokens,
+        outputTokens: detail.usage?.outputTokens,
+        totalCost: detail.usage?.estimatedCost,
+        events,
+      });
+    },
+    [assistantId],
+  );
+
+  // Auto-fetch details for subagents reconstructed from history (mirrors macOS
+  // behavior of calling the detail endpoint on reload to get correct status,
+  // metrics, and events).
+  const fetchedSubagentsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    fetchedSubagentsRef.current.clear();
+  }, [activeConversationKey]);
+  useEffect(() => {
+    if (!assistantId) return;
+    const entries = Object.values(subagentState.byId);
+    for (const entry of entries) {
+      if (
+        entry.conversationId &&
+        entry.events.length === 0 &&
+        !fetchedSubagentsRef.current.has(entry.subagentId)
+      ) {
+        fetchedSubagentsRef.current.add(entry.subagentId);
+        handleRequestSubagentDetail(entry.subagentId);
+      }
+    }
+  }, [assistantId, subagentState.byId, handleRequestSubagentDetail]);
 
   // -------------------------------------------------------------------------
   // Interaction actions
@@ -1467,7 +1568,7 @@ export function ChatPage() {
         // Best-effort — the daemon may have already completed
       }
     },
-    onRequestSubagentDetail: async () => {},
+    onRequestSubagentDetail: handleRequestSubagentDetail,
     pushToAiSettings,
     checkAssistant,
     setRefreshEpoch,
@@ -1611,7 +1712,7 @@ export function ChatPage() {
                   // Best-effort — the daemon may have already completed
                 }
               }}
-              onRequestDetail={async () => {}}
+              onRequestDetail={handleRequestSubagentDetail}
             />
           </>,
           overlayTarget,
