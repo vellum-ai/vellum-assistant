@@ -217,7 +217,13 @@ export function ToolProgressCardShell({
         <span className="flex min-w-0 flex-1 items-center gap-1">
           <StatusIndicator state={state} testId={statusIndicatorTestId} />
           {leadingIcon ? (
-            <span className="flex shrink-0 items-center">{leadingIcon}</span>
+            // `mx-1` adds 4px on each side on top of the parent's `gap-1`
+            // (also 4px) so the icon sits with ~8px of breathing room on
+            // both sides — symmetric with the spacing between it and the
+            // header text on its right.
+            <span className="mx-1 flex shrink-0 items-center">
+              {leadingIcon}
+            </span>
           ) : null}
           <HeaderStepCarousel
             currentStepTitle={currentStepTitle}

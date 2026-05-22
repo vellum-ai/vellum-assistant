@@ -75,7 +75,7 @@ export function SubagentInlineProgressCard({
   // shell so the transcript doesn't flicker an empty card.
   if (!data) return null;
 
-  const leadingIcon = <SubagentAvatarChip subagentId={subagentId} size={16} />;
+  const leadingIcon = <SubagentAvatarChip subagentId={subagentId} size={20} />;
 
   // Action cluster slotted into the shell's `headerActionSlot`. The shell
   // positions it just to the left of the step-count pill so we no longer
