@@ -47,9 +47,9 @@ describe("initFeatureFlagOverrides", () => {
     // through the backoff schedule.
     await initFeatureFlagOverrides({ retryBackoffsMs: [] });
 
-    // Without gateway data or file, undeclared flags default to true
+    // Without gateway data or file, undeclared flags default to false
     const config = {} as any;
-    expect(isAssistantFeatureFlagEnabled("foo-enabled", config)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled("foo-enabled", config)).toBe(false);
   });
 
   it("respects false values from gateway IPC", async () => {
@@ -72,10 +72,9 @@ describe("initFeatureFlagOverrides", () => {
     // through the production backoff schedule.
     await initFeatureFlagOverrides({ retryBackoffsMs: [] });
 
-    // Undeclared flags without overrides default to true (not false from
-    // a cached empty map)
+    // Undeclared flags without overrides default to false.
     const config = {} as any;
-    expect(isAssistantFeatureFlagEnabled("foo-enabled", config)).toBe(true);
+    expect(isAssistantFeatureFlagEnabled("foo-enabled", config)).toBe(false);
   });
 
   it("retries empty gateway responses and picks up flags once they become available", async () => {
@@ -111,6 +110,6 @@ describe("initFeatureFlagOverrides", () => {
     // first-call must still be true (from the cached first fetch)
     expect(isAssistantFeatureFlagEnabled("first-call", config)).toBe(true);
     // second-call should not be in the cache since init was a no-op
-    expect(isAssistantFeatureFlagEnabled("second-call", config)).toBe(true); // defaults to true (undeclared)
+    expect(isAssistantFeatureFlagEnabled("second-call", config)).toBe(false);
   });
 });
