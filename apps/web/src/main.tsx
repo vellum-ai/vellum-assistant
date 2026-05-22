@@ -11,6 +11,9 @@ import "@/lib/sentry/sentry-init.js";
 import "@/lib/api-interceptors.js";
 import "./index.css";
 
+import { initSafeAreaBridge } from "@/runtime/native-safe-area.js";
+
+initSafeAreaBridge();
 setupOrganizationStore();
 useAuthStore.getState().initSession();
 setupAuthListeners();
