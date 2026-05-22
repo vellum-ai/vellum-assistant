@@ -35,13 +35,19 @@ async function requireClient(): Promise<VellumPlatformClient> {
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async function handleDomainRegister({ body = {} }: RouteHandlerArgs) {
-  const { subdomain } = body as { subdomain?: string };
+  const { subdomain, email_username } = body as {
+    subdomain?: string;
+    email_username?: string;
+  };
   const client = await requireClient();
   const apexDomain = getApexDomain();
 
   const reqBody: Record<string, string> = {};
   if (subdomain) {
     reqBody.subdomain = subdomain;
+  }
+  if (email_username) {
+    reqBody.email_username = email_username;
   }
 
   const response = await client.fetch(
@@ -75,6 +81,7 @@ async function handleDomainRegister({ body = {} }: RouteHandlerArgs) {
     verified?: boolean;
     created_at?: string;
     created?: string;
+    email_error?: { detail: string; code: string };
   };
 
   // Persist the subdomain to config so getAssistantDomain() can use it
