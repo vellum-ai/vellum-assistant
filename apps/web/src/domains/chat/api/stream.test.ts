@@ -523,7 +523,7 @@ describe("subscribeChatEvents idle watchdog", () => {
       const first = fires[0]!;
       expect(first.details).toMatchObject({
         assistantId: "asst-watchdog",
-        conversationKey: "conv-watchdog",
+        conversationId: "conv-watchdog",
         idleTimeoutMs: 50,
       });
       // The first watchdog fire happens on the very first connect
@@ -563,7 +563,7 @@ describe("subscribeChatEvents idle watchdog", () => {
       });
       expect(watchdogCapture!.extra).toMatchObject({
         assistantId: "asst-watchdog",
-        conversationKey: "conv-watchdog",
+        conversationId: "conv-watchdog",
         idleTimeoutMs: 50,
       });
     } finally {

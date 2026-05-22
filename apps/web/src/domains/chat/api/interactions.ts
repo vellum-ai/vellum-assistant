@@ -18,7 +18,7 @@ import {
 
 export async function getPendingInteractions(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
 ): Promise<{
   pendingConfirmation?: Record<string, unknown>;
   pendingSecret?: Record<string, unknown>;
@@ -33,7 +33,7 @@ export async function getPendingInteractions(
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/pending-interactions/",
     path: { assistant_id: assistantId },
-    query: { conversationId: conversationKey, conversationKey },
+    query: { conversationId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch pending interactions");

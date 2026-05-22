@@ -153,12 +153,11 @@ async function fetchPaginatedHistory(
  */
 export async function fetchLatestHistoryPage(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   limit: number = DEFAULT_LATEST_LIMIT,
 ): Promise<PaginatedHistoryResult> {
   return fetchPaginatedHistory(assistantId, {
-    conversationId: conversationKey,
-    conversationKey,
+    conversationId,
     page: "latest",
     limit: String(limit),
   });
@@ -172,13 +171,12 @@ export async function fetchLatestHistoryPage(
  */
 export async function fetchOlderHistoryPage(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   beforeTimestamp: number,
   limit: number = DEFAULT_OLDER_LIMIT,
 ): Promise<PaginatedHistoryResult> {
   return fetchPaginatedHistory(assistantId, {
-    conversationId: conversationKey,
-    conversationKey,
+    conversationId,
     beforeTimestamp: String(beforeTimestamp),
     limit: String(limit),
   });

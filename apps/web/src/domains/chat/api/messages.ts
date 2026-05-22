@@ -124,7 +124,7 @@ interface ListMessagesResponse {
 export async function pollForResponse(
   assistantId: string,
   userMessageId: string,
-  conversationKey: string,
+  conversationId: string,
 ): Promise<RuntimeMessage | null> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
 
@@ -136,7 +136,7 @@ export async function pollForResponse(
       ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/messages/",
       path: { assistant_id: assistantId },
-      query: { conversationId: conversationKey, conversationKey },
+      query: { conversationId },
       throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to poll for messages");
@@ -295,7 +295,7 @@ export type ChatHistoryResult =
 
 export async function getChatHistory(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
 ): Promise<ChatHistoryResult> {
   try {
     const { data, error, response } = await client.get<
@@ -305,7 +305,7 @@ export async function getChatHistory(
       ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/messages/",
       path: { assistant_id: assistantId },
-      query: { conversationId: conversationKey, conversationKey },
+      query: { conversationId },
       throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to fetch history");
@@ -346,7 +346,7 @@ export async function getChatHistory(
  */
 export async function fetchConversationMessages(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
 ): Promise<RuntimeMessage[]> {
   const { data, error, response } = await client.get<
     ListMessagesResponse,
@@ -355,7 +355,7 @@ export async function fetchConversationMessages(
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/messages/",
     path: { assistant_id: assistantId },
-    query: { conversationId: conversationKey, conversationKey },
+    query: { conversationId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch conversation messages");
@@ -481,13 +481,16 @@ export async function uploadChatAttachment(
  */
 export async function postChatMessage(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   content: string,
   attachmentIds: string[] = [],
   onboarding?: PreChatOnboardingContext,
 ): Promise<PostMessageResult> {
   const body: Record<string, unknown> = {
-    conversationKey,
+    // Daemon's send-message endpoint reads `body.conversationKey` only
+    // (see assistant/src/runtime/routes/conversation-routes.ts handleSendMessage).
+    // The web-side parameter is conversationId; map to the wire field here.
+    conversationKey: conversationId,
     content,
     sourceChannel: "vellum",
     interface: "vellum",
@@ -594,7 +597,7 @@ export async function postChatMessage(
       ok: true,
       queued: true,
       assistantId,
-      conversationKey,
+      conversationKey: conversationId,
       resolvedConversationId,
       requestId:
         typeof sendData.requestId === "string" ? sendData.requestId : undefined,
@@ -612,7 +615,7 @@ export async function postChatMessage(
   return {
     ok: true,
     assistantId,
-    conversationKey,
+    conversationKey: conversationId,
     messageId: sendData.messageId,
     resolvedConversationId,
   };
@@ -624,7 +627,7 @@ export async function postChatMessage(
  */
 export async function steerToMessage(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   requestId: string,
 ): Promise<boolean> {
   try {
@@ -633,7 +636,7 @@ export async function steerToMessage(
       ...SDK_BASE_OPTIONS,
       url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}/steer`,
       path: { assistant_id: assistantId },
-      query: { conversationId: conversationKey, conversationKey },
+      query: { conversationId },
       throwOnError: false,
     });
     return response?.ok ?? false;
@@ -649,7 +652,7 @@ export async function steerToMessage(
  */
 export async function deleteQueuedMessage(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   requestId: string,
 ): Promise<boolean> {
   try {
@@ -658,7 +661,7 @@ export async function deleteQueuedMessage(
       ...SDK_BASE_OPTIONS,
       url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}`,
       path: { assistant_id: assistantId },
-      query: { conversationId: conversationKey, conversationKey },
+      query: { conversationId },
       throwOnError: false,
     });
     return response?.ok ?? false;
