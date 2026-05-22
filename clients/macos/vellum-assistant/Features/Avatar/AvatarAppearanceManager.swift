@@ -649,6 +649,13 @@ final class AvatarAppearanceManager {
         Task.detached(priority: .userInitiated) { [weak self] in
             let icon = Self.composeDockIcon(from: avatar)
 
+            // Check generation before the expensive disk write so a
+            // superseded task doesn't overwrite a newer icon's .icns.
+            let isCurrent = await MainActor.run { [weak self] in
+                self?.dockIconGeneration == generation
+            }
+            guard isCurrent else { return }
+
             // Write .icns to disk — the heaviest single operation (PNG
             // encoding at multiple resolutions). Safe off main thread:
             // NSWorkspace.setIcon writes to the file system.
