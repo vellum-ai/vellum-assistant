@@ -1,20 +1,21 @@
 
-import { AlertCircle, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Fragment, useState } from "react";
 
 import { ToolCallChip } from "@/domains/chat/components/tool-call-chip/tool-call-chip.js";
 import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip.js";
-import { StepRow } from "@/domains/chat/components/web-search/step-row.js";
-import { ThinkingChip } from "@/domains/chat/components/web-search/thinking-chip.js";
 import { WebSearchProgressCard } from "@/domains/chat/components/web-search/web-search-progress-card.js";
 import type { StepDescriptor } from "@/domains/chat/components/web-search/web-search-progress-card.js";
 import { Typography } from "@vellum/design-library";
 
 import {
+  DefaultStepPill,
+  PhaseGroupedStepList,
+} from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list.js";
+import {
   ToolProgressCardShell,
   type ToolProgressCardState,
 } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell.js";
-import { ToolStepRow } from "@/domains/chat/components/tool-call-progress-card/tool-step-row.js";
 import {
   useToolCallCardData,
   WEB_TOOL_NAMES,
@@ -180,9 +181,11 @@ function WebSearchView({
 
 /**
  * Render the unified shell for a non-web tool-call group. Wraps
- * `ToolProgressCardShell` with the step-row body that mixes
+ * `ToolProgressCardShell` with a `PhaseGroupedStepList` body that groups
+ * contiguous same-phase steps (`Thinking`, `Working (bash)`, `Using a
+ * skill`, etc.) under a single phase header. Mixed groups carry
  * `web_search` / `web_search_error` / `thinking` (from web tools or the
- * `leadingThinkingText` slot) with the new `tool` variant emitted by
+ * `leadingThinkingText` slot) alongside the `tool` variant emitted by
  * `useToolCallCardData` for non-web tools.
  */
 function UnifiedToolCallProgressCard({
@@ -212,25 +215,28 @@ function UnifiedToolCallProgressCard({
       onExpandChange={expanded.onChange}
     >
       <div className="flex w-full flex-col gap-3 px-3 pb-3">
-        {cardData.steps.map((step, idx) => {
-          const nudgeTarget =
-            step.kind === "tool" &&
-            unknownNudgeToolCallIds?.has(step.toolCallId)
-              ? toolCallById.get(step.toolCallId)
-              : undefined;
-          return (
-            <Fragment key={stepKey(step, idx)}>
-              <ExpandedStep step={step} />
-              {nudgeTarget && onOpenRuleEditor && (
-                <UnknownCommandNudge
-                  toolCall={nudgeTarget}
-                  onOpenRuleEditor={onOpenRuleEditor}
-                  onDismiss={onDismissUnknownNudge}
-                />
-              )}
-            </Fragment>
-          );
-        })}
+        <PhaseGroupedStepList
+          steps={cardData.steps}
+          renderStep={(step) => {
+            const nudgeTarget =
+              step.kind === "tool" &&
+              unknownNudgeToolCallIds?.has(step.toolCallId)
+                ? toolCallById.get(step.toolCallId)
+                : undefined;
+            return (
+              <>
+                <ExpandedStep step={step} />
+                {nudgeTarget && onOpenRuleEditor && (
+                  <UnknownCommandNudge
+                    toolCall={nudgeTarget}
+                    onOpenRuleEditor={onOpenRuleEditor}
+                    onDismiss={onDismissUnknownNudge}
+                  />
+                )}
+              </>
+            );
+          }}
+        />
       </div>
     </ToolProgressCardShell>
   );
@@ -318,46 +324,16 @@ function UnknownCommandNudge({
 }
 
 /**
- * Stable key for a step descriptor. The `tool` variant ties back to a
- * specific tool call id; the rest of the variants are positional.
- */
-function stepKey(step: ToolCallCardStep, idx: number): string {
-  if (step.kind === "tool") return step.toolCallId;
-  return `${step.kind}-${idx}`;
-}
-
-/**
- * Render a single step inside the expanded body. The `web_search` /
- * `web_search_error` / `thinking` variants reuse the chips from
- * `WebSearchProgressCard` so the visual language stays consistent between
- * web and mixed groups; the `tool` variant uses the new `ToolStepRow`.
+ * Render a single step inside the expanded body of a phase section. The
+ * `web_search` variant keeps its favicon chip cluster + overflow pill so
+ * the visual language matches the dedicated `WebSearchProgressCard`; all
+ * other variants fall through to {@link DefaultStepPill} which matches
+ * Figma `5010-103135`.
  */
 function ExpandedStep({ step }: { step: ToolCallCardStep }) {
-  if (step.kind === "thinking") {
-    return (
-      <StepRow title="Thinking" durationLabel={step.durationLabel}>
-        <ThinkingChip>{step.text}</ThinkingChip>
-      </StepRow>
-    );
-  }
-  if (step.kind === "web_search_error") {
-    return (
-      <StepRow
-        title={step.title}
-        durationLabel={step.durationLabel}
-        tone="error"
-      >
-        <ErrorChip message={step.errorMessage} />
-      </StepRow>
-    );
-  }
   if (step.kind === "web_search") {
     return (
-      <StepRow
-        title={step.title}
-        durationLabel={step.durationLabel}
-        linkCount={step.linkCount}
-      >
+      <div className="flex flex-wrap items-center gap-1">
         {step.results.map((r) => (
           <FaviconChip
             key={r.rank}
@@ -369,28 +345,10 @@ function ExpandedStep({ step }: { step: ToolCallCardStep }) {
         {step.overflow && step.overflow > 0 ? (
           <OverflowChip count={step.overflow} />
         ) : null}
-      </StepRow>
+      </div>
     );
   }
-  if (step.kind === "tool_error") {
-    // Subagent-side error step — surfaces in mixed groups when a subagent
-    // bubbles a tool failure into the parent transcript. Mirror the
-    // web_search_error layout for visual consistency.
-    return (
-      <StepRow title="Error" tone="error">
-        <ErrorChip message={step.message} />
-      </StepRow>
-    );
-  }
-  return (
-    <ToolStepRow
-      title={step.title}
-      info={step.info}
-      iconName={step.iconName}
-      status={step.status}
-      durationLabel={step.durationLabel}
-    />
-  );
+  return <DefaultStepPill step={step} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -469,25 +427,6 @@ function OverflowChip({ count }: { count: number }) {
         className="text-[var(--content-default)]"
       >
         +{count} more
-      </Typography>
-    </div>
-  );
-}
-
-function ErrorChip({ message }: { message: string }) {
-  return (
-    <div
-      data-testid="tool-progress-error-chip"
-      className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)] px-[10px] py-[6px]"
-    >
-      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-        <AlertCircle className="h-[14px] w-[14px] text-[var(--system-negative-strong)]" />
-      </span>
-      <Typography
-        variant="body-small-default"
-        className="text-[var(--system-negative-strong)]"
-      >
-        {message}
       </Typography>
     </div>
   );

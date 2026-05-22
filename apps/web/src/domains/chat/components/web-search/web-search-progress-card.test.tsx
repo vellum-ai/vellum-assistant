@@ -205,14 +205,11 @@ describe("WebSearchProgressCard — expanded state", () => {
         defaultExpanded
       />,
     );
-    // Thinking row renders its text via ThinkingChip.
+    // Thinking phase pill renders its text content.
     expect(getByText("Forming a query")).toBeTruthy();
-    // "Searching the web" appears in both header + the web_search StepRow title.
+    // "Searching the web" appears in both the collapsed header and the
+    // matching phase-section header inside the expanded body.
     expect(getAllByText("Searching the web")).toHaveLength(2);
-    // web_search row meta cluster ("{n} links" + duration).
-    expect(getByText("2 links")).toBeTruthy();
-    expect(getByText("2s")).toBeTruthy();
-    expect(getByText("1s")).toBeTruthy();
     // Each result rendered a FaviconChip.
     expect(getByText("Result 1")).toBeTruthy();
     expect(getByText("Result 2")).toBeTruthy();
@@ -243,7 +240,11 @@ describe("WebSearchProgressCard — expanded state", () => {
     expect(getByText("+3 more")).toBeTruthy();
   });
 
-  test("singularizes the link count in the meta cluster when linkCount === 1", () => {
+  test("renders favicon chips for each result inside the phase section", () => {
+    // Regression: in the legacy `StepRow` layout the row carried a
+    // `{n} links · {duration}` meta cluster. The phase-grouped layout
+    // drops the meta cluster in favour of a single phase-header duration
+    // total, but the favicons themselves still render under the section.
     const steps: StepDescriptor[] = [
       {
         kind: "web_search",
@@ -253,7 +254,7 @@ describe("WebSearchProgressCard — expanded state", () => {
         results: [makeResult(1)],
       },
     ];
-    const { getByText, queryByText } = render(
+    const { container, getByText } = render(
       <WebSearchProgressCard
         currentStepTitle="Searching the web"
         currentStepInfo="my query"
@@ -262,9 +263,8 @@ describe("WebSearchProgressCard — expanded state", () => {
         defaultExpanded
       />,
     );
-    expect(getByText("1 link")).toBeTruthy();
-    // No stray plural variant on the page.
-    expect(queryByText("1 links")).toBeNull();
+    expect(getByText("Result 1")).toBeTruthy();
+    expect(container.querySelectorAll("img")).toHaveLength(1);
   });
 
   test("omits the overflow chip when overflow is 0 or undefined", () => {
@@ -400,7 +400,7 @@ describe("WebSearchProgressCard — header layout", () => {
 });
 
 describe("WebSearchProgressCard — error variant", () => {
-  test("renders the web_search_error step with a red AlertCircle and error chip", () => {
+  test("renders the web_search_error step with an error chip under the phase header", () => {
     const steps: StepDescriptor[] = [
       {
         kind: "web_search_error",
@@ -409,7 +409,7 @@ describe("WebSearchProgressCard — error variant", () => {
         errorMessage: "Provider returned max_uses_exceeded.",
       },
     ];
-    const { getByText, getByTestId, getAllByTestId } = render(
+    const { getByText, getByTestId } = render(
       <WebSearchProgressCard
         currentStepTitle="Searched the web"
         currentStepInfo=""
@@ -419,21 +419,16 @@ describe("WebSearchProgressCard — error variant", () => {
         state="complete"
       />,
     );
-    expect(getByText("Web search failed")).toBeTruthy();
+    // `web_search_error` groups under the same "Searching the web" phase
+    // header in the phase-grouped layout (phaseFromStep collapses both
+    // success and failure variants together).
     expect(
       getByText("Provider returned max_uses_exceeded."),
     ).toBeTruthy();
     expect(getByTestId("web-search-error-chip")).toBeTruthy();
-    // The error row's leading icon is the AlertCircle, marked with
-    // data-tone="error" so we can find it without scraping classnames.
-    const statusIcons = getAllByTestId("step-row-status-icon");
-    const errorIcons = statusIcons.filter(
-      (el) => el.getAttribute("data-tone") === "error",
-    );
-    expect(errorIcons).toHaveLength(1);
   });
 
-  test("uses the green CheckCircle2 for non-error step rows", () => {
+  test("non-error sections render the green completed check at the phase header", () => {
     const steps: StepDescriptor[] = [
       {
         kind: "web_search",
@@ -453,8 +448,9 @@ describe("WebSearchProgressCard — error variant", () => {
         state="complete"
       />,
     );
-    const statusIcons = getAllByTestId("step-row-status-icon");
-    expect(statusIcons.every((el) => el.getAttribute("data-tone") === "default")).toBe(true);
+    const headerIcons = getAllByTestId("phase-header-status-icon");
+    expect(headerIcons).toHaveLength(1);
+    expect(headerIcons[0]!.getAttribute("data-status")).toBe("completed");
   });
 });
 

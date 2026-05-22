@@ -6,13 +6,16 @@ import { Typography } from "@vellum/design-library";
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types.js";
 import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip.js";
-import { StepRow } from "@/domains/chat/components/web-search/step-row.js";
-import { ThinkingChip } from "@/domains/chat/components/web-search/thinking-chip.js";
 import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel.js";
+import {
+  DefaultStepPill,
+  PhaseGroupedStepList,
+} from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list.js";
 import {
   ToolProgressCardShell,
   type ToolProgressCardState,
 } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell.js";
+import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-data.js";
 
 /**
  * Live progress card rendered while an assistant turn is actively searching the
@@ -20,8 +23,9 @@ import {
  *
  *   - `ToolProgressCardShell` (rounded card + status indicator + header
  *     carousel + expand/collapse body — shared with other tool progress cards)
- *   - `StepRow` (expanded: per-sub-step header with check icon + duration meta)
- *   - `ThinkingChip` (expanded: a thinking step's content)
+ *   - `PhaseGroupedStepList` (expanded: phase-section headers + indented
+ *     per-step content; the web card passes a `renderStep` override so
+ *     `web_search` steps keep their favicon-chip cluster)
  *   - `FaviconChip` (expanded: a web_search step's result chips)
  *   - `WebsiteCarousel` (collapsed-header info slot during an active search
  *     with at least one completed `web_search` to feed the rotation)
@@ -38,14 +42,14 @@ import {
 
 /**
  * A single sub-step inside the expanded card. Discriminated by `kind`:
- * - `"thinking"` → renders a `ThinkingChip` with `text` as its body.
+ * - `"thinking"` → renders the step's text inside the default phase pill.
  * - `"web_search"` → renders one `FaviconChip` per result (up to the supplied
  *   list) followed by an optional `+N more` overflow chip when `overflow > 0`.
- *   `title` is supplied by the selector so the row label can switch between
- *   "Searching the web" (in-flight) and "Searched the web" (terminal).
- * - `"web_search_error"` → renders a red AlertCircle + the provider's
- *   `errorMessage` inside a negatively-toned chip. Used when the search
- *   itself failed and there are no results to surface.
+ *   `title` is supplied by the selector so the phase header label can switch
+ *   between "Searching the web" (in-flight) and "Searched the web" (terminal).
+ * - `"web_search_error"` → renders an `ErrorChip` with the provider's
+ *   `errorMessage`. Used when the search itself failed and there are no
+ *   results to surface.
  *
  * The plan reserves richer `web_fetch` rendering for a follow-up; the PR-8
  * selector currently maps fetches to a `thinking` step ("Reading <title>").
@@ -128,8 +132,8 @@ function OverflowChip({ count }: { count: number }) {
 
 /**
  * Negatively-toned chip used inside a `web_search_error` step row to
- * surface the provider's `errorMessage`. Mirrors `ThinkingChip`'s outlined
- * pill geometry but swaps the border + foreground tokens for the
+ * surface the provider's `errorMessage`. Mirrors the default pill's
+ * outlined geometry but swaps the border + foreground tokens for the
  * `--system-negative-*` family so the failure reads as distinct from a
  * normal reasoning step.
  */
@@ -198,56 +202,37 @@ export function WebSearchProgressCard({
       defaultExpanded={defaultExpanded}
     >
       <div className="flex w-full flex-col gap-3 px-3 pb-3">
-        {steps.map((step, idx) => {
-          if (step.kind === "thinking") {
-            return (
-              <StepRow
-                key={idx}
-                title="Thinking"
-                durationLabel={step.durationLabel}
-              >
-                <ThinkingChip>{step.text}</ThinkingChip>
-              </StepRow>
-            );
-          }
-          if (step.kind === "web_search_error") {
-            return (
-              <StepRow
-                key={idx}
-                title={step.title}
-                durationLabel={step.durationLabel}
-                tone="error"
-              >
-                <ErrorChip message={step.errorMessage} />
-              </StepRow>
-            );
-          }
-          return (
-            <StepRow
-              key={idx}
-              title={step.title}
-              durationLabel={step.durationLabel}
-              linkCount={step.linkCount}
-            >
-              {step.results.map((r) => (
-                // Key by `rank` (the documented uniqueness invariant
-                // on `WebSearchResultItem`) rather than `url` —
-                // providers occasionally return duplicate URLs, which
-                // would collide as React keys and cause stale/missing
-                // chips during live updates.
-                <FaviconChip
-                  key={r.rank}
-                  faviconUrl={r.faviconUrl}
-                  title={r.title}
-                  domain={r.domain}
-                />
-              ))}
-              {step.overflow && step.overflow > 0 ? (
-                <OverflowChip count={step.overflow} />
-              ) : null}
-            </StepRow>
-          );
-        })}
+        <PhaseGroupedStepList
+          steps={steps as ToolCallCardStep[]}
+          renderStep={(step) => {
+            if (step.kind === "web_search") {
+              return (
+                <div className="flex flex-wrap items-center gap-1">
+                  {step.results.map((r) => (
+                    // Key by `rank` (the documented uniqueness invariant
+                    // on `WebSearchResultItem`) rather than `url` —
+                    // providers occasionally return duplicate URLs, which
+                    // would collide as React keys and cause stale/missing
+                    // chips during live updates.
+                    <FaviconChip
+                      key={r.rank}
+                      faviconUrl={r.faviconUrl}
+                      title={r.title}
+                      domain={r.domain}
+                    />
+                  ))}
+                  {step.overflow && step.overflow > 0 ? (
+                    <OverflowChip count={step.overflow} />
+                  ) : null}
+                </div>
+              );
+            }
+            if (step.kind === "web_search_error") {
+              return <ErrorChip message={step.errorMessage} />;
+            }
+            return <DefaultStepPill step={step} />;
+          }}
+        />
       </div>
     </ToolProgressCardShell>
   );
