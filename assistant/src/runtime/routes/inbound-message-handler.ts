@@ -106,6 +106,68 @@ const DISK_PRESSURE_REMOTE_BLOCK_REPLY =
 let deleteLookupRetries = 5;
 let deleteLookupDelayMs = 2000;
 
+interface SlackActorTimezoneMetadata {
+  timezone?: string;
+  timezoneLabel?: string;
+  timezoneOffsetSeconds?: number;
+}
+
+function trimMetadataString(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const value = metadata?.[key];
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseSlackActorTimezoneMetadata(
+  sourceChannel: string,
+  metadata: Record<string, unknown> | undefined,
+): SlackActorTimezoneMetadata | undefined {
+  if (sourceChannel !== "slack") return undefined;
+
+  const timezone = trimMetadataString(metadata, "timezone");
+  const timezoneLabel = trimMetadataString(metadata, "timezoneLabel");
+  const rawOffset = metadata?.timezoneOffsetSeconds;
+  const timezoneOffsetSeconds =
+    typeof rawOffset === "number" && Number.isFinite(rawOffset)
+      ? rawOffset
+      : undefined;
+
+  if (
+    timezone === undefined &&
+    timezoneLabel === undefined &&
+    timezoneOffsetSeconds === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...(timezone ? { timezone } : {}),
+    ...(timezoneLabel ? { timezoneLabel } : {}),
+    ...(timezoneOffsetSeconds !== undefined ? { timezoneOffsetSeconds } : {}),
+  };
+}
+
+function attachSlackRequesterTimezone(
+  trustCtx: TrustContext,
+  timezone: SlackActorTimezoneMetadata | undefined,
+): TrustContext {
+  if (!timezone) return trustCtx;
+  return {
+    ...trustCtx,
+    ...(timezone.timezone ? { requesterTimezone: timezone.timezone } : {}),
+    ...(timezone.timezoneLabel
+      ? { requesterTimezoneLabel: timezone.timezoneLabel }
+      : {}),
+    ...(timezone.timezoneOffsetSeconds !== undefined
+      ? { requesterTimezoneOffsetSeconds: timezone.timezoneOffsetSeconds }
+      : {}),
+  };
+}
+
 /**
  * Test-only override for the delete-lookup retry timings. Used by
  * tests that exercise the "no such message" path without waiting
@@ -176,6 +238,10 @@ export async function handleChannelInbound({
     sourceChannel === "slack" && typeof sourceMetadata?.channelName === "string"
       ? sourceMetadata.channelName.trim() || null
       : null;
+  const slackActorTimezone = parseSlackActorTimezoneMetadata(
+    sourceChannel,
+    sourceMetadata,
+  );
 
   if (!body.interface || typeof body.interface !== "string") {
     throw new BadRequestError("interface is required");
@@ -566,14 +632,17 @@ export async function handleChannelInbound({
   // ── Actor role resolution ──
   // Uses shared channel-agnostic resolution so all ingress paths classify
   // guardian vs non-guardian actors the same way.
-  const trustCtx: TrustContext = resolveTrustContext({
-    assistantId: canonicalAssistantId,
-    sourceChannel,
-    conversationExternalId,
-    actorExternalId: rawSenderId,
-    actorUsername: body.actorUsername,
-    actorDisplayName: body.actorDisplayName,
-  });
+  const trustCtx: TrustContext = attachSlackRequesterTimezone(
+    resolveTrustContext({
+      assistantId: canonicalAssistantId,
+      sourceChannel,
+      conversationExternalId,
+      actorExternalId: rawSenderId,
+      actorUsername: body.actorUsername,
+      actorDisplayName: body.actorDisplayName,
+    }),
+    slackActorTimezone,
+  );
 
   const diskPressureDecision = classifyDiskPressureTurnPolicy(
     getDiskPressureStatus(),
@@ -658,14 +727,17 @@ export async function handleChannelInbound({
     // preconditions used by the standard approval interception call below.
     const isReactionAdded = body.callbackData?.startsWith("reaction:") === true;
     if (isReactionAdded && replyCallbackUrl && !result.duplicate) {
-      const trustCtxForReaction: TrustContext = resolveTrustContext({
-        assistantId: canonicalAssistantId,
-        sourceChannel,
-        conversationExternalId,
-        actorExternalId: rawSenderId,
-        actorUsername: body.actorUsername,
-        actorDisplayName: body.actorDisplayName,
-      });
+      const trustCtxForReaction: TrustContext = attachSlackRequesterTimezone(
+        resolveTrustContext({
+          assistantId: canonicalAssistantId,
+          sourceChannel,
+          conversationExternalId,
+          actorExternalId: rawSenderId,
+          actorUsername: body.actorUsername,
+          actorDisplayName: body.actorDisplayName,
+        }),
+        slackActorTimezone,
+      );
 
       const approvalMessageTs =
         typeof sourceMetadata?.messageId === "string"
@@ -1051,6 +1123,10 @@ export async function handleChannelInbound({
       // this into a `slackMeta` sub-object in the row's metadata column so
       // the chronological renderer can reconstruct thread structure without
       // re-fetching from Slack.
+      const slackSpeakerTimezoneLabel =
+        trustCtx.trustClass !== "guardian"
+          ? slackActorTimezone?.timezoneLabel
+          : undefined;
       const slackInbound =
         sourceChannel === "slack"
           ? {
@@ -1065,6 +1141,27 @@ export async function handleChannelInbound({
                 : {}),
               ...(trustCtx.requesterExternalUserId
                 ? { actorExternalUserId: trustCtx.requesterExternalUserId }
+                : {}),
+              ...(slackActorTimezone?.timezone
+                ? { actorTimezone: slackActorTimezone.timezone }
+                : {}),
+              ...(slackActorTimezone?.timezoneLabel
+                ? { actorTimezoneLabel: slackActorTimezone.timezoneLabel }
+                : {}),
+              ...(slackActorTimezone?.timezoneOffsetSeconds !== undefined
+                ? {
+                    actorTimezoneOffsetSeconds:
+                      slackActorTimezone.timezoneOffsetSeconds,
+                  }
+                : {}),
+              ...(slackActorTimezone?.timezone
+                ? { timestampTimezone: slackActorTimezone.timezone }
+                : {}),
+              ...(slackActorTimezone?.timezoneLabel
+                ? { timestampTimezoneLabel: slackActorTimezone.timezoneLabel }
+                : {}),
+              ...(slackSpeakerTimezoneLabel
+                ? { speakerTimezoneLabel: slackSpeakerTimezoneLabel }
                 : {}),
             }
           : undefined;

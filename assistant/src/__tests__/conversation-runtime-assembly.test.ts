@@ -4249,6 +4249,36 @@ describe("assembleSlackChronologicalMessages", () => {
     }
   });
 
+  test("expanded Slack timezone metadata remains renderable", () => {
+    const userMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_25,
+      eventKind: "message",
+      displayName: "@alice",
+      actorTimezone: "America/New_York",
+      actorTimezoneLabel: "ET",
+      actorTimezoneOffsetSeconds: -18000,
+      timestampTimezone: "America/New_York",
+      timestampTimezoneLabel: "ET",
+      speakerTimezoneLabel: "ET",
+    };
+    const rows: SlackTranscriptInputRow[] = [
+      row("user", "timezone-aware hello", MS_14_25, metadataEnvelope(userMeta)),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
+    expect(result).not.toBeNull();
+    expect(result!.map((m) => (m.content[0] as { text: string }).text)).toEqual(
+      [
+        `[11/14/23 14:25 @alice]: ${slackExternal(
+          "timezone-aware hello",
+          "@alice",
+        )}`,
+      ],
+    );
+  });
+
   test("legacy-DM fixture: pre-upgrade rows (no slackMeta) interleave with post-upgrade rows", () => {
     // Mix:
     //  - Two pre-upgrade rows (created before PR 16 wired slackMeta into
