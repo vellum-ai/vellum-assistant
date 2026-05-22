@@ -11,7 +11,7 @@ import {
 
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
 
-type StreamContext = { assistantId: string; conversationKey: string };
+type StreamContext = { assistantId: string; conversationId: string };
 
 function renderEventStream(
   activeConversationKey: string,
@@ -58,10 +58,10 @@ function renderEventStream(
   );
 }
 
-function publishDelta(conversationKey: string): void {
+function publishDelta(conversationId: string): void {
   useEventBusStore.getState().publish("sse.event", {
     type: "assistant_text_delta",
-    conversationKey,
+    conversationId,
     delta: "hi",
   } as unknown as AssistantEvent);
 }
@@ -76,7 +76,7 @@ afterEach(() => {
 });
 
 describe("useEventStream — conversation-switch filtering", () => {
-  test("forwards events whose conversationKey matches the active key", () => {
+  test("forwards events whose conversationId matches the active key", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
     publishDelta("conv-A");
@@ -109,7 +109,7 @@ describe("useEventStream — conversation-switch filtering", () => {
     expect(handler).toHaveBeenCalledTimes(2);
   });
 
-  test("forwards assistant-broadcast events that omit conversationKey", () => {
+  test("forwards assistant-broadcast events that omit conversationId", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
     useEventBusStore.getState().publish("sse.event", {
@@ -119,9 +119,9 @@ describe("useEventStream — conversation-switch filtering", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  test("rejects conversation-scoped events that omit conversationKey (no implicit broadcast)", () => {
+  test("rejects conversation-scoped events that omit conversationId (no implicit broadcast)", () => {
     // Regression coverage: before the fix, conversation-scoped events
-    // arriving without a conversationKey were treated as broadcast and
+    // arriving without a conversationId were treated as broadcast and
     // forwarded to whichever conversation was active — causing
     // cross-conversation jumbling. The new filter rejects them: a
     // conversation-scoped event without an explicit key is treated as
@@ -135,12 +135,12 @@ describe("useEventStream — conversation-switch filtering", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  test("forwards conversation-scoped events whose conversationKey matches the active conversation", () => {
+  test("forwards conversation-scoped events whose conversationId matches the active conversation", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
     useEventBusStore.getState().publish("sse.event", {
       type: "message_complete",
-      conversationKey: "conv-A",
+      conversationId: "conv-A",
       messageId: "m1",
     } as unknown as AssistantEvent);
     expect(handler).toHaveBeenCalledTimes(1);
@@ -151,7 +151,7 @@ describe("useEventStream — conversation-switch filtering", () => {
     renderEventStream("conv-A", handler);
     useEventBusStore.getState().publish("sse.event", {
       type: "tool_call",
-      conversationKey: "conv-B",
+      conversationId: "conv-B",
       toolName: "bash",
     } as unknown as AssistantEvent);
     expect(handler).not.toHaveBeenCalled();

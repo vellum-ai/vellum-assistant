@@ -50,7 +50,7 @@ const moduleScopeStub = (name: string) => () => {
 };
 
 mock.module("@/domains/chat/api/messages", () => ({
-  fetchConversationMessages: async (_assistantId: string, _conversationKey: string) => {
+  fetchConversationMessages: async (_assistantId: string, _conversationId: string) => {
     fetchCallCount++;
     if (mockFetchSideEffect) mockFetchSideEffect();
     if (mockFetchError) throw mockFetchError;
@@ -127,7 +127,7 @@ type HookReturn = ReturnType<typeof useMessageReconciliation>;
 
 interface HarnessProps {
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  streamContextRef: RefObject<{ assistantId: string; conversationKey: string } | null>;
+  streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
   streamEpochRef: RefObject<number>;
   activeConversationKeyRef: RefObject<string | null>;
   initialPageOldestTsRef?: RefObject<number | null>;
@@ -167,7 +167,7 @@ function makeMessage(overrides: Omit<DisplayMessage, "stableId"> & { stableId?: 
 }
 
 function createHarness(overrides?: {
-  streamContext?: { assistantId: string; conversationKey: string } | null;
+  streamContext?: { assistantId: string; conversationId: string } | null;
   streamEpoch?: number;
   streamEpochRef?: RefObject<number>;
   activeConversationKey?: string | null;
@@ -304,7 +304,7 @@ describe("reconcileActiveConversation", () => {
       { id: "m2", role: "assistant", content: "Response" },
     ];
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
     });
     const result = await reconcileActiveConversation();
@@ -325,7 +325,7 @@ describe("reconcileActiveConversation", () => {
     ];
     // streamContext says "conv-1" but activeConversationKey is now "conv-2"
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-2",
     });
     const result = await reconcileActiveConversation();
@@ -352,7 +352,7 @@ describe("reconcileActiveConversation", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState: stuckTurnState,
     });
@@ -377,7 +377,7 @@ describe("reconcileActiveConversation", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState: noTurnIdState,
     });
@@ -401,7 +401,7 @@ describe("reconcileActiveConversation", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState: idleTurnState,
     });
@@ -424,7 +424,7 @@ describe("reconcileActiveConversation", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState: stuckTurnState,
     });
@@ -454,7 +454,7 @@ describe("reconcileActiveConversation", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState: stuckTurnState,
     });
@@ -482,7 +482,7 @@ describe("reconcileActiveConversation", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState: thinkingTurnState,
     });
@@ -509,7 +509,7 @@ describe("reconcileActiveConversation", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState: thinkingTurnState,
     });
@@ -543,7 +543,7 @@ describe("reconcileActiveConversation", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState: thinkingTurnState,
     });
@@ -577,7 +577,7 @@ describe("reconcileActiveConversation", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       streamEpochRef: epochRef,
       activeConversationKey: "conv-1",
       turnState: stuckTurnState,
@@ -610,7 +610,7 @@ describe("reconcileActiveConversation", () => {
       onPollReconciledSpy = useTurnStore.getState().onPollReconciled as ReturnType<typeof mock>;
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState: {
         phase: "streaming",
@@ -646,7 +646,7 @@ describe("reconcileActiveConversation", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState: idleTurnState,
     });
@@ -677,7 +677,7 @@ describe("reconcileActiveConversation", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState: streamingTurnState,
     });
@@ -689,7 +689,7 @@ describe("reconcileActiveConversation", () => {
   test("returns no-change on fetch error", async () => {
     mockFetchError = new Error("Network error");
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
     });
     const result = await reconcileActiveConversation();
@@ -719,7 +719,7 @@ describe("reconcileActiveConversation", () => {
       liveWebActivity: {},
       };
       const { reconcileActiveConversation } = createHarness({
-        streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+        streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
         activeConversationKey: "conv-1",
         turnState,
       });
@@ -748,7 +748,7 @@ describe("reconcileActiveConversation — fetch failure", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState,
     });
@@ -795,7 +795,7 @@ describe("startReconciliationLoop", () => {
       ];
 
       const { startReconciliationLoop, cancelReconciliation } = createHarness({
-        streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+        streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
         streamEpoch: 7,
         activeConversationKey: "conv-1",
         turnState: {
@@ -862,7 +862,7 @@ describe("startReconciliationLoop", () => {
       mockFetchResult = baseline;
 
       const { startReconciliationLoop, cancelReconciliation } = createHarness({
-        streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+        streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
         streamEpoch: 1,
         activeConversationKey: "conv-1",
         turnState: INITIAL_TURN_STATE,
@@ -924,7 +924,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState: idleTurnState,
     });
@@ -961,7 +961,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState: idleTurnState,
     });
@@ -998,7 +998,7 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
       liveWebActivity: {},
     };
     const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
       activeConversationKey: "conv-1",
       turnState: streamingTurnState,
     });

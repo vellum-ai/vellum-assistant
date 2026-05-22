@@ -19,7 +19,7 @@ const RECONCILE_STABLE_COUNT = 2;
 
 interface UseMessageReconciliationArgs {
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  streamContextRef: RefObject<{ assistantId: string; conversationKey: string } | null>;
+  streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
   streamEpochRef: RefObject<number>;
   activeConversationKeyRef: RefObject<string | null>;
   initialPageOldestTsRef: RefObject<number | null>;
@@ -311,12 +311,12 @@ export function useMessageReconciliation({
         }
         const snapshotTurnId = useTurnStore.getState().activeTurnId;
 
-        fetchConversationMessages(ctx.assistantId, ctx.conversationKey)
+        fetchConversationMessages(ctx.assistantId, ctx.conversationId)
           .then((serverMessages) => {
             if (epoch !== streamEpochRef.current) return;
             recordChatDiagnostic("reconciliation_fetch", {
               assistantId: ctx.assistantId,
-              conversationKey: ctx.conversationKey,
+              conversationId: ctx.conversationId,
               epoch,
               stableCount,
               server: summarizeRuntimeMessages(serverMessages),
@@ -364,7 +364,7 @@ export function useMessageReconciliation({
             }
             recordChatDiagnostic("reconciliation_fetch_error", {
               assistantId: ctx.assistantId,
-              conversationKey: ctx.conversationKey,
+              conversationId: ctx.conversationId,
               epoch,
               stableCount,
             });
@@ -402,15 +402,15 @@ export function useMessageReconciliation({
       try {
         const serverMessages = await fetchConversationMessages(
           ctx.assistantId,
-          ctx.conversationKey,
+          ctx.conversationId,
         );
-        if (activeConversationKeyRef.current !== ctx.conversationKey) return empty;
+        if (activeConversationKeyRef.current !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.
         if (streamEpochRef.current !== snapshotEpoch) return empty;
         recordChatDiagnostic("reconciliation_active_fetch", {
           assistantId: ctx.assistantId,
-          conversationKey: ctx.conversationKey,
+          conversationId: ctx.conversationId,
           epoch: snapshotEpoch,
           server: summarizeRuntimeMessages(serverMessages),
         });
@@ -420,7 +420,7 @@ export function useMessageReconciliation({
         // The .finally() nonce bump reopens SSE to deliver terminal events.
         recordChatDiagnostic("reconciliation_active_fetch_error", {
           assistantId: ctx.assistantId,
-          conversationKey: ctx.conversationKey,
+          conversationId: ctx.conversationId,
           epoch: snapshotEpoch,
         });
         return empty;

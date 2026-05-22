@@ -119,7 +119,7 @@ function makeRefs(
     transcriptRef: { current: null as TranscriptHandle | null },
     streamContextRef: { current: null } as MutableRefObject<{
       assistantId: string;
-      conversationKey: string;
+      conversationId: string;
     } | null>,
     streamRef: { current: null } as MutableRefObject<ChatEventStream | null>,
     streamEpochRef: { current: 0 } as MutableRefObject<number>,
@@ -449,11 +449,11 @@ describe("createChatDebugApi.serverMessages", () => {
   test("prefers streamContextRef over activeConversationKeyRef + getAssistantId", async () => {
     const activeConversationKeyRef = { current: "conv-fallback" } as MutableRefObject<string | null>;
     const streamContextRef = {
-      current: { assistantId: "asst-stream", conversationKey: "conv-stream" },
-    } as MutableRefObject<{ assistantId: string; conversationKey: string } | null>;
-    const seen: Array<{ assistantId: string; conversationKey: string }> = [];
-    const historyFetcher = async (assistantId: string, conversationKey: string) => {
-      seen.push({ assistantId, conversationKey });
+      current: { assistantId: "asst-stream", conversationId: "conv-stream" },
+    } as MutableRefObject<{ assistantId: string; conversationId: string } | null>;
+    const seen: Array<{ assistantId: string; conversationId: string }> = [];
+    const historyFetcher = async (assistantId: string, conversationId: string) => {
+      seen.push({ assistantId, conversationId });
       return [];
     };
     const api = createChatDebugApi(
@@ -465,7 +465,7 @@ describe("createChatDebugApi.serverMessages", () => {
       }),
     );
     await api.serverMessages();
-    expect(seen).toEqual([{ assistantId: "asst-stream", conversationKey: "conv-stream" }]);
+    expect(seen).toEqual([{ assistantId: "asst-stream", conversationId: "conv-stream" }]);
   });
 });
 

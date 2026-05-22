@@ -11,7 +11,7 @@ import {
 } from "@/stores/event-bus-store.js";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
 
-type StreamContext = { assistantId: string; conversationKey: string };
+type StreamContext = { assistantId: string; conversationId: string };
 
 type CapturedEvent = {
   event: AssistantEvent;
@@ -78,10 +78,10 @@ function renderEventStreamWithCapture(
   };
 }
 
-function publishDelta(conversationKey: string): void {
+function publishDelta(conversationId: string): void {
   useEventBusStore.getState().publish("sse.event", {
     type: "assistant_text_delta",
-    conversationKey,
+    conversationId,
     delta: `delta-${Math.random().toString(36).slice(2, 6)}`,
   } as unknown as AssistantEvent);
 }
@@ -130,9 +130,9 @@ describe("useEventStream — rapid conversation switch stress", () => {
     // delta for the previous conversation reaching the handler after
     // React commits the switch.
     for (const { event, activeKeyAtHandlerTime } of captured) {
-      const eventKey = (event as { conversationKey?: string })
-        .conversationKey;
-      expect(eventKey).toBe(activeKeyAtHandlerTime);
+      const eventConversationId = (event as { conversationId?: string })
+        .conversationId;
+      expect(eventConversationId).toBe(activeKeyAtHandlerTime);
     }
   });
 
@@ -196,7 +196,7 @@ describe("useEventStream — rapid conversation switch stress", () => {
     expect(captured).toHaveLength(3);
     expect(
       captured.map(
-        (c) => (c.event as { conversationKey?: string }).conversationKey,
+        (c) => (c.event as { conversationId?: string }).conversationId,
       ),
     ).toEqual(["conv-B", "conv-C", "conv-A"]);
   });
@@ -220,13 +220,13 @@ describe("useEventStream — rapid conversation switch stress", () => {
       }
     }
     for (const { event, activeKeyAtHandlerTime } of captured) {
-      const eventKey = (event as { conversationKey?: string })
-        .conversationKey;
-      expect(eventKey).toBe(activeKeyAtHandlerTime);
+      const eventConversationId = (event as { conversationId?: string })
+        .conversationId;
+      expect(eventConversationId).toBe(activeKeyAtHandlerTime);
     }
   });
 
-  test("assistant-broadcast events (no conversationKey) always reach the handler regardless of switching", () => {
+  test("assistant-broadcast events (no conversationId) always reach the handler regardless of switching", () => {
     const observeKey = { current: "" };
     const { rerender, captured } = renderEventStreamWithCapture(
       "conv-A",

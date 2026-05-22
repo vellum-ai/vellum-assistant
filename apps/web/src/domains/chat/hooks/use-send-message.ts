@@ -95,7 +95,7 @@ interface UseSendMessageParams {
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamContextRef: MutableRefObject<{
     assistantId: string;
-    conversationKey: string;
+    conversationId: string;
   } | null>;
   streamEpochRef: MutableRefObject<number>;
   needsNewBubbleRef: MutableRefObject<boolean>;
@@ -196,7 +196,7 @@ export function useSendMessage({
       if (streamCtx) {
         saveDismissedSurfaceIds(
           streamCtx.assistantId,
-          streamCtx.conversationKey,
+          streamCtx.conversationId,
           dismissedSurfaceIdsRef.current,
         );
       }
@@ -241,7 +241,7 @@ export function useSendMessage({
         if (!isCurrentSendScope()) {
           recordChatDiagnostic("send_error_ignored_inactive_conversation", {
             assistantId: requestAssistantId,
-            conversationKey: requestConversationKey,
+            conversationId: requestConversationKey,
             activeAssistantId: assistantIdRef.current,
             activeConversationKey: activeConversationKeyRef.current,
           });
@@ -272,7 +272,7 @@ export function useSendMessage({
       if (!isCurrentSendScope(effectiveConversationKey)) {
         recordChatDiagnostic("send_result_ignored_inactive_conversation", {
           assistantId: postResult.assistantId,
-          conversationKey: requestConversationKey,
+          conversationId: requestConversationKey,
           resolvedConversationKey: effectiveConversationKey,
           activeAssistantId: assistantIdRef.current,
           activeConversationKey: activeConversationKeyRef.current,
@@ -284,11 +284,11 @@ export function useSendMessage({
       const hasMatchingActiveStream =
         !!streamRef.current &&
         existingStreamContext?.assistantId === postResult.assistantId &&
-        existingStreamContext.conversationKey === effectiveConversationKey;
+        existingStreamContext.conversationId === effectiveConversationKey;
 
       streamContextRef.current = {
         assistantId: postResult.assistantId,
-        conversationKey: effectiveConversationKey,
+        conversationId: effectiveConversationKey,
       };
 
       if (postResult.queued) return postResult.resolvedConversationId;
@@ -299,7 +299,7 @@ export function useSendMessage({
           if (!isCurrentSendScope(effectiveConversationKey)) {
             recordChatDiagnostic("poll_response_ignored_inactive_conversation", {
               assistantId: postResult.assistantId,
-              conversationKey: requestConversationKey,
+              conversationId: requestConversationKey,
               resolvedConversationKey: effectiveConversationKey,
               activeAssistantId: assistantIdRef.current,
               activeConversationKey: activeConversationKeyRef.current,

@@ -10,7 +10,7 @@ import {
 
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
 
-type StreamContext = { assistantId: string; conversationKey: string };
+type StreamContext = { assistantId: string; conversationId: string };
 
 function renderEventStream(params: {
   activeConversationKey: string;

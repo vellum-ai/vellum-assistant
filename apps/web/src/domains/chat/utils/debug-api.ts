@@ -380,7 +380,7 @@ export interface ChatDebugRefs {
   transcriptRef: { current: TranscriptHandle | null };
   streamContextRef: MutableRefObject<{
     assistantId: string;
-    conversationKey: string;
+    conversationId: string;
   } | null>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
@@ -437,7 +437,7 @@ export interface ChatDebugRefs {
    */
   historyFetcher?: (
     assistantId: string,
-    conversationKey: string,
+    conversationId: string,
   ) => Promise<RuntimeMessage[]>;
 }
 
@@ -683,18 +683,18 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     const streamContext = refs.streamContextRef.current;
     const assistantId =
       streamContext?.assistantId ?? refs.getAssistantId() ?? null;
-    const conversationKey =
-      streamContext?.conversationKey ??
+    const conversationId =
+      streamContext?.conversationId ??
       refs.activeConversationKeyRef.current ??
       null;
-    if (!assistantId || !conversationKey) {
+    if (!assistantId || !conversationId) {
       throw new Error(
         "serverMessages: no active assistant/conversation context",
       );
     }
     const historyFetcher =
       refs.historyFetcher ?? defaultFetchConversationMessages;
-    return await historyFetcher(assistantId, conversationKey);
+    return await historyFetcher(assistantId, conversationId);
   }
 
   function listPendingInteractions(): PendingInteractionsSnapshot {

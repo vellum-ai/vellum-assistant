@@ -34,7 +34,7 @@ import { submitSurfaceAction } from "@/domains/chat/api/surfaces.js";
 /** Minimal stream context — just the assistantId needed for API calls. */
 export interface StreamContext {
   assistantId: string;
-  conversationKey: string;
+  conversationId: string;
 }
 
 /** Context for the trust-rule editor modal. */

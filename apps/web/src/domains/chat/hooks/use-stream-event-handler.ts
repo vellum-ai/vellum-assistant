@@ -246,27 +246,27 @@ export function useStreamEventHandler(
         });
         return;
       }
-      const streamConversationKey =
-        streamContextRef.current?.conversationKey;
+      const streamConversationId =
+        streamContextRef.current?.conversationId;
       // Defense-in-depth: even though useEventStream's filter already
       // rejects conversation-scoped events without an explicit matching
-      // conversationKey, gate here too so any future caller of
+      // conversationId, gate here too so any future caller of
       // handleStreamEvent cannot route a conversation-scoped event with
-      // a missing or mismatched key into the active conversation.
+      // a missing or mismatched id into the active conversation.
       // Global events (`sync_changed`, `home_feed_updated`, etc.) pass
       // through unconditionally.
       if (isConversationScopedStreamEvent(event)) {
-        if (!event.conversationKey || !streamConversationKey) {
+        if (!event.conversationId || !streamConversationId) {
           recordChatDiagnostic("sse_event_wrong_conversation", {
             epoch,
             activeConversationKey: activeConversationKeyRef.current,
             streamContext: streamContextRef.current,
-            reason: !event.conversationKey ? "missing" : "no_stream_context",
+            reason: !event.conversationId ? "missing" : "no_stream_context",
             ...eventSummary,
           });
           return;
         }
-        if (event.conversationKey !== streamConversationKey) {
+        if (event.conversationId !== streamConversationId) {
           recordChatDiagnostic("sse_event_wrong_conversation", {
             epoch,
             activeConversationKey: activeConversationKeyRef.current,
