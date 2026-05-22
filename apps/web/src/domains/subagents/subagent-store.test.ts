@@ -688,3 +688,148 @@ describe("edge cases", () => {
     expect(getState().byId).toEqual({});
   });
 });
+
+// ---------------------------------------------------------------------------
+// byParent index — exercised by `TranscriptMessageBody` to avoid O(M*N)
+// store scans per message body per update (fix-r1-c #2).
+// ---------------------------------------------------------------------------
+
+describe("byParent index", () => {
+  it("indexes entries by parentMessageStableId and parentMessageId", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-stable",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentMessageStableId: "msg-stable-1",
+    });
+    getState().spawnSubagent({
+      subagentId: "sa-daemon",
+      label: "agent",
+      objective: "",
+      timestamp: NOW + 1,
+      parentMessageId: "msg-daemon-1",
+    });
+
+    const { byParent } = getState();
+    expect(byParent.get("msg-stable-1")?.map((e) => e.subagentId)).toEqual([
+      "sa-stable",
+    ]);
+    expect(byParent.get("msg-daemon-1")?.map((e) => e.subagentId)).toEqual([
+      "sa-daemon",
+    ]);
+  });
+
+  it("indexes an entry under both parentMessageStableId and parentMessageId when both are distinct", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-dual",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentMessageStableId: "msg-stable-2",
+      parentMessageId: "msg-daemon-2",
+    });
+
+    const { byParent } = getState();
+    expect(byParent.get("msg-stable-2")?.[0]?.subagentId).toBe("sa-dual");
+    expect(byParent.get("msg-daemon-2")?.[0]?.subagentId).toBe("sa-dual");
+  });
+
+  it("sorts each bucket by spawnedAt ascending", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-late",
+      label: "agent",
+      objective: "",
+      timestamp: NOW + 100,
+      parentMessageStableId: "msg-x",
+    });
+    getState().spawnSubagent({
+      subagentId: "sa-early",
+      label: "agent",
+      objective: "",
+      timestamp: NOW + 10,
+      parentMessageStableId: "msg-x",
+    });
+
+    expect(
+      getState().byParent.get("msg-x")?.map((e) => e.subagentId),
+    ).toEqual(["sa-early", "sa-late"]);
+  });
+
+  it("keeps the byParent map reference stable across changeStatus", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentMessageStableId: "msg-1",
+    });
+    const before = getState().byParent;
+    const bucketBefore = before.get("msg-1");
+
+    getState().changeStatus({
+      subagentId: "sa-1",
+      status: "running",
+    });
+
+    const after = getState().byParent;
+    expect(after).toBe(before);
+    expect(after.get("msg-1")).toBe(bucketBefore);
+  });
+
+  it("keeps the byParent map reference stable across receiveEvent", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentMessageStableId: "msg-1",
+    });
+    const before = getState().byParent;
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: { type: "assistant_text_delta", content: "Hello" },
+      timestamp: NOW,
+    });
+
+    expect(getState().byParent).toBe(before);
+  });
+
+  it("isolates buckets — adding a subagent under a different parent leaves the other bucket reference stable", () => {
+    // Two distinct messages, one subagent each. Adding a third under msg-2
+    // must not change the bucket for msg-1 (no re-render for msg-1's
+    // subscriber).
+    getState().spawnSubagent({
+      subagentId: "sa-a",
+      label: "agent",
+      objective: "",
+      timestamp: NOW,
+      parentMessageStableId: "msg-1",
+    });
+    getState().spawnSubagent({
+      subagentId: "sa-b",
+      label: "agent",
+      objective: "",
+      timestamp: NOW + 1,
+      parentMessageStableId: "msg-2",
+    });
+    const bucketBefore = getState().byParent.get("msg-1");
+    expect(bucketBefore?.length).toBe(1);
+
+    getState().spawnSubagent({
+      subagentId: "sa-c",
+      label: "agent",
+      objective: "",
+      timestamp: NOW + 2,
+      parentMessageStableId: "msg-2",
+    });
+
+    // msg-1's bucket reference is preserved across the unrelated spawn.
+    expect(getState().byParent.get("msg-1")).toBe(bucketBefore);
+    // msg-2's bucket grew.
+    expect(
+      getState().byParent.get("msg-2")?.map((e) => e.subagentId),
+    ).toEqual(["sa-b", "sa-c"]);
+  });
+});

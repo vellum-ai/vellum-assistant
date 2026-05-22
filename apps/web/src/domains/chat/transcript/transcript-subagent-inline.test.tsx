@@ -380,6 +380,83 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
   });
 });
 
+describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
+  test("two non-consecutive running spawns in one message map 1:1 to distinct subagentIds without duplicates", () => {
+    // Two store entries linked to the same parent message, neither with a
+    // `result` on its tool call yet. Without the message-scope `claimed`
+    // set, both tool-call groups would fall back positionally and resolve
+    // to the same first unclaimed entry.
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-first",
+      label: "agent-0",
+      objective: "do a thing",
+      status: "running",
+      timestamp: 1000,
+      parentMessageStableId: "a1",
+    });
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-second",
+      label: "agent-1",
+      objective: "do another thing",
+      status: "running",
+      timestamp: 2000,
+      parentMessageStableId: "a1",
+    });
+
+    // One message, two separate tool-call groups (split by a text entry in
+    // contentOrder) — each group holds a single running `subagent_spawn`
+    // call with no `result`.
+    const msg: DisplayMessage = {
+      stableId: "a1",
+      id: "a1",
+      role: "assistant",
+      content: "spawning",
+      contentOrder: [
+        { type: "toolCall", id: "tc-0" },
+        { type: "text", id: "0" },
+        { type: "toolCall", id: "tc-1" },
+      ],
+      textSegments: [{ type: "text", content: "between spawns" }],
+      toolCalls: [
+        {
+          id: "tc-0",
+          toolName: "subagent_spawn",
+          input: { label: "agent-0", objective: "do a thing" },
+          status: "running",
+        },
+        {
+          id: "tc-1",
+          toolName: "subagent_spawn",
+          input: { label: "agent-1", objective: "do another thing" },
+          status: "running",
+        },
+      ],
+    };
+
+    const items: TranscriptItem[] = [
+      userMessage("u1", "spawn two non-consecutively"),
+      { kind: "message", key: "a1", message: msg },
+    ];
+
+    const { getAllByTestId } = render(
+      <Transcript
+        items={items}
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+      />,
+    );
+
+    const cards = getAllByTestId("subagent-inline-card");
+    expect(cards.length).toBe(2);
+    expect(cards.map((c) => c.getAttribute("data-subagent-id"))).toEqual([
+      "sa-first",
+      "sa-second",
+    ]);
+  });
+});
+
 describe("Transcript — legacy SubagentProgressCard mount is gone (PR 8)", () => {
   test("does not render any [data-testid='subagent-progress-card'] element", () => {
     const items: TranscriptItem[] = [

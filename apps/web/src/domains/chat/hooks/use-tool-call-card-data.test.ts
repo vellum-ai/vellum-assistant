@@ -9,10 +9,10 @@
  *   - Card-level `state` transitions (loading → complete, mixed
  *     running+completed, denied present, error present).
  *   - Header `currentStepTitle` / `currentStepInfo` for non-web tools.
- *   - Backward-compatibility: feeding the existing web-search fixtures
- *     through the unified path yields the same step + state outputs as the
- *     legacy hook (regression-checked against the matching cases in
- *     `use-web-search-card-data.test.ts`).
+ *   - Backward-compatibility: the historical web-search fixtures still feed
+ *     through the unified path and produce the same step + state outputs as
+ *     the previous web-only hook (regression-checked via the dedicated
+ *     "regression vs. legacy web-search hook" suite below).
  */
 
 import { describe, expect, test } from "bun:test";

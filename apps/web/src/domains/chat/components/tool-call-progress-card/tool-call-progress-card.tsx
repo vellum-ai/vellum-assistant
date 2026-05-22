@@ -138,7 +138,8 @@ export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
 
 /**
  * True when every tool call in the group is a web tool (`web_search` /
- * `web_fetch`). Matches the legacy `useWebSearchCardData` predicate.
+ * `web_fetch`). Mirrors the legacy purely-web predicate that gated the web
+ * progress card before the unified card consolidated the two paths.
  */
 function isPurelyWebGroup(toolCalls: ChatMessageToolCall[]): boolean {
   if (toolCalls.length === 0) return false;
