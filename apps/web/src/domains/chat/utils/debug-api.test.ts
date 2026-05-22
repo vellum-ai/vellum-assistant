@@ -9,22 +9,13 @@ import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
-import type { ChatDebugRefs, TurnState } from "@/domains/chat/utils/debug-api.js";
+import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
+import type { ChatDebugRefs } from "@/domains/chat/utils/debug-api.js";
 import {
   createChatDebugApi,
   diffMessages,
   installChatDebugApi,
 } from "@/domains/chat/utils/debug-api.js";
-
-const INITIAL_TURN_STATE: TurnState = {
-  phase: "idle",
-  pendingQueuedCount: 0,
-  activeToolCallCount: 0,
-  activeTurnId: null,
-  lastTerminalReason: null,
-  statusText: null,
-  liveWebActivity: {},
-};
 
 // ---------------------------------------------------------------------------
 //  Helpers
@@ -52,12 +43,28 @@ function fakeRuntimeMessage(overrides: Partial<RuntimeMessage> = {}): RuntimeMes
   };
 }
 
+function fakeMessageItem(message: DisplayMessage): TranscriptItem {
+  return {
+    kind: "message",
+    key: message.stableId,
+    message,
+  };
+}
+
+function fakeThinkingItem(label?: string): TranscriptItem {
+  return {
+    kind: "thinking",
+    key: "thinking",
+    ...(label ? { label } : {}),
+  };
+}
+
 function makeRefs(
   overrides: Partial<ChatDebugRefs> = {},
 ): ChatDebugRefs {
   return {
     messagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
-    getTurnState: () => INITIAL_TURN_STATE,
+    transcriptItemsRef: { current: [] } as MutableRefObject<TranscriptItem[]>,
     streamContextRef: { current: null } as MutableRefObject<{
       assistantId: string;
       conversationKey: string;
@@ -121,50 +128,85 @@ describe("diffMessages", () => {
 });
 
 // ---------------------------------------------------------------------------
-//  createChatDebugApi — snapshot
+//  createChatDebugApi — tail
 // ---------------------------------------------------------------------------
 
-describe("createChatDebugApi.snapshot", () => {
-  test("returns timestamps and platform", () => {
+describe("createChatDebugApi.tail", () => {
+  test("empty transcript → empty tail", () => {
     const api = createChatDebugApi(makeRefs());
-    const snap = api.snapshot();
-    expect(snap.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(snap.platform).toBe("web");
+    const result = api.tail();
+    expect(result).toEqual([]);
   });
 
-  test("reflects messagesRef", () => {
-    const messagesRef = { current: [fakeDisplayMessage()] } as MutableRefObject<DisplayMessage[]>;
-    const api = createChatDebugApi(makeRefs({ messagesRef }));
-    const snap = api.snapshot();
-    expect(snap.messages.total).toBe(1);
+  test("returns message items with correct shape", () => {
+    const message = fakeDisplayMessage({ content: "hello world" });
+    const transcriptItemsRef = {
+      current: [fakeMessageItem(message)],
+    } as MutableRefObject<TranscriptItem[]>;
+    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
+    const result = api.tail();
+    expect(result).toHaveLength(1);
+    const item = result[0]!;
+    expect(item.kind).toBe("message");
+    expect(item.index).toBe(0);
+    expect(item.key).toBe("stable-1");
+    expect((item as { role: string }).role).toBe("assistant");
+    expect((item as { contentLength: number }).contentLength).toBe(11);
   });
 
-  test("counts streaming bubbles", () => {
-    const messagesRef = {
-      current: [
-        fakeDisplayMessage({ isStreaming: true }),
-        fakeDisplayMessage({ isStreaming: true }),
-      ],
-    } as MutableRefObject<DisplayMessage[]>;
-    const api = createChatDebugApi(makeRefs({ messagesRef }));
-    const snap = api.snapshot();
-    expect(snap.messages.streamingCount).toBe(2);
-    expect(snap.invariants.singleStreamingBubble.ok).toBe(false);
-    expect(snap.invariants.singleStreamingBubble.streamingCount).toBe(2);
+  test("returns thinking items", () => {
+    const transcriptItemsRef = {
+      current: [fakeThinkingItem("Processing...")],
+    } as MutableRefObject<TranscriptItem[]>;
+    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
+    const result = api.tail();
+    expect(result).toHaveLength(1);
+    expect(result[0]!.kind).toBe("thinking");
+    expect((result[0] as { label: string | null }).label).toBe("Processing...");
   });
 
-  test("reflects turn state via getTurnState", () => {
-    const turnState: TurnState = {
-      ...INITIAL_TURN_STATE,
-      phase: "thinking",
-      activeToolCallCount: 3,
-    };
-    const api = createChatDebugApi(
-      makeRefs({ getTurnState: () => turnState }),
+  test("respects limit parameter", () => {
+    const items: TranscriptItem[] = Array.from({ length: 30 }, (_, i) =>
+      fakeMessageItem(fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` })),
     );
-    const snap = api.snapshot();
-    expect(snap.turn.phase).toBe("thinking");
-    expect(snap.turn.activeToolCallCount).toBe(3);
+    const transcriptItemsRef = { current: items } as MutableRefObject<TranscriptItem[]>;
+    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
+    const result = api.tail(5);
+    expect(result).toHaveLength(5);
+    expect(result[0]!.index).toBe(25);
+    expect(result[4]!.index).toBe(29);
+  });
+
+  test("defaults to 20 items when no limit", () => {
+    const items: TranscriptItem[] = Array.from({ length: 30 }, (_, i) =>
+      fakeMessageItem(fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` })),
+    );
+    const transcriptItemsRef = { current: items } as MutableRefObject<TranscriptItem[]>;
+    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
+    const result = api.tail();
+    expect(result).toHaveLength(20);
+  });
+
+  test("returns all items when fewer than limit", () => {
+    const items: TranscriptItem[] = Array.from({ length: 5 }, (_, i) =>
+      fakeMessageItem(fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` })),
+    );
+    const transcriptItemsRef = { current: items } as MutableRefObject<TranscriptItem[]>;
+    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
+    const result = api.tail(20);
+    expect(result).toHaveLength(5);
+    expect(result[0]!.index).toBe(0);
+  });
+
+  test("coerces invalid limit to default", () => {
+    const items: TranscriptItem[] = Array.from({ length: 30 }, (_, i) =>
+      fakeMessageItem(fakeDisplayMessage({ stableId: `msg-${i}`, id: `id-${i}` })),
+    );
+    const transcriptItemsRef = { current: items } as MutableRefObject<TranscriptItem[]>;
+    const api = createChatDebugApi(makeRefs({ transcriptItemsRef }));
+    expect(api.tail(-1)).toHaveLength(20);
+    expect(api.tail(NaN)).toHaveLength(20);
+    expect(api.tail(Infinity)).toHaveLength(20);
   });
 });
 
@@ -225,25 +267,34 @@ describe("createChatDebugApi.forceReconcile", () => {
 });
 
 // ---------------------------------------------------------------------------
-//  createChatDebugApi — tailEvents / help
+//  createChatDebugApi — help
 // ---------------------------------------------------------------------------
-
-describe("createChatDebugApi.tailEvents", () => {
-  test("returns empty when no diagnostics recorded", () => {
-    const api = createChatDebugApi(makeRefs());
-    const events = api.tailEvents();
-    expect(Array.isArray(events)).toBe(true);
-  });
-});
 
 describe("createChatDebugApi.help", () => {
   test("mentions every public method", () => {
     const api = createChatDebugApi(makeRefs());
-    const text = api.help();
-    expect(text).toContain(".snapshot()");
-    expect(text).toContain(".tailEvents");
+    const consoleSpy = {
+      logged: [] as string[],
+      log: (msg: string) => {
+        consoleSpy.logged.push(msg);
+      },
+    };
+    const originalLog = console.log;
+    console.log = consoleSpy.log as unknown as typeof console.log;
+    api.help();
+    console.log = originalLog;
+
+    const text = consoleSpy.logged.join("\n");
+    expect(text).toContain(".tail(");
     expect(text).toContain(".forceReconcile()");
     expect(text).toContain(".diffAgainstServer()");
+    expect(text).toContain("[experimental]");
+  });
+
+  test("returns undefined", () => {
+    const api = createChatDebugApi(makeRefs());
+    const result = api.help();
+    expect(result).toBeUndefined();
   });
 });
 

@@ -2,17 +2,15 @@
  * Dev-facing chat debug API surfaced on `window._vellumDebug.chat`.
  *
  * Designed for in-the-moment inspection when a chat-streaming bug shows
- * up — open DevTools, call `window._vellumDebug.chat.snapshot()` to grab
- * current client state, `.diffAgainstServer()` to compare local
- * messages against `/v1/history`, `.forceReconcile()` to imperatively
- * run reconcile, and `.tailEvents()` to inspect the chat diagnostics
- * ring buffer.
+ * up — open DevTools, call `window._vellumDebug.chat.tail()` to see the
+ * transcript rows the chat page is rendering, `.forceReconcile()` to
+ * imperatively run /v1/history reconcile, and `.diffAgainstServer()` to
+ * compare local messages against the server.
  *
  * Attached unconditionally (no query-param gating) so the API is
  * available in dev, staging, and production builds. The implementation
  * is a thin consumer of state already tracked elsewhere (refs in
- * ChatPage + the existing sessionStorage ring buffer in
- * `diagnostics.ts`) — it adds no new background work and no
+ * ChatPage) — it adds no new background work and no
  * production-path overhead beyond a global property assignment.
  *
  * The namespace is intentionally nested under `_vellumDebug` so other
@@ -29,114 +27,101 @@ import {
 } from "@/domains/chat/api/messages.js";
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
 import {
-  type ChatDiagnosticsEvent,
-  getChatDiagnosticsEvents,
   recordChatDiagnostic,
-  resolvePlatformTag,
   summarizeDisplayMessage,
 } from "@/domains/chat/utils/diagnostics.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
-
-// Minimal TurnState shape for the debug API snapshot. Kept inline to
-// avoid a cross-domain import from messaging → chat.
-type TurnPhase =
-  | "idle"
-  | "queued"
-  | "thinking"
-  | "streaming"
-  | "awaiting_user_input"
-  | "errored";
-
-type TerminalReason =
-  | "complete"
-  | "error"
-  | "cancelled"
-  | "timeout"
-  | "session_error"
-  | null;
-
-export interface TurnState {
-  phase: TurnPhase;
-  pendingQueuedCount: number;
-  activeToolCallCount: number;
-  activeTurnId: string | null;
-  lastTerminalReason: TerminalReason;
-  statusText: string | null;
-  liveWebActivity: Record<string, unknown>;
-}
+import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
-/** Compact view of an in-flight streaming bubble for the snapshot. */
-export interface StreamingBubbleSummary {
+export interface ChatDebugTailMessage {
+  index: number;
+  key: string;
+  kind: "message";
+  role: "user" | "assistant";
   stableId: string;
   id: string | null;
-  role: string;
+  daemonMessageId: string | null;
+  timestamp: number | null;
+  isStreaming: boolean;
+  queueStatus: string | null;
+  queuePosition: number | null;
+  content: string;
   contentLength: number;
-  /**
-   * Milliseconds between {@link DisplayMessage.timestamp} (message
-   * creation time) and now. NOT "time since last delta" — text-delta
-   * timestamps are not currently tracked per bubble. Use this as a
-   * rough "how old is this bubble" signal; combine with
-   * `diffAgainstServer()` to see whether the server has long since
-   * finished the turn.
-   */
-  ageMs: number | null;
-  /** First {@link CONTENT_PREVIEW_CHARS} characters of the bubble's content. */
-  contentPrefix: string;
+  toolCalls: Array<{
+    id: string;
+    toolName: string;
+    status: string;
+    isError: boolean;
+    resultLength: number | null;
+  }>;
+  surfaces: Array<{
+    surfaceId: string;
+    surfaceType: string;
+    title: string | null;
+    completed: boolean;
+  }>;
+  attachments: Array<{
+    id: string;
+    filename: string;
+    mimeType: string;
+    sizeBytes: number;
+  }>;
 }
 
-/** Result of {@link ChatDebugApi.snapshot}. */
-export interface ChatDebugSnapshot {
-  /** When the snapshot was taken. */
-  timestamp: string;
-  /** Platform tag (`web`, `ios`, `android`). */
-  platform: string;
-  /** Assistant ID this chat view is bound to. */
-  assistantId: string | null;
-  /** Conversation key the user currently has focused. */
-  activeConversationKey: string | null;
-  /**
-   * Assistant + conversation the SSE stream is bound to right now. May
-   * lag `activeConversationKey` by one render during a conv switch.
-   */
-  streamContext: { assistantId: string; conversationKey: string } | null;
-  /** Whether the SSE transport handle is currently non-null. */
-  streamConnected: boolean;
-  /**
-   * Monotonic counter incremented each time the stream is reopened.
-   * Useful for spotting reconnect churn vs. a single long-lived
-   * connection.
-   */
-  streamEpoch: number;
-  /** Full turn state machine snapshot. */
-  turn: TurnState;
-  /** Aggregate counts and the streaming-bubble subset. */
-  messages: {
-    total: number;
-    streamingCount: number;
-    queuedCount: number;
-    processingCount: number;
-    streamingBubbles: StreamingBubbleSummary[];
-    /** Compact summary of the last message in the list. */
-    last: ReturnType<typeof summarizeDisplayMessage> | null;
-  };
-  /** Ring buffer stats — counts only, full events come from `tailEvents()`. */
-  diagnostics: {
-    ringBufferSize: number;
-    /** kind → count, sorted descending in the returned object. */
-    countsByKind: Record<string, number>;
-    last: ChatDiagnosticsEvent | null;
-  };
-  /** Synchronous client-side invariant checks. */
-  invariants: {
-    /** `messages.filter(m => m.isStreaming).length <= 1`. */
-    singleStreamingBubble: { ok: boolean; streamingCount: number };
-  };
-}
+export type ChatDebugTailItem =
+  | ChatDebugTailMessage
+  | {
+      index: number;
+      key: string;
+      kind: "thinking";
+      label: string | null;
+    }
+  | {
+      index: number;
+      key: string;
+      kind: "pendingSecret" | "pendingConfirmation";
+      requestId: string;
+    }
+  | {
+      index: number;
+      key: string;
+      kind: "pendingContactRequest";
+      requestId: string;
+      channel: string | null;
+      label: string | null;
+      role: string | null;
+    }
+  | {
+      index: number;
+      key: string;
+      kind: "surface";
+      surfaceId: string;
+      surfaceType: string;
+      title: string | null;
+      completed: boolean;
+    }
+  | {
+      index: number;
+      key: string;
+      kind: "queuedMarker";
+      count: number;
+    }
+  | {
+      index: number;
+      key: string;
+      kind: "error";
+      message: string;
+    }
+  | {
+      index: number;
+      key: string;
+      kind: "onboardingChoice";
+    };
 
 /** Per-message drift entry returned by {@link ChatDebugApi.diffAgainstServer}. */
 export interface ChatDebugContentDrift {
@@ -182,53 +167,45 @@ export interface ChatDebugDiff {
 
 /** The dev API surface attached to `window._vellumDebug.chat`. */
 export interface ChatDebugApi {
-  /** Synchronous snapshot of current client chat state. */
-  snapshot(): ChatDebugSnapshot;
   /**
-   * Return up to `limit` recent diagnostic events from the ring buffer.
-   * When `filter.kindStartsWith` is supplied, only events whose `kind`
-   * begins with that prefix are returned (e.g. `"sse_"`).
+   * Return up to `limit` transcript items currently projected for rendering.
+   * Items are returned in chronological transcript order; the last row is the
+   * current visual bottom of the chat.
    */
-  tailEvents(
-    limit?: number,
-    filter?: { kindStartsWith?: string },
-  ): ChatDiagnosticsEvent[];
+  tail(limit?: number): ChatDebugTailItem[];
   /**
-   * Imperatively trigger a reconcile of the active conversation
+   * [experimental] Imperatively trigger a reconcile of the active conversation
    * against `/v1/history`. Returns the same shape as the watchdog /
-   * resume / cache-restore reconcile paths.
+   * resume / cache-restore reconcile paths. Subject to change.
    */
   forceReconcile(): Promise<ReconcileActiveConversationResult>;
   /**
-   * Fetch `/v1/history` and diff against the local message list.
+   * [experimental] Fetch `/v1/history` and diff against the local message list.
    * Useful for declaring "this streaming bubble is an orphan" when a
-   * turn appears stuck.
+   * turn appears stuck. Subject to change.
    */
   diffAgainstServer(): Promise<ChatDebugDiff>;
-  /** Print and return a short help string for DevTools users. */
-  help(): string;
+  /** Print help for this API. Log-only, returns undefined. */
+  help(): void;
 }
 
 // ---------------------------------------------------------------------------
 // Implementation
 // ---------------------------------------------------------------------------
 
-const CONTENT_PREVIEW_CHARS = 80;
 const DEFAULT_TAIL_LIMIT = 20;
 const ROOT_NS = "_vellumDebug";
 const CHAT_NS = "chat";
 
 /**
- * Refs the API reads to build snapshots and trigger actions. All are
+ * Refs the API reads to tail transcript items and trigger actions. All are
  * `MutableRefObject` because the API holds them across the lifetime of
  * the chat page and reads them lazily on each call — capturing the
- * current value at install time would freeze the snapshot to the
- * initial render.
+ * current value at install time would freeze the API to the initial render.
  */
 export interface ChatDebugRefs {
   messagesRef: MutableRefObject<DisplayMessage[]>;
-  /** Reads the current turn state from the Zustand store. */
-  getTurnState: () => TurnState;
+  transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   streamContextRef: MutableRefObject<{
     assistantId: string;
     conversationKey: string;
@@ -256,36 +233,98 @@ export interface ChatDebugRefs {
   ) => Promise<RuntimeMessage[]>;
 }
 
-function summarizeStreamingBubble(
-  message: DisplayMessage,
-): StreamingBubbleSummary {
-  const ageMs =
-    typeof message.timestamp === "number"
-      ? Math.max(0, Date.now() - message.timestamp)
-      : null;
-  return {
-    stableId: message.stableId,
-    id: message.id ?? null,
-    role: message.role,
-    contentLength: message.content.length,
-    ageMs,
-    contentPrefix: message.content.slice(0, CONTENT_PREVIEW_CHARS),
-  };
-}
-
-function countByKind(events: ChatDiagnosticsEvent[]): Record<string, number> {
-  const counts = new Map<string, number>();
-  for (const event of events) {
-    counts.set(event.kind, (counts.get(event.kind) ?? 0) + 1);
+function summarizeTailItem(
+  item: TranscriptItem,
+  index: number,
+): ChatDebugTailItem {
+  switch (item.kind) {
+    case "message": {
+      const { message } = item;
+      return {
+        index,
+        key: item.key,
+        kind: "message",
+        role: message.role,
+        stableId: message.stableId,
+        id: message.id ?? null,
+        daemonMessageId: message.daemonMessageId ?? null,
+        timestamp: message.timestamp ?? null,
+        isStreaming: message.isStreaming === true,
+        queueStatus: message.queueStatus ?? null,
+        queuePosition: message.queuePosition ?? null,
+        content: message.content,
+        contentLength: message.content.length,
+        toolCalls: (message.toolCalls ?? []).map((toolCall) => ({
+          id: toolCall.id,
+          toolName: toolCall.toolName,
+          status: toolCall.status,
+          isError: toolCall.isError === true,
+          resultLength:
+            typeof toolCall.result === "string"
+              ? toolCall.result.length
+              : null,
+        })),
+        surfaces: (message.surfaces ?? []).map((surface) => ({
+          surfaceId: surface.surfaceId,
+          surfaceType: surface.surfaceType,
+          title: surface.title ?? null,
+          completed: surface.completed === true,
+        })),
+        attachments: (message.attachments ?? []).map((attachment) => ({
+          id: attachment.id,
+          filename: attachment.filename,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+        })),
+      };
+    }
+    case "thinking":
+      return {
+        index,
+        key: item.key,
+        kind: "thinking",
+        label: item.label ?? null,
+      };
+    case "pendingSecret":
+    case "pendingConfirmation":
+      return {
+        index,
+        key: item.key,
+        kind: item.kind,
+        requestId: item.requestId,
+      };
+    case "pendingContactRequest":
+      return {
+        index,
+        key: item.key,
+        kind: "pendingContactRequest",
+        requestId: item.requestId,
+        channel: item.channel ?? null,
+        label: item.label ?? null,
+        role: item.role ?? null,
+      };
+    case "surface":
+      return {
+        index,
+        key: item.key,
+        kind: "surface",
+        surfaceId: item.surface.surfaceId,
+        surfaceType: item.surface.surfaceType,
+        title: item.surface.title ?? null,
+        completed: item.surface.completed === true,
+      };
+    case "queuedMarker":
+      return {
+        index,
+        key: item.key,
+        kind: "queuedMarker",
+        count: item.count,
+      };
+    case "error":
+      return { index, key: item.key, kind: "error", message: item.message };
+    case "onboardingChoice":
+      return { index, key: item.key, kind: "onboardingChoice" };
   }
-  // Return as an object sorted descending by count for human-readable
-  // DevTools output (JS preserves insertion order on plain objects).
-  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  const result: Record<string, number> = {};
-  for (const [kind, count] of sorted) {
-    result[kind] = count;
-  }
-  return result;
 }
 
 function summarizeRuntimeMessageShort(message: RuntimeMessage): {
@@ -366,74 +405,16 @@ export function diffMessages(
  * factory so it can be unit-tested without a `window`.
  */
 export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
-  function buildSnapshot(): ChatDebugSnapshot {
-    const messages = refs.messagesRef.current ?? [];
-    const turn = refs.getTurnState();
-    const streamContext = refs.streamContextRef.current;
-    const events = getChatDiagnosticsEvents();
-    const streamingBubbles = messages
-      .filter((message) => message.isStreaming === true)
-      .map(summarizeStreamingBubble);
-    const streamingCount = streamingBubbles.length;
-    return {
-      timestamp: new Date().toISOString(),
-      platform: resolvePlatformTag(),
-      assistantId: refs.getAssistantId(),
-      activeConversationKey: refs.activeConversationKeyRef.current,
-      streamContext: streamContext
-        ? {
-            assistantId: streamContext.assistantId,
-            conversationKey: streamContext.conversationKey,
-          }
-        : null,
-      streamConnected: refs.streamRef.current != null,
-      streamEpoch: refs.streamEpochRef.current,
-      turn,
-      messages: {
-        total: messages.length,
-        streamingCount,
-        queuedCount: messages.filter(
-          (message) => message.queueStatus === "queued",
-        ).length,
-        processingCount: messages.filter(
-          (message) => message.queueStatus === "processing",
-        ).length,
-        streamingBubbles,
-        last:
-          messages.length > 0
-            ? summarizeDisplayMessage(messages[messages.length - 1]!)
-            : null,
-      },
-      diagnostics: {
-        ringBufferSize: events.length,
-        countsByKind: countByKind(events),
-        last: events.length > 0 ? events[events.length - 1]! : null,
-      },
-      invariants: {
-        singleStreamingBubble: {
-          ok: streamingCount <= 1,
-          streamingCount,
-        },
-      },
-    };
-  }
-
-  function tailEvents(
-    limit: number = DEFAULT_TAIL_LIMIT,
-    filter?: { kindStartsWith?: string },
-  ): ChatDiagnosticsEvent[] {
+  function tail(limit: number = DEFAULT_TAIL_LIMIT): ChatDebugTailItem[] {
     const safeLimit =
       Number.isFinite(limit) && limit > 0
         ? Math.floor(limit)
         : DEFAULT_TAIL_LIMIT;
-    const events = getChatDiagnosticsEvents();
-    const filtered =
-      filter?.kindStartsWith != null
-        ? events.filter((event) =>
-            event.kind.startsWith(filter.kindStartsWith!),
-          )
-        : events;
-    return filtered.slice(-safeLimit);
+    const items = refs.transcriptItemsRef.current ?? [];
+    const startIndex = Math.max(0, items.length - safeLimit);
+    return items
+      .slice(startIndex)
+      .map((item, offset) => summarizeTailItem(item, startIndex + offset));
   }
 
   async function forceReconcile(): Promise<ReconcileActiveConversationResult> {
@@ -495,30 +476,21 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     return result;
   }
 
-  function help(): string {
+  function help(): void {
     const lines = [
       "window._vellumDebug.chat — surgical chat debug API",
       "",
-      "  .snapshot()                 sync snapshot of client state",
-      "  .tailEvents(n?, filter?)    recent events from the diagnostics ring buffer",
-      "                              filter: { kindStartsWith?: string }",
-      "  .forceReconcile()           imperatively run /v1/history reconcile",
-      "  .diffAgainstServer()        fetch /v1/history and diff vs local messages",
-      "                              (orphan streaming bubbles show up in `localOnly`)",
-      "  .help()                     this message",
-      "",
-      "  Invariants the snapshot asserts:",
-      "    - messages.filter(m => m.isStreaming).length <= 1",
+      "  .tail(n?)                  rendered transcript items; last row = visual chat bottom",
+      "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
+      "  .diffAgainstServer()       [experimental] fetch /v1/history and diff vs local messages",
+      "                              orphan streaming bubbles show up in `localOnly`",
+      "  .help()                    print this message",
     ];
-    const text = lines.join("\n");
-    // eslint-disable-next-line no-console
-    console.log(text);
-    return text;
+    console.log(lines.join("\n"));
   }
 
   return {
-    snapshot: buildSnapshot,
-    tailEvents,
+    tail,
     forceReconcile,
     diffAgainstServer,
     help,
@@ -529,9 +501,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 // Global install / uninstall
 // ---------------------------------------------------------------------------
 
-interface VellumDebugRoot {
+interface VellumDebugRoot extends Record<string, unknown> {
   [CHAT_NS]?: ChatDebugApi;
-  [key: string]: unknown;
 }
 
 /**
@@ -542,8 +513,8 @@ interface VellumDebugRoot {
  */
 export function installChatDebugApi(api: ChatDebugApi): () => void {
   if (typeof window === "undefined") return () => {};
-  const win = window as Window & { [ROOT_NS]?: VellumDebugRoot };
-  const existing = win[ROOT_NS] ?? {};
+  const win = window as Omit<Window, typeof ROOT_NS> & { [ROOT_NS]?: VellumDebugRoot };
+  const existing: VellumDebugRoot = (win[ROOT_NS] ?? {}) as VellumDebugRoot;
   existing[CHAT_NS] = api;
   win[ROOT_NS] = existing;
   return () => {
@@ -582,7 +553,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
   useEffect(() => {
     const stableRefs: ChatDebugRefs = {
       messagesRef: refs.messagesRef,
-      getTurnState: () => latestRefs.current.getTurnState(),
+      transcriptItemsRef: refs.transcriptItemsRef,
       streamContextRef: refs.streamContextRef,
       streamRef: refs.streamRef,
       streamEpochRef: refs.streamEpochRef,
