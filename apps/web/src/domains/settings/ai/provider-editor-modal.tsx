@@ -191,9 +191,10 @@ export function ProviderEditorContent({
         await startChatgptSubscriptionAuth(assistantId);
       chatgptStateRef.current = state;
       if (popup) {
+        popup.opener = null;
         popup.location.href = authorize_url;
       } else {
-        window.open(authorize_url, "_blank");
+        window.open(authorize_url, "_blank", "noopener");
       }
       setChatgptOAuthState("paste_url");
     } catch {
