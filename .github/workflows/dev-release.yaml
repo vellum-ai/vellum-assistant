@@ -1086,11 +1086,15 @@ jobs:
   # changelog uses to anchor its diff — so a failure in a downstream job (e.g.
   # build-macos) still posts the success changelog.
   #
-  # On success: posts a single summary message with the ordered commit list
-  # (message + author) inside sections that Slack renders as a collapsible
-  # "Show more" element, so the channel stays tidy even when a release spans
-  # many commits. The diff is taken since the last *successful* dev release
-  # (skipping any intervening failed runs), so no commits are dropped.
+  # On success: posts a single summary message. The top-level blocks carry the
+  # header, the "*N commits* since the last dev release" line, and the action
+  # buttons; the ordered commit list (message + author) lives in a Slack
+  # *attachment* below it. Per Slack's docs, attachment content may be
+  # "wrapped, truncated, or hidden behind a 'show more' style option" by
+  # clients — which is exactly the toggle behaviour we want here. The channel
+  # stays tidy even when a release spans many commits. The diff is taken
+  # since the last *successful* dev release (skipping any intervening failed
+  # runs), so no commits are dropped.
   #
   # On failure: posts a short alert without a changelog.
   #
@@ -1224,6 +1228,9 @@ jobs:
           fi
 
           # ── Build the message blocks ──────────────────────────────────────
+          # Top-level blocks: header, "N commits since last dev release", buttons.
+          # Commit list lives in an attachment so Slack auto-collapses it behind
+          # a "show more" toggle (see Slack docs on attachments truncation).
           BLOCKS=$(jq -n \
             --arg version "$VERSION" \
             --arg header "$HEADER_TEXT" \
@@ -1238,8 +1245,11 @@ jobs:
               ] }
             ]')
 
-          append_section() {
-            BLOCKS=$(echo "$BLOCKS" | jq --arg t "$1" \
+          # Attachment blocks: the actual commit list, chunked into sections to
+          # respect Slack's 3000-char-per-section limit.
+          ATTACHMENT_BLOCKS='[]'
+          append_attachment_section() {
+            ATTACHMENT_BLOCKS=$(echo "$ATTACHMENT_BLOCKS" | jq --arg t "$1" \
               '. + [{ type: "section", text: { type: "mrkdwn", text: $t } }]')
           }
 
@@ -1250,7 +1260,7 @@ jobs:
               IDX=$((IDX + 1))
               ENTRY="${IDX}. ${line}"
               if [ -n "$CHUNK" ] && [ $(( ${#CHUNK} + ${#ENTRY} + 1 )) -gt 2800 ]; then
-                append_section "$CHUNK"
+                append_attachment_section "$CHUNK"
                 CHUNK="$ENTRY"
               elif [ -z "$CHUNK" ]; then
                 CHUNK="$ENTRY"
@@ -1258,10 +1268,10 @@ jobs:
                 CHUNK="${CHUNK}"$'\n'"${ENTRY}"
               fi
             done
-            [ -n "$CHUNK" ] && append_section "$CHUNK"
+            [ -n "$CHUNK" ] && append_attachment_section "$CHUNK"
 
             if [ "$TOTAL" -gt "$COUNT" ]; then
-              BLOCKS=$(echo "$BLOCKS" | jq \
+              ATTACHMENT_BLOCKS=$(echo "$ATTACHMENT_BLOCKS" | jq \
                 --arg t "_…and $((TOTAL - COUNT)) more commits not shown (GitHub compares are capped at 250 commits). See *View commit diff* above for the full list._" \
                 '. + [{ type: "context", elements: [{ type: "mrkdwn", text: $t }] }]')
             fi
@@ -1269,15 +1279,21 @@ jobs:
 
           # No `channel` field: incoming webhooks ignore it and post to the
           # channel baked into SLACK_DEV_RELEASES_WEBHOOK_URL (#dev-releases).
+          # Attach the commit list only when there's something to show — Slack
+          # renders empty attachments as a bare colored bar otherwise.
           jq -n \
             --arg version "$VERSION" \
             --argjson blocks "$BLOCKS" \
+            --argjson attachment_blocks "$ATTACHMENT_BLOCKS" \
             '{
               unfurl_links: false,
               unfurl_media: false,
               text: ("Dev Release " + $version),
               blocks: $blocks
-            }' > "${RUNNER_TEMP}/dev-release-slack-payload.json"
+            }
+            + (if ($attachment_blocks | length) > 0
+               then { attachments: [{ color: "#1f6feb", blocks: $attachment_blocks }] }
+               else {} end)' > "${RUNNER_TEMP}/dev-release-slack-payload.json"
 
           echo "Built Slack payload (${COUNT} commits listed)."
 
