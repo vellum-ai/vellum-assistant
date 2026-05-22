@@ -867,15 +867,15 @@ final class ChatActionHandler {
     }
 
     /// Handles the synthetic queuedMessageAcked event from the POST /v1/messages
-    /// response. Pops the oldest pending message ID and maps it to the requestId
-    /// so steerQueuedMessage can find the requestId before the SSE message_queued
-    /// event arrives.
+    /// response. Maps the requestId to the oldest pending message ID so
+    /// steerQueuedMessage can find the requestId before the SSE message_queued
+    /// event arrives. Does NOT pop from pendingMessageIds — that is deferred to
+    /// handleMessageQueued so the FIFO stays intact for deletion reconciliation.
     private func handleQueuedMessageAcked(conversationId: String, requestId: String, vm: ChatViewModel) {
         guard belongsToConversation(conversationId) else { return }
         // Skip if the SSE message_queued event already populated this mapping
         guard vm.requestIdToMessageId[requestId] == nil else { return }
         guard let messageId = vm.pendingMessageIds.first else { return }
-        vm.pendingMessageIds.removeFirst()
         vm.requestIdToMessageId[requestId] = messageId
     }
 
@@ -884,9 +884,13 @@ final class ChatActionHandler {
         vm.pendingQueuedCount += 1
 
         // If the POST response already populated the mapping for this requestId
-        // (via queuedMessageAcked), skip the FIFO pop and just update the
-        // queue position and handle pending deletions.
+        // (via queuedMessageAcked), consume the FIFO entry and handle pending
+        // deletions / position updates.
         if let existingMessageId = vm.requestIdToMessageId[queued.requestId] {
+            // Pop the FIFO entry that queuedMessageAcked peeked but left in place
+            if vm.pendingMessageIds.first == existingMessageId {
+                vm.pendingMessageIds.removeFirst()
+            }
             if vm.pendingLocalDeletions.remove(existingMessageId) != nil {
                 Task {
                     let success = await vm.conversationQueueClient.deleteQueuedMessage(
