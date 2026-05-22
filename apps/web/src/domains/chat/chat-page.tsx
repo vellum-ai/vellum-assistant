@@ -475,6 +475,7 @@ export function ChatPage() {
       onboardingDraftConversationKeyRef.current ?? createDraftConversationKey();
     onboardingDraftConversationKeyRef.current = onboardingDraftKey;
     setOnboardingConversationKey(onboardingDraftKey);
+    useConversationStore.getState().setActiveKey(onboardingDraftKey);
     // Drain pending PreChat context from sessionStorage at the same moment
     // the auto-greet is armed so the payload rides along the single greet
     // send and doesn't leak onto a later message.
