@@ -5,6 +5,8 @@
  * implements the MessagingProvider interface.
  */
 
+import { createHash } from "node:crypto";
+
 import {
   buildSlackUserLabelMap,
   renderSlackTextForModel,
@@ -280,7 +282,7 @@ function slackUserInfoCacheKey(
 ): string {
   const authScope =
     typeof auth === "string"
-      ? `token:${auth}`
+      ? `token:${createHash("sha256").update(auth).digest("hex")}`
       : `connection:${auth.id}:${auth.accountInfo ?? ""}`;
   return `${authScope}:user:${userId}`;
 }
