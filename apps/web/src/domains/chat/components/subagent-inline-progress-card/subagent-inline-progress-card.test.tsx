@@ -55,13 +55,14 @@ describe("SubagentInlineProgressCard — fixture timeline", () => {
       timestamp: NOW + 100,
     });
 
-    const { getByText, getByTestId } = render(
+    const { getByText, getByTestId, queryByText } = render(
       <SubagentInlineProgressCard subagentId="sa-1" />,
     );
 
     expect(getByText("Thinking")).toBeTruthy();
     expect(getByText("Checking the docs")).toBeTruthy();
-    expect(getByText("1 step")).toBeTruthy();
+    // Single-step cards suppress the count pill — it only shows for 2+.
+    expect(queryByText("1 step")).toBeNull();
     expect(getByTestId("subagent-inline-card-shell")).toBeTruthy();
   });
 
@@ -114,11 +115,12 @@ describe("SubagentInlineProgressCard — fixture timeline", () => {
     });
     store.changeStatus({ subagentId: "sa-3", status: "completed" });
 
-    const { getByText } = render(
+    const { getByText, queryByText } = render(
       <SubagentInlineProgressCard subagentId="sa-3" />,
     );
     expect(getByText("Used File Read")).toBeTruthy();
-    expect(getByText("1 step")).toBeTruthy();
+    // Single-step cards suppress the count pill.
+    expect(queryByText("1 step")).toBeNull();
   });
 
   test("renders the deterministic avatar in the leading slot", () => {
@@ -132,47 +134,39 @@ describe("SubagentInlineProgressCard — fixture timeline", () => {
   });
 });
 
-describe("SubagentInlineProgressCard — action rail", () => {
-  test("clicking the open button invokes onSubagentClick", () => {
+describe("SubagentInlineProgressCard — header action", () => {
+  test("clicking the header row invokes onSubagentClick", () => {
     spawn("sa-open");
     const seen: string[] = [];
-    const { getByTestId } = render(
+    const { getByRole } = render(
       <SubagentInlineProgressCard
         subagentId="sa-open"
         onSubagentClick={(id) => seen.push(id)}
       />,
     );
-    fireEvent.click(getByTestId("subagent-inline-card-open"));
+    // The whole header row IS the open affordance — no separate icon
+    // button anymore. The shell uses the aria-label we passed through.
+    fireEvent.click(getByRole("button", { name: /open subagent/i }));
     expect(seen).toEqual(["sa-open"]);
   });
 
-  test("clicking the open button does NOT toggle the shell's expanded state", () => {
-    spawn("sa-open-isolation");
-    // Give the shell at least one step so disableExpand is false and the
-    // body would be reachable on toggle.
+  test("no expand toggle is exposed — there is no inline body", () => {
+    spawn("sa-no-expand");
     act(() => {
       useSubagentStore.getState().receiveEvent({
-        subagentId: "sa-open-isolation",
+        subagentId: "sa-no-expand",
         event: { type: "assistant_text_delta", text: "reasoning" },
         timestamp: NOW + 100,
       });
     });
-    const { getByTestId, queryByRole } = render(
+    const { queryByRole } = render(
       <SubagentInlineProgressCard
-        subagentId="sa-open-isolation"
+        subagentId="sa-no-expand"
         onSubagentClick={() => {}}
       />,
     );
-
-    const expandButton = queryByRole("button", { name: /expand steps/i });
-    expect(expandButton?.getAttribute("aria-expanded")).toBe("false");
-
-    fireEvent.click(getByTestId("subagent-inline-card-open"));
-
-    const stillCollapsed = queryByRole("button", {
-      name: /expand steps/i,
-    });
-    expect(stillCollapsed?.getAttribute("aria-expanded")).toBe("false");
+    expect(queryByRole("button", { name: /expand steps/i })).toBeNull();
+    expect(queryByRole("button", { name: /collapse steps/i })).toBeNull();
   });
 
   test("stop button only renders while the subagent is in-flight", () => {

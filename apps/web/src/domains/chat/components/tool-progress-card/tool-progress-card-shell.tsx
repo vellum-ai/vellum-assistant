@@ -93,6 +93,25 @@ export interface ToolProgressCardShellProps {
    * for `stopPropagation()` on their own click handlers when needed.
    */
   headerActionSlot?: ReactNode;
+  /**
+   * When provided, replaces the default expand/collapse click behaviour on
+   * the header button — the whole header row fires `onHeaderClick` instead
+   * of toggling the expanded state. Used by the subagent inline card so
+   * clicking anywhere on the row opens the subagent panel rather than
+   * expanding an inline timeline. The button stays enabled regardless of
+   * `disableExpand` when this is set.
+   *
+   * If both `onHeaderClick` and the toggle are needed (e.g. open AND
+   * expand), the caller can compose by calling `onExpandChange` from inside
+   * the override.
+   */
+  onHeaderClick?: () => void;
+  /**
+   * Accessible label for the header button. Defaults to a description of
+   * the expand/collapse action — consumers that override `onHeaderClick`
+   * should pass a label that matches the new action (e.g. "Open subagent").
+   */
+  headerAriaLabel?: string;
 }
 
 function StatusIndicator({
@@ -157,6 +176,8 @@ export function ToolProgressCardShell({
   "data-testid": dataTestId = "tool-progress-card-shell",
   statusIndicatorTestId = "tool-progress-card-status-indicator",
   headerActionSlot,
+  onHeaderClick,
+  headerAriaLabel,
 }: ToolProgressCardShellProps) {
   const [uncontrolledExpanded, setUncontrolledExpanded] =
     useState(defaultExpanded);
@@ -165,6 +186,10 @@ export function ToolProgressCardShell({
   const reduce = useReducedMotion();
 
   const handleToggle = () => {
+    if (onHeaderClick) {
+      onHeaderClick();
+      return;
+    }
     if (disableExpand) return;
     const next = !expanded;
     if (!isControlled) {
@@ -204,10 +229,15 @@ export function ToolProgressCardShell({
       <Button
         variant="ghost"
         size="compact"
-        aria-expanded={expanded}
-        aria-label={expanded ? "Collapse steps" : "Expand steps"}
+        aria-expanded={onHeaderClick ? undefined : expanded}
+        aria-label={
+          headerAriaLabel ?? (expanded ? "Collapse steps" : "Expand steps")
+        }
         onClick={handleToggle}
-        disabled={disableExpand}
+        // When `onHeaderClick` overrides the default toggle, the button is
+        // always enabled — `disableExpand` only suppresses the expand path,
+        // not external click handlers.
+        disabled={!onHeaderClick && disableExpand}
         className={`h-auto w-full min-w-0 justify-between gap-2 p-3 ${
           expanded
             ? "rounded-t-[var(--radius-lg)] rounded-b-none"

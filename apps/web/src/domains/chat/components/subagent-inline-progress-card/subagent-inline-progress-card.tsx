@@ -11,17 +11,15 @@
  * wires this into the transcript; this PR ships the component standalone.
  *
  * Interaction model:
- *   - Clicking the card header expands/collapses the body inline (the
- *     shell's default behaviour).
- *   - The "open" affordance in the right rail opens the subagent's full
- *     timeline panel via `onSubagentClick` — preserves the side-panel
- *     route users had before the inline-card rollout.
+ *   - Clicking anywhere on the header row opens the subagent's full
+ *     timeline panel via `onSubagentClick`. There is no inline expand —
+ *     the panel is the only detail view, so a separate open affordance
+ *     and an inline timeline both end up redundant.
  *   - Stop is exposed via `onStopSubagent`; the shell renders a small
- *     stop chip in the right rail next to the open button while the
- *     subagent is in-flight.
+ *     stop chip in the right rail while the subagent is in-flight.
  */
 
-import { ExternalLink, Square } from "lucide-react";
+import { Square } from "lucide-react";
 import { useCallback, type MouseEvent } from "react";
 
 import { SubagentAvatarChip } from "@/domains/avatar/subagent-avatar-chip.js";
@@ -54,13 +52,9 @@ export function SubagentInlineProgressCard({
   // where stopping the subagent is a meaningful action.
   const isRunning = data?.state === "loading";
 
-  const handleOpen = useCallback(
-    (e: MouseEvent) => {
-      e.stopPropagation();
-      onSubagentClick?.(subagentId);
-    },
-    [onSubagentClick, subagentId],
-  );
+  const handleHeaderClick = useCallback(() => {
+    onSubagentClick?.(subagentId);
+  }, [onSubagentClick, subagentId]);
 
   const handleStop = useCallback(
     (e: MouseEvent) => {
@@ -77,36 +71,20 @@ export function SubagentInlineProgressCard({
 
   const leadingIcon = <SubagentAvatarChip subagentId={subagentId} size={20} />;
 
-  // Action cluster slotted into the shell's `headerActionSlot`. The shell
-  // positions it just to the left of the step-count pill so we no longer
-  // need fragile per-consumer pixel offsets to align with the pill chrome.
-  const hasAction = Boolean(onSubagentClick || (onStopSubagent && isRunning));
-  const actionSlot = hasAction ? (
-    <>
-      {onStopSubagent && isRunning && (
-        <button
-          type="button"
-          aria-label="Stop subagent"
-          data-testid="subagent-inline-card-stop"
-          onClick={handleStop}
-          className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--system-negative-strong)]"
-        >
-          <Square className="h-3 w-3" fill="currentColor" />
-        </button>
-      )}
-      {onSubagentClick && (
-        <button
-          type="button"
-          aria-label="Open subagent timeline"
-          data-testid="subagent-inline-card-open"
-          onClick={handleOpen}
-          className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]"
-        >
-          <ExternalLink className="h-3 w-3" />
-        </button>
-      )}
-    </>
-  ) : undefined;
+  // Stop button only — the open affordance is gone; the whole header row
+  // now fires `onSubagentClick` via the shell's `onHeaderClick` override.
+  const actionSlot =
+    onStopSubagent && isRunning ? (
+      <button
+        type="button"
+        aria-label="Stop subagent"
+        data-testid="subagent-inline-card-stop"
+        onClick={handleStop}
+        className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--system-negative-strong)]"
+      >
+        <Square className="h-3 w-3" fill="currentColor" />
+      </button>
+    ) : undefined;
 
   return (
     <div className="w-full" data-testid="subagent-inline-progress-card">
@@ -118,10 +96,18 @@ export function SubagentInlineProgressCard({
         currentStepTitle={data.currentStepTitle}
         currentStepInfo={data.currentStepInfo}
         stepCount={data.stepCount}
-        disableExpand={data.steps.length === 0}
+        // The shell's expanded body is unused — there is no inline timeline
+        // to reveal. Disabling expand keeps the shell from tracking state
+        // that would never be exposed via UI.
+        disableExpand
         headerActionSlot={actionSlot}
+        onHeaderClick={onSubagentClick ? handleHeaderClick : undefined}
+        headerAriaLabel={
+          onSubagentClick ? "Open subagent" : undefined
+        }
       >
-        <div className="flex w-full flex-col gap-3 px-3 pb-3">
+        {/* Children unused — `disableExpand` suppresses the body region. */}
+        <div className="hidden">
           <PhaseGroupedStepList steps={data.steps} />
         </div>
       </ToolProgressCardShell>
