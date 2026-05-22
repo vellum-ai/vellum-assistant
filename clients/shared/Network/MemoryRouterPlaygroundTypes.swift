@@ -167,3 +167,22 @@ public struct LlmProfilesListResponse: Decodable, Sendable {
     public let profiles: [String]
     public let activeProfile: String?
 }
+
+/// Decoded simulate response paired with the pretty-printed request body
+/// that was sent and the raw response body that came back. The playground
+/// surfaces both strings in a "Raw API exchange" disclosure for debugging.
+public struct MemoryRouterSimulateResult: Sendable {
+    public let response: MemoryRouterSimulateResponse
+    public let rawRequest: String
+    public let rawResponse: String
+
+    public init(
+        response: MemoryRouterSimulateResponse,
+        rawRequest: String,
+        rawResponse: String
+    ) {
+        self.response = response
+        self.rawRequest = rawRequest
+        self.rawResponse = rawResponse
+    }
+}

@@ -27,7 +27,7 @@ public struct MemoryRouterPlaygroundClient: Sendable {
 
     public func simulate(
         input: MemoryRouterSimulateInput
-    ) async throws -> MemoryRouterSimulateResponse {
+    ) async throws -> MemoryRouterSimulateResult {
         let path = "memory/v2/simulate-router/"
         let body = buildRequestBody(input: input)
         let response = try await GatewayHTTPClient.post(
@@ -35,11 +35,51 @@ public struct MemoryRouterPlaygroundClient: Sendable {
             json: body,
             timeout: 120
         )
+        let rawRequest = Self.prettyJsonString(fromObject: body)
+        let rawResponse = Self.prettyJsonString(fromData: response.data)
         try throwIfUnsuccessful(response, path: path)
-        return try JSONDecoder().decode(
+        let decoded = try JSONDecoder().decode(
             MemoryRouterSimulateResponse.self,
             from: response.data
         )
+        return MemoryRouterSimulateResult(
+            response: decoded,
+            rawRequest: rawRequest,
+            rawResponse: rawResponse
+        )
+    }
+
+    /// Pretty-print a JSON-compatible object (the same dict we POSTed) for
+    /// display in the playground's raw-exchange disclosure. Falls back to a
+    /// short sentinel if the object isn't JSON-encodable — we'd already
+    /// have failed the POST in that case, so the fallback is just defensive.
+    private static func prettyJsonString(fromObject object: Any) -> String {
+        guard
+            let data = try? JSONSerialization.data(
+                withJSONObject: object,
+                options: [.prettyPrinted, .sortedKeys]
+            ),
+            let text = String(data: data, encoding: .utf8)
+        else {
+            return "<unable to serialize request body>"
+        }
+        return text
+    }
+
+    /// Pretty-print response bytes if they parse as JSON; otherwise return
+    /// the UTF-8 text as-is so error bodies remain inspectable.
+    private static func prettyJsonString(fromData data: Data) -> String {
+        if
+            let parsed = try? JSONSerialization.jsonObject(with: data),
+            let pretty = try? JSONSerialization.data(
+                withJSONObject: parsed,
+                options: [.prettyPrinted, .sortedKeys]
+            ),
+            let text = String(data: pretty, encoding: .utf8)
+        {
+            return text
+        }
+        return String(data: data, encoding: .utf8) ?? "<binary>"
     }
 
     /// Fetches the workspace's defined `llm.profiles` for populating the

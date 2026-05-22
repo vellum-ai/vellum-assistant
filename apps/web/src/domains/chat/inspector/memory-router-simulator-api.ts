@@ -56,6 +56,17 @@ export interface MemoryRouterSimulateResponse {
   routerPromptOverridden: boolean;
 }
 
+/**
+ * Result of a successful simulate call, including the pretty-printed
+ * request body that was sent and the raw response body returned. Surfaced
+ * in the playground's "Raw API exchange" disclosure for debugging.
+ */
+export interface MemoryRouterSimulateResult {
+  response: MemoryRouterSimulateResponse;
+  rawRequest: string;
+  rawResponse: string;
+}
+
 export interface LlmProfilesListResponse {
   profiles: string[];
   activeProfile: string | null;
@@ -75,7 +86,7 @@ export async function simulateMemoryRouter(
   assistantId: string,
   request: MemoryRouterSimulateRequest,
   signal?: AbortSignal
-): Promise<MemoryRouterSimulateResponse> {
+): Promise<MemoryRouterSimulateResult> {
   const { data, response } = await client.post<MemoryRouterSimulateResponse>({
     url: "/v1/assistants/{assistant_id}/memory/v2/simulate-router/",
     path: { assistant_id: assistantId },
@@ -83,14 +94,16 @@ export async function simulateMemoryRouter(
     signal,
     throwOnError: false,
   });
+  const rawResponse = response
+    ? await response
+        .clone()
+        .text()
+        .catch(() => "")
+    : "";
   if (!response || !response.ok) {
-    const text = await response
-      ?.clone()
-      .text()
-      .catch(() => "");
     throw new SimulateMemoryRouterError(
       response?.status ?? 0,
-      text || response?.statusText || "Failed to simulate memory router"
+      rawResponse || response?.statusText || "Failed to simulate memory router"
     );
   }
   if (!data) {
@@ -99,14 +112,27 @@ export async function simulateMemoryRouter(
       "Empty response from memory router simulator endpoint"
     );
   }
-  return data;
+  return {
+    response: data,
+    rawRequest: JSON.stringify(request, null, 2),
+    rawResponse: prettyJson(rawResponse),
+  };
+}
+
+function prettyJson(raw: string): string {
+  if (raw.length === 0) return raw;
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
 }
 
 export function useSimulateMemoryRouter(assistantId: string | undefined) {
   return useMutation({
     mutationFn: async (
       request: MemoryRouterSimulateRequest
-    ): Promise<MemoryRouterSimulateResponse> => {
+    ): Promise<MemoryRouterSimulateResult> => {
       if (!assistantId) {
         throw new SimulateMemoryRouterError(0, "Missing assistantId");
       }

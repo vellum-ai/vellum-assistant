@@ -165,14 +165,14 @@ function PlaygroundView(): ReactNode {
             paneId="A"
             query={query}
             mutation={mutationA}
-            otherResult={mutationB.data}
+            otherResult={mutationB.data?.response}
             validation={validationA}
           />
           <PaneOutputColumn
             paneId="B"
             query={query}
             mutation={mutationB}
-            otherResult={mutationA.data}
+            otherResult={mutationA.data?.response}
             validation={validationB}
           />
         </div>
@@ -631,6 +631,7 @@ function PaneOutputColumn({
   otherResult: MemoryRouterSimulateResponse | undefined;
   validation: string | null;
 }): ReactNode {
+  const data = mutation.data;
   return (
     <div className="flex flex-col gap-3">
       <PaneHeader paneId={paneId} />
@@ -644,14 +645,99 @@ function PaneOutputColumn({
           }
         />
       )}
-      {mutation.data !== undefined && (
-        <ResultPanel
-          paneId={paneId}
-          query={query}
-          result={mutation.data}
-          otherResult={otherResult}
-        />
+      {data !== undefined && (
+        <>
+          <ResultPanel
+            paneId={paneId}
+            query={query}
+            result={data.response}
+            otherResult={otherResult}
+          />
+          <RawExchangePanel
+            paneId={paneId}
+            rawRequest={data.rawRequest}
+            rawResponse={data.rawResponse}
+          />
+        </>
       )}
+    </div>
+  );
+}
+
+function RawExchangePanel({
+  paneId,
+  rawRequest,
+  rawResponse,
+}: {
+  paneId: PaneId;
+  rawRequest: string;
+  rawResponse: string;
+}): ReactNode {
+  const [open, setOpen] = useState(false);
+  return (
+    <Card>
+      <div className="flex flex-col gap-2 p-4">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="text-label-default"
+          style={{
+            color: "var(--content-secondary)",
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            textAlign: "left",
+          }}
+        >
+          {open ? "▾" : "▸"} Raw API exchange
+        </button>
+        {open && (
+          <div className="flex flex-col gap-3">
+            <RawExchangeBlock
+              label={`Request (Pane ${paneId})`}
+              body={rawRequest}
+            />
+            <RawExchangeBlock
+              label={`Response (Pane ${paneId})`}
+              body={rawResponse}
+            />
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function RawExchangeBlock({
+  label,
+  body,
+}: {
+  label: string;
+  body: string;
+}): ReactNode {
+  return (
+    <div className="flex flex-col gap-1">
+      <span
+        className="text-label-default"
+        style={{ color: "var(--content-secondary)" }}
+      >
+        {label}
+      </span>
+      <pre
+        className="overflow-auto rounded-md border px-3 py-2 text-body-small-default"
+        style={{
+          borderColor: "var(--border-base)",
+          background: "var(--surface-base)",
+          color: "var(--content-default)",
+          fontFamily:
+            "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+          maxHeight: "320px",
+          whiteSpace: "pre",
+        }}
+      >
+        {body.length === 0 ? "(empty)" : body}
+      </pre>
     </div>
   );
 }
