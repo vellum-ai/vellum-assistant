@@ -261,6 +261,19 @@ export function clearFeatureFlagOverridesCache(): void {
 }
 
 /**
+ * Re-fetch feature flag overrides from the gateway.
+ *
+ * Clears the cached overrides and re-runs the gateway IPC fetch without
+ * retries (the gateway is known to be up because it just pushed an event).
+ * Called by the gateway flag listener when a `feature_flags_changed` event
+ * arrives.
+ */
+export async function refreshOverridesFromGateway(): Promise<void> {
+  clearFeatureFlagOverridesCache();
+  await initFeatureFlagOverrides({ retryBackoffsMs: [] });
+}
+
+/**
  * Directly inject override values into the module-level cache.
  *
  * **Test-only** — bypasses the gateway IPC fetch so unit tests can control

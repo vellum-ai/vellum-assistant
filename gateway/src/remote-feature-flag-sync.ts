@@ -42,6 +42,8 @@ export type RemoteFeatureFlagSyncConfig = {
   credentials: CredentialCache;
   /** Override the initial poll interval (ms) — useful for testing. Defaults to 10 000. */
   initialPollIntervalMs?: number;
+  /** Called when remote flags change on disk after a successful fetch. */
+  onChanged?: () => void;
 };
 
 /**
@@ -66,12 +68,14 @@ export class RemoteFeatureFlagSync {
   private currentIntervalMs: number;
   private readonly maxIntervalMs: number;
   private readonly credentials: CredentialCache;
+  private readonly onChanged?: () => void;
 
   constructor(config: RemoteFeatureFlagSyncConfig) {
     this.credentials = config.credentials;
     this.currentIntervalMs =
       config.initialPollIntervalMs ?? INITIAL_POLL_INTERVAL_MS;
     this.maxIntervalMs = getMaxPollIntervalMs();
+    this.onChanged = config.onChanged;
   }
 
   async start(): Promise<void> {
@@ -289,6 +293,7 @@ export class RemoteFeatureFlagSync {
     const meta = { count: Object.keys(result.values).length };
     if (changed) {
       log.info(meta, msg);
+      this.onChanged?.();
     } else {
       log.debug(meta, msg);
     }
