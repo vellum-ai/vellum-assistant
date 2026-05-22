@@ -281,7 +281,7 @@ describe("outbound assistant Slack metadata persistence", () => {
     expect(readSlackMetadata(slackMetaRaw as string)).toBeNull();
   });
 
-  test("stamps assistant Slack rows with effective timestamp timezone and requester suffix", async () => {
+  test("stamps assistant Slack rows with effective timestamp timezone and no speaker suffix", async () => {
     currentConfig = {
       ...structuredClone(baseConfig),
       ui: { userTimezone: "America/Denver" },
@@ -312,7 +312,7 @@ describe("outbound assistant Slack metadata persistence", () => {
     >;
     expect(slackMeta.timestampTimezone).toBe("America/Denver");
     expect(slackMeta.timestampTimezoneLabel).toBe("MT");
-    expect(slackMeta.speakerTimezoneLabel).toBe("ET");
+    expect(slackMeta.speakerTimezoneLabel).toBeUndefined();
   });
 
   test("falls back to the turn client timezone when no configured user timezone is set", async () => {
@@ -381,7 +381,7 @@ describe("outbound assistant Slack metadata persistence", () => {
     expect(reconciled!.channelTs).toBe("1772678280.000200");
     expect(reconciled!.timestampTimezone).toBe("America/Denver");
     expect(reconciled!.timestampTimezoneLabel).toBe("MT");
-    expect(reconciled!.speakerTimezoneLabel).toBe("ET");
+    expect(reconciled!.speakerTimezoneLabel).toBeUndefined();
   });
 
   test("stamps slackMeta WITHOUT threadTs for top-level Slack replies", async () => {

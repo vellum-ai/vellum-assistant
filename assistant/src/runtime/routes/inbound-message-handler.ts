@@ -20,6 +20,7 @@ import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
 } from "../../daemon/approval-generators.js";
+import { resolveTurnTimezoneContext } from "../../daemon/date-context.js";
 import { getDiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-policy.js";
 import { processMessage } from "../../daemon/process-message.js";
@@ -68,6 +69,7 @@ import {
 import { downloadSlackFile } from "../../messaging/providers/slack/download.js";
 import {
   buildSlackTimezoneMetadata,
+  formatSlackTimezoneLabel,
   mergeSlackMetadata,
   readSlackMetadataFromMessageMetadata,
   type SlackFileMetadata,
@@ -166,6 +168,24 @@ function attachSlackRequesterTimezone(
     ...(timezone.timezoneOffsetSeconds !== undefined
       ? { requesterTimezoneOffsetSeconds: timezone.timezoneOffsetSeconds }
       : {}),
+  };
+}
+
+function resolveSlackTranscriptTimestampTimezone(): {
+  timestampTimezone: string;
+  timestampTimezoneLabel?: string;
+} {
+  const config = getConfig();
+  const timestampTimezone = resolveTurnTimezoneContext({
+    configuredUserTimeZone: config.ui?.userTimezone ?? null,
+    clientTimezone: null,
+    detectedTimezone: config.ui?.detectedTimezone ?? null,
+    hostTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  }).effectiveTimezone;
+  const timestampTimezoneLabel = formatSlackTimezoneLabel(timestampTimezone);
+  return {
+    timestampTimezone,
+    ...(timestampTimezoneLabel ? { timestampTimezoneLabel } : {}),
   };
 }
 
@@ -1128,6 +1148,10 @@ export async function handleChannelInbound({
         trustCtx.trustClass !== "guardian"
           ? slackActorTimezone?.timezoneLabel
           : undefined;
+      const slackTranscriptTimestampTimezone =
+        sourceChannel === "slack"
+          ? resolveSlackTranscriptTimestampTimezone()
+          : undefined;
       const slackInbound =
         sourceChannel === "slack"
           ? {
@@ -1148,8 +1172,10 @@ export async function handleChannelInbound({
                 actorTimezoneLabel: slackActorTimezone?.timezoneLabel,
                 actorTimezoneOffsetSeconds:
                   slackActorTimezone?.timezoneOffsetSeconds,
-                timestampTimezone: slackActorTimezone?.timezone,
-                timestampTimezoneLabel: slackActorTimezone?.timezoneLabel,
+                timestampTimezone:
+                  slackTranscriptTimestampTimezone?.timestampTimezone,
+                timestampTimezoneLabel:
+                  slackTranscriptTimestampTimezone?.timestampTimezoneLabel,
                 speakerTimezoneLabel: slackSpeakerTimezoneLabel,
               }),
             }
@@ -1577,6 +1603,8 @@ async function persistBackfilledSlackMessage(params: {
     message,
     params.guardianExternalUserId,
   );
+  const slackTranscriptTimestampTimezone =
+    resolveSlackTranscriptTimestampTimezone();
   const slackMeta: SlackMessageMetadata = {
     source: "slack",
     channelId: params.channelId,
@@ -1589,8 +1617,9 @@ async function persistBackfilledSlackMessage(params: {
       actorTimezone,
       actorTimezoneLabel,
       actorTimezoneOffsetSeconds: message.metadata?.actorTimezoneOffsetSeconds,
-      timestampTimezone: actorTimezone,
-      timestampTimezoneLabel: actorTimezoneLabel,
+      timestampTimezone: slackTranscriptTimestampTimezone?.timestampTimezone,
+      timestampTimezoneLabel:
+        slackTranscriptTimestampTimezone?.timestampTimezoneLabel,
       speakerTimezoneLabel: isGuardian ? undefined : actorTimezoneLabel,
     }),
     ...(slackFiles.length > 0 ? { slackFiles } : {}),

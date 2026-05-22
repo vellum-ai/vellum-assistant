@@ -176,11 +176,18 @@ function resetState(): void {
   downloadSlackFileMock.mockReset();
   downloadSlackFileMock.mockResolvedValue(null);
   setConfiguredSlackBotUserId("U_BOT");
+  setConfiguredUserTimezone(undefined);
 }
 
 function setConfiguredSlackBotUserId(botUserId: string): void {
   const raw = loadRawConfig();
   setNestedValue(raw, "slack.botUserId", botUserId);
+  saveRawConfig(raw);
+}
+
+function setConfiguredUserTimezone(userTimezone: string | undefined): void {
+  const raw = loadRawConfig();
+  setNestedValue(raw, "ui.userTimezone", userTimezone);
   saveRawConfig(raw);
 }
 
@@ -1143,6 +1150,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
 
   test("backfilled Slack timezone metadata derives timestamp and speaker fields", async () => {
     const conv = createTestConversation();
+    setConfiguredUserTimezone("America/Denver");
 
     backfillThreadMock.mockImplementation(async () => [
       makeBackfillMessage({
@@ -1182,8 +1190,8 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(nonGuardian?.actorTimezone).toBe("America/New_York");
     expect(nonGuardian?.actorTimezoneLabel).toBe("ET");
     expect(nonGuardian?.actorTimezoneOffsetSeconds).toBe(-18000);
-    expect(nonGuardian?.timestampTimezone).toBe("America/New_York");
-    expect(nonGuardian?.timestampTimezoneLabel).toBe("ET");
+    expect(nonGuardian?.timestampTimezone).toBe("America/Denver");
+    expect(nonGuardian?.timestampTimezoneLabel).toBe("MT");
     expect(nonGuardian?.speakerTimezoneLabel).toBe("ET");
 
     const guardian = persisted.find((p) => p.channelTs === "1234.1");
@@ -1231,10 +1239,11 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
 
   test("backfilled assistant-authored text is persisted raw as assistant history", async () => {
     const conv = createTestConversation();
+    setConfiguredUserTimezone("America/Denver");
 
     backfillThreadMock.mockImplementation(async () => [
       makeBackfillMessage({
-        id: "1234.0",
+        id: "1772681880.000000",
         text: "earlier assistant reply",
         threadId: undefined,
         sender: { id: "U_BOT", name: "Douglas" },
@@ -1245,17 +1254,20 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     await triggerSlackThreadBackfillIfNeeded({
       conversationId: conv.id,
       channelId: SLACK_CHANNEL_ID,
-      threadTs: "1234.0",
+      threadTs: "1772681880.000000",
     });
 
     const [persisted] = readPersistedSlackRows(conv.id).filter(
-      (p) => p.channelTs === "1234.0",
+      (p) => p.channelTs === "1772681880.000000",
     );
     expect(persisted).toBeDefined();
     expect(persisted.role).toBe("assistant");
     expect(persisted.rawContent).toBe("earlier assistant reply");
     expect(persisted.rawContent).not.toContain("<external_content");
     expect(persisted.actorExternalUserId).toBe("U_BOT");
+    expect(persisted.timestampTimezone).toBe("America/Denver");
+    expect(persisted.timestampTimezoneLabel).toBe("MT");
+    expect(persisted.speakerTimezoneLabel).toBeUndefined();
     expect(persisted.provenanceTrustClass).toBe("unknown");
     expect(persisted.provenanceSourceChannel).toBe("slack");
     expect(persisted.provenanceRequesterIdentifier).toBe("U_BOT");
@@ -1268,7 +1280,12 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(context!.messages).toEqual([
       {
         role: "assistant",
-        content: [{ type: "text", text: "earlier assistant reply" }],
+        content: [
+          {
+            type: "text",
+            text: "[mar 4 2026 8:38 PM MT assistant] earlier assistant reply",
+          },
+        ],
       },
     ]);
   });

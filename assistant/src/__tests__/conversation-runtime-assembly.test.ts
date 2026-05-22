@@ -4041,16 +4041,16 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
     const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
     expect(result).not.toBeNull();
     expect(result!).toContain(
-      "[nov 14 2023 3:13 PM MT assistant (ET)] Assistant reply",
+      "[nov 14 2023 3:13 PM MT assistant] Assistant reply",
     );
     expect(result!).not.toContain(
-      "@assistant: [nov 14 2023 3:13 PM MT assistant (ET)]",
+      "@assistant: [nov 14 2023 3:13 PM MT assistant]",
     );
   });
 
   test("assistant content that only looks like a compact tag still gets active-thread attribution", () => {
     const compactLookingContent =
-      "[nov 14 2023 3:13 PM MT assistant (ET)] Assistant reply";
+      "[nov 14 2023 3:13 PM MT assistant] Assistant reply";
     const rows: SlackTranscriptInputRow[] = [
       buildRow(
         "user",

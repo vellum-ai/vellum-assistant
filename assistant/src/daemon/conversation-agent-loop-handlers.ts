@@ -1065,8 +1065,6 @@ export async function handleMessageComplete(
         timestampTimezone,
         { nowMs: state.turnStartedAt },
       );
-      const requesterTimezoneLabel =
-        deps.ctx.trustContext?.requesterTimezoneLabel?.trim();
       const partialSlackMeta: Partial<SlackMessageMetadata> = {
         source: "slack",
         eventKind: "message",
@@ -1074,9 +1072,6 @@ export async function handleMessageComplete(
         ...(threadTs ? { threadTs } : {}),
         timestampTimezone,
         ...(timestampTimezoneLabel ? { timestampTimezoneLabel } : {}),
-        ...(requesterTimezoneLabel
-          ? { speakerTimezoneLabel: requesterTimezoneLabel }
-          : {}),
       };
       assistantChannelMetadata.slackMeta = writeSlackMetadata(
         // `channelTs` is filled in by the post-send reconciliation step in

@@ -249,9 +249,12 @@ function speakerLabel(
 ): string {
   const speaker =
     msg.senderLabel ?? (msg.role === "assistant" ? "assistant" : "");
-  const suffix = formatSlackTimezoneLabel(undefined, {
-    persistedLabel: meta.speakerTimezoneLabel,
-  });
+  const suffix =
+    msg.role === "assistant"
+      ? null
+      : formatSlackTimezoneLabel(undefined, {
+          persistedLabel: meta.speakerTimezoneLabel,
+        });
   if (!speaker) return "";
   return suffix ? `${speaker} (${suffix})` : speaker;
 }

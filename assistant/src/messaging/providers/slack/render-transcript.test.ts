@@ -139,8 +139,8 @@ describe("renderSlackTranscript — basics", () => {
           displayName: "jordan",
           actorTimezone: "America/New_York",
           actorTimezoneLabel: "Eastern Time",
-          timestampTimezone: "America/New_York",
-          timestampTimezoneLabel: "Eastern Time",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
           speakerTimezoneLabel: "Eastern Time",
         },
       },
@@ -186,8 +186,8 @@ describe("renderSlackTranscript — basics", () => {
           displayName: "jordan",
           actorTimezone: "America/New_York",
           actorTimezoneLabel: "ET",
-          timestampTimezone: "America/New_York",
-          timestampTimezoneLabel: "ET",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
           speakerTimezoneLabel: "ET",
         },
       },
@@ -195,13 +195,13 @@ describe("renderSlackTranscript — basics", () => {
 
     expect(out).toEqual([
       textMsg("user", "[mar 4 2026 8:34 PM MT aaron] hey there"),
-      textMsg("user", "[mar 4 2026 10:36 PM ET jordan (ET)] whatsup"),
+      textMsg("user", "[mar 4 2026 8:36 PM MT jordan (ET)] whatsup"),
       textMsg(
         "user",
         "[mar 4 2026 8:37 PM MT aaron] nm, i wonder how my assistant is doing",
       ),
-      textMsg("assistant", "[mar 4 2026 8:38 PM MT assistant (ET)] i'm good"),
-      textMsg("user", "[mar 4 2026 10:39 PM ET jordan (ET)] ayeeeee"),
+      textMsg("assistant", "[mar 4 2026 8:38 PM MT assistant] i'm good"),
+      textMsg("user", "[mar 4 2026 8:39 PM MT jordan (ET)] ayeeeee"),
     ]);
   });
 
