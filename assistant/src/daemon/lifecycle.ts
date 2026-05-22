@@ -9,10 +9,6 @@ import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import {
-  startGatewayFlagListener,
-  stopGatewayFlagListener,
-} from "../ipc/gateway-flag-listener.js";
-import {
   getPlatformAssistantId,
   getRuntimeHttpHost,
   getRuntimeHttpPort,
@@ -39,6 +35,10 @@ import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { startHomeContentRefresh } from "../home/home-content-refresh.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
+import {
+  startGatewayFlagListener,
+  stopGatewayFlagListener,
+} from "../ipc/gateway-flag-listener.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import {
   getAttachmentsByIds,

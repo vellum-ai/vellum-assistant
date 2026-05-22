@@ -1,8 +1,8 @@
-import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { createServer, type Server, type Socket } from "node:net";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach,beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Isolated temp directory for the IPC socket
@@ -110,18 +110,21 @@ describe("gateway-flag-listener", () => {
     }
   });
 
-  test("refreshes flag cache on feature_flags_changed event", async () => {
+  test("refreshes flag cache on connect and on feature_flags_changed event", async () => {
     await new Promise<void>((resolve) => {
       testServer.server.listen(socketPath, resolve);
     });
 
     startGatewayFlagListener();
     await testServer.waitForClient();
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(refreshCallCount).toBe(1);
 
     testServer.emit("feature_flags_changed");
     await new Promise((r) => setTimeout(r, 100));
 
-    expect(refreshCallCount).toBe(1);
+    expect(refreshCallCount).toBe(2);
   });
 
   test("ignores non-flag events", async () => {
@@ -131,11 +134,14 @@ describe("gateway-flag-listener", () => {
 
     startGatewayFlagListener();
     await testServer.waitForClient();
+    await new Promise((r) => setTimeout(r, 100));
+
+    const countAfterConnect = refreshCallCount;
 
     testServer.emit("some_other_event");
     await new Promise((r) => setTimeout(r, 100));
 
-    expect(refreshCallCount).toBe(0);
+    expect(refreshCallCount).toBe(countAfterConnect);
   });
 
   test("reconnects on disconnect and handles events on new connection", async () => {
@@ -162,13 +168,16 @@ describe("gateway-flag-listener", () => {
 
     expect(secondClient).not.toBeNull();
 
-    refreshCallCount = 0;
+    await new Promise((r) => setTimeout(r, 100));
+    const countAfterReconnect = refreshCallCount;
+    expect(countAfterReconnect).toBeGreaterThan(0);
+
     const payload =
       JSON.stringify({ event: "feature_flags_changed" }) + "\n";
     secondClient!.write(payload);
     await new Promise((r) => setTimeout(r, 200));
 
-    expect(refreshCallCount).toBe(1);
+    expect(refreshCallCount).toBe(countAfterReconnect + 1);
   });
 
   test("stopGatewayFlagListener cleans up and does not reconnect", async () => {

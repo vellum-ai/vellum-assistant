@@ -53,9 +53,16 @@ function connectToGateway(): void {
   const conn = connect(socketPath);
 
   conn.on("connect", () => {
+    if (stopped) {
+      conn.destroy();
+      return;
+    }
     log.info("Connected to gateway IPC for flag events");
     currentBackoffMs = INITIAL_BACKOFF_MS;
     socket = conn;
+    refreshOverridesFromGateway().catch((err) => {
+      log.warn({ err }, "Failed to refresh feature flag overrides on reconnect");
+    });
   });
 
   let buffer = "";
