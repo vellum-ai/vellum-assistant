@@ -856,6 +856,28 @@ describe("computeWebSearchCardData — state", () => {
     expect(data!.currentStepTitle).toBe("Searching the web");
   });
 
+  test("state is `loading` for a denied web tool whose status is still `running`", () => {
+    // After the user clicks deny, `pendingConfirmation` is cleared
+    // immediately but the tool call can remain `status: "running"` until
+    // the error `tool_result` arrives. The unified pipeline promotes the
+    // card to `"denied"` as soon as `confirmationDecision === "denied"`,
+    // but the wrapper must keep the legacy state at `"loading"` because
+    // the legacy card has no denied chrome and we don't want to render a
+    // completed checkmark while the call is still in flight.
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "web_search",
+        status: "running",
+        input: { query: "tigers" },
+        confirmationDecision: "denied",
+      }),
+    ];
+    const data = computeWebSearchCardData(toolCalls, {});
+    expect(data).not.toBeNull();
+    expect(data!.state).toBe("loading");
+  });
+
   test("state is `loading` for a mix of in-flight and completed web tools", () => {
     const toolCalls = [
       makeToolCall({ id: "tc-1", toolName: "web_search" }),
