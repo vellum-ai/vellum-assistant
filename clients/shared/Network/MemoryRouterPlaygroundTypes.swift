@@ -27,19 +27,24 @@ public struct MemoryRouterSimulateInput: Equatable, Sendable {
     public let batchSize: MemoryRouterOverride
     /// Per-call `llm.profiles` override name. `nil` means "inherit active".
     public let profileOverride: String?
+    /// Inline router system-prompt override. `nil` or whitespace-only means
+    /// "use the bundled template" — the daemon normalizes either way.
+    public let routerPromptOverride: String?
 
     public init(
         query: String,
         tier1Size: MemoryRouterOverride = .inherit,
         tier2Size: MemoryRouterOverride = .inherit,
         batchSize: MemoryRouterOverride = .inherit,
-        profileOverride: String? = nil
+        profileOverride: String? = nil,
+        routerPromptOverride: String? = nil
     ) {
         self.query = query
         self.tier1Size = tier1Size
         self.tier2Size = tier2Size
         self.batchSize = batchSize
         self.profileOverride = profileOverride
+        self.routerPromptOverride = routerPromptOverride
     }
 }
 
@@ -124,6 +129,36 @@ public struct MemoryRouterSimulateResponse: Decodable, Sendable {
     public let totalCandidatePages: Int
     /// Profile name passed as an override on this call, or `nil` if none.
     public let profileOverride: String?
+    /// `true` when an inline router prompt override was applied this call.
+    public let routerPromptOverridden: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case selectedSlugs
+        case sourceBySlug
+        case scores
+        case failureReason
+        case effectiveConfig
+        case overrides
+        case totalCandidatePages
+        case profileOverride
+        case routerPromptOverridden
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.selectedSlugs = try container.decode([String].self, forKey: .selectedSlugs)
+        self.sourceBySlug = try container.decode([String: String].self, forKey: .sourceBySlug)
+        self.scores = try container.decode([String: Double].self, forKey: .scores)
+        self.failureReason = try container.decodeIfPresent(String.self, forKey: .failureReason)
+        self.effectiveConfig = try container.decode(MemoryRouterEffectiveConfig.self, forKey: .effectiveConfig)
+        self.overrides = try container.decode(MemoryRouterReportedOverrides.self, forKey: .overrides)
+        self.totalCandidatePages = try container.decode(Int.self, forKey: .totalCandidatePages)
+        self.profileOverride = try container.decodeIfPresent(String.self, forKey: .profileOverride)
+        // Forward-compat: an older daemon won't send this field. Default
+        // to `false` rather than failing the decode for the entire response.
+        self.routerPromptOverridden =
+            try container.decodeIfPresent(Bool.self, forKey: .routerPromptOverridden) ?? false
+    }
 }
 
 /// Response from `GET /v1/assistants/{id}/config/llm/profiles/`. Used to

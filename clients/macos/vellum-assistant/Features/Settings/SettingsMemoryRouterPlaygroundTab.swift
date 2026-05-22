@@ -29,6 +29,7 @@ struct SettingsMemoryRouterPlaygroundTab: View {
     @State private var paneB = PaneState()
     @State private var availableProfiles: [String] = []
     @State private var activeProfile: String?
+    @State private var defaultPromptTemplate: String = ""
 
     enum PaneId { case a, b }
 
@@ -38,6 +39,10 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         var batch: String = ""
         /// Empty string means "inherit active profile".
         var profile: String = ""
+        /// Empty string means "use bundled template".
+        var customPrompt: String = ""
+        /// Disclosure state for the per-pane prompt editor.
+        var showPromptEditor: Bool = false
         var isRunning: Bool = false
         var validationError: String?
         var clientError: String?
@@ -77,6 +82,11 @@ struct SettingsMemoryRouterPlaygroundTab: View {
             // Best-effort — leave the pickers empty. The user can still type
             // an override into config.json directly or wait until profiles
             // load on a later view appearance.
+        }
+        if defaultPromptTemplate.isEmpty {
+            if let template = try? await client.fetchDefaultRouterPrompt() {
+                defaultPromptTemplate = template
+            }
         }
     }
 
@@ -190,6 +200,7 @@ struct SettingsMemoryRouterPlaygroundTab: View {
                 overrideField(label: "batch_size", binding: batchBinding(pane))
             }
             profileField(pane: pane)
+            promptEditorField(pane: pane)
             HStack {
                 Spacer()
                 VButton(
@@ -204,6 +215,56 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard()
+    }
+
+    private func promptEditorField(pane: PaneId) -> some View {
+        let state = paneState(pane)
+        let usingCustom = !state.customPrompt
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+        return VStack(alignment: .leading, spacing: VSpacing.xs) {
+            HStack {
+                Button {
+                    showPromptEditorToggle(pane)
+                } label: {
+                    Text("\(state.showPromptEditor ? "▾" : "▸") System prompt (\(usingCustom ? "custom" : "bundled"))")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                if state.showPromptEditor {
+                    Button("Load default") {
+                        setCustomPrompt(pane: pane, value: defaultPromptTemplate)
+                    }
+                    .buttonStyle(.plain)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .disabled(defaultPromptTemplate.isEmpty)
+                    Button("Reset") {
+                        setCustomPrompt(pane: pane, value: "")
+                    }
+                    .buttonStyle(.plain)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .disabled(!usingCustom)
+                }
+            }
+            if state.showPromptEditor {
+                TextEditor(text: customPromptBinding(pane))
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(VColor.contentDefault)
+                    .scrollContentBackground(.hidden)
+                    .padding(VSpacing.sm)
+                    .frame(minHeight: 180)
+                    .background(VColor.surfaceBase)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.borderBase, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            }
+        }
     }
 
     private func profileField(pane: PaneId) -> some View {
@@ -339,6 +400,10 @@ struct SettingsMemoryRouterPlaygroundTab: View {
                 label: "llm.profiles override",
                 value: result.profileOverride.map { "\($0)  (override)" } ?? "inherit active"
             )
+            metaRow(
+                label: "system prompt",
+                value: result.routerPromptOverridden ? "custom" : "bundled"
+            )
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -457,6 +522,24 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         pane == .a ? $paneA.profile : $paneB.profile
     }
 
+    private func customPromptBinding(_ pane: PaneId) -> Binding<String> {
+        pane == .a ? $paneA.customPrompt : $paneB.customPrompt
+    }
+
+    private func setCustomPrompt(pane: PaneId, value: String) {
+        switch pane {
+        case .a: paneA.customPrompt = value
+        case .b: paneB.customPrompt = value
+        }
+    }
+
+    private func showPromptEditorToggle(_ pane: PaneId) {
+        switch pane {
+        case .a: paneA.showPromptEditor.toggle()
+        case .b: paneB.showPromptEditor.toggle()
+        }
+    }
+
     private func canRun(_ pane: PaneId) -> Bool {
         !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !paneState(pane).isRunning
@@ -498,12 +581,15 @@ struct SettingsMemoryRouterPlaygroundTab: View {
 
         let profileTrimmed = state.profile.trimmingCharacters(in: .whitespacesAndNewlines)
         let profileOverride: String? = profileTrimmed.isEmpty ? nil : profileTrimmed
+        let promptTrimmed = state.customPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let routerPromptOverride: String? = promptTrimmed.isEmpty ? nil : state.customPrompt
         let input = MemoryRouterSimulateInput(
             query: trimmedQuery,
             tier1Size: tier1Override,
             tier2Size: tier2Override,
             batchSize: batchOverride,
-            profileOverride: profileOverride
+            profileOverride: profileOverride,
+            routerPromptOverride: routerPromptOverride
         )
 
         setIsRunning(pane: pane, value: true)

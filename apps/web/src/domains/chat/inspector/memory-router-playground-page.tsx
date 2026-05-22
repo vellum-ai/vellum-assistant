@@ -6,6 +6,7 @@ import { Card } from "@vellum/design-library";
 import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access.js";
 import {
+  useDefaultRouterPromptTemplate,
   useLlmProfiles,
   useSimulateMemoryRouter,
 } from "@/domains/chat/inspector/memory-router-simulator-api.js";
@@ -58,6 +59,8 @@ interface PaneOverrides {
   batch: string;
   /** Profile name, or empty string for "inherit active". */
   profile: string;
+  /** Inline router prompt override; empty = use bundled. */
+  customPrompt: string;
 }
 
 const EMPTY_OVERRIDES: PaneOverrides = {
@@ -65,6 +68,7 @@ const EMPTY_OVERRIDES: PaneOverrides = {
   tier2: "",
   batch: "",
   profile: "",
+  customPrompt: "",
 };
 
 function PlaygroundView(): ReactNode {
@@ -72,6 +76,7 @@ function PlaygroundView(): ReactNode {
   const mutationA = useSimulateMemoryRouter(assistantId);
   const mutationB = useSimulateMemoryRouter(assistantId);
   const profilesQuery = useLlmProfiles(assistantId);
+  const promptTemplateQuery = useDefaultRouterPromptTemplate(assistantId);
 
   const [query, setQuery] = useState("");
   const [overridesA, setOverridesA] = useState<PaneOverrides>(EMPTY_OVERRIDES);
@@ -95,10 +100,15 @@ function PlaygroundView(): ReactNode {
     }
     const profileOverride =
       overrides.profile.trim().length > 0 ? overrides.profile : undefined;
+    const routerPromptOverride =
+      overrides.customPrompt.trim().length > 0
+        ? overrides.customPrompt
+        : undefined;
     mutation.mutate({
       query: query.trim(),
       ...(configOverrides ? { configOverrides } : {}),
       ...(profileOverride !== undefined ? { profileOverride } : {}),
+      ...(routerPromptOverride !== undefined ? { routerPromptOverride } : {}),
     });
   };
 
@@ -126,6 +136,7 @@ function PlaygroundView(): ReactNode {
             isRunning={mutationA.isPending}
             profiles={profilesQuery.data?.profiles ?? []}
             activeProfile={profilesQuery.data?.activeProfile ?? null}
+            defaultPromptTemplate={promptTemplateQuery.data?.template ?? ""}
           />
           <PaneConfigForm
             paneId="B"
@@ -136,6 +147,7 @@ function PlaygroundView(): ReactNode {
             isRunning={mutationB.isPending}
             profiles={profilesQuery.data?.profiles ?? []}
             activeProfile={profilesQuery.data?.activeProfile ?? null}
+            defaultPromptTemplate={promptTemplateQuery.data?.template ?? ""}
           />
         </div>
         <div className="flex justify-end">
@@ -268,6 +280,7 @@ function PaneConfigForm({
   isRunning,
   profiles,
   activeProfile,
+  defaultPromptTemplate,
 }: {
   paneId: PaneId;
   overrides: PaneOverrides;
@@ -277,6 +290,7 @@ function PaneConfigForm({
   isRunning: boolean;
   profiles: string[];
   activeProfile: string | null;
+  defaultPromptTemplate: string;
 }): ReactNode {
   return (
     <Card>
@@ -314,6 +328,12 @@ function PaneConfigForm({
           profiles={profiles}
           activeProfile={activeProfile}
         />
+        <PromptEditor
+          paneId={paneId}
+          value={overrides.customPrompt}
+          onChange={(v) => onChange({ ...overrides, customPrompt: v })}
+          defaultTemplate={defaultPromptTemplate}
+        />
         <div className="flex justify-end">
           <button
             type="button"
@@ -336,6 +356,100 @@ function PaneConfigForm({
         </div>
       </div>
     </Card>
+  );
+}
+
+function PromptEditor({
+  paneId,
+  value,
+  onChange,
+  defaultTemplate,
+}: {
+  paneId: PaneId;
+  value: string;
+  onChange: (value: string) => void;
+  defaultTemplate: string;
+}): ReactNode {
+  const [open, setOpen] = useState(false);
+  const inputId = `memory-router-playground-${paneId}-prompt`;
+  const usingCustom = value.trim().length > 0;
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="text-label-default"
+          style={{
+            color: "var(--content-secondary)",
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            textAlign: "left",
+          }}
+        >
+          {open ? "▾" : "▸"} System prompt{" "}
+          <span style={{ color: "var(--content-tertiary)" }}>
+            ({usingCustom ? "custom" : "bundled"})
+          </span>
+        </button>
+        {open && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onChange(defaultTemplate)}
+              disabled={defaultTemplate.length === 0}
+              className="rounded px-2 py-1 text-label-default"
+              style={{
+                background: "var(--surface-overlay)",
+                color: "var(--content-secondary)",
+                border: "none",
+                cursor:
+                  defaultTemplate.length === 0 ? "not-allowed" : "pointer",
+              }}
+            >
+              Load default
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange("")}
+              disabled={!usingCustom}
+              className="rounded px-2 py-1 text-label-default"
+              style={{
+                background: "var(--surface-overlay)",
+                color: "var(--content-secondary)",
+                border: "none",
+                cursor: usingCustom ? "pointer" : "not-allowed",
+              }}
+            >
+              Reset
+            </button>
+          </div>
+        )}
+      </div>
+      {open && (
+        <textarea
+          id={inputId}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          rows={12}
+          placeholder={
+            'Custom router system prompt. Available placeholders:\n  {{ASSISTANT_NAME}}, {{USER_NAME}}, {{PAGE_INDEX}}\nLeave blank to use the bundled template. "Load default" seeds the textarea with the bundled body for editing.'
+          }
+          className="rounded-md border px-3 py-2 text-body-small-default"
+          style={{
+            borderColor: "var(--border-base)",
+            background: "var(--surface-base)",
+            color: "var(--content-default)",
+            fontFamily:
+              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            resize: "vertical",
+            minHeight: "120px",
+          }}
+        />
+      )}
+    </div>
   );
 }
 
@@ -702,6 +816,10 @@ function ConfigCard({
       result.profileOverride !== null
         ? `${result.profileOverride}  (override)`
         : "inherit active",
+  });
+  rows.push({
+    label: "system prompt",
+    value: result.routerPromptOverridden ? "custom" : "bundled",
   });
   return (
     <Card>

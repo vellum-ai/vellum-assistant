@@ -11438,6 +11438,19 @@ paths:
               type: object
               properties: {}
               additionalProperties: false
+  /v1/memory/v2/router-prompt-template:
+    get:
+      operationId: memory_v2_routerprompttemplate_get
+      summary: Return the bundled router system-prompt template
+      description:
+        Returns the bundled `ROUTER_PROMPT` body with placeholders intact (`{{ASSISTANT_NAME}}`, `{{USER_NAME}}`,
+        `{{PAGE_INDEX}}`). Used by the memory router playground's 'Load default' affordance so users have a known-good
+        starting point when authoring an inline prompt override.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
   /v1/memory/v2/simulate-router:
     post:
       operationId: memory_v2_simulaterouter_post
@@ -11487,6 +11500,9 @@ paths:
                 profileOverride:
                   type: string
                   minLength: 1
+                routerPromptOverride:
+                  type: string
+                  maxLength: 1000000
               required:
                 - query
               additionalProperties: false

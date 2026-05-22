@@ -56,8 +56,11 @@ const PAGE_INDEX_PLACEHOLDER = "{{PAGE_INDEX}}";
  * Recent message context and `<now>` / `<already_injected_ids>` blocks are
  * appended at the call site so we don't inadvertently expand `{{` inside
  * dynamic content.
+ *
+ * Exported so the simulator route can return the bundled template verbatim
+ * for the playground's "Load default" affordance.
  */
-const ROUTER_PROMPT = `You are a background helper for ${ASSISTANT_NAME_PLACEHOLDER}. Your job is to route memory pages for the next assistant turn between ${ASSISTANT_NAME_PLACEHOLDER} and ${USER_NAME_PLACEHOLDER}.
+export const ROUTER_PROMPT = `You are a background helper for ${ASSISTANT_NAME_PLACEHOLDER}. Your job is to route memory pages for the next assistant turn between ${ASSISTANT_NAME_PLACEHOLDER} and ${USER_NAME_PLACEHOLDER}.
 
 You will be shown the recent conversation, a \`<now>\` marker for the current time, an \`<already_injected_ids>\` block listing pages picked on the previous turn, and a \`# Concept Page Index\` listing every routable page on this workspace.
 
@@ -112,7 +115,29 @@ export function resolveRouterPrompt(
   overridePath: string | null,
   workspaceDir: string,
   opts: RenderRouterPromptOpts,
+  inlineOverride?: string | null,
 ): string {
+  // Inline override (e.g. simulator playground) takes precedence over the
+  // configured file path and the bundled prompt. Same placeholder
+  // substitution + size guard as the file-path branch; empty/whitespace
+  // bodies fall through to file/bundled resolution so a "cleared" textarea
+  // is treated as no override.
+  if (inlineOverride !== undefined && inlineOverride !== null) {
+    if (inlineOverride.length > MAX_PROMPT_BYTES) {
+      log.warn(
+        {
+          size: inlineOverride.length,
+          limit: MAX_PROMPT_BYTES,
+          reason: "oversized_inline_override",
+          fallback: "path_or_bundled",
+        },
+        "inline router prompt override exceeds size limit; falling back",
+      );
+    } else if (inlineOverride.trim().length > 0) {
+      return substitutePlaceholders(inlineOverride, opts);
+    }
+  }
+
   if (overridePath === null) return renderRouterPrompt(opts);
 
   const resolvedPath = resolveOverridePath(overridePath, workspaceDir);

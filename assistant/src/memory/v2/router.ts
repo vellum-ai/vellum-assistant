@@ -187,6 +187,13 @@ interface RunRouterParams {
    * this unset so the bounded-injection contract holds.
    */
   disableUnionCap?: boolean;
+  /**
+   * Per-call inline router system-prompt override. Takes precedence
+   * over `memory.v2.router.router_prompt_path` and the bundled body.
+   * Used by the simulator playground for ad-hoc prompt comparisons.
+   * Live callers leave this unset.
+   */
+  routerPromptOverride?: string;
 }
 
 /**
@@ -371,6 +378,7 @@ async function runRouterBatch(
       userName: resolveUserName(workspaceDir),
       pageIndexBlock: batchIndex.rendered,
     },
+    params.routerPromptOverride ?? null,
   );
 
   // Filter prior-injected to slugs present in THIS batch and map to
