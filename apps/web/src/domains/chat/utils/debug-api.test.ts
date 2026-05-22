@@ -10,7 +10,10 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { RuntimeMessage } from "@/domains/chat/api/messages.js";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
 import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
-import type { ChatDebugRefs } from "@/domains/chat/utils/debug-api.js";
+import type {
+  ChatDebugRefs,
+  PendingInteractionsSnapshot,
+} from "@/domains/chat/utils/debug-api.js";
 import {
   createChatDebugApi,
   installChatDebugApi,
@@ -74,21 +77,40 @@ const DEFAULT_UI_CONTEXT: UIContext = {
   hasPendingAssistantResponse: false,
 };
 
+const DEFAULT_PENDING_INTERACTIONS: PendingInteractionsSnapshot = {
+  pendingSecret: null,
+  isSubmittingSecret: false,
+  pendingConfirmation: null,
+  isSubmittingConfirmation: false,
+  pendingContactRequest: null,
+  isSubmittingContactRequest: false,
+  pendingQuestion: null,
+  isSubmittingQuestion: false,
+  isQuestionCardDismissed: false,
+  inlineConfirmationToolCallId: null,
+};
+
 interface MakeRefsOverrides extends Partial<ChatDebugRefs> {
   /** Convenience: override the TurnState surface returned by `getTurnState`. */
   turn?: TurnState;
   /** Convenience: partial UIContext merged onto {@link DEFAULT_UI_CONTEXT}. */
   uiContext?: Partial<UIContext>;
+  /** Convenience: partial snapshot merged onto {@link DEFAULT_PENDING_INTERACTIONS}. */
+  pendingInteractions?: Partial<PendingInteractionsSnapshot>;
 }
 
 function makeRefs(
   overrides: MakeRefsOverrides = {},
 ): ChatDebugRefs {
-  const { turn, uiContext, ...rest } = overrides;
+  const { turn, uiContext, pendingInteractions, ...rest } = overrides;
   const turnState: TurnState = turn ?? INITIAL_TURN_STATE;
   const resolvedUIContext: UIContext = {
     ...DEFAULT_UI_CONTEXT,
     ...(uiContext ?? {}),
+  };
+  const resolvedPendingInteractions: PendingInteractionsSnapshot = {
+    ...DEFAULT_PENDING_INTERACTIONS,
+    ...(pendingInteractions ?? {}),
   };
   return {
     messagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
@@ -103,6 +125,7 @@ function makeRefs(
     getAssistantId: () => "asst-1",
     getTurnState: () => turnState,
     getUIContext: () => resolvedUIContext,
+    getPendingInteractionsSnapshot: () => resolvedPendingInteractions,
     reconcileActiveConversation: async () => ({
       changed: false,
       messagesAdded: 0,
@@ -492,6 +515,87 @@ describe("createChatDebugApi.help", () => {
     const api = createChatDebugApi(makeRefs());
     const result = api.help();
     expect(result).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+//  createChatDebugApi — listPendingInteractions
+// ---------------------------------------------------------------------------
+
+describe("createChatDebugApi.listPendingInteractions", () => {
+  test("returns the empty snapshot when no prompts are pending", () => {
+    const api = createChatDebugApi(makeRefs());
+    const snapshot = api.listPendingInteractions();
+    expect(snapshot).toEqual(DEFAULT_PENDING_INTERACTIONS);
+  });
+
+  test("forwards pending secret + submission flag from the snapshot getter", () => {
+    const api = createChatDebugApi(
+      makeRefs({
+        pendingInteractions: {
+          pendingSecret: {
+            requestId: "req-secret-1",
+            label: "OpenAI API Key",
+            description: "needed for inference",
+          },
+          isSubmittingSecret: true,
+        },
+      }),
+    );
+    const snapshot = api.listPendingInteractions();
+    expect(snapshot.pendingSecret).toEqual({
+      requestId: "req-secret-1",
+      label: "OpenAI API Key",
+      description: "needed for inference",
+    });
+    expect(snapshot.isSubmittingSecret).toBe(true);
+    // Unrelated prompt slots remain null/false.
+    expect(snapshot.pendingConfirmation).toBeNull();
+    expect(snapshot.pendingContactRequest).toBeNull();
+    expect(snapshot.pendingQuestion).toBeNull();
+  });
+
+  test("forwards pending question + card-dismissed flag", () => {
+    const api = createChatDebugApi(
+      makeRefs({
+        pendingInteractions: {
+          pendingQuestion: {
+            requestId: "req-question-1",
+            entries: [],
+          },
+          isQuestionCardDismissed: true,
+        },
+      }),
+    );
+    const snapshot = api.listPendingInteractions();
+    expect(snapshot.pendingQuestion?.requestId).toBe("req-question-1");
+    expect(snapshot.isQuestionCardDismissed).toBe(true);
+  });
+
+  test("reads through to the getter on every call (no caching)", () => {
+    let captured: PendingInteractionsSnapshot = {
+      ...DEFAULT_PENDING_INTERACTIONS,
+    };
+    const api = createChatDebugApi(
+      makeRefs({ getPendingInteractionsSnapshot: () => captured }),
+    );
+    expect(api.listPendingInteractions().pendingConfirmation).toBeNull();
+
+    captured = {
+      ...DEFAULT_PENDING_INTERACTIONS,
+      pendingConfirmation: {
+        requestId: "req-confirm-1",
+        title: "Run migration?",
+        description: "irreversible",
+        riskLevel: "high",
+      },
+      isSubmittingConfirmation: true,
+      inlineConfirmationToolCallId: "tc-42",
+    };
+    const second = api.listPendingInteractions();
+    expect(second.pendingConfirmation?.requestId).toBe("req-confirm-1");
+    expect(second.isSubmittingConfirmation).toBe(true);
+    expect(second.inlineConfirmationToolCallId).toBe("tc-42");
   });
 });
 

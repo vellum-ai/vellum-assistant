@@ -749,6 +749,28 @@ export function ChatPage() {
     getAssistantId: () => assistantIdRef.current,
     getTurnState: () => useTurnStore.getState(),
     getUIContext: () => _uiContext,
+    // The chat domain isn't allowed to import the interactions store
+    // directly (cross-domain rule). chat-page.tsx is the composition
+    // root with an allowlist exemption for `interactions`, so the
+    // wiring lives here. Snapshotting the fields explicitly — rather
+    // than returning the whole Zustand state — keeps the DevTools
+    // payload predictable and avoids leaking actions/setters into the
+    // serialized output.
+    getPendingInteractionsSnapshot: () => {
+      const state = useInteractionStore.getState();
+      return {
+        pendingSecret: state.pendingSecret,
+        isSubmittingSecret: state.isSubmittingSecret,
+        pendingConfirmation: state.pendingConfirmation,
+        isSubmittingConfirmation: state.isSubmittingConfirmation,
+        pendingContactRequest: state.pendingContactRequest,
+        isSubmittingContactRequest: state.isSubmittingContactRequest,
+        pendingQuestion: state.pendingQuestion,
+        isSubmittingQuestion: state.isSubmittingQuestion,
+        isQuestionCardDismissed: state.isQuestionCardDismissed,
+        inlineConfirmationToolCallId: state.inlineConfirmationToolCallId,
+      };
+    },
     reconcileActiveConversation,
   });
 

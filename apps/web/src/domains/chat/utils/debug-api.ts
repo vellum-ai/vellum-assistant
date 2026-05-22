@@ -27,6 +27,12 @@ import {
   type RuntimeMessage,
 } from "@/domains/chat/api/messages.js";
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
+import type {
+  PendingConfirmationState,
+  PendingContactRequestState,
+  PendingQuestionState,
+  PendingSecretState,
+} from "@/domains/chat/types/chat-ui-types.js";
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation.js";
@@ -184,6 +190,36 @@ export interface ChatDebugThinkingDoneSignal {
   explanation: string;
 }
 
+/**
+ * Snapshot returned by {@link ChatDebugApi.listPendingInteractions}.
+ *
+ * Mirrors the user-facing slice of the `interactions` domain's Zustand
+ * store — the prompts the UI is actually rendering (or just dismissed)
+ * plus their submission flags. This is the frontend-tracked view of
+ * "what's waiting on the user right now", not the server's pending-list,
+ * so it's the source of truth for triaging stuck-prompt bugs (the class
+ * of issue that triggered ATL-652).
+ *
+ * Returned as a plain object so it serializes cleanly in DevTools and
+ * doesn't expose the live Zustand reference.
+ */
+export interface PendingInteractionsSnapshot {
+  pendingSecret: PendingSecretState | null;
+  isSubmittingSecret: boolean;
+  pendingConfirmation: PendingConfirmationState | null;
+  isSubmittingConfirmation: boolean;
+  pendingContactRequest: PendingContactRequestState | null;
+  isSubmittingContactRequest: boolean;
+  pendingQuestion: PendingQuestionState | null;
+  isSubmittingQuestion: boolean;
+  /** True while the question card is hidden but `pendingQuestion` is set —
+   *  the composer free-text intercept still routes to `submitQuestionResponse`. */
+  isQuestionCardDismissed: boolean;
+  /** Tool-call id paired with the currently-rendered inline confirmation,
+   *  or `null` when no inline confirmation is active. */
+  inlineConfirmationToolCallId: string | null;
+}
+
 /** Result of {@link ChatDebugApi.thinkingIndicator}. */
 export interface ChatDebugThinkingIndicator {
   /** Live evaluation of {@link shouldShowThinkingIndicator}. */
@@ -238,6 +274,21 @@ export interface ChatDebugApi {
    * assistant/conversation context. Subject to change.
    */
   serverMessages(): Promise<RuntimeMessage[]>;
+  /**
+   * Return the frontend-tracked pending interactions — the user prompts
+   * currently rendered (or recently dismissed) by the chat UI, plus their
+   * submission flags. Reads the `interactions` domain's Zustand store
+   * via a getter ref supplied at the composition root, so the chat
+   * domain never imports the interactions store directly.
+   *
+   * Use this to triage "ask-question card stuck" / "confirmation didn't
+   * resolve" reports (the bug class that triggered ATL-652): the snapshot
+   * tells you what the UI thinks is pending, independent of what the
+   * server's pending-interactions endpoint says.
+   *
+   * Synchronous and side-effect-free.
+   */
+  listPendingInteractions(): PendingInteractionsSnapshot;
   /** Print help for this API. Log-only, returns undefined. */
   help(): void;
 }
@@ -289,6 +340,18 @@ export interface ChatDebugRefs {
    * sees fresh values on every call without re-installing.
    */
   getUIContext: () => UIContext;
+  /**
+   * Reads a snapshot of the `interactions` domain's pending-prompt state
+   * (secret, confirmation, contact-request, question) plus their
+   * submission flags. Held as a getter so the chat domain doesn't have
+   * to import the interactions store directly — the composition root
+   * (chat-page.tsx) supplies the implementation, which is allowed to
+   * cross domains per the existing cross-domain allowlist entry.
+   *
+   * Called lazily on every `listPendingInteractions()` invocation so
+   * DevTools always sees a fresh snapshot.
+   */
+  getPendingInteractionsSnapshot: () => PendingInteractionsSnapshot;
   reconcileActiveConversation: () => Promise<ReconcileActiveConversationResult>;
   /**
    * Optional injector for the `/v1/history` fetch. Defaults to
@@ -559,6 +622,10 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     return await historyFetcher(assistantId, conversationKey);
   }
 
+  function listPendingInteractions(): PendingInteractionsSnapshot {
+    return refs.getPendingInteractionsSnapshot();
+  }
+
   function help(): void {
     const lines = [
       "window._vellumDebug.chat — surgical chat debug API",
@@ -570,6 +637,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
       "  .serverMessages()          [experimental] fetch /v1/history and return server message list",
       "                              (diff against tail() manually in the console)",
+      "  .listPendingInteractions() frontend-tracked pending prompts (secret/confirmation/",
+      "                              contact-request/question) and submission flags",
       "  .help()                    print this message",
     ];
     console.log(lines.join("\n"));
@@ -580,6 +649,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     thinkingIndicator,
     forceReconcile,
     serverMessages,
+    listPendingInteractions,
     help,
   };
 }
@@ -648,6 +718,8 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
       getAssistantId: () => latestRefs.current.getAssistantId(),
       getTurnState: () => latestRefs.current.getTurnState(),
       getUIContext: () => latestRefs.current.getUIContext(),
+      getPendingInteractionsSnapshot: () =>
+        latestRefs.current.getPendingInteractionsSnapshot(),
       reconcileActiveConversation: () =>
         latestRefs.current.reconcileActiveConversation(),
       historyFetcher: refs.historyFetcher,
