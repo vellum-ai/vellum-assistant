@@ -1273,21 +1273,17 @@ const SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT = "New Assistant Thread";
 
 function isSlackAssistantThreadPlaceholder(
   message: RenderableSlackMessage,
+  canonicalConfiguredBotUserId: string | null,
 ): boolean {
+  if (!canonicalConfiguredBotUserId) return false;
   const metadata = message.metadata;
   if (!metadata || metadata.eventKind !== "message") return false;
   const actorExternalUserId = metadata.actorExternalUserId?.trim();
   if (!actorExternalUserId) return false;
 
-  const configuredBotUserId = getConfig().slack.botUserId.trim();
-  if (!configuredBotUserId) return false;
-
   const canonicalActor =
     canonicalizeInboundIdentity("slack", actorExternalUserId) ??
     actorExternalUserId;
-  const canonicalConfiguredBot =
-    canonicalizeInboundIdentity("slack", configuredBotUserId) ??
-    configuredBotUserId;
   const isThreadRoot =
     metadata.threadTs === undefined || metadata.threadTs === metadata.channelTs;
   const hasSlackFiles =
@@ -1295,7 +1291,7 @@ function isSlackAssistantThreadPlaceholder(
 
   return (
     message.role === "user" &&
-    canonicalActor === canonicalConfiguredBot &&
+    canonicalActor === canonicalConfiguredBotUserId &&
     isThreadRoot &&
     !hasSlackFiles &&
     message.content.replace(/\s+/g, " ").trim() ===
@@ -1303,12 +1299,28 @@ function isSlackAssistantThreadPlaceholder(
   );
 }
 
+function getCanonicalConfiguredSlackBotUserId(): string | null {
+  const configuredBotUserId = getConfig().slack.botUserId.trim();
+  if (!configuredBotUserId) return null;
+  return (
+    canonicalizeInboundIdentity("slack", configuredBotUserId) ??
+    configuredBotUserId
+  );
+}
+
 function rowsToRenderableSlackMessages(
   rows: SlackTranscriptInputRow[],
 ): RenderableSlackMessage[] {
+  const canonicalConfiguredBotUserId = getCanonicalConfiguredSlackBotUserId();
   return rows
     .map(rowToRenderable)
-    .filter((message) => !isSlackAssistantThreadPlaceholder(message));
+    .filter(
+      (message) =>
+        !isSlackAssistantThreadPlaceholder(
+          message,
+          canonicalConfiguredBotUserId,
+        ),
+    );
 }
 
 /**
