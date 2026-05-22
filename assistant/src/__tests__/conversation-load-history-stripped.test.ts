@@ -84,7 +84,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversation: () => mockConversation,
   createConversation: () => ({ id: "conv-1" }),
   addMessage: async () => ({ id: "persisted" }),
-  setConversationCleanedAt: () => {},
+  setConversationHistoryStrippedAt: () => {},
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
 }));
@@ -123,19 +123,19 @@ function textBlocks(content: ReadonlyArray<{ type: string; text?: string }>) {
     .map((b) => b.text);
 }
 
-describe("loadFromDb with cleanedAt", () => {
+describe("loadFromDb with historyStrippedAt", () => {
   beforeEach(() => {
     mockDbMessages = [];
     mockConversation = null;
   });
 
-  test("strips injection prefixes from pre-clean user content", async () => {
-    const cleanedAt = 1000;
+  test("strips injection prefixes from pre-strip user content", async () => {
+    const historyStrippedAt = 1000;
     mockConversation = {
       id: "conv-1",
       contextSummary: null,
       contextCompactedMessageCount: 0,
-      cleanedAt,
+      historyStrippedAt,
       totalInputTokens: 0,
       totalOutputTokens: 0,
       totalEstimatedCost: 0,
@@ -186,13 +186,13 @@ describe("loadFromDb with cleanedAt", () => {
     ]);
   });
 
-  test("skips metadata rehydration for pre-clean messages", async () => {
-    const cleanedAt = 1000;
+  test("skips metadata rehydration for pre-strip messages", async () => {
+    const historyStrippedAt = 1000;
     mockConversation = {
       id: "conv-1",
       contextSummary: null,
       contextCompactedMessageCount: 0,
-      cleanedAt,
+      historyStrippedAt,
       totalInputTokens: 0,
       totalOutputTokens: 0,
       totalEstimatedCost: 0,
@@ -201,7 +201,7 @@ describe("loadFromDb with cleanedAt", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Pre-clean turn" }]),
+        content: JSON.stringify([{ type: "text", text: "Pre-strip turn" }]),
         createdAt: 500,
         metadata: JSON.stringify({
           pkbContextBlock: "<knowledge_base>stale</knowledge_base>",
@@ -217,7 +217,7 @@ describe("loadFromDb with cleanedAt", () => {
         id: "m3",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Mid post-clean turn" },
+          { type: "text", text: "Mid post-strip turn" },
         ]),
         createdAt: 1500,
         metadata: JSON.stringify({
@@ -236,18 +236,18 @@ describe("loadFromDb with cleanedAt", () => {
     await conversation.loadFromDb();
     const messages = conversation.getMessages();
 
-    expect(textBlocks(messages[0].content)).toEqual(["Pre-clean turn"]);
+    expect(textBlocks(messages[0].content)).toEqual(["Pre-strip turn"]);
     expect(textBlocks(messages[2].content).join("\n")).toContain(
       "<knowledge_base>kept</knowledge_base>",
     );
   });
 
-  test("leaves messages untouched when cleanedAt is null", async () => {
+  test("leaves messages untouched when historyStrippedAt is null", async () => {
     mockConversation = {
       id: "conv-1",
       contextSummary: null,
       contextCompactedMessageCount: 0,
-      cleanedAt: null,
+      historyStrippedAt: null,
       totalInputTokens: 0,
       totalOutputTokens: 0,
       totalEstimatedCost: 0,
