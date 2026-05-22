@@ -32,7 +32,6 @@ import {
   type SyncChangedEvent,
 } from "@/lib/sync/types.js";
 import { useEventBusStore } from "@/stores/event-bus-store.js";
-import { hasDraftSendInFlight } from "@/lib/draft-send-gate.js";
 
 const CONVERSATION_LIST_DEBOUNCE_MS = 250;
 
@@ -53,11 +52,9 @@ export function useAssistantSyncStream(
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleConversationListRefetch = () => {
-      if (hasDraftSendInFlight()) return;
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         debounceTimer = null;
-        if (hasDraftSendInFlight()) return;
         void queryClient.invalidateQueries({
           queryKey: chatContextQueryKey(assistantId),
         });

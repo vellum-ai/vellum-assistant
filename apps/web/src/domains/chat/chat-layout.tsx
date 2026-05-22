@@ -27,7 +27,6 @@ import {
   useConversationGroupsQuery,
   useConversationListQuery,
 } from "@/domains/conversations/conversation-queries.js";
-import { hasDraftSendInFlight } from "@/lib/draft-send-gate.js";
 import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking.js";
 import { useConversationActions } from "@/domains/conversations/use-conversation-actions.js";
 import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions.js";
@@ -441,7 +440,6 @@ export function ChatLayout() {
 
   const refreshConversations = useCallback(async () => {
     if (!lifecycle.assistantId) return;
-    if (hasDraftSendInFlight()) return;
     try {
       await queryClient.invalidateQueries({
         queryKey: chatContextQueryKey(lifecycle.assistantId),

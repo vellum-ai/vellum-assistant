@@ -41,7 +41,6 @@ import {
   removeConversation,
   resolveDraftKey,
 } from "@/domains/conversations/conversation-queries.js";
-import { markDraftSendEnd, markDraftSendStart } from "@/lib/draft-send-gate.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 import {
   consumePendingPreChatContext,
@@ -545,7 +544,6 @@ export function useSendMessage({
       needsNewBubbleRef.current = true;
 
       const isDraft = !currentConv;
-      if (isDraft) markDraftSendStart();
       let resolvedId: string | undefined;
 
       try {
@@ -574,10 +572,8 @@ export function useSendMessage({
           }
         }
 
-        if (isDraft) markDraftSendEnd();
         void refreshConversations();
       } catch (err) {
-        if (isDraft) markDraftSendEnd();
         Sentry.captureException(err, {
           tags: { context: "send_chat_message" },
         });

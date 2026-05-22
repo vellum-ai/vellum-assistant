@@ -42,7 +42,6 @@ import {
   conversationGroupsQueryKey,
   useChatContextQuery,
 } from "@/domains/conversations/conversation-queries.js";
-import { hasDraftSendInFlight } from "@/lib/draft-send-gate.js";
 
 // ---------------------------------------------------------------------------
 // Module constants
@@ -191,7 +190,6 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const refreshConversations = useCallback(async () => {
     if (!assistantId) return;
-    if (hasDraftSendInFlight()) return;
     try {
       await queryClient.invalidateQueries({
         queryKey: chatContextQueryKey(assistantId),
