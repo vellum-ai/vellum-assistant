@@ -584,6 +584,7 @@ struct SettingsPanel: View {
             // ANTHROPIC / INFERENCE
             InferenceServiceCard(
                 store: store,
+                assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: showToast
             )
 

@@ -85,6 +85,27 @@ final class MockProviderConnectionClient: ProviderConnectionClientProtocol {
         deleteNameArg = name
         return deleteResponse
     }
+
+    // MARK: Spy: ChatGPT subscription auth
+    var startChatgptAuthCallCount = 0
+    var startChatgptAuthResponse: ChatgptAuthStartResult? = nil
+
+    func startChatgptSubscriptionAuth() async -> ChatgptAuthStartResult? {
+        startChatgptAuthCallCount += 1
+        return startChatgptAuthResponse
+    }
+
+    var exchangeChatgptCallCount = 0
+    var exchangeChatgptCodeArg: String?
+    var exchangeChatgptStateArg: String?
+    var exchangeChatgptResponse: Bool = false
+
+    func exchangeChatgptAuthCode(code: String, state: String) async -> Bool {
+        exchangeChatgptCallCount += 1
+        exchangeChatgptCodeArg = code
+        exchangeChatgptStateArg = state
+        return exchangeChatgptResponse
+    }
 }
 
 // MARK: - Fixtures
