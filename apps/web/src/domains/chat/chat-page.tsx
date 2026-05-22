@@ -1560,6 +1560,13 @@ export function ChatPage() {
               onClose={() => {
                 useViewerStore.getState().closeDocument();
               }}
+              onSubmitFeedback={() => {
+                const docState = useViewerStore.getState().openedDocumentState;
+                if (!docState) return;
+                void sendMessage(
+                  `Please review and address my comments on "${docState.documentName}".`,
+                );
+              }}
             />
             <MobileSubagentDetailOverlay
               entry={

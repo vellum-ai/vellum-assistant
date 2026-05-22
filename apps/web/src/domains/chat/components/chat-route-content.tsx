@@ -1427,6 +1427,11 @@ export function ChatRouteContent({
             assistantId={assistantId}
             surfaceId={openedDocumentState.surfaceId}
             conversationId={openedDocumentState.conversationId}
+            onSubmitFeedback={() => {
+              void sendMessage(
+                `Please review and address my comments on "${openedDocumentState.documentName}".`,
+              );
+            }}
           />
         }
       />
