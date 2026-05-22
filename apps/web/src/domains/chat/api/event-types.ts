@@ -93,7 +93,7 @@ export interface AssistantTextDeltaEvent {
   type: "assistant_text_delta";
   text: string;
   messageId?: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 /** An attachment emitted by the assistant alongside a completed message. */
@@ -114,7 +114,7 @@ export interface MessageCompleteEvent {
   messageId?: string;
   displayMessageId?: string;
   content?: string;
-  conversationKey?: string;
+  conversationId?: string;
   attachments?: AssistantOutboundAttachment[];
 }
 
@@ -122,7 +122,7 @@ export interface GenerationHandoffEvent {
   type: "generation_handoff";
   messageId?: string;
   displayMessageId?: string;
-  conversationKey?: string;
+  conversationId?: string;
   attachments?: AssistantOutboundAttachment[];
 }
 
@@ -131,7 +131,7 @@ export interface StreamErrorEvent {
   code?: string;
   errorCategory?: string;
   message: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface SecretRequestEvent {
@@ -146,7 +146,7 @@ export interface SecretRequestEvent {
   allowedTools?: string[];
   allowedDomains?: string[];
   purpose?: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 /** Valid decisions accepted by the assistant runtime's POST /v1/confirm endpoint. */
@@ -187,7 +187,7 @@ export interface ConfirmationRequestEvent {
   description?: string;
   confirmLabel?: string;
   denyLabel?: string;
-  conversationKey?: string;
+  conversationId?: string;
   toolName?: string;
   executionTarget?: string;
   riskLevel?: string;
@@ -210,7 +210,7 @@ export interface ContactRequestEvent {
   description?: string;
   /** Suggested role for the new contact. */
   role?: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface QuestionOption {
@@ -237,7 +237,7 @@ export interface QuestionRequestEvent {
   description?: string;
   options?: QuestionOption[];
   freeTextPlaceholder?: string;
-  conversationKey?: string;
+  conversationId?: string;
   toolUseId?: string;
 }
 
@@ -293,20 +293,20 @@ export interface UISurfaceShowEvent {
   actions?: Array<{ id: string; label: string; style?: string; data?: Record<string, unknown> }>;
   display?: "inline" | "panel";
   messageId?: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface UISurfaceUpdateEvent {
   type: "ui_surface_update";
   surfaceId: string;
   data: Record<string, unknown>;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface UISurfaceDismissEvent {
   type: "ui_surface_dismiss";
   surfaceId: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface UISurfaceCompleteEvent {
@@ -314,7 +314,7 @@ export interface UISurfaceCompleteEvent {
   surfaceId: string;
   summary: string;
   submittedData?: Record<string, unknown>;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface ToolUseStartEvent {
@@ -322,7 +322,7 @@ export interface ToolUseStartEvent {
   toolName: string;
   input: Record<string, unknown>;
   toolUseId?: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface ToolResultEvent {
@@ -331,7 +331,7 @@ export interface ToolResultEvent {
   result: string;
   isError?: boolean;
   toolUseId?: string;
-  conversationKey?: string;
+  conversationId?: string;
   riskLevel?: string;
   riskReason?: string;
   matchedTrustRuleId?: string;
@@ -359,9 +359,8 @@ export interface ToolProgressEvent {
   toolName: string;
   elapsedSec: number;
   timeoutSec: number;
-  conversationId?: string;
   toolUseId?: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 /**
@@ -378,12 +377,12 @@ export interface UsageUpdateEvent {
   cacheCreationInputTokens?: number;
   contextWindowTokens?: number;
   contextWindowMaxTokens?: number;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface GenerationCancelledEvent {
   type: "generation_cancelled";
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 /**
@@ -432,33 +431,33 @@ export interface AssistantActivityStateEvent {
   reason: AssistantActivityReason;
   requestId?: string;
   statusText?: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface OpenUrlEvent {
   type: "open_url";
   url: string;
   title?: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface NavigateSettingsEvent {
   type: "navigate_settings";
   tab: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface HomeFeedUpdatedEvent {
   type: "home_feed_updated";
   updatedAt: string;
   newItemCount: number;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface RelationshipStateUpdatedEvent {
   type: "relationship_state_updated";
   updatedAt: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -474,7 +473,7 @@ export interface SubagentSpawnedEvent {
   label: string;
   objective: string;
   isFork?: boolean;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface SubagentStatusChangedEvent {
@@ -485,7 +484,7 @@ export interface SubagentStatusChangedEvent {
   inputTokens?: number;
   outputTokens?: number;
   totalCost?: number;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface SubagentInnerEvent {
@@ -504,14 +503,13 @@ export interface SubagentInnerEvent {
 export interface SubagentEventWrapperEvent {
   type: "subagent_event";
   subagentId: string;
-  conversationId?: string;
   event: SubagentInnerEvent;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 // ---------------------------------------------------------------------------
 // Document comment event types — extend the canonical shapes from PR 9
-// with the standard `conversationKey` field for SSE stream routing.
+// with the standard `conversationId` field for SSE stream routing.
 // ---------------------------------------------------------------------------
 
 import type {
@@ -521,39 +519,27 @@ import type {
   DocumentCommentResolvedEvent,
 } from "@/domains/chat/api/document-comment-events.js";
 
-export interface DocumentCommentCreatedSseEvent
-  extends DocumentCommentCreatedEvent {
-  conversationKey?: string;
-}
+export type DocumentCommentCreatedSseEvent = DocumentCommentCreatedEvent;
 
-export interface DocumentCommentResolvedSseEvent
-  extends DocumentCommentResolvedEvent {
-  conversationKey?: string;
-}
+export type DocumentCommentResolvedSseEvent = DocumentCommentResolvedEvent;
 
-export interface DocumentCommentReopenedSseEvent
-  extends DocumentCommentReopenedEvent {
-  conversationKey?: string;
-}
+export type DocumentCommentReopenedSseEvent = DocumentCommentReopenedEvent;
 
-export interface DocumentCommentDeletedSseEvent
-  extends DocumentCommentDeletedEvent {
-  conversationKey?: string;
-}
+export type DocumentCommentDeletedSseEvent = DocumentCommentDeletedEvent;
 
 export interface DocumentEditorUpdateEvent {
   type: "document_editor_update";
   surfaceId: string;
   markdown: string;
   mode: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface UnknownEvent {
   type: "unknown";
   rawType: string;
   data: Record<string, unknown>;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 /**
@@ -571,12 +557,12 @@ export type ConversationListInvalidatedReason =
  * Server push notifying clients that their sidebar conversation list is
  * stale and should be refetched (e.g. after a create/rename/delete/reorder
  * from another client). Global to the assistant — not scoped to a single
- * conversationKey.
+ * conversationId.
  */
 export interface ConversationListInvalidatedEvent {
   type: "conversation_list_invalidated";
   reason: ConversationListInvalidatedReason;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 /**
@@ -590,7 +576,6 @@ export interface ConversationTitleUpdatedEvent {
   type: "conversation_title_updated";
   conversationId: string;
   title: string;
-  conversationKey?: string;
 }
 
 /**
@@ -614,19 +599,19 @@ export interface NotificationIntentEvent {
   body: string;
   deepLinkMetadata?: Record<string, unknown>;
   targetGuardianPrincipalId?: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 /** Cache-invalidation signal: refetch identity from the canonical endpoint. */
 export interface IdentityChangedEvent {
   type: "identity_changed";
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 /** Broadcast by the daemon when avatar files change on disk. */
 export interface AvatarUpdatedEvent {
   type: "avatar_updated";
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface ConversationErrorEvent {
@@ -637,7 +622,6 @@ export interface ConversationErrorEvent {
   retryable: boolean;
   debugDetails?: string;
   errorCategory?: string;
-  conversationKey?: string;
 }
 
 export interface CompactionCircuitOpenEvent {
@@ -645,49 +629,47 @@ export interface CompactionCircuitOpenEvent {
   conversationId: string;
   reason: string;
   openUntil: number;
-  conversationKey?: string;
 }
 
 export interface CompactionCircuitClosedEvent {
   type: "compaction_circuit_closed";
   conversationId: string;
-  conversationKey?: string;
 }
 
 export interface DiskPressureStatusChangedEvent {
   type: "disk_pressure_status_changed";
   status: DiskPressureStatus | null;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface MessageQueuedEvent {
   type: "message_queued";
   requestId: string;
   position: number;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface MessageDequeuedEvent {
   type: "message_dequeued";
   requestId: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface MessageQueuedDeletedEvent {
   type: "message_queued_deleted";
   requestId: string;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface MessageRequestCompleteEvent {
   type: "message_request_complete";
   requestId: string;
   runStillActive?: boolean;
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 export interface AssistantSyncChangedEvent extends SyncChangedEvent {
-  conversationKey?: string;
+  conversationId?: string;
 }
 
 /**
@@ -751,8 +733,8 @@ export const USER_FACING_INTERACTION_KINDS: ReadonlySet<string> =
 export interface InteractionResolvedEvent {
   type: "interaction_resolved";
   requestId: string;
-  /** Conversation key the resolved interaction was registered against. */
-  conversationKey: string;
+  /** Conversation id the resolved interaction was registered against. */
+  conversationId: string;
   state: InteractionResolutionState;
   /** Kind of the resolved interaction (e.g. `"confirmation"`, `"secret"`). */
   kind: InteractionKind;
