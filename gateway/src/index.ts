@@ -2214,11 +2214,16 @@ async function main() {
     assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
   });
 
-  const featureFlagWatcher = new FeatureFlagWatcher();
+  const emitFlagChanged = () => ipcServer.emit("feature_flags_changed");
+
+  const featureFlagWatcher = new FeatureFlagWatcher({
+    onChanged: emitFlagChanged,
+  });
   featureFlagWatcher.start();
 
   const remoteFeatureFlagSync = new RemoteFeatureFlagSync({
     credentials: credentialCache,
+    onChanged: emitFlagChanged,
   });
   // Intentionally fire-and-forget: remote flag fetch is best-effort;
   // the gateway continues with registry defaults if it fails.

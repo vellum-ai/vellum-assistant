@@ -25,6 +25,10 @@ const log = getLogger("feature-flag-watcher");
 
 const DEBOUNCE_MS = 500;
 
+export interface FeatureFlagWatcherOptions {
+  onChanged?: () => void;
+}
+
 export class FeatureFlagWatcher {
   private watcher: FSWatcher | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -32,10 +36,12 @@ export class FeatureFlagWatcher {
   private remoteFlagFilename: string;
   /** Accumulates which files changed during the debounce window. */
   private pendingFilenames = new Set<string>();
+  private onChanged?: () => void;
 
-  constructor() {
+  constructor(options?: FeatureFlagWatcherOptions) {
     this.localFlagFilename = basename(getFeatureFlagStorePath());
     this.remoteFlagFilename = basename(getRemoteFeatureFlagStorePath());
+    this.onChanged = options?.onChanged;
   }
 
   start(): void {
@@ -106,6 +112,7 @@ export class FeatureFlagWatcher {
         { filenames: [...filenames] },
         "Feature flag cache invalidated due to file change",
       );
+      this.onChanged?.();
     }, DEBOUNCE_MS);
   }
 }

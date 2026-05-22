@@ -498,6 +498,75 @@ describe("RemoteFeatureFlagSync", () => {
     expect(cached["unknown-flag"]).toBe(false);
   });
 
+  test("calls onChanged when remote flags change", async () => {
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: { "new-flag": true },
+      }),
+    );
+
+    const onChanged = mock(() => {});
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+      onChanged,
+    });
+    await sync.start();
+    sync.stop();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not call onChanged when remote flags have not changed", async () => {
+    // First sync to seed the file
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: { "stable-flag": true },
+      }),
+    );
+
+    const onChanged1 = mock(() => {});
+    const sync1 = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+      onChanged: onChanged1,
+    });
+    await sync1.start();
+    sync1.stop();
+    expect(onChanged1).toHaveBeenCalledTimes(1);
+
+    // Second sync with same data — onChanged should NOT fire
+    fetchMock = mock(async () =>
+      Response.json({
+        flags: { "stable-flag": true },
+      }),
+    );
+
+    const onChanged2 = mock(() => {});
+    const sync2 = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+      onChanged: onChanged2,
+    });
+    await sync2.start();
+    sync2.stop();
+    expect(onChanged2).not.toHaveBeenCalled();
+  });
+
+  test("does not call onChanged on fetch failure", async () => {
+    fetchMock = mock(
+      async () => new Response("Internal Server Error", { status: 500 }),
+    );
+
+    const onChanged = mock(() => {});
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+      onChanged,
+    });
+    await sync.start();
+    sync.stop();
+
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
   test("trims whitespace from credential values", async () => {
     fetchMock = mock(async () => Response.json({ flags: {} }));
 
