@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Modal } from "@vellum/design-library/components/modal";
 import type { MachineTierEnum } from "@/generated/api/types.gen.js";
 import {
+  assistantsActiveRetrieveOptions,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
@@ -76,6 +77,11 @@ export function BillingOnboardingModal({
   const onboardingQuery = useQuery({
     ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
     enabled: open && step !== "confirm-pro",
+  });
+
+  useQuery({
+    ...assistantsActiveRetrieveOptions(),
+    enabled: open,
   });
 
   const domainSetupAvailable = onboardingQuery.data?.domain_setup_available;
