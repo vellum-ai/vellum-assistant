@@ -325,10 +325,6 @@ final class AvatarAppearanceManager {
     func saveAvatar(_ image: NSImage, bodyShape: AvatarBodyShape? = nil, eyeStyle: AvatarEyeStyle? = nil, color: AvatarColor? = nil, skipWorkspaceSync: Bool = false) {
         let isCharacter = bodyShape != nil
 
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
-
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
@@ -350,24 +346,34 @@ final class AvatarAppearanceManager {
         }
         updateDockIcon()
 
-        // Update the local client-side cache so the next cold launch can
-        // hydrate the dock icon before the daemon is ready.
+        // Character traits are small JSON — persist synchronously.
         if isCharacter, let body = bodyShape, let eyes = eyeStyle, let color = color {
             AvatarCache.saveTraits(bodyShape: body, eyeStyle: eyes, color: color)
             AvatarCache.clearImage()
-        } else {
-            AvatarCache.saveImage(pngData)
-            AvatarCache.clearTraits()
         }
 
-        guard !skipWorkspaceSync else { return }
+        // PNG encoding (tiffRepresentation → NSBitmapImageRep → .png) is
+        // CPU-bound. Run off-main so it doesn't block the UI while the
+        // image is persisted to the local cache and the workspace.
+        let syncToWorkspace = !skipWorkspaceSync
+        Task.detached(priority: .utility) { [weak self] in
+            guard let tiffData = image.tiffRepresentation,
+                  let bitmap = NSBitmapImageRep(data: tiffData),
+                  let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
 
-        // Persist to the assistant's workspace via the gateway.
-        Task {
+            if !isCharacter {
+                AvatarCache.saveImage(pngData)
+                AvatarCache.clearTraits()
+            }
+
+            guard syncToWorkspace else { return }
+
             let workspaceClient = WorkspaceClient()
             _ = await workspaceClient.createWorkspaceDirectory(path: "data/avatar")
             _ = await workspaceClient.writeWorkspaceFile(path: "data/avatar/avatar-image.png", content: pngData)
-            saveAvatarComponentsViaGateway()
+            await MainActor.run { [weak self] in
+                self?.saveAvatarComponentsViaGateway()
+            }
         }
     }
 
@@ -602,10 +608,15 @@ final class AvatarAppearanceManager {
     /// Reference: https://developer.apple.com/documentation/appkit/nsapplication/applicationiconimage
     func restoreBundleIcon() {
         dockIconGeneration += 1
+        let generation = dockIconGeneration
         NSApplication.shared.applicationIconImage = Self.bundledAppIcon
         NSApp.dockTile.display()
         let bundlePath = Bundle.main.bundlePath
-        Task.detached(priority: .utility) {
+        Task.detached(priority: .utility) { [weak self] in
+            let isCurrent = await MainActor.run { [weak self] in
+                self?.dockIconGeneration == generation
+            }
+            guard isCurrent else { return }
             NSWorkspace.shared.setIcon(nil, forFile: bundlePath, options: [])
         }
     }
