@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
-import { maskSecretForDisplay } from "@/domains/settings/ai/secret-mask.js";
+import {
+  SAVED_SECRET_PLACEHOLDER,
+  secretPlaceholder,
+} from "@/domains/settings/ai/secret-placeholder.js";
 
-describe("AI settings secret masking", () => {
-  test("matches the masked key format shown after saving a web search API key", () => {
-    expect(maskSecretForDisplay("BSA-test-key-1234567890")).toBe(
-      "BSA-test-k...7890",
-    );
+describe("AI settings secret placeholders", () => {
+  test("uses a password-style placeholder when a key is already saved", () => {
+    expect(secretPlaceholder("pplx-...", true)).toBe(SAVED_SECRET_PLACEHOLDER);
+  });
+
+  test("uses the provider hint when no key is saved", () => {
+    expect(secretPlaceholder("pplx-...", false)).toBe("pplx-...");
   });
 });

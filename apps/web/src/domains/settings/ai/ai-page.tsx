@@ -64,7 +64,7 @@ import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal.js";
 import { profilePickerLabel, visibleProfilesForPicker } from "@/domains/settings/ai/profile-pickers.js";
 import { readSecret } from "@/domains/settings/ai/provider-connections-client.js";
-import { maskSecretForDisplay } from "@/domains/settings/ai/secret-mask.js";
+import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder.js";
 
 // ---------------------------------------------------------------------------
 // Constants (mirrored from desktop SettingsStore)
@@ -471,11 +471,12 @@ function SaveButton({ onClick, disabled }: SaveButtonProps) {
 
 interface ResetButtonProps {
   onClick: () => void;
+  filled?: boolean;
 }
 
-function ResetButton({ onClick }: ResetButtonProps) {
+function ResetButton({ onClick, filled = false }: ResetButtonProps) {
   return (
-    <Button variant="dangerGhost" onClick={onClick}>
+    <Button variant={filled ? "danger" : "dangerGhost"} onClick={onClick}>
       Reset
     </Button>
   );
@@ -1451,11 +1452,11 @@ export function AiPage() {
   const [webSearchProvider, setWebSearchProvider] = useState(() =>
     getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
   );
+  const [savedWebSearchMode, setSavedWebSearchMode] = useState(webSearchMode);
+  const [savedWebSearchProvider, setSavedWebSearchProvider] =
+    useState(webSearchProvider);
   const [webSearchApiKey, setWebSearchApiKey] = useState("");
-  const [webSearchStoredKeyMasked, setWebSearchStoredKeyMasked] = useState<
-    string | null
-  >(null);
-  const [webSearchStoredKeyLoading, setWebSearchStoredKeyLoading] = useState(false);
+  const [webSearchHasStoredKey, setWebSearchHasStoredKey] = useState(false);
   const [webSearchSecretReadRevision, setWebSearchSecretReadRevision] = useState(0);
   const webSearchSecretScopeRef = useRef<{
     assistantId: string | null;
@@ -1474,14 +1475,23 @@ export function AiPage() {
   // -- Derived --
   const webSearchNeedsApiKey =
     WEB_SEARCH_BYOK_PROVIDER_IDS.has(webSearchProvider);
-  const webSearchApiKeyHelperText =
-    webSearchApiKey.trim().length > 0
-      ? "Saving will replace the stored key."
-      : webSearchStoredKeyMasked
-        ? `Saved key: ${webSearchStoredKeyMasked}`
-        : webSearchStoredKeyLoading
-          ? "Checking for a saved key..."
-          : undefined;
+  const webSearchHasNewApiKey = webSearchApiKey.trim().length > 0;
+  const webSearchConfigChanged =
+    webSearchMode !== savedWebSearchMode ||
+    webSearchProvider !== savedWebSearchProvider;
+  const webSearchNeedsKeyBeforeSave =
+    webSearchMode === "your-own" &&
+    webSearchNeedsApiKey &&
+    !webSearchHasStoredKey &&
+    !webSearchHasNewApiKey;
+  const webSearchSaveDisabled =
+    webSearchSaving ||
+    webSearchNeedsKeyBeforeSave ||
+    (!webSearchConfigChanged && !webSearchHasNewApiKey);
+  const webSearchApiKeyPlaceholder = secretPlaceholder(
+    WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS[webSearchProvider] ?? "Enter your API key",
+    webSearchHasStoredKey,
+  );
   const orderedProfiles = useMemo(() => {
     const ordered = profileOrder
       .filter((name) => name in profiles)
@@ -1523,8 +1533,14 @@ export function AiPage() {
     }
     if (reconciled.profiles) setProfiles(reconciled.profiles);
     if (reconciled.profileOrder !== undefined) setProfileOrder(reconciled.profileOrder);
-    if (reconciled.webSearchMode) setWebSearchMode(reconciled.webSearchMode);
-    if (reconciled.webSearchProvider) setWebSearchProvider(reconciled.webSearchProvider);
+    if (reconciled.webSearchMode) {
+      setWebSearchMode(reconciled.webSearchMode);
+      setSavedWebSearchMode(reconciled.webSearchMode);
+    }
+    if (reconciled.webSearchProvider) {
+      setWebSearchProvider(reconciled.webSearchProvider);
+      setSavedWebSearchProvider(reconciled.webSearchProvider);
+    }
     if (reconciled.imageGenMode) setImageGenMode(reconciled.imageGenMode);
   }, [daemonConfig]);
 
@@ -1545,26 +1561,22 @@ export function AiPage() {
       if (cancelled) return;
 
       if (!assistantId || !webSearchNeedsApiKey) {
-        setWebSearchStoredKeyMasked(null);
-        setWebSearchStoredKeyLoading(false);
+        setWebSearchHasStoredKey(false);
         return;
       }
 
-      setWebSearchStoredKeyLoading(true);
       if (secretScopeChanged) {
-        setWebSearchStoredKeyMasked(null);
+        setWebSearchHasStoredKey(false);
       }
 
       try {
         const result = await readSecret(assistantId, "api_key", webSearchProvider);
         if (cancelled) return;
-        setWebSearchStoredKeyMasked(result.found ? result.masked : null);
+        setWebSearchHasStoredKey(result.found);
       } catch (error) {
         if (cancelled) return;
-        setWebSearchStoredKeyMasked(null);
+        setWebSearchHasStoredKey(false);
         reportError(error, { context: "settings-ai-web-search-read-secret" });
-      } finally {
-        if (!cancelled) setWebSearchStoredKeyLoading(false);
       }
     })();
 
@@ -1682,11 +1694,13 @@ export function AiPage() {
       // Persist local settings only after remote save succeeds.
       setLocalSetting(LS_WEB_SEARCH_MODE, webSearchMode);
       setLocalSetting(LS_WEB_SEARCH_PROVIDER, webSearchProvider);
+      setSavedWebSearchMode(webSearchMode);
+      setSavedWebSearchProvider(webSearchProvider);
       if (hasUserKey) {
         if (storageKey) {
           setLocalSetting(storageKey, trimmed);
         }
-        setWebSearchStoredKeyMasked(maskSecretForDisplay(trimmed));
+        setWebSearchHasStoredKey(true);
         setWebSearchSecretReadRevision((revision) => revision + 1);
         setWebSearchApiKey("");
       }
@@ -1706,7 +1720,7 @@ export function AiPage() {
     if (storageKey) {
       removeLocalSetting(storageKey);
     }
-    setWebSearchStoredKeyMasked(null);
+    setWebSearchHasStoredKey(false);
     setWebSearchApiKey("");
     setWebSearchProvider("inference-provider-native");
     setLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
@@ -1869,7 +1883,7 @@ export function AiPage() {
               Web search is included with managed inference.
             </p>
             <div className="flex items-center gap-2">
-              <SaveButton onClick={handleWebSearchSave} disabled={webSearchSaving} />
+              <SaveButton onClick={handleWebSearchSave} disabled={webSearchSaveDisabled} />
               {webSearchSaving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
             </div>
           </div>
@@ -1895,17 +1909,16 @@ export function AiPage() {
                 type="password"
                 value={webSearchApiKey}
                 onChange={(e) => setWebSearchApiKey(e.target.value)}
-                placeholder={WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS[webSearchProvider] ?? "Enter your API key"}
-                helperText={webSearchApiKeyHelperText}
+                placeholder={webSearchApiKeyPlaceholder}
                 fullWidth
               />
             )}
 
             <div className="flex items-center gap-2">
-              <SaveButton onClick={handleWebSearchSave} disabled={webSearchSaving} />
+              <SaveButton onClick={handleWebSearchSave} disabled={webSearchSaveDisabled} />
               {webSearchSaving && <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />}
               {webSearchNeedsApiKey && (
-                <ResetButton onClick={handleWebSearchReset} />
+                <ResetButton onClick={handleWebSearchReset} filled />
               )}
             </div>
           </div>
