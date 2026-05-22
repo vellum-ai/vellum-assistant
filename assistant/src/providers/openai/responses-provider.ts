@@ -116,14 +116,18 @@ export class OpenAIResponsesProvider implements Provider {
     this.name = options.providerName ?? "openai";
     this.providerLabel = options.providerLabel ?? "OpenAI";
     this.codexSubscription = options.codexSubscription ?? false;
+    this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
+    // Keep the SDK deadline behind our provider stream timeout so
+    // createStreamTimeout owns the user-facing timeout error.
+    const sdkTimeoutMs = this.streamTimeoutMs + 60_000;
     this.client = new OpenAI({
       apiKey,
       baseURL: this.codexSubscription
         ? "https://chatgpt.com/backend-api/codex"
         : options.baseURL,
+      timeout: sdkTimeoutMs,
     });
     this.model = model;
-    this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
   }
 

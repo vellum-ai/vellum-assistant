@@ -61,6 +61,31 @@ describe("config: hardcoded defaults", () => {
     }
   });
 
+  test("runtimeTimeoutMs is configurable via env var", () => {
+    const saved = process.env.RUNTIME_TIMEOUT_MS;
+    process.env.RUNTIME_TIMEOUT_MS = "300000";
+    try {
+      const config = loadConfig();
+      expect(config.runtimeTimeoutMs).toBe(300000);
+    } finally {
+      if (saved !== undefined) process.env.RUNTIME_TIMEOUT_MS = saved;
+      else delete process.env.RUNTIME_TIMEOUT_MS;
+    }
+  });
+
+  test("runtimeTimeoutMs rejects invalid env var", () => {
+    const saved = process.env.RUNTIME_TIMEOUT_MS;
+    process.env.RUNTIME_TIMEOUT_MS = "0";
+    try {
+      expect(() => loadConfig()).toThrow(
+        "RUNTIME_TIMEOUT_MS must be a positive integer",
+      );
+    } finally {
+      if (saved !== undefined) process.env.RUNTIME_TIMEOUT_MS = saved;
+      else delete process.env.RUNTIME_TIMEOUT_MS;
+    }
+  });
+
   test("gatewayInternalBaseUrl derives from port", () => {
     const saved = process.env.GATEWAY_PORT;
     process.env.GATEWAY_PORT = "8080";

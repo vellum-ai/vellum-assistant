@@ -77,6 +77,18 @@ function parseRoutingEntries(raw: unknown): RoutingEntry[] {
   return entries;
 }
 
+function parsePositiveInteger(
+  value: unknown,
+  name: string,
+): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return parsed;
+}
+
 export function loadConfig(): GatewayConfig {
   const portRaw = process.env.GATEWAY_PORT || "7830";
   const port = Number(portRaw);
@@ -119,6 +131,13 @@ export function loadConfig(): GatewayConfig {
     (typeof gw.defaultAssistantId === "string" && gw.defaultAssistantId
       ? gw.defaultAssistantId
       : undefined);
+  const runtimeTimeoutMs =
+    parsePositiveInteger(
+      process.env.RUNTIME_TIMEOUT_MS,
+      "RUNTIME_TIMEOUT_MS",
+    ) ??
+    parsePositiveInteger(gw.runtimeTimeoutMs, "gateway.runtimeTimeoutMs") ??
+    30000;
   let routingEntries: RoutingEntry[] = [];
   if (process.env.ROUTING_ENTRIES) {
     try {
@@ -147,6 +166,7 @@ export function loadConfig(): GatewayConfig {
       hasVelayBaseUrl: !!velayBaseUrl,
       port,
       runtimeProxyRequireAuth,
+      runtimeTimeoutMs,
       trustProxy: false,
     },
     "Configuration loaded",
@@ -172,7 +192,7 @@ export function loadConfig(): GatewayConfig {
     runtimeInitialBackoffMs: 500,
     runtimeMaxRetries: 2,
     runtimeProxyRequireAuth,
-    runtimeTimeoutMs: 30000,
+    runtimeTimeoutMs,
     shutdownDrainMs: 5000,
     unmappedPolicy,
     trustProxy: false,

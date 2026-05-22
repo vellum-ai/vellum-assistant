@@ -56,6 +56,7 @@ let lastCreateParams: Record<string, unknown> | null = null;
 let lastCreateOptions: Record<string, unknown> | null = null;
 let lastConstructorOptions: Record<string, unknown> | null = null;
 let shouldThrow: Error | null = null;
+const DEFAULT_SDK_TIMEOUT_MS = 1_860_000;
 
 function userMsg(text: string): Message {
   return { role: "user", content: [{ type: "text", text }] };
@@ -307,6 +308,7 @@ describe("OpenAIProvider", () => {
     expect(lastConstructorOptions).toEqual({
       apiKey: "sk-local",
       baseURL: "http://127.0.0.1:11434/v1",
+      timeout: DEFAULT_SDK_TIMEOUT_MS,
     });
   });
 
@@ -319,6 +321,7 @@ describe("OpenAIProvider", () => {
       expect(lastConstructorOptions).toEqual({
         apiKey: "ollama",
         baseURL: "http://127.0.0.1:11434/v1",
+        timeout: DEFAULT_SDK_TIMEOUT_MS,
       });
     } finally {
       if (previousBaseUrl !== undefined) {
@@ -338,6 +341,7 @@ describe("OpenAIProvider", () => {
       expect(lastConstructorOptions).toEqual({
         apiKey: "ollama",
         baseURL: "http://127.0.0.1:11434/v1",
+        timeout: DEFAULT_SDK_TIMEOUT_MS,
       });
     } finally {
       if (previousBaseUrl !== undefined) {
@@ -1280,6 +1284,7 @@ describe("custom baseURL initialization", () => {
     expect(lastConstructorOptions).toEqual({
       apiKey: "ast-key-123",
       baseURL: "https://platform.example.com/v1/runtime-proxy/openai",
+      timeout: DEFAULT_SDK_TIMEOUT_MS,
     });
   });
 
@@ -1289,6 +1294,19 @@ describe("custom baseURL initialization", () => {
     expect(lastConstructorOptions).toEqual({
       apiKey: "sk-user-key",
       baseURL: undefined,
+      timeout: DEFAULT_SDK_TIMEOUT_MS,
+    });
+  });
+
+  test("OpenAIProvider passes configured stream timeout plus buffer to SDK", () => {
+    new OpenAIProvider("sk-user-key", "gpt-4o", {
+      streamTimeoutMs: 300_000,
+    });
+
+    expect(lastConstructorOptions).toEqual({
+      apiKey: "sk-user-key",
+      baseURL: undefined,
+      timeout: 360_000,
     });
   });
 
@@ -1305,6 +1323,7 @@ describe("custom baseURL initialization", () => {
     expect(lastConstructorOptions).toEqual({
       apiKey: "ast-key-123",
       baseURL: "https://platform.example.com/v1/runtime-proxy/fireworks",
+      timeout: DEFAULT_SDK_TIMEOUT_MS,
     });
   });
 
@@ -1317,6 +1336,7 @@ describe("custom baseURL initialization", () => {
     expect(lastConstructorOptions).toEqual({
       apiKey: "fw-user-key",
       baseURL: "https://api.fireworks.ai/inference/v1",
+      timeout: DEFAULT_SDK_TIMEOUT_MS,
     });
   });
 
@@ -1329,6 +1349,7 @@ describe("custom baseURL initialization", () => {
     expect(lastConstructorOptions).toEqual({
       apiKey: "ast-key-123",
       baseURL: "https://platform.example.com/v1/runtime-proxy/openrouter",
+      timeout: DEFAULT_SDK_TIMEOUT_MS,
     });
   });
 
@@ -1338,6 +1359,7 @@ describe("custom baseURL initialization", () => {
     expect(lastConstructorOptions).toEqual({
       apiKey: "or-user-key",
       baseURL: "https://openrouter.ai/api/v1",
+      timeout: DEFAULT_SDK_TIMEOUT_MS,
     });
   });
 });

@@ -155,12 +155,16 @@ export class OpenAIChatCompletionsProvider implements Provider {
   ) {
     this.name = options.providerName ?? "openai";
     this.providerLabel = options.providerLabel ?? "OpenAI";
+    this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
+    // Keep the SDK deadline behind our provider stream timeout so
+    // createStreamTimeout owns the user-facing timeout error.
+    const sdkTimeoutMs = this.streamTimeoutMs + 60_000;
     this.client = new OpenAI({
       apiKey,
       baseURL: options.baseURL,
+      timeout: sdkTimeoutMs,
     });
     this.model = model;
-    this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
     this.extraCreateParams = options.extraCreateParams ?? {};
     this.maxReasoningEffort = options.maxReasoningEffort ?? "xhigh";
     this.requestHeaders = options.requestHeaders ?? {};
