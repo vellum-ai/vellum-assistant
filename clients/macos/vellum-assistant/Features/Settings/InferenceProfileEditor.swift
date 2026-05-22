@@ -60,6 +60,13 @@ struct InferenceProfileEditor: View {
     /// Verbosity mirrors the daemon's `VerbositySetting` schema.
     static let verbosityOptions: [String] = ["low", "medium", "high"]
 
+    /// Model IDs supported by ChatGPT subscription (oauth_subscription)
+    /// connections. When the effective connection uses this auth type, the
+    /// model picker is filtered to this set so the user doesn't select a
+    /// model the subscription can't dispatch. Mirrors the web app's
+    /// `CODEX_SUBSCRIPTION_MODEL_IDS` in `profile-editor-modal.tsx`.
+    static let codexSubscriptionModelIds: Set<String> = ["gpt-5.4", "gpt-5.3-codex"]
+
     /// Temperature seeded when the user toggles the Set switch on. Also used
     /// as the slider's display fallback when the binding's value is nil so
     /// the slider position matches what the toggle-on path will write.
@@ -617,7 +624,16 @@ struct InferenceProfileEditor: View {
 
     private var modelField: some View {
         let provider = profile.provider ?? ""
-        let catalogModels = store.dynamicProviderModels(provider)
+        let catalogModels: [CatalogModel] = {
+            let allModels = store.dynamicProviderModels(provider)
+            // When the effective connection uses ChatGPT subscription auth,
+            // restrict to Codex-supported models. Mirrors the web app's
+            // filter in profile-editor-modal.tsx.
+            if effectiveConnection?.auth.type == "oauth_subscription" {
+                return allModels.filter { Self.codexSubscriptionModelIds.contains($0.id) }
+            }
+            return allModels
+        }()
         let connectionModels: [CatalogModel] = effectiveConnection?.models?.map {
             CatalogModel(id: $0.id, displayName: $0.displayName ?? $0.id)
         } ?? []
