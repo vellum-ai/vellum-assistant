@@ -454,9 +454,19 @@ export async function drainQueue(
   conversation: ProcessConversationContext,
   reason: QueueDrainReason = "loop_complete",
 ): Promise<void> {
+  // After a steer, drain only the promoted head message — don't batch
+  // the remaining queue items into the same turn.
+  const steered = conversation.pendingSteerRepair;
+
   // Repair any pending tool_use blocks left over from a steered abort
   // before the drain path sends the next message to the LLM.
   repairPendingToolUseBlocks(conversation);
+
+  if (steered) {
+    const next = conversation.queue.shift();
+    if (!next) return;
+    return drainSingleMessage(conversation, next, reason);
+  }
 
   const batch = await buildPassthroughBatch(conversation);
   if (batch.length === 0) {
