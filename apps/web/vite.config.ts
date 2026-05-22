@@ -35,33 +35,6 @@ export default defineConfig(({ mode }) => {
           filesToDeleteAfterUpload: ["./dist/**/*.map"],
         },
       }),
-      // Dev-server SPA fallback for routes that live outside Vite's `base`.
-      // With `base: "/assistant/"`, Vite's built-in fallback only serves
-      // index.html under `/assistant/*`. React Router intentionally claims
-      // `/account/*` and `/logout` at the root (see routes.tsx), so a
-      // hard-reload on those URLs would otherwise 404 in dev. Rewriting
-      // the request to `/assistant/` makes Vite serve index.html; the
-      // browser URL is unchanged, so React Router still matches the
-      // original path. Production relies on the deployed server's
-      // catch-all fallback (LB → SPA bucket).
-      {
-        name: "spa-fallback-outside-base",
-        configureServer(server) {
-          server.middlewares.use((req, _res, next) => {
-            const url = req.url ?? "";
-            const pathname = url.split("?")[0];
-            if (
-              pathname === "/account" ||
-              pathname.startsWith("/account/") ||
-              pathname === "/logout" ||
-              pathname.startsWith("/logout/")
-            ) {
-              req.url = "/assistant/";
-            }
-            next();
-          });
-        },
-      },
     ],
     resolve: {
       alias: {
