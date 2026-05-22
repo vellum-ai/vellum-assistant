@@ -11,7 +11,19 @@ import type { GatewayInboundEvent } from "../types.js";
 interface SlackUserInfo {
   displayName: string;
   username: string;
+  timezone?: string;
+  timezoneLabel?: string;
+  timezoneOffsetSeconds?: number;
 }
+
+type SlackUserActorFields = Pick<
+  SlackUserInfo,
+  | "displayName"
+  | "username"
+  | "timezone"
+  | "timezoneLabel"
+  | "timezoneOffsetSeconds"
+>;
 
 interface SlackChannelInfo {
   name: string;
@@ -129,6 +141,9 @@ export async function resolveSlackUser(
         user?: {
           name?: string;
           real_name?: string;
+          tz?: string;
+          tz_label?: string;
+          tz_offset?: number;
           profile?: { display_name?: string; real_name?: string };
         };
       };
@@ -141,8 +156,24 @@ export async function resolveSlackUser(
         data.user.name ||
         userId;
       const username = data.user.name || userId;
+      const timezone =
+        typeof data.user.tz === "string" ? data.user.tz : undefined;
+      const timezoneLabel =
+        typeof data.user.tz_label === "string" ? data.user.tz_label : undefined;
+      const timezoneOffsetSeconds =
+        typeof data.user.tz_offset === "number"
+          ? data.user.tz_offset
+          : undefined;
 
-      const info: SlackUserInfo = { displayName, username };
+      const info: SlackUserInfo = {
+        displayName,
+        username,
+        ...(timezone !== undefined ? { timezone } : {}),
+        ...(timezoneLabel !== undefined ? { timezoneLabel } : {}),
+        ...(timezoneOffsetSeconds !== undefined
+          ? { timezoneOffsetSeconds }
+          : {}),
+      };
       cacheSet(
         userInfoCache,
         userId,
@@ -395,6 +426,20 @@ function renderSlackInboundText(
   });
 }
 
+function slackUserActorFields(userInfo: SlackUserInfo): SlackUserActorFields {
+  return {
+    displayName: userInfo.displayName,
+    username: userInfo.username,
+    ...(userInfo.timezone !== undefined ? { timezone: userInfo.timezone } : {}),
+    ...(userInfo.timezoneLabel !== undefined
+      ? { timezoneLabel: userInfo.timezoneLabel }
+      : {}),
+    ...(userInfo.timezoneOffsetSeconds !== undefined
+      ? { timezoneOffsetSeconds: userInfo.timezoneOffsetSeconds }
+      : {}),
+  };
+}
+
 function extractSlackAttachments(files: SlackFile[] | undefined): Array<{
   type: "image" | "document";
   fileId: string;
@@ -505,10 +550,7 @@ export function normalizeSlackDirectMessage(
       },
       actor: {
         actorExternalId: event.user,
-        ...(userInfo && {
-          displayName: userInfo.displayName,
-          username: userInfo.username,
-        }),
+        ...(userInfo ? slackUserActorFields(userInfo) : {}),
       },
       source: {
         updateId: eventId,
@@ -573,10 +615,7 @@ export function normalizeSlackChannelMessage(
       },
       actor: {
         actorExternalId: event.user,
-        ...(userInfo && {
-          displayName: userInfo.displayName,
-          username: userInfo.username,
-        }),
+        ...(userInfo ? slackUserActorFields(userInfo) : {}),
       },
       source: {
         updateId: eventId,
@@ -638,10 +677,7 @@ export function normalizeSlackAppMention(
       },
       actor: {
         actorExternalId: event.user,
-        ...(userInfo && {
-          displayName: userInfo.displayName,
-          username: userInfo.username,
-        }),
+        ...(userInfo ? slackUserActorFields(userInfo) : {}),
       },
       source: {
         updateId: eventId,
