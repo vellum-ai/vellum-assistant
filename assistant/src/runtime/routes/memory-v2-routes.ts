@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { loadConfig } from "../../config/loader.js";
+import type { AssistantConfig } from "../../config/types.js";
 import { getDb } from "../../memory/db-connection.js";
 import {
   enqueueMemoryJob,
@@ -23,6 +24,7 @@ import {
   validateEdgeTargets,
 } from "../../memory/v2/edge-index.js";
 import { computeInjectionScores } from "../../memory/v2/injection-events.js";
+import { loadNowText } from "../../memory/v2/now-text.js";
 import { getPageIndex } from "../../memory/v2/page-index.js";
 import {
   getConceptsDir,
@@ -30,6 +32,7 @@ import {
   readPage,
   renderPageContent,
 } from "../../memory/v2/page-store.js";
+import { type RouterSource, runRouter } from "../../memory/v2/router.js";
 import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -334,6 +337,154 @@ async function handleEmaScores({
   return { entries };
 }
 
+// ── Simulate router (dry-run playground) ────────────────────────────────
+
+const SimulateRouterOverridesSchema = z
+  .object({
+    tier1_size: z.number().int().min(1).nullable().optional(),
+    tier2_size: z.number().int().min(1).nullable().optional(),
+    batch_size: z.number().int().min(1).nullable().optional(),
+  })
+  .strict();
+
+const MemoryV2SimulateRouterParams = z
+  .object({
+    query: z.string().min(1, "query must be non-empty"),
+    configOverrides: SimulateRouterOverridesSchema.optional(),
+  })
+  .strict();
+
+export interface MemoryV2SimulateRouterEffectiveConfig {
+  tier1_size: number | null;
+  tier2_size: number | null;
+  batch_size: number | null;
+  max_page_ids: number;
+}
+
+export interface MemoryV2SimulateRouterResult {
+  /** Slugs the router would select, in model-returned order. */
+  selectedSlugs: string[];
+  /** Per-slug provenance: `"tier1"`, `"tier2"`, or `"tier3:<bucket>"`. */
+  sourceBySlug: Record<string, RouterSource>;
+  /** EMA scores for the selected slugs (0 when the slug has no events). */
+  scores: Record<string, number>;
+  /** `null` on success; otherwise one of the router failure reasons. */
+  failureReason: string | null;
+  /** The router config that actually ran (live merged with overrides). */
+  effectiveConfig: MemoryV2SimulateRouterEffectiveConfig;
+  /** The overrides the caller submitted, for display. */
+  overrides: {
+    tier1_size?: number | null;
+    tier2_size?: number | null;
+    batch_size?: number | null;
+  };
+  /** Page index size the router was given (post-tier-carve, all batches). */
+  totalCandidatePages: number;
+}
+
+/**
+ * Build the config the router will see by overlaying override values on top
+ * of the live workspace config. Only the three new tier knobs are exposed —
+ * everything else (provider, prompts, weights) stays exactly as it would on
+ * a real turn. `undefined` means "inherit live"; `null` is a valid override
+ * value (meaning "disable this tier").
+ */
+function applySimulateOverrides(
+  live: AssistantConfig,
+  overrides: z.infer<typeof SimulateRouterOverridesSchema> | undefined,
+): AssistantConfig {
+  if (!overrides) return live;
+  const liveRouter = live.memory.v2.router;
+  const mergedRouter = {
+    ...liveRouter,
+    ...("tier1_size" in overrides && overrides.tier1_size !== undefined
+      ? { tier1_size: overrides.tier1_size }
+      : {}),
+    ...("tier2_size" in overrides && overrides.tier2_size !== undefined
+      ? { tier2_size: overrides.tier2_size }
+      : {}),
+    ...("batch_size" in overrides && overrides.batch_size !== undefined
+      ? { batch_size: overrides.batch_size }
+      : {}),
+  };
+  return {
+    ...live,
+    memory: {
+      ...live.memory,
+      v2: {
+        ...live.memory.v2,
+        router: mergedRouter,
+      },
+    },
+  };
+}
+
+export async function handleSimulateRouter({
+  body = {},
+}: RouteHandlerArgs): Promise<MemoryV2SimulateRouterResult> {
+  requireMemoryV2Enabled();
+  const { query, configOverrides } = MemoryV2SimulateRouterParams.parse(body);
+
+  const liveConfig = loadConfig();
+  const mergedConfig = applySimulateOverrides(liveConfig, configOverrides);
+  const effectiveRouter = mergedConfig.memory.v2.router;
+
+  const workspaceDir = getWorkspaceDir();
+  const nowText = await loadNowText(workspaceDir);
+
+  const routerResult = await runRouter({
+    workspaceDir,
+    userMessage: query,
+    assistantMessage: "",
+    nowText,
+    priorEverInjected: [],
+    config: mergedConfig,
+    database: getDb(),
+  });
+
+  const pageIndex = await getPageIndex(workspaceDir);
+  const scores = computeInjectionScores(
+    getDb(),
+    routerResult.selectedSlugs,
+    Date.now(),
+  );
+
+  const sourceBySlug: Record<string, RouterSource> = {};
+  for (const [slug, source] of routerResult.sourceBySlug.entries()) {
+    sourceBySlug[slug] = source;
+  }
+
+  const scoresOut: Record<string, number> = {};
+  for (const slug of routerResult.selectedSlugs) {
+    scoresOut[slug] = scores.get(slug) ?? 0;
+  }
+
+  return {
+    selectedSlugs: routerResult.selectedSlugs,
+    sourceBySlug,
+    scores: scoresOut,
+    failureReason: routerResult.failureReason,
+    effectiveConfig: {
+      tier1_size: effectiveRouter.tier1_size,
+      tier2_size: effectiveRouter.tier2_size,
+      batch_size: effectiveRouter.batch_size,
+      max_page_ids: effectiveRouter.max_page_ids,
+    },
+    overrides: {
+      ...(configOverrides?.tier1_size !== undefined
+        ? { tier1_size: configOverrides.tier1_size }
+        : {}),
+      ...(configOverrides?.tier2_size !== undefined
+        ? { tier2_size: configOverrides.tier2_size }
+        : {}),
+      ...(configOverrides?.batch_size !== undefined
+        ? { batch_size: configOverrides.batch_size }
+        : {}),
+    },
+    totalCandidatePages: pageIndex.entries.length,
+  };
+}
+
 // ── Route definitions ───────────────────────────────────────────────────
 
 export const ROUTES: RouteDefinition[] = [
@@ -413,5 +564,16 @@ export const ROUTES: RouteDefinition[] = [
       "Computes the time-decayed injection frequency (3-day half-life) for every entry in the current page index by reading memory_v2_injection_events. Returns entries sorted by score descending then slug ASCII, including zero-score pages so callers can decide whether to filter. Read-only; tier 2 of the v4 router uses the same computation to pick its top-M.",
     tags: ["memory"],
     requestBody: MemoryV2EmaScoresParams,
+  },
+  {
+    operationId: "memory_v2_simulate_router",
+    method: "POST",
+    endpoint: "memory/v2/simulate-router",
+    handler: handleSimulateRouter,
+    summary: "Dry-run the v4 router with config overrides (read-only)",
+    description:
+      "Runs the memory router against the live page index + EMA scores with optional tier_size / batch_size overrides, without recording an injection event or writing an activation log. Returns the slugs that would have been selected, per-slug tier provenance, EMA scores, and the effective router config so operators can validate knob changes before flipping them in workspace config.",
+    tags: ["memory"],
+    requestBody: MemoryV2SimulateRouterParams,
   },
 ];
