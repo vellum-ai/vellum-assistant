@@ -297,7 +297,7 @@ describe("forkConversation", () => {
     ]);
   });
 
-  test("inherits cleanedAt when forking past the clean event", async () => {
+  test("inherits historyStrippedAt when forking past the clean event", async () => {
     const source = createConversation("Clean thread");
     await addMessage(source.id, "user", "Message 1", undefined, {
       skipIndexing: true,
@@ -310,10 +310,10 @@ describe("forkConversation", () => {
       { skipIndexing: true },
     );
 
-    const cleanedAt = preClean.createdAt + 1;
+    const historyStrippedAt = preClean.createdAt + 1;
     getDb()
       .update(conversations)
-      .set({ cleanedAt })
+      .set({ historyStrippedAt })
       .where(eq(conversations.id, source.id))
       .run();
 
@@ -324,17 +324,17 @@ describe("forkConversation", () => {
       undefined,
       { skipIndexing: true },
     );
-    expect(postClean.createdAt).toBeGreaterThanOrEqual(cleanedAt);
+    expect(postClean.createdAt).toBeGreaterThanOrEqual(historyStrippedAt);
 
     const fork = forkConversation({
       conversationId: source.id,
       throughMessageId: postClean.id,
     });
 
-    expect(fork.cleanedAt).toBe(cleanedAt);
+    expect(fork.historyStrippedAt).toBe(historyStrippedAt);
   });
 
-  test("does not inherit cleanedAt when forking before the clean event", async () => {
+  test("does not inherit historyStrippedAt when forking before the clean event", async () => {
     const source = createConversation("Clean thread");
     await addMessage(source.id, "user", "Message 1", undefined, {
       skipIndexing: true,
@@ -347,10 +347,10 @@ describe("forkConversation", () => {
       { skipIndexing: true },
     );
 
-    const cleanedAt = preClean.createdAt + 1;
+    const historyStrippedAt = preClean.createdAt + 1;
     getDb()
       .update(conversations)
-      .set({ cleanedAt })
+      .set({ historyStrippedAt })
       .where(eq(conversations.id, source.id))
       .run();
 
@@ -363,10 +363,10 @@ describe("forkConversation", () => {
       throughMessageId: preClean.id,
     });
 
-    expect(fork.cleanedAt).toBeNull();
+    expect(fork.historyStrippedAt).toBeNull();
   });
 
-  test("inherits cleanedAt on a full-history fork", async () => {
+  test("inherits historyStrippedAt on a full-history fork", async () => {
     const source = createConversation("Clean thread");
     await addMessage(source.id, "user", "Message 1", undefined, {
       skipIndexing: true,
@@ -379,19 +379,19 @@ describe("forkConversation", () => {
       { skipIndexing: true },
     );
 
-    const cleanedAt = last.createdAt - 1;
+    const historyStrippedAt = last.createdAt - 1;
     getDb()
       .update(conversations)
-      .set({ cleanedAt })
+      .set({ historyStrippedAt })
       .where(eq(conversations.id, source.id))
       .run();
 
     const fork = forkConversation({ conversationId: source.id });
 
-    expect(fork.cleanedAt).toBe(cleanedAt);
+    expect(fork.historyStrippedAt).toBe(historyStrippedAt);
   });
 
-  test("leaves cleanedAt null when the source has no clean event", async () => {
+  test("leaves historyStrippedAt null when the source has no clean event", async () => {
     const source = createConversation("Unclean thread");
     await addMessage(source.id, "user", "Message 1", undefined, {
       skipIndexing: true,
@@ -402,7 +402,61 @@ describe("forkConversation", () => {
 
     const fork = forkConversation({ conversationId: source.id });
 
-    expect(fork.cleanedAt).toBeNull();
+    expect(fork.historyStrippedAt).toBeNull();
+  });
+
+  test("fork from a pre-compaction message preserves historical injection metadata", async () => {
+    const source = createConversation("Compacted thread");
+    const m1 = await addMessage(
+      source.id,
+      "user",
+      "Historical question",
+      {
+        pkbContextBlock: "<knowledge_base>\nstale\n</knowledge_base>",
+        nowScratchpadBlock:
+          "<NOW.md Always keep this up to date>\nstale\n</NOW.md>",
+      },
+      { skipIndexing: true },
+    );
+    await addMessage(source.id, "assistant", "Reply 1", undefined, {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "user", "Tail turn", undefined, {
+      skipIndexing: true,
+    });
+    const compactedAt = Date.now();
+    getDb()
+      .update(conversations)
+      .set({
+        contextSummary: "summary",
+        contextCompactedMessageCount: 2,
+        contextCompactedAt: compactedAt,
+        historyStrippedAt: compactedAt,
+      })
+      .where(eq(conversations.id, source.id))
+      .run();
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: m1.id,
+    });
+
+    expect(fork.historyStrippedAt).toBeNull();
+    expect(fork.contextSummary).toBeNull();
+    expect(fork.contextCompactedMessageCount).toBe(0);
+
+    const forkedMessages = getMessages(fork.id);
+    expect(forkedMessages).toHaveLength(1);
+    const meta = parseMetadata(forkedMessages[0].metadata) as Record<
+      string,
+      unknown
+    >;
+    expect(meta.pkbContextBlock).toBe(
+      "<knowledge_base>\nstale\n</knowledge_base>",
+    );
+    expect(meta.nowScratchpadBlock).toBe(
+      "<NOW.md Always keep this up to date>\nstale\n</NOW.md>",
+    );
   });
 
   test("rejects forks when the source conversation has no persisted messages", () => {

@@ -170,6 +170,7 @@ mock.module("../daemon/context-overflow-policy.js", () => ({
 
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
+  setConversationHistoryStrippedAt: () => {},
   updateConversationUsage: () => {},
   getMessages: () => [],
   getConversation: () => ({
@@ -194,7 +195,6 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
   updateMessageContent: () => {},
   updateMessageMetadata: () => {},
-  clearStrippedInjectionMetadataForConversation: () => {},
   setLastNotifiedInferenceProfile: () => {},
   getLastUserTimestampBefore: () => 0,
   getConversationOverrideProfileFromRow: () => undefined,

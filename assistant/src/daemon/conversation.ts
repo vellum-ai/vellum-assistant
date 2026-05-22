@@ -53,7 +53,7 @@ import {
   getConversation,
   getConversationOriginChannel,
   getConversationOverrideProfileFromRow,
-  setConversationCleanedAt,
+  setConversationHistoryStrippedAt,
 } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
@@ -1155,7 +1155,7 @@ export class Conversation {
     this.messages = stripped;
     await this.graphMemory.onCompacted(0);
     this.pendingPostCompactReinject = true;
-    setConversationCleanedAt(this.conversationId, Date.now());
+    setConversationHistoryStrippedAt(this.conversationId, Date.now());
     const estimatedInputTokens = this.contextWindowManager.estimateInputTokens(
       this.messages,
     );
