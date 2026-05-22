@@ -4,8 +4,8 @@ import { isNativePlatform } from "@/runtime/native-auth.js";
 
 /**
  * JS ↔ native bridge for the `NativeBiometric` Capacitor plugin registered by
- * `web/ios/App/App/MyViewController.swift` +
- * `web/ios/App/App/NativeBiometricPlugin.swift`.
+ * `apps/ios/App/App/MyViewController.swift` +
+ * `apps/ios/App/App/NativeBiometricPlugin.swift`.
  *
  * The plugin provides biometric-protected Keychain storage for session tokens,
  * enabling Face ID / Touch ID session recovery without a full WorkOS login.
