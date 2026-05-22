@@ -45,6 +45,7 @@ final class MessageListForkActionTests: XCTestCase {
             assistantActivityAnchor: "composer",
             assistantActivityReason: nil,
             assistantStatusText: nil,
+            autoRoutedProfileLabel: nil,
             selectedModel: "",
             configuredProviders: [],
             providerCatalog: [],

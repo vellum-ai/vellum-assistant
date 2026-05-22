@@ -51,6 +51,7 @@ final class MessageListScrollStateTests: XCTestCase {
             assistantActivityAnchor: "",
             assistantActivityReason: nil,
             assistantStatusText: nil,
+            autoRoutedProfileLabel: nil,
             selectedModel: "test-model",
             configuredProviders: [],
             providerCatalog: [],

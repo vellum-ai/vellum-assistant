@@ -40,6 +40,7 @@ struct MessageListView: View {
     let assistantActivityAnchor: String
     let assistantActivityReason: String?
     let assistantStatusText: String?
+    let autoRoutedProfileLabel: String?
     let selectedModel: String
     let configuredProviders: Set<String>
     let providerCatalog: [ProviderCatalogEntry]

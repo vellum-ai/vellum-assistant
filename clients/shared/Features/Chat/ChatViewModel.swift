@@ -237,6 +237,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.assistantActivityAnchor = "global"
                     self.assistantActivityReason = nil
                     self.assistantStatusText = nil
+                    self.autoRoutedProfileLabel = nil
                     let assistantId = self.currentAssistantMessageId
                     self.messageManager.batchUpdateMessages { msgs in
                         if let existingId = assistantId {
@@ -353,6 +354,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.assistantActivityAnchor = "global"
                     self.assistantActivityReason = nil
                     self.assistantStatusText = nil
+                    self.autoRoutedProfileLabel = nil
                     self.isCompacting = false
                     self.contextWindowTokens = nil
                     self.contextWindowMaxTokens = nil
@@ -426,6 +428,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     public var assistantStatusText: String? {
         get { messageManager.assistantStatusText }
         set { messageManager.assistantStatusText = newValue }
+    }
+    public var autoRoutedProfileLabel: String? {
+        get { messageManager.autoRoutedProfileLabel }
+        set { messageManager.autoRoutedProfileLabel = newValue }
     }
     public var isCompacting: Bool {
         get { messageManager.isCompacting }
@@ -2466,6 +2472,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         assistantActivityAnchor = "global"
         assistantActivityReason = nil
         assistantStatusText = nil
+        autoRoutedProfileLabel = nil
 
         // If a run was in progress when the connection dropped, the client may
         // have missed the messageComplete (or the full assistant response).

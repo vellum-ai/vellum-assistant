@@ -329,6 +329,7 @@ struct ChatView: View {
                 assistantActivityAnchor: viewModel.assistantActivityAnchor,
                 assistantActivityReason: viewModel.assistantActivityReason,
                 assistantStatusText: viewModel.assistantStatusText,
+                autoRoutedProfileLabel: viewModel.autoRoutedProfileLabel,
                 selectedModel: selectedModel,
                 configuredProviders: configuredProviders,
                 providerCatalog: providerCatalog,

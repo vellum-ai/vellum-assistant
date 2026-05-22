@@ -45,6 +45,7 @@ struct MessageListContentView: View, Equatable {
             && lhs.configuredProviders == rhs.configuredProviders
             && lhs.subagentDetailStore === rhs.subagentDetailStore
             && lhs.assistantStatusText == rhs.assistantStatusText
+            && lhs.autoRoutedProfileLabel == rhs.autoRoutedProfileLabel
             && lhs.pinnedLatestTurnAnchorMessageId == rhs.pinnedLatestTurnAnchorMessageId
             && lhs.searchQuery == rhs.searchQuery
             && lhs.bookmarkStore === rhs.bookmarkStore
@@ -72,6 +73,7 @@ struct MessageListContentView: View, Equatable {
     let configuredProviders: Set<String>
     let subagentDetailStore: SubagentDetailStore
     let assistantStatusText: String?
+    let autoRoutedProfileLabel: String?
     let pinnedLatestTurnAnchorMessageId: UUID?
     let searchQuery: String
     let bookmarkStore: BookmarkStore?
@@ -164,6 +166,26 @@ struct MessageListContentView: View, Equatable {
                 .if(isFlipped) { view in
                     view.flipped()
                 }
+        }
+    }
+
+    // MARK: - Auto-routed profile label
+
+    @ViewBuilder
+    fileprivate func autoRoutedProfileRow(isFlipped: Bool = true) -> some View {
+        if let label = state.autoRoutedProfileLabel {
+            HStack {
+                Text("Using \(label) for this response")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                Spacer()
+            }
+            .frame(width: effectiveBubbleMaxWidth)
+            .id("auto-routed-profile-label")
+            .transition(.opacity)
+            .if(isFlipped) { view in
+                view.flipped()
+            }
         }
     }
 
@@ -363,6 +385,7 @@ struct MessageListContentView: View, Equatable {
                 // at the visual bottom. Place current-activity indicators here.
                 latestEdgeSentinel()
                 latestEdgeActivityRow()
+                autoRoutedProfileRow()
 
                 // ── Messages ──
                 ForEach(displayedItems.reversed()) { item in
@@ -529,6 +552,8 @@ private struct PinnedLatestTurnSection: View {
         // motionVectors — an O(n) sizeThatFits sweep that defeats lazy
         // loading.
         LazyVStack(alignment: .leading, spacing: VSpacing.md) {
+            contentView.autoRoutedProfileRow(isFlipped: false)
+
             ForEach(partition.responseItems) { item in
                 contentView.transcriptItemView(
                     item,

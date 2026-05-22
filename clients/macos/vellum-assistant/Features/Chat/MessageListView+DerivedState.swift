@@ -113,7 +113,8 @@ extension MessageListView {
             assistantActivityAnchor: assistantActivityAnchor,
             assistantActivityReason: assistantActivityReason,
             activePendingRequestId: activePendingRequestId,
-            highlightedMessageId: highlightedMessageId
+            highlightedMessageId: highlightedMessageId,
+            autoRoutedProfileLabel: autoRoutedProfileLabel
         )
 
         cache.cachedProjectionKey = key
@@ -171,6 +172,7 @@ extension MessageListView {
             configuredProviders: configuredProviders,
             subagentDetailStore: subagentDetailStore,
             assistantStatusText: assistantStatusText,
+            autoRoutedProfileLabel: autoRoutedProfileLabel,
             pinnedLatestTurnAnchorMessageId: scrollState.pinnedLatestTurnAnchorMessageId,
             searchQuery: searchQuery,
             bookmarkStore: bookmarkStore,
