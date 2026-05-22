@@ -106,14 +106,8 @@ import {
   createBackupSnapshotHandler,
 } from "./backup/backup-routes.js";
 import { startBackupWorker } from "./backup/backup-worker.js";
-import {
-  startVoiceApprovalSync,
-  stopVoiceApprovalSync,
-} from "./verification/voice-approval-sync.js";
-import {
-  startOutboundVoiceVerificationSync,
-  stopOutboundVoiceVerificationSync,
-} from "./verification/outbound-voice-verification-sync.js";
+import { stopVoiceApprovalSync } from "./verification/voice-approval-sync.js";
+import { stopOutboundVoiceVerificationSync } from "./verification/outbound-voice-verification-sync.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
@@ -2219,9 +2213,6 @@ async function main() {
   const backupWorkerHandle = startBackupWorker({
     assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
   });
-
-  startVoiceApprovalSync();
-  startOutboundVoiceVerificationSync();
 
   const featureFlagWatcher = new FeatureFlagWatcher();
   featureFlagWatcher.start();
