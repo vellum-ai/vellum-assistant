@@ -360,6 +360,12 @@ export interface SkillProjectionContext {
   readonly transportInterface?: InterfaceId;
   /** Per-turn override profile, read by the switch_inference_profile tool injection. */
   currentTurnOverrideProfile?: string;
+  /**
+   * True when the user has explicitly selected an inference profile for this
+   * conversation (via the composer profile picker). When set, tool-based
+   * auto-routing is suppressed — the user's explicit choice takes precedence.
+   */
+  hasExplicitProfileOverride?: boolean;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
@@ -654,7 +660,8 @@ export function createResolveToolsCallback(
     const config = getConfig();
     if (
       isAssistantFeatureFlagEnabled("query-complexity-routing", config) &&
-      config.llm
+      config.llm &&
+      !ctx.hasExplicitProfileOverride
     ) {
       const currentProfile =
         ctx.currentTurnOverrideProfile ?? config.llm.activeProfile;

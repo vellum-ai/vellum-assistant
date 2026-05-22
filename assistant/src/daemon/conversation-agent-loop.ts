@@ -541,6 +541,12 @@ export interface AgentLoopConversationContext {
    * turn start.
    */
   toolRoutedProfile?: string;
+  /**
+   * True when the user has explicitly selected an inference profile for this
+   * conversation (via the composer profile picker). When set, tool-based
+   * auto-routing is suppressed — the user's explicit choice takes precedence.
+   */
+  hasExplicitProfileOverride?: boolean;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   trustContext?: TrustContext;
   /** Task-run scope for the current turn. Cleared at turn end so queued/drained turns don't inherit it. */
@@ -710,6 +716,8 @@ export async function runAgentLoopImpl(
   const userExplicitOverride =
     options?.overrideProfile ??
     getConversationOverrideProfileFromRow(turnStartConversation);
+
+  ctx.hasExplicitProfileOverride = !!userExplicitOverride;
 
   const config = getConfig();
 
