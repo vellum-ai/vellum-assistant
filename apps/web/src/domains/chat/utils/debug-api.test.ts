@@ -15,6 +15,11 @@ import {
   createChatDebugApi,
   installChatDebugApi,
 } from "@/domains/chat/utils/debug-api.js";
+import {
+  INITIAL_TURN_STATE,
+  type TurnState,
+} from "@/domains/messaging/turn-store.js";
+import type { UIContext } from "@/domains/messaging/turn-selectors.js";
 
 // ---------------------------------------------------------------------------
 //  Helpers
@@ -58,9 +63,33 @@ function fakeThinkingItem(label?: string): TranscriptItem {
   };
 }
 
+const DEFAULT_UI_CONTEXT: UIContext = {
+  hasStreamingAssistantMessage: false,
+  hasPendingSecret: false,
+  hasPendingConfirmation: false,
+  hasPendingQuestion: false,
+  hasPendingContactRequest: false,
+  hasUncompletedVisibleSurface: false,
+  activeConversationIsProcessing: false,
+  hasPendingAssistantResponse: false,
+};
+
+interface MakeRefsOverrides extends Partial<ChatDebugRefs> {
+  /** Convenience: override the TurnState surface returned by `getTurnState`. */
+  turn?: TurnState;
+  /** Convenience: partial UIContext merged onto {@link DEFAULT_UI_CONTEXT}. */
+  uiContext?: Partial<UIContext>;
+}
+
 function makeRefs(
-  overrides: Partial<ChatDebugRefs> = {},
+  overrides: MakeRefsOverrides = {},
 ): ChatDebugRefs {
+  const { turn, uiContext, ...rest } = overrides;
+  const turnState: TurnState = turn ?? INITIAL_TURN_STATE;
+  const resolvedUIContext: UIContext = {
+    ...DEFAULT_UI_CONTEXT,
+    ...(uiContext ?? {}),
+  };
   return {
     messagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
     transcriptItemsRef: { current: [] } as MutableRefObject<TranscriptItem[]>,
@@ -72,12 +101,14 @@ function makeRefs(
     streamEpochRef: { current: 0 } as MutableRefObject<number>,
     activeConversationKeyRef: { current: null } as MutableRefObject<string | null>,
     getAssistantId: () => "asst-1",
+    getTurnState: () => turnState,
+    getUIContext: () => resolvedUIContext,
     reconcileActiveConversation: async () => ({
       changed: false,
       messagesAdded: 0,
       assistantProgress: false,
     }),
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -161,6 +192,203 @@ describe("createChatDebugApi.tail", () => {
     expect(api.tail(-1)).toHaveLength(20);
     expect(api.tail(NaN)).toHaveLength(20);
     expect(api.tail(Infinity)).toHaveLength(20);
+  });
+});
+
+// ---------------------------------------------------------------------------
+//  createChatDebugApi — thinkingIndicator
+// ---------------------------------------------------------------------------
+
+describe("createChatDebugApi.thinkingIndicator", () => {
+  test("phase=thinking with quiet UI context → visible, no failing conditions, active", () => {
+    const refs = makeRefs({
+      turn: {
+        ...INITIAL_TURN_STATE,
+        phase: "thinking",
+        activeTurnId: "turn-1",
+        statusText: "Thinking",
+      },
+    });
+    const api = createChatDebugApi(refs);
+
+    const snapshot = api.thinkingIndicator();
+
+    expect(snapshot.visible).toBe(true);
+    expect(snapshot.failingConditions).toEqual([]);
+    expect(snapshot.conditions.isSending).toBe(true);
+    expect(snapshot.conditions.isThinking).toBe(true);
+    expect(snapshot.conditions.activeToolCallCount).toBe(0);
+    expect(snapshot.conditions.statusText).toBe("Thinking");
+    expect(snapshot.done.terminal).toBe(false);
+    expect(snapshot.done.phase).toBe("thinking");
+    expect(snapshot.done.lastTerminalReason).toBeNull();
+    expect(snapshot.done.explanation).toBe("active: phase=thinking");
+  });
+
+  test("initial state → hidden with notSendingAndNotRestoredProcessing flag and terminal=true", () => {
+    const refs = makeRefs();
+    const api = createChatDebugApi(refs);
+
+    const snapshot = api.thinkingIndicator();
+
+    expect(snapshot.visible).toBe(false);
+    expect(snapshot.failingConditions).toEqual([
+      "notSendingAndNotRestoredProcessing",
+    ]);
+    expect(snapshot.done.terminal).toBe(true);
+    expect(snapshot.done.phase).toBe("idle");
+    expect(snapshot.done.lastTerminalReason).toBeNull();
+    expect(snapshot.done.explanation).toBe(
+      "terminal: phase=idle, no prior turn this session",
+    );
+  });
+
+  test("terminal phase=idle after MESSAGE_COMPLETE → done.lastTerminalReason=\"complete\"", () => {
+    const refs = makeRefs({
+      turn: {
+        ...INITIAL_TURN_STATE,
+        phase: "idle",
+        lastTerminalReason: "complete",
+      },
+    });
+    const api = createChatDebugApi(refs);
+
+    const snapshot = api.thinkingIndicator();
+
+    expect(snapshot.visible).toBe(false);
+    expect(snapshot.done.terminal).toBe(true);
+    expect(snapshot.done.lastTerminalReason).toBe("complete");
+    expect(snapshot.done.explanation).toBe(
+      "terminal: phase=idle, lastTerminalReason=complete",
+    );
+  });
+
+  test("streaming with assistant message in flight → hidden with streamingAssistantMessageActive", () => {
+    const refs = makeRefs({
+      turn: {
+        ...INITIAL_TURN_STATE,
+        phase: "streaming",
+        activeTurnId: "turn-1",
+      },
+      uiContext: { hasStreamingAssistantMessage: true },
+    });
+    const api = createChatDebugApi(refs);
+
+    const snapshot = api.thinkingIndicator();
+
+    expect(snapshot.visible).toBe(false);
+    expect(snapshot.failingConditions).toEqual([
+      "streamingAssistantMessageActive",
+    ]);
+    expect(snapshot.done.terminal).toBe(false);
+    expect(snapshot.done.explanation).toBe(
+      "active: phase=streaming, streaming an assistant message",
+    );
+  });
+
+  test("active tool call suppresses indicator (activeToolCallCount>0)", () => {
+    const refs = makeRefs({
+      turn: {
+        ...INITIAL_TURN_STATE,
+        phase: "thinking",
+        activeTurnId: "turn-1",
+        activeToolCallCount: 1,
+      },
+    });
+    const api = createChatDebugApi(refs);
+
+    const snapshot = api.thinkingIndicator();
+
+    expect(snapshot.visible).toBe(false);
+    expect(snapshot.failingConditions).toEqual(["activeToolCallCount>0"]);
+    expect(snapshot.conditions.activeToolCallCount).toBe(1);
+    expect(snapshot.done.explanation).toBe(
+      "active: phase=thinking, activeToolCallCount=1",
+    );
+  });
+
+  test("each pending-prompt gate is reported individually", () => {
+    const baseTurn: TurnState = {
+      ...INITIAL_TURN_STATE,
+      phase: "awaiting_user_input",
+      activeTurnId: "turn-1",
+    };
+    const cases: Array<{ field: keyof UIContext; expected: string }> = [
+      { field: "hasPendingSecret", expected: "hasPendingSecret" },
+      { field: "hasPendingConfirmation", expected: "hasPendingConfirmation" },
+      { field: "hasPendingQuestion", expected: "hasPendingQuestion" },
+      {
+        field: "hasPendingContactRequest",
+        expected: "hasPendingContactRequest",
+      },
+      {
+        field: "hasUncompletedVisibleSurface",
+        expected: "hasUncompletedVisibleSurface",
+      },
+    ];
+
+    for (const { field, expected } of cases) {
+      const refs = makeRefs({
+        turn: baseTurn,
+        uiContext: { [field]: true } as Partial<UIContext>,
+      });
+      const api = createChatDebugApi(refs);
+      const snapshot = api.thinkingIndicator();
+      expect(snapshot.visible).toBe(false);
+      expect(snapshot.failingConditions).toContain(expected);
+    }
+  });
+
+  test("restoredProcessing keeps the indicator visible after a conversation switch", () => {
+    // Mirrors the resumed-conversation case: reducer is idle (because the
+    // local turn state machine was reset by the switch) but the active
+    // conversation list says this conversation is still processing AND there's
+    // a user message with no assistant reply yet.
+    const refs = makeRefs({
+      turn: INITIAL_TURN_STATE,
+      uiContext: {
+        activeConversationIsProcessing: true,
+        hasPendingAssistantResponse: true,
+      },
+    });
+    const api = createChatDebugApi(refs);
+
+    const snapshot = api.thinkingIndicator();
+
+    expect(snapshot.conditions.restoredProcessing).toBe(true);
+    expect(snapshot.visible).toBe(true);
+    expect(snapshot.failingConditions).toEqual([]);
+    // Phase is still idle locally — but `restoredProcessing` overrides.
+    expect(snapshot.done.terminal).toBe(true);
+  });
+
+  test("queued phase reports queue depth in explanation", () => {
+    const refs = makeRefs({
+      turn: {
+        ...INITIAL_TURN_STATE,
+        phase: "queued",
+        pendingQueuedCount: 2,
+      },
+    });
+    const api = createChatDebugApi(refs);
+
+    const snapshot = api.thinkingIndicator();
+
+    expect(snapshot.visible).toBe(true);
+    expect(snapshot.done.explanation).toBe("active: phase=queued, pending=2");
+  });
+
+  test("returns the same UIContext reference shape getUIContext provided", () => {
+    // Defends the API's contract: the snapshot mirrors what the predicate
+    // saw, so a developer comparing `snapshot.uiContext` to the values in
+    // React DevTools sees the same object shape.
+    const refs = makeRefs({
+      uiContext: { hasUncompletedVisibleSurface: true },
+    });
+    const api = createChatDebugApi(refs);
+    const snapshot = api.thinkingIndicator();
+    expect(snapshot.uiContext.hasUncompletedVisibleSurface).toBe(true);
+    expect(snapshot.uiContext.hasPendingSecret).toBe(false);
   });
 });
 
@@ -254,6 +482,7 @@ describe("createChatDebugApi.help", () => {
 
     const text = consoleSpy.logged.join("\n");
     expect(text).toContain(".tail(");
+    expect(text).toContain(".thinkingIndicator()");
     expect(text).toContain(".forceReconcile()");
     expect(text).toContain(".serverMessages()");
     expect(text).toContain("[experimental]");

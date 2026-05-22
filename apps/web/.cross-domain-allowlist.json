@@ -110,6 +110,12 @@
   "src/domains/chat/transcript/transcript.tsx": [
     "subagents"
   ],
+  "src/domains/chat/utils/debug-api.test.ts": [
+    "messaging"
+  ],
+  "src/domains/chat/utils/debug-api.ts": [
+    "messaging"
+  ],
   "src/domains/chat/utils/stream-handlers/interaction-handlers.test.ts": [
     "interactions"
   ],

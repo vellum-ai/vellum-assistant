@@ -732,6 +732,13 @@ export function ChatPage() {
 
   // Debug API — dev-facing surface for in-the-moment chat inspection.
   // Unconditionally attached; negligible production overhead.
+  //
+  // `getTurnState` / `getUIContext` read fresh values on every call via the
+  // `latestRefs` indirection inside `useChatDebugApi`, so DevTools sees the
+  // same snapshot the React render path is computing. `_uiContext` is
+  // declared further down in this component but the lambda is only invoked
+  // asynchronously (from `window._vellumDebug.chat.thinkingIndicator()`),
+  // by which point initialization is complete.
   useChatDebugApi({
     messagesRef,
     transcriptItemsRef,
@@ -740,6 +747,8 @@ export function ChatPage() {
     streamEpochRef,
     activeConversationKeyRef,
     getAssistantId: () => assistantIdRef.current,
+    getTurnState: () => useTurnStore.getState(),
+    getUIContext: () => _uiContext,
     reconcileActiveConversation,
   });
 
