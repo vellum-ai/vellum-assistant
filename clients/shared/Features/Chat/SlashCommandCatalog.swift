@@ -108,6 +108,15 @@ public enum ChatSlashCommandCatalog {
             sendPathPlatforms: allPlatforms
         ),
         ChatSlashCommandDescriptor(
+            name: "clean",
+            description: "Strip injected runtime context and reset memory injection state",
+            icon: "eraser",
+            selectionBehavior: .autoSend,
+            pickerPlatforms: allPlatforms,
+            helpBubblePlatforms: allPlatforms,
+            sendPathPlatforms: allPlatforms
+        ),
+        ChatSlashCommandDescriptor(
             name: "model",
             description: "List or switch inference profile",
             icon: "cpu",
