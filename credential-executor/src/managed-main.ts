@@ -22,7 +22,10 @@ import { createServer as createNetServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 
-import { CES_PROTOCOL_VERSION, CesRpcMethod } from "@vellumai/service-contracts/credential-rpc";
+import {
+  CES_PROTOCOL_VERSION,
+  CesRpcMethod,
+} from "@vellumai/service-contracts/credential-rpc";
 
 import { AuditStore } from "./audit/store.js";
 import { PersistentGrantStore } from "./grants/persistent-store.js";
@@ -51,17 +54,30 @@ import {
   type RpcHandlerRegistry,
   type SessionIdRef,
 } from "./server.js";
-import { deleteBundleFromToolstore, publishBundle } from "./toolstore/publish.js";
+import {
+  deleteBundleFromToolstore,
+  publishBundle,
+} from "./toolstore/publish.js";
 import { validateSourceUrl } from "./toolstore/manifest.js";
 import { buildCesEgressHooks } from "./commands/egress-hooks.js";
 import { resolveManagedSubject } from "./subjects/managed.js";
 import { materializeManagedToken } from "./materializers/managed-platform.js";
-import { HandleType, parseHandle } from "@vellumai/service-contracts/credential-rpc";
-import { buildLazyGetters, type ApiKeyRef, type AssistantIdRef } from "./managed-lazy-getters.js";
+import {
+  HandleType,
+  parseHandle,
+} from "@vellumai/service-contracts/credential-rpc";
+import {
+  buildLazyGetters,
+  type ApiKeyRef,
+  type AssistantIdRef,
+} from "./managed-lazy-getters.js";
 import { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "./managed-errors.js";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
-import { handleCredentialRoute, type CredentialRouteDeps } from "./http/credential-routes.js";
+import {
+  handleCredentialRoute,
+  type CredentialRouteDeps,
+} from "./http/credential-routes.js";
 import { handleLogExportRoute } from "./http/log-export-routes.js";
 import { CES_MIGRATIONS } from "./migrations/registry.js";
 import { runCesMigrations } from "./migrations/runner.js";
@@ -95,7 +111,12 @@ function ensureDataDirs(): void {
 // Build RPC handler registry (managed mode)
 // ---------------------------------------------------------------------------
 
-function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, assistantIdRef: AssistantIdRef, secureKeyBackend: SecureKeyBackend): RpcHandlerRegistry {
+function buildHandlers(
+  sessionIdRef: SessionIdRef,
+  apiKeyRef: ApiKeyRef,
+  assistantIdRef: AssistantIdRef,
+  secureKeyBackend: SecureKeyBackend,
+): RpcHandlerRegistry {
   // -- Grant stores ----------------------------------------------------------
   const persistentGrantStore = new PersistentGrantStore(
     getCesGrantsDir("managed"),
@@ -117,13 +138,16 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, assista
   // though handlers are built before the handshake completes.
   const platformBaseUrl = process.env["VELLUM_PLATFORM_URL"] ?? "";
 
-  const { getAssistantApiKey, getManagedSubjectOptions, getManagedMaterializerOptions } =
-    buildLazyGetters({
-      platformBaseUrl,
-      assistantIdRef,
-      apiKeyRef,
-      envApiKey: process.env["ASSISTANT_API_KEY"] || "",
-    });
+  const {
+    getAssistantApiKey,
+    getManagedSubjectOptions,
+    getManagedMaterializerOptions,
+  } = buildLazyGetters({
+    platformBaseUrl,
+    assistantIdRef,
+    apiKeyRef,
+    envApiKey: process.env["ASSISTANT_API_KEY"] || "",
+  });
 
   if (!platformBaseUrl) {
     log.warn(
@@ -135,11 +159,13 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, assista
   // -- Workspace root for command execution cwd ------------------------------
   // Use VELLUM_WORKSPACE_DIR when set, otherwise fall back to the legacy
   // path derived from the assistant data mount.
-  const defaultWorkspaceDir = process.env["VELLUM_WORKSPACE_DIR"] ?? (() => {
-    const assistantDataMount =
-      process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro";
-    return join(join(assistantDataMount, ".vellum"), "workspace");
-  })();
+  const defaultWorkspaceDir =
+    process.env["VELLUM_WORKSPACE_DIR"] ??
+    (() => {
+      const assistantDataMount =
+        process.env["CES_ASSISTANT_DATA_MOUNT"] ?? "/assistant-data-ro";
+      return join(join(assistantDataMount, ".vellum"), "workspace");
+    })();
 
   // -- Build handler registry ------------------------------------------------
   // NOTE: local_static credential handles are NOT supported in managed mode.
@@ -173,8 +199,12 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, assista
     temporaryGrantStore,
     localMaterialiser: localMaterialiserStub as any,
     localSubjectDeps: localSubjectDepsStub,
-    get managedSubjectOptions() { return getManagedSubjectOptions(); },
-    get managedMaterializerOptions() { return getManagedMaterializerOptions(); },
+    get managedSubjectOptions() {
+      return getManagedSubjectOptions();
+    },
+    get managedMaterializerOptions() {
+      return getManagedMaterializerOptions();
+    },
     auditStore,
     sessionId: sessionIdRef,
   };
@@ -215,10 +245,7 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, assista
               };
             }
 
-            const subjectResult = await resolveManagedSubject(
-              handle,
-              subOpts,
-            );
+            const subjectResult = await resolveManagedSubject(handle, subOpts);
             if (!subjectResult.ok) {
               return { ok: false as const, error: subjectResult.error.message };
             }
@@ -241,7 +268,8 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, assista
           default:
             return {
               ok: false as const,
-              error: `Handle type "${parseResult.handle.type}" is not supported in managed mode. ` +
+              error:
+                `Handle type "${parseResult.handle.type}" is not supported in managed mode. ` +
                 `Supported types: platform_oauth.`,
             };
         }
@@ -255,7 +283,15 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, assista
   });
 
   // Register manage_secure_command_tool handler
-  const toolRegistry = new Map<string, { toolName: string; credentialHandle: string; description: string; bundleDigest: string }>();
+  const toolRegistry = new Map<
+    string,
+    {
+      toolName: string;
+      credentialHandle: string;
+      description: string;
+      bundleDigest: string;
+    }
+  >();
 
   registerManageSecureCommandToolHandler(handlers, {
     downloadBundle: async (sourceUrl: string) => {
@@ -264,13 +300,17 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, assista
         throw new Error(urlError);
       }
       const MAX_BUNDLE_SIZE = 100 * 1024 * 1024; // 100 MB
-      const resp = await fetch(sourceUrl, { signal: AbortSignal.timeout(60_000) });
+      const resp = await fetch(sourceUrl, {
+        signal: AbortSignal.timeout(60_000),
+      });
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
       }
       const contentLength = resp.headers.get("content-length");
       if (contentLength && parseInt(contentLength, 10) > MAX_BUNDLE_SIZE) {
-        throw new Error(`Bundle too large: ${contentLength} bytes (max ${MAX_BUNDLE_SIZE})`);
+        throw new Error(
+          `Bundle too large: ${contentLength} bytes (max ${MAX_BUNDLE_SIZE})`,
+        );
       }
       // Stream the body and enforce the size limit on actual bytes received,
       // since Content-Length can be absent (chunked encoding) or lie.
@@ -283,18 +323,23 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, assista
       for await (const chunk of body) {
         totalBytes += chunk.byteLength;
         if (totalBytes > MAX_BUNDLE_SIZE) {
-          throw new Error(`Bundle too large: received >${MAX_BUNDLE_SIZE} bytes (max ${MAX_BUNDLE_SIZE})`);
+          throw new Error(
+            `Bundle too large: received >${MAX_BUNDLE_SIZE} bytes (max ${MAX_BUNDLE_SIZE})`,
+          );
         }
         chunks.push(chunk);
       }
       return Buffer.concat(chunks);
     },
-    publishBundle: (request) => publishBundle({ ...request, cesMode: "managed" }),
+    publishBundle: (request) =>
+      publishBundle({ ...request, cesMode: "managed" }),
     unregisterTool: (toolName: string) => {
       const entry = toolRegistry.get(toolName);
       const removed = toolRegistry.delete(toolName);
       if (removed && entry?.bundleDigest) {
-        const stillInUse = Array.from(toolRegistry.values()).some(t => t.bundleDigest === entry.bundleDigest);
+        const stillInUse = Array.from(toolRegistry.values()).some(
+          (t) => t.bundleDigest === entry.bundleDigest,
+        );
         if (!stillInUse) {
           deleteBundleFromToolstore(entry.bundleDigest, "managed");
         }
@@ -310,50 +355,57 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, assista
   handlers[CesRpcMethod.RecordGrant] = createRecordGrantHandler({
     persistentGrantStore,
     temporaryGrantStore,
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
   handlers[CesRpcMethod.ListGrants] = createListGrantsHandler({
     persistentGrantStore,
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
   handlers[CesRpcMethod.RevokeGrant] = createRevokeGrantHandler({
     persistentGrantStore,
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
   // Register audit record handler
   handlers[CesRpcMethod.ListAuditRecords] = createListAuditRecordsHandler({
     auditStore,
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
   // Register credential CRUD handlers
   handlers[CesRpcMethod.GetCredential] = (async (req: { account: string }) => {
     const value = await secureKeyBackend.get(req.account);
     return { found: value !== undefined, value };
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
-  handlers[CesRpcMethod.SetCredential] = (async (req: { account: string; value: string }) => {
+  handlers[CesRpcMethod.SetCredential] = (async (req: {
+    account: string;
+    value: string;
+  }) => {
     const ok = await secureKeyBackend.set(req.account, req.value);
     return { ok };
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
-  handlers[CesRpcMethod.DeleteCredential] = (async (req: { account: string }) => {
+  handlers[CesRpcMethod.DeleteCredential] = (async (req: {
+    account: string;
+  }) => {
     const result = await secureKeyBackend.delete(req.account);
     return { result };
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
   handlers[CesRpcMethod.ListCredentials] = (async () => {
     const accounts = await secureKeyBackend.list();
     return { accounts };
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
-  handlers[CesRpcMethod.BulkSetCredentials] = (async (req: { credentials: Array<{ account: string; value: string }> }) => {
+  handlers[CesRpcMethod.BulkSetCredentials] = (async (req: {
+    credentials: Array<{ account: string; value: string }>;
+  }) => {
     const results = [];
     for (const { account, value } of req.credentials) {
       const ok = await secureKeyBackend.set(account, value);
       results.push({ account, ok });
     }
     return { results };
-  }) as typeof handlers[string];
+  }) as (typeof handlers)[string];
 
   return handlers;
 }
@@ -374,10 +426,9 @@ function startHealthServer(
     async fetch(req) {
       const url = new URL(req.url);
       if (url.pathname === "/healthz") {
-        return new Response(
-          JSON.stringify({ status: "ok" }),
-          { headers: { "Content-Type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ status: "ok" }), {
+          headers: { "Content-Type": "application/json" },
+        });
       }
       if (url.pathname === "/readyz") {
         // Always return 200 — pod readiness must not depend on whether the
@@ -386,32 +437,39 @@ function startHealthServer(
         // scheduling during dark-launch.  The sidecar can't do useful work
         // without a connection anyway, so readiness is purely about the
         // process being up and able to accept a future connection.
-        return new Response(
-          JSON.stringify({ status: "ok", rpcConnected }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
+        return new Response(JSON.stringify({ status: "ok", rpcConnected }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
 
       // Credential CRUD routes (only if service token is configured)
       if (credentialDeps) {
-        const credentialResponse = await handleCredentialRoute(req, credentialDeps);
+        const credentialResponse = await handleCredentialRoute(
+          req,
+          credentialDeps,
+        );
         if (credentialResponse) return credentialResponse;
       }
 
       // Log export route
-      const logExportResponse = await handleLogExportRoute(req, getCesLogDir("managed"));
+      const logExportResponse = await handleLogExportRoute(
+        req,
+        getCesLogDir("managed"),
+      );
       if (logExportResponse) return logExportResponse;
 
       return new Response("Not Found", { status: 404 });
     },
   });
 
-  signal.addEventListener("abort", () => {
-    server.stop(true);
-  }, { once: true });
+  signal.addEventListener(
+    "abort",
+    () => {
+      server.stop(true);
+    },
+    { once: true },
+  );
 
   return server;
 }
@@ -456,10 +514,14 @@ function acceptOneConnection(
       return;
     }
 
-    signal.addEventListener("abort", () => {
-      cleanup();
-      reject(new Error("Aborted while waiting for connection"));
-    }, { once: true });
+    signal.addEventListener(
+      "abort",
+      () => {
+        cleanup();
+        reject(new Error("Aborted while waiting for connection"));
+      },
+      { once: true },
+    );
 
     netServer.on("error", (err) => {
       cleanup();
@@ -529,13 +591,22 @@ async function main(): Promise<void> {
 
   const controller = new AbortController();
 
-  // Graceful shutdown
-  const shutdown = () => {
-    log.info("Shutting down...");
-    controller.abort();
-  };
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+  // Graceful shutdown — pass the signal as the abort reason so consumers
+  // of controller.signal can inspect signal.reason for triage.
+  process.on("SIGTERM", () => {
+    log.warn(
+      { signal: "SIGTERM", pid: process.pid, uptime: process.uptime() },
+      "Received SIGTERM — shutting down",
+    );
+    controller.abort("SIGTERM");
+  });
+  process.on("SIGINT", () => {
+    log.warn(
+      { signal: "SIGINT", pid: process.pid, uptime: process.uptime() },
+      "Received SIGINT — shutting down",
+    );
+    controller.abort("SIGINT");
+  });
 
   // Create the secure key backend unconditionally — it's needed by both
   // HTTP credential routes (when CES_SERVICE_TOKEN is set) and RPC
@@ -546,7 +617,11 @@ async function main(): Promise<void> {
   const secureKeyBackend = createLocalSecureKeyBackend(vellumRoot);
 
   // Run one-time credential store migrations before accepting connections.
-  await runCesMigrations(getCesDataRoot("managed"), secureKeyBackend, CES_MIGRATIONS);
+  await runCesMigrations(
+    getCesDataRoot("managed"),
+    secureKeyBackend,
+    CES_MIGRATIONS,
+  );
   log.info("CES managed startup: migrations complete");
 
   // Set up credential CRUD routes if a service token is configured.
@@ -567,7 +642,11 @@ async function main(): Promise<void> {
 
   // Start health server on dedicated port
   const healthPort = getHealthPort();
-  const healthServer = startHealthServer(healthPort, controller.signal, credentialDeps);
+  const healthServer = startHealthServer(
+    healthPort,
+    controller.signal,
+    credentialDeps,
+  );
   log.info(`Health server listening on port ${healthPort}`);
 
   // Wait for exactly one assistant connection on the bootstrap socket
@@ -593,7 +672,12 @@ async function main(): Promise<void> {
   const sessionIdRef: SessionIdRef = { current: `ces-managed-${Date.now()}` };
   const apiKeyRef: ApiKeyRef = { current: "" };
   const assistantIdRef: AssistantIdRef = { current: "" };
-  const handlers = buildHandlers(sessionIdRef, apiKeyRef, assistantIdRef, secureKeyBackend);
+  const handlers = buildHandlers(
+    sessionIdRef,
+    apiKeyRef,
+    assistantIdRef,
+    secureKeyBackend,
+  );
 
   const rpcLog = getLogger("rpc");
   const server = new CesRpcServer({
@@ -627,11 +711,14 @@ async function main(): Promise<void> {
     },
   });
 
-  await server.serve();
+  const endReason = await server.serve();
 
   rpcConnected = false;
-  log.info("RPC session ended. Shutting down...");
-  controller.abort();
+  log.warn(
+    { reason: endReason, uptime: process.uptime(), pid: process.pid },
+    "RPC session ended — shutting down",
+  );
+  controller.abort("rpc_session_ended");
 }
 
 main().catch((err) => {

@@ -145,9 +145,9 @@ let mockConversationRow: {
 
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
+  setConversationHistoryStrippedAt: () => {},
   updateConversationUsage: () => {},
   updateMessageMetadata: () => {},
-  clearStrippedInjectionMetadataForConversation: () => {},
   getMessages: () => [],
   getConversation: () => mockConversationRow,
   getConversationOverrideProfileFromRow: (

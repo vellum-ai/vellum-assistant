@@ -129,6 +129,7 @@ mock.module("../security/secret-allowlist.js", () => ({
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
+  setConversationHistoryStrippedAt: () => {},
   deleteMessageById: () => {},
   provenanceFromTrustContext: () => ({
     source: "user",

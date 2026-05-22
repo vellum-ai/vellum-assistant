@@ -424,6 +424,14 @@
       "label": "Velvet",
       "description": "Enable the Velvet design theme.",
       "defaultEnabled": false
+    },
+    {
+      "id": "memory-router-playground",
+      "scope": "client",
+      "key": "memory-router-playground",
+      "label": "Memory Router Playground",
+      "description": "Expose the developer-only Memory Router Playground tab in macOS Settings and the /assistant/memory-router-playground web page for dry-running v4 router config overrides against the live page index. Dev-only; default off.",
+      "defaultEnabled": false
     }
   ]
 }

@@ -30,9 +30,6 @@ export interface ActiveAssistantContextValue
  * navigation: the query stays `enabled: false`, `isLoading` is false, and
  * the page renders its fully-empty fallback state instead of waiting.
  *
- * Mirrors the platform's `mainView === "x" && assistantId && active`
- * gating pattern from `AssistantPageClient.tsx`.
- *
  * Inside this gate, child routes call `useActiveAssistantContext()`
  * instead of `useAssistantContext()` to read the narrowed context.
  */

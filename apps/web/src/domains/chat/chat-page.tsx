@@ -3,10 +3,6 @@
  *
  * Owns the shared refs and state that multiple hooks read/write, calls each
  * hook in dependency order, and maps their outputs to `ChatRouteContent` props.
- *
- * Equivalent of platform's `AssistantPageClient.tsx` lines ~200–1500, adapted
- * to the OSS repo's Zustand stores, React Router, and convention-compliant
- * architecture.
  */
 
 import {
@@ -271,6 +267,7 @@ export function ChatPage() {
   const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInitialMessageRef = useRef<{ conversationKey: string; content: string } | null>(null);
+  const pendingOnboardingInitialMessageRef = useRef<{ conversationKey: string; content: string } | null>(null);
   const expandedToolCallIdsRef = useRef<Set<string>>(new Set());
   const contextWindowUsageByConversationRef = useRef<Map<string, ContextWindowUsage>>(new Map());
   const syncRouterRef = useRef<WebSyncRouter | null>(null);
@@ -491,6 +488,12 @@ export function ChatPage() {
       setOnboardingTasksEmpty(
         pendingOnboardingContextRef.current.tasks.length === 0,
       );
+      if (pendingOnboardingContextRef.current.initialMessage) {
+        pendingOnboardingInitialMessageRef.current = {
+          conversationKey: onboardingDraftKey,
+          content: pendingOnboardingContextRef.current.initialMessage,
+        };
+      }
     }
     void navigate(routes.conversation(onboardingDraftKey), { replace: true });
     return () => {
@@ -659,6 +662,14 @@ export function ChatPage() {
     promptConsumedRef.current = prompt;
     void sendMessage(prompt);
   }, [searchParams, activeConversationKey, sendMessage]);
+
+  // Auto-send onboarding initial message once the draft conversation is ready
+  useEffect(() => {
+    const pending = pendingOnboardingInitialMessageRef.current;
+    if (!pending || !assistantId || activeConversationKey !== pending.conversationKey) return;
+    pendingOnboardingInitialMessageRef.current = null;
+    void sendMessage(pending.content);
+  }, [activeConversationKey, assistantId, sendMessage]);
 
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
   const deepLinkAppConsumed = useRef(false);
@@ -1544,6 +1555,14 @@ export function ChatPage() {
               assistantId={assistantId}
               onClose={() => {
                 useViewerStore.getState().closeDocument();
+              }}
+              onSubmitFeedback={() => {
+                const docState = useViewerStore.getState().openedDocumentState;
+                if (!docState) return;
+                const prompt = `Please review and address my comments on "${docState.documentName}".`;
+                navigate(
+                  `${routes.conversation(docState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
+                );
               }}
             />
             <MobileSubagentDetailOverlay

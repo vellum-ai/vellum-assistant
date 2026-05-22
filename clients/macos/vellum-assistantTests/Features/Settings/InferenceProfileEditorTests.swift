@@ -1348,6 +1348,30 @@ final class InferenceProfileEditorTests: XCTestCase {
         XCTAssertTrue(editor.canSave)
     }
 
+    func testCanSaveIsFalseForNonCodexModelOnSubscriptionConnection() {
+        let connections = [
+            Self.makeConnection(
+                name: "chatgpt-sub",
+                provider: "openai",
+                authType: "oauth_subscription",
+                status: .active
+            ),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "bad-model",
+                provider: "openai",
+                providerConnection: "chatgpt-sub",
+                model: "gpt-5"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertFalse(editor.canSave)
+    }
+
     /// Test helper mirroring `ProvidersSheetTests.makeConnection` so the
     /// two surfaces use identical fixture shapes.
     private static func makeConnection(

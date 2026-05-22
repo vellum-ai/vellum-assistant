@@ -6,9 +6,10 @@ import { client } from "@/generated/api/client.gen.js";
  * Client for the daemon's read-only memory-router simulator endpoint.
  *
  * Mirrors the daemon route at `POST /v1/memory/v2/simulate-router`
- * (operationId `memory_v2_simulate_router`), reached through the platform's
- * runtime proxy at `/v1/assistants/{assistantId}/memory/v2/simulate-router/`.
- * Not in the generated OpenAPI client (the wildcard proxy isn't typed), so
+ * (operationId `memory_v2_simulate_router`), reached through the
+ * gateway's runtime-proxy wildcard at
+ * `/v1/assistants/{assistantId}/memory/v2/simulate-router/`. Not in
+ * the generated OpenAPI client (the wildcard proxy isn't typed), so
  * we call `client.post` directly and carry the response shape locally.
  */
 

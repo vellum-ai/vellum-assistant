@@ -13,12 +13,12 @@ import { client } from "@/generated/api/client.gen.js";
  * doesn't declare a provider/model.
  *
  * `supportsVision` mirrors the daemon catalog's per-model flag and is
- * surfaced here at runtime so the platform repo doesn't have to ship a
- * duplicated copy of that data. The daemon resolves the active model
- * against its catalog and either embeds the flag on the profile entry
- * (`profile.supportsVision`) or exposes a sibling `models` map; both
- * shapes are handled below. When neither is present the value is
- * `undefined` and callers fall back to a permissive default.
+ * surfaced here at runtime so the web client doesn't duplicate it. The
+ * daemon resolves the active model against its catalog and either
+ * embeds the flag on the profile entry (`profile.supportsVision`) or
+ * exposes a sibling `models` map; both shapes are handled below. When
+ * neither is present the value is `undefined` and callers fall back to
+ * a permissive default.
  */
 export interface ActiveProfileModel {
   provider: string;

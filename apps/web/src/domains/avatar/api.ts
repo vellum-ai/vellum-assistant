@@ -1,11 +1,10 @@
 /**
  * Avatar API functions for fetching character components and traits.
  *
- * Targets the gateway-proxied `/v1/assistants/{assistant_id}/...` namespace,
- * matching the platform implementation. The gateway runtime-proxy rewrites
- * `/v1/assistants/<id>/X` to `/v1/X` before forwarding to the daemon, which
- * registers avatar and workspace routes flat (`/v1/avatar/...`,
- * `/v1/workspace/...`).
+ * Targets the gateway-proxied `/v1/assistants/{assistant_id}/...`
+ * namespace. The gateway runtime-proxy rewrites `/v1/assistants/<id>/X`
+ * to `/v1/X` before forwarding to the daemon, which registers avatar
+ * and workspace routes flat (`/v1/avatar/...`, `/v1/workspace/...`).
  */
 import { client } from "@/generated/api/client.gen.js";
 import { assertHasResponse } from "@/lib/api-errors.js";

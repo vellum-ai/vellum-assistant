@@ -189,17 +189,18 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     ctx.contextCompactedAt = conv?.contextCompactedAt ?? null;
   }
 
-  // `/clean` persists a timestamp; messages older than this should skip
-  // metadata rehydration and have any injection prefixes still embedded in
-  // their content stripped, so the cleaned state survives reload and forks.
-  const cleanedAt = conv?.cleanedAt ?? null;
+  // Every injection-strip event (`/clean` or compaction) updates
+  // `historyStrippedAt`. Messages older than this should skip metadata
+  // rehydration and have any injection prefixes still embedded in their
+  // content stripped, so the post-strip view survives reload and forks.
+  const historyStrippedAt = conv?.historyStrippedAt ?? null;
   const slicedDbMessages = dbMessages.slice(ctx.contextCompactedMessageCount);
-  let preCleanCount = 0;
-  if (cleanedAt != null) {
+  let preStrippedCount = 0;
+  if (historyStrippedAt != null) {
     const boundary = slicedDbMessages.findIndex(
-      (m) => m.createdAt >= cleanedAt,
+      (m) => m.createdAt >= historyStrippedAt,
     );
-    preCleanCount = boundary === -1 ? slicedDbMessages.length : boundary;
+    preStrippedCount = boundary === -1 ? slicedDbMessages.length : boundary;
   }
 
   // Mirror the injection-time gate (`shouldExposePersonalMemory` in
@@ -213,7 +214,7 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     isTrustedActor: resolveTrustClass(ctx.trustContext) === "guardian",
   });
   const parsedMessages: Message[] = slicedDbMessages.map((m, index, arr) => {
-    const isPreClean = index < preCleanCount;
+    const isPreStripped = index < preStrippedCount;
     const role = m.role as "user" | "assistant";
     let content: ContentBlock[];
     try {
@@ -233,7 +234,7 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
 
     // Re-inject persisted injection blocks from metadata so it survives
     // conversation reloads (eviction, restart, fork).
-    if (role === "user" && m.metadata && !isPreClean) {
+    if (role === "user" && m.metadata && !isPreStripped) {
       try {
         const meta = JSON.parse(m.metadata);
         const isTail = index === arr.length - 1;
@@ -336,13 +337,13 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
   // Strip pre-clean messages only; post-clean messages keep the fresh
   // injections they were generated with.
   const messagesBeforeRepair =
-    preCleanCount === 0
+    preStrippedCount === 0
       ? parsedMessages
       : [
           ...stripInjectionsForCompaction(
-            parsedMessages.slice(0, preCleanCount),
+            parsedMessages.slice(0, preStrippedCount),
           ),
-          ...parsedMessages.slice(preCleanCount),
+          ...parsedMessages.slice(preStrippedCount),
         ];
 
   const { messages: repairedMessages, stats } =
