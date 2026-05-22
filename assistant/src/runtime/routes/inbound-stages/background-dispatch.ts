@@ -231,8 +231,6 @@ export function processChannelMessageInBackground(
         replyCallbackUrl,
         chatId: externalChatId,
         assistantId,
-        onSegmentDelivered: (count) =>
-          updateDeliveredSegmentCount(eventId, count),
       });
       const observeAgentEvent = (msg: ServerMessage): void => {
         if (
@@ -309,11 +307,8 @@ export function processChannelMessageInBackground(
 
       if (replyCallbackUrl) {
         try {
-          let liveSlackDmSegmentCount = 0;
           if (slackDmTextDelivery) {
             await slackDmTextDelivery.waitForPendingDeliveries();
-            liveSlackDmSegmentCount =
-              slackDmTextDelivery.getDeliveredSegmentCount();
           }
 
           await deliverReplyViaCallback(
@@ -325,10 +320,7 @@ export function processChannelMessageInBackground(
               messageId: replyMessageId,
               sinceMessageId: userMessageId,
               onSegmentDelivered: (count) =>
-                updateDeliveredSegmentCount(
-                  eventId,
-                  liveSlackDmSegmentCount + count,
-                ),
+                updateDeliveredSegmentCount(eventId, count),
             },
           );
           markDeliveryDelivered(eventId);
@@ -460,7 +452,6 @@ export function shouldDeliverSlackDmTextResponses(params: {
 type SlackDmTextDeliveryController = {
   observeEvent: (msg: ServerMessage) => void;
   waitForPendingDeliveries: () => Promise<void>;
-  getDeliveredSegmentCount: () => number;
 };
 
 function createSlackDmTextDeliveryController(params: {
@@ -469,7 +460,6 @@ function createSlackDmTextDeliveryController(params: {
   replyCallbackUrl?: string;
   chatId: string;
   assistantId?: string;
-  onSegmentDelivered?: (deliveredCount: number) => void;
 }): SlackDmTextDeliveryController | undefined {
   const { replyCallbackUrl } = params;
   if (!shouldDeliverSlackDmTextResponses(params) || !replyCallbackUrl) {
@@ -477,7 +467,6 @@ function createSlackDmTextDeliveryController(params: {
   }
 
   let pendingText = "";
-  let deliveredCount = 0;
   let deliveryChain = Promise.resolve();
 
   const flushPendingText = (): void => {
@@ -487,16 +476,23 @@ function createSlackDmTextDeliveryController(params: {
     const deliverableText = text.replace(NO_RESPONSE_INLINE_RE, "").trim();
     if (deliverableText.length === 0) return;
 
-    deliveryChain = deliveryChain.then(async () => {
-      await deliverChannelReply(replyCallbackUrl, {
-        chatId: params.chatId,
-        text: deliverableText,
-        assistantId: params.assistantId,
-        useBlocks: true,
+    deliveryChain = deliveryChain
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: params.chatId,
+            text: deliverableText,
+            assistantId: params.assistantId,
+            useBlocks: true,
+          });
+        } catch (err) {
+          log.warn(
+            { err, chatId: params.chatId },
+            "Failed to deliver intermediate Slack DM assistant text",
+          );
+        }
       });
-      deliveredCount += 1;
-      params.onSegmentDelivered?.(deliveredCount);
-    });
   };
 
   return {
@@ -511,7 +507,6 @@ function createSlackDmTextDeliveryController(params: {
       }
     },
     waitForPendingDeliveries: () => deliveryChain,
-    getDeliveredSegmentCount: () => deliveredCount,
   };
 }
 

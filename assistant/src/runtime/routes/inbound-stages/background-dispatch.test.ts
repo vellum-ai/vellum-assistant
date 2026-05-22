@@ -14,6 +14,10 @@ const storedReplyMessageIds: Array<{
   replyMessageId: string;
 }> = [];
 const replyDeliveryCalls: Array<{ messageId?: string }> = [];
+let deliverChannelReplyImpl: (
+  callbackUrl: string,
+  payload: Record<string, unknown>,
+) => Promise<Record<string, unknown>> = async () => ({ ok: true });
 let deliverReplyViaCallbackImpl: (
   ...args: unknown[]
 ) => Promise<void> = async () => {};
@@ -59,7 +63,7 @@ mock.module("../../gateway-client.js", () => ({
     payload: Record<string, unknown>,
   ) => {
     deliveredChannelReplies.push({ callbackUrl, payload });
-    return { ok: true };
+    return deliverChannelReplyImpl(callbackUrl, payload);
   },
 }));
 
@@ -94,6 +98,7 @@ beforeEach(() => {
   deliveredSegmentCounts.length = 0;
   storedReplyMessageIds.length = 0;
   replyDeliveryCalls.length = 0;
+  deliverChannelReplyImpl = async () => ({ ok: true });
   deliverReplyViaCallbackImpl = async () => {};
 });
 
@@ -389,7 +394,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     expect(replyDeliveryCalls).toEqual([{ messageId: "assistant-msg-final" }]);
     expect(deliveredSegmentCounts).toEqual([
       { eventId: "evt-incremental-text", count: 1 },
-      { eventId: "evt-incremental-text", count: 2 },
     ]);
     expect(storedReplyMessageIds).toEqual([
       {
@@ -463,6 +467,95 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       { messageId: "assistant-msg-channel-final" },
     ]);
     expect(deliveredEvents).toEqual(["evt-channel-final-delivery"]);
+
+    clearThreadTs(conversationId);
+  });
+
+  test("continues later Slack DM text sends after an intermediate delivery failure", async () => {
+    const conversationId = "conv-dm-live-failure-recovery";
+    const channelId = "D-LIVE-FAILURE-RECOVERY";
+    let liveAttempt = 0;
+    deliverChannelReplyImpl = async () => {
+      liveAttempt += 1;
+      if (liveAttempt === 1) throw new Error("temporary slack failure");
+      return { ok: true };
+    };
+    deliverReplyViaCallbackImpl = async (...args: unknown[]) => {
+      const options = args[4] as
+        | { onSegmentDelivered?: (count: number) => void }
+        | undefined;
+      options?.onSegmentDelivered?.(1);
+    };
+
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      _attachmentIds,
+      options,
+    ) => {
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "First live response.",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: { query: "one" },
+        conversationId,
+        toolUseId: "toolu_1",
+      });
+      await flush();
+
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "Second live response.",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: { query: "two" },
+        conversationId,
+        toolUseId: "toolu_2",
+      });
+      options?.onEvent?.({
+        type: "message_complete",
+        conversationId,
+        messageId: "assistant-msg-live-failure-final",
+      });
+      return { messageId: "user-msg-live-failure" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-live-failure-recovery",
+      content: "please do two things",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      chatType: "im",
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+    });
+
+    await flush();
+
+    expect(
+      deliveredChannelReplies
+        .map((entry) => entry.payload.text)
+        .filter(Boolean),
+    ).toEqual(["First live response.", "Second live response."]);
+    expect(replyDeliveryCalls).toEqual([
+      { messageId: "assistant-msg-live-failure-final" },
+    ]);
+    expect(deliveryFailureEvents).toEqual([]);
+    expect(deliveredEvents).toEqual(["evt-live-failure-recovery"]);
+    expect(deliveredSegmentCounts).toEqual([
+      { eventId: "evt-live-failure-recovery", count: 1 },
+    ]);
 
     clearThreadTs(conversationId);
   });
