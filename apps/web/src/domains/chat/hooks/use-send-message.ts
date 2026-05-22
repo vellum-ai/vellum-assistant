@@ -572,7 +572,7 @@ export function useSendMessage({
           }
         }
 
-        await refreshConversations();
+        void refreshConversations();
       } catch (err) {
         Sentry.captureException(err, {
           tags: { context: "send_chat_message" },

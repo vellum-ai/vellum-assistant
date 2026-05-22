@@ -78,6 +78,21 @@ export function useChatContextQuery(
     queryFn: getChatContext,
     enabled: enabled && Boolean(assistantId),
     staleTime: QUERY_STALE_TIME_MS,
+    structuralSharing: (oldData, newData) => {
+      if (!oldData || !newData) return newData ?? oldData;
+      const prevConvs = (oldData as ChatContext).conversations;
+      const nextConvs = (newData as ChatContext).conversations;
+      if (!prevConvs || !nextConvs) return newData;
+      const drafts = prevConvs.filter((c) => c.draft);
+      if (drafts.length === 0) return newData;
+      const serverKeys = new Set(nextConvs.map((c) => c.conversationKey));
+      const activeDrafts = drafts.filter((c) => !serverKeys.has(c.conversationKey));
+      if (activeDrafts.length === 0) return newData;
+      return {
+        ...(newData as ChatContext),
+        conversations: [...activeDrafts, ...nextConvs],
+      };
+    },
   });
 }
 
