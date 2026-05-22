@@ -12,9 +12,12 @@
  *   - Bails to `null` whenever any tool call is awaiting confirmation —
  *     strict-mode permission prompts surface approve/deny UI in the legacy
  *     card and the web-search card path doesn't thread that plumbing.
- *   - Narrows the unified card's wider `state` enum back to
- *     `"loading" | "complete"` since the legacy card doesn't render
- *     `"error"` / `"denied"` chrome.
+ *   - Recomputes the legacy `"loading" | "complete"` state from the raw
+ *     tool-call statuses rather than narrowing the unified `state`. The
+ *     unified state promotes `"denied"` the instant a confirmation is
+ *     rejected, but the underlying tool call can remain `status: "running"`
+ *     until the error `tool_result` arrives, so the legacy card has to stay
+ *     in `"loading"` during that window.
  *
  * The narrow set of historical behaviours above is locked in by
  * `use-web-search-card-data.test.ts`, which now exercises this wrapper as
@@ -35,6 +38,16 @@ import {
   useToolCallCardData,
   type ToolCallCardData,
 } from "@/domains/chat/hooks/use-tool-call-card-data.js";
+
+function deriveLegacyState(
+  toolCalls: ChatMessageToolCall[],
+): "loading" | "complete" {
+  // See the file-level doc — must consult raw `status`, not `unified.state`,
+  // because a denied confirmation can race ahead of the error `tool_result`.
+  return toolCalls.some((tc) => tc.status === "running")
+    ? "loading"
+    : "complete";
+}
 
 // Re-exports preserved for any straggler imports of the old module name.
 export { formatMs, WEB_TOOL_NAMES };
@@ -78,19 +91,20 @@ function shouldUseLegacyWebSearchCard(
  * `StepDescriptor[]` — every step emitted for purely-web groups is already
  * one of the three legacy descriptor kinds by construction (the `tool`
  * variant only appears for non-web tools, filtered out by the guards).
+ *
+ * `state` is recomputed from the raw tool-call statuses rather than derived
+ * from `unified.state` — see {@link deriveLegacyState} for why.
  */
 function narrowToWebSearchCardData(
   unified: ToolCallCardData,
+  toolCalls: ChatMessageToolCall[],
 ): WebSearchCardData {
   return {
     currentStepTitle: unified.currentStepTitle,
     currentStepInfo: unified.currentStepInfo,
     stepCount: unified.stepCount,
     steps: unified.steps as StepDescriptor[],
-    // For purely-web groups, the wider state collapses to the legacy
-    // two-value enum (no denied confirmations, errors collapse to complete
-    // per the legacy contract).
-    state: unified.state === "loading" ? "loading" : "complete",
+    state: deriveLegacyState(toolCalls),
     carouselItems: unified.carouselItems,
   };
 }
@@ -107,6 +121,7 @@ export function computeWebSearchCardData(
   if (!shouldUseLegacyWebSearchCard(toolCalls)) return null;
   return narrowToWebSearchCardData(
     computeToolCallCardData(toolCalls, liveWebActivity, null),
+    toolCalls,
   );
 }
 
@@ -118,5 +133,5 @@ export function useWebSearchCardData(
   // that path renders the legacy card anyway and re-walks the same data.
   const unified = useToolCallCardData(toolCalls, null);
   if (!shouldUseLegacyWebSearchCard(toolCalls)) return null;
-  return narrowToWebSearchCardData(unified);
+  return narrowToWebSearchCardData(unified, toolCalls);
 }
