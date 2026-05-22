@@ -13,6 +13,7 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
 import {
@@ -62,6 +63,10 @@ import {
   isContextTooLarge,
 } from "./conversation-error.js";
 import { isProviderOrderingError } from "./conversation-slash.js";
+import {
+  formatTimeZoneLabel,
+  resolveTurnTimezoneContext,
+} from "./date-context.js";
 import type { ServerMessage } from "./message-protocol.js";
 import type {
   WebSearchMetadata,
@@ -384,6 +389,18 @@ function computeToolUseStatusText(
     return input.activity;
   }
   return `Running ${friendlyToolName(name)}`;
+}
+
+function resolveAssistantReplyTimestampTimezone(
+  ctx: AgentLoopConversationContext,
+): string {
+  const config = getConfig();
+  return resolveTurnTimezoneContext({
+    configuredUserTimeZone: config.ui?.userTimezone ?? null,
+    clientTimezone: ctx.clientTimezone ?? null,
+    detectedTimezone: config.ui?.detectedTimezone ?? null,
+    hostTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  }).effectiveTimezone;
 }
 
 // ── Individual Handlers ──────────────────────────────────────────────
@@ -1043,11 +1060,25 @@ export async function handleMessageComplete(
     const channelId = deps.ctx.trustContext?.requesterChatId;
     if (channelId) {
       const threadTs = getThreadTs(deps.ctx.conversationId);
+      const timestampTimezone = resolveAssistantReplyTimestampTimezone(
+        deps.ctx,
+      );
+      const timestampTimezoneLabel = formatTimeZoneLabel(
+        timestampTimezone,
+        state.turnStartedAt,
+      );
+      const requesterTimezoneLabel =
+        deps.ctx.trustContext?.requesterTimezoneLabel?.trim();
       const partialSlackMeta: Partial<SlackMessageMetadata> = {
         source: "slack",
         eventKind: "message",
         channelId,
         ...(threadTs ? { threadTs } : {}),
+        timestampTimezone,
+        ...(timestampTimezoneLabel ? { timestampTimezoneLabel } : {}),
+        ...(requesterTimezoneLabel
+          ? { speakerTimezoneLabel: requesterTimezoneLabel }
+          : {}),
       };
       assistantChannelMetadata.slackMeta = writeSlackMetadata(
         // `channelTs` is filled in by the post-send reconciliation step in
