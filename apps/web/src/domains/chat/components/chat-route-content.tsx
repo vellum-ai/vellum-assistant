@@ -59,7 +59,7 @@ import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choic
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state.js";
 import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants.js";
@@ -452,6 +452,8 @@ export function ChatRouteContent({
   didOnboarding,
   onboardingConversationKey,
 }: ChatRouteContentProps) {
+  const navigate = useNavigate();
+
   // Destructure grouped props
   const { avatarComponents, avatarTraits, avatarImageUrl } = avatar;
   const {
@@ -1428,8 +1430,9 @@ export function ChatRouteContent({
             surfaceId={openedDocumentState.surfaceId}
             conversationId={openedDocumentState.conversationId}
             onSubmitFeedback={() => {
-              void sendMessage(
-                `Please review and address my comments on "${openedDocumentState.documentName}".`,
+              const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
+              navigate(
+                `${routes.conversation(openedDocumentState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
               );
             }}
           />

@@ -1563,8 +1563,9 @@ export function ChatPage() {
               onSubmitFeedback={() => {
                 const docState = useViewerStore.getState().openedDocumentState;
                 if (!docState) return;
-                void sendMessage(
-                  `Please review and address my comments on "${docState.documentName}".`,
+                const prompt = `Please review and address my comments on "${docState.documentName}".`;
+                navigate(
+                  `${routes.conversation(docState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
                 );
               }}
             />
