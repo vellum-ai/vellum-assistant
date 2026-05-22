@@ -21,6 +21,7 @@ import {
 import { setConversationKey } from "../../memory/conversation-key-store.js";
 import { listConversations } from "../../memory/conversation-queries.js";
 import { getBindingByConversation } from "../../memory/external-conversation-store.js";
+import { sendSlackReply } from "../../messaging/providers/slack/send.js";
 import { getLogger } from "../../util/logger.js";
 import { BadGatewayError, BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -176,6 +177,11 @@ type SlackDetachGatewayResponse = {
   threadTs: string;
 };
 
+const SLACK_DETACH_CONFIRMATION_TEXT =
+  "Muted this Slack thread. I won't respond to further replies here unless you mention me again.";
+const SLACK_ALREADY_DETACHED_CONFIRMATION_TEXT =
+  "This Slack thread was already muted. I won't respond to further replies here unless you mention me again.";
+
 function isSlackDetachGatewayResponse(
   value: unknown,
 ): value is SlackDetachGatewayResponse {
@@ -245,6 +251,28 @@ async function handleSlackDetachCli({ body = {} }: RouteHandlerArgs) {
   if (!isSlackDetachGatewayResponse(gatewayResult)) {
     throw new BadGatewayError(
       "Could not detach Slack thread from assistant listening",
+    );
+  }
+
+  try {
+    await sendSlackReply(
+      gatewayResult.channelId,
+      gatewayResult.detached
+        ? SLACK_DETACH_CONFIRMATION_TEXT
+        : SLACK_ALREADY_DETACHED_CONFIRMATION_TEXT,
+      { threadTs: gatewayResult.threadTs },
+    );
+  } catch (err) {
+    log.warn(
+      {
+        err,
+        channelId: gatewayResult.channelId,
+        threadTs: gatewayResult.threadTs,
+      },
+      "Slack thread detached, but confirmation message failed",
+    );
+    throw new BadGatewayError(
+      "Detached Slack thread but could not send confirmation",
     );
   }
 

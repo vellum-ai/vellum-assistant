@@ -13,6 +13,12 @@ type GatewayCall = {
   timeoutMs?: number;
 };
 
+type SlackReplyCall = {
+  chatId: string;
+  text: string;
+  options?: Record<string, unknown>;
+};
+
 type MockBinding = {
   conversationId: string;
   sourceChannel: string;
@@ -24,6 +30,7 @@ type MockBinding = {
 
 const cliIpcCalls: IpcCall[] = [];
 const gatewayCalls: GatewayCall[] = [];
+const slackReplyCalls: SlackReplyCall[] = [];
 const bindingCalls: string[] = [];
 
 let cliIpcResponse: {
@@ -37,6 +44,7 @@ let gatewayResponse: unknown = {
   channelId: "C123",
   threadTs: "1700000000.000100",
 };
+let slackReplyError: Error | null = null;
 let mockBinding: MockBinding | null = null;
 
 mock.module("../../../ipc/cli-client.js", () => ({
@@ -69,6 +77,25 @@ mock.module("../../../ipc/gateway-client.js", () => ({
     gatewayCalls.push({ method, params, timeoutMs });
     return gatewayResponse;
   },
+}));
+
+mock.module("../../../messaging/providers/slack/send.js", () => ({
+  sendSlackReply: async (
+    chatId: string,
+    text: string,
+    options?: Record<string, unknown>,
+  ) => {
+    slackReplyCalls.push({ chatId, text, options });
+    if (slackReplyError) throw slackReplyError;
+    return { ok: true, ts: "1700000000.000200" };
+  },
+  sendSlackTypingIndicator: async () => "1700000000.000200",
+  sendSlackReaction: async () => {},
+  sendSlackAssistantThreadStatus: async () => {},
+  sendSlackAttachments: async () => ({
+    allFailed: false,
+    failureCount: 0,
+  }),
 }));
 
 mock.module("../../../memory/external-conversation-store.js", () => ({
@@ -120,6 +147,7 @@ let savedSkillContext: string | undefined;
 beforeEach(() => {
   cliIpcCalls.length = 0;
   gatewayCalls.length = 0;
+  slackReplyCalls.length = 0;
   bindingCalls.length = 0;
   cliIpcResponse = { ok: true, result: {} };
   gatewayResponse = {
@@ -127,6 +155,7 @@ beforeEach(() => {
     channelId: "C123",
     threadTs: "1700000000.000100",
   };
+  slackReplyError = null;
   mockBinding = null;
   process.exitCode = 0;
 
@@ -244,6 +273,13 @@ describe("conversation_slack_detach_cli route", () => {
         timeoutMs: 5000,
       },
     ]);
+    expect(slackReplyCalls).toEqual([
+      {
+        chatId: "C123",
+        text: "Muted this Slack thread. I won't respond to further replies here unless you mention me again.",
+        options: { threadTs: "1700000000.000100" },
+      },
+    ]);
   });
 
   test("resolves Slack identifiers from a conversation binding", async () => {
@@ -266,6 +302,35 @@ describe("conversation_slack_detach_cli route", () => {
         threadTs: "1700000000.000100",
       },
     });
+    expect(slackReplyCalls).toEqual([
+      {
+        chatId: "C123",
+        text: "Muted this Slack thread. I won't respond to further replies here unless you mention me again.",
+        options: { threadTs: "1700000000.000100" },
+      },
+    ]);
+  });
+
+  test("sends an already-muted confirmation when the gateway detach is idempotent", async () => {
+    gatewayResponse = {
+      detached: false,
+      channelId: "C123",
+      threadTs: "1700000000.000100",
+    };
+
+    const result = await callSlackDetachRoute({
+      channelId: "C123",
+      threadTs: "1700000000.000100",
+    });
+
+    expect(result).toMatchObject({ detached: false });
+    expect(slackReplyCalls).toEqual([
+      {
+        chatId: "C123",
+        text: "This Slack thread was already muted. I won't respond to further replies here unless you mention me again.",
+        options: { threadTs: "1700000000.000100" },
+      },
+    ]);
   });
 
   test("returns NOT_FOUND when no conversation binding exists", async () => {
@@ -294,6 +359,18 @@ describe("conversation_slack_detach_cli route", () => {
       { channelId: "C123", threadTs: "1700000000.000100" },
       "BAD_GATEWAY",
     );
+    expect(slackReplyCalls).toHaveLength(0);
+  });
+
+  test("reports a gateway error when the confirmation message cannot be sent", async () => {
+    slackReplyError = new Error("Slack bot token not configured");
+
+    await expectRouteError(
+      { channelId: "C123", threadTs: "1700000000.000100" },
+      "BAD_GATEWAY",
+    );
+    expect(gatewayCalls).toHaveLength(1);
+    expect(slackReplyCalls).toHaveLength(1);
   });
 });
 
