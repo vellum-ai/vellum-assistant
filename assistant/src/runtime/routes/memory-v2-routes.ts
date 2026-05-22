@@ -350,7 +350,26 @@ const SimulateRouterOverridesSchema = z
 
 const MemoryV2SimulateRouterParams = z
   .object({
-    query: z.string().min(1, "query must be non-empty"),
+    /**
+     * The just-arrived user turn — the message that would have triggered
+     * the router on a real turn. Required; the router has nothing to
+     * route against without at least a user message.
+     */
+    userMessage: z.string().min(1, "userMessage must be non-empty"),
+    /**
+     * The prior assistant reply. Empty/omitted means "first-turn scenario"
+     * — the router's `<last_turn>` block will skip the `[assistant]:` line
+     * entirely, matching how `runRouterBatch` serializes a conversation
+     * start.
+     */
+    assistantMessage: z.string().optional(),
+    /**
+     * Verbatim `<now>` body. When omitted, the daemon loads the workspace's
+     * live NOW.md so callers that don't care about per-call now context get
+     * production-like behavior for free. Pass an explicit string (including
+     * the empty string) to override.
+     */
+    nowText: z.string().optional(),
     configOverrides: SimulateRouterOverridesSchema.optional(),
     profileOverride: z.string().min(1).optional(),
     /**
@@ -437,7 +456,9 @@ export async function handleSimulateRouter({
 }: RouteHandlerArgs): Promise<MemoryV2SimulateRouterResult> {
   requireMemoryV2Enabled();
   const {
-    query,
+    userMessage,
+    assistantMessage,
+    nowText: rawNowText,
     configOverrides,
     profileOverride,
     routerPromptOverride: rawRouterPromptOverride,
@@ -476,12 +497,16 @@ export async function handleSimulateRouter({
   }
 
   const workspaceDir = getWorkspaceDir();
-  const nowText = await loadNowText(workspaceDir);
+  // Caller can override `<now>` explicitly; otherwise fall back to the
+  // live workspace NOW.md so a UI that doesn't supply nowText still
+  // exercises a production-like context.
+  const nowText =
+    rawNowText !== undefined ? rawNowText : await loadNowText(workspaceDir);
 
   const routerResult = await runRouter({
     workspaceDir,
-    userMessage: query,
-    assistantMessage: "",
+    userMessage,
+    assistantMessage: assistantMessage ?? "",
     nowText,
     priorEverInjected: [],
     config: mergedConfig,
@@ -553,6 +578,20 @@ export interface MemoryV2RouterPromptTemplateResult {
 async function handleGetRouterPromptTemplate(): Promise<MemoryV2RouterPromptTemplateResult> {
   requireMemoryV2Enabled();
   return { template: ROUTER_PROMPT };
+}
+
+// ── Current `<now>` body (default value for the playground editor) ──────
+
+export interface MemoryV2NowTextResult {
+  /** The current rendered NOW.md body (autoloaded essentials/threads/recent). */
+  nowText: string;
+}
+
+async function handleGetNowText(): Promise<MemoryV2NowTextResult> {
+  requireMemoryV2Enabled();
+  const workspaceDir = getWorkspaceDir();
+  const nowText = await loadNowText(workspaceDir);
+  return { nowText };
 }
 
 // ── Route definitions ───────────────────────────────────────────────────
@@ -654,6 +693,16 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Return the bundled router system-prompt template",
     description:
       "Returns the bundled `ROUTER_PROMPT` body with placeholders intact (`{{ASSISTANT_NAME}}`, `{{USER_NAME}}`, `{{PAGE_INDEX}}`). Used by the memory router playground's 'Load default' affordance so users have a known-good starting point when authoring an inline prompt override.",
+    tags: ["memory"],
+  },
+  {
+    operationId: "memory_v2_now_text",
+    method: "GET",
+    endpoint: "memory/v2/now-text",
+    handler: handleGetNowText,
+    summary: "Return the current rendered `<now>` body",
+    description:
+      "Returns the current NOW.md (autoloaded essentials/threads/recent). Used by the memory router playground to seed its `<now>` text area with a production-like default so callers can edit from a realistic baseline.",
     tags: ["memory"],
   },
 ];

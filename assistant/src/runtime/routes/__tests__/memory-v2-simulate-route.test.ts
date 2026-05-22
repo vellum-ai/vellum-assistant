@@ -210,7 +210,7 @@ describe("handleSimulateRouter", () => {
     providerStub = makeProvider([3, 1]);
 
     const result = await handleSimulateRouter({
-      body: { query: "what's relevant?" },
+      body: { userMessage: "what's relevant?" },
     });
 
     expect(result.failureReason).toBeNull();
@@ -228,7 +228,7 @@ describe("handleSimulateRouter", () => {
 
     const result = await handleSimulateRouter({
       body: {
-        query: "test",
+        userMessage: "test",
         configOverrides: {
           tier1_size: 50,
           batch_size: 25,
@@ -249,22 +249,22 @@ describe("handleSimulateRouter", () => {
     providerStub = makeProvider([1, 2]);
 
     await handleSimulateRouter({
-      body: { query: "should not record" },
+      body: { userMessage: "should not record" },
     });
 
     expect(recordCalls).toEqual([]);
   });
 
-  test("rejects an empty query at the schema layer", async () => {
+  test("rejects an empty userMessage at the schema layer", async () => {
     await expect(
-      handleSimulateRouter({ body: { query: "" } }),
+      handleSimulateRouter({ body: { userMessage: "" } }),
     ).rejects.toThrow();
   });
 
   test("rejects negative tier size at the schema layer", async () => {
     await expect(
       handleSimulateRouter({
-        body: { query: "test", configOverrides: { tier1_size: -5 } },
+        body: { userMessage: "test", configOverrides: { tier1_size: -5 } },
       }),
     ).rejects.toThrow();
   });

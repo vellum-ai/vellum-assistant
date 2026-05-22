@@ -21,7 +21,15 @@ public enum MemoryRouterOverride: Equatable, Sendable {
 /// ``MemoryRouterPlaygroundClient`` so the explicit-null branch is handled
 /// in one place instead of leaking through a custom Codable.
 public struct MemoryRouterSimulateInput: Equatable, Sendable {
-    public let query: String
+    /// The just-arrived user turn — what would have triggered the router on
+    /// a real turn. Required.
+    public let userMessage: String
+    /// Prior assistant reply. `nil` or empty means "first-turn scenario"
+    /// and the daemon renders `<last_turn>` without an `[assistant]:` line.
+    public let assistantMessage: String?
+    /// Verbatim `<now>` body. `nil` means "let the daemon load the live
+    /// NOW.md" (production-like default).
+    public let nowText: String?
     public let tier1Size: MemoryRouterOverride
     public let tier2Size: MemoryRouterOverride
     public let batchSize: MemoryRouterOverride
@@ -32,14 +40,18 @@ public struct MemoryRouterSimulateInput: Equatable, Sendable {
     public let routerPromptOverride: String?
 
     public init(
-        query: String,
+        userMessage: String,
+        assistantMessage: String? = nil,
+        nowText: String? = nil,
         tier1Size: MemoryRouterOverride = .inherit,
         tier2Size: MemoryRouterOverride = .inherit,
         batchSize: MemoryRouterOverride = .inherit,
         profileOverride: String? = nil,
         routerPromptOverride: String? = nil
     ) {
-        self.query = query
+        self.userMessage = userMessage
+        self.assistantMessage = assistantMessage
+        self.nowText = nowText
         self.tier1Size = tier1Size
         self.tier2Size = tier2Size
         self.batchSize = batchSize

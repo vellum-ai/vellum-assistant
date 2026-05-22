@@ -108,11 +108,31 @@ public struct MemoryRouterPlaygroundClient: Sendable {
         return decoded.template
     }
 
+    /// Fetches the current `<now>` body (workspace NOW.md) so the playground
+    /// can seed its `<now>` text area with a production-like default.
+    public func fetchCurrentNowText() async throws -> String {
+        let path = "memory/v2/now-text/"
+        let response = try await GatewayHTTPClient.get(path: path, timeout: 15)
+        try throwIfUnsuccessful(response, path: path)
+        struct NowTextResponse: Decodable { let nowText: String }
+        let decoded = try JSONDecoder().decode(
+            NowTextResponse.self,
+            from: response.data
+        )
+        return decoded.nowText
+    }
+
     /// Construct the JSON dict the daemon expects. Built by hand because the
     /// override fields have three states (inherit / value / explicit-null)
     /// and a plain Codable `Encodable` would conflate "absent" with "null".
     private func buildRequestBody(input: MemoryRouterSimulateInput) -> [String: Any] {
-        var body: [String: Any] = ["query": input.query]
+        var body: [String: Any] = ["userMessage": input.userMessage]
+        if let assistant = input.assistantMessage {
+            body["assistantMessage"] = assistant
+        }
+        if let now = input.nowText {
+            body["nowText"] = now
+        }
         var overrides: [String: Any] = [:]
         addOverride(input.tier1Size, key: "tier1_size", into: &overrides)
         addOverride(input.tier2Size, key: "tier2_size", into: &overrides)

@@ -23,8 +23,18 @@ struct SettingsMemoryRouterPlaygroundTab: View {
 
     private let client = MemoryRouterPlaygroundClient()
 
-    @State private var query: String = ""
-    @State private var lastQuery: String = ""
+    // Conversational context — shared between both panes so the comparison
+    // is about config knobs, not about which scenario the router saw.
+    @State private var nowText: String = ""
+    @State private var assistantMessage: String = ""
+    @State private var userMessage: String = ""
+    /// Echo of the user message used for the most recent successful run,
+    /// surfaced in the per-pane summary card.
+    @State private var lastUserMessage: String = ""
+    /// Tracks whether the live NOW.md fetch has already seeded `nowText`.
+    /// Subsequent successful fetches do NOT overwrite the field — the user
+    /// owns it after first load (or after their first edit).
+    @State private var nowTextSeeded: Bool = false
     @State private var paneA = PaneState()
     @State private var paneB = PaneState()
     @State private var availableProfiles: [String] = []
@@ -61,7 +71,7 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 header
-                queryCard
+                contextCard
                 runBothRow
                 if paneA.lastResult != nil && paneB.lastResult != nil {
                     diffLegend
@@ -75,11 +85,11 @@ struct SettingsMemoryRouterPlaygroundTab: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .task {
-            await loadProfiles()
+            await loadInitialContext()
         }
     }
 
-    private func loadProfiles() async {
+    private func loadInitialContext() async {
         do {
             let response = try await client.fetchProfiles()
             availableProfiles = response.profiles
@@ -92,6 +102,21 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         if defaultPromptTemplate.isEmpty {
             if let template = try? await client.fetchDefaultRouterPrompt() {
                 defaultPromptTemplate = template
+            }
+        }
+        if !nowTextSeeded {
+            if let now = try? await client.fetchCurrentNowText() {
+                nowText = now
+                nowTextSeeded = true
+            }
+        }
+    }
+
+    private func reloadLiveNowText() {
+        Task {
+            if let now = try? await client.fetchCurrentNowText() {
+                nowText = now
+                nowTextSeeded = true
             }
         }
     }
@@ -112,19 +137,72 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Shared query
+    // MARK: - Shared conversational context
 
-    private var queryCard: some View {
+    private var contextCard: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Conversational context (shared by both panes)")
+                .font(VFont.titleSmall)
+                .foregroundStyle(VColor.contentDefault)
+            contextField(
+                label: "<now> block",
+                binding: $nowText,
+                minHeight: 140,
+                monospace: true,
+                trailing: AnyView(
+                    Button("Reload live NOW.md") {
+                        reloadLiveNowText()
+                    }
+                    .buttonStyle(.plain)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                )
+            )
+            contextField(
+                label: "Prior [assistant]: reply",
+                binding: $assistantMessage,
+                minHeight: 80,
+                monospace: false,
+                trailing: nil
+            )
+            contextField(
+                label: "Just-arrived [user]: message *",
+                binding: $userMessage,
+                minHeight: 80,
+                monospace: false,
+                trailing: nil
+            )
+        }
+        .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vCard()
+    }
+
+    private func contextField(
+        label: String,
+        binding: Binding<String>,
+        minHeight: CGFloat,
+        monospace: Bool,
+        trailing: AnyView?
+    ) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("Query (shared by both panes)")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentSecondary)
-            TextEditor(text: $query)
-                .font(VFont.bodyMediumDefault)
+            HStack {
+                Text(label)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                Spacer()
+                if let trailing = trailing {
+                    trailing
+                }
+            }
+            TextEditor(text: binding)
+                .font(monospace
+                    ? .system(.body, design: .monospaced)
+                    : VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentDefault)
                 .scrollContentBackground(.hidden)
                 .padding(VSpacing.sm)
-                .frame(minHeight: 80)
+                .frame(minHeight: minHeight)
                 .background(VColor.surfaceBase)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
@@ -132,9 +210,6 @@ struct SettingsMemoryRouterPlaygroundTab: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard()
     }
 
     private var runBothRow: some View {
@@ -406,7 +481,7 @@ struct SettingsMemoryRouterPlaygroundTab: View {
             Text("Summary")
                 .font(VFont.titleSmall)
                 .foregroundStyle(VColor.contentDefault)
-            metaRow(label: "Query", value: lastQuery)
+            metaRow(label: "User message", value: lastUserMessage)
             metaRow(
                 label: "Total candidate pages",
                 value: "\(result.totalCandidatePages)"
@@ -602,12 +677,12 @@ struct SettingsMemoryRouterPlaygroundTab: View {
     }
 
     private func canRun(_ pane: PaneId) -> Bool {
-        !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !userMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !paneState(pane).isRunning
     }
 
     private var canRunBoth: Bool {
-        !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !userMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !paneA.isRunning && !paneB.isRunning
     }
 
@@ -624,8 +699,8 @@ struct SettingsMemoryRouterPlaygroundTab: View {
             paneB.clientError = nil
         }
 
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedQuery.isEmpty else { return }
+        let trimmedUser = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedUser.isEmpty else { return }
 
         let state = paneState(pane)
         let tier1Override: MemoryRouterOverride
@@ -645,7 +720,9 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         let promptTrimmed = state.customPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let routerPromptOverride: String? = promptTrimmed.isEmpty ? nil : state.customPrompt
         let input = MemoryRouterSimulateInput(
-            query: trimmedQuery,
+            userMessage: trimmedUser,
+            assistantMessage: assistantMessage,
+            nowText: nowText,
             tier1Size: tier1Override,
             tier2Size: tier2Override,
             batchSize: batchOverride,
@@ -654,7 +731,7 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         )
 
         setIsRunning(pane: pane, value: true)
-        lastQuery = trimmedQuery
+        lastUserMessage = trimmedUser
         Task {
             defer { setIsRunning(pane: pane, value: false) }
             do {

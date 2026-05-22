@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import { Card } from "@vellum/design-library";
@@ -6,6 +6,7 @@ import { Card } from "@vellum/design-library";
 import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access.js";
 import {
+  useCurrentNowText,
   useDefaultRouterPromptTemplate,
   useLlmProfiles,
   useSimulateMemoryRouter,
@@ -23,7 +24,8 @@ import { useAuthStore } from "@/stores/auth-store.js";
  * config overrides. Hits the daemon's read-only `simulate_memory_router`
  * route — no writes to the EMA event log or activation logs.
  *
- * Two independent result panes share one query input. Each pane carries
+ * Two independent result panes share one conversational context (now,
+ * prior assistant reply, just-arrived user message). Each pane carries
  * its own override fields and runs its own simulation; after both have
  * run, slugs are color-coded by whether they appear in both panes or
  * only one.
@@ -77,8 +79,26 @@ function PlaygroundView(): ReactNode {
   const mutationB = useSimulateMemoryRouter(assistantId);
   const profilesQuery = useLlmProfiles(assistantId);
   const promptTemplateQuery = useDefaultRouterPromptTemplate(assistantId);
+  const nowTextQuery = useCurrentNowText(assistantId);
 
-  const [query, setQuery] = useState("");
+  // Conversational context — shared between both panes so the comparison
+  // is about config knobs, not about which scenario the router saw.
+  const [nowText, setNowText] = useState("");
+  const [assistantMessage, setAssistantMessage] = useState("");
+  const [userMessage, setUserMessage] = useState("");
+  // Track which fields the user has touched so the live NOW.md autoload
+  // doesn't clobber an in-progress edit. The first time the fetch lands,
+  // we seed `nowText`; after that the user owns it.
+  const [nowTextDirty, setNowTextDirty] = useState(false);
+
+  useEffect(() => {
+    if (nowTextDirty) return;
+    const fetched = nowTextQuery.data?.nowText;
+    if (typeof fetched === "string" && nowText === "") {
+      setNowText(fetched);
+    }
+  }, [nowTextQuery.data?.nowText, nowText, nowTextDirty]);
+
   const [overridesA, setOverridesA] = useState<PaneOverrides>(EMPTY_OVERRIDES);
   const [overridesB, setOverridesB] = useState<PaneOverrides>(EMPTY_OVERRIDES);
   const [validationA, setValidationA] = useState<string | null>(null);
@@ -105,7 +125,9 @@ function PlaygroundView(): ReactNode {
         ? overrides.customPrompt
         : undefined;
     mutation.mutate({
-      query: query.trim(),
+      userMessage: userMessage.trim(),
+      assistantMessage,
+      nowText,
       ...(configOverrides ? { configOverrides } : {}),
       ...(profileOverride !== undefined ? { profileOverride } : {}),
       ...(routerPromptOverride !== undefined ? { routerPromptOverride } : {}),
@@ -117,15 +139,33 @@ function PlaygroundView(): ReactNode {
     runPane("B");
   };
 
-  const queryReady = query.trim().length > 0;
-  const canRunA = queryReady && !mutationA.isPending;
-  const canRunB = queryReady && !mutationB.isPending;
+  const userReady = userMessage.trim().length > 0;
+  const canRunA = userReady && !mutationA.isPending;
+  const canRunB = userReady && !mutationB.isPending;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-6 p-6">
         <PageHeader />
-        <QuerySection query={query} onChange={setQuery} />
+        <ConversationContextSection
+          nowText={nowText}
+          onNowTextChange={(v) => {
+            setNowTextDirty(true);
+            setNowText(v);
+          }}
+          onReloadNowText={() => {
+            const fetched = nowTextQuery.data?.nowText;
+            if (typeof fetched === "string") {
+              setNowText(fetched);
+              setNowTextDirty(false);
+            }
+          }}
+          nowTextLoading={nowTextQuery.isLoading}
+          assistantMessage={assistantMessage}
+          onAssistantMessageChange={setAssistantMessage}
+          userMessage={userMessage}
+          onUserMessageChange={setUserMessage}
+        />
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <PaneConfigForm
             paneId="A"
@@ -153,7 +193,7 @@ function PlaygroundView(): ReactNode {
         <div className="flex justify-end">
           <RunBothButton
             onClick={runBoth}
-            disabled={!queryReady || mutationA.isPending || mutationB.isPending}
+            disabled={!userReady || mutationA.isPending || mutationB.isPending}
             isRunning={mutationA.isPending || mutationB.isPending}
           />
         </div>
@@ -163,14 +203,14 @@ function PlaygroundView(): ReactNode {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <PaneOutputColumn
             paneId="A"
-            query={query}
+            userMessage={userMessage}
             mutation={mutationA}
             otherResult={mutationB.data?.response}
             validation={validationA}
           />
           <PaneOutputColumn
             paneId="B"
-            query={query}
+            userMessage={userMessage}
             mutation={mutationB}
             otherResult={mutationA.data?.response}
             validation={validationB}
@@ -235,39 +275,140 @@ function PageHeader(): ReactNode {
   );
 }
 
-function QuerySection({
-  query,
-  onChange,
+function ConversationContextSection({
+  nowText,
+  onNowTextChange,
+  onReloadNowText,
+  nowTextLoading,
+  assistantMessage,
+  onAssistantMessageChange,
+  userMessage,
+  onUserMessageChange,
 }: {
-  query: string;
-  onChange: (value: string) => void;
+  nowText: string;
+  onNowTextChange: (value: string) => void;
+  onReloadNowText: () => void;
+  nowTextLoading: boolean;
+  assistantMessage: string;
+  onAssistantMessageChange: (value: string) => void;
+  userMessage: string;
+  onUserMessageChange: (value: string) => void;
 }): ReactNode {
   return (
     <Card>
-      <div className="flex flex-col gap-1 p-4">
-        <label
-          htmlFor="memory-router-playground-query"
-          className="text-label-default"
-          style={{ color: "var(--content-secondary)" }}
+      <div className="flex flex-col gap-4 p-4">
+        <span
+          className="text-body-medium-default"
+          style={{ color: "var(--content-default)" }}
         >
-          Query (shared by both panes)
-        </label>
-        <textarea
-          id="memory-router-playground-query"
-          value={query}
-          onChange={(e) => onChange(e.target.value)}
+          Conversational context (shared by both panes)
+        </span>
+        <ContextField
+          id="memory-router-playground-now"
+          label="<now> block"
+          value={nowText}
+          onChange={onNowTextChange}
+          rows={6}
+          monospace
+          placeholder={
+            nowTextLoading
+              ? "Loading current NOW.md…"
+              : "Pre-filled with the live NOW.md. Edit to test alternate states."
+          }
+          trailing={
+            <button
+              type="button"
+              onClick={onReloadNowText}
+              disabled={nowTextLoading}
+              className="rounded px-2 py-1 text-label-default"
+              style={{
+                background: "var(--surface-overlay)",
+                color: "var(--content-secondary)",
+                border: "none",
+                cursor: nowTextLoading ? "not-allowed" : "pointer",
+              }}
+            >
+              Reload live NOW.md
+            </button>
+          }
+        />
+        <ContextField
+          id="memory-router-playground-assistant"
+          label="Prior [assistant]: reply"
+          value={assistantMessage}
+          onChange={onAssistantMessageChange}
+          rows={3}
+          placeholder="Leave blank for a first-turn scenario (no prior assistant reply)."
+        />
+        <ContextField
+          id="memory-router-playground-user"
+          label="Just-arrived [user]: message"
+          value={userMessage}
+          onChange={onUserMessageChange}
           rows={3}
           placeholder="e.g. what should we ship next"
-          className="rounded-md border px-3 py-2 text-body-medium-default"
-          style={{
-            borderColor: "var(--border-base)",
-            background: "var(--surface-base)",
-            color: "var(--content-default)",
-            resize: "vertical",
-          }}
+          required
         />
       </div>
     </Card>
+  );
+}
+
+function ContextField({
+  id,
+  label,
+  value,
+  onChange,
+  rows,
+  placeholder,
+  monospace,
+  trailing,
+  required,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  rows: number;
+  placeholder?: string;
+  monospace?: boolean;
+  trailing?: ReactNode;
+  required?: boolean;
+}): ReactNode {
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between">
+        <label
+          htmlFor={id}
+          className="text-label-default"
+          style={{ color: "var(--content-secondary)" }}
+        >
+          {label}
+          {required ? " *" : ""}
+        </label>
+        {trailing}
+      </div>
+      <textarea
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={rows}
+        placeholder={placeholder}
+        className="rounded-md border px-3 py-2 text-body-medium-default"
+        style={{
+          borderColor: "var(--border-base)",
+          background: "var(--surface-base)",
+          color: "var(--content-default)",
+          resize: "vertical",
+          ...(monospace
+            ? {
+                fontFamily:
+                  "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              }
+            : {}),
+        }}
+      />
+    </div>
   );
 }
 
@@ -620,13 +761,13 @@ type SlugDiff = "both" | "only-here";
 
 function PaneOutputColumn({
   paneId,
-  query,
+  userMessage,
   mutation,
   otherResult,
   validation,
 }: {
   paneId: PaneId;
-  query: string;
+  userMessage: string;
   mutation: ReturnType<typeof useSimulateMemoryRouter>;
   otherResult: MemoryRouterSimulateResponse | undefined;
   validation: string | null;
@@ -649,7 +790,7 @@ function PaneOutputColumn({
         <>
           <ResultPanel
             paneId={paneId}
-            query={query}
+            userMessage={userMessage}
             result={data.response}
             otherResult={otherResult}
           />
@@ -755,12 +896,12 @@ function PaneHeader({ paneId }: { paneId: PaneId }): ReactNode {
 
 function ResultPanel({
   paneId,
-  query,
+  userMessage,
   result,
   otherResult,
 }: {
   paneId: PaneId;
-  query: string;
+  userMessage: string;
   result: MemoryRouterSimulateResponse;
   otherResult: MemoryRouterSimulateResponse | undefined;
 }): ReactNode {
@@ -774,7 +915,7 @@ function ResultPanel({
     <div className="flex flex-col gap-4">
       <SummaryCard
         result={result}
-        query={query}
+        userMessage={userMessage}
         otherResult={otherResult}
         counts={counts}
       />
@@ -834,17 +975,17 @@ function countDiff(diff: Map<string, SlugDiff>): DiffCounts {
 
 function SummaryCard({
   result,
-  query,
+  userMessage,
   otherResult,
   counts,
 }: {
   result: MemoryRouterSimulateResponse;
-  query: string;
+  userMessage: string;
   otherResult: MemoryRouterSimulateResponse | undefined;
   counts: DiffCounts;
 }): ReactNode {
   const rows: Array<{ label: string; value: string }> = [
-    { label: "Query", value: query },
+    { label: "User message", value: userMessage },
     {
       label: "Total candidate pages",
       value: result.totalCandidatePages.toLocaleString(),

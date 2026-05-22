@@ -469,7 +469,12 @@ Examples:
               "memory_v2_simulate_router",
               {
                 body: {
-                  query: opts.query,
+                  // The CLI flag is still named `--query` for backwards
+                  // compatibility, but maps to the route's `userMessage`
+                  // field. assistantMessage/nowText use server defaults
+                  // (empty + live NOW.md) so the CLI keeps its existing
+                  // single-turn semantics.
+                  userMessage: opts.query,
                   ...(configOverrides ? { configOverrides } : {}),
                 },
               },

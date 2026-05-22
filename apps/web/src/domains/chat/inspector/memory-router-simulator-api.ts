@@ -16,7 +16,15 @@ import { client } from "@/generated/api/client.gen.js";
 export type RouterSource = "tier1" | "tier2" | `tier3:${number}`;
 
 export interface MemoryRouterSimulateRequest {
-  query: string;
+  /** Just-arrived user turn that would have triggered the router. Required. */
+  userMessage: string;
+  /** Prior assistant reply. Omit/empty for a first-turn scenario. */
+  assistantMessage?: string;
+  /**
+   * Verbatim `<now>` body. Omit to let the daemon load the workspace's live
+   * NOW.md (production-like default).
+   */
+  nowText?: string;
   configOverrides?: {
     tier1_size?: number | null;
     tier2_size?: number | null;
@@ -223,5 +231,50 @@ export function useDefaultRouterPromptTemplate(
     enabled: Boolean(assistantId),
     // The template only changes when the daemon ships, so cache aggressively.
     staleTime: 24 * 60 * 60 * 1000,
+  });
+}
+
+interface NowTextResponse {
+  nowText: string;
+}
+
+async function fetchCurrentNowText(
+  assistantId: string,
+  signal?: AbortSignal
+): Promise<NowTextResponse> {
+  const { data, response } = await client.get<NowTextResponse>({
+    url: "/v1/assistants/{assistant_id}/memory/v2/now-text/",
+    path: { assistant_id: assistantId },
+    signal,
+    throwOnError: false,
+  });
+  if (!response || !response.ok) {
+    throw new SimulateMemoryRouterError(
+      response?.status ?? 0,
+      response?.statusText ?? "Failed to load NOW.md"
+    );
+  }
+  if (!data) {
+    throw new SimulateMemoryRouterError(
+      response.status,
+      "Empty response from now-text endpoint"
+    );
+  }
+  return data;
+}
+
+export function useCurrentNowText(assistantId: string | undefined) {
+  return useQuery({
+    queryKey: ["memory-router-now-text", assistantId] as const,
+    queryFn: async ({ signal }): Promise<NowTextResponse> => {
+      if (!assistantId) {
+        throw new SimulateMemoryRouterError(0, "Missing assistantId");
+      }
+      return fetchCurrentNowText(assistantId, signal);
+    },
+    enabled: Boolean(assistantId),
+    // NOW.md only changes when the assistant rewrites it — refresh on
+    // navigation, not on a timer.
+    staleTime: Infinity,
   });
 }
