@@ -11420,6 +11420,18 @@ paths:
               type: object
               properties: {}
               additionalProperties: false
+  /v1/memory/v2/now-text:
+    get:
+      operationId: memory_v2_nowtext_get
+      summary: Return the current rendered `<now>` body
+      description:
+        Returns the current NOW.md (autoloaded essentials/threads/recent). Used by the memory router playground to
+        seed its `<now>` text area with a production-like default so callers can edit from a realistic baseline.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
   /v1/memory/v2/reembed-skills:
     post:
       operationId: memory_v2_reembedskills_post
@@ -11472,9 +11484,13 @@ paths:
             schema:
               type: object
               properties:
-                query:
+                userMessage:
                   type: string
                   minLength: 1
+                assistantMessage:
+                  type: string
+                nowText:
+                  type: string
                 configOverrides:
                   type: object
                   properties:
@@ -11504,7 +11520,7 @@ paths:
                   type: string
                   maxLength: 1000000
               required:
-                - query
+                - userMessage
               additionalProperties: false
   /v1/memory/v2/validate:
     post:
