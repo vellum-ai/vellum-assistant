@@ -138,6 +138,12 @@ export type SeedInferenceProfilesOptions = {
   isHatch?: boolean;
   /** DB handle for creating user provider connections at hatch time. */
   db?: DrizzleDb;
+  /**
+   * Snapshot of the removed `services.inference.mode` value captured before
+   * workspace migration 076 strips it. Platform upgrades from legacy BYOK need
+   * this because IS_PLATFORM alone would otherwise seed managed profiles.
+   */
+  legacyInferenceMode?: "managed" | "your-own";
 };
 
 /**
@@ -151,9 +157,10 @@ export type SeedInferenceProfilesOptions = {
  *    Platform overlays (`preserveProfileNames`) take precedence.
  *
  * 2. **User profiles** (`custom-balanced`, `custom-quality-optimized`,
- *    `custom-cost-optimized`): materialized once at hatch time for
- *    off-platform installations. Each points at a personal provider
- *    connection backed by the user's API key in CES. Subsequent boots
+ *    `custom-cost-optimized`): materialized at hatch time for off-platform
+ *    installations, and during platform upgrades when the removed legacy
+ *    inference mode explicitly selected BYOK. Each points at a personal
+ *    provider connection backed by the user's API key in CES. Subsequent boots
  *    leave these untouched — the user owns them.
  */
 export function seedInferenceProfiles(
@@ -263,16 +270,21 @@ export function seedInferenceProfiles(
     profiles[name] = next as ProfileEntry;
   }
 
-  // 2. User profiles — only at hatch time for off-platform installations.
+  // 2. User profiles — at hatch time for off-platform installations, and on
+  // platform upgrades where the removed legacy inference mode explicitly said
+  // "your-own".
   let userConnectionName: string | undefined;
-  if (options.isHatch && !isPlatform) {
+  const shouldSeedUserProfiles =
+    (options.isHatch && !isPlatform) ||
+    options.legacyInferenceMode === "your-own";
+  if (shouldSeedUserProfiles) {
     // BYOK hatch: disable canonical managed connections so the picker doesn't
     // surface unusable platform-auth options on day one. If the hatch overlay
     // selected a managed profile, leave that connection active; the user has
     // already chosen managed inference. Runs only here, only at hatch —
     // `seedCanonicalConnections` leaves `status` alone on subsequent boots so
     // a post-hatch user re-enable persists.
-    if (options.db) {
+    if (options.isHatch && !isPlatform && options.db) {
       disableManagedConnectionsForByokHatch(options.db, {
         excludeConnection: hatchSelectedManagedConnection,
       });
@@ -330,6 +342,12 @@ export function seedInferenceProfiles(
     if (options.isHatch) {
       // Hatch = fresh setup. Pick the right default based on platform mode.
       llm.activeProfile = userConnectionName ? "custom-balanced" : "balanced";
+    } else if (
+      options.legacyInferenceMode === "your-own" &&
+      userConnectionName &&
+      !requestedActiveExists
+    ) {
+      llm.activeProfile = "custom-balanced";
     } else if (!requestedActiveExists) {
       llm.activeProfile = "balanced";
     }

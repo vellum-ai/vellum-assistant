@@ -18,6 +18,7 @@ import {
   test,
 } from "bun:test";
 
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 // ---------------------------------------------------------------------------
@@ -81,8 +82,15 @@ import { migrateCreateProviderConnections } from "../memory/migrations/243-provi
 import { migrateProviderConnectionStatusLabel } from "../memory/migrations/244-provider-connection-status-label.js";
 import { migrateProviderConnectionBaseUrlAndModels } from "../memory/migrations/250-provider-connection-base-url-and-models.js";
 import * as schema from "../memory/schema.js";
+import {
+  readLegacyInferenceModeSnapshot,
+  runProviderConnectionsBackfill,
+} from "../providers/inference/backfill.js";
 import { getConnection } from "../providers/inference/connections.js";
+import { credentialKey } from "../security/credential-key.js";
 import { _setStorePath } from "../security/encrypted-store.js";
+import { _resetBackend, setSecureKeyAsync } from "../security/secure-keys.js";
+import { dropServicesInferenceModeMigration } from "../workspace/migrations/076-drop-services-inference-mode.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -92,13 +100,17 @@ function writeConfig(obj: unknown): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(obj, null, 2) + "\n");
 }
 
-function mergeDefaultConfigAndSeedInferenceProfiles(db?: DrizzleDb): void {
+function mergeDefaultConfigAndSeedInferenceProfiles(
+  db?: DrizzleDb,
+  options: { legacyInferenceMode?: "managed" | "your-own" } = {},
+): void {
   const defaultConfigMerge = mergeDefaultWorkspaceConfig();
   seedInferenceProfiles({
     preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
     preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
     isHatch: defaultConfigMerge.hadOverlay,
     db,
+    legacyInferenceMode: options.legacyInferenceMode,
   });
 }
 
@@ -329,6 +341,7 @@ describe("loadConfig startup behavior", () => {
     if (existsSync(updatesPath)) rmSync(updatesPath, { force: true });
     ensureTestDir();
     _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
+    _resetBackend();
     delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
     delete process.env.IS_PLATFORM;
     invalidateConfigCache();
@@ -336,6 +349,7 @@ describe("loadConfig startup behavior", () => {
 
   afterEach(() => {
     _setStorePath(null);
+    _resetBackend();
     delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
     delete process.env.IS_PLATFORM;
     invalidateConfigCache();
@@ -505,6 +519,92 @@ describe("loadConfig startup behavior", () => {
     );
     // No user profiles created on platform.
     expect(config.llm.profiles["custom-balanced"]).toBeUndefined();
+  });
+
+  test("on-platform upgrade preserves legacy BYOK inference mode", async () => {
+    process.env.IS_PLATFORM = "true";
+
+    writeConfig({
+      services: { inference: { mode: "your-own" } },
+      llm: {
+        default: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+        },
+      },
+    });
+
+    const legacyInferenceMode = readLegacyInferenceModeSnapshot();
+    expect(legacyInferenceMode).toBe("your-own");
+
+    const db = createProviderConnectionsDb();
+    dropServicesInferenceModeMigration.run(WORKSPACE_DIR);
+    await runProviderConnectionsBackfill(db, { legacyInferenceMode });
+    mergeDefaultConfigAndSeedInferenceProfiles(db, { legacyInferenceMode });
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.services.inference).toEqual({});
+    expect(raw.llm.default.provider_connection).toBe("anthropic-personal");
+    expect(raw.llm.activeProfile).toBe("custom-balanced");
+    expect(raw.llm.profiles["custom-balanced"].provider).toBe("anthropic");
+    expect(raw.llm.profiles["custom-balanced"].provider_connection).toBe(
+      "anthropic-personal",
+    );
+    expect(raw.llm.profiles.balanced.provider_connection).toBe(
+      "anthropic-managed",
+    );
+
+    expect(getConnection(db, "anthropic-personal")?.auth).toEqual({
+      type: "api_key",
+      credential: credentialKey("anthropic", "api_key"),
+    });
+  });
+
+  test("already-upgraded platform configs recover personal connections from stored keys once", async () => {
+    process.env.IS_PLATFORM = "true";
+
+    await setSecureKeyAsync(
+      credentialKey("anthropic", "api_key"),
+      "sk-ant-test",
+    );
+    writeConfig({
+      services: { inference: {} },
+      llm: {
+        default: {
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          provider_connection: "anthropic-managed",
+        },
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            provider_connection: "anthropic-managed",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    const db = createProviderConnectionsDb();
+    expect(getConnection(db, "anthropic-personal")).toBeNull();
+
+    await runProviderConnectionsBackfill(db);
+
+    expect(getConnection(db, "anthropic-personal")?.auth).toEqual({
+      type: "api_key",
+      credential: credentialKey("anthropic", "api_key"),
+    });
+
+    // Recovery is a one-time upgrade repair. If a user later deletes the
+    // personal connection while leaving the secret in place, the next boot must
+    // not resurrect it.
+    db.delete(schema.providerConnections)
+      .where(eq(schema.providerConnections.name, "anthropic-personal"))
+      .run();
+    await runProviderConnectionsBackfill(db);
+    expect(getConnection(db, "anthropic-personal")).toBeNull();
   });
 
   test("re-hatch from openai to anthropic creates user anthropic profiles off-platform", () => {
@@ -944,6 +1044,7 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     }
     ensureTestDir();
     _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
+    _resetBackend();
     delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
     delete process.env.IS_PLATFORM;
     invalidateConfigCache();
@@ -951,6 +1052,7 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
 
   afterEach(() => {
     _setStorePath(null);
+    _resetBackend();
     delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
     delete process.env.IS_PLATFORM;
     invalidateConfigCache();

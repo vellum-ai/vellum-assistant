@@ -61,7 +61,10 @@ import { installPluginRuntime } from "../plugins/external-api.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
-import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
+import {
+  readLegacyInferenceModeSnapshot,
+  runProviderConnectionsBackfill,
+} from "../providers/inference/backfill.js";
 import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
@@ -393,17 +396,20 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
+    let legacyInferenceMode: "managed" | "your-own" | undefined;
     if (dbReady) {
+      legacyInferenceMode = readLegacyInferenceModeSnapshot();
       await runWorkspaceMigrations(getWorkspaceDir(), WORKSPACE_MIGRATIONS);
       log.info("Daemon startup: workspace migrations complete");
 
       // Seed canonical inference provider_connections and backfill any legacy
       // profiles that pre-date the connection field. Runs after workspace
-      // migrations so migration 076 has already stripped services.inference.mode
-      // before backfill reads config. Idempotent — runs every boot so new
-      // canonicals propagate and manual config.json edits self-heal.
+      // migrations, using the pre-migration mode snapshot so migration 076
+      // can strip services.inference.mode without losing BYOK intent.
+      // Idempotent — runs every boot so new canonicals propagate and manual
+      // config.json edits self-heal.
       try {
-        runProviderConnectionsBackfill(getDb());
+        await runProviderConnectionsBackfill(getDb(), { legacyInferenceMode });
       } catch (err) {
         log.warn(
           { err },
@@ -574,6 +580,7 @@ export async function runDaemon(): Promise<void> {
         preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
         isHatch: defaultConfigMerge.hadOverlay,
         db: dbReady ? getDb() : undefined,
+        legacyInferenceMode,
       });
       log.info("Inference profile seeding complete");
     } catch (err) {
