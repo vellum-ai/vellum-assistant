@@ -394,6 +394,42 @@ export function useTranscriptScroll(
       ) {
         setShowScrollToLatest(classification.showScrollToLatest);
       }
+
+      // Underfilled-viewport kick. The scroll-driven path in
+      // `handleScroll` is the only other place that fires `onLoadOlder`,
+      // and it requires a scroll event to do so. When the initial page
+      // (or a still-too-short prepend) leaves `scrollHeight ===
+      // clientHeight`, the user can't scroll, no scroll event ever
+      // fires, and the transcript gets stuck at the top with
+      // `hasMore=true` and `shouldLoadOlder=true` forever. Kick a load
+      // directly from the items effect to recover.
+      //
+      // The classification already gates on `hasMore && !isLoadingOlder
+      // && hasConversation`, so this won't double-fire or spam after
+      // history is exhausted. As subsequent pages land the effect re-
+      // runs and either kicks again (still underfilled) or stops
+      // (overflow achieved, or `hasMore=false`).
+      //
+      // Anchor handling: during the auto-pin window (conversation
+      // switch / "Go to Newest" / user submit) the content resize
+      // observer will re-pin to latest after the prepend lands, so
+      // saving an anchor here would just be overridden by — and fight
+      // with — auto-pin. Outside the window we save the anchor exactly
+      // like `handleScroll` does so the reader's row stays visually
+      // stable across the prepend.
+      if (classification.shouldLoadOlder) {
+        if (!shouldAutoPinRef.current) {
+          const firstItem = latestRef.current.items[0];
+          if (firstItem) {
+            savedAnchorRef.current = {
+              key: firstItem.key,
+              scrollTop: el.scrollTop,
+              scrollHeight: el.scrollHeight,
+            };
+          }
+        }
+        latestRef.current.onLoadOlder();
+      }
     }
   }, [items, conversationKey, transcriptRef]);
 
