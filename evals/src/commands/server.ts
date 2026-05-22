@@ -205,10 +205,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     const runIdEnc = apiDeleteRun[1];
     const runId = decodeURIComponent(runIdEnc);
     if (!isValidRunId(runId)) {
-      return jsonResponse(
-        { error: `Invalid runId format: ${runId}` },
-        400,
-      );
+      return jsonResponse({ error: `Invalid runId format: ${runId}` }, 400);
     }
     try {
       const runPath = `${RUNS_DIR}/${runId}`;

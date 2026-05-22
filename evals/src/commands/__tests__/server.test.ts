@@ -174,10 +174,7 @@ describe("evals server routing", () => {
 
     // Write a subprocess log file
     const logContent = "Subprocess hatch started at 2026-05-22T13:00:00Z";
-    await writeFile(
-      join(RUNS_DIR, runId, "subprocess-hatch.log"),
-      logContent,
-    );
+    await writeFile(join(RUNS_DIR, runId, "subprocess-hatch.log"), logContent);
 
     // Request the file
     const res = await handleRequest(
@@ -289,9 +286,8 @@ describe("evals server routing", () => {
       profileId: "p3",
       testId: "t1",
     });
-    const { writeRunMetadata, readRunMetadata } = await import(
-      "../../lib/metrics"
-    );
+    const { writeRunMetadata, readRunMetadata } =
+      await import("../../lib/metrics");
     const meta = await readRunMetadata(stillRunning);
     await writeRunMetadata(stillRunning, {
       ...meta!,

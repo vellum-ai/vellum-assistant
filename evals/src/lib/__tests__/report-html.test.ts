@@ -324,10 +324,13 @@ describe("report html", () => {
     // The script is hydration-free: it lives on the document and dispatches
     // on data-delete-run / data-delete-all. If it stops getting injected,
     // the delete buttons revert to silent no-ops (the bug we just fixed).
-    const html = renderReportPage({ kind: "index", sessions: [sessionSummary] });
+    const html = renderReportPage({
+      kind: "index",
+      sessions: [sessionSummary],
+    });
     expect(html).toContain('document.addEventListener("click"');
-    expect(html).toContain('data-delete-run');
-    expect(html).toContain('data-delete-all');
+    expect(html).toContain("data-delete-run");
+    expect(html).toContain("data-delete-all");
     // And critically — no React-synthetic onClick attributes survived
     // server rendering. renderToStaticMarkup strips them but if anyone
     // ever switches to renderToString without hydration it would leak.

@@ -248,16 +248,10 @@ export class VellumAgent implements BaseAgent {
       for (const [idx, command] of setupCommands(this.profile).entries()) {
         const setup = await this.runner.run(
           this.cliCommand,
-          [
-            "exec",
-            this.id,
-            "--",
-            ...shellWords(command),
-          ],
+          ["exec", this.id, "--", ...shellWords(command)],
           {
             logPath:
-              runArtifacts(this.id).runDir +
-              `/subprocess-setup-${idx + 1}.log`,
+              runArtifacts(this.id).runDir + `/subprocess-setup-${idx + 1}.log`,
           },
         );
         assertSuccess(setup, `setup command for profile ${this.profile.id}`);
@@ -316,12 +310,7 @@ export class VellumAgent implements BaseAgent {
       ).catch(() => undefined);
     }
     const logs = await this.runner
-      .run("docker", [
-        "logs",
-        "--tail",
-        "200",
-        this.assistantContainerName,
-      ])
+      .run("docker", ["logs", "--tail", "200", this.assistantContainerName])
       .catch(() => undefined);
     if (logs) {
       const combined =

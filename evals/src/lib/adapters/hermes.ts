@@ -292,10 +292,7 @@ export class HermesAgent implements BaseAgent {
           ...this.daemonArgs,
         ],
         {
-          logPath: join(
-            runArtifacts(this.id).runDir,
-            "subprocess-hatch.log",
-          ),
+          logPath: join(runArtifacts(this.id).runDir, "subprocess-hatch.log"),
         },
       );
       assertSuccess(create, `start Hermes container for ${this.profile.id}`);
