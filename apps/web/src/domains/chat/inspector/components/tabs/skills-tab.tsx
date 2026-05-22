@@ -2,10 +2,11 @@ import { type ReactNode } from "react";
 
 import { Card } from "@vellum/design-library";
 
-import type {
-  LLMContextSection,
-  LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types.js";
+import {
+  aggregateSkillLoads,
+  type SkillLoad,
+} from "@/domains/chat/inspector/skill-load-aggregator.js";
+import type { LLMRequestLogEntry } from "@/domains/chat/types/inspector-types.js";
 
 interface SkillsTabProps {
   logs: LLMRequestLogEntry[];
@@ -21,17 +22,15 @@ interface SkillsTabProps {
  * happened. Answers the question "did skill X get loaded?" at a glance
  * without having to scan every Prompt/Response tab.
  *
- * Data source: walks `entry.responseSections` for every log and picks
- * out sections where the kind is a provider tool-use block (`tool_use`
- * for Anthropic, `function_call` for OpenAI Responses) and the tool
- * name is `skill_load`. The skill id is read from the normalized
- * `data.skill` payload that the daemon emits in
- * `assistant/src/runtime/routes/llm-context-normalization.ts`.
+ * Aggregation logic lives in `skill-load-aggregator.ts` so it can be
+ * unit-tested without pulling in React / design-library.
  */
 export function SkillsTab({ logs, buildCallHref }: SkillsTabProps): ReactNode {
-  const loads = collectSkillLoads(logs);
+  const grouped = aggregateSkillLoads(logs);
+  const totalLoads = grouped.reduce((sum, g) => sum + g.loads.length, 0);
+  const uniqueCount = grouped.length;
 
-  if (loads.length === 0) {
+  if (uniqueCount === 0) {
     return (
       <div className="flex flex-col gap-4 p-4">
         <Card>
@@ -52,10 +51,6 @@ export function SkillsTab({ logs, buildCallHref }: SkillsTabProps): ReactNode {
       </div>
     );
   }
-
-  const grouped = groupBySkill(loads);
-  const totalLoads = loads.length;
-  const uniqueCount = grouped.length;
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -136,80 +131,6 @@ function SkillCard({
       </ul>
     </Card>
   );
-}
-
-// ─── aggregation ─────────────────────────────────────────────────────────────
-
-interface SkillLoad {
-  skill: string;
-  logId: string;
-  createdAt: number;
-  callNumber: number;
-  sectionIndex: number;
-}
-
-interface SkillGroup {
-  skill: string;
-  loads: SkillLoad[];
-}
-
-/**
- * Tool-use kinds that the daemon's normalizer emits for assistant tool
- * calls. `tool_use` covers Anthropic Messages, `function_call` covers
- * OpenAI Responses. Kept in lowercase for case-insensitive matching.
- */
-const TOOL_USE_KINDS = new Set(["tool_use", "function_call"]);
-
-function collectSkillLoads(logs: LLMRequestLogEntry[]): SkillLoad[] {
-  const loads: SkillLoad[] = [];
-  // Call numbers track chronological order — Call 1 is the first LLM
-  // call recorded for the conversation, matching the labeling used in
-  // the call rail.
-  const ordered = [...logs].sort((a, b) => a.createdAt - b.createdAt);
-  ordered.forEach((entry, callIndex) => {
-    const sections = entry.responseSections ?? [];
-    sections.forEach((section, sectionIndex) => {
-      const skill = extractSkillId(section);
-      if (skill == null) return;
-      loads.push({
-        skill,
-        logId: entry.id,
-        createdAt: entry.createdAt,
-        callNumber: callIndex + 1,
-        sectionIndex,
-      });
-    });
-  });
-  return loads;
-}
-
-function extractSkillId(section: LLMContextSection): string | null {
-  const kind = section.kind?.toLowerCase?.() ?? "";
-  if (!TOOL_USE_KINDS.has(kind)) return null;
-  if (section.toolName !== "skill_load") return null;
-  const data = section.data;
-  if (data == null || typeof data !== "object") return null;
-  const value = (data as Record<string, unknown>).skill;
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function groupBySkill(loads: SkillLoad[]): SkillGroup[] {
-  const map = new Map<string, SkillLoad[]>();
-  for (const load of loads) {
-    const existing = map.get(load.skill);
-    if (existing) {
-      existing.push(load);
-    } else {
-      map.set(load.skill, [load]);
-    }
-  }
-  // Sort groups by first-load timestamp ascending — chronological
-  // "what got pulled in over time" reads well for debugging.
-  return Array.from(map.entries())
-    .map(([skill, groupLoads]) => ({ skill, loads: groupLoads }))
-    .sort((a, b) => a.loads[0]!.createdAt - b.loads[0]!.createdAt);
 }
 
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
