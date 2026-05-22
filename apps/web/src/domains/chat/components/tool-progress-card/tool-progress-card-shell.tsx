@@ -236,10 +236,13 @@ export function ToolProgressCardShell({
             bypassDwell={state !== "loading"}
           />
         </span>
-        {/* Hide the pill when there are no steps to summarise — rendering
-            a literal "0 steps" chip reads as broken state. Empty string or
-            a "0 …" prefix both fall through. */}
-        {stepCount && !stepCount.startsWith("0 ") ? (
+        {/* Hide the pill when there is nothing useful to summarise — a
+            literal "0 steps" reads as broken state, and a "1 step" pill is
+            just noise next to the carousel title that already describes
+            the single step. Show the pill only at 2+ steps. */}
+        {stepCount &&
+        !stepCount.startsWith("0 ") &&
+        !stepCount.startsWith("1 ") ? (
           <span
             data-testid="tool-progress-card-step-count-pill"
             className="flex shrink-0 items-center rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[6px] py-[4px]"

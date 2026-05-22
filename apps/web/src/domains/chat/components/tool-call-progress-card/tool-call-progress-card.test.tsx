@@ -67,17 +67,19 @@ describe("ToolCallProgressCard — non-web tool group", () => {
         input: { command: "git status" },
       }),
     ];
-    const { getAllByText, getByTestId } = renderCard(toolCalls);
+    const { getAllByText, getByTestId, queryByText } = renderCard(toolCalls);
     // The unified card mounts the shared shell wrapper.
     expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
     // Title comes from `deriveStepLabel("bash")`, info from the `command`
-    // input, and the step pill counts the single tool call. Title appears
-    // twice — once in the carousel header, once in the auto-expanded
-    // phase header (the body's phase-grouped layout collapses the single
-    // bash step into a "Working (bash)" phase section).
+    // input. Title appears twice — once in the carousel header, once in
+    // the auto-expanded phase header (the body's phase-grouped layout
+    // collapses the single bash step into a "Working (bash)" phase
+    // section).
     expect(getAllByText("Working (bash)").length).toBe(2);
     expect(getAllByText("git status").length).toBeGreaterThanOrEqual(1);
-    expect(getAllByText("1 step").length).toBe(1);
+    // Single-step cards suppress the count pill — it would just duplicate
+    // the carousel title. Pill returns at 2+ steps.
+    expect(queryByText("1 step")).toBeNull();
   });
 
   test("auto-expands while loading so step rows are visible without a click", () => {
@@ -245,9 +247,10 @@ describe("ToolCallProgressCard — subagent_spawn filtering", () => {
         input: { command: "ls" },
       }),
     ];
-    const { getByTestId, getByText, queryByText } = renderCard(toolCalls);
+    const { getByTestId, queryByText } = renderCard(toolCalls);
     expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
-    expect(getByText("1 step")).toBeTruthy();
+    // Single non-spawn tool call → step pill suppressed (only fires at 2+).
+    expect(queryByText(/^\d+ steps?$/)).toBeNull();
     // No "Spawning subagent" row in the body.
     expect(queryByText(/Spawning subagent/i)).toBeNull();
   });

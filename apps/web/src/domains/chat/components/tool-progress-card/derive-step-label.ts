@@ -143,8 +143,27 @@ export function deriveStepLabelFromName(
       };
     }
 
+    case "skill_execute": {
+      // `skill_execute` is the daemon's shim for invoking bundled-skill
+      // tools — the real tool name lives in `input.tool` and its arguments
+      // in `input.input`. Recurse on the inner tool so the card surfaces a
+      // useful label ("Working (bash)", "Spawning subagent", …) instead of
+      // a generic "Using a skill" with no detail. Falls back to the legacy
+      // skill label when the input shape isn't a recognisable wrapper.
+      const innerTool = readString(inputBag, "tool");
+      if (innerTool) {
+        const innerInput = inputBag.input;
+        return deriveStepLabelFromName(innerTool, innerInput);
+      }
+      const skillName = readString(inputBag, "skill", "name", "skillName");
+      return {
+        title: "Using a skill",
+        info: skillName,
+        iconName: "sparkle",
+      };
+    }
+
     case "skill":
-    case "skill_execute":
     case "skill_invoke":
     case "skill_load": {
       const skillName = readString(inputBag, "skill", "name", "skillName");
