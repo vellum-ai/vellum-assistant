@@ -29,6 +29,7 @@ import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { fetchAssistantIdentity } from "@/assistant/identity.js";
+import { consumePendingAssistantName } from "@/domains/onboarding/prechat.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle.js";
 
@@ -48,6 +49,23 @@ export function useAssistantIdentityInit({
   assistantStateKind,
 }: UseAssistantIdentityInitParams) {
   const isActive = assistantStateKind === "active" && Boolean(assistantId);
+
+  // Seed the store with the user-chosen name from onboarding before the
+  // async identity fetch resolves. This is the apps/web equivalent of
+  // platform web's `consumePendingAssistantName()` in AssistantPageClient —
+  // ensures the sidebar shows the chosen name immediately on first render
+  // rather than falling back to "Your Assistant".
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || !isActive) return;
+    seededRef.current = true;
+    const optimisticName = consumePendingAssistantName();
+    if (!optimisticName) return;
+    const { name: current } = useAssistantIdentityStore.getState();
+    if (!current) {
+      useAssistantIdentityStore.getState().setIdentity(optimisticName, null);
+    }
+  }, [isActive]);
 
   const identityQuery = useQuery({
     queryKey: assistantIdentityQueryKey(assistantId),
