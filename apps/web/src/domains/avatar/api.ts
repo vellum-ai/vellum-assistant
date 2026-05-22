@@ -107,6 +107,28 @@ export async function uploadAvatarImage(
   }
 }
 
+export async function deleteAvatar(assistantId: string): Promise<boolean> {
+  try {
+    const [imageResult, traitsResult] = await Promise.all([
+      client.post({
+        url: "/v1/assistants/{assistant_id}/workspace/delete/",
+        path: { assistant_id: assistantId },
+        body: { path: "data/avatar/avatar-image.png" },
+        headers: { "Content-Type": "application/json" },
+      }),
+      client.post({
+        url: "/v1/assistants/{assistant_id}/workspace/delete/",
+        path: { assistant_id: assistantId },
+        body: { path: "data/avatar/character-traits.json" },
+        headers: { "Content-Type": "application/json" },
+      }),
+    ]);
+    return (imageResult.response?.ok ?? false) || (traitsResult.response?.ok ?? false);
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchAvatarImageUrl(
   assistantId: string,
 ): Promise<string | null> {

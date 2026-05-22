@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Image as ImageIcon, Wrench, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Image as ImageIcon, Sparkles, Trash2, Wrench, X } from "lucide-react";
 import {
   type ChangeEvent,
   type KeyboardEvent,
@@ -27,6 +27,8 @@ interface AvatarManagementModalProps {
   customImageUrl: string | null;
   onSaveCharacter: (traits: CharacterTraits) => void;
   onUploadImage: () => void;
+  onGenerateWithAI?: () => void;
+  onDeleteAvatar?: () => void;
 }
 
 export function AvatarManagementModal({
@@ -38,6 +40,8 @@ export function AvatarManagementModal({
   customImageUrl,
   onSaveCharacter,
   onUploadImage,
+  onGenerateWithAI,
+  onDeleteAvatar,
 }: AvatarManagementModalProps) {
   const titleId = useId();
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -123,6 +127,16 @@ export function AvatarManagementModal({
   const handleUploadClick = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
+
+  const handleGenerateWithAI = useCallback(() => {
+    handleClose();
+    onGenerateWithAI?.();
+  }, [handleClose, onGenerateWithAI]);
+
+  const handleDeleteAvatar = useCallback(() => {
+    handleClose();
+    onDeleteAvatar?.();
+  }, [handleClose, onDeleteAvatar]);
 
   const handleCharacterSave = useCallback(
     (savedTraits: CharacterTraits) => {
@@ -264,7 +278,53 @@ export function AvatarManagementModal({
                   </div>
                   <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "var(--content-tertiary)" }} />
                 </button>
+
+                {onGenerateWithAI && (
+                  <button
+                    type="button"
+                    onClick={handleGenerateWithAI}
+                    className="flex w-full cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 transition-colors hover:opacity-80"
+                    style={{
+                      borderColor: "var(--border-base)",
+                      backgroundColor: "var(--surface-lift)",
+                    }}
+                  >
+                    <div
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                      style={{ backgroundColor: "color-mix(in oklab, var(--content-tertiary) 16%, transparent)" }}
+                    >
+                      <Sparkles className="h-4 w-4" style={{ color: "var(--content-secondary)" }} />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p
+                        className="text-body-medium-default"
+                        style={{ color: "var(--content-default)" }}
+                      >
+                        Generate with AI
+                      </p>
+                      <p
+                        className="text-body-small-default"
+                        style={{ color: "var(--content-tertiary)" }}
+                      >
+                        Create an avatar through chat
+                      </p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "var(--content-tertiary)" }} />
+                  </button>
+                )}
               </div>
+
+              {onDeleteAvatar && (
+                <button
+                  type="button"
+                  onClick={handleDeleteAvatar}
+                  className="flex items-center gap-1.5 text-body-small-default transition-colors hover:opacity-70"
+                  style={{ color: "var(--content-tertiary)" }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Reset to default
+                </button>
+              )}
             </div>
           ) : (
             <AvatarCustomizationPanel
