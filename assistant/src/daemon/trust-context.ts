@@ -25,6 +25,12 @@ export interface TrustContext {
   requesterSenderDisplayName?: string;
   /** Guardian-managed display name from the contact record. */
   requesterMemberDisplayName?: string;
+  /** Raw timezone for the requester, when supplied by the source channel. */
+  requesterTimezone?: string;
+  /** Compact timezone label for the requester, when supplied by the source channel. */
+  requesterTimezoneLabel?: string;
+  /** Raw timezone offset in seconds for the requester, when supplied by the source channel. */
+  requesterTimezoneOffsetSeconds?: number;
   /** Canonical external user ID of the requester (the current actor). */
   requesterExternalUserId?: string;
   /** Chat/conversation ID the requester is interacting through. */

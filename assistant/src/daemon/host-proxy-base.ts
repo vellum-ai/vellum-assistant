@@ -154,7 +154,7 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
         detachAbort();
-        pendingInteractions.resolve(requestId);
+        pendingInteractions.resolve(requestId, "cancelled");
         log.warn(
           { requestId, toolName, kind: this.resultPendingKind },
           "Host proxy request timed out",
@@ -168,7 +168,7 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
             clearTimeout(timer);
             this.pending.delete(requestId);
             detachAbort();
-            pendingInteractions.resolve(requestId);
+            pendingInteractions.resolve(requestId, "cancelled");
             try {
               broadcastDynamic(
                 {
@@ -239,7 +239,7 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
         clearTimeout(timer);
         this.pending.delete(requestId);
         detachAbort();
-        pendingInteractions.resolve(requestId);
+        pendingInteractions.resolve(requestId, "cancelled");
         log.warn(
           { requestId, toolName, kind: this.resultPendingKind, err },
           "Host proxy send failed",
@@ -285,7 +285,7 @@ export abstract class HostProxyBase<TRequest, TResultPayload> {
     for (const [requestId, entry] of this.pending) {
       clearTimeout(entry.timer);
       entry.detachAbort();
-      pendingInteractions.resolve(requestId);
+      pendingInteractions.resolve(requestId, "cancelled");
       try {
         broadcastDynamic(
           {

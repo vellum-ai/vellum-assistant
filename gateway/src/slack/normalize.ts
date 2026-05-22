@@ -1,4 +1,5 @@
 import { renderSlackTextForModel } from "@vellumai/slack-text";
+import { createHash } from "node:crypto";
 import type { GatewayConfig } from "../config.js";
 import { fetchImpl } from "../fetch.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
@@ -11,7 +12,19 @@ import type { GatewayInboundEvent } from "../types.js";
 interface SlackUserInfo {
   displayName: string;
   username: string;
+  timezone?: string;
+  timezoneLabel?: string;
+  timezoneOffsetSeconds?: number;
 }
+
+export type SlackUserActorFields = Pick<
+  SlackUserInfo,
+  | "displayName"
+  | "username"
+  | "timezone"
+  | "timezoneLabel"
+  | "timezoneOffsetSeconds"
+>;
 
 interface SlackChannelInfo {
   name: string;
@@ -47,6 +60,16 @@ const inFlightChannelFetches = new Map<
   string,
   Promise<SlackChannelInfo | undefined>
 >();
+
+function slackUserCacheKey(userId: string, botToken: string): string {
+  const authScope = createHash("sha256").update(botToken).digest("hex");
+  return `${authScope}:${userId}`;
+}
+
+function slackChannelCacheKey(channelId: string, botToken: string): string {
+  const authScope = createHash("sha256").update(botToken).digest("hex");
+  return `${authScope}:${channelId}`;
+}
 
 function evictExpired<T>(cache: Map<string, CacheEntry<T>>): void {
   const now = Date.now();
@@ -106,11 +129,12 @@ export async function resolveSlackUser(
   userId: string,
   botToken: string,
 ): Promise<SlackUserInfo | undefined> {
-  const cached = cacheGet(userInfoCache, userId);
+  const cacheKey = slackUserCacheKey(userId, botToken);
+  const cached = cacheGet(userInfoCache, cacheKey);
   if (cached) return cached;
 
   // If another caller is already fetching this user, reuse that promise
-  const existing = inFlightUserFetches.get(userId);
+  const existing = inFlightUserFetches.get(cacheKey);
   if (existing) return existing;
 
   const fetchPromise = (async (): Promise<SlackUserInfo | undefined> => {
@@ -129,6 +153,9 @@ export async function resolveSlackUser(
         user?: {
           name?: string;
           real_name?: string;
+          tz?: string;
+          tz_label?: string;
+          tz_offset?: number;
           profile?: { display_name?: string; real_name?: string };
         };
       };
@@ -141,11 +168,27 @@ export async function resolveSlackUser(
         data.user.name ||
         userId;
       const username = data.user.name || userId;
+      const timezone =
+        typeof data.user.tz === "string" ? data.user.tz : undefined;
+      const timezoneLabel =
+        typeof data.user.tz_label === "string" ? data.user.tz_label : undefined;
+      const timezoneOffsetSeconds =
+        typeof data.user.tz_offset === "number"
+          ? data.user.tz_offset
+          : undefined;
 
-      const info: SlackUserInfo = { displayName, username };
+      const info: SlackUserInfo = {
+        displayName,
+        username,
+        ...(timezone !== undefined ? { timezone } : {}),
+        ...(timezoneLabel !== undefined ? { timezoneLabel } : {}),
+        ...(timezoneOffsetSeconds !== undefined
+          ? { timezoneOffsetSeconds }
+          : {}),
+      };
       cacheSet(
         userInfoCache,
-        userId,
+        cacheKey,
         info,
         USER_CACHE_TTL_MS,
         USER_CACHE_MAX_SIZE,
@@ -156,11 +199,11 @@ export async function resolveSlackUser(
     }
   })();
 
-  inFlightUserFetches.set(userId, fetchPromise);
+  inFlightUserFetches.set(cacheKey, fetchPromise);
   try {
     return await fetchPromise;
   } finally {
-    inFlightUserFetches.delete(userId);
+    inFlightUserFetches.delete(cacheKey);
   }
 }
 
@@ -175,10 +218,11 @@ export async function resolveSlackChannel(
   channelId: string,
   botToken: string,
 ): Promise<SlackChannelInfo | undefined> {
-  const cached = cacheGet(channelInfoCache, channelId);
+  const cacheKey = slackChannelCacheKey(channelId, botToken);
+  const cached = cacheGet(channelInfoCache, cacheKey);
   if (cached) return cached;
 
-  const existing = inFlightChannelFetches.get(channelId);
+  const existing = inFlightChannelFetches.get(cacheKey);
   if (existing) return existing;
 
   const fetchPromise = (async (): Promise<SlackChannelInfo | undefined> => {
@@ -207,7 +251,7 @@ export async function resolveSlackChannel(
       const info: SlackChannelInfo = { name };
       cacheSet(
         channelInfoCache,
-        channelId,
+        cacheKey,
         info,
         CHANNEL_CACHE_TTL_MS,
         CHANNEL_CACHE_MAX_SIZE,
@@ -218,11 +262,11 @@ export async function resolveSlackChannel(
     }
   })();
 
-  inFlightChannelFetches.set(channelId, fetchPromise);
+  inFlightChannelFetches.set(cacheKey, fetchPromise);
   try {
     return await fetchPromise;
   } finally {
-    inFlightChannelFetches.delete(channelId);
+    inFlightChannelFetches.delete(cacheKey);
   }
 }
 
@@ -235,8 +279,9 @@ export function resolveSlackUserSync(
   userId: string,
   botToken: string,
 ): SlackUserInfo | undefined {
-  const cached = cacheGet(userInfoCache, userId);
-  if (!cached && !inFlightUserFetches.has(userId)) {
+  const cacheKey = slackUserCacheKey(userId, botToken);
+  const cached = cacheGet(userInfoCache, cacheKey);
+  if (!cached && !inFlightUserFetches.has(cacheKey)) {
     // Fire-and-forget: warm the cache for next time
     resolveSlackUser(userId, botToken).catch(() => {});
   }
@@ -395,6 +440,22 @@ function renderSlackInboundText(
   });
 }
 
+export function slackUserActorFields(
+  userInfo: SlackUserInfo,
+): SlackUserActorFields {
+  return {
+    displayName: userInfo.displayName,
+    username: userInfo.username,
+    ...(userInfo.timezone !== undefined ? { timezone: userInfo.timezone } : {}),
+    ...(userInfo.timezoneLabel !== undefined
+      ? { timezoneLabel: userInfo.timezoneLabel }
+      : {}),
+    ...(userInfo.timezoneOffsetSeconds !== undefined
+      ? { timezoneOffsetSeconds: userInfo.timezoneOffsetSeconds }
+      : {}),
+  };
+}
+
 function extractSlackAttachments(files: SlackFile[] | undefined): Array<{
   type: "image" | "document";
   fileId: string;
@@ -505,10 +566,7 @@ export function normalizeSlackDirectMessage(
       },
       actor: {
         actorExternalId: event.user,
-        ...(userInfo && {
-          displayName: userInfo.displayName,
-          username: userInfo.username,
-        }),
+        ...(userInfo ? slackUserActorFields(userInfo) : {}),
       },
       source: {
         updateId: eventId,
@@ -573,10 +631,7 @@ export function normalizeSlackChannelMessage(
       },
       actor: {
         actorExternalId: event.user,
-        ...(userInfo && {
-          displayName: userInfo.displayName,
-          username: userInfo.username,
-        }),
+        ...(userInfo ? slackUserActorFields(userInfo) : {}),
       },
       source: {
         updateId: eventId,
@@ -638,10 +693,7 @@ export function normalizeSlackAppMention(
       },
       actor: {
         actorExternalId: event.user,
-        ...(userInfo && {
-          displayName: userInfo.displayName,
-          username: userInfo.username,
-        }),
+        ...(userInfo ? slackUserActorFields(userInfo) : {}),
       },
       source: {
         updateId: eventId,

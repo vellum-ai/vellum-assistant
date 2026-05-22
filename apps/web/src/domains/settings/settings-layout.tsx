@@ -49,16 +49,12 @@ export function SettingsLayout() {
   );
 
   const pageTitle = useMemo(() => {
+    if (pathname === routes.settings.root) return "Settings";
     const match = SETTINGS_SIDEBAR.find(
       (item) =>
         pathname === item.href || pathname.startsWith(item.href + "/"),
     );
     if (match) return match.label;
-    // Index route (/assistant/settings) renders GeneralPage but doesn't
-    // match any sidebar href — use the first sidebar item's label.
-    if (pathname === routes.settings.root) {
-      return SETTINGS_SIDEBAR[0]?.label ?? "Settings";
-    }
     return "Settings";
   }, [pathname]);
 

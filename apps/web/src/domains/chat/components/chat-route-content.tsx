@@ -31,6 +31,7 @@ import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-ca
 import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card.js";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh.js";
 import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages.js";
+import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters.js";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript.js";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll.js";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
@@ -58,8 +59,7 @@ import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choic
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 
-import { Link } from "react-router";
-import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters.js";
+import { Link, useNavigate } from "react-router";
 
 import { buildEditAppGreeting, buildEditAppStarters } from "@/domains/chat/utils/edit-app-empty-state.js";
 import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constants.js";
@@ -72,9 +72,15 @@ import { useInteractionStore } from "@/domains/interactions/interaction-store.js
 import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
-import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
+import type { TranscriptItem, TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination.js";
-import { getThinkingStatusText, isSendDisabled, shouldShowThinkingIndicator, type UIContext } from "@/domains/messaging/turn-selectors.js";
+import {
+  canStopGeneration,
+  getThinkingStatusText,
+  isSendDisabled,
+  shouldShowThinkingIndicator,
+  type UIContext,
+} from "@/domains/messaging/turn-selectors.js";
 import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
 
 import type { MainView, OpenedAppState, OpenedDocumentState } from "@/stores/viewer-store.js";
@@ -86,7 +92,7 @@ import { haptic } from "@/utils/haptics.js";
 import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure.js";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor.js";
-import { isSending, type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
+import { type TurnState, useTurnStore } from "@/domains/messaging/turn-store.js";
 import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types.js";
 import type { CharacterComponents, CharacterTraits } from "@/domains/avatar/types.js";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner.js";
@@ -221,8 +227,15 @@ export interface ChatRouteRefs {
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-
   reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
+  /** Ref populated by ChatRouteContent with the current transcript items for the debug API. */
+  transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
+  /**
+   * Imperative handle to the mounted `<Transcript />`. Owned by ChatPage
+   * so `useChatDebugApi` (installed there) can read scroll geometry
+   * directly via `transcriptRef.current.getScrollElement()`.
+   */
+  transcriptRef: RefObject<TranscriptHandle | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -281,9 +294,6 @@ export interface ChatRouteContentProps {
 
   // Avatar
   avatar: AvatarData;
-
-  // Starters
-  conversationStarters: ConversationStarter[];
 
   // Context window
   contextWindowUsage: ContextWindowUsage | null;
@@ -374,7 +384,7 @@ export interface ChatRouteContentProps {
 export function ChatRouteContent({
   assistantId,
   assistantState,
-  assistantIdentity: _assistantIdentity,
+  assistantIdentity,
   chatPullToRefreshEnabled,
   deployToVercel,
   doctor: doctorEnabled,
@@ -400,7 +410,6 @@ export function ChatRouteContent({
   saveDraft,
   clearDraft,
   avatar,
-  conversationStarters,
   contextWindowUsage,
   compactionCircuitOpenUntil,
   setCompactionCircuitOpenUntil,
@@ -443,6 +452,8 @@ export function ChatRouteContent({
   didOnboarding,
   onboardingConversationKey,
 }: ChatRouteContentProps) {
+  const navigate = useNavigate();
+
   // Destructure grouped props
   const { avatarComponents, avatarTraits, avatarImageUrl } = avatar;
   const {
@@ -506,6 +517,11 @@ export function ChatRouteContent({
 
     reconcileAfterNextStreamOpenRef: _reconcileAfterNextStreamOpenRef,
   } = refs;
+
+  // -------------------------------------------------------------------------
+  // Conversation starters (only needed for chat empty-state)
+  // -------------------------------------------------------------------------
+  const { starters: conversationStarters } = useConversationStarters(assistantId);
 
   // -------------------------------------------------------------------------
   // Turn state (read from Zustand store)
@@ -592,8 +608,10 @@ export function ChatRouteContent({
     [messages],
   );
 
+  const hasStreamingAssistantMessage = messages.some((m) => m.isStreaming);
+
   const uiContext: UIContext = {
-    hasStreamingAssistantMessage: messages.some((m) => m.isStreaming),
+    hasStreamingAssistantMessage,
     hasPendingSecret: !!pendingSecret,
     hasPendingConfirmation: !!pendingConfirmation,
     hasPendingQuestion: !!pendingQuestion,
@@ -605,9 +623,8 @@ export function ChatRouteContent({
 
   const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
   const isAssistantStreaming =
-    showThinking || messages.some((m) => m.isStreaming);
-  const canStopGenerating =
-    isSending(turnState) && turnState.phase !== "awaiting_user_input";
+    showThinking || hasStreamingAssistantMessage;
+  const canStopGenerating = canStopGeneration(turnState, uiContext);
 
   const diskPressureChatBlockReason = getDiskPressureChatBlockReason({
     monitorEnabled: diskPressure.diskPressureMonitorEnabled,
@@ -680,7 +697,6 @@ export function ChatRouteContent({
   // Child-owned refs
   // -------------------------------------------------------------------------
 
-  const transcriptRef = useRef<TranscriptHandle>(null);
   const shouldFocusInputRef = useRef(false);
 
   // -------------------------------------------------------------------------
@@ -733,7 +749,7 @@ export function ChatRouteContent({
   }, [historyPagination.fetchOlderPage]);
 
   // -------------------------------------------------------------------------
-  // Transcript items
+  // Transcript items (projection of chat state onto flat list)
   // -------------------------------------------------------------------------
 
   const thinkingLabel = getThinkingStatusText(turnState);
@@ -775,12 +791,15 @@ export function ChatRouteContent({
     ],
   );
 
+  // Populate the ref for the debug API (parent reads this synchronously).
+  refs.transcriptItemsRef.current = transcriptItems;
+
   // -------------------------------------------------------------------------
   // Scroll coordination
   // -------------------------------------------------------------------------
 
   const scrollCoordinator = useTranscriptScroll({
-    transcriptRef,
+    transcriptRef: refs.transcriptRef,
     items: transcriptItems,
     conversationKey: activeConversationKey,
     hasMore: transcriptPagination.hasMore,
@@ -789,14 +808,14 @@ export function ChatRouteContent({
   });
 
   useEffect(() => {
-    const el = transcriptRef.current?.getScrollElement();
+    const el = refs.transcriptRef.current?.getScrollElement();
     if (!el) return;
     const handler = (e: Event) => scrollCoordinator.handleScroll(e);
     el.addEventListener("scroll", handler, { passive: true });
     return () => {
       el.removeEventListener("scroll", handler);
     };
-  }, [scrollCoordinator, activeConversationKey, transcriptItems]);
+  }, [scrollCoordinator, activeConversationKey, transcriptItems, refs.transcriptRef]);
 
   const handleScrollToLatest = useCallback(() => {
     scrollCoordinator.scrollToLatest({ behavior: "smooth" });
@@ -1043,6 +1062,7 @@ export function ChatRouteContent({
 
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
+    assistantDisplayName: assistantIdentity?.name?.trim() || undefined,
     expandedToolCallIds: expandedToolCallIdsRef.current,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
     onOpenApp: handleOpenApp,
@@ -1127,6 +1147,11 @@ export function ChatRouteContent({
         : undefined,
     onPullRefresh: handlePullRefresh,
     pullRefreshEnabled: chatPullToRefreshEnabled && touchSupported,
+    scrollCoordinatorState: {
+      isPinnedToLatest: scrollCoordinator.isPinnedToLatest,
+      showScrollToLatest: scrollCoordinator.showScrollToLatest,
+      shouldLoadOlder: false, // Not exposed by scroll coordinator; safe default
+    },
     subagentEntries,
     onSubagentClick,
     onStopSubagent,
@@ -1208,7 +1233,7 @@ export function ChatRouteContent({
     messageCount: messages.length,
     showEmptyState: isEmptyConversation,
     emptyStateProps: chatEmptyStateProps,
-    transcriptRef,
+    transcriptRef: refs.transcriptRef,
     transcriptProps: chatTranscriptProps,
   };
 
@@ -1404,6 +1429,12 @@ export function ChatRouteContent({
             assistantId={assistantId}
             surfaceId={openedDocumentState.surfaceId}
             conversationId={openedDocumentState.conversationId}
+            onSubmitFeedback={() => {
+              const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
+              navigate(
+                `${routes.conversation(openedDocumentState.conversationId)}?prompt=${encodeURIComponent(prompt)}`,
+              );
+            }}
           />
         }
       />

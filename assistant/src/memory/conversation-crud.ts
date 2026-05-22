@@ -190,6 +190,7 @@ export interface ConversationRow {
   contextSummary: string | null;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
+  historyStrippedAt: number | null;
   slackContextCompactionWatermarkTs: string | null;
   slackContextCompactionWatermarkAt: number | null;
   conversationType: string;
@@ -223,6 +224,7 @@ export const parseConversation = createRowMapper<
   contextSummary: "contextSummary",
   contextCompactedMessageCount: "contextCompactedMessageCount",
   contextCompactedAt: "contextCompactedAt",
+  historyStrippedAt: "historyStrippedAt",
   slackContextCompactionWatermarkTs: "slackContextCompactionWatermarkTs",
   slackContextCompactionWatermarkAt: "slackContextCompactionWatermarkAt",
   conversationType: "conversationType",
@@ -604,6 +606,17 @@ export function forkConversation(params: {
     copyBoundaryIndex >= 0
       ? sourceMessages.slice(0, copyBoundaryIndex + 1)
       : ([] as MessageRow[]);
+
+  // Inherit the history-strip marker only when the fork boundary is at-or-
+  // after the strip event. Pre-strip forks branch from history that pre-
+  // dates the strip, so the marker would be a no-op and is misleading to
+  // copy.
+  const sourceHistoryStrippedAt = sourceConversation.historyStrippedAt ?? null;
+  const boundaryMessageCreatedAt = messagesToCopy.at(-1)?.createdAt ?? null;
+  const inheritsHistoryStrippedAt =
+    sourceHistoryStrippedAt != null &&
+    boundaryMessageCreatedAt != null &&
+    boundaryMessageCreatedAt >= sourceHistoryStrippedAt;
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
   const forkTitle =
     params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
@@ -649,6 +662,9 @@ export function forkConversation(params: {
           : null,
         slackContextCompactionWatermarkAt: preserveSourceCompactionState
           ? sourceConversation.slackContextCompactionWatermarkAt
+          : null,
+        historyStrippedAt: inheritsHistoryStrippedAt
+          ? sourceHistoryStrippedAt
           : null,
         inferenceProfile: sourceConversation.inferenceProfile,
       })
@@ -1438,6 +1454,20 @@ export function updateConversationContextWindow(
     .run();
 }
 
+export function setConversationHistoryStrippedAt(
+  id: string,
+  historyStrippedAt: number | null,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      historyStrippedAt,
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, id))
+    .run();
+}
+
 export function updateConversationSlackContextWatermark(
   id: string,
   watermarkTs: string,
@@ -1881,44 +1911,6 @@ export function updateMessageMetadata(
     .set({ metadata: JSON.stringify({ ...existing, ...updates }) })
     .where(eq(messages.id, messageId))
     .run();
-}
-
-/**
- * Bulk-remove the metadata fields that back the blocks stripped by
- * `stripInjectionsForCompaction` — currently `pkbSystemReminderBlock`
- * (`<system_reminder>`), `nowScratchpadBlock` (`<NOW.md …>`),
- * `pkbContextBlock` (`<knowledge_base>`), and `memoryV2StaticBlock`
- * (the static `<memory>\n…</memory>` block matched by the `<memory>\n`
- * prefix in `RUNTIME_INJECTION_PREFIXES`). Called from compaction-strip
- * sites so post-restart rehydration stays consistent with the in-memory
- * state produced by `stripInjectionsForCompaction` (which removes those
- * tags from live messages but cannot touch the DB). Fields backing
- * blocks that are intentionally NOT stripped (`turnContextBlock`,
- * `workspaceBlock`, `memoryInjectedBlock`) are preserved.
- */
-export function clearStrippedInjectionMetadataForConversation(
-  conversationId: string,
-): void {
-  rawRun(
-    `UPDATE messages
-        SET metadata = json_remove(
-          metadata,
-          '$.pkbSystemReminderBlock',
-          '$.nowScratchpadBlock',
-          '$.pkbContextBlock',
-          '$.memoryV2StaticBlock'
-        )
-      WHERE conversation_id = ?
-        AND role = 'user'
-        AND metadata IS NOT NULL
-        AND (
-          json_extract(metadata, '$.pkbSystemReminderBlock') IS NOT NULL
-          OR json_extract(metadata, '$.nowScratchpadBlock') IS NOT NULL
-          OR json_extract(metadata, '$.pkbContextBlock') IS NOT NULL
-          OR json_extract(metadata, '$.memoryV2StaticBlock') IS NOT NULL
-        )`,
-    conversationId,
-  );
 }
 
 /**

@@ -8,6 +8,8 @@ interface MobileDocumentOverlayProps {
   assistantId: string | null;
   /** Closes the overlay (resets `openedDocumentState` upstream). */
   onClose: () => void;
+  /** Called when the user clicks "Submit Feedback" in the comment panel. */
+  onSubmitFeedback?: () => void;
 }
 
 /**
@@ -26,6 +28,7 @@ export function MobileDocumentOverlay({
   openedDocumentState,
   assistantId,
   onClose,
+  onSubmitFeedback,
 }: MobileDocumentOverlayProps) {
   if (!openedDocumentState || !assistantId) return null;
 
@@ -38,6 +41,7 @@ export function MobileDocumentOverlay({
         assistantId={assistantId}
         surfaceId={openedDocumentState.surfaceId}
         conversationId={openedDocumentState.conversationId}
+        onSubmitFeedback={onSubmitFeedback}
       />
     </div>
   );

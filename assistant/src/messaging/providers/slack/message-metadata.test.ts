@@ -1,12 +1,50 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildSlackTimezoneMetadata,
+  formatSlackTimezoneLabel,
   mergeSlackMetadata,
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "./message-metadata.js";
+
+describe("formatSlackTimezoneLabel", () => {
+  test("uses compact common labels for IANA timezones", () => {
+    expect(formatSlackTimezoneLabel("America/Denver")).toBe("MT");
+    expect(formatSlackTimezoneLabel("America/New_York")).toBe("ET");
+  });
+
+  test("compacts persisted Slack profile labels before falling back to timezone", () => {
+    expect(
+      formatSlackTimezoneLabel("America/New_York", {
+        persistedLabel: "Eastern Time",
+      }),
+    ).toBe("ET");
+  });
+});
+
+describe("buildSlackTimezoneMetadata", () => {
+  test("copies only populated Slack timezone fields", () => {
+    expect(
+      buildSlackTimezoneMetadata({
+        actorTimezone: " America/New_York ",
+        actorTimezoneLabel: " ET ",
+        actorTimezoneOffsetSeconds: -18_000,
+        timestampTimezone: "America/New_York",
+        timestampTimezoneLabel: "",
+        speakerTimezoneLabel: " Eastern Time ",
+      }),
+    ).toEqual({
+      actorTimezone: "America/New_York",
+      actorTimezoneLabel: "ET",
+      actorTimezoneOffsetSeconds: -18_000,
+      timestampTimezone: "America/New_York",
+      speakerTimezoneLabel: "Eastern Time",
+    });
+  });
+});
 
 describe("readSlackMetadata", () => {
   test("tolerates null and undefined", () => {

@@ -136,7 +136,7 @@ export class HostFileProxy {
       let detachAbort: () => void = () => {};
 
       const timer = setTimeout(() => {
-        pendingInteractions.resolve(requestId);
+        pendingInteractions.resolve(requestId, "cancelled");
         log.warn(
           { requestId, operation: input.operation },
           "Host file proxy request timed out",
@@ -152,7 +152,7 @@ export class HostFileProxy {
       if (signal) {
         const onAbort = () => {
           if (pendingInteractions.get(requestId)) {
-            pendingInteractions.resolve(requestId);
+            pendingInteractions.resolve(requestId, "cancelled");
             try {
               broadcastMessage(
                 {
@@ -210,7 +210,7 @@ export class HostFileProxy {
           { targetClientId: resolvedTargetClientId },
         );
       } catch (err) {
-        pendingInteractions.resolve(requestId);
+        pendingInteractions.resolve(requestId, "cancelled");
         log.warn(
           { requestId, operation: input.operation, err },
           "Host file proxy send failed",
@@ -252,7 +252,7 @@ export class HostFileProxy {
 
   dispose(): void {
     for (const entry of pendingInteractions.getByKind("host_file")) {
-      pendingInteractions.resolve(entry.requestId);
+      pendingInteractions.resolve(entry.requestId, "cancelled");
       try {
         broadcastMessage(
           {

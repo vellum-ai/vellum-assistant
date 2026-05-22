@@ -63,6 +63,7 @@ export interface RuntimeMessageConversationOptions {
     hints?: string[];
     uxBrief?: string;
     chatType?: string;
+    clientTimezone?: string;
   };
   assistantId?: string;
   trustContext?: TrustContext;

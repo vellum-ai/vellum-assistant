@@ -40,11 +40,15 @@ afterEach(() => {
 
 function renderMessage(
   message: DisplayMessage,
-  props: { onInspectMessage?: (messageId: string) => void } = {},
+  props: {
+    assistantDisplayName?: string | null;
+    onInspectMessage?: (messageId: string) => void;
+  } = {},
 ): string {
   return renderToStaticMarkup(
     <TranscriptMessageBody
       message={message}
+      assistantDisplayName={props.assistantDisplayName}
       expandedToolCallIds={new Set()}
       expandedCardIds={new Map()}
       onSurfaceAction={noop}
@@ -97,6 +101,28 @@ describe("TranscriptMessageBody", () => {
 
     expect(html).toContain("title=");
     expect(html).toContain(":01");
+  });
+
+  test("uses the assistant identity name for Slack assistant attribution fallback", () => {
+    const html = renderMessage(
+      {
+        stableId: "m1",
+        id: "m1",
+        role: "assistant",
+        content: "hello from Slack",
+        slackMessage: {
+          channelId: "C123",
+          channelTs: "1710000000.000300",
+          messageLink: {
+            webUrl: "https://example.slack.com/archives/C123/p1710000000000300",
+          },
+        },
+      },
+      { assistantDisplayName: "Ada" },
+    );
+
+    expect(html).toContain(">Ada<");
+    expect(html).not.toContain(">Assistant<");
   });
 
   test("passes daemon message id to inspect handler", () => {

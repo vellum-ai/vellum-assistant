@@ -60,6 +60,7 @@ final class InferenceServiceCardTests: XCTestCase {
     private func makeCard() -> InferenceServiceCard {
         InferenceServiceCard(
             store: store,
+            assistantFeatureFlagStore: AssistantFeatureFlagStore(),
             showToast: { _, _ in }
         )
     }

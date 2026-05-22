@@ -86,11 +86,18 @@ function makeHandle(): TranscriptHandle & {
     calls.getViewportHeight += 1;
     return 800;
   });
+  const getScrollState = mock(() => ({
+    distanceFromBottom: 0,
+    isPinned: false,
+    showScrollToLatest: false,
+    shouldLoadOlder: false,
+  }));
   return {
     scrollToLatest,
     getScrollElement,
     getContentElement,
     getViewportHeight,
+    getScrollState,
     calls,
   };
 }

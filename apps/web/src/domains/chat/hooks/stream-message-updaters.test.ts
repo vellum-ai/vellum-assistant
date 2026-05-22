@@ -7,6 +7,7 @@ import {
   applyToolProgress,
   applyToolResult,
   createStreamingBubble,
+  finalizeOnIdle,
   handleConversationError,
   stopStreaming,
   upsertToolCall,
@@ -370,5 +371,152 @@ describe("applyToolProgress", () => {
       timeoutSec: 30,
     });
     expect(result[0]!.toolCalls![0]!.progressElapsedSec).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// finalizeOnIdle — multi-message coverage
+// ---------------------------------------------------------------------------
+
+describe("finalizeOnIdle", () => {
+  it("finalizes running tool calls across ALL streaming assistant messages", () => {
+    const msg1 = makeAssistantMsg({
+      stableId: "a1",
+      content: "",
+      toolCalls: [
+        { id: "tc-1", toolName: "web_search", input: {}, status: "running" },
+      ],
+      contentOrder: [{ type: "toolCall", id: "tc-1" }],
+    });
+    const msg2 = makeAssistantMsg({
+      stableId: "a2",
+      content: "some text",
+      toolCalls: [
+        { id: "tc-2", toolName: "web_fetch", input: {}, status: "running" },
+      ],
+      contentOrder: [{ type: "toolCall", id: "tc-2" }],
+    });
+    const result = finalizeOnIdle([userMsg, msg1, msg2]);
+
+    expect(result).toHaveLength(3);
+    expect(result[1]!.toolCalls![0]!.status).toBe("completed");
+    expect(result[1]!.toolCalls![0]!.completedAt).toBeDefined();
+    expect(result[2]!.toolCalls![0]!.status).toBe("completed");
+    expect(result[2]!.toolCalls![0]!.completedAt).toBeDefined();
+  });
+
+  it("returns prev unchanged when no streaming assistant messages exist", () => {
+    const prev = [userMsg];
+    const result = finalizeOnIdle(prev);
+    expect(result).toBe(prev);
+  });
+
+  it("returns prev unchanged when streaming messages have no running tool calls", () => {
+    const msg = makeAssistantMsg({
+      toolCalls: [
+        { id: "tc-1", toolName: "web_search", input: {}, status: "completed" },
+      ],
+    });
+    const prev = [msg];
+    const result = finalizeOnIdle(prev);
+    expect(result).toBe(prev);
+  });
+
+  it("does not modify non-streaming assistant messages", () => {
+    const finishedMsg = makeAssistantMsg({
+      stableId: "a-done",
+      isStreaming: false,
+      toolCalls: [
+        { id: "tc-old", toolName: "bash", input: {}, status: "running" },
+      ],
+    });
+    const streamingMsg = makeAssistantMsg({
+      stableId: "a-stream",
+      toolCalls: [
+        { id: "tc-new", toolName: "web_search", input: {}, status: "running" },
+      ],
+    });
+    const result = finalizeOnIdle([finishedMsg, streamingMsg]);
+
+    // The non-streaming message's tool call should remain "running"
+    expect(result[0]!.toolCalls![0]!.status).toBe("running");
+    // The streaming message's tool call should be finalized
+    expect(result[1]!.toolCalls![0]!.status).toBe("completed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyToolResult — cross-message matching
+// ---------------------------------------------------------------------------
+
+describe("applyToolResult — cross-message matching", () => {
+  it("finds the tool call on an earlier message when toolUseId is provided", () => {
+    // Simulate: tool_use_start on msg1, then a new bubble was created (msg2),
+    // then tool_result arrives with toolUseId pointing to msg1's tool call.
+    const msg1 = makeAssistantMsg({
+      stableId: "a1",
+      content: "",
+      toolCalls: [
+        { id: "tc-early", toolName: "web_search", input: {}, status: "running" },
+      ],
+      contentOrder: [{ type: "toolCall", id: "tc-early" }],
+    });
+    const msg2 = makeAssistantMsg({
+      stableId: "a2",
+      content: "some later text",
+      toolCalls: [
+        { id: "tc-later", toolName: "bash", input: {}, status: "running" },
+      ],
+      contentOrder: [{ type: "toolCall", id: "tc-later" }],
+    });
+    const result = applyToolResult([userMsg, msg1, msg2], {
+      toolUseId: "tc-early",
+      result: "search results",
+    });
+
+    // msg1's tool call should be completed
+    expect(result[1]!.toolCalls![0]!.status).toBe("completed");
+    expect(result[1]!.toolCalls![0]!.result).toBe("search results");
+    // msg2's tool call should remain running
+    expect(result[2]!.toolCalls![0]!.status).toBe("running");
+  });
+
+  it("falls back to last assistant message when toolUseId is not provided", () => {
+    const msg1 = makeAssistantMsg({
+      stableId: "a1",
+      content: "",
+      toolCalls: [
+        { id: "tc-1", toolName: "web_search", input: {}, status: "running" },
+      ],
+    });
+    const msg2 = makeAssistantMsg({
+      stableId: "a2",
+      content: "",
+      toolCalls: [
+        { id: "tc-2", toolName: "bash", input: {}, status: "running" },
+      ],
+    });
+    const result = applyToolResult([userMsg, msg1, msg2], {
+      result: "done",
+    });
+
+    // Without toolUseId, falls back to the last assistant message's last running tool call
+    expect(result[1]!.toolCalls![0]!.status).toBe("running");
+    expect(result[2]!.toolCalls![0]!.status).toBe("completed");
+  });
+
+  it("falls back to last running tool call when toolUseId does not match any message", () => {
+    const msg = makeAssistantMsg({
+      toolCalls: [
+        { id: "tc-1", toolName: "bash", input: {}, status: "running" },
+      ],
+    });
+    const result = applyToolResult([msg], {
+      toolUseId: "nonexistent-id",
+      result: "done",
+    });
+
+    // Should fall back and complete the last running tool call
+    expect(result[0]!.toolCalls![0]!.status).toBe("completed");
   });
 });

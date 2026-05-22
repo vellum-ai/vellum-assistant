@@ -36,6 +36,7 @@ import {
   updateMetaFile,
 } from "../memory/conversation-disk-view.js";
 import {
+  buildSlackTimezoneMetadata,
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
@@ -278,6 +279,7 @@ export function buildSlackMetaForPersistence(params: {
     ...(candidate.actorExternalUserId
       ? { actorExternalUserId: candidate.actorExternalUserId }
       : {}),
+    ...buildSlackTimezoneMetadata(candidate),
   };
   return writeSlackMetadata(slackMeta);
 }

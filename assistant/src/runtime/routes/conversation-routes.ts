@@ -24,6 +24,7 @@ import { createApprovalConversationGenerator } from "../../daemon/approval-gener
 import type { Conversation } from "../../daemon/conversation.js";
 import {
   buildModelInfoEvent,
+  formatCleanResult,
   formatCompactResult,
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
@@ -45,6 +46,7 @@ import {
   preactivateHostProxySkills,
   shouldAttachHostProxyForCapability,
 } from "../../daemon/host-proxy-preactivation.js";
+import { getAssistantName } from "../../daemon/identity-helpers.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
@@ -157,6 +159,7 @@ function isHiddenMessage(metadata: string | null): boolean {
 
 function buildSlackHistoryMessage(
   slackMeta: SlackMessageMetadata | null,
+  opts?: { role?: string; assistantDisplayName?: string },
 ): RuntimeMessagePayload["slackMessage"] | undefined {
   if (!slackMeta) return undefined;
 
@@ -180,18 +183,20 @@ function buildSlackHistoryMessage(
         messageTs: replyThreadTs,
       })
     : undefined;
+  const assistantDisplayName =
+    opts?.role === "assistant" ? opts.assistantDisplayName : undefined;
+  const senderDisplayName =
+    slackMeta.displayName?.trim() || assistantDisplayName;
 
   return {
     channelId: slackMeta.channelId,
     ...(slackMeta.channelName ? { channelName: slackMeta.channelName } : {}),
     channelTs: slackMeta.channelTs,
     ...(slackMeta.threadTs ? { threadTs: slackMeta.threadTs } : {}),
-    ...(slackMeta.displayName || slackMeta.actorExternalUserId
+    ...(senderDisplayName || slackMeta.actorExternalUserId
       ? {
           sender: {
-            ...(slackMeta.displayName
-              ? { displayName: slackMeta.displayName }
-              : {}),
+            ...(senderDisplayName ? { displayName: senderDisplayName } : {}),
             ...(slackMeta.actorExternalUserId
               ? { externalUserId: slackMeta.actorExternalUserId }
               : {}),
@@ -536,6 +541,7 @@ export function handleListMessages({
   // (consecutive tool refs grouped together).
   const { messages: consolidatedMessages, mergedIdMap } =
     mergeConsecutiveAssistantMessages(mergedMessages);
+  const assistantSlackDisplayName = getAssistantName()?.trim() || undefined;
 
   // Parse content blocks and extract text + tool calls
   const parsed = consolidatedMessages.map((msg) => {
@@ -587,6 +593,10 @@ export function handleListMessages({
     }
     const slackMessage = buildSlackHistoryMessage(
       readSlackMetadataFromMessageMetadata(msg.metadata),
+      {
+        role: msg.role,
+        assistantDisplayName: assistantSlackDisplayName,
+      },
     );
 
     // Strip <no_response/> markers from assistant messages so web/API
@@ -2123,6 +2133,82 @@ export async function handleSendMessage(
         );
       }
     })();
+
+    return {
+      accepted: true,
+      messageId: persisted.id,
+      conversationId,
+    };
+  }
+
+  if (slashResult.kind === "clean") {
+    conversation.processing = true;
+    const provenance = provenanceFromTrustContext(conversation.trustContext);
+    const channelMeta = {
+      ...provenance,
+      userMessageChannel: sourceChannel,
+      assistantMessageChannel: sourceChannel,
+      userMessageInterface: sourceInterface,
+      assistantMessageInterface: sourceInterface,
+    };
+    const cleanMsg = createUserMessage(rawContent, attachments);
+    const persisted = await addMessage(
+      mapping.conversationId,
+      "user",
+      JSON.stringify(cleanMsg.content),
+      channelMeta,
+    );
+    conversation.getMessages().push(cleanMsg);
+
+    const conversationId = mapping.conversationId;
+
+    let assistantMessagePersisted = false;
+    try {
+      broadcastMessage({
+        type: "user_message_echo",
+        text: rawContent,
+        conversationId,
+        messageId: persisted.id,
+        clientMessageId,
+      });
+      publishConversationMessagesChanged(conversationId);
+
+      const result = await conversation.forceClean();
+      const responseText = formatCleanResult(result);
+
+      const assistantMsg = createAssistantMessage(responseText);
+      await addMessage(
+        conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        channelMeta,
+      );
+      assistantMessagePersisted = true;
+      conversation.getMessages().push(assistantMsg);
+
+      broadcastMessage({
+        type: "assistant_text_delta",
+        text: responseText,
+        conversationId,
+      });
+      broadcastMessage({ type: "message_complete", conversationId });
+      publishConversationMessagesChanged(conversationId);
+    } catch (err) {
+      if (assistantMessagePersisted) {
+        publishConversationMessagesChanged(conversationId);
+      }
+      log.error({ err, conversationId }, "Clean command failed");
+      broadcastMessage({
+        type: "conversation_error",
+        conversationId,
+        code: "UNKNOWN",
+        userMessage: `Clean failed: ${err instanceof Error ? err.message : String(err)}`,
+        retryable: true,
+      });
+    } finally {
+      conversation.processing = false;
+      silentlyWithLog(conversation.drainQueue(), "clean-command queue drain");
+    }
 
     return {
       accepted: true,

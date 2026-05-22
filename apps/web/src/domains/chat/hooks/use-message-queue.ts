@@ -18,6 +18,7 @@ import {
 } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
+import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters.js";
 import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import { deleteQueuedMessage, steerToMessage } from "@/domains/chat/api/messages.js";
 
@@ -116,7 +117,20 @@ export function useMessageQueue({
         }
       }
       if (targetRequestId) {
-        void steerToMessage(assistantId, activeConversationKey, targetRequestId);
+        setMessages((prev) => clearQueueStatus(prev, stableId));
+        steerToMessage(assistantId, activeConversationKey, targetRequestId).then(
+          (ok) => {
+            if (!ok) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.stableId === stableId
+                    ? { ...m, queueStatus: "queued" as const }
+                    : m,
+                ),
+              );
+            }
+          },
+        );
       }
     },
     [assistantId, activeConversationKey],

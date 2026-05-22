@@ -23,7 +23,7 @@ export interface ConnectionModel {
 
 export type Auth =
   | { type: "api_key"; credential: string }
-  | { type: "oauth_subscription" }
+  | { type: "oauth_subscription"; credential: string }
   | { type: "platform" }
   | { type: "none" };
 

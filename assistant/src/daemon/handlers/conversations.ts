@@ -36,7 +36,15 @@ export function handleConfirmationResponse(msg: ConfirmationResponse): void {
         undefined,
         { source: "button" },
       );
-      pendingInteractions.resolve(msg.requestId);
+      // Idempotent cleanup: the prompter's `resolveConfirmation` already
+      // resolved the interaction with the correct approved/rejected state
+      // before we reach here, so the entry is typically gone. This call is
+      // a safety net for paths where the prompter no-ops; map decision to
+      // state to keep the emitted event accurate when it does fire.
+      pendingInteractions.resolve(
+        msg.requestId,
+        decision === "allow" ? "approved" : "rejected",
+      );
       return;
     }
   }

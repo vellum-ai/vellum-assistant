@@ -195,6 +195,7 @@ export function PreChatFlow() {
       tone: DEFAULT_GROUP_ID,
       googleConnected: false,
       cohort: "content-automation",
+      initialMessage: "I want to write articles that rank better for GEO.",
     };
     setPendingPreChatContext(context);
     try {

@@ -11,6 +11,7 @@ export interface SlashCommand {
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "commands", description: "List all available commands", selectionBehavior: "autoSend" },
   { name: "compact", description: "Force context compaction immediately", selectionBehavior: "autoSend" },
+  { name: "clean", description: "Strip injected runtime context and reset memory injection state", selectionBehavior: "autoSend" },
   { name: "models", description: "List all available models", selectionBehavior: "autoSend" },
   { name: "status", description: "Show conversation status and context usage", selectionBehavior: "autoSend" },
   { name: "btw", description: "Ask a side question while the assistant is working", selectionBehavior: "insertTrailingSpace" },

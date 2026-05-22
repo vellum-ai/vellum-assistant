@@ -162,12 +162,12 @@ Load the QC checklist from `references/qc-checklist.md`.
 
 ## PHASE 5 — OUTPUT
 
-Write the completed article as a markdown file to `Articles/Articles/<slug>.md`. Use kebab-case. Do not include the year in the slug.
+1. Save a copy of the completed article to `Articles/<slug>.md` (kebab-case, no year in slug) as an archival record.
+2. Open the article in the **Document Writer** skill so the user can review and edit it inline. Use `document_create` with the article title, then stream the full article content via `document_update` with `mode: "append"`.
 
 Report back with:
 
-1. File path where the article was written
-2. 2-3 sentence summary: length, tools ranked, any notable judgment calls
-3. Any gaps or uncertainty flagged during research
+1. 2-3 sentence summary: length, tools ranked, any notable judgment calls
+2. Any gaps or uncertainty flagged during research
 
 Do NOT auto-publish to your CMS. Publishing is a separate manual step.
