@@ -102,13 +102,18 @@ export interface CreateA2AInviteResponse {
   inviteId: string;
   token: string;
   expiresAt: number;
-  senderGatewayUrl: string;
 }
 
-export interface AcceptA2AInviteResponse {
+export interface RedeemA2AInviteInput {
+  senderAssistantId: string;
+  token: string;
+}
+
+export interface RedeemA2AInviteResponse {
   success: boolean;
-  contactId?: string;
   alreadyConnected?: boolean;
+  error?: string;
+  errorCode?: string;
 }
 
 export type ContactSelection =
