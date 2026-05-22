@@ -176,6 +176,7 @@ import {
 import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
+import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
 
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
@@ -2205,6 +2206,7 @@ async function main() {
   const ipcServer = new GatewayIpcServer([
     ...featureFlagRoutes,
     ...contactRoutes,
+    ...slackThreadRoutes,
     ...thresholdRoutes,
     ...riskClassificationRoutes,
     ...createVelayRoutes(velayTunnelClient),
