@@ -650,19 +650,18 @@ export function ChatPage() {
 
   // Auto-send onboarding initial message once the conversation is ready.
   // Peek at sessionStorage without consuming — only clear after the send
-  // succeeds so a failed attempt (daemon not ready) can retry on the next
-  // effect cycle. Gates on assistantId + reachability so the send doesn't
-  // fire before the daemon can accept it.
+  // Auto-send onboarding initial message — matches the ?prompt= pattern
+  // above (no reachability gate). sendMessage and the streaming layer
+  // handle unreachable state internally.
   const initialMessageConsumedRef = useRef(false);
   useEffect(() => {
     if (initialMessageConsumedRef.current || !assistantId || !activeConversationKey) return;
-    if (reachability.state.phase !== "ready") return;
     const message = peekPendingInitialMessage();
     if (!message) return;
     initialMessageConsumedRef.current = true;
     clearPendingInitialMessage();
     void sendMessage(message);
-  }, [activeConversationKey, assistantId, reachability.state.phase, sendMessage]);
+  }, [activeConversationKey, assistantId, sendMessage]);
 
   // Derive onboardingTasksEmpty from the pending context in sessionStorage.
   // Runs once on mount — if initial message key is present, this is an
