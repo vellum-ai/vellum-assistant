@@ -3998,6 +3998,55 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
     expect(result!).toContain("@assistant: Assistant reply");
   });
 
+  test("timezone-aware assistant rows keep renderer attribution in active-thread focus block", () => {
+    const rows: SlackTranscriptInputRow[] = [
+      buildRow(
+        "user",
+        "Parent",
+        1_000,
+        buildMeta({
+          channelTs: PARENT_TS,
+          displayName: "aaron",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
+        }),
+      ),
+      buildRow(
+        "assistant",
+        "Assistant reply",
+        2_000,
+        buildMeta({
+          channelTs: "1700000005.000001",
+          threadTs: PARENT_TS,
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
+          speakerTimezoneLabel: "ET",
+        }),
+      ),
+      buildRow(
+        "user",
+        "Follow-up",
+        3_000,
+        buildMeta({
+          channelTs: REPLY_TS,
+          threadTs: PARENT_TS,
+          displayName: "aaron",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
+        }),
+      ),
+    ];
+
+    const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
+    expect(result).not.toBeNull();
+    expect(result!).toContain(
+      "[nov 14 2023 3:13 PM MT assistant (ET)] Assistant reply",
+    );
+    expect(result!).not.toContain(
+      "@assistant: [nov 14 2023 3:13 PM MT assistant (ET)]",
+    );
+  });
+
   test("assistant reaction overflow trailer is not double-attributed", () => {
     // When assistant reactions overflow the per-target cap, `renderSlackTranscript`
     // emits a trailer line (`[…and N more reactions to Mxxxxxx]`) whose role
@@ -4271,7 +4320,7 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(result).not.toBeNull();
     expect(result!.map((m) => (m.content[0] as { text: string }).text)).toEqual(
       [
-        `[11/14/23 14:25 @alice]: ${slackExternal(
+        `[nov 14 2023 9:25 AM ET @alice (ET)] ${slackExternal(
           "timezone-aware hello",
           "@alice",
         )}`,

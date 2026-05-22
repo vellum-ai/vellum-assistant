@@ -25,6 +25,7 @@ import {
   compareSlackTs,
   extractTagLineTexts,
   isReactionTagLine,
+  isSlackMessageTagLine,
   isSlackTsAfter,
   type RenderableSlackMessage,
   type RenderedSlackTranscriptMessage,
@@ -1554,13 +1555,12 @@ function buildActiveThreadBlockFromRenderable(
   if (members.length === 0) return null;
 
   // The active-thread block is flattened to plain text below, which discards
-  // `Message.role`. Assistant rows are relabeled in the post-render step:
-  // `renderSlackTranscript` emits assistant content with no tag-line wrapper
-  // (to prevent the model mimicking `[MM/DD/YY HH:MM]:` prefixes in outbound
-  // replies), so we prepend an explicit `@assistant:` label to the flattened
-  // line. Unnamed user rows (no real Slack displayName) get a `@user`
-  // senderLabel here so their tag line carries attribution through the
-  // renderer. Labeled user rows and assistant rows pass through unchanged.
+  // `Message.role`. Assistant rows that render content-only are relabeled in
+  // the post-render step. Timezone-aware assistant rows are already
+  // bracket-tagged by the renderer and must not receive another prefix.
+  // Unnamed user rows (no real Slack displayName) get a `@user` senderLabel
+  // here so their tag line carries attribution through the renderer. Labeled
+  // user rows and assistant rows pass through unchanged.
   const labeledMembers = members.map((m) => {
     if (m.role === "assistant") return m;
     if (m.senderLabel !== null) return m;
@@ -1569,14 +1569,16 @@ function buildActiveThreadBlockFromRenderable(
 
   const rendered = renderSlackTranscript(labeledMembers);
   if (rendered.length === 0) return null;
-  // Reaction / overflow-trailer lines already embed `@assistant` inline, so
-  // `isReactionTagLine` is used to skip those and avoid double-attribution
-  // (`@assistant: [... @assistant reacted ...]`). Regular content and the
-  // `[deleted]` sentinel get the prefix so attribution survives flattening.
+  // Reaction / overflow-trailer lines already embed `@assistant` inline, and
+  // timezone-aware assistant rows already carry compact bracket attribution.
+  // Regular content and the `[deleted]` sentinel get the prefix so attribution
+  // survives flattening.
   const lines = rendered
     .map((msg) => {
       const text = extractTagLineTexts([msg])[0] ?? "";
-      return msg.role === "assistant" && !isReactionTagLine(text)
+      return msg.role === "assistant" &&
+        !isReactionTagLine(text) &&
+        !isSlackMessageTagLine(text)
         ? `@assistant: ${text}`
         : text;
     })
