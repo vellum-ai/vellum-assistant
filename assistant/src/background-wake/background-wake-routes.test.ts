@@ -400,6 +400,56 @@ describe("background wake runtime routes", () => {
     });
   });
 
+  test("drain-due runs due heartbeat even when schedule is the earliest intent source", async () => {
+    const now = Date.now();
+    const scheduleDueAt = now - 60_000;
+    const heartbeatDueAt = now - 1_000;
+    const recomputedIntent = intentFixture({
+      nextWakeAt: now + 60_000,
+      sourceGeneration: "after-mixed-backlog",
+    });
+    computedIntent = intentFixture({
+      nextWakeAt: scheduleDueAt,
+      actualNextDueAt: scheduleDueAt,
+      reason: "schedule",
+    });
+    const heartbeatRunManaged = mock(async () => ({
+      due: true,
+      completed: 1,
+      skipped: 0,
+    }));
+    const schedulerRunDue = mock(async () => {
+      computedIntent = recomputedIntent;
+      return schedulerResultFixture({ claimed: 1, completed: 1 });
+    });
+    registerBackgroundWakeRuntime({
+      heartbeat: {
+        nextRunAt: heartbeatDueAt,
+        runManagedWakeIfDue: heartbeatRunManaged,
+      },
+      scheduler: {
+        runOnce: mock(async () => 1),
+        runDueWorkOnce: schedulerRunDue,
+      },
+    });
+    const handler = findHandler("drainDueBackgroundWake");
+
+    const response = await handler({
+      body: drainBodyFixture({ reason: "schedule" }),
+    });
+
+    expect(heartbeatRunManaged).toHaveBeenCalledWith(
+      expect.objectContaining({ scheduledFor: NOW }),
+    );
+    expect(schedulerRunDue).toHaveBeenCalledTimes(1);
+    expect(response).toMatchObject({
+      completed: 2,
+      failed: 0,
+      skipped: 0,
+      dueWorkRemaining: false,
+    });
+  });
+
   test("drain-due does no work for refresh-only wakes with no due intent", async () => {
     const heartbeatRunManaged = mock(async () => ({
       due: true,

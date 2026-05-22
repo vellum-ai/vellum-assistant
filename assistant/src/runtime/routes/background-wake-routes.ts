@@ -109,7 +109,7 @@ async function handleDrainDue(body: Record<string, unknown>) {
 
   const now = Date.now();
   const currentIntent = computeWakeIntent(now);
-  const heartbeatDue = intentHasDueSource(currentIntent, "heartbeat", now);
+  const heartbeatDue = isHeartbeatTimerDue(runtime.heartbeat.nextRunAt, now);
   const schedulerDue =
     heartbeatDue ||
     reasonIncludesSource(request.reason, "schedule") ||
@@ -184,6 +184,10 @@ function reasonIncludesSource(
   source: "heartbeat" | "schedule",
 ): boolean {
   return reason === "mixed" || reason === source;
+}
+
+function isHeartbeatTimerDue(nextRunAt: number | null, now: number): boolean {
+  return nextRunAt != null && nextRunAt <= now + HEARTBEAT_DUE_TOLERANCE_MS;
 }
 
 function intentHasDueSource(
