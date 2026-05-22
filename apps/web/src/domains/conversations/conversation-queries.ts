@@ -276,6 +276,19 @@ export function resolveDraftKey(
   newKey: string,
 ): void {
   updateChatContextConversations(queryClient, assistantId, (conversations) => {
+    const hasServerEntry = conversations.some(
+      (c) => c.conversationKey === newKey,
+    );
+    if (hasServerEntry) {
+      // A refetch already returned the resolved conversation — just drop
+      // the draft stub to avoid a duplicate sidebar entry.
+      const filtered = conversations.filter(
+        (c) => c.conversationKey !== oldKey,
+      );
+      return filtered.length === conversations.length
+        ? conversations
+        : filtered;
+    }
     let changed = false;
     const next = conversations.map((c) => {
       if (c.conversationKey !== oldKey) return c;
