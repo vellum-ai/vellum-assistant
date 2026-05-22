@@ -372,6 +372,16 @@ function ExpandedStep({ step }: { step: ToolCallCardStep }) {
       </StepRow>
     );
   }
+  if (step.kind === "tool_error") {
+    // Subagent-side error step — surfaces in mixed groups when a subagent
+    // bubbles a tool failure into the parent transcript. Mirror the
+    // web_search_error layout for visual consistency.
+    return (
+      <StepRow title="Error" tone="error">
+        <ErrorChip message={step.message} />
+      </StepRow>
+    );
+  }
   return (
     <ToolStepRow
       title={step.title}

@@ -284,17 +284,17 @@ describe("ToolCallProgressCard — unknown-command nudge", () => {
         input: { command: "frobnicate" },
       }),
     ];
-    let dismissed: string | null = null;
+    const dismissed: { value: string | null } = { value: null };
     const { getByLabelText } = renderCard(toolCalls, {
       unknownNudgeToolCallIds: new Set(["tc-1"]),
       onOpenRuleEditor: () => {},
       onDismissUnknownNudge: (id) => {
-        dismissed = id;
+        dismissed.value = id;
       },
       expandedCardIds: new Map([["tc-1", true]]),
     });
     fireEvent.click(getByLabelText("Dismiss"));
-    expect(dismissed).toBe("tc-1");
+    expect(dismissed.value).toBe("tc-1");
   });
 
   test("does not render the nudge for tool calls not in the set", () => {
