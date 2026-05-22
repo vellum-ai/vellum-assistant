@@ -44,6 +44,8 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import type { ChatError } from "@/domains/chat/types.js";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator.js";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
+import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
+import { getThinkingStatusText, shouldShowThinkingIndicator, type UIContext } from "@/domains/messaging/turn-selectors.js";
 import { consumePendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
 import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router.js";
@@ -73,6 +75,7 @@ import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
 import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input.js";
 import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages.js";
+import { useChatDebugApi } from "@/domains/chat/utils/debug-api.js";
 
 import { SetupScreen } from "@/domains/chat/components/setup-screen.js";
 import { CleanupScreen } from "@/domains/chat/components/cleanup-screen.js";
@@ -86,7 +89,7 @@ import { fetchAssistantIdentity } from "@/assistant/identity.js";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification.js";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
 import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
-import type { UIContext } from "@/domains/messaging/turn-selectors.js";
+import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations.js";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu.js";
@@ -102,7 +105,6 @@ import { routes } from "@/utils/routes.js";
 import { haptic } from "@/utils/haptics.js";
 import type { AssistantIdentity } from "@/assistant/identity.js";
 import type { ChatEventStream } from "@/domains/chat/api/stream.js";
-import { installVellumDebugApi } from "@/domains/chat/api/debug-api.js";
 import {
   ChatRouteContent,
   type ChatRouteContentProps,
@@ -149,12 +151,6 @@ export function ChatPage() {
   const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
   void showAddCreditsModal;
 
-  // -------------------------------------------------------------------------
-  // Debug API — once on mount (idempotent, safe under StrictMode)
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    installVellumDebugApi();
-  }, []);
   const [restoredDraftConversationKey, setRestoredDraftConversationKey] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [_autoGreetPending, setAutoGreetPending] = useState(false);
@@ -236,6 +232,8 @@ export function ChatPage() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesRef = useRef<DisplayMessage[]>(messages);
   messagesRef.current = messages;
+  const transcriptItemsRef = useRef<ReturnType<typeof buildTranscriptItems>>([]);
+
 
   const activeConversationKeyRef = useRef<string | null>(activeConversationKey);
   useEffect(() => { activeConversationKeyRef.current = activeConversationKey; }, [activeConversationKey]);
@@ -732,6 +730,28 @@ export function ChatPage() {
     dismissedSurfaceIdsRef,
   });
 
+  // Debug API — dev-facing surface for in-the-moment chat inspection.
+  // Unconditionally attached; negligible production overhead.
+  //
+  // `getTurnState` / `getUIContext` read fresh values on every call via the
+  // `latestRefs` indirection inside `useChatDebugApi`, so DevTools sees the
+  // same snapshot the React render path is computing. `_uiContext` is
+  // declared further down in this component but the lambda is only invoked
+  // asynchronously (from `window._vellumDebug.chat.thinkingIndicator()`),
+  // by which point initialization is complete.
+  useChatDebugApi({
+    messagesRef,
+    transcriptItemsRef,
+    streamContextRef,
+    streamRef,
+    streamEpochRef,
+    activeConversationKeyRef,
+    getAssistantId: () => assistantIdRef.current,
+    getTurnState: () => useTurnStore.getState(),
+    getUIContext: () => _uiContext,
+    reconcileActiveConversation,
+  });
+
   // -------------------------------------------------------------------------
   // Sync chat store (for deeply-nested components that read via context)
   // -------------------------------------------------------------------------
@@ -1087,6 +1107,7 @@ export function ChatPage() {
   const pendingQuestion = useInteractionStore.use.pendingQuestion();
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
 
+  // Build UIContext first — needed for showThinking calculation
   const _uiContext: UIContext = {
     hasStreamingAssistantMessage: messages.some((m) => m.isStreaming),
     hasPendingSecret: !!pendingSecret,
@@ -1098,6 +1119,51 @@ export function ChatPage() {
     hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
   };
   void _uiContext;
+
+  // Turn store state — used for building transcriptItems and debug API
+  const phase = useTurnStore.use.phase();
+  const pendingQueuedCount = useTurnStore.use.pendingQueuedCount();
+  const activeToolCallCount = useTurnStore.use.activeToolCallCount();
+  const activeTurnId = useTurnStore.use.activeTurnId();
+  const lastTerminalReason = useTurnStore.use.lastTerminalReason();
+  const statusText = useTurnStore.use.statusText();
+  const liveWebActivity = useTurnStore.use.liveWebActivity();
+  const turnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText, liveWebActivity };
+
+  // Thinking state and onboarding choice state — used for transcriptItems
+  const showThinking = useMemo(
+    () => shouldShowThinkingIndicator(turnState, _uiContext),
+    [turnState, _uiContext],
+  );
+  const thinkingLabel = useMemo(
+    () => getThinkingStatusText(turnState),
+    [turnState],
+  );
+
+  // Build transcriptItems for rendering and debug API
+  const transcriptItems = useMemo(
+    () => buildTranscriptItems({
+      messages,
+      pendingSecret,
+      pendingConfirmation,
+      pendingContactRequest: pendingContactRequest
+        ? {
+            requestId: pendingContactRequest.requestId,
+            channel: pendingContactRequest.channel,
+            placeholder: pendingContactRequest.placeholder,
+            label: pendingContactRequest.label,
+            description: pendingContactRequest.description,
+            role: pendingContactRequest.role,
+          }
+        : null,
+      isThinking: showThinking,
+      thinkingLabel,
+      errorNotice: null,
+      showOnboardingChoice: false, // TODO: wire onboarding choice state
+    }),
+    [messages, pendingSecret, pendingConfirmation, pendingContactRequest, showThinking, thinkingLabel],
+  );
+  transcriptItemsRef.current = transcriptItems;
 
   // -------------------------------------------------------------------------
   // Loading / error guards
@@ -1350,6 +1416,7 @@ export function ChatPage() {
       pendingLocalDeletionsRef,
       confirmationToolCallMapRef,
       reconcileAfterNextStreamOpenRef,
+      transcriptItemsRef,
     },
     isChannelReadonly,
     onboardingTasksEmpty,

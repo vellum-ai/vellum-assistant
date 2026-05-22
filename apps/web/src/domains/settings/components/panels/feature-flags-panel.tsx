@@ -1,7 +1,7 @@
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { Tag } from "@vellum/design-library/components/tag";
+import { Tag, type TagTone } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { SettingsCard } from "@/domains/settings/components/settings-card.js";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
@@ -9,8 +9,15 @@ import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feat
 import {
   ALL_FLAGS,
   ldKeyToStoreKey,
+  scopeIncludes,
   type FlagScope,
+  type SingleScope,
 } from "@/lib/feature-flags/feature-flag-catalog.js";
+
+const SCOPE_TONE: Record<SingleScope, TagTone> = {
+  client: "warning",
+  assistant: "positive",
+};
 
 interface FlagDisplayEntry {
   storeKey: string;
@@ -30,8 +37,14 @@ export function FeatureFlagsPanel() {
     const entries: FlagDisplayEntry[] = [];
     for (const flag of ALL_FLAGS) {
       const storeKey = ldKeyToStoreKey(flag.key);
-      const state = flag.scope === "client" ? clientState : assistantState;
-      const value = state[storeKey];
+      const clientVal = clientState[storeKey];
+      const assistantVal = assistantState[storeKey];
+      const value =
+        flag.scope === "both"
+          ? clientVal === true || assistantVal === true
+          : flag.scope === "assistant"
+            ? assistantVal
+            : clientVal;
       if (typeof value !== "boolean") continue;
       entries.push({
         storeKey,
@@ -57,7 +70,9 @@ export function FeatureFlagsPanel() {
         flag.label.toLowerCase().includes(query) ||
         flag.description.toLowerCase().includes(query) ||
         flag.storeKey.toLowerCase().includes(query) ||
-        flag.scope.toLowerCase().includes(query),
+        flag.scope.includes(query) ||
+        (flag.scope === "both" &&
+          ("client".includes(query) || "assistant".includes(query))),
     );
   }, [flags, searchText]);
 
@@ -100,14 +115,27 @@ interface FeatureFlagRowProps {
   flag: FlagDisplayEntry;
 }
 
+function ScopeChips({ scope }: { scope: FlagScope }) {
+  if (scope === "both") {
+    return (
+      <>
+        <Tag tone={SCOPE_TONE.client}>client</Tag>
+        <Tag tone={SCOPE_TONE.assistant}>assistant</Tag>
+      </>
+    );
+  }
+  return <Tag tone={SCOPE_TONE[scope]}>{scope}</Tag>;
+}
+
 function FeatureFlagRow({ flag }: FeatureFlagRowProps) {
   const clientSetFlag = useClientFeatureFlagStore.use.setFlag();
   const assistantSetFlag = useAssistantFeatureFlagStore.use.setFlag();
 
   const handleToggle = (next: boolean) => {
-    if (flag.scope === "client") {
+    if (scopeIncludes(flag.scope, "client")) {
       clientSetFlag(flag.storeKey, next);
-    } else {
+    }
+    if (scopeIncludes(flag.scope, "assistant")) {
       assistantSetFlag(flag.storeKey, next);
     }
   };
@@ -126,7 +154,7 @@ function FeatureFlagRow({ flag }: FeatureFlagRowProps) {
           <span className="text-body-medium-default text-[var(--content-default)]">
             {flag.label}
           </span>
-          <Tag tone="neutral">{flag.scope}</Tag>
+          <ScopeChips scope={flag.scope} />
         </div>
         <span className="block text-body-small-default text-[var(--content-tertiary)]">
           {flag.description}

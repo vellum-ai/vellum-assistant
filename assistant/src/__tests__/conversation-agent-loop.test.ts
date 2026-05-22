@@ -283,6 +283,7 @@ let mockSlackChronologicalContext: {
   renderedMessages: Array<{
     message: Message;
     sourceChannelTs: string | null;
+    tagLineProvenance: "none" | "slack-reaction" | "slack-timezone-message";
   }>;
   messages: Message[];
   compactableStartIndex: number;
@@ -2914,11 +2915,8 @@ describe("session-agent-loop", () => {
       // (from the mocked `addMessage` -> `{ id: "mock-msg-id" }`) into the
       // backfill primitive, scoped to this conversation.
       expect(backfillMessageIdOnLogsMock).toHaveBeenCalledTimes(1);
-      const backfillCall =
-        backfillMessageIdOnLogsMock.mock.calls[0] as unknown as [
-          string,
-          string,
-        ];
+      const backfillCall = backfillMessageIdOnLogsMock.mock
+        .calls[0] as unknown as [string, string];
       expect(backfillCall[0]).toBe("test-conv");
       expect(backfillCall[1]).toBe("mock-msg-id");
     });
@@ -3034,6 +3032,7 @@ describe("session-agent-loop", () => {
             "1700000020.000000",
             "1700000030.000000",
           ][index]!,
+          tagLineProvenance: "none",
         })),
         compactableStartIndex: 0,
       };
@@ -3133,6 +3132,7 @@ describe("session-agent-loop", () => {
             "1700000020.000000",
             "1700000030.000000",
           ][index]!,
+          tagLineProvenance: "none",
         })),
         compactableStartIndex: 0,
       };
@@ -3249,6 +3249,7 @@ describe("session-agent-loop", () => {
             "1700000030.000000",
             "1700000040.000000",
           ][index]!,
+          tagLineProvenance: "none",
         })),
         compactableStartIndex: 0,
       };
@@ -3354,9 +3355,10 @@ describe("session-agent-loop", () => {
               {
                 message: firstSummaryMessage,
                 sourceChannelTs: null,
+                tagLineProvenance: "none",
               },
-              mockSlackChronologicalContext.renderedMessages[2],
-              mockSlackChronologicalContext.renderedMessages[3],
+              mockSlackChronologicalContext!.renderedMessages[2],
+              mockSlackChronologicalContext!.renderedMessages[3],
             ],
             messages: firstCompactedMessages,
             compactableStartIndex: 1,
@@ -3395,6 +3397,7 @@ describe("session-agent-loop", () => {
             "1700000020.000000",
             "1700000030.000000",
           ][index]!,
+          tagLineProvenance: "none",
         })),
         compactableStartIndex: 0,
       };
@@ -3552,6 +3555,7 @@ describe("session-agent-loop", () => {
               ],
             },
             sourceChannelTs: null,
+            tagLineProvenance: "none",
           },
           {
             message: {
@@ -3559,6 +3563,7 @@ describe("session-agent-loop", () => {
               content: [{ type: "text", text: "after watermark reply" }],
             },
             sourceChannelTs: "1700000020.000000",
+            tagLineProvenance: "none",
           },
         ],
         compactableStartIndex: 1,
@@ -3653,6 +3658,7 @@ describe("session-agent-loop", () => {
               ],
             },
             sourceChannelTs: null,
+            tagLineProvenance: "none",
           },
           {
             message: {
@@ -3665,6 +3671,7 @@ describe("session-agent-loop", () => {
               ],
             },
             sourceChannelTs: "1700000121.000000",
+            tagLineProvenance: "none",
           },
         ],
         compactableStartIndex: 1,

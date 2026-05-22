@@ -67,6 +67,16 @@ export class SlackStore {
     return row !== undefined;
   }
 
+  detachThread(threadTs: string, channelId: string): boolean {
+    const raw = (this.db as unknown as { $client: Database }).$client;
+    const changes = raw
+      .prepare(
+        "DELETE FROM slack_active_threads WHERE thread_ts = ? AND channel_id = ?",
+      )
+      .run(threadTs, channelId).changes;
+    return changes > 0;
+  }
+
   /**
    * Returns all unexpired active threads with a known channel for reconnect
    * catch-up. Rows with a NULL `channel_id` (legacy rows from before the

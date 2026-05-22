@@ -93,7 +93,10 @@ function collectSectionIds(workspaceDir: string): string[] {
         if (name.endsWith(".md")) ids.add(name.slice(0, -".md".length));
       }
     } catch (err) {
-      log.warn({ err, workspaceDir }, "Failed to list workspace system prompt dir");
+      log.warn(
+        { err, workspaceDir },
+        "Failed to list workspace system prompt dir",
+      );
     }
   }
   return [...ids].sort();
@@ -102,6 +105,7 @@ function collectSectionIds(workspaceDir: string): string[] {
 interface ResolvedSection {
   enabled: string | boolean | undefined;
   body: string;
+  transform?: BundledSection["transform"];
 }
 
 function resolveSection(
@@ -114,12 +118,20 @@ function resolveSection(
     try {
       raw = readFileSync(workspacePath, "utf-8");
     } catch (err) {
-      log.warn({ err, workspacePath }, "Failed to read workspace section override");
+      log.warn(
+        { err, workspacePath },
+        "Failed to read workspace section override",
+      );
       return null;
     }
     const parsed = parseFrontmatterFields(raw);
     const fields = parsed?.fields ?? {};
     const body = parsed?.body ?? raw;
+    // Workspace override skips the bundled transform: when the user has
+    // written their own `prompts/system/<id>.md` they've taken full
+    // control of the body shape, and re-running the bundled transform
+    // (e.g. unmodified-template detection on IDENTITY.md) would
+    // misclassify their override.
     return { enabled: fields["enabled"] as string | boolean | undefined, body };
   }
   const bundled = BUNDLED_SYSTEM_SECTIONS.find((s) => s.id === id);
@@ -128,7 +140,8 @@ function resolveSection(
   // A bundled section may delegate its body to a workspace file outside
   // the section override directory (e.g. `SOUL.md` at the workspace
   // root).  Read it now; missing/empty files yield "", which
-  // `renderSection` then gates off via its empty-body check.
+  // `renderSection` then gates off via its empty-body check (or via the
+  // section's `transform`, if set).
   if (bundled.workspacePath) {
     const filePath = getWorkspacePromptPath(bundled.workspacePath);
     let body = "";
@@ -136,16 +149,17 @@ function resolveSection(
       try {
         body = readFileSync(filePath, "utf-8");
       } catch (err) {
-        log.warn(
-          { err, filePath, id },
-          "Failed to read section workspacePath",
-        );
+        log.warn({ err, filePath, id }, "Failed to read section workspacePath");
       }
     }
-    return { enabled: bundled.enabled, body };
+    return { enabled: bundled.enabled, body, transform: bundled.transform };
   }
 
-  return { enabled: bundled.enabled, body: bundled.body };
+  return {
+    enabled: bundled.enabled,
+    body: bundled.body,
+    transform: bundled.transform,
+  };
 }
 
 function renderSection(
@@ -158,7 +172,14 @@ function renderSection(
 
   if (!isEnabled(section.enabled, ctx)) return null;
 
-  const stripped = stripCommentLines(section.body).trim();
+  let body = section.body;
+  if (section.transform) {
+    const transformed = section.transform(body, ctx);
+    if (transformed === null) return null;
+    body = transformed;
+  }
+
+  const stripped = stripCommentLines(body).trim();
   if (stripped.length === 0) return null;
   return interpolateVariables(stripped, ctx);
 }
@@ -190,10 +211,7 @@ const IDENT_REGEX = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
  * typo on a `{{key}}` substitution surfaces at the warn log rather than
  * inlining the string `"undefined"`).
  */
-function interpolateVariables(
-  body: string,
-  ctx: SectionRenderContext,
-): string {
+function interpolateVariables(body: string, ctx: SectionRenderContext): string {
   // Collapse standalone tag lines so multiline section templates render
   // without phantom blank lines from the layout markers.
   const collapsed = body.replace(STANDALONE_TAG_LINE, "$1");

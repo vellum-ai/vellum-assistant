@@ -21,15 +21,16 @@ import {
   extractMemoryPrefixBlocks,
 } from "../memory/graph/conversation-graph-memory.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
-import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import {
+  readSlackMetadata,
+  readSlackMetadataFromMessageMetadata,
+} from "../messaging/providers/slack/message-metadata.js";
 import {
   compareSlackTs,
   extractTagLineTexts,
-  isReactionTagLine,
   isSlackTsAfter,
   type RenderableSlackMessage,
   type RenderedSlackTranscriptMessage,
-  renderSlackTranscript,
   renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
 import { getInjectors } from "../plugins/registry.js";
@@ -1112,6 +1113,27 @@ function messageRowsToSlackTranscriptRows(
   }));
 }
 
+function hasSlackMetadata(row: MessageRow): boolean {
+  return (
+    readSlackMetadataFromMessageMetadata(row.metadata, {
+      allowFlatLegacy: true,
+    }) !== null
+  );
+}
+
+function filterSlackConversationRowsForActor(
+  rows: MessageRow[],
+  trustClass: TrustClass | undefined,
+): MessageRow[] {
+  if (!isUntrustedTrustClass(trustClass)) return rows;
+  const nonSlackVisibleRows = filterMessagesForUntrustedActor(rows);
+  const nonSlackVisibleIds = new Set(nonSlackVisibleRows.map((row) => row.id));
+  return rows.filter((row) => {
+    if (hasSlackMetadata(row)) return true;
+    return nonSlackVisibleIds.has(row.id);
+  });
+}
+
 /**
  * Extract the user-facing plain text from an already-parsed `ContentBlock[]`.
  * Only `text` blocks contribute to the rendered transcript line. Tool-use /
@@ -1427,6 +1449,7 @@ function assembleSlackChronologicalContext(
       {
         message: createContextSummaryMessage(contextSummary),
         sourceChannelTs: null,
+        tagLineProvenance: "none",
       },
       ...renderedMessages,
     ];
@@ -1447,11 +1470,10 @@ function assembleSlackChronologicalContext(
  * Compatibility wrapper over `loadSlackChronologicalContext` for callers that
  * still need only the legacy `Message[] | null` projection.
  *
- * When `trustClass` identifies an untrusted actor (guardian-scoped rows
- * must not leak into the model context), rows are passed through
- * `filterMessagesForUntrustedActor` before assembly — mirroring the
- * filtering applied in `loadFromDb` so the chronological transcript
- * respects the same per-actor scoping as the default history path.
+ * When `trustClass` identifies an untrusted actor, non-Slack/private rows
+ * are passed through the default trust filter. Slack-tagged rows stay visible
+ * because the transcript is scoped to the external Slack chat/thread, which
+ * the inbound actor can already read in Slack.
  *
  * Returns `null` when the channel is not Slack — callers should fall
  * through to the default in-memory message history.
@@ -1500,9 +1522,10 @@ export function loadSlackChronologicalContext(
   }
   const loader = options.loader ?? defaultGetMessages;
   const allRows = loader(conversationId);
-  const scopedRows = isUntrustedTrustClass(options.trustClass)
-    ? filterMessagesForUntrustedActor(allRows)
-    : allRows;
+  const scopedRows = filterSlackConversationRowsForActor(
+    allRows,
+    options.trustClass,
+  );
   const rows = filterRowsAfterSlackCompactionBoundary(
     messageRowsToSlackTranscriptRows(scopedRows),
     options,
@@ -1610,29 +1633,29 @@ function buildActiveThreadBlockFromRenderable(
   if (members.length === 0) return null;
 
   // The active-thread block is flattened to plain text below, which discards
-  // `Message.role`. Assistant rows are relabeled in the post-render step:
-  // `renderSlackTranscript` emits assistant content with no tag-line wrapper
-  // (to prevent the model mimicking `[MM/DD/YY HH:MM]:` prefixes in outbound
-  // replies), so we prepend an explicit `@assistant:` label to the flattened
-  // line. Unnamed user rows (no real Slack displayName) get a `@user`
-  // senderLabel here so their tag line carries attribution through the
-  // renderer. Labeled user rows and assistant rows pass through unchanged.
+  // `Message.role`. Assistant rows that render content-only are relabeled in
+  // the post-render step. Timezone-aware assistant rows are already
+  // bracket-tagged by the renderer and must not receive another prefix.
+  // Unnamed user rows (no real Slack displayName) get a `@user` senderLabel
+  // here so their tag line carries attribution through the renderer. Labeled
+  // user rows and assistant rows pass through unchanged.
   const labeledMembers = members.map((m) => {
     if (m.role === "assistant") return m;
     if (m.senderLabel !== null) return m;
     return { ...m, senderLabel: "@user" };
   });
 
-  const rendered = renderSlackTranscript(labeledMembers);
-  if (rendered.length === 0) return null;
-  // Reaction / overflow-trailer lines already embed `@assistant` inline, so
-  // `isReactionTagLine` is used to skip those and avoid double-attribution
-  // (`@assistant: [... @assistant reacted ...]`). Regular content and the
-  // `[deleted]` sentinel get the prefix so attribution survives flattening.
-  const lines = rendered
-    .map((msg) => {
-      const text = extractTagLineTexts([msg])[0] ?? "";
-      return msg.role === "assistant" && !isReactionTagLine(text)
+  const rendered = renderSlackTranscriptWithProvenance(labeledMembers);
+  if (rendered.renderedMessages.length === 0) return null;
+  // Reaction / overflow-trailer lines are renderer-owned Slack event lines,
+  // and timezone-aware assistant rows already carry metadata-backed compact
+  // attribution. Regular assistant content and the `[deleted]` sentinel get
+  // the prefix so attribution survives flattening.
+  const lines = rendered.renderedMessages
+    .map((entry) => {
+      const text = extractTagLineTexts([entry.message])[0] ?? "";
+      return entry.message.role === "assistant" &&
+        entry.tagLineProvenance === "none"
         ? `@assistant: ${text}`
         : text;
     })
@@ -1686,9 +1709,10 @@ export function loadSlackActiveThreadFocusBlock(
   if (capabilities.chatType !== "channel") return null;
   const loader = options.loader ?? defaultGetMessages;
   const allRows = loader(conversationId);
-  const scopedRows = isUntrustedTrustClass(options.trustClass)
-    ? filterMessagesForUntrustedActor(allRows)
-    : allRows;
+  const scopedRows = filterSlackConversationRowsForActor(
+    allRows,
+    options.trustClass,
+  );
   const rows = filterRowsAfterSlackCompactionBoundary(
     messageRowsToSlackTranscriptRows(scopedRows),
     options,

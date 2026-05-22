@@ -21,6 +21,7 @@ export const conversations = sqliteTable(
       .notNull()
       .default(0),
     contextCompactedAt: integer("context_compacted_at"),
+    cleanedAt: integer("cleaned_at"),
     slackContextCompactionWatermarkTs: text(
       "slack_context_compaction_watermark_ts",
     ),

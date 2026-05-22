@@ -24,6 +24,7 @@ import type {
   MemoryV2BackfillResult,
   MemoryV2EmaScoresResult,
   MemoryV2ReembedSkillsResult,
+  MemoryV2SimulateRouterResult,
   MemoryV2ValidateResult,
 } from "../../runtime/routes/memory-v2-routes.js";
 import { registerCommand } from "../lib/register-command.js";
@@ -366,6 +367,197 @@ Examples:
             log.info(
               `\n${rows.length} of ${visible.length} shown (${totalScored} total with score > 0, ${allEntries.length} pages indexed).`,
             );
+          },
+        );
+
+      // ── simulate ──────────────────────────────────────────────────────────
+
+      v2.command("simulate")
+        .description(
+          "Dry-run the v4 router against a synthetic query (read-only)",
+        )
+        .requiredOption(
+          "-q, --query <text>",
+          "User query to route the simulated turn against",
+        )
+        .option(
+          "--tier1-size <n>",
+          "Override memory.v2.router.tier1_size for this run (number or 'null')",
+        )
+        .option(
+          "--tier2-size <n>",
+          "Override memory.v2.router.tier2_size for this run (number or 'null')",
+        )
+        .option(
+          "--batch-size <n>",
+          "Override memory.v2.router.batch_size for this run (number or 'null')",
+        )
+        .option("--json", "Emit raw JSON instead of a grouped report")
+        .addHelpText(
+          "after",
+          `
+Runs the v4 router read-only against the live page index + EMA scores, with
+optional tier/batch overrides applied on top of the live config. NO writes:
+no row is appended to memory_v2_injection_events or memory_v2_activation_logs,
+and no activation state is mutated. Use this to preview the effect of a
+config knob change before flipping it in workspace config.json.
+
+Limitations:
+  - priorEverInjected is empty (single-turn simulation; live router dedups
+    against pages already in context).
+  - NOW.md is read at simulate-time, not historical-turn time.
+  - assistantMessage is empty.
+
+Pass 'null' to an override flag to explicitly disable that tier for this run
+(e.g. --tier2-size null reverts to tier1 → tier3). Omitting an override
+inherits the live config value.
+
+Examples:
+  $ assistant memory v2 simulate -q "what should we ship next"
+  $ assistant memory v2 simulate -q "..." --tier1-size 100 --tier2-size 200 --batch-size 50
+  $ assistant memory v2 simulate -q "..." --json | jq '.selectedSlugs'`,
+        )
+        .action(
+          async (opts: {
+            query: string;
+            tier1Size?: string;
+            tier2Size?: string;
+            batchSize?: string;
+            json?: boolean;
+          }) => {
+            const parseOverride = (
+              flag: string,
+              raw: string | undefined,
+            ): number | null | undefined => {
+              if (raw === undefined) return undefined;
+              if (raw === "null") return null;
+              const parsed = Number(raw);
+              if (!Number.isInteger(parsed) || parsed < 1) {
+                log.error(
+                  `${flag} must be a positive integer or 'null' (got "${raw}")`,
+                );
+                process.exitCode = 1;
+                throw new Error("invalid-override");
+              }
+              return parsed;
+            };
+
+            let configOverrides:
+              | {
+                  tier1_size?: number | null;
+                  tier2_size?: number | null;
+                  batch_size?: number | null;
+                }
+              | undefined;
+            try {
+              const t1 = parseOverride("--tier1-size", opts.tier1Size);
+              const t2 = parseOverride("--tier2-size", opts.tier2Size);
+              const bs = parseOverride("--batch-size", opts.batchSize);
+              configOverrides = {
+                ...(t1 !== undefined ? { tier1_size: t1 } : {}),
+                ...(t2 !== undefined ? { tier2_size: t2 } : {}),
+                ...(bs !== undefined ? { batch_size: bs } : {}),
+              };
+              if (Object.keys(configOverrides).length === 0) {
+                configOverrides = undefined;
+              }
+            } catch {
+              return;
+            }
+
+            const result = await cliIpcCall<MemoryV2SimulateRouterResult>(
+              "memory_v2_simulate_router",
+              {
+                body: {
+                  query: opts.query,
+                  ...(configOverrides ? { configOverrides } : {}),
+                },
+              },
+            );
+
+            if (!result.ok) {
+              log.error(result.error ?? "Failed to simulate router");
+              process.exitCode = 1;
+              return;
+            }
+
+            const payload = result.result!;
+
+            if (opts.json === true) {
+              log.info(JSON.stringify(payload, null, 2));
+              return;
+            }
+
+            log.info("Memory Router Simulation");
+            log.info("========================");
+            log.info(`Query: ${JSON.stringify(opts.query)}`);
+            log.info("");
+            log.info("Config (effective):");
+            const formatKnob = (
+              key: keyof MemoryV2SimulateRouterResult["effectiveConfig"],
+            ): string => {
+              const eff = payload.effectiveConfig[key];
+              const override = (
+                payload.overrides as Record<string, number | null | undefined>
+              )[key];
+              const effStr = eff === null ? "null" : String(eff);
+              if (override === undefined) {
+                return `  ${key}: ${effStr}`;
+              }
+              return `  ${key}: ${effStr}  (override)`;
+            };
+            log.info(formatKnob("tier1_size"));
+            log.info(formatKnob("tier2_size"));
+            log.info(formatKnob("batch_size"));
+            log.info(`  max_page_ids: ${payload.effectiveConfig.max_page_ids}`);
+            log.info("");
+            log.info(`Total candidate pages: ${payload.totalCandidatePages}`);
+            log.info(
+              `Selected: ${payload.selectedSlugs.length} / ${payload.effectiveConfig.max_page_ids} pages`,
+            );
+            if (payload.failureReason) {
+              log.info(`Failure: ${payload.failureReason}`);
+            }
+            log.info("");
+
+            const grouped = new Map<string, string[]>();
+            for (const slug of payload.selectedSlugs) {
+              const source = payload.sourceBySlug[slug] ?? "unknown";
+              const bucket = grouped.get(source) ?? [];
+              bucket.push(slug);
+              grouped.set(source, bucket);
+            }
+            const sortedKeys = [...grouped.keys()].sort((a, b) => {
+              const order = (s: string) => {
+                if (s === "tier1") return 0;
+                if (s === "tier2") return 1;
+                if (s.startsWith("tier3:")) {
+                  return 2 + Number(s.slice("tier3:".length));
+                }
+                return Number.MAX_SAFE_INTEGER;
+              };
+              return order(a) - order(b);
+            });
+
+            for (const key of sortedKeys) {
+              const label = key.startsWith("tier3:")
+                ? `tier 3 · b${key.slice("tier3:".length)}`
+                : key === "tier1"
+                  ? "tier 1"
+                  : key === "tier2"
+                    ? "tier 2"
+                    : key;
+              log.info(label);
+              for (const slug of grouped.get(key)!) {
+                if (key === "tier2") {
+                  const score = payload.scores[slug] ?? 0;
+                  log.info(`  - ${slug}  (EMA ${score.toFixed(3)})`);
+                } else {
+                  log.info(`  - ${slug}`);
+                }
+              }
+              log.info("");
+            }
           },
         );
     },

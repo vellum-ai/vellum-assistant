@@ -5058,6 +5058,57 @@ paths:
                 includeArchived:
                   type: boolean
               additionalProperties: false
+  /v1/conversations/cli/slack/detach:
+    post:
+      operationId: conversations_cli_slack_detach_post
+      summary: Detach the assistant from a Slack thread (CLI)
+      description: Stops Slack active-thread listening for a Slack thread. The CLI resolves current conversation defaults.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detached:
+                    type: boolean
+                  channelId:
+                    type: string
+                  threadTs:
+                    type: string
+                  source:
+                    type: string
+                    enum:
+                      - explicit
+                      - conversation_binding
+                  conversationId:
+                    type: string
+                required:
+                  - detached
+                  - channelId
+                  - threadTs
+                  - source
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                channelId:
+                  type: string
+                  minLength: 1
+                threadTs:
+                  type: string
+                  minLength: 1
+              additionalProperties: false
   /v1/conversations/fork:
     post:
       operationId: conversations_fork_post
@@ -7686,6 +7737,14 @@ paths:
                     type: object
                     properties: {}
                     additionalProperties: {}
+                  ces:
+                    type: object
+                    properties:
+                      connected:
+                        type: boolean
+                    required:
+                      - connected
+                    additionalProperties: false
                   profiler:
                     type: object
                     properties:
@@ -7769,6 +7828,7 @@ paths:
                   - memory
                   - cpu
                   - migrations
+                  - ces
                 additionalProperties: false
   /v1/healthz:
     get:
@@ -7807,6 +7867,14 @@ paths:
                     type: object
                     properties: {}
                     additionalProperties: {}
+                  ces:
+                    type: object
+                    properties:
+                      connected:
+                        type: boolean
+                    required:
+                      - connected
+                    additionalProperties: false
                   profiler:
                     type: object
                     properties:
@@ -7890,6 +7958,7 @@ paths:
                   - memory
                   - cpu
                   - migrations
+                  - ces
                 additionalProperties: false
   /v1/heartbeat/checklist:
     get:
@@ -11044,6 +11113,55 @@ paths:
             schema:
               type: object
               properties: {}
+              additionalProperties: false
+  /v1/memory/v2/simulate-router:
+    post:
+      operationId: memory_v2_simulaterouter_post
+      summary: Dry-run the v4 router with config overrides (read-only)
+      description:
+        Runs the memory router against the live page index + EMA scores with optional tier_size / batch_size
+        overrides, without recording an injection event or writing an activation log. Returns the slugs that would have
+        been selected, per-slug tier provenance, EMA scores, and the effective router config so operators can validate
+        knob changes before flipping them in workspace config.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                  minLength: 1
+                configOverrides:
+                  type: object
+                  properties:
+                    tier1_size:
+                      anyOf:
+                        - type: integer
+                          minimum: 1
+                          maximum: 9007199254740991
+                        - type: "null"
+                    tier2_size:
+                      anyOf:
+                        - type: integer
+                          minimum: 1
+                          maximum: 9007199254740991
+                        - type: "null"
+                    batch_size:
+                      anyOf:
+                        - type: integer
+                          minimum: 1
+                          maximum: 9007199254740991
+                        - type: "null"
+                  additionalProperties: false
+              required:
+                - query
               additionalProperties: false
   /v1/memory/v2/validate:
     post:

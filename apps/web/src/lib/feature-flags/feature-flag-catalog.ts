@@ -1,6 +1,14 @@
 import registry from "./feature-flag-registry.json" with { type: "json" };
 
-export type FlagScope = "client" | "assistant";
+export type FlagScope = "client" | "assistant" | "both";
+export type SingleScope = Exclude<FlagScope, "both">;
+
+export function scopeIncludes(
+  scope: FlagScope,
+  target: SingleScope,
+): boolean {
+  return scope === target || scope === "both";
+}
 
 export interface FlagDefinition {
   id: string;
@@ -30,10 +38,10 @@ function kebabToStoreKey(kebabKey: string): string {
     .join("");
 }
 
-function buildScopeDefaults(scope: FlagScope): Record<string, boolean> {
+function buildScopeDefaults(scope: SingleScope): Record<string, boolean> {
   const defaults: Record<string, boolean> = {};
   for (const flag of flags) {
-    if (flag.scope === scope) {
+    if (scopeIncludes(flag.scope, scope)) {
       defaults[kebabToStoreKey(flag.key)] = flag.defaultEnabled;
     }
   }

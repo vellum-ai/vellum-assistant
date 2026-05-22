@@ -2,9 +2,9 @@
  * Tests for the `assistant memory v2` CLI subgroup.
  *
  * Validates:
- *   - Subcommand registration (reembed, reembed-skills, activation, validate)
- *     under `memory v2`. The `memory` parent is created by the v2 registrar
- *     itself; v1 had its own subcommands but those were retired.
+ *   - Subcommand registration (reembed, reembed-skills, activation, validate,
+ *     ema, simulate) under `memory v2`. The `memory` parent is created by the
+ *     v2 registrar itself; v1 had its own subcommands but those were retired.
  *   - Each mutating subcommand maps to the right `memory_v2_backfill` op.
  *   - `validate` calls `memory_v2_validate` and pretty-prints the report.
  *   - `reembed-skills` calls `memory_v2_reembed_skills` synchronously.
@@ -146,6 +146,7 @@ describe("subcommand registration", () => {
       "ema",
       "reembed",
       "reembed-skills",
+      "simulate",
       "validate",
     ]);
   });
@@ -159,6 +160,7 @@ describe("subcommand registration", () => {
     expect(help).toContain("reembed-skills");
     expect(help).toContain("activation");
     expect(help).toContain("validate");
+    expect(help).toContain("simulate");
     // Removed subcommands must not surface in help.
     expect(help).not.toContain("migrate");
     expect(help).not.toContain("explain");

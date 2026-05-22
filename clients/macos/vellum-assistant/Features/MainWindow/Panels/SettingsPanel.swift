@@ -16,6 +16,7 @@ enum SettingsTab: String {
     case debug = "Debug"
     case developer = "Developer"
     case compactionPlayground = "Compaction Playground"
+    case memoryRouterPlayground = "Memory Router Playground"
 
     var icon: VIcon {
         switch self {
@@ -33,6 +34,7 @@ enum SettingsTab: String {
         case .debug: return .bug
         case .developer: return .terminal
         case .compactionPlayground: return .flask
+        case .memoryRouterPlayground: return .flask
         }
     }
 
@@ -40,11 +42,15 @@ enum SettingsTab: String {
         soundsEnabled: Bool = true,
         debugEnabled: Bool = false,
         includeCompactionPlayground: Bool = false,
+        includeMemoryRouterPlayground: Bool = false,
         bookmarksEnabled: Bool = false
     ) -> [SettingsTab] {
         var tabs: [SettingsTab] = []
         if includeCompactionPlayground {
             tabs.append(.compactionPlayground)
+        }
+        if includeMemoryRouterPlayground {
+            tabs.append(.memoryRouterPlayground)
         }
         tabs.append(contentsOf: [.general, .modelsAndServices, .integrations])
         tabs.append(.voice)
@@ -113,6 +119,9 @@ struct SettingsPanel: View {
         let bookmarksEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.bookmarksFeatureFlagKey)
         _isBookmarksEnabled = State(initialValue: bookmarksEnabled)
 
+        let memoryRouterPlaygroundEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.memoryRouterPlaygroundFeatureFlagKey)
+        _isMemoryRouterPlaygroundEnabled = State(initialValue: memoryRouterPlaygroundEnabled)
+
         // Derive the initial tab from the pending deep-link at construction
         // time. Previous attempts set selectedTab in onAppear / onChange, but
         // those fire *after* the first render and are susceptible to timing
@@ -132,6 +141,7 @@ struct SettingsPanel: View {
                 soundsEnabled: soundsEnabled,
                 debugEnabled: debugEnabled,
                 includeCompactionPlayground: false,
+                includeMemoryRouterPlayground: false,
                 bookmarksEnabled: bookmarksEnabled
             )
             if developerEnabled { visibleTabs.append(.developer) }
@@ -166,6 +176,7 @@ struct SettingsPanel: View {
     @State private var hasLoadedFeatureFlags: Bool = false
     @State private var isDeveloperEnabled: Bool = false
     @State private var isCompactionPlaygroundEnabled: Bool = false
+    @State private var isMemoryRouterPlaygroundEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
     @State private var isBookmarksEnabled: Bool = false
     @State private var isEmbeddingProviderEnabled: Bool = false
@@ -176,11 +187,15 @@ struct SettingsPanel: View {
     @State private var bootstrapGeneration: Int = 0
     private static let developerFeatureFlagKey = "settings-developer-nav"
     private static let compactionPlaygroundFeatureFlagKey = "compaction-playground"
+    private static let memoryRouterPlaygroundFeatureFlagKey = "memory-router-playground"
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
     private static let emailChannelFeatureFlagKey = "email-channel"
     private static let soundsFeatureFlagKey = "sounds"
     private static let bookmarksFeatureFlagKey = "bookmarks"
-    private static let deferredDeepLinkTabs: Set<SettingsTab> = [.compactionPlayground]
+    private static let deferredDeepLinkTabs: Set<SettingsTab> = [
+        .compactionPlayground,
+        .memoryRouterPlayground,
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -400,6 +415,7 @@ struct SettingsPanel: View {
             soundsEnabled: isSoundsEnabled,
             debugEnabled: isDebugVisible,
             includeCompactionPlayground: isCompactionPlaygroundVisible,
+            includeMemoryRouterPlayground: isMemoryRouterPlaygroundVisible,
             bookmarksEnabled: isBookmarksEnabled
         )
     }
@@ -414,6 +430,10 @@ struct SettingsPanel: View {
 
     private var isCompactionPlaygroundVisible: Bool {
         isDeveloperEnabled && isCompactionPlaygroundEnabled && DevModeManager.shared.isDevMode
+    }
+
+    private var isMemoryRouterPlaygroundVisible: Bool {
+        isDeveloperEnabled && isMemoryRouterPlaygroundEnabled && DevModeManager.shared.isDevMode
     }
 
     private var settingsNav: some View {
@@ -512,6 +532,12 @@ struct SettingsPanel: View {
             SettingsCompactionPlaygroundTab(
                 store: store,
                 conversationManager: conversationManager,
+                showToast: showToast,
+                onClose: onClose
+            )
+        case .memoryRouterPlayground:
+            SettingsMemoryRouterPlaygroundTab(
+                store: store,
                 showToast: showToast,
                 onClose: onClose
             )

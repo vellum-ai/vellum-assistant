@@ -72,7 +72,7 @@ import { useInteractionStore } from "@/domains/interactions/interaction-store.js
 import type { SubagentEntry, SubagentState } from "@/domains/subagents/subagent-store.js";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items.js";
-import type { TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
+import type { TranscriptItem, TranscriptPaginationState } from "@/domains/chat/transcript/types.js";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination.js";
 import {
   canStopGeneration,
@@ -227,8 +227,9 @@ export interface ChatRouteRefs {
   requestIdToStableIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-
   reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
+  /** Ref populated by ChatRouteContent with the current transcript items for the debug API. */
+  transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -377,7 +378,7 @@ export interface ChatRouteContentProps {
 export function ChatRouteContent({
   assistantId,
   assistantState,
-  assistantIdentity: _assistantIdentity,
+  assistantIdentity,
   chatPullToRefreshEnabled,
   deployToVercel,
   doctor: doctorEnabled,
@@ -741,7 +742,7 @@ export function ChatRouteContent({
   }, [historyPagination.fetchOlderPage]);
 
   // -------------------------------------------------------------------------
-  // Transcript items
+  // Transcript items (projection of chat state onto flat list)
   // -------------------------------------------------------------------------
 
   const thinkingLabel = getThinkingStatusText(turnState);
@@ -782,6 +783,9 @@ export function ChatRouteContent({
       showOnboardingChoice,
     ],
   );
+
+  // Populate the ref for the debug API (parent reads this synchronously).
+  refs.transcriptItemsRef.current = transcriptItems;
 
   // -------------------------------------------------------------------------
   // Scroll coordination
@@ -1051,6 +1055,7 @@ export function ChatRouteContent({
 
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
+    assistantDisplayName: assistantIdentity?.name?.trim() || undefined,
     expandedToolCallIds: expandedToolCallIdsRef.current,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
     onOpenApp: handleOpenApp,

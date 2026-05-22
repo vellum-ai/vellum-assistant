@@ -89,6 +89,9 @@ export interface SlackUser {
   id: string;
   name: string;
   real_name?: string;
+  tz?: string;
+  tz_label?: string;
+  tz_offset?: number;
   profile?: {
     display_name?: string;
     real_name?: string;
