@@ -73,6 +73,7 @@ import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-acti
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
 import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input.js";
+import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages.js";
 
 import { SetupScreen } from "@/domains/chat/components/setup-screen.js";
 import { CleanupScreen } from "@/domains/chat/components/cleanup-screen.js";
@@ -719,6 +720,17 @@ export function ChatPage() {
   });
 
   // -------------------------------------------------------------------------
+  // Non-destructive refresh for the chat title chevron's Refresh menu item.
+  // -------------------------------------------------------------------------
+  const refreshLatestMessages = useRefreshLatestMessages({
+    assistantId,
+    activeConversationKeyRef,
+    messagesRef,
+    setMessages,
+    dismissedSurfaceIdsRef,
+  });
+
+  // -------------------------------------------------------------------------
   // Sync chat store (for deeply-nested components that read via context)
   // -------------------------------------------------------------------------
   useSyncChatStore({
@@ -888,6 +900,11 @@ export function ChatPage() {
             ? handleCopyConversation
             : undefined
         }
+        onRefresh={
+          activeConversation.conversationKey != null
+            ? refreshLatestMessages
+            : undefined
+        }
         moveToGroups={moveToGroups}
         onMoveToGroup={(groupId) => handleMoveToGroup(activeConversation, groupId)}
         onRemoveFromGroup={
@@ -948,6 +965,7 @@ export function ChatPage() {
     handleMarkConversationRead,
     hasPersistedMessage,
     messages.length,
+    refreshLatestMessages,
   ]);
 
   useEffect(() => {
