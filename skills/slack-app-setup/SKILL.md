@@ -89,6 +89,8 @@ Then collect it securely:
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`
 
+Wait until you have successfully collected this from the user before proceeding. 
+
 ### Step 2b: Install App to Workspace
 
 Tell the user: in the left sidebar of your Slack app settings, go to **Install App**, then click **Install to Workspace**. Slack will ask you to authorize — click **Allow**.
