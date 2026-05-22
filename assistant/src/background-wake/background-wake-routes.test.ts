@@ -38,6 +38,13 @@ function schedulerResultFixture(
   };
 }
 
+function firstCallArg(fn: {
+  mock: { calls: unknown[] };
+}): Record<string, unknown> {
+  const call = fn.mock.calls[0] as unknown[] | undefined;
+  return (call?.[0] ?? {}) as Record<string, unknown>;
+}
+
 describe("background wake runtime routes", () => {
   beforeEach(() => {
     clearBackgroundWakeRuntime();
@@ -96,27 +103,34 @@ describe("background wake runtime routes", () => {
   });
 
   test("drain-due invokes due heartbeat and scheduler work", async () => {
+    const dueAt = Date.now() - 1;
+    const recomputedIntent = intentFixture({
+      nextWakeAt: Date.now() + 60_000,
+      sourceGeneration: "next-generation",
+    });
+    computedIntent = intentFixture({
+      nextWakeAt: dueAt,
+      actualNextDueAt: dueAt,
+      reason: "mixed",
+    });
     const heartbeatRunManaged = mock(async () => ({
       due: true,
       completed: 1,
       skipped: 0,
     }));
-    const schedulerRunDue = mock(async () =>
-      schedulerResultFixture({ claimed: 2, completed: 2 }),
-    );
+    const schedulerRunDue = mock(async () => {
+      computedIntent = recomputedIntent;
+      return schedulerResultFixture({ claimed: 2, completed: 2 });
+    });
     registerBackgroundWakeRuntime({
       heartbeat: {
-        nextRunAt: Date.now() - 1,
+        nextRunAt: dueAt,
         runManagedWakeIfDue: heartbeatRunManaged,
       },
       scheduler: {
         runOnce: mock(async () => 2),
         runDueWorkOnce: schedulerRunDue,
       },
-    });
-    computedIntent = intentFixture({
-      nextWakeAt: NOW + 60_000,
-      sourceGeneration: "next-generation",
     });
     const handler = findHandler("drainDueBackgroundWake");
 
@@ -126,8 +140,9 @@ describe("background wake runtime routes", () => {
 
     expect(heartbeatRunManaged).toHaveBeenCalledTimes(1);
     expect(heartbeatRunManaged).toHaveBeenCalledWith(
-      expect.objectContaining({ assumeDue: true }),
+      expect.objectContaining({ scheduledFor: NOW }),
     );
+    expect(firstCallArg(heartbeatRunManaged)).not.toHaveProperty("assumeDue");
     expect(schedulerRunDue).toHaveBeenCalledTimes(1);
     expect(response).toEqual({
       leaseId: "lease-123",
@@ -148,7 +163,7 @@ describe("background wake runtime routes", () => {
       completed: 3,
       failed: 0,
       skipped: 0,
-      nextIntent: computedIntent,
+      nextIntent: recomputedIntent,
       dueWorkRemaining: false,
     });
   });
@@ -231,7 +246,58 @@ describe("background wake runtime routes", () => {
     expect(response.nextIntent).toEqual(recomputedIntent);
   });
 
-  test("drain-due runs a heartbeat for daemon startup after sleep", async () => {
+  test("drain-due runs scheduler backlog on heartbeat-only drains", async () => {
+    const dueAt = Date.now() - 1;
+    const recomputedIntent = intentFixture({
+      nextWakeAt: Date.now() + 60_000,
+      sourceGeneration: "after-heartbeat-drain",
+    });
+    computedIntent = intentFixture({
+      nextWakeAt: dueAt,
+      actualNextDueAt: dueAt,
+      reason: "heartbeat",
+    });
+    const heartbeatRunManaged = mock(async () => ({
+      due: true,
+      completed: 1,
+      skipped: 0,
+    }));
+    const schedulerRunDue = mock(async () => {
+      computedIntent = recomputedIntent;
+      return schedulerResultFixture({ claimed: 1, completed: 1 });
+    });
+    registerBackgroundWakeRuntime({
+      heartbeat: {
+        nextRunAt: dueAt,
+        runManagedWakeIfDue: heartbeatRunManaged,
+      },
+      scheduler: {
+        runOnce: mock(async () => 1),
+        runDueWorkOnce: schedulerRunDue,
+      },
+    });
+    const handler = findHandler("drainDueBackgroundWake");
+
+    const response = await handler({
+      body: drainBodyFixture({ reason: "heartbeat" }),
+    });
+
+    expect(heartbeatRunManaged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scheduledFor: NOW,
+      }),
+    );
+    expect(firstCallArg(heartbeatRunManaged)).not.toHaveProperty("assumeDue");
+    expect(schedulerRunDue).toHaveBeenCalledTimes(1);
+    expect(response).toMatchObject({
+      completed: 2,
+      failed: 0,
+      skipped: 0,
+      dueWorkRemaining: false,
+    });
+  });
+
+  test("drain-due does not rerun heartbeat for stale heartbeat drain requests", async () => {
     const heartbeatRunManaged = mock(async () => ({
       due: true,
       completed: 1,
@@ -254,15 +320,10 @@ describe("background wake runtime routes", () => {
       body: drainBodyFixture({ reason: "heartbeat" }),
     });
 
-    expect(heartbeatRunManaged).toHaveBeenCalledWith(
-      expect.objectContaining({
-        assumeDue: true,
-        scheduledFor: NOW,
-      }),
-    );
+    expect(heartbeatRunManaged).not.toHaveBeenCalled();
     expect(schedulerRunDue).not.toHaveBeenCalled();
     expect(response).toMatchObject({
-      completed: 1,
+      completed: 0,
       failed: 0,
       skipped: 0,
       dueWorkRemaining: false,
@@ -296,8 +357,9 @@ describe("background wake runtime routes", () => {
     await handler({ body: drainBodyFixture({ reason: "refresh" }) });
 
     expect(heartbeatRunManaged).toHaveBeenCalledWith(
-      expect.objectContaining({ assumeDue: false }),
+      expect.objectContaining({ scheduledFor: NOW }),
     );
+    expect(firstCallArg(heartbeatRunManaged)).not.toHaveProperty("assumeDue");
   });
 
   test("drain-due runs scheduler when schedule work is due at wake", async () => {
@@ -374,6 +436,12 @@ describe("background wake runtime routes", () => {
   });
 
   test("drain-due honors deadline exhaustion before starting heartbeat work", async () => {
+    const dueAt = Date.now() - 1;
+    computedIntent = intentFixture({
+      nextWakeAt: dueAt,
+      actualNextDueAt: dueAt,
+      reason: "mixed",
+    });
     const heartbeatRunManaged = mock(async () => ({
       due: true,
       completed: 1,
@@ -384,7 +452,7 @@ describe("background wake runtime routes", () => {
     );
     registerBackgroundWakeRuntime({
       heartbeat: {
-        nextRunAt: Date.now() - 1,
+        nextRunAt: dueAt,
         runManagedWakeIfDue: heartbeatRunManaged,
       },
       scheduler: {

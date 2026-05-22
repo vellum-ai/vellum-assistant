@@ -109,10 +109,9 @@ async function handleDrainDue(body: Record<string, unknown>) {
 
   const now = Date.now();
   const currentIntent = computeWakeIntent(now);
-  const heartbeatDue =
-    reasonIncludesSource(request.reason, "heartbeat") ||
-    intentHasDueSource(currentIntent, "heartbeat", now);
+  const heartbeatDue = intentHasDueSource(currentIntent, "heartbeat", now);
   const schedulerDue =
+    heartbeatDue ||
     reasonIncludesSource(request.reason, "schedule") ||
     intentHasDueSource(currentIntent, "schedule", now);
 
@@ -124,7 +123,6 @@ async function handleDrainDue(body: Record<string, unknown>) {
       const heartbeatResult = await runtime.heartbeat.runManagedWakeIfDue({
         now,
         toleranceMs: HEARTBEAT_DUE_TOLERANCE_MS,
-        assumeDue: reasonIncludesSource(request.reason, "heartbeat"),
         scheduledFor: request.startedAt,
       });
       heartbeatCompleted = heartbeatResult.completed;
