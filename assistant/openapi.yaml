@@ -12865,6 +12865,69 @@ paths:
           required: true
           schema:
             type: string
+  /v1/plugins:
+    get:
+      operationId: plugins_get
+      summary: List installed plugins
+      description:
+        Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's
+        `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name,
+        and description.
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plugins:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: Plugin's directory name (kebab-case). Matches `assistant plugins install <id>`.
+                        name:
+                          type: string
+                          description: Display name. Equal to `id` today.
+                        description:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: From `package.json#description`; `null` when unknown.
+                        version:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: From `package.json#version`; `null` when unknown.
+                        path:
+                          description: Absolute path to the plugin directory on the assistant host.
+                          type: string
+                        issues:
+                          description: Non-fatal issues with this entry (missing `package.json`, malformed JSON, ...). Omitted when clean.
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - id
+                        - name
+                        - description
+                        - version
+                      additionalProperties: false
+                required:
+                  - plugins
+                additionalProperties: false
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional substring filter applied to plugin id, name, and description.
   /v1/profiler/runs:
     get:
       operationId: profiler_runs_get
