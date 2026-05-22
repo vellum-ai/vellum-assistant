@@ -330,8 +330,15 @@ function deriveSessionStatus(runs: ReportRunSummary[]): SessionStatus {
   if (states.has("running")) return "running";
   const hasFailed = states.has("failed");
   const hasCompleted = states.has("completed");
-  if (hasFailed && hasCompleted) return "partial";
+  const hasAbandoned = states.has("abandoned");
+  // Mixed terminal outcomes — surface as "partial" so the index makes it
+  // clear something didn't fully succeed. Abandoned counts as a non-success.
+  if ((hasFailed || hasAbandoned) && hasCompleted) return "partial";
   if (hasFailed) return "failed";
+  // All terminal runs are abandoned — surface that explicitly so it's
+  // distinguishable from clean failure and so the user knows to investigate
+  // stuck/killed processes rather than test bugs.
+  if (hasAbandoned) return "abandoned";
   if (hasCompleted) return "completed";
   return "unknown";
 }

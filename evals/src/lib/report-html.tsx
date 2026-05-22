@@ -80,6 +80,7 @@ const COST_REASON_LABELS: Record<CostDiagnosticReason, string> = {
 function statusClass(status: string): string {
   if (status === "completed") return "good";
   if (status === "failed") return "bad";
+  if (status === "abandoned") return "bad";
   if (status === "running") return "warn";
   if (status === "partial") return "warn";
   return "muted";
@@ -188,6 +189,15 @@ button:hover { background: rgba(139,92,246,.18); border-color: rgba(139,92,246,.
 button.bad { color: var(--bad); border-color: rgba(251,113,133,.4); }
 button.bad:hover { background: rgba(251,113,133,.15); border-color: var(--bad); }
 .panel-actions { display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 16px; }
+.confirm-action { position: relative; }
+.confirm-action > summary { display: inline-block; padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(251,113,133,.4); background: rgba(255,255,255,.08); color: var(--bad); font-size: 13px; font-weight: 600; cursor: pointer; list-style: none; transition: .15s ease; user-select: none; }
+.confirm-action > summary::-webkit-details-marker { display: none; }
+.confirm-action > summary:hover { background: rgba(251,113,133,.15); border-color: var(--bad); }
+.confirm-action[open] > summary { background: rgba(251,113,133,.18); border-color: var(--bad); }
+.confirm-form { margin-top: 10px; padding: 14px; border-radius: 10px; border: 1px solid rgba(251,113,133,.35); background: rgba(251,113,133,.06); display: flex; flex-direction: column; gap: 10px; max-width: 480px; }
+.confirm-prompt { margin: 0; font-size: 13px; color: var(--text); line-height: 1.5; }
+.confirm-prompt code { padding: 1px 6px; border-radius: 4px; background: rgba(0,0,0,.4); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--accent2); }
+.confirm-form button[type="submit"] { align-self: flex-start; }
 .artifact-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
 .artifact-list li { padding: 10px 14px; border-radius: 12px; background: rgba(0,0,0,.28); border: 1px solid var(--border); transition: .15s ease; }
 .artifact-list li:hover { border-color: rgba(34,211,238,.4); background: rgba(34,211,238,.06); }
@@ -196,66 +206,6 @@ button.bad:hover { background: rgba(251,113,133,.15); border-color: var(--bad); 
 .artifact-link:hover { color: var(--text); text-decoration: underline; }
 @media (max-width: 980px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .shell { padding: 18px; } .cards { grid-template-columns: 1fr; } .hero { display: block; } }
-`;
-
-// Delegated click handler for delete buttons. We can't use React onClick={}
-// because the page is server-rendered via renderToStaticMarkup and ships zero
-// React runtime — synthetic handlers are silently stripped. Wiring through
-// data-* attributes + one document-level listener keeps it hydration-free.
-const PAGE_SCRIPT = `
-(function () {
-  function onClick(e) {
-    var target = e.target;
-    if (!(target instanceof Element)) return;
-
-    var deleteRunBtn = target.closest("[data-delete-run]");
-    if (deleteRunBtn) {
-      e.preventDefault();
-      var runId = deleteRunBtn.getAttribute("data-delete-run");
-      var backTo = deleteRunBtn.getAttribute("data-back-to-session");
-      if (!runId) return;
-      if (!window.confirm("Delete run " + runId + "? This cannot be undone.")) return;
-      deleteRunBtn.setAttribute("disabled", "true");
-      fetch("/api/runs/" + encodeURIComponent(runId), { method: "DELETE" })
-        .then(function (r) {
-          return r.json().then(function (j) { return { ok: r.ok, body: j }; });
-        })
-        .then(function (res) {
-          if (!res.ok) throw new Error(res.body && res.body.error ? res.body.error : "Delete failed");
-          window.location.href = backTo ? "/sessions/" + encodeURIComponent(backTo) : "/";
-        })
-        .catch(function (err) {
-          deleteRunBtn.removeAttribute("disabled");
-          window.alert("Failed to delete run: " + (err && err.message ? err.message : String(err)));
-        });
-      return;
-    }
-
-    var deleteAllBtn = target.closest("[data-delete-all]");
-    if (deleteAllBtn) {
-      e.preventDefault();
-      if (!window.confirm("Delete every non-running run on disk? This cannot be undone.")) return;
-      deleteAllBtn.setAttribute("disabled", "true");
-      fetch("/api/runs", { method: "DELETE" })
-        .then(function (r) {
-          return r.json().then(function (j) { return { ok: r.ok, body: j }; });
-        })
-        .then(function (res) {
-          if (!res.ok) throw new Error(res.body && res.body.error ? res.body.error : "Delete failed");
-          var msg = "Deleted " + res.body.deleted + " run(s)";
-          if (res.body.skipped) msg += "; skipped " + res.body.skipped + " still running";
-          window.alert(msg + ".");
-          window.location.reload();
-        })
-        .catch(function (err) {
-          deleteAllBtn.removeAttribute("disabled");
-          window.alert("Failed to delete runs: " + (err && err.message ? err.message : String(err)));
-        });
-      return;
-    }
-  }
-  document.addEventListener("click", onClick);
-})();
 `;
 
 function StatusBadge({ status }: { status: string }) {
@@ -368,9 +318,22 @@ function IndexPage({ sessions }: { sessions: ReportSessionSummary[] }) {
         ) : (
           <>
             <div className="panel-actions">
-              <button className="bad" data-delete-all="true">
-                Delete all non-running
-              </button>
+              <details className="confirm-action">
+                <summary className="bad">Delete all non-running</summary>
+                <form
+                  className="confirm-form"
+                  method="post"
+                  action="/api/runs/delete-all"
+                >
+                  <p className="confirm-prompt">
+                    This deletes every run on disk that isn&rsquo;t currently
+                    running. It cannot be undone.
+                  </p>
+                  <button className="bad" type="submit">
+                    Yes, delete every non-running run
+                  </button>
+                </form>
+              </details>
             </div>
             <div className="session-list">
               {sessions.map((session) => (
@@ -861,13 +824,27 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
             </div>
           )}
           <div className="action-buttons">
-            <button
-              className="bad"
-              data-delete-run={run.runId}
-              data-back-to-session={run.sessionId}
-            >
-              Delete run
-            </button>
+            <details className="confirm-action">
+              <summary className="bad">Delete run</summary>
+              <form
+                className="confirm-form"
+                method="post"
+                action={`/api/runs/${encodeURIComponent(run.runId)}/delete`}
+              >
+                <input
+                  type="hidden"
+                  name="backToSession"
+                  value={run.sessionId}
+                />
+                <p className="confirm-prompt">
+                  This deletes <code>{run.runId}</code> permanently. It cannot
+                  be undone.
+                </p>
+                <button className="bad" type="submit">
+                  Yes, delete this run
+                </button>
+              </form>
+            </details>
           </div>
         </section>
       )}
@@ -1080,7 +1057,6 @@ function ReportDocument({ input }: { input: ReportPageInput }) {
         <div className="shell">
           <PageBody input={input} />
         </div>
-        <script dangerouslySetInnerHTML={{ __html: PAGE_SCRIPT }} />
       </body>
     </html>
   );

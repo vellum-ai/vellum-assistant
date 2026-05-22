@@ -164,6 +164,40 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, JSON.stringify(value, null, 2));
 }
 
+/**
+ * Per-runId mutex for run.json writes. Prevents read-then-write races where
+ * a heartbeat ticker reads `status: "running"`, suspends, the final
+ * `completed`/`failed` write lands, and then the heartbeat continuation
+ * clobbers it back to `running`. Every code path that mutates `run.json`
+ * goes through `writeRunMetadata` or `updateRunMetadata`, both of which
+ * serialize through this map.
+ *
+ * The map only grows for runs with active in-flight writers; entries
+ * self-evict when the last queued op resolves and no successor has
+ * been chained.
+ */
+const metadataLocks = new Map<string, Promise<unknown>>();
+
+async function withMetadataLock<T>(
+  runId: string,
+  op: () => Promise<T>,
+): Promise<T> {
+  const prev = metadataLocks.get(runId) ?? Promise.resolve();
+  // Always wait for the previous tail, even if it rejected; otherwise a
+  // failing writer would poison every subsequent acquirer.
+  const ours: Promise<T> = prev.then(op, op);
+  metadataLocks.set(runId, ours);
+  try {
+    return await ours;
+  } finally {
+    // If nobody chained after us, drop the entry so the map doesn't grow
+    // unbounded across the lifetime of the server.
+    if (metadataLocks.get(runId) === ours) {
+      metadataLocks.delete(runId);
+    }
+  }
+}
+
 export function runArtifacts(runId: string): RunArtifacts {
   const runDir = join(RUNS_DIR, runId);
   return {
@@ -232,7 +266,39 @@ export async function writeRunMetadata(
   runId: string,
   metadata: RunMetadata,
 ): Promise<void> {
-  await writeJson(runArtifacts(runId).metadataPath, metadata);
+  await withMetadataLock(runId, () =>
+    writeJson(runArtifacts(runId).metadataPath, metadata),
+  );
+}
+
+/**
+ * Atomic read-modify-write for run.json. Acquires the per-runId mutex,
+ * reads the current metadata, calls `updater`, and writes the result —
+ * unless `updater` returns `undefined`, in which case the write is
+ * skipped (use this to express "only write if state X").
+ *
+ * Returns the final on-disk metadata (or `undefined` if no write happened
+ * because the file is missing or the updater bailed).
+ *
+ * This is the only safe way to do conditional run.json updates from
+ * concurrent code paths (heartbeat ticker, scavenger, the run-once finally
+ * block). Plain `readRunMetadata` followed by `writeRunMetadata` from
+ * different async stacks can interleave and clobber the final status —
+ * that's the race this PR is preventing.
+ */
+export async function updateRunMetadata(
+  runId: string,
+  updater: (
+    current: RunMetadata | undefined,
+  ) => RunMetadata | undefined | Promise<RunMetadata | undefined>,
+): Promise<RunMetadata | undefined> {
+  return withMetadataLock(runId, async () => {
+    const current = await readRunMetadata(runId).catch(() => undefined);
+    const next = await updater(current);
+    if (next === undefined) return current;
+    await writeJson(runArtifacts(runId).metadataPath, next);
+    return next;
+  });
 }
 
 export async function readTranscript(runId: string): Promise<TranscriptTurn[]> {
@@ -374,25 +440,31 @@ export async function scavengeAbandonedRuns(
   let skipped = 0;
 
   for (const runDir of runDirs) {
-    const metadata = await readRunMetadata(runDir).catch(() => undefined);
-    if (!metadata || metadata.status !== "running") continue;
-
-    const lastHeartbeat = metadata.lastHeartbeatAt
-      ? new Date(metadata.lastHeartbeatAt)
-      : new Date(metadata.startedAt ?? 0);
-    const timeSinceHeartbeat = now.getTime() - lastHeartbeat.getTime();
-
-    if (timeSinceHeartbeat > heartbeatTimeoutMs) {
-      await writeRunMetadata(runDir, {
-        ...metadata,
+    // updateRunMetadata serializes against in-flight heartbeats and final
+    // writes — so a run that flipped to `completed` between our outer
+    // check and the actual write won't be mistakenly marked `abandoned`.
+    let scavenged = false;
+    let stillFresh = false;
+    await updateRunMetadata(runDir, (current) => {
+      if (!current || current.status !== "running") return undefined;
+      const lastHeartbeat = current.lastHeartbeatAt
+        ? new Date(current.lastHeartbeatAt)
+        : new Date(current.startedAt ?? 0);
+      const timeSinceHeartbeat = now.getTime() - lastHeartbeat.getTime();
+      if (timeSinceHeartbeat <= heartbeatTimeoutMs) {
+        stillFresh = true;
+        return undefined;
+      }
+      scavenged = true;
+      return {
+        ...current,
         status: "abandoned",
         completedAt: now.toISOString(),
         error: `Process exited without completing (last heartbeat: ${lastHeartbeat.toISOString()})`,
-      });
-      count++;
-    } else {
-      skipped++;
-    }
+      };
+    });
+    if (scavenged) count++;
+    else if (stillFresh) skipped++;
   }
 
   return { count, skipped };
@@ -454,16 +526,19 @@ export function abandonAllRunningRunsSync(input: {
  * Called from `appendProgressEvent` and from the per-run heartbeat ticker
  * so the scavenger can tell a live process from a dead one.
  *
- * Skips the write entirely if the run is no longer `running`, so the
- * 5s background ticker doesn't fight the catch/finally writers for the
- * final `status: "failed"` / `status: "completed"` value.
+ * Uses `updateRunMetadata` for atomic read-modify-write, so the 5s
+ * background ticker can't read `status: "running"`, suspend, and then
+ * clobber a final `completed` write that lands in the gap. Inside the
+ * lock we re-check `status === "running"` so a heartbeat that queued
+ * while a final write was pending becomes a no-op.
  */
 export async function updateHeartbeat(runId: string): Promise<void> {
-  const metadata = await readRunMetadata(runId).catch(() => undefined);
-  if (!metadata) return;
-  if (metadata.status !== "running") return;
-  await writeRunMetadata(runId, {
-    ...metadata,
-    lastHeartbeatAt: new Date().toISOString(),
+  await updateRunMetadata(runId, (current) => {
+    if (!current) return undefined;
+    if (current.status !== "running") return undefined;
+    return {
+      ...current,
+      lastHeartbeatAt: new Date().toISOString(),
+    };
   });
 }

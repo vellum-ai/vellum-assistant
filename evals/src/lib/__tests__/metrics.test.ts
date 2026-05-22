@@ -14,6 +14,7 @@ import {
   RUNS_DIR,
   scavengeAbandonedRuns,
   updateHeartbeat,
+  updateRunMetadata,
   writeRunMetadata,
   writeUsage,
 } from "../metrics";
@@ -232,5 +233,68 @@ describe("updateHeartbeat", () => {
     const after = (await readRunMetadata(runId))?.lastHeartbeatAt;
     // No write — value is unchanged, even though we asked for a heartbeat.
     expect(after).toBe(before);
+  });
+});
+
+describe("updateRunMetadata (per-runId mutex)", () => {
+  test("serializes concurrent updaters so no two run at once for the same runId", async () => {
+    // Without the mutex, ten concurrent updaters all race on read-modify-write
+    // and the final result depends on scheduling. With the mutex, the updaters
+    // run end-to-end one after another.
+    const runId = await seedRunningRun({
+      startedAt: "2026-05-22T15:00:00.000Z",
+      lastHeartbeatAt: "2026-05-22T15:00:00.000Z",
+    });
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const ops = Array.from({ length: 10 }, (_, i) =>
+      updateRunMetadata(runId, async (current) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        // Yield to the microtask queue so an unlocked impl would interleave.
+        await new Promise((r) => setTimeout(r, 1));
+        inFlight -= 1;
+        if (!current) return undefined;
+        return { ...current, lastHeartbeatAt: `tick-${i}` };
+      }),
+    );
+    await Promise.all(ops);
+    expect(maxInFlight).toBe(1);
+    // And the final write must have been one of the ticks — the last one
+    // to release the lock wins, but every tick was applied serially.
+    const final = await readRunMetadata(runId);
+    expect(final?.lastHeartbeatAt).toMatch(/^tick-\d$/);
+  });
+
+  test("a heartbeat that queues behind a final completed-write becomes a no-op (race-safety)", async () => {
+    // Reproduces the P1 race Codex flagged: heartbeat reads `running`,
+    // suspends, the final `completed` write lands. Without the mutex,
+    // the heartbeat continuation clobbers `completed` back to `running`.
+    // With the mutex, the heartbeat re-reads `current.status` inside the
+    // lock and skips its write.
+    const runId = await seedRunningRun({
+      startedAt: "2026-05-22T15:00:00.000Z",
+      lastHeartbeatAt: "2026-05-22T15:00:00.000Z",
+    });
+    // Fire heartbeat and final write concurrently. The mutex serializes
+    // them in arrival order; whichever observes the lock first runs first.
+    const heartbeat = updateHeartbeat(runId);
+    const finalWrite = writeRunMetadata(runId, {
+      runId,
+      sessionId: "session-scav",
+      profileId: "p1",
+      testId: "t1",
+      status: "completed",
+      startedAt: "2026-05-22T15:00:00.000Z",
+      completedAt: "2026-05-22T15:00:05.000Z",
+      artifactDir: `${RUNS_DIR}/${runId}`,
+    });
+    await Promise.all([heartbeat, finalWrite]);
+    // The final state is always `completed` — never `running` — because
+    // either the heartbeat ran first (then the final write replaced it),
+    // or the final write ran first (then the heartbeat saw `completed`
+    // and skipped).
+    const final = await readRunMetadata(runId);
+    expect(final?.status).toBe("completed");
   });
 });

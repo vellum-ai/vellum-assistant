@@ -313,6 +313,82 @@ describe("evals server routing", () => {
     expect(gone.status).toBe(404);
     expect(failed).toBeTruthy(); // (failed too — same path)
   });
+
+  // -- form-driven delete endpoints (no client JS) --------------------------
+
+  test("POST /api/runs/:runId/delete removes the run and 303-redirects to the session", async () => {
+    const sessionId = `session-form-del-${Date.now()}`;
+    const runId = await seedRun({
+      sessionId,
+      profileId: "p1",
+      testId: "t1",
+    });
+    const body = new URLSearchParams({ backToSession: sessionId });
+    const res = await handleRequest(
+      new Request(
+        `http://localhost:3005/api/runs/${encodeURIComponent(runId)}/delete`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body,
+        },
+      ),
+    );
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe(
+      `/sessions/${encodeURIComponent(sessionId)}`,
+    );
+    // Verify the run directory is gone.
+    const gone = await handleRequest(
+      req(`/api/runs/${encodeURIComponent(runId)}/files/subprocess-x.log`),
+    );
+    expect(gone.status).toBe(404);
+  });
+
+  test("POST /api/runs/:runId/delete falls back to `/` when no backToSession is supplied", async () => {
+    const runId = await seedRun({
+      sessionId: `session-form-del-noback-${Date.now()}`,
+      profileId: "p1",
+      testId: "t1",
+    });
+    const res = await handleRequest(
+      new Request(
+        `http://localhost:3005/api/runs/${encodeURIComponent(runId)}/delete`,
+        { method: "POST" },
+      ),
+    );
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/");
+  });
+
+  test("POST /api/runs/:runId/delete renders an HTML error page (not JSON) for malformed runIds", async () => {
+    const res = await handleRequest(
+      new Request("http://localhost:3005/api/runs/not-an-eval-runid/delete", {
+        method: "POST",
+      }),
+    );
+    expect(res.status).toBe(400);
+    // Browsers post the form — they expect HTML back, not JSON. Confirm
+    // the content-type and that we link the user back somewhere useful.
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const body = await res.text();
+    expect(body).toContain("Invalid runId format");
+    expect(body).toContain('href="/"');
+  });
+
+  test("POST /api/runs/delete-all bulk-deletes and 303-redirects to `/`", async () => {
+    const sessionId = `session-form-del-all-${Date.now()}`;
+    await seedRun({ sessionId, profileId: "p1", testId: "t1" });
+    await seedRun({ sessionId, profileId: "p2", testId: "t1" });
+
+    const res = await handleRequest(
+      new Request("http://localhost:3005/api/runs/delete-all", {
+        method: "POST",
+      }),
+    );
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/");
+  });
 });
 
 describe("resolveBrowserCommand", () => {

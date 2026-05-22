@@ -304,37 +304,43 @@ describe("report html", () => {
 
   // -- no-silent-stuck UI surfaces -------------------------------------------
 
-  test("index page renders a Delete-all button only when there are sessions", () => {
+  test("index page renders a Delete-all form only when there are sessions", () => {
+    // The form is the entire interactive contract now — POST to the
+    // server-side endpoint, server 303-redirects back to `/`. No client
+    // JS involved, so we just assert the form markup is there.
     const populated = renderReportPage({
       kind: "index",
       sessions: [sessionSummary],
     });
-    expect(populated).toContain('data-delete-all="true"');
+    expect(populated).toContain('action="/api/runs/delete-all"');
+    expect(populated).toContain('method="post"');
     expect(populated).toContain("Delete all non-running");
 
     const empty = renderReportPage({ kind: "index", sessions: [] });
-    // The script tag's selector contains "data-delete-all" as a CSS
-    // selector — that doesn't count. We're asserting no actual rendered
-    // attribute, which always carries the `="true"` value when present.
-    expect(empty).not.toContain('data-delete-all="true"');
+    expect(empty).not.toContain('action="/api/runs/delete-all"');
     expect(empty).not.toContain("Delete all non-running");
   });
 
-  test("every page injects the delegated click-handler script", () => {
-    // The script is hydration-free: it lives on the document and dispatches
-    // on data-delete-run / data-delete-all. If it stops getting injected,
-    // the delete buttons revert to silent no-ops (the bug we just fixed).
-    const html = renderReportPage({
+  test("pages ship no client-side JS — every delete is a plain HTML form", () => {
+    // The old implementation injected an IIFE that did fetch+delete. The
+    // current implementation is hydration-free: <details> + <form method="post">
+    // with the server returning 303s. If a <script> tag ever sneaks back in,
+    // someone's reintroduced the hacky-html pattern.
+    const index = renderReportPage({
       kind: "index",
       sessions: [sessionSummary],
     });
-    expect(html).toContain('document.addEventListener("click"');
-    expect(html).toContain("data-delete-run");
-    expect(html).toContain("data-delete-all");
-    // And critically — no React-synthetic onClick attributes survived
-    // server rendering. renderToStaticMarkup strips them but if anyone
-    // ever switches to renderToString without hydration it would leak.
-    expect(html).not.toMatch(/\sonClick=/i);
+    const execution = renderReportPage({
+      kind: "execution",
+      run: { ...executionDetail, status: "failed" },
+    });
+    for (const html of [index, execution]) {
+      expect(html).not.toMatch(/<script\b/i);
+      // And no React-synthetic onClick attribute leaked through (renderToStaticMarkup
+      // strips them today; this guards against a future switch to renderToString).
+      expect(html).not.toMatch(/\sonClick=/i);
+      expect(html).not.toMatch(/\sonSubmit=/i);
+    }
   });
 
   test("execution page surfaces docker forensics artifacts as links to the file endpoint", () => {
@@ -379,19 +385,21 @@ describe("report html", () => {
     expect(html).not.toContain("Subprocess logs");
   });
 
-  test("execution page exposes Delete-run with both data-delete-run and data-back-to-session attrs when the run failed", () => {
+  test("execution page exposes a Delete-run POST form with backToSession hidden field when the run failed", () => {
     // Debug section only fires for non-completed runs or when there's an
     // error/heartbeat to surface — gate it explicitly with `failed`.
     const html = renderReportPage({
       kind: "execution",
       run: { ...executionDetail, status: "failed" },
     });
-    expect(html).toContain(`data-delete-run="${executionDetail.runId}"`);
     expect(html).toContain(
-      `data-back-to-session="${executionDetail.sessionId}"`,
+      `action="/api/runs/${encodeURIComponent(executionDetail.runId)}/delete"`,
     );
-    // The button text and class still ship.
+    expect(html).toContain('method="post"');
+    expect(html).toContain('name="backToSession"');
+    expect(html).toContain(`value="${executionDetail.sessionId}"`);
+    // Summary + confirm-button copy still ships.
     expect(html).toContain("Delete run");
-    expect(html).toContain('class="bad"');
+    expect(html).toContain("Yes, delete this run");
   });
 });
