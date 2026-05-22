@@ -25,6 +25,7 @@ import {
   normalizeSlackReactionRemoved,
   resolveSlackChannel,
   resolveSlackUser,
+  slackUserActorFields,
   type SlackAppMentionEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
@@ -1018,17 +1019,7 @@ export class SlackSocketModeClient {
         ),
       ]);
       if (userInfo) {
-        actor.displayName = userInfo.displayName;
-        actor.username = userInfo.username;
-        if (userInfo.timezone !== undefined) {
-          actor.timezone = userInfo.timezone;
-        }
-        if (userInfo.timezoneLabel !== undefined) {
-          actor.timezoneLabel = userInfo.timezoneLabel;
-        }
-        if (userInfo.timezoneOffsetSeconds !== undefined) {
-          actor.timezoneOffsetSeconds = userInfo.timezoneOffsetSeconds;
-        }
+        Object.assign(actor, slackUserActorFields(userInfo));
       }
     }
 

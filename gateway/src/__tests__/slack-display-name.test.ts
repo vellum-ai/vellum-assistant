@@ -44,6 +44,7 @@ const {
   normalizeSlackAppMention,
   resolveSlackChannel,
   resolveSlackUser,
+  resolveSlackUserSync,
   clearChannelInfoCache,
   clearInFlightFetches,
   clearUserInfoCache,
@@ -188,6 +189,100 @@ describe("resolveSlackUser", () => {
 
     expect(callCount).toBe(1);
     expect(getUserInfoCacheSize()).toBe(1);
+  });
+
+  test("scopes cached user info by bot token", async () => {
+    let callCount = 0;
+    fetchMock = mock(async (_input, init) => {
+      callCount++;
+      const auth = new Headers(init?.headers).get("authorization");
+      const user =
+        auth === "Bearer xoxb-team-a"
+          ? {
+              name: "alice",
+              tz: "America/New_York",
+              tz_label: "Eastern Daylight Time",
+              tz_offset: -14400,
+              profile: { display_name: "Alice" },
+            }
+          : {
+              name: "bob",
+              tz: "America/Los_Angeles",
+              tz_label: "Pacific Daylight Time",
+              tz_offset: -25200,
+              profile: { display_name: "Bob" },
+            };
+      return new Response(JSON.stringify({ ok: true, user }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const [teamAInfo, teamBInfo] = await Promise.all([
+      resolveSlackUser("U_SHARED", "xoxb-team-a"),
+      resolveSlackUser("U_SHARED", "xoxb-team-b"),
+    ]);
+
+    expect(teamAInfo!.displayName).toBe("Alice");
+    expect(teamAInfo!.timezone).toBe("America/New_York");
+    expect(teamBInfo!.displayName).toBe("Bob");
+    expect(teamBInfo!.timezone).toBe("America/Los_Angeles");
+    expect(callCount).toBe(2);
+    expect(getUserInfoCacheSize()).toBe(2);
+
+    await resolveSlackUser("U_SHARED", "xoxb-team-a");
+    await resolveSlackUser("U_SHARED", "xoxb-team-b");
+    expect(callCount).toBe(2);
+  });
+
+  test("sync cache lookup uses the bot token scope", async () => {
+    let callCount = 0;
+    fetchMock = mock(async (_input, init) => {
+      callCount++;
+      const auth = new Headers(init?.headers).get("authorization");
+      const user =
+        auth === "Bearer xoxb-team-a"
+          ? {
+              name: "alice",
+              tz: "America/Denver",
+              tz_label: "Mountain Daylight Time",
+              tz_offset: -21600,
+              profile: { display_name: "Alice" },
+            }
+          : {
+              name: "bob",
+              tz: "Europe/London",
+              tz_label: "British Summer Time",
+              tz_offset: 3600,
+              profile: { display_name: "Bob" },
+            };
+      return new Response(JSON.stringify({ ok: true, user }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    await resolveSlackUser("U_SHARED_SYNC", "xoxb-team-a");
+
+    const teamACached = resolveSlackUserSync("U_SHARED_SYNC", "xoxb-team-a");
+    expect(teamACached!.displayName).toBe("Alice");
+    expect(teamACached!.timezone).toBe("America/Denver");
+
+    const teamBMiss = resolveSlackUserSync("U_SHARED_SYNC", "xoxb-team-b");
+    expect(teamBMiss).toBeUndefined();
+
+    const teamBResolved = await resolveSlackUser(
+      "U_SHARED_SYNC",
+      "xoxb-team-b",
+    );
+    expect(teamBResolved!.displayName).toBe("Bob");
+    expect(teamBResolved!.timezone).toBe("Europe/London");
+
+    const teamBCached = resolveSlackUserSync("U_SHARED_SYNC", "xoxb-team-b");
+    expect(teamBCached!.displayName).toBe("Bob");
+    expect(teamBCached!.timezone).toBe("Europe/London");
+    expect(callCount).toBe(2);
+    expect(getUserInfoCacheSize()).toBe(2);
   });
 });
 
