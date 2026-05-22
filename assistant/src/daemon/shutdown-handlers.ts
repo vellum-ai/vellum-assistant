@@ -34,10 +34,10 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
   let shuttingDown = false;
   let exitCode = 0;
 
-  const shutdown = async () => {
+  const shutdown = async (signal?: NodeJS.Signals) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    log.info("Shutting down daemon...");
+    log.warn({ signal: signal ?? "unknown" }, "Daemon shutdown initiated");
 
     // Force exit if graceful shutdown takes too long.
     // Set this BEFORE awaiting heartbeat stop so it covers all
@@ -156,9 +156,9 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     process.exit(exitCode);
   };
 
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
-  process.on("SIGHUP", shutdown);
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+    process.on(sig, () => shutdown(sig));
+  }
 
   process.on("unhandledRejection", (reason) => {
     log.error(
