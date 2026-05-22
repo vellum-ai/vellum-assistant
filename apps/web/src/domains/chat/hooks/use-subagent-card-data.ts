@@ -37,7 +37,9 @@ import {
 } from "@/domains/subagents/subagent-store.js";
 import type { SubagentStatus } from "@/domains/chat/api/event-types.js";
 import type { ToolProgressCardState } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell.js";
-import { humanizeToolName } from "@/domains/chat/components/tool-progress-card/derive-step-label.js";
+import { deriveStepLabelFromName } from "@/domains/chat/components/tool-progress-card/derive-step-label.js";
+import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils.js";
+import { truncate } from "@/domains/chat/utils/truncate.js";
 import {
   formatMs,
   type ToolCallCardData,
@@ -59,35 +61,114 @@ const TEXT_PREVIEW_MAX = 160;
 /** Trim newlines + collapse whitespace, then clamp to TEXT_PREVIEW_MAX. */
 function trimTextPreview(input: string): string {
   const collapsed = input.replace(/\s+/g, " ").trim();
-  if (collapsed.length <= TEXT_PREVIEW_MAX) return collapsed;
-  // -1 to leave room for the ellipsis. Mirrors `derive-step-label.ts`.
-  return collapsed.slice(0, TEXT_PREVIEW_MAX - 1) + "…";
+  return truncate(collapsed, TEXT_PREVIEW_MAX);
+}
+
+/**
+ * Best-effort reconstruction of a tool input bag from a subagent timeline
+ * event. Subagent events carry only a `content` summary string (produced by
+ * `summarizeToolInput` in the store) — not the raw input object — so we
+ * stuff that summary back into the most likely input key for the tool. The
+ * resulting bag is good enough for `deriveStepLabelFromName` to recover
+ * tool-specific labels (bash command, file path, computer action, etc.)
+ * instead of falling back to the generic "Running <Name>" path.
+ *
+ * Tools not enumerated here fall through to `deriveStepLabelFromName`'s
+ * default branch, which still produces a sensible title + the `bolt` icon.
+ */
+function reconstructInputBag(
+  toolName: string,
+  content: string,
+): Record<string, unknown> {
+  const name = toolName.toLowerCase();
+  if (!content) return {};
+
+  switch (name) {
+    case "bash":
+    case "host_bash":
+      return { command: content };
+    case "str_replace_editor":
+    case "text_editor":
+      // We lack the editor sub-command in the timeline summary, so route
+      // through "Editing" by default — safer than mis-classifying writes
+      // as reads. Callers who need the precise variant can wire raw input
+      // through when the subagent store starts preserving it.
+      return { path: content };
+    case "computer":
+      return { action: content };
+    case "skill":
+    case "skill_execute":
+    case "skill_invoke":
+    case "skill_load":
+      return { skill: content };
+    case "subagent_spawn":
+      return { label: content };
+    default:
+      return {};
+  }
 }
 
 /**
  * Map a subagent `tool_call` timeline event into a fresh in-flight `tool`
- * step. Exposed for testability — kept separate from `deriveStepLabel`
- * because the subagent timeline event has a different shape (`toolName`
- * + `content` summary) than the assistant-side `ChatMessageToolCall`.
+ * step. Exposed for testability.
  *
- * `iconName` is hard-coded to `"bolt"` (the generic-tool icon) and
+ * Routes through the shared `deriveStepLabelFromName` helper so the inline
+ * card's step pills inherit tool-specific titles + icons (`code` for bash,
+ * `file` for str_replace_editor view, etc.) rather than always rendering
+ * `bolt` / generic "Using <Tool>" labels. The subagent timeline carries
+ * only a `content` summary string (no raw input object), so we
+ * best-effort-reconstruct an input bag via `reconstructInputBag` before
+ * dispatching.
+ *
  * `toolCallId` mirrors `toolUseId` so the renderer key + result matcher
- * have a stable identifier. The inline card renderer doesn't consume
- * `iconName` today, so the value is effectively a placeholder.
+ * have a stable identifier.
  */
 export function mapToolEventToStep(
   event: SubagentTimelineEvent,
 ): Extract<ToolCallCardStep, { kind: "tool" }> {
   const toolName = event.toolName ?? "";
+  const content = event.content ?? "";
+  const input = reconstructInputBag(toolName, content);
+  const label = deriveStepLabelFromName(toolName, input);
   return {
     kind: "tool",
     durationLabel: "",
     toolCallId: event.toolUseId ?? "",
-    iconName: "bolt",
-    title: toolName ? `Using ${humanizeToolName(toolName)}` : "Running tool",
-    info: event.content ?? "",
+    iconName: label.iconName,
+    title: label.title,
+    info: label.info || content,
     status: "running",
   };
+}
+
+/**
+ * Find the index of the most recent in-flight tool step that matches a
+ * follow-up event (`tool_result` or `error`). Match precedence:
+ *   1. Exact `toolUseId` match — required when the event carries one (so
+ *      parallel calls to the same tool don't bleed into each other).
+ *   2. `toolName` match against the originating `tool_call`'s name.
+ *   3. "Latest in-flight" — when neither identifier is present.
+ *
+ * Returns -1 when no in-flight step matches.
+ */
+function findMatchingInFlightToolIndex(
+  steps: ToolCallCardStep[],
+  toolMeta: Array<{ startTs: number; toolName: string } | undefined>,
+  event: { toolUseId?: string; toolName?: string },
+): number {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i]!;
+    if (step.kind !== "tool" || step.status !== "running") continue;
+    if (event.toolUseId) {
+      if (step.toolCallId === event.toolUseId) return i;
+      // Exact-match-only when the event carries a toolUseId — do NOT fall
+      // through to toolName matching for a different ID.
+      continue;
+    }
+    const stepToolName = toolMeta[i]?.toolName ?? "";
+    if (!event.toolName || stepToolName === event.toolName) return i;
+  }
+  return -1;
 }
 
 /**
@@ -153,31 +234,7 @@ export function computeSubagentCardData(
     }
 
     if (event.type === "tool_result") {
-      // Close the most recent matching in-flight tool step. Match by
-      // `toolUseId` when both sides carry one — subagent streams can
-      // contain parallel calls to the same tool (e.g. two `bash`) which
-      // `toolName` alone cannot disambiguate. Fall back to `toolName`
-      // when the result lacks a `toolUseId`, and to "latest in-flight"
-      // when neither identifier is present.
-      let matchIndex = -1;
-      for (let i = steps.length - 1; i >= 0; i--) {
-        const step = steps[i]!;
-        if (step.kind !== "tool" || step.status !== "running") continue;
-        if (event.toolUseId) {
-          if (step.toolCallId === event.toolUseId) {
-            matchIndex = i;
-            break;
-          }
-          // When the result has a toolUseId, require an exact match —
-          // do NOT fall through to toolName matching for a different ID.
-          continue;
-        }
-        const stepToolName = toolMeta[i]?.toolName ?? "";
-        if (!event.toolName || stepToolName === event.toolName) {
-          matchIndex = i;
-          break;
-        }
-      }
+      const matchIndex = findMatchingInFlightToolIndex(steps, toolMeta, event);
       if (matchIndex === -1) continue;
       const target = steps[matchIndex] as Extract<
         ToolCallCardStep,
@@ -197,13 +254,17 @@ export function computeSubagentCardData(
     }
 
     if (event.type === "error") {
-      // If there's an in-flight tool, close it as error.
-      for (let i = steps.length - 1; i >= 0; i--) {
-        const step = steps[i]!;
-        if (step.kind === "tool" && step.status === "running") {
-          steps[i] = { ...step, status: "error" };
-          break;
-        }
+      // Close the matching in-flight tool step (if any) as `error` before
+      // appending the `tool_error` row. Same matching precedence as
+      // `tool_result` — see `findMatchingInFlightToolIndex` — so parallel
+      // calls to the same tool close the correct step.
+      const matchIndex = findMatchingInFlightToolIndex(steps, toolMeta, event);
+      if (matchIndex !== -1) {
+        const target = steps[matchIndex] as Extract<
+          ToolCallCardStep,
+          { kind: "tool" }
+        >;
+        steps[matchIndex] = { ...target, status: "error" };
       }
       const message = trimTextPreview(event.content) || "Subagent error";
       steps.push({ kind: "tool_error", message });
@@ -310,7 +371,7 @@ function deriveCurrentStep(
     const toolName = toolMeta[steps.length - 1]?.toolName ?? "";
     return {
       currentStepTitle: toolName
-        ? `Used ${humanizeToolName(toolName)}`
+        ? `Used ${titleCaseToolName(toolName)}`
         : "Done",
       currentStepInfo: latest.info,
     };

@@ -12,6 +12,8 @@
  */
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
+import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils.js";
+import { truncate } from "@/domains/chat/utils/truncate.js";
 
 /**
  * Canonical icon names used by the unified tool-call progress card.
@@ -40,12 +42,6 @@ export interface StepLabel {
 
 const INFO_MAX_LENGTH = 80;
 
-/** Truncate a string to `max` chars, appending an ellipsis when truncated. */
-function truncate(value: string, max: number): string {
-  if (value.length <= max) return value;
-  return value.slice(0, max - 1) + "…";
-}
-
 /** Read a string property from a tool input bag, returning `""` when absent. */
 function readString(
   input: Record<string, unknown>,
@@ -70,21 +66,6 @@ function basename(path: string): string {
 }
 
 /**
- * Title-case a snake_case / kebab-case tool name for the fallback label.
- * Kept local so this module has zero deps on the legacy `tool-call-chip` code,
- * which PRs 5+ will retire. Exported for reuse by adjacent consumers (e.g. the
- * subagent inline card) that need the same "Tool Name" → "Tool Name" mapping
- * but operate on a different tool-call shape than `ChatMessageToolCall`.
- */
-export function humanizeToolName(toolName: string): string {
-  return toolName
-    .split(/[_-]+/)
-    .filter((part) => part.length > 0)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(" ");
-}
-
-/**
  * Parse an `mcp__<server>__<method>` tool name into its server/method parts.
  * MCP tool names follow the pattern produced by `toProviderSafeToolName` in
  * `assistant/src/tools/mcp/mcp-tool-factory.ts`. Returns `null` when the
@@ -104,16 +85,18 @@ function parseMcpToolName(
 }
 
 /**
- * Derive the (title, info, iconName) tuple for a non-web tool call.
- *
- * Branches mirror the tool names already understood by the legacy
- * `ToolCallChip` (`apps/web/src/domains/chat/components/tool-call-chip/`) plus
- * the additional Anthropic-native tool names (`str_replace_editor`,
- * `text_editor`, `computer`, MCP-prefixed tools, skills, subagent spawns) that
- * the unified card needs to label.
+ * Tool input bag understood by `deriveStepLabelFromName`. The full
+ * `ChatMessageToolCall` carries additional fields (status, completedAt,
+ * etc.) that this helper does not need — accepting just `(toolName, input)`
+ * lets non-`ChatMessageToolCall` callers (the subagent inline card, which
+ * operates on `SubagentTimelineEvent`) share the same labeling table.
  */
-export function deriveStepLabel(toolCall: ChatMessageToolCall): StepLabel {
-  const { toolName, input } = toolCall;
+export function deriveStepLabelFromName(
+  toolName: string,
+  input?: unknown,
+): StepLabel {
+  const inputBag: Record<string, unknown> =
+    input && typeof input === "object" ? (input as Record<string, unknown>) : {};
   const name = toolName.toLowerCase();
 
   const mcp = parseMcpToolName(toolName);
@@ -128,7 +111,7 @@ export function deriveStepLabel(toolCall: ChatMessageToolCall): StepLabel {
   switch (name) {
     case "bash":
     case "host_bash": {
-      const command = readString(input, "command", "cmd");
+      const command = readString(inputBag, "command", "cmd");
       const cleaned = command.replace(/\s+/g, " ").trim();
       return {
         title: "Working (bash)",
@@ -139,8 +122,10 @@ export function deriveStepLabel(toolCall: ChatMessageToolCall): StepLabel {
 
     case "str_replace_editor":
     case "text_editor": {
-      const sub = readString(input, "command").toLowerCase();
-      const file = basename(readString(input, "path", "file_path", "filePath"));
+      const sub = readString(inputBag, "command").toLowerCase();
+      const file = basename(
+        readString(inputBag, "path", "file_path", "filePath"),
+      );
       if (sub === "view") {
         return { title: "Reading", info: file, iconName: "file" };
       }
@@ -150,7 +135,7 @@ export function deriveStepLabel(toolCall: ChatMessageToolCall): StepLabel {
     }
 
     case "computer": {
-      const action = readString(input, "action");
+      const action = readString(inputBag, "action");
       return {
         title: "Using computer",
         info: action,
@@ -162,7 +147,7 @@ export function deriveStepLabel(toolCall: ChatMessageToolCall): StepLabel {
     case "skill_execute":
     case "skill_invoke":
     case "skill_load": {
-      const skillName = readString(input, "skill", "name", "skillName");
+      const skillName = readString(inputBag, "skill", "name", "skillName");
       return {
         title: "Using a skill",
         info: skillName,
@@ -171,7 +156,7 @@ export function deriveStepLabel(toolCall: ChatMessageToolCall): StepLabel {
     }
 
     case "subagent_spawn": {
-      const label = readString(input, "label", "objective", "task");
+      const label = readString(inputBag, "label", "objective", "task");
       return {
         title: "Spawning subagent",
         info: label,
@@ -181,9 +166,22 @@ export function deriveStepLabel(toolCall: ChatMessageToolCall): StepLabel {
 
     default:
       return {
-        title: `Running ${humanizeToolName(toolName)}`,
+        title: toolName ? `Running ${titleCaseToolName(toolName)}` : "Running tool",
         info: "",
         iconName: "bolt",
       };
   }
+}
+
+/**
+ * Derive the (title, info, iconName) tuple for a non-web tool call.
+ *
+ * Branches mirror the tool names already understood by the legacy
+ * `ToolCallChip` (`apps/web/src/domains/chat/components/tool-call-chip/`) plus
+ * the additional Anthropic-native tool names (`str_replace_editor`,
+ * `text_editor`, `computer`, MCP-prefixed tools, skills, subagent spawns) that
+ * the unified card needs to label.
+ */
+export function deriveStepLabel(toolCall: ChatMessageToolCall): StepLabel {
+  return deriveStepLabelFromName(toolCall.toolName, toolCall.input);
 }
