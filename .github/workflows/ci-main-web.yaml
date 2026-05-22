@@ -122,6 +122,11 @@ jobs:
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
           VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          # Pin both to the commit SHA so the plugin-created release (source-map
+          # upload) and the client-tagged release match. See vite.config.ts for
+          # why injection is disabled in favor of VITE_SENTRY_RELEASE.
+          SENTRY_RELEASE: ${{ github.sha }}
+          VITE_SENTRY_RELEASE: ${{ github.sha }}
         run: bun run build
 
   checks:
@@ -206,6 +211,11 @@ jobs:
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           VITE_APP_VERSION: ${{ github.sha }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          # Pin both to the commit SHA so the plugin-created release (source-map
+          # upload) and the client-tagged release match. See vite.config.ts for
+          # why injection is disabled in favor of VITE_SENTRY_RELEASE.
+          SENTRY_RELEASE: ${{ github.sha }}
+          VITE_SENTRY_RELEASE: ${{ github.sha }}
         run: bun run build
 
       - name: Authenticate to GCP

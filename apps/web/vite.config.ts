@@ -30,6 +30,16 @@ export default defineConfig(({ mode }) => {
         authToken: env.SENTRY_AUTH_TOKEN,
         release: {
           name: env.SENTRY_RELEASE,
+          // Disable release injection. The injected snippet lives in a shared
+          // `_sentry-release-injection-file-[hash].js` that *every* chunk
+          // imports; because it embeds the release string, a new release
+          // re-hashes that file and cascades a fresh content hash onto every
+          // asset — so each deploy re-uploads the entire bundle under new
+          // names and our additive GCS rsync never reclaims the old copies.
+          // Release tagging is set explicitly on the client via
+          // `VITE_SENTRY_RELEASE` (see src/lib/sentry/sentry-init.ts), and
+          // source-map symbolication still works via content-derived debug IDs.
+          inject: false,
         },
         sourcemaps: {
           filesToDeleteAfterUpload: ["./dist/**/*.map"],

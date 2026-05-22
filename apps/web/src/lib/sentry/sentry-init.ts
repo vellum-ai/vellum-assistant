@@ -28,6 +28,12 @@ import { sanitizeUrl } from "@/lib/sentry/url-sanitize.js";
 const options: BrowserOptions = {
   dsn: import.meta.env.VITE_SENTRY_DSN,
   environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? "local",
+  // Tag events with the release explicitly. The Sentry Vite plugin's
+  // automatic release injection is disabled (see vite.config.ts) because it
+  // re-hashed every asset on each release; setting it here bakes the release
+  // into this single init chunk instead. Undefined in builds without the var,
+  // which Sentry treats as "no release" — same as the local/dev default.
+  release: import.meta.env.VITE_SENTRY_RELEASE,
   tracesSampleRate: 0,
   // Attach a synthetic JS stack to `Sentry.captureMessage` calls so events
   // emitted without a thrown exception still resolve to a source location

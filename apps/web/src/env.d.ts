@@ -14,6 +14,8 @@ interface ImportMetaEnv {
   readonly VITE_SENTRY_DSN?: string;
   /** Sentry environment tag (e.g. "production", "staging"). */
   readonly VITE_SENTRY_ENVIRONMENT?: string;
+  /** Release identifier used to tag Sentry events. Injected by CI/CD pipeline. */
+  readonly VITE_SENTRY_RELEASE?: string;
   /** Stripe publishable key for payment forms. Injected by CI/CD pipeline. */
   readonly VITE_STRIPE_PUBLISHABLE_KEY?: string;
   /** App version stamp for diagnostic reporting. */
