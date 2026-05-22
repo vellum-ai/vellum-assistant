@@ -179,8 +179,6 @@ type SlackDetachGatewayResponse = {
 
 const SLACK_DETACH_CONFIRMATION_TEXT =
   "Muted this Slack thread. I won't respond to further replies here unless you mention me again.";
-const SLACK_ALREADY_DETACHED_CONFIRMATION_TEXT =
-  "This Slack thread was already muted. I won't respond to further replies here unless you mention me again.";
 
 function isSlackDetachGatewayResponse(
   value: unknown,
@@ -254,26 +252,26 @@ async function handleSlackDetachCli({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  try {
-    await sendSlackReply(
-      gatewayResult.channelId,
-      gatewayResult.detached
-        ? SLACK_DETACH_CONFIRMATION_TEXT
-        : SLACK_ALREADY_DETACHED_CONFIRMATION_TEXT,
-      { threadTs: gatewayResult.threadTs },
-    );
-  } catch (err) {
-    log.warn(
-      {
-        err,
-        channelId: gatewayResult.channelId,
-        threadTs: gatewayResult.threadTs,
-      },
-      "Slack thread detached, but confirmation message failed",
-    );
-    throw new BadGatewayError(
-      "Detached Slack thread but could not send confirmation",
-    );
+  if (gatewayResult.detached) {
+    try {
+      await sendSlackReply(
+        gatewayResult.channelId,
+        SLACK_DETACH_CONFIRMATION_TEXT,
+        { threadTs: gatewayResult.threadTs },
+      );
+    } catch (err) {
+      log.warn(
+        {
+          err,
+          channelId: gatewayResult.channelId,
+          threadTs: gatewayResult.threadTs,
+        },
+        "Slack thread detached, but confirmation message failed",
+      );
+      throw new BadGatewayError(
+        "Detached Slack thread but could not send confirmation",
+      );
+    }
   }
 
   return {

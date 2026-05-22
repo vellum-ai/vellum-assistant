@@ -311,7 +311,7 @@ describe("conversation_slack_detach_cli route", () => {
     ]);
   });
 
-  test("sends an already-muted confirmation when the gateway detach is idempotent", async () => {
+  test("does not send a confirmation when the gateway reports no detach", async () => {
     gatewayResponse = {
       detached: false,
       channelId: "C123",
@@ -324,13 +324,7 @@ describe("conversation_slack_detach_cli route", () => {
     });
 
     expect(result).toMatchObject({ detached: false });
-    expect(slackReplyCalls).toEqual([
-      {
-        chatId: "C123",
-        text: "This Slack thread was already muted. I won't respond to further replies here unless you mention me again.",
-        options: { threadTs: "1700000000.000100" },
-      },
-    ]);
+    expect(slackReplyCalls).toHaveLength(0);
   });
 
   test("returns NOT_FOUND when no conversation binding exists", async () => {
