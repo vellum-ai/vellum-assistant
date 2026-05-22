@@ -809,7 +809,10 @@ export function ChatPage() {
   // Auto-fetch details for subagents reconstructed from history (mirrors macOS
   // behavior of calling the detail endpoint on reload to get correct status,
   // metrics, and events).
-  const fetchedSubagentsRef = useRef<Set<string>>(new Set());
+  // Keyed by subagentId → spawnedAt at fetch time so that store rebuilds
+  // (e.g. background TanStack Query refetches that reset + respawn entries)
+  // produce a new spawnedAt and allow re-fetching.
+  const fetchedSubagentsRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     fetchedSubagentsRef.current.clear();
   }, [activeConversationKey]);
@@ -817,12 +820,10 @@ export function ChatPage() {
     if (!assistantId) return;
     const entries = Object.values(subagentState.byId);
     for (const entry of entries) {
-      if (
-        entry.conversationId &&
-        entry.events.length === 0 &&
-        !fetchedSubagentsRef.current.has(entry.subagentId)
-      ) {
-        fetchedSubagentsRef.current.add(entry.subagentId);
+      if (entry.conversationId && entry.events.length === 0) {
+        const fetchedAt = fetchedSubagentsRef.current.get(entry.subagentId);
+        if (fetchedAt !== undefined && fetchedAt >= entry.spawnedAt) continue;
+        fetchedSubagentsRef.current.set(entry.subagentId, entry.spawnedAt);
         handleRequestSubagentDetail(entry.subagentId);
       }
     }
