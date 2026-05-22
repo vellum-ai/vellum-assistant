@@ -3,7 +3,7 @@
  *
  * Exports `parseAssistantEvent` which converts raw SSE payloads into typed
  * `AssistantEvent` objects, plus helpers for attachment display conversion.
- * `readEventConversationKey` is also exported for use by the stream transport.
+ * `readEventConversationId` is also exported for use by the stream transport.
  */
 
 import type {
@@ -31,30 +31,27 @@ import type { DisplayAttachment } from "@/domains/chat/types/types.js";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types.js";
 import type { SyncInvalidationTag } from "@/lib/sync/types.js";
 
-export function readEventConversationKey(
+export function readEventConversationId(
   data: Record<string, unknown>,
 ): string | undefined {
-  if (typeof data.conversationKey === "string" && data.conversationKey) {
-    return data.conversationKey;
+  if (typeof data.conversationId === "string" && data.conversationId) {
+    return data.conversationId;
   }
-  // Intentionally do NOT fall back to `data.conversationId`. The daemon's
-  // `conversationId` is its internal id from the conversation-keys mapping
-  // table and is not guaranteed to equal the web-facing conversationKey.
   // When this returns undefined, stream.ts substitutes the subscription
-  // URL's `requestedConversationKey`, which is the authoritative routing
-  // key for the per-conversation SSE stream.
+  // URL's `requestedConversationId`, which is the authoritative routing
+  // id for the per-conversation SSE stream.
   return undefined;
 }
 
-function withParsedConversationKey<T extends AssistantEvent>(
+function withParsedConversationId<T extends AssistantEvent>(
   event: T,
   data: Record<string, unknown>,
 ): T {
-  const conversationKey = readEventConversationKey(data);
-  if (!conversationKey || event.conversationKey) {
+  const conversationId = readEventConversationId(data);
+  if (!conversationId || event.conversationId) {
     return event;
   }
-  return { ...event, conversationKey } as T;
+  return { ...event, conversationId } as T;
 }
 
 /**
@@ -370,7 +367,7 @@ export function parseAssistantEvent(
         result: typeof data.result === "string" ? data.result : "",
         isError: typeof data.isError === "boolean" ? data.isError : undefined,
         toolUseId: typeof data.toolUseId === "string" ? data.toolUseId : undefined,
-        conversationKey: typeof data.conversationKey === "string" ? data.conversationKey : undefined,
+        conversationId: typeof data.conversationId === "string" ? data.conversationId : undefined,
         riskLevel: typeof data.riskLevel === "string" ? data.riskLevel : undefined,
         riskReason: typeof data.riskReason === "string" ? data.riskReason : undefined,
         matchedTrustRuleId: typeof data.matchedTrustRuleId === "string" ? data.matchedTrustRuleId : undefined,
@@ -506,7 +503,6 @@ export function parseAssistantEvent(
         retryable: typeof data.retryable === "boolean" ? data.retryable : false,
         debugDetails: typeof data.debugDetails === "string" ? data.debugDetails : undefined,
         errorCategory: typeof data.errorCategory === "string" ? data.errorCategory : undefined,
-        conversationKey: typeof data.conversationKey === "string" ? data.conversationKey : undefined,
       };
 
     case "compaction_circuit_open":
@@ -515,14 +511,12 @@ export function parseAssistantEvent(
         conversationId: typeof data.conversationId === "string" ? data.conversationId : "",
         reason: typeof data.reason === "string" ? data.reason : "",
         openUntil: typeof data.openUntil === "number" ? data.openUntil : 0,
-        conversationKey: typeof data.conversationKey === "string" ? data.conversationKey : undefined,
       };
 
     case "compaction_circuit_closed":
       return {
         type: "compaction_circuit_closed",
         conversationId: typeof data.conversationId === "string" ? data.conversationId : "",
-        conversationKey: typeof data.conversationKey === "string" ? data.conversationKey : undefined,
       };
 
     case "disk_pressure_status_changed":
@@ -533,7 +527,7 @@ export function parseAssistantEvent(
             ? data.status
             : data,
         ),
-        conversationKey: typeof data.conversationKey === "string" ? data.conversationKey : undefined,
+        conversationId: typeof data.conversationId === "string" ? data.conversationId : undefined,
       };
 
     case "message_queued":
@@ -703,17 +697,13 @@ export function parseAssistantEvent(
       if (!requestId || !validStates.has(stateRaw)) {
         return { type: "unknown", rawType, data };
       }
-      const conversationKey =
-        typeof data.conversationKey === "string"
-          ? data.conversationKey
-          : typeof data.conversationId === "string"
-            ? data.conversationId
-            : "";
+      const conversationId =
+        typeof data.conversationId === "string" ? data.conversationId : "";
       const kind = typeof data.kind === "string" ? data.kind : "";
       return {
         type: "interaction_resolved",
         requestId,
-        conversationKey,
+        conversationId,
         state: stateRaw as
           | "approved"
           | "rejected"
@@ -741,7 +731,7 @@ export function parseAssistantEvent(
     }
   })();
 
-  return withParsedConversationKey(parsed, data);
+  return withParsedConversationId(parsed, data);
 }
 
 function parseDiskPressureStatus(raw: unknown): DiskPressureStatus | null {

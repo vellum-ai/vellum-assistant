@@ -16,19 +16,6 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("does not conflate conversationId with conversationKey", () => {
-    const event = parseAssistantEvent("assistant_text_delta", {
-      text: "Hello",
-      messageId: "msg-1",
-      conversationId: "conversation-1",
-    });
-    expect(event).toEqual({
-      type: "assistant_text_delta",
-      text: "Hello",
-      messageId: "msg-1",
-    });
-  });
-
   test("defaults text to empty string when missing", () => {
     const event = parseAssistantEvent("assistant_text_delta", {});
     expect(event).toEqual({
@@ -53,18 +40,18 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("preserves message_complete conversationKey", () => {
+  test("preserves message_complete conversationId", () => {
     const event = parseAssistantEvent("message_complete", {
       messageId: "msg-1",
       content: "Full response",
-      conversationKey: "conversation-1",
+      conversationId: "conversation-1",
     });
     expect(event).toEqual({
       type: "message_complete",
       messageId: "msg-1",
       content: "Full response",
       attachments: undefined,
-      conversationKey: "conversation-1",
+      conversationId: "conversation-1",
     });
   });
 
@@ -183,41 +170,26 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("parses interaction_resolved with explicit conversationKey", () => {
+  test("parses interaction_resolved with explicit conversationId", () => {
     const event = parseAssistantEvent("interaction_resolved", {
       requestId: "req-1",
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       state: "approved",
       kind: "confirmation",
     });
     expect(event).toEqual({
       type: "interaction_resolved",
       requestId: "req-1",
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       state: "approved",
       kind: "confirmation",
-    });
-  });
-
-  test("interaction_resolved falls back to conversationId when conversationKey is absent", () => {
-    const event = parseAssistantEvent("interaction_resolved", {
-      requestId: "req-2",
-      conversationId: "conv-internal",
-      state: "answered",
-      kind: "secret",
-    });
-    expect(event).toMatchObject({
-      type: "interaction_resolved",
-      requestId: "req-2",
-      conversationKey: "conv-internal",
-      state: "answered",
     });
   });
 
   test("interaction_resolved with an invalid state degrades to unknown", () => {
     const event = parseAssistantEvent("interaction_resolved", {
       requestId: "req-3",
-      conversationKey: "conv-3",
+      conversationId: "conv-3",
       state: "exploded",
       kind: "confirmation",
     });
@@ -226,7 +198,7 @@ describe("parseAssistantEvent", () => {
 
   test("interaction_resolved without a requestId degrades to unknown", () => {
     const event = parseAssistantEvent("interaction_resolved", {
-      conversationKey: "conv-4",
+      conversationId: "conv-4",
       state: "cancelled",
     });
     expect(event.type).toBe("unknown");
@@ -282,7 +254,7 @@ describe("parseAssistantEvent", () => {
 
   test("parses assistant_activity_state idle", () => {
     const event = parseAssistantEvent("assistant_activity_state", {
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       activityVersion: 7,
       phase: "idle",
       anchor: "global",
@@ -296,13 +268,13 @@ describe("parseAssistantEvent", () => {
       anchor: "global",
       reason: "message_complete",
       requestId: "req-abc",
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
     });
   });
 
   test("parses assistant_activity_state thinking with statusText", () => {
     const event = parseAssistantEvent("assistant_activity_state", {
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       activityVersion: 3,
       phase: "thinking",
       anchor: "assistant_turn",
@@ -316,7 +288,7 @@ describe("parseAssistantEvent", () => {
       anchor: "assistant_turn",
       reason: "thinking_delta",
       statusText: "Reading file…",
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
     });
   });
 
@@ -325,7 +297,7 @@ describe("parseAssistantEvent", () => {
     // follow-up message_complete. The web handler must treat this as
     // terminal so the loading indicator clears.
     const event = parseAssistantEvent("assistant_activity_state", {
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       activityVersion: 1,
       phase: "idle",
       anchor: "global",
@@ -337,13 +309,13 @@ describe("parseAssistantEvent", () => {
       phase: "idle",
       anchor: "global",
       reason: "error_terminal",
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
     });
   });
 
   test("returns unknown for assistant_activity_state with invalid phase", () => {
     const data = {
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       activityVersion: 1,
       phase: "definitely_not_a_phase",
       anchor: "global",
@@ -354,13 +326,13 @@ describe("parseAssistantEvent", () => {
       type: "unknown",
       rawType: "assistant_activity_state",
       data,
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
     });
   });
 
   test("returns unknown for assistant_activity_state with invalid reason", () => {
     const data = {
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
       activityVersion: 1,
       phase: "idle",
       anchor: "global",
@@ -371,7 +343,7 @@ describe("parseAssistantEvent", () => {
       type: "unknown",
       rawType: "assistant_activity_state",
       data,
-      conversationKey: "conv-1",
+      conversationId: "conv-1",
     });
   });
 
@@ -462,7 +434,7 @@ describe("parseAssistantEvent", () => {
         ],
         error: null,
       },
-      conversationKey: undefined,
+      conversationId: undefined,
     });
   });
 
@@ -482,7 +454,7 @@ describe("parseAssistantEvent", () => {
       lastCheckedAt: "2026-05-05T12:05:00.000Z",
       blockedCapabilities: ["background-work", "remote-ingress"],
       error: null,
-      conversationKey: "conversation-123",
+      conversationId: "conversation-123",
     });
 
     expect(event).toEqual({
@@ -502,7 +474,7 @@ describe("parseAssistantEvent", () => {
         blockedCapabilities: ["background-work", "remote-ingress"],
         error: null,
       },
-      conversationKey: "conversation-123",
+      conversationId: "conversation-123",
     });
   });
 
@@ -542,7 +514,7 @@ describe("parseAssistantEvent", () => {
         blockedCapabilities: [],
         error: null,
       },
-      conversationKey: undefined,
+      conversationId: undefined,
     });
   });
 
