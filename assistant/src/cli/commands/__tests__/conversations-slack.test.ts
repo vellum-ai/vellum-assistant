@@ -30,6 +30,7 @@ let cliIpcResponse: {
   ok: boolean;
   result?: unknown;
   error?: string;
+  statusCode?: number;
 } = { ok: true, result: {} };
 let gatewayResponse: unknown = {
   detached: true,
@@ -45,12 +46,19 @@ mock.module("../../../ipc/cli-client.js", () => ({
   },
   cliIpcCallBinary: async () => cliIpcResponse,
   cliIpcCallStream: async () => cliIpcResponse,
-  exitFromIpcResult: (result: { error?: string }) => {
+  exitFromIpcResult: (result: { error?: string; statusCode?: number }) => {
     process.stderr.write((result.error ?? "Unknown error") + "\n");
-    process.exitCode = 1;
+    process.exitCode = exitCodeFromIpcResult(result);
   },
-  exitCodeFromIpcResult: () => 1,
+  exitCodeFromIpcResult,
 }));
+
+function exitCodeFromIpcResult(result: { statusCode?: number }): number {
+  if (result.statusCode === undefined) return 10;
+  if (result.statusCode >= 500) return 3;
+  if (result.statusCode >= 400) return 2;
+  return 1;
+}
 
 mock.module("../../../ipc/gateway-client.js", () => ({
   ipcCall: async (
@@ -419,5 +427,53 @@ describe("assistant conversations slack detach", () => {
     expect(parsed.error).toContain("--channel");
     expect(parsed.error).toContain("--thread");
     expect(cliIpcCalls).toHaveLength(0);
+  });
+
+  test("maps JSON IPC transport errors to the shared exit code", async () => {
+    cliIpcResponse = {
+      ok: false,
+      error: "Could not connect to assistant",
+    };
+
+    const { stdout, exitCode } = await runCommand([
+      "conversations",
+      "slack",
+      "detach",
+      "--channel",
+      "C123",
+      "--thread",
+      "1700000000.000100",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(10);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      error: "Could not connect to assistant",
+    });
+    expect(cliIpcCalls).toHaveLength(1);
+  });
+
+  test("maps JSON IPC 4xx errors to the shared exit code", async () => {
+    cliIpcResponse = {
+      ok: false,
+      error: "Conversation is not bound to a Slack thread",
+      statusCode: 400,
+    };
+
+    const { stdout, exitCode } = await runCommand([
+      "conversations",
+      "slack",
+      "detach",
+      "conv-1",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      error: "Conversation is not bound to a Slack thread",
+    });
+    expect(cliIpcCalls).toHaveLength(1);
   });
 });

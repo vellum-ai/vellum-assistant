@@ -2,7 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import {
+  cliIpcCall,
+  exitCodeFromIpcResult,
+  exitFromIpcResult,
+} from "../../ipc/cli-client.js";
 import { registerCommand } from "../lib/register-command.js";
 import { timeAgo } from "../lib/time-ago.js";
 import { log } from "../logger.js";
@@ -406,11 +410,17 @@ Examples:
             );
 
             if (!result.ok) {
-              outputSlackDetachError(
-                result.error ?? "Failed to detach Slack thread",
-                opts.json,
-              );
-              return;
+              if (opts.json) {
+                process.stdout.write(
+                  JSON.stringify({
+                    ok: false,
+                    error: result.error ?? "Failed to detach Slack thread",
+                  }) + "\n",
+                );
+                process.exitCode = exitCodeFromIpcResult(result);
+                return;
+              }
+              return exitFromIpcResult(result);
             }
 
             const detach = result.result!;
