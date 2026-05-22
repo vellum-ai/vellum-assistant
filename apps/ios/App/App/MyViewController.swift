@@ -44,13 +44,13 @@ class MyViewController: CAPBridgeViewController {
     /// Note: this alone does not make `env(safe-area-inset-*)` return
     /// non-zero values inside Capacitor's WKWebView (WebKit bug #191872,
     /// plus the `contentInset: "never"` interaction documented in
-    /// Capacitor issue #2149). That's why we also ship
-    /// `capacitor-plugin-safe-area` + `<SafeAreaBridge>` on the web side,
-    /// which reads `window.safeAreaInsets` natively and injects it as
-    /// `--safe-area-inset-*` CSS custom properties. This user script is
-    /// still useful because `viewport-fit=cover` is what lets the
-    /// WKWebView extend its surface under the notch and home indicator
-    /// in the first place.
+    /// Capacitor issue #2149). The web side bridges this gap via
+    /// `initSafeAreaBridge()` (`runtime/native-safe-area.ts`), which
+    /// calls `capacitor-plugin-safe-area` to read insets natively and
+    /// injects them as `--safe-area-inset-*` CSS custom properties.
+    /// This user script is still useful because `viewport-fit=cover` is
+    /// what lets the WKWebView extend its surface under the notch and
+    /// home indicator in the first place.
     private func installViewportFitCoverUserScript() {
         guard let contentController = webView?.configuration.userContentController else { return }
         let source = """
