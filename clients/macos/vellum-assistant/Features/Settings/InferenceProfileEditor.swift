@@ -49,6 +49,12 @@ struct InferenceProfileEditor: View {
     var onSaveAs: (() -> Void)?
     let onCancel: () -> Void
 
+    /// Model IDs supported by ChatGPT subscription (Codex) connections.
+    /// When the effective connection uses `oauth_subscription` auth, the
+    /// model dropdown is filtered to this set. Mirrors the web app's
+    /// `CODEX_SUBSCRIPTION_MODEL_IDS` in `profile-editor-modal.tsx`.
+    static let codexSubscriptionModelIds: Set<String> = ["gpt-5.4", "gpt-5.3-codex"]
+
     /// Effort ladder mirrors the daemon's `EffortLevel` schema. Includes
     /// `none` so users can disable effort entirely; `xhigh`/`max` mirror
     /// the OpenAI provider's higher-effort models.
@@ -173,13 +179,20 @@ struct InferenceProfileEditor: View {
     }
 
     /// True when the user has picked a provider/model combo where the
-    /// model is not present in the provider's catalog. Treated the same
-    /// as the missing case for Save purposes — the daemon would route to
-    /// a model the provider doesn't know about.
+    /// model is not present in the provider's catalog — or when the
+    /// effective connection is `oauth_subscription` and the model is not
+    /// in the Codex-supported set. Treated the same as the missing case
+    /// for Save purposes — the daemon would route to a model the
+    /// provider doesn't know about.
     var isModelInvalid: Bool {
         guard let provider = profile.provider, !provider.isEmpty,
               let model = profile.model, !model.isEmpty else {
             return false
+        }
+        // ChatGPT subscription connections restrict available models to
+        // the Codex-supported subset regardless of catalog presence.
+        if effectiveConnection?.auth.type == "oauth_subscription" {
+            return !Self.codexSubscriptionModelIds.contains(model)
         }
         let catalogIds = store.dynamicProviderModels(provider).map(\.id)
         let connectionIds = effectiveConnection?.models?.map(\.id) ?? []
@@ -621,7 +634,14 @@ struct InferenceProfileEditor: View {
         let connectionModels: [CatalogModel] = effectiveConnection?.models?.map {
             CatalogModel(id: $0.id, displayName: $0.displayName ?? $0.id)
         } ?? []
-        let models = connectionModels.isEmpty ? catalogModels : connectionModels
+        let baseModels = connectionModels.isEmpty ? catalogModels : connectionModels
+        // ChatGPT subscription (Codex) connections only support a subset
+        // of OpenAI models. Filter the dropdown so users can't select an
+        // unsupported model. Mirrors the web app's filter in
+        // `profile-editor-modal.tsx`.
+        let models: [CatalogModel] = effectiveConnection?.auth.type == "oauth_subscription"
+            ? baseModels.filter { Self.codexSubscriptionModelIds.contains($0.id) }
+            : baseModels
         return labeled(
             "Model",
             accessory: {

@@ -80,7 +80,31 @@ final class InferenceProfileEditorTests: XCTestCase {
     }
 
     private static func editorProviderCatalog() -> [ProviderCatalogEntry] {
-        SettingsTestFixture.anthropicAndOpenAICatalog() + [
+        // Override the OpenAI catalog to include Codex-supported models
+        // (`gpt-5.4`, `gpt-5.3-codex`) alongside the standard `gpt-5`, so
+        // the `oauth_subscription` model-filter tests can verify the dropdown
+        // narrows to the Codex subset.
+        [
+            ProviderCatalogEntry(
+                id: "anthropic",
+                displayName: "Anthropic",
+                models: [
+                    CatalogModel(id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6"),
+                    CatalogModel(id: "claude-opus-4-7", displayName: "Claude Opus 4.7"),
+                ],
+                defaultModel: "claude-sonnet-4-6"
+            ),
+            ProviderCatalogEntry(
+                id: "openai",
+                displayName: "OpenAI",
+                models: [
+                    CatalogModel(id: "gpt-5", displayName: "GPT-5"),
+                    CatalogModel(id: "gpt-5.4", displayName: "GPT-5.4"),
+                    CatalogModel(id: "gpt-5.3-codex", displayName: "GPT-5.3 Codex"),
+                ],
+                defaultModel: "gpt-5"
+            ),
+        ] + [
             ProviderCatalogEntry(
                 id: "gemini",
                 displayName: "Google Gemini",
@@ -1256,6 +1280,92 @@ final class InferenceProfileEditorTests: XCTestCase {
             onCancel: {}
         )
         XCTAssertTrue(editor.availableProviderIds.isEmpty)
+    }
+
+    // MARK: - ChatGPT subscription (Codex) model filter
+
+    /// When the effective connection uses `oauth_subscription` auth, the
+    /// model dropdown must narrow to the Codex-supported subset. A
+    /// non-Codex model like `gpt-5` must not appear.
+    func testIsModelInvalidTrueForNonCodexModelOnOAuthSubscription() {
+        let connections = [
+            Self.makeConnection(
+                name: "chatgpt-sub",
+                provider: "openai",
+                authType: "oauth_subscription",
+                status: .active
+            ),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                model: "gpt-5"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertTrue(editor.isModelInvalid, "gpt-5 is not Codex-supported; should be invalid for oauth_subscription")
+    }
+
+    /// A Codex-supported model (`gpt-5.4`) must be valid on an
+    /// `oauth_subscription` connection.
+    func testIsModelInvalidFalseForCodexModelOnOAuthSubscription() {
+        let connections = [
+            Self.makeConnection(
+                name: "chatgpt-sub",
+                provider: "openai",
+                authType: "oauth_subscription",
+                status: .active
+            ),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                model: "gpt-5.4"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertFalse(editor.isModelInvalid, "gpt-5.4 is Codex-supported; should be valid for oauth_subscription")
+    }
+
+    /// Standard `api_key` connections must NOT apply the Codex filter —
+    /// all catalog models remain valid.
+    func testIsModelInvalidFalseForNonCodexModelOnApiKey() {
+        let connections = [
+            Self.makeConnection(
+                name: "openai-key",
+                provider: "openai",
+                authType: "api_key",
+                status: .active
+            ),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "draft",
+                provider: "openai",
+                model: "gpt-5"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertFalse(editor.isModelInvalid, "gpt-5 is in the catalog; should be valid for api_key connection")
+    }
+
+    /// The static constant must stay in sync with the web app's
+    /// `CODEX_SUBSCRIPTION_MODEL_IDS`.
+    func testCodexSubscriptionModelIdsContainsExpectedEntries() {
+        XCTAssertTrue(InferenceProfileEditor.codexSubscriptionModelIds.contains("gpt-5.4"))
+        XCTAssertTrue(InferenceProfileEditor.codexSubscriptionModelIds.contains("gpt-5.3-codex"))
+        XCTAssertEqual(InferenceProfileEditor.codexSubscriptionModelIds.count, 2)
     }
 
     /// Test helper mirroring `ProvidersSheetTests.makeConnection` so the
