@@ -31,6 +31,8 @@ export { toKebabCaseImpl as toKebabCase };
 const ALL_PROVIDERS = Object.keys(MODELS_BY_PROVIDER) as (keyof typeof MODELS_BY_PROVIDER)[];
 const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
 
+const CODEX_SUBSCRIPTION_MODEL_IDS = new Set(["gpt-5.4", "gpt-5.3-codex"]);
+
 const EFFORT_OPTIONS = ["none", "low", "medium", "high", "xhigh", "max"] as const;
 const SPEED_OPTIONS = ["standard", "fast"] as const;
 const VERBOSITY_OPTIONS = ["low", "medium", "high"] as const;
@@ -569,7 +571,15 @@ function ProfileEditorModalInner({
       return [];
     }
     const catalogModels = getModelsForProvider(provider);
-    if (catalogModels.length > 0) return catalogModels;
+    if (catalogModels.length > 0) {
+      const selectedConn = resolvedProviderConnection
+        ? availableConnectionsForProvider.find((c) => c.name === resolvedProviderConnection)
+        : undefined;
+      if (selectedConn?.auth.type === "oauth_subscription") {
+        return catalogModels.filter((m) => CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id));
+      }
+      return catalogModels;
+    }
     // Static catalog is empty (openai-compatible) — derive from connections.
     const connectionModelsToCatalog = (models: ConnectionModel[] | null | undefined) =>
       (models ?? []).map((m) => ({
