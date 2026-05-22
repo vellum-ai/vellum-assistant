@@ -195,7 +195,7 @@ export class HostCuProxy {
 
       const timer = setTimeout(() => {
         this._ownedRequests.delete(requestId);
-        pendingInteractions.resolve(requestId);
+        pendingInteractions.resolve(requestId, "cancelled");
         log.warn({ requestId, toolName }, "Host CU proxy request timed out");
         resolve({
           content: "Host CU proxy timed out waiting for client response",
@@ -207,7 +207,7 @@ export class HostCuProxy {
         const onAbort = () => {
           if (pendingInteractions.get(requestId)) {
             this._ownedRequests.delete(requestId);
-            pendingInteractions.resolve(requestId);
+            pendingInteractions.resolve(requestId, "cancelled");
             try {
               broadcastMessage(
                 {
@@ -263,7 +263,7 @@ export class HostCuProxy {
         );
       } catch (err) {
         this._ownedRequests.delete(requestId);
-        pendingInteractions.resolve(requestId);
+        pendingInteractions.resolve(requestId, "cancelled");
         log.warn({ requestId, toolName, err }, "Host CU proxy send failed");
         reject(err instanceof Error ? err : new Error(String(err)));
       }
@@ -447,7 +447,7 @@ export class HostCuProxy {
 
   dispose(): void {
     for (const requestId of this._ownedRequests) {
-      const entry = pendingInteractions.resolve(requestId);
+      const entry = pendingInteractions.resolve(requestId, "cancelled");
       if (!entry) continue;
       try {
         broadcastMessage(

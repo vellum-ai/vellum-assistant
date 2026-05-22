@@ -306,7 +306,7 @@ export class AcpSessionManager {
    */
   private teardownSession(acpSessionId: string, entry: SessionEntry): void {
     for (const requestId of entry.clientHandler.pendingRequestIds) {
-      const interaction = pendingInteractions.resolve(requestId);
+      const interaction = pendingInteractions.resolve(requestId, "cancelled");
       if (interaction?.directResolve) {
         interaction.directResolve("deny");
       }

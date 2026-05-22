@@ -64,6 +64,56 @@ describe("useBusSubscription", () => {
     useEventBusStore.getState().publish("app.resume", { signal: "online" });
     expect(handler).toHaveBeenCalledWith({ signal: "online" });
   });
+
+  test("handler captures the latest closure variables across renders", () => {
+    // Regression coverage for the render-phase ref pattern: the
+    // handler must always see the latest value of any variable
+    // captured in its closure, not the value from the render it was
+    // first registered in.
+    const observed: number[] = [];
+    function Hook({ value }: { value: number }) {
+      useBusSubscription("app.online", () => {
+        observed.push(value);
+      });
+    }
+    const { rerender } = renderHook(({ v }: { v: number }) => Hook({ value: v }), {
+      initialProps: { v: 1 },
+    });
+    useEventBusStore.getState().publish("app.online", {});
+    rerender({ v: 2 });
+    useEventBusStore.getState().publish("app.online", {});
+    rerender({ v: 3 });
+    useEventBusStore.getState().publish("app.online", {});
+    expect(observed).toEqual([1, 2, 3]);
+  });
+
+  test("re-subscribes when the event name prop changes", () => {
+    const handler = mock(() => {});
+    const { rerender } = renderHook(
+      ({ ev }: { ev: "app.online" | "app.offline" }) =>
+        useBusSubscription(ev, handler),
+      { initialProps: { ev: "app.online" } },
+    );
+    useEventBusStore.getState().publish("app.online", {});
+    expect(handler).toHaveBeenCalledTimes(1);
+    rerender({ ev: "app.offline" });
+    useEventBusStore.getState().publish("app.online", {});
+    expect(handler).toHaveBeenCalledTimes(1);
+    useEventBusStore.getState().publish("app.offline", {});
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  test("multiple consumers of the same event all receive every publish", () => {
+    const a = mock(() => {});
+    const b = mock(() => {});
+    renderHook(() => {
+      useBusSubscription("app.online", a);
+      useBusSubscription("app.online", b);
+    });
+    useEventBusStore.getState().publish("app.online", {});
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(b).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("subscribeBus", () => {

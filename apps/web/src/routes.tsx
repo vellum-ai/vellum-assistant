@@ -214,11 +214,11 @@ export const router = createBrowserRouter(
                   children: [
                     { path: "identity", element: <IdentityPage /> },
                     { path: "skills", element: <SkillsPage /> },
-                    { path: "library", element: <LibraryPage /> },
                     { path: "workspace", element: <WorkspacePage /> },
                     { path: "contacts", element: <ContactsPage /> },
                   ],
                 },
+                { path: "library", element: <LibraryPage /> },
                 { path: "library/:appId", element: <LibraryDetailPage /> },
                 { path: "connect", element: <ConnectPage /> },
                 { path: "inspect", element: <InspectPage /> },

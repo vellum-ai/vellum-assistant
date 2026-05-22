@@ -152,4 +152,90 @@ describe("event-bus-store", () => {
     bus.publish("app.online", {});
     expect(handler).not.toHaveBeenCalled();
   });
+
+  test("subscribers fire in insertion order", () => {
+    const bus = useEventBusStore.getState();
+    const order: string[] = [];
+    bus.subscribe("app.online", () => order.push("first"));
+    bus.subscribe("app.online", () => order.push("second"));
+    bus.subscribe("app.online", () => order.push("third"));
+    bus.publish("app.online", {});
+    expect(order).toEqual(["first", "second", "third"]);
+  });
+
+  test("a subscriber registered during dispatch does NOT receive the in-flight event", () => {
+    // The snapshot-on-publish invariant: handlers list is captured at
+    // the start of dispatch, so subscribes that happen mid-loop only
+    // take effect on the next publish.
+    const bus = useEventBusStore.getState();
+    const late = mock(() => {});
+    bus.subscribe("app.online", () => {
+      bus.subscribe("app.online", late);
+    });
+    bus.publish("app.online", {});
+    expect(late).not.toHaveBeenCalled();
+    bus.publish("app.online", {});
+    expect(late).toHaveBeenCalledTimes(1);
+  });
+
+  test("the same handler reference subscribed twice fires once per publish (Set dedup)", () => {
+    const bus = useEventBusStore.getState();
+    const handler = mock(() => {});
+    bus.subscribe("app.online", handler);
+    bus.subscribe("app.online", handler);
+    bus.publish("app.online", {});
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  test("unsubscribing the same handler twice only removes it once (idempotent)", () => {
+    const bus = useEventBusStore.getState();
+    const handler = mock(() => {});
+    const unsub1 = bus.subscribe("app.online", handler);
+    const unsub2 = bus.subscribe("app.online", handler);
+    // unsub1 and unsub2 close over the same handler — first call removes
+    // it, second call is a no-op.
+    unsub1();
+    bus.publish("app.online", {});
+    expect(handler).not.toHaveBeenCalled();
+    expect(() => unsub2()).not.toThrow();
+  });
+
+  test("a handler publishing the same event recursively does not skip pending subscribers", () => {
+    // Snapshot semantics protect concurrent mutation, but they also
+    // mean a recursive publish processes its own (independent)
+    // snapshot. Verify both invocations reach every subscriber.
+    const bus = useEventBusStore.getState();
+    const a = mock(() => {});
+    const b = mock(() => {});
+    let republished = false;
+    bus.subscribe("app.online", () => {
+      a();
+      if (!republished) {
+        republished = true;
+        bus.publish("app.online", {});
+      }
+    });
+    bus.subscribe("app.online", b);
+    bus.publish("app.online", {});
+    // First publish reaches both subscribers; the recursive publish
+    // inside the first subscriber also reaches both.
+    expect(a).toHaveBeenCalledTimes(2);
+    expect(b).toHaveBeenCalledTimes(2);
+  });
+
+  test("unsubscribe after __resetEventBusForTesting is a safe no-op", () => {
+    const bus = useEventBusStore.getState();
+    const handler = mock(() => {});
+    const unsub = bus.subscribe("app.online", handler);
+    __resetEventBusForTesting();
+    // The unsubscribe closure references the previous handler map
+    // (now reassigned). It must not throw.
+    expect(() => unsub()).not.toThrow();
+  });
+
+  test("publishing an unknown event name after reset is a no-op", () => {
+    expect(() =>
+      useEventBusStore.getState().publish("app.offline", {}),
+    ).not.toThrow();
+  });
 });

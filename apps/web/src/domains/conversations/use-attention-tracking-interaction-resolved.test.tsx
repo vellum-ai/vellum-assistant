@@ -56,7 +56,19 @@ function publishInteractionResolved(payload: {
       requestId: payload.requestId,
       conversationKey: payload.conversationKey,
       state: payload.state,
-      kind: payload.kind ?? "confirmation",
+      // Cast through the daemon-mirrored union; tests intentionally feed
+      // both user-facing and host-proxy kinds.
+      kind: (payload.kind ?? "confirmation") as
+        | "confirmation"
+        | "secret"
+        | "question"
+        | "acp_confirmation"
+        | "host_bash"
+        | "host_file"
+        | "host_cu"
+        | "host_browser"
+        | "host_app_control"
+        | "host_transfer",
     });
   });
 }
@@ -192,7 +204,7 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
     ).toBe(false);
   });
 
-  test("ignores host-proxy resolutions so in-progress tool steps don't clear the processing indicator", () => {
+  test("only clears state for kinds in the user-facing allowlist (host-proxy and unknown future kinds are ignored)", () => {
     useConversationStore.getState().addProcessingKey("conv-host");
     expect(
       useConversationStore.getState().processingKeys.has("conv-host"),
@@ -207,6 +219,10 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
       { wrapper },
     );
 
+    // Host-proxy kinds resolve as intermediate tool steps mid-turn and
+    // must not clear the processing indicator. A hypothetical future
+    // intermediate kind without a `host_` prefix must also be ignored —
+    // the subscriber filters by an explicit allowlist, not by name shape.
     for (const kind of [
       "host_bash",
       "host_file",
@@ -214,6 +230,7 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
       "host_browser",
       "host_app_control",
       "host_transfer",
+      "future_intermediate_step",
     ]) {
       publishInteractionResolved({
         requestId: `req-${kind}`,

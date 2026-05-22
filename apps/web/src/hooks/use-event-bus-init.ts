@@ -200,7 +200,11 @@ export function useEventBusInit({
     const unsubReachabilityRetry = bus.subscribe(
       "reachability.retry-requested",
       () => {
+        // Label the next open as a recovery rather than the default
+        // `"resume"` so `sse.opened` consumers can distinguish a
+        // tab-foreground recovery from a reachability-driven retry.
         teardown();
+        nextOpenCause = "error";
         open();
       },
     );
