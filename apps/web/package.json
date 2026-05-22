@@ -79,7 +79,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "8.3.4",
-    "@happy-dom/global-registrator": "18.0.1",
+    "@happy-dom/global-registrator": "^20.9.0",
     "@hey-api/openapi-ts": "0.97.1",
     "@sentry/vite-plugin": "3.4.0",
     "@tailwindcss/vite": "4.1.8",

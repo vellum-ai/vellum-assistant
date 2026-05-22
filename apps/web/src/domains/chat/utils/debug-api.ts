@@ -3,8 +3,8 @@
  *
  * Designed for in-the-moment inspection when a chat-streaming bug shows
  * up — open DevTools, call `window._vellumDebug.chat.snapshot()` to grab
- * current client state, `.diffAgainstServer()` to compare local
- * messages against `/v1/history`, `.forceReconcile()` to imperatively
+ * current client state, `.serverMessages()` to fetch what `/v1/history`
+ * has (so you can diff against `tail()` by hand in the console), `.forceReconcile()` to imperatively
  * run reconcile, and `.tailEvents()` to inspect the chat diagnostics
  * ring buffer.
  *
@@ -81,7 +81,7 @@ export interface StreamingBubbleSummary {
    * creation time) and now. NOT "time since last delta" — text-delta
    * timestamps are not currently tracked per bubble. Use this as a
    * rough "how old is this bubble" signal; combine with
-   * `diffAgainstServer()` to see whether the server has long since
+   * `serverMessages()` to see whether the server has long since
    * finished the turn.
    */
   ageMs: number | null;
@@ -138,48 +138,6 @@ export interface ChatDebugSnapshot {
   };
 }
 
-/** Per-message drift entry returned by {@link ChatDebugApi.diffAgainstServer}. */
-export interface ChatDebugContentDrift {
-  stableId: string;
-  id: string | null;
-  role: string;
-  localContentLength: number;
-  serverContentLength: number;
-}
-
-/** Result of {@link ChatDebugApi.diffAgainstServer}. */
-export interface ChatDebugDiff {
-  /**
-   * Context the diff was computed against. Pulled from
-   * `streamContextRef` first (matches what reconcile would use); falls
-   * back to `assistantId` + `activeConversationKey` so the diff is
-   * still callable during a brief conv-switch window where the stream
-   * context is briefly null.
-   */
-  context: { assistantId: string; conversationKey: string };
-  /** When the server fetch completed. */
-  fetchedAt: string;
-  /** Local message counts. */
-  local: { total: number; streamingCount: number };
-  /** Server message count from `/v1/history`. */
-  serverTotal: number;
-  /**
-   * Messages present locally but not on the server (matched by `id`;
-   * local messages without an `id` are always included here — those
-   * are the streaming-bubble orphans we care about).
-   */
-  localOnly: ReturnType<typeof summarizeDisplayMessage>[];
-  /** Messages present on the server but missing locally. */
-  serverOnly: Array<{
-    id: string;
-    role: string;
-    contentLength: number;
-    timestamp: number | null;
-  }>;
-  /** Messages on both sides whose content lengths disagree. */
-  contentDrift: ChatDebugContentDrift[];
-}
-
 /** The dev API surface attached to `window._vellumDebug.chat`. */
 export interface ChatDebugApi {
   /** Synchronous snapshot of current client chat state. */
@@ -200,11 +158,13 @@ export interface ChatDebugApi {
    */
   forceReconcile(): Promise<ReconcileActiveConversationResult>;
   /**
-   * Fetch `/v1/history` and diff against the local message list.
-   * Useful for declaring "this streaming bubble is an orphan" when a
-   * turn appears stuck.
+   * [experimental] Fetch `/v1/history` for the active assistant +
+   * conversation and return the raw server-side message list. Does
+   * not touch UI state — diff against `snapshot()` manually in the
+   * console when you need to declare drift. Throws if there's no
+   * active assistant/conversation context. Subject to change.
    */
-  diffAgainstServer(): Promise<ChatDebugDiff>;
+  serverMessages(): Promise<RuntimeMessage[]>;
   /** Print and return a short help string for DevTools users. */
   help(): string;
 }
@@ -286,79 +246,6 @@ function countByKind(events: ChatDiagnosticsEvent[]): Record<string, number> {
     result[kind] = count;
   }
   return result;
-}
-
-function summarizeRuntimeMessageShort(message: RuntimeMessage): {
-  id: string;
-  role: string;
-  contentLength: number;
-  timestamp: number | null;
-} {
-  return {
-    id: message.id,
-    role: message.role,
-    contentLength: message.content.length,
-    timestamp:
-      typeof message.timestamp === "number"
-        ? message.timestamp
-        : typeof message.timestamp === "string"
-          ? new Date(message.timestamp).getTime()
-          : null,
-  };
-}
-
-/**
- * Build the diff between a local message list and a server message
- * list. Pure function so it can be unit-tested without mocking the
- * window or the fetch client.
- *
- * Matching is by `id`. Local messages without an `id` (the streaming
- * bubble shape) always land in `localOnly` — that's the orphan signal
- * we want this method to surface.
- */
-export function diffMessages(
-  localMessages: DisplayMessage[],
-  serverMessages: RuntimeMessage[],
-): Pick<ChatDebugDiff, "localOnly" | "serverOnly" | "contentDrift"> {
-  const serverById = new Map<string, RuntimeMessage>();
-  for (const message of serverMessages) {
-    serverById.set(message.id, message);
-  }
-  const matchedServerIds = new Set<string>();
-
-  const localOnly: ChatDebugDiff["localOnly"] = [];
-  const contentDrift: ChatDebugContentDrift[] = [];
-
-  for (const local of localMessages) {
-    if (local.id == null) {
-      localOnly.push(summarizeDisplayMessage(local));
-      continue;
-    }
-    const server = serverById.get(local.id);
-    if (!server) {
-      localOnly.push(summarizeDisplayMessage(local));
-      continue;
-    }
-    matchedServerIds.add(local.id);
-    if (local.content.length !== server.content.length) {
-      contentDrift.push({
-        stableId: local.stableId,
-        id: local.id,
-        role: local.role,
-        localContentLength: local.content.length,
-        serverContentLength: server.content.length,
-      });
-    }
-  }
-
-  const serverOnly: ChatDebugDiff["serverOnly"] = [];
-  for (const server of serverMessages) {
-    if (!matchedServerIds.has(server.id)) {
-      serverOnly.push(summarizeRuntimeMessageShort(server));
-    }
-  }
-
-  return { localOnly, serverOnly, contentDrift };
 }
 
 /**
@@ -451,7 +338,11 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     return result;
   }
 
-  async function diffAgainstServer(): Promise<ChatDebugDiff> {
+  async function serverMessages(): Promise<RuntimeMessage[]> {
+    // Resolve context from `streamContextRef` first (matches what
+    // reconcile would use); fall back to assistantId +
+    // activeConversationKey so the call still works during a brief
+    // conv-switch window where the stream context is transiently null.
     const streamContext = refs.streamContextRef.current;
     const assistantId =
       streamContext?.assistantId ?? refs.getAssistantId() ?? null;
@@ -461,38 +352,12 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       null;
     if (!assistantId || !conversationKey) {
       throw new Error(
-        "diffAgainstServer: no active assistant/conversation context",
+        "serverMessages: no active assistant/conversation context",
       );
     }
-    const localMessages = refs.messagesRef.current ?? [];
     const historyFetcher =
       refs.historyFetcher ?? defaultFetchConversationMessages;
-    const serverMessages = await historyFetcher(assistantId, conversationKey);
-    const diff = diffMessages(localMessages, serverMessages);
-    const localStreamingCount = localMessages.filter(
-      (message) => message.isStreaming === true,
-    ).length;
-    const result: ChatDebugDiff = {
-      context: { assistantId, conversationKey },
-      fetchedAt: new Date().toISOString(),
-      local: {
-        total: localMessages.length,
-        streamingCount: localStreamingCount,
-      },
-      serverTotal: serverMessages.length,
-      ...diff,
-    };
-    recordChatDiagnostic("debug_diff_against_server", {
-      assistantId,
-      conversationKey,
-      localTotal: result.local.total,
-      localStreamingCount: result.local.streamingCount,
-      serverTotal: result.serverTotal,
-      localOnlyCount: result.localOnly.length,
-      serverOnlyCount: result.serverOnly.length,
-      contentDriftCount: result.contentDrift.length,
-    });
-    return result;
+    return await historyFetcher(assistantId, conversationKey);
   }
 
   function help(): string {
@@ -503,8 +368,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "  .tailEvents(n?, filter?)    recent events from the diagnostics ring buffer",
       "                              filter: { kindStartsWith?: string }",
       "  .forceReconcile()           imperatively run /v1/history reconcile",
-      "  .diffAgainstServer()        fetch /v1/history and diff vs local messages",
-      "                              (orphan streaming bubbles show up in `localOnly`)",
+      "  .serverMessages() [exp]    fetch /v1/history and return server message list",
+      "                              (diff against snapshot() manually in the console)",
       "  .help()                     this message",
       "",
       "  Invariants the snapshot asserts:",
@@ -520,7 +385,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     snapshot: buildSnapshot,
     tailEvents,
     forceReconcile,
-    diffAgainstServer,
+    serverMessages,
     help,
   };
 }
