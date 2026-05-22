@@ -47,6 +47,12 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         var validationError: String?
         var clientError: String?
         var lastResult: MemoryRouterSimulateResponse?
+        /// Pretty-printed request body from the most recent successful run.
+        var rawRequest: String?
+        /// Pretty-printed response body from the most recent successful run.
+        var rawResponse: String?
+        /// Disclosure state for the raw API exchange panel.
+        var showRawExchange: Bool = false
     }
 
     enum SlugDiff { case both, onlyHere }
@@ -187,9 +193,64 @@ struct SettingsMemoryRouterPlaygroundTab: View {
                     pane: pane,
                     otherResult: otherState.lastResult
                 )
+                if let req = state.rawRequest, let resp = state.rawResponse {
+                    rawExchangeCard(
+                        pane: pane,
+                        rawRequest: req,
+                        rawResponse: resp
+                    )
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func rawExchangeCard(
+        pane: PaneId,
+        rawRequest: String,
+        rawResponse: String
+    ) -> some View {
+        let state = paneState(pane)
+        return VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Button {
+                toggleRawExchange(pane)
+            } label: {
+                Text("\(state.showRawExchange ? "▾" : "▸") Raw API exchange")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
+            .buttonStyle(.plain)
+            if state.showRawExchange {
+                rawExchangeBlock(label: "Request (Pane \(paneLabel(pane)))", body: rawRequest)
+                rawExchangeBlock(label: "Response (Pane \(paneLabel(pane)))", body: rawResponse)
+            }
+        }
+        .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vCard()
+    }
+
+    private func rawExchangeBlock(label: String, body: String) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text(label)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+            ScrollView(.vertical) {
+                Text(body.isEmpty ? "(empty)" : body)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(VColor.contentDefault)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(VSpacing.sm)
+            }
+            .frame(minHeight: 120, maxHeight: 320)
+            .background(VColor.surfaceBase)
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.borderBase, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        }
     }
 
     private func paneFormCard(pane: PaneId) -> some View {
@@ -598,7 +659,12 @@ struct SettingsMemoryRouterPlaygroundTab: View {
             defer { setIsRunning(pane: pane, value: false) }
             do {
                 let result = try await client.simulate(input: input)
-                setLastResult(pane: pane, result: result)
+                setLastResult(pane: pane, result: result.response)
+                setRawExchange(
+                    pane: pane,
+                    request: result.rawRequest,
+                    response: result.rawResponse
+                )
                 setClientError(pane: pane, message: nil)
             } catch MemoryRouterPlaygroundError.memoryV2Disabled {
                 setClientError(
@@ -606,21 +672,25 @@ struct SettingsMemoryRouterPlaygroundTab: View {
                     message: "Memory v2 is not enabled on this assistant — set memory.v2.enabled to true in workspace config."
                 )
                 setLastResult(pane: pane, result: nil)
+                setRawExchange(pane: pane, request: nil, response: nil)
             } catch MemoryRouterPlaygroundError.notAvailable {
                 setClientError(
                     pane: pane,
                     message: "Simulate route is not available — the daemon may need to be updated."
                 )
                 setLastResult(pane: pane, result: nil)
+                setRawExchange(pane: pane, request: nil, response: nil)
             } catch let MemoryRouterPlaygroundError.http(statusCode, body) {
                 setClientError(
                     pane: pane,
                     message: "HTTP \(statusCode): \(body.isEmpty ? "Failed to run simulation" : body)"
                 )
                 setLastResult(pane: pane, result: nil)
+                setRawExchange(pane: pane, request: nil, response: nil)
             } catch {
                 setClientError(pane: pane, message: error.localizedDescription)
                 setLastResult(pane: pane, result: nil)
+                setRawExchange(pane: pane, request: nil, response: nil)
             }
         }
     }
@@ -650,6 +720,24 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         switch pane {
         case .a: paneA.clientError = message
         case .b: paneB.clientError = message
+        }
+    }
+
+    private func setRawExchange(pane: PaneId, request: String?, response: String?) {
+        switch pane {
+        case .a:
+            paneA.rawRequest = request
+            paneA.rawResponse = response
+        case .b:
+            paneB.rawRequest = request
+            paneB.rawResponse = response
+        }
+    }
+
+    private func toggleRawExchange(_ pane: PaneId) {
+        switch pane {
+        case .a: paneA.showRawExchange.toggle()
+        case .b: paneB.showRawExchange.toggle()
         }
     }
 
