@@ -42,7 +42,7 @@ import {
 import { PersistentGrantStore } from "../grants/persistent-store.js";
 import { TemporaryGrantStore } from "../grants/temporary-store.js";
 import { LocalMaterialiser } from "../materializers/local.js";
-import type { OAuthConnectionLookup, LocalSubjectResolverDeps } from "../subjects/local.js";
+import type { OAuthConnectionLookup } from "../subjects/local.js";
 import { AuditStore } from "../audit/store.js";
 
 // ---------------------------------------------------------------------------
@@ -235,7 +235,7 @@ interface TestFixture {
 function createFixture(
   secretEntries: Record<string, string> = {},
   staticRecords: StaticCredentialRecord[] = [],
-  oauthConnections: OAuthConnectionRecord[] = [],
+  _oauthConnections: OAuthConnectionRecord[] = [],
 ): TestFixture {
   const tmpDir = makeTmpDir();
   const persistentStore = new PersistentGrantStore(tmpDir);
@@ -252,8 +252,6 @@ function createFixture(
       allowedDomains: record.allowedDomains,
     });
   }
-
-  const oauthLookup = createOAuthLookup(oauthConnections);
 
   const localMaterialiser = new LocalMaterialiser({
     secureKeyBackend: backend,
@@ -297,7 +295,6 @@ describe("HTTP executor: local static secrets", () => {
   let fixture: TestFixture;
 
   beforeEach(() => {
-    const handle = localStaticHandle("github", "api_key");
     const storageKey = credentialKey("github", "api_key");
     fixture = createFixture(
       { [storageKey]: "ghp_testtoken_12345678" },
@@ -1186,8 +1183,6 @@ describe("HTTP executor: audit summary integrity", () => {
   });
 
   test("audit ID is returned on materialisation failure", async () => {
-    const handle = localStaticHandle("github", "api_key");
-
     // Grant exists but we'll break materialisation by using a handle that
     // won't resolve (wrong service)
     const badHandle = localStaticHandle("nonexistent", "key");

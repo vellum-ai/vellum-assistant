@@ -22,7 +22,6 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import {
   mkdirSync,
   writeFileSync,
-  existsSync,
   readFileSync,
   rmSync,
   chmodSync,
@@ -333,16 +332,11 @@ describe("executeAuthenticatedCommand — bundle resolution", () => {
   test("rejects bundle with denied binary entrypoint at execution time", async () => {
     // This is a defense-in-depth test — the manifest validator should
     // catch this at publish time, but the executor also checks.
-    const manifest = buildManifest({
-      entrypoint: "bin/curl",
-      bundleId: "curl-wrapper",
-    });
-
-    // We can't actually publish this because the validator will reject it.
-    // Instead, we verify the executor's own check by using a non-denied
-    // entrypoint that we manually modify after publication.
-    // This test verifies the error path exists — the actual denied binary
-    // list is tested exhaustively in command-validator.test.ts.
+    // We can't actually publish a denied-binary bundle because the
+    // validator rejects it, so we exercise the unresolved-digest path
+    // to verify the executor's own error surface exists. The denied
+    // binary list itself is tested exhaustively in
+    // command-validator.test.ts.
     const deps = buildDeps();
     const request: ExecuteCommandRequest = {
       bundleDigest: "a".repeat(64),
@@ -1115,7 +1109,6 @@ describe("executeAuthenticatedCommand — output copyback", () => {
     const result = await executeAuthenticatedCommand(request, deps);
 
     if (result.exitCode === 0) {
-      const expectedPath = join(testWorkspaceDir, "results/output.json");
       if (result.copybackResult) {
         // Check if the output was detected
         const outputResult = result.copybackResult.outputs[0];
