@@ -78,7 +78,14 @@ export interface RenderedSlackTranscript {
 export interface RenderedSlackTranscriptMessage {
   readonly message: Message;
   readonly sourceChannelTs: string | null;
+  /** How the first rendered text line got its Slack attribution, if any. */
+  readonly tagLineProvenance: RenderedSlackTranscriptTagLineProvenance;
 }
+
+export type RenderedSlackTranscriptTagLineProvenance =
+  | "none"
+  | "slack-reaction"
+  | "slack-timezone-message";
 
 /**
  * Replayable Anthropic content-block types that we preserve verbatim from a
@@ -168,6 +175,179 @@ function formatEpochMs(ms: number): string {
   return `${mo}/${da}/${yy} ${hh}:${mm}`;
 }
 
+const COMMON_TIMEZONE_LABEL_BY_IANA = new Map<string, string>([
+  ["America/New_York", "ET"],
+  ["America/Detroit", "ET"],
+  ["America/Indiana/Indianapolis", "ET"],
+  ["America/Kentucky/Louisville", "ET"],
+  ["America/Toronto", "ET"],
+  ["America/Montreal", "ET"],
+  ["America/Chicago", "CT"],
+  ["America/Winnipeg", "CT"],
+  ["America/Mexico_City", "CT"],
+  ["America/Denver", "MT"],
+  ["America/Boise", "MT"],
+  ["America/Phoenix", "MT"],
+  ["America/Edmonton", "MT"],
+  ["America/Los_Angeles", "PT"],
+  ["America/Vancouver", "PT"],
+  ["America/Tijuana", "PT"],
+]);
+
+const COMPACT_TIMEZONE_LABEL_BY_NAME = new Map<string, string>([
+  ["EASTERN TIME", "ET"],
+  ["EASTERN STANDARD TIME", "ET"],
+  ["EASTERN DAYLIGHT TIME", "ET"],
+  ["EST", "ET"],
+  ["EDT", "ET"],
+  ["CENTRAL TIME", "CT"],
+  ["CENTRAL STANDARD TIME", "CT"],
+  ["CENTRAL DAYLIGHT TIME", "CT"],
+  ["CST", "CT"],
+  ["CDT", "CT"],
+  ["MOUNTAIN TIME", "MT"],
+  ["MOUNTAIN STANDARD TIME", "MT"],
+  ["MOUNTAIN DAYLIGHT TIME", "MT"],
+  ["MST", "MT"],
+  ["MDT", "MT"],
+  ["PACIFIC TIME", "PT"],
+  ["PACIFIC STANDARD TIME", "PT"],
+  ["PACIFIC DAYLIGHT TIME", "PT"],
+  ["PST", "PT"],
+  ["PDT", "PT"],
+]);
+
+const shortTimeZoneFormatters = new Map<string, Intl.DateTimeFormat>();
+const compactDateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function compactPersistedTimezoneLabel(
+  label: string | undefined,
+): string | null {
+  const trimmed = label?.trim();
+  if (!trimmed) return null;
+  return COMPACT_TIMEZONE_LABEL_BY_NAME.get(trimmed.toUpperCase()) ?? trimmed;
+}
+
+function getShortTimeZoneFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = shortTimeZoneFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      timeZoneName: "short",
+    });
+    shortTimeZoneFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+function getCompactDateTimeFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = compactDateTimeFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    compactDateTimeFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+function extractShortTimeZoneName(ms: number, timeZone: string): string | null {
+  try {
+    const part = getShortTimeZoneFormatter(timeZone)
+      .formatToParts(new Date(ms))
+      .find((p) => p.type === "timeZoneName");
+    return part?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function compactTimezoneLabel(
+  timeZone: string,
+  persistedLabel: string | undefined,
+  ms: number,
+): string {
+  const persisted = compactPersistedTimezoneLabel(persistedLabel);
+  if (persisted) return persisted;
+  const mapped = COMMON_TIMEZONE_LABEL_BY_IANA.get(timeZone);
+  if (mapped) return mapped;
+  return extractShortTimeZoneName(ms, timeZone) ?? timeZone;
+}
+
+function compactDateTimeParts(ms: number, timeZone: string) {
+  try {
+    const parts = getCompactDateTimeFormatter(timeZone).formatToParts(
+      new Date(ms),
+    );
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((part) => part.type === type)?.value;
+    const month = get("month")?.toLowerCase();
+    const day = get("day");
+    const year = get("year");
+    const hour = get("hour");
+    const minute = get("minute");
+    const dayPeriod = get("dayPeriod");
+    if (!month || !day || !year || !hour || !minute || !dayPeriod) {
+      return null;
+    }
+    return { month, day, year, hour, minute, dayPeriod };
+  } catch {
+    return null;
+  }
+}
+
+function formatCompactEpochMs(
+  ms: number,
+  timeZone: string,
+  timezoneLabel: string | undefined,
+): string {
+  if (!Number.isFinite(ms)) {
+    return `??? ?? ???? ??:?? ${compactTimezoneLabel(timeZone, timezoneLabel, ms)}`;
+  }
+  const parts = compactDateTimeParts(ms, timeZone);
+  if (!parts) return formatEpochMs(ms);
+  const label = compactTimezoneLabel(timeZone, timezoneLabel, ms);
+  return `${parts.month} ${parts.day} ${parts.year} ${parts.hour}:${parts.minute} ${parts.dayPeriod} ${label}`;
+}
+
+function formatCompactSlackTs(
+  channelTs: string,
+  timeZone: string,
+  timezoneLabel: string | undefined,
+): string {
+  const seconds = Number.parseFloat(channelTs);
+  if (!Number.isFinite(seconds)) {
+    return `??? ?? ???? ??:?? ${compactTimezoneLabel(timeZone, timezoneLabel, Number.NaN)}`;
+  }
+  return formatCompactEpochMs(seconds * 1000, timeZone, timezoneLabel);
+}
+
+function hasTimestampTimezone(
+  meta: SlackMessageMetadata | null,
+): meta is SlackMessageMetadata & { timestampTimezone: string } {
+  return (
+    typeof meta?.timestampTimezone === "string" &&
+    meta.timestampTimezone.trim().length > 0
+  );
+}
+
+function speakerLabel(
+  msg: RenderableSlackMessage,
+  meta: SlackMessageMetadata,
+): string {
+  const speaker =
+    msg.senderLabel ?? (msg.role === "assistant" ? "assistant" : "");
+  const suffix = compactPersistedTimezoneLabel(meta.speakerTimezoneLabel);
+  if (!speaker) return "";
+  return suffix ? `${speaker} (${suffix})` : speaker;
+}
+
 function renderSlackFileMarkers(
   files: SlackMessageMetadata["slackFiles"],
 ): string {
@@ -255,17 +435,47 @@ function maxNullableSlackTs(a: string | null, b: string | null): string | null {
  * avoid — so we keep the content-only form.
  */
 function renderMessage(msg: RenderableSlackMessage): string {
-  if (msg.role === "assistant") {
+  const meta = msg.metadata;
+
+  if (msg.role === "assistant" && !hasTimestampTimezone(meta)) {
     if (msg.metadata?.deletedAt !== undefined) return "[deleted]";
     return appendSlackFileMarkers(msg.content, msg.metadata?.slackFiles);
   }
 
-  const meta = msg.metadata;
   const senderPart = msg.senderLabel ? ` ${msg.senderLabel}` : "";
   if (!meta) {
     // Legacy pre-upgrade row: flat render, no Slack metadata-derived fields.
     const time = formatEpochMs(msg.createdAt);
     return `[${time}${senderPart}]: ${renderModelBodyWithSlackFiles(msg, undefined)}`;
+  }
+
+  if (hasTimestampTimezone(meta)) {
+    const time = formatCompactSlackTs(
+      meta.channelTs,
+      meta.timestampTimezone,
+      meta.timestampTimezoneLabel,
+    );
+    const speaker = speakerLabel(msg, meta);
+    const speakerPart = speaker ? ` ${speaker}` : "";
+    if (meta.deletedAt !== undefined) {
+      const dtime = formatCompactEpochMs(
+        meta.deletedAt,
+        meta.timestampTimezone,
+        meta.timestampTimezoneLabel,
+      );
+      return `[${time}${speakerPart} - deleted ${dtime}]`;
+    }
+
+    let head = `[${time}${speakerPart}`;
+    if (meta.editedAt !== undefined) {
+      head += `, edited ${formatCompactEpochMs(
+        meta.editedAt,
+        meta.timestampTimezone,
+        meta.timestampTimezoneLabel,
+      )}`;
+    }
+    head += `] ${renderModelBodyWithSlackFiles(msg, meta.slackFiles)}`;
+    return head;
   }
 
   const time = formatSlackTs(meta.channelTs);
@@ -335,7 +545,13 @@ function renderModelBody(msg: RenderableSlackMessage, body: string): string {
 function renderReaction(msg: RenderableSlackMessage): string | null {
   const meta = msg.metadata;
   if (!meta || meta.eventKind !== "reaction" || !meta.reaction) return null;
-  const time = formatSlackTs(meta.channelTs);
+  const time = hasTimestampTimezone(meta)
+    ? formatCompactSlackTs(
+        meta.channelTs,
+        meta.timestampTimezone,
+        meta.timestampTimezoneLabel,
+      )
+    : formatSlackTs(meta.channelTs);
   const actor =
     msg.senderLabel ?? (msg.role === "assistant" ? "@assistant" : "@user");
   const verb = meta.reaction.op === "added" ? "reacted" : "removed";
@@ -509,6 +725,7 @@ export function renderSlackTranscriptWithProvenance(
       ],
     },
     sourceChannelTs: acc.sourceChannelTs,
+    tagLineProvenance: "slack-reaction",
   });
 
   const flushOverflowExcept = (
@@ -542,6 +759,7 @@ export function renderSlackTranscriptWithProvenance(
               content: [{ type: "text" as const, text: line }],
             },
             sourceChannelTs: meta.channelTs,
+            tagLineProvenance: "slack-reaction",
           });
         }
       } else {
@@ -567,12 +785,17 @@ export function renderSlackTranscriptWithProvenance(
     const tagLine = renderMessage(m);
     const blocks = buildMessageContentBlocks(m, tagLine);
     if (blocks.length === 0) continue;
+    const hasRenderedText = blocks.some((block) => block.type === "text");
     out.push({
       message: {
         role: m.role,
         content: blocks,
       },
       sourceChannelTs: meta?.channelTs ?? null,
+      tagLineProvenance:
+        hasRenderedText && hasTimestampTimezone(meta)
+          ? "slack-timezone-message"
+          : "none",
     });
   }
 
@@ -637,6 +860,7 @@ function filterOrphanToolPairs(
       out.push({
         message: { role: msg.role, content: kept },
         sourceChannelTs: entry.sourceChannelTs,
+        tagLineProvenance: entry.tagLineProvenance,
       });
     }
   }

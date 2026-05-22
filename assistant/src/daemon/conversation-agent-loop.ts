@@ -1146,6 +1146,7 @@ export async function runAgentLoopImpl(
           {
             message: result.messages[0]!,
             sourceChannelTs: null,
+            tagLineProvenance: "none",
           },
           ...retainedRenderedMessages,
         ],
