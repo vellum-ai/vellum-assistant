@@ -408,7 +408,7 @@ interface VellumDebugRoot {
 export function installChatDebugApi(api: ChatDebugApi): () => void {
   if (typeof window === "undefined") return () => {};
   const win = window as Window & { [ROOT_NS]?: VellumDebugRoot };
-  const existing = win[ROOT_NS] ?? {};
+  const existing: VellumDebugRoot = win[ROOT_NS] ?? {};
   existing[CHAT_NS] = api;
   win[ROOT_NS] = existing;
   return () => {
