@@ -1,11 +1,16 @@
 /** `evals server` — local HTML report browser for .runs artifacts. */
-import { rm } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { join } from "node:path";
 
 import type { Command } from "commander";
 
 import { renderReportPage, type ReportPageInput } from "../lib/report-html";
-import { RUNS_DIR, scavengeAbandonedRuns } from "../lib/metrics";
+import {
+  readRunMetadata,
+  RUNS_DIR,
+  scavengeAbandonedRuns,
+} from "../lib/metrics";
 import {
   findExecutionRunId,
   listReportSessions,
@@ -50,6 +55,21 @@ function notFoundJson(message: string): Response {
  */
 function isValidRunId(runId: string): boolean {
   return /^eval-[a-z0-9\-]+-\d{14}$/.test(runId);
+}
+
+/**
+ * Allowlist of bare filenames the GET file endpoint will serve from a
+ * run directory. The list is closed (no path-segment characters allowed
+ * in the name) so a malicious URL like `..%2Fetc%2Fpasswd` can never
+ * match — `isValidRunId` is the first defense, this is the second.
+ *
+ * Allowed:
+ *   - `subprocess-<step>.log` — adapter subprocess tee output
+ *   - `docker-inspect.json` / `docker-logs.txt` — hatch-failure forensics
+ */
+function isAllowedRunArtifactName(name: string): boolean {
+  if (name === "docker-inspect.json" || name === "docker-logs.txt") return true;
+  return /^subprocess-[a-z0-9\-]+\.log$/.test(name);
 }
 
 export async function handleRequest(request: Request): Promise<Response> {
@@ -142,48 +162,38 @@ export async function handleRequest(request: Request): Promise<Response> {
     return pageResponse({ kind: "session", session });
   }
 
-  // GET /api/runs/:runId/files/:name — serve a subprocess log file (plain text).
+  // GET /api/runs/:runId/files/:name — serve a per-run diagnostic artifact
+  // as plain text. Allowed names are the subprocess log tee outputs plus the
+  // docker forensics dump emitted by the vellum adapter on hatch failure.
   const apiRunFile = path.match(/^\/api\/runs\/([^/]+)\/files\/(.+)$/);
   if (apiRunFile && method === "GET") {
     const [, runIdEnc, fileNameEnc] = apiRunFile;
     const runId = decodeURIComponent(runIdEnc);
     const fileName = decodeURIComponent(fileNameEnc);
 
-    // Validate both parts to prevent path traversal.
     if (!isValidRunId(runId)) {
-      return jsonResponse(
-        { error: `Invalid runId format: ${runId}` },
-        400,
-      );
+      return jsonResponse({ error: `Invalid runId format: ${runId}` }, 400);
     }
-    // Only allow subprocess log files (safe names).
-    if (!/^subprocess-[a-z0-9\-]+\.log$/.test(fileName)) {
-      return jsonResponse(
-        { error: `Invalid file name: ${fileName}` },
-        400,
-      );
+    if (!isAllowedRunArtifactName(fileName)) {
+      return jsonResponse({ error: `Invalid file name: ${fileName}` }, 400);
     }
 
     try {
-      const { readFile } = await import("node:fs/promises");
-      const { join } = await import("node:path");
       const filePath = join(RUNS_DIR, runId, fileName);
       const content = await readFile(filePath, "utf-8");
+      const contentType = fileName.endsWith(".json")
+        ? "application/json; charset=utf-8"
+        : "text/plain; charset=utf-8";
       return new Response(content, {
         status: 200,
-        headers: { "content-type": "text/plain; charset=utf-8" },
+        headers: { "content-type": contentType },
       });
     } catch (err) {
-      if (
-        err instanceof Error &&
-        err.message.includes("ENOENT")
-      ) {
+      if (err instanceof Error && err.message.includes("ENOENT")) {
         return notFoundJson(`File not found: ${runId}/${fileName}`);
       }
       return jsonResponse(
-        {
-          error: err instanceof Error ? err.message : "Failed to read file",
-        },
+        { error: err instanceof Error ? err.message : "Failed to read file" },
         500,
       );
     }
@@ -214,38 +224,33 @@ export async function handleRequest(request: Request): Promise<Response> {
     }
   }
 
-  // DELETE /api/runs — delete all runs except those with fresh heartbeats.
+  // DELETE /api/runs — bulk-delete every non-running run. We scavenge stale
+  // heartbeats first so a 60s-dead run still gets cleaned up even though it
+  // hasn't been flipped to `abandoned` yet by the index-page scavenger.
   if (path === "/api/runs" && method === "DELETE") {
     try {
       await scavengeAbandonedRuns();
-      // Now delete all non-running runs (completed, failed, abandoned, unknown).
-      const { readdir } = await import("node:fs/promises");
-      const { readRunMetadata } = await import("../lib/metrics");
-      const runDirs = await readdir(RUNS_DIR).catch(() => []);
+      const runDirs = await readdir(RUNS_DIR).catch(() => [] as string[]);
       let deletedCount = 0;
       let skippedCount = 0;
       for (const runDir of runDirs) {
         if (!isValidRunId(runDir)) continue;
-        const metadata = await readRunMetadata(runDir).catch(
-          () => undefined,
-        );
+        const metadata = await readRunMetadata(runDir).catch(() => undefined);
         if (metadata && metadata.status === "running") {
-          skippedCount++;
+          skippedCount += 1;
           continue;
         }
         try {
-          await rm(`${RUNS_DIR}/${runDir}`, { recursive: true, force: true });
-          deletedCount++;
+          await rm(join(RUNS_DIR, runDir), { recursive: true, force: true });
+          deletedCount += 1;
         } catch {
-          // Silently skip on error.
+          // Silently skip on error — next bulk-delete will pick it up.
         }
       }
       return jsonResponse({ deleted: deletedCount, skipped: skippedCount });
     } catch (err) {
       return jsonResponse(
-        {
-          error: err instanceof Error ? err.message : "Failed to delete runs",
-        },
+        { error: err instanceof Error ? err.message : "Failed to delete runs" },
         500,
       );
     }
