@@ -29,9 +29,9 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("filteredCommands", () => {
-  test("empty filter returns all 5 commands", () => {
+  test("empty filter returns all 6 commands", () => {
     const result = filteredCommands("");
-    expect(result).toHaveLength(5);
+    expect(result).toHaveLength(6);
     expect(result).toBe(SLASH_COMMANDS);
   });
 
@@ -41,10 +41,10 @@ describe("filteredCommands", () => {
     expect(result[0]!.name).toBe("models");
   });
 
-  test('filter "c" returns commands and compact', () => {
+  test('filter "c" returns commands, compact, and clean', () => {
     const result = filteredCommands("c");
-    expect(result).toHaveLength(2);
-    expect(result.map((c) => c.name)).toEqual(["commands", "compact"]);
+    expect(result).toHaveLength(3);
+    expect(result.map((c) => c.name)).toEqual(["commands", "compact", "clean"]);
   });
 
   test('filter "xyz" returns empty list', () => {
@@ -79,7 +79,7 @@ describe("computeSlashState", () => {
     const [state] = computeSlashState("/", false);
     expect(state.showSlashMenu).toBe(true);
     expect(state.slashFilter).toBe("");
-    expect(state.slashCommands).toHaveLength(5);
+    expect(state.slashCommands).toHaveLength(6);
     expect(state.slashSelectedIndex).toBe(0);
   });
 
@@ -91,10 +91,10 @@ describe("computeSlashState", () => {
     expect(state.slashCommands[0]!.name).toBe("models");
   });
 
-  test('typing "/c" shows commands and compact', () => {
+  test('typing "/c" shows commands, compact, and clean', () => {
     const [state] = computeSlashState("/c", false);
     expect(state.showSlashMenu).toBe(true);
-    expect(state.slashCommands.map((c) => c.name)).toEqual(["commands", "compact"]);
+    expect(state.slashCommands.map((c) => c.name)).toEqual(["commands", "compact", "clean"]);
   });
 
   test('typing "/xyz" closes popup (no matching commands)', () => {
@@ -146,7 +146,7 @@ describe("computeSlashState — suppress reopen", () => {
     const [state, consumed] = computeSlashState("/", true);
     expect(state.showSlashMenu).toBe(false);
     expect(state.slashFilter).toBe("");
-    expect(state.slashCommands).toHaveLength(5);
+    expect(state.slashCommands).toHaveLength(6);
     expect(consumed).toBe(true);
   });
 
