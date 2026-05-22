@@ -118,7 +118,19 @@ export function useMessageQueue({
       }
       if (targetRequestId) {
         setMessages((prev) => clearQueueStatus(prev, stableId));
-        void steerToMessage(assistantId, activeConversationKey, targetRequestId);
+        steerToMessage(assistantId, activeConversationKey, targetRequestId).then(
+          (ok) => {
+            if (!ok) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.stableId === stableId
+                    ? { ...m, queueStatus: "queued" as const }
+                    : m,
+                ),
+              );
+            }
+          },
+        );
       }
     },
     [assistantId, activeConversationKey],
