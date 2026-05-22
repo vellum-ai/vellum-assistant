@@ -3,21 +3,22 @@ import { routes } from "@/utils/routes.js";
 export interface A2AInviteParams {
   senderAssistantId: string;
   token: string;
-  senderGatewayUrl: string;
 }
 
 /**
  * Build a shareable A2A invite link that routes to the connect page.
- * The link includes `senderGatewayUrl` so the recipient can reach the
- * sender's gateway directly, without a central broker.
+ * The link includes `senderAssistantId` and `token` so the recipient
+ * can redeem the invite via the platform broker.
  */
-export function buildA2AInviteLink(params: A2AInviteParams): string {
+export function buildA2AInviteLink(params: {
+  senderAssistantId: string;
+  token: string;
+}): string {
   const origin =
     typeof window !== "undefined" ? window.location.origin : "";
   const search = new URLSearchParams({
     senderAssistantId: params.senderAssistantId,
     token: params.token,
-    senderGatewayUrl: params.senderGatewayUrl,
   });
   return `${origin}${routes.connect}?${search.toString()}`;
 }
@@ -29,11 +30,10 @@ export function buildA2AInviteLink(params: A2AInviteParams): string {
 export function parseA2AInviteParams(
   search: URLSearchParams,
 ): A2AInviteParams | null {
-  const senderAssistantId = search.get("senderAssistantId");
-  const token = search.get("token");
-  const senderGatewayUrl = search.get("senderGatewayUrl");
-  if (!senderAssistantId || !token || !senderGatewayUrl) {
+  const senderAssistantId = search.get("senderAssistantId")?.trim();
+  const token = search.get("token")?.trim();
+  if (!senderAssistantId || !token) {
     return null;
   }
-  return { senderAssistantId, token, senderGatewayUrl };
+  return { senderAssistantId, token };
 }
