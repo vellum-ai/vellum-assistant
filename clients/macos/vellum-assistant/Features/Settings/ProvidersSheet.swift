@@ -397,6 +397,8 @@ struct ProvidersSheet: View {
                             editorPlatformNote
                         } else if editorDraft.authType == "none" {
                             editorNoneNote
+                        } else if editorDraft.authType == "oauth_subscription" {
+                            editorOAuthSubscriptionNote
                         }
                     }
                     .disabled(isAuthLocked)
@@ -785,6 +787,19 @@ struct ProvidersSheet: View {
             VIconView(.info, size: 16)
                 .foregroundStyle(VColor.contentSecondary)
             Text("No authentication required — the provider handles access locally.")
+                .font(VFont.bodySmallDefault)
+                .foregroundStyle(VColor.contentSecondary)
+        }
+        .padding(VSpacing.md)
+        .background(VColor.surfaceBase)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+    }
+
+    private var editorOAuthSubscriptionNote: some View {
+        HStack(spacing: VSpacing.sm) {
+            VIconView(.info, size: 16)
+                .foregroundStyle(VColor.contentSecondary)
+            Text("Authenticated via ChatGPT subscription OAuth.")
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentSecondary)
         }

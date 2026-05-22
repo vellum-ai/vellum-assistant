@@ -79,7 +79,7 @@ export class PermissionPrompter {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
 
       const timer = setTimeout(() => {
-        const interaction = pendingInteractions.resolve(requestId);
+        const interaction = pendingInteractions.resolve(requestId, "cancelled");
         this.ownedIds.delete(requestId);
         log.warn(
           { requestId, toolName },
@@ -130,7 +130,7 @@ export class PermissionPrompter {
       if (signal) {
         const onAbort = () => {
           if (this.ownedIds.has(requestId)) {
-            pendingInteractions.resolve(requestId);
+            pendingInteractions.resolve(requestId, "cancelled");
             this.ownedIds.delete(requestId);
             resolve({ decision: "deny", wasAbort: true });
           }
@@ -232,7 +232,7 @@ export class PermissionPrompter {
 
   dispose(): void {
     for (const requestId of [...this.ownedIds]) {
-      const interaction = pendingInteractions.resolve(requestId);
+      const interaction = pendingInteractions.resolve(requestId, "cancelled");
       this.ownedIds.delete(requestId);
       interaction?.rpcReject?.(
         new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),

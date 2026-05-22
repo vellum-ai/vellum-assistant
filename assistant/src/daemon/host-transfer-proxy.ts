@@ -205,7 +205,7 @@ export class HostTransferProxy {
 
           const timer = setTimeout(() => {
             this.transfers.delete(transferId);
-            pendingInteractions.resolve(requestId);
+            pendingInteractions.resolve(requestId, "cancelled");
             log.warn(
               { requestId, transferId, direction: "to_host" },
               "Host transfer proxy request timed out",
@@ -222,7 +222,7 @@ export class HostTransferProxy {
             const onAbort = () => {
               if (pendingInteractions.get(requestId)) {
                 this.transfers.delete(transferId);
-                pendingInteractions.resolve(requestId);
+                pendingInteractions.resolve(requestId, "cancelled");
                 try {
                   broadcastMessage(
                     {
@@ -301,7 +301,7 @@ export class HostTransferProxy {
             );
           } catch (err) {
             this.transfers.delete(transferId);
-            pendingInteractions.resolve(requestId);
+            pendingInteractions.resolve(requestId, "cancelled");
             log.warn(
               { requestId, transferId, err },
               "Host transfer proxy send failed",
@@ -396,7 +396,7 @@ export class HostTransferProxy {
 
       const timer = setTimeout(() => {
         this.transfers.delete(transferId);
-        pendingInteractions.resolve(requestId);
+        pendingInteractions.resolve(requestId, "cancelled");
         log.warn(
           { requestId, transferId, direction: "to_sandbox" },
           "Host transfer proxy request timed out",
@@ -413,7 +413,7 @@ export class HostTransferProxy {
         const onAbort = () => {
           if (pendingInteractions.get(requestId)) {
             this.transfers.delete(transferId);
-            pendingInteractions.resolve(requestId);
+            pendingInteractions.resolve(requestId, "cancelled");
             try {
               broadcastMessage(
                 {
@@ -487,7 +487,7 @@ export class HostTransferProxy {
         );
       } catch (err) {
         this.transfers.delete(transferId);
-        pendingInteractions.resolve(requestId);
+        pendingInteractions.resolve(requestId, "cancelled");
         log.warn(
           { requestId, transferId, err },
           "Host transfer proxy send failed",
@@ -622,14 +622,14 @@ export class HostTransferProxy {
 
     if (entry.overwrite !== true && existsSync(entry.filePath)) {
       const errorMsg = `Destination file already exists: ${entry.filePath}. Set overwrite to true to replace it.`;
-      const interaction = pendingInteractions.resolve(requestId);
+      const interaction = pendingInteractions.resolve(requestId, "answered");
       this.transfers.delete(transferId);
       interaction?.rpcResolve?.({ content: errorMsg, isError: true });
       return { accepted: false, error: errorMsg };
     }
 
     const cleanup = () => {
-      pendingInteractions.resolve(requestId);
+      pendingInteractions.resolve(requestId, "answered");
       this.transfers.delete(transferId);
     };
 
@@ -662,7 +662,7 @@ export class HostTransferProxy {
     if (!interaction) return;
     const transferId = interaction.metadata?.transferId as string | undefined;
     if (transferId) this.transfers.delete(transferId);
-    pendingInteractions.resolve(requestId);
+    pendingInteractions.resolve(requestId, "cancelled");
     try {
       broadcastMessage(
         {
@@ -718,7 +718,7 @@ export class HostTransferProxy {
     for (const entry of pendingInteractions.getByKind("host_transfer")) {
       const transferId = entry.metadata?.transferId as string | undefined;
       if (transferId) this.transfers.delete(transferId);
-      pendingInteractions.resolve(entry.requestId);
+      pendingInteractions.resolve(entry.requestId, "cancelled");
       try {
         broadcastMessage(
           {
