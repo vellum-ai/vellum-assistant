@@ -58,6 +58,17 @@ export function BillingPage() {
   const openPlanModal = useCallback(() => setPlanModalOpen(true), []);
   const closePlanModal = useCallback(() => setPlanModalOpen(false), []);
 
+  useEffect(() => {
+    if (searchParams.has("adjust_plan")) {
+      setPlanModalOpen(true);
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("adjust_plan");
+        return next;
+      }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   const hasSessionId = searchParams.has("session_id");
   const closeOnboarding = useCallback(() => {
     setSearchParams((prev) => {

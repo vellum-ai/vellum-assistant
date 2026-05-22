@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
-import { Dropdown, type DropdownOption } from "@vellum/design-library/components/dropdown";
+import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Tag } from "@vellum/design-library/components/tag";
@@ -14,7 +14,7 @@ import {
   assistantsActiveRetrieveOptions,
   assistantsResizeMutation,
 } from "@/generated/api/@tanstack/react-query.gen.js";
-import { SIZE_DESCRIPTION, SIZE_LABEL } from "@/lib/billing/machine-sizes.js";
+import { buildMachineSizeOptions } from "@/lib/billing/machine-sizes.js";
 
 import { IconBadge, StepDots } from "./primitives.js";
 import {
@@ -35,15 +35,13 @@ export function SetupStep({
 }) {
   const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
   const currentSize = activeAssistant?.machine_size as MachineSizeEnum | null | undefined;
-  const machineSizeOptions = useMemo<DropdownOption<MachineSizeEnum>[]>(
+  const machineSizeOptions = useMemo(
     () =>
-      allowedMachineSizesForTier(maxTier).map((size) => ({
-        value: size,
-        label: `${SIZE_LABEL[size]} — ${SIZE_DESCRIPTION[size]}`,
-        suffix: size === currentSize
-          ? <Tag tone="positive">Current</Tag>
-          : undefined,
-      })),
+      buildMachineSizeOptions(
+        allowedMachineSizesForTier(maxTier),
+        currentSize,
+        <Tag tone="positive">Current</Tag>,
+      ),
     [maxTier, currentSize],
   );
   const [selectedSize, setSelectedSize] = useState<MachineSizeEnum>(
