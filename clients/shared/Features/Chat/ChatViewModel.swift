@@ -1773,16 +1773,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             return
         }
 
-        // Optimistically remove the message from the queue drawer so the steer
-        // button feels responsive. The daemon's message_dequeued event drives
-        // the real transition; restore the queued status if the API call fails.
-        var previousStatus: ChatMessageStatus?
-        if let idx = messages.firstIndex(where: { $0.id == messageId }),
-           case .queued = messages[idx].status {
-            previousStatus = messages[idx].status
-            messages[idx].status = .processing
-        }
-
         Task {
             let success = await conversationQueueClient.steerQueuedMessage(
                 conversationId: conversationId,
@@ -1790,10 +1780,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             )
             if !success {
                 log.error("Failed to steer queued message")
-                if let previousStatus,
-                   let idx = messages.firstIndex(where: { $0.id == messageId }) {
-                    messages[idx].status = previousStatus
-                }
             }
         }
     }
@@ -1803,12 +1789,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// when the abort triggers queue drain.
     func applyMessageSteered(requestId: String) {
         guard let messageId = requestIdToMessageId[requestId] else { return }
-        // Set the steered message to position 1 (head of queue). If the client
-        // already optimistically cleared the queued status, leave it untouched
-        // so the message does not flicker back into the queue drawer before the
-        // message_dequeued event arrives.
-        if let idx = messages.firstIndex(where: { $0.id == messageId }),
-           case .queued = messages[idx].status {
+        // Set the steered message to position 1 (head of queue)
+        if let idx = messages.firstIndex(where: { $0.id == messageId }) {
             messages[idx].status = .queued(position: 1)
         }
     }
