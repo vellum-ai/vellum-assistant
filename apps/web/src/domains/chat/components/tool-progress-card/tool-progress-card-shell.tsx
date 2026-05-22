@@ -1,0 +1,247 @@
+
+import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useState, type ReactNode } from "react";
+
+import { Button, Typography } from "@vellum/design-library";
+
+import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel.js";
+import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator.js";
+
+/**
+ * Visual state that drives the shell's leading status indicator.
+ *
+ * - `loading`  → animated `ThreeDotIndicator`
+ * - `complete` → green `CheckCircle2`
+ * - `denied`   → red `AlertCircle` (a request was blocked / denied)
+ * - `error`    → red `AlertCircle` (the tool itself errored)
+ *
+ * `denied` and `error` render the same icon today and are kept distinct so
+ * the two semantics can diverge visually later without a prop break.
+ */
+export type ToolProgressCardState =
+  | "loading"
+  | "complete"
+  | "denied"
+  | "error";
+
+export interface ToolProgressCardShellProps {
+  /**
+   * Drives the leading status indicator. See `ToolProgressCardState` for
+   * the per-value chrome.
+   */
+  state: ToolProgressCardState;
+  /**
+   * Optional icon rendered between the three-dot status indicator and the
+   * title — used by non-web-search consumers to show e.g. a tool-specific
+   * glyph. Omitted by default so the existing web-search card keeps its
+   * indicator-then-title layout.
+   */
+  leadingIcon?: ReactNode;
+  /**
+   * Per-step headline label rendered in the collapsed header. Animates via
+   * the header carousel as new steps stream in.
+   */
+  currentStepTitle: string;
+  /**
+   * Secondary descriptor rendered to the right of the title in the
+   * collapsed header. Accepts a string (truncated muted text) or any
+   * `ReactNode` (e.g. a `<WebsiteCarousel />`). Consumers passing a node
+   * should memoize it so the throttle hook doesn't fire on every parent
+   * render.
+   */
+  currentStepInfo: ReactNode;
+  /** Pre-formatted step count for the toggle pill, e.g. "2 steps". */
+  stepCount: string;
+  /** Whether the card starts expanded. Uncontrolled by default. */
+  defaultExpanded?: boolean;
+  /** Controlled expanded value. Pairs with `onExpandChange`. */
+  expanded?: boolean;
+  /** Notified when the user toggles the expand/collapse button. */
+  onExpandChange?: (next: boolean) => void;
+  /**
+   * When `true`, the header button is non-interactive — used when the card
+   * has nothing to expand into (e.g. a 0-step card). The chrome stays the
+   * same so the visual rhythm matches; only the toggle is disabled.
+   */
+  disableExpand?: boolean;
+  /**
+   * The expanded body. Rendered inside the height-animated region beneath
+   * the header. Consumers own the spacing inside (the shell only adds the
+   * divider above and the rounded-bottom-corner clipping).
+   */
+  children: ReactNode;
+  /**
+   * `data-testid` for the outer card wrapper. Defaults to
+   * `tool-progress-card-shell`; consumers (e.g. `WebSearchProgressCard`)
+   * override to preserve existing integration-test hooks.
+   */
+  "data-testid"?: string;
+  /**
+   * `data-testid` for the leading status indicator (three-dot dots or the
+   * status icon). Defaults to `tool-progress-card-status-indicator`;
+   * consumers override to preserve existing integration-test hooks.
+   */
+  statusIndicatorTestId?: string;
+}
+
+function StatusIndicator({
+  state,
+  testId,
+}: {
+  state: ToolProgressCardState;
+  testId: string;
+}) {
+  switch (state) {
+    case "loading":
+      return <ThreeDotIndicator data-testid={testId} className="shrink-0" />;
+    case "complete":
+      return (
+        <CheckCircle2
+          data-testid={testId}
+          aria-hidden="true"
+          data-state="complete"
+          className="h-[14px] w-[14px] shrink-0 text-[var(--system-positive-strong)]"
+        />
+      );
+    case "denied":
+    case "error":
+    default:
+      return (
+        <AlertCircle
+          data-testid={testId}
+          aria-hidden="true"
+          data-state={state}
+          className="h-[14px] w-[14px] shrink-0 text-[var(--system-negative-strong)]"
+        />
+      );
+  }
+}
+
+/**
+ * Reusable rounded-card shell for tool-call progress cards.
+ *
+ * Owns the visual chrome shared across every tool's progress card — the
+ * rounded surface, the leading status indicator (three-dot for loading,
+ * check / alert icon for terminal states), an optional leading icon slot,
+ * the animated `HeaderStepCarousel`, the "N step(s)" pill, and the
+ * height-animated expanded body region. Consumers supply the per-step
+ * content via `children`.
+ *
+ * Extracted from `WebSearchProgressCard` so non-web tool cards and
+ * subagent progress cards can adopt the same visual language without
+ * duplicating the rounded container, expand/collapse animation, and
+ * `prefers-reduced-motion` handling.
+ */
+export function ToolProgressCardShell({
+  state,
+  leadingIcon,
+  currentStepTitle,
+  currentStepInfo,
+  stepCount,
+  defaultExpanded = false,
+  expanded: controlledExpanded,
+  onExpandChange,
+  disableExpand = false,
+  children,
+  "data-testid": dataTestId = "tool-progress-card-shell",
+  statusIndicatorTestId = "tool-progress-card-status-indicator",
+}: ToolProgressCardShellProps) {
+  const [uncontrolledExpanded, setUncontrolledExpanded] =
+    useState(defaultExpanded);
+  const isControlled = controlledExpanded !== undefined;
+  const expanded = isControlled ? controlledExpanded : uncontrolledExpanded;
+  const reduce = useReducedMotion();
+
+  const handleToggle = () => {
+    if (disableExpand) return;
+    const next = !expanded;
+    if (!isControlled) {
+      setUncontrolledExpanded(next);
+    }
+    onExpandChange?.(next);
+  };
+
+  const transition = reduce
+    ? { duration: 0 }
+    : {
+        duration: 0.25,
+        ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
+      };
+
+  return (
+    // Hover ownership lives on the inner Button. Padding ownership lives on
+    // the inner Button (header) and the body section (when expanded) — the
+    // outer wrapper provides only the card chrome (border, radius, base bg)
+    // and no padding of its own. The Button's `rounded-*` is conditional so
+    // its hover bg paints into the correct corners without clipping its
+    // focus ring (overflow:hidden on the wrapper would clip the ring):
+    //   - Collapsed: the Button IS the whole card content → fully rounded.
+    //   - Expanded: the Button is just the header → rounded only on top so
+    //     the divider + body section flow flush below.
+    <div
+      data-testid={dataTestId}
+      className="flex w-full flex-col rounded-[var(--radius-lg)] border-b border-[var(--border-base)] bg-[var(--surface-overlay)]"
+    >
+      {/* The entire row is the toggle — clicking the label cluster, dots,
+          subtext, or pill expands / collapses. The step-count pill is a
+          visual-only <span>; the surrounding Button already provides the
+          interactive semantics. */}
+      <Button
+        variant="ghost"
+        size="compact"
+        aria-expanded={expanded}
+        aria-label={expanded ? "Collapse steps" : "Expand steps"}
+        onClick={handleToggle}
+        disabled={disableExpand}
+        className={`h-auto w-full min-w-0 justify-between gap-2 p-3 ${
+          expanded
+            ? "rounded-t-[var(--radius-lg)] rounded-b-none"
+            : "rounded-[var(--radius-lg)]"
+        }`}
+      >
+        <span className="flex min-w-0 flex-1 items-center gap-1">
+          <StatusIndicator state={state} testId={statusIndicatorTestId} />
+          {leadingIcon ? (
+            <span className="flex shrink-0 items-center">{leadingIcon}</span>
+          ) : null}
+          <HeaderStepCarousel
+            currentStepTitle={currentStepTitle}
+            currentStepInfo={currentStepInfo}
+          />
+        </span>
+        <span className="flex shrink-0 items-center rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[6px] py-[4px]">
+          <Typography
+            variant="body-small-default"
+            className="text-[var(--content-emphasised)]"
+          >
+            {stepCount}
+          </Typography>
+        </span>
+      </Button>
+
+      {/* Expanded body — divider + children. Animated height-collapse honors
+          prefers-reduced-motion (snap when reduced via 0-duration transition). */}
+      <AnimatePresence initial={false}>
+        {expanded ? (
+          <motion.div
+            key="expanded-body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={transition}
+            className="overflow-hidden"
+          >
+            <div className="flex flex-col gap-2">
+              <div className="h-px w-full bg-[var(--surface-base)]" />
+              {children}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+export { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel.js";
+export { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator.js";
