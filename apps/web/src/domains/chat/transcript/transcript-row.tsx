@@ -156,6 +156,13 @@ export const TranscriptRow = memo(function TranscriptRow({
         </div>
       );
 
+    case "profileAutoRouted":
+      return (
+        <div className="flex items-center justify-center py-1 text-body-small-default text-[var(--content-tertiary)]">
+          Using {item.profileLabel} for this response
+        </div>
+      );
+
     case "pendingSecret":
       if (renderPendingSecret) {
         return <>{renderPendingSecret(item.requestId)}</>;

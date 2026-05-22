@@ -514,7 +514,8 @@ export function ChatRouteContent({
   const lastTerminalReason = useTurnStore.use.lastTerminalReason();
   const statusText = useTurnStore.use.statusText();
   const liveWebActivity = useTurnStore.use.liveWebActivity();
-  const turnState: TurnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText, liveWebActivity };
+  const autoRoutedProfileLabel = useTurnStore.use.autoRoutedProfileLabel();
+  const turnState: TurnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText, liveWebActivity, autoRoutedProfileLabel };
 
   // -------------------------------------------------------------------------
   // Deploy / share state (from Zustand store)
@@ -751,6 +752,7 @@ export function ChatRouteContent({
           : null,
         isThinking: showThinking,
         thinkingLabel,
+        autoRoutedProfileLabel,
         errorNotice: null,
         showOnboardingChoice,
       }),
@@ -762,6 +764,7 @@ export function ChatRouteContent({
       pendingContactRequest,
       showThinking,
       thinkingLabel,
+      autoRoutedProfileLabel,
       showOnboardingChoice,
     ],
   );

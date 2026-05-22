@@ -629,6 +629,20 @@ export interface AvatarUpdatedEvent {
   conversationKey?: string;
 }
 
+/**
+ * Emitted by the daemon when the inference profile is auto-routed for the
+ * current turn (e.g. tool-based routing selects a different model profile).
+ * The client renders a subtle inline notification so the user knows which
+ * profile is handling the response.
+ */
+export interface TurnProfileAutoRoutedEvent {
+  type: "turn_profile_auto_routed";
+  conversationId: string;
+  profile: string;
+  profileLabel: string;
+  conversationKey?: string;
+}
+
 export interface ConversationErrorEvent {
   type: "conversation_error";
   conversationId: string;
@@ -761,5 +775,6 @@ export type AssistantEvent =
   | DocumentCommentReopenedSseEvent
   | DocumentCommentDeletedSseEvent
   | DocumentEditorUpdateEvent
+  | TurnProfileAutoRoutedEvent
   | InteractionResolvedEvent
   | UnknownEvent;

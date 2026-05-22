@@ -350,6 +350,7 @@ describe("reconcileActiveConversation", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -375,6 +376,7 @@ describe("reconcileActiveConversation", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -399,6 +401,7 @@ describe("reconcileActiveConversation", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -422,6 +425,7 @@ describe("reconcileActiveConversation", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -452,6 +456,7 @@ describe("reconcileActiveConversation", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -480,6 +485,7 @@ describe("reconcileActiveConversation", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -507,6 +513,7 @@ describe("reconcileActiveConversation", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -541,6 +548,7 @@ describe("reconcileActiveConversation", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -575,6 +583,7 @@ describe("reconcileActiveConversation", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -620,6 +629,7 @@ describe("reconcileActiveConversation", () => {
         lastTerminalReason: null,
         statusText: null,
         liveWebActivity: {},
+        autoRoutedProfileLabel: null,
       },
     });
     await reconcileActiveConversation();
@@ -644,6 +654,7 @@ describe("reconcileActiveConversation", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -675,6 +686,7 @@ describe("reconcileActiveConversation", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -717,6 +729,7 @@ describe("reconcileActiveConversation", () => {
         lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
       };
       const { reconcileActiveConversation } = createHarness({
         streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -746,6 +759,7 @@ describe("reconcileActiveConversation — fetch failure", () => {
       lastTerminalReason: null,
       statusText: null,
       liveWebActivity: {},
+      autoRoutedProfileLabel: null,
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
@@ -806,6 +820,7 @@ describe("startReconciliationLoop", () => {
           lastTerminalReason: null,
           statusText: null,
           liveWebActivity: {},
+          autoRoutedProfileLabel: null,
         },
       });
 

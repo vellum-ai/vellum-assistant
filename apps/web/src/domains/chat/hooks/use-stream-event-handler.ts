@@ -65,6 +65,7 @@ import {
   handleDiskPressureStatusChanged,
   handleIdentityChanged,
   handleAvatarUpdated,
+  handleTurnProfileAutoRouted,
 } from "@/domains/chat/utils/stream-handlers/metadata-handlers.js";
 import {
   handleMessageQueued,
@@ -405,6 +406,9 @@ export function useStreamEventHandler(
           break;
         case "avatar_updated":
           handleAvatarUpdated(event, ctx);
+          break;
+        case "turn_profile_auto_routed":
+          handleTurnProfileAutoRouted(event, ctx);
           break;
         case "message_queued":
           handleMessageQueued(event, ctx);

@@ -28,6 +28,8 @@ export interface BuildTranscriptItemsInput {
   isThinking: boolean;
   /** Daemon-provided activity label for the thinking indicator. */
   thinkingLabel?: string | null;
+  /** Human-readable label when the daemon auto-routed to a different inference profile. */
+  autoRoutedProfileLabel?: string | null;
   errorNotice: string | null;
   showOnboardingChoice?: boolean;
 }
@@ -102,6 +104,14 @@ export function buildTranscriptItems(
       message,
     };
     items.push(messageItem);
+  }
+
+  if (input.autoRoutedProfileLabel) {
+    items.push({
+      kind: "profileAutoRouted",
+      key: "profile-auto-routed",
+      profileLabel: input.autoRoutedProfileLabel,
+    });
   }
 
   if (isThinking) {

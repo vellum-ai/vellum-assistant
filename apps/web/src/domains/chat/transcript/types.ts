@@ -9,6 +9,7 @@ import type { Surface } from "@/domains/chat/types/types.js";
 export type TranscriptItemKind =
   | "message"
   | "thinking"
+  | "profileAutoRouted"
   | "pendingSecret"
   | "pendingConfirmation"
   | "pendingContactRequest"
@@ -70,6 +71,11 @@ export interface ErrorItem extends TranscriptItemBase {
   message: string;
 }
 
+export interface ProfileAutoRoutedItem extends TranscriptItemBase {
+  kind: "profileAutoRouted";
+  profileLabel: string;
+}
+
 export interface OnboardingChoiceItem extends TranscriptItemBase {
   kind: "onboardingChoice";
 }
@@ -77,6 +83,7 @@ export interface OnboardingChoiceItem extends TranscriptItemBase {
 export type TranscriptItem =
   | MessageItem
   | ThinkingItem
+  | ProfileAutoRoutedItem
   | PendingSecretItem
   | PendingConfirmationItem
   | PendingContactRequestItem
