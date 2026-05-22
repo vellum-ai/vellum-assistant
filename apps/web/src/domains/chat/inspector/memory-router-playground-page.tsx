@@ -5,7 +5,10 @@ import { Card } from "@vellum/design-library";
 
 import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access.js";
-import { useSimulateMemoryRouter } from "@/domains/chat/inspector/memory-router-simulator-api.js";
+import {
+  useLlmProfiles,
+  useSimulateMemoryRouter,
+} from "@/domains/chat/inspector/memory-router-simulator-api.js";
 import type {
   MemoryRouterSimulateRequest,
   MemoryRouterSimulateResponse,
@@ -53,14 +56,22 @@ interface PaneOverrides {
   tier1: string;
   tier2: string;
   batch: string;
+  /** Profile name, or empty string for "inherit active". */
+  profile: string;
 }
 
-const EMPTY_OVERRIDES: PaneOverrides = { tier1: "", tier2: "", batch: "" };
+const EMPTY_OVERRIDES: PaneOverrides = {
+  tier1: "",
+  tier2: "",
+  batch: "",
+  profile: "",
+};
 
 function PlaygroundView(): ReactNode {
   const { assistantId } = useActiveAssistantContext();
   const mutationA = useSimulateMemoryRouter(assistantId);
   const mutationB = useSimulateMemoryRouter(assistantId);
+  const profilesQuery = useLlmProfiles(assistantId);
 
   const [query, setQuery] = useState("");
   const [overridesA, setOverridesA] = useState<PaneOverrides>(EMPTY_OVERRIDES);
@@ -82,9 +93,12 @@ function PlaygroundView(): ReactNode {
       );
       return;
     }
+    const profileOverride =
+      overrides.profile.trim().length > 0 ? overrides.profile : undefined;
     mutation.mutate({
       query: query.trim(),
       ...(configOverrides ? { configOverrides } : {}),
+      ...(profileOverride !== undefined ? { profileOverride } : {}),
     });
   };
 
@@ -110,6 +124,8 @@ function PlaygroundView(): ReactNode {
             onRun={() => runPane("A")}
             canRun={canRunA}
             isRunning={mutationA.isPending}
+            profiles={profilesQuery.data?.profiles ?? []}
+            activeProfile={profilesQuery.data?.activeProfile ?? null}
           />
           <PaneConfigForm
             paneId="B"
@@ -118,6 +134,8 @@ function PlaygroundView(): ReactNode {
             onRun={() => runPane("B")}
             canRun={canRunB}
             isRunning={mutationB.isPending}
+            profiles={profilesQuery.data?.profiles ?? []}
+            activeProfile={profilesQuery.data?.activeProfile ?? null}
           />
         </div>
         <div className="flex justify-end">
@@ -248,6 +266,8 @@ function PaneConfigForm({
   onRun,
   canRun,
   isRunning,
+  profiles,
+  activeProfile,
 }: {
   paneId: PaneId;
   overrides: PaneOverrides;
@@ -255,6 +275,8 @@ function PaneConfigForm({
   onRun: () => void;
   canRun: boolean;
   isRunning: boolean;
+  profiles: string[];
+  activeProfile: string | null;
 }): ReactNode {
   return (
     <Card>
@@ -285,6 +307,13 @@ function PaneConfigForm({
             onChange={(v) => onChange({ ...overrides, batch: v })}
           />
         </div>
+        <ProfileSelect
+          paneId={paneId}
+          value={overrides.profile}
+          onChange={(v) => onChange({ ...overrides, profile: v })}
+          profiles={profiles}
+          activeProfile={activeProfile}
+        />
         <div className="flex justify-end">
           <button
             type="button"
@@ -307,6 +336,55 @@ function PaneConfigForm({
         </div>
       </div>
     </Card>
+  );
+}
+
+function ProfileSelect({
+  paneId,
+  value,
+  onChange,
+  profiles,
+  activeProfile,
+}: {
+  paneId: PaneId;
+  value: string;
+  onChange: (value: string) => void;
+  profiles: string[];
+  activeProfile: string | null;
+}): ReactNode {
+  const inputId = `memory-router-playground-${paneId}-profile`;
+  const inheritLabel =
+    activeProfile !== null && activeProfile.length > 0
+      ? `inherit active (${activeProfile})`
+      : "inherit active";
+  return (
+    <div className="flex flex-col gap-1">
+      <label
+        htmlFor={inputId}
+        className="text-label-default"
+        style={{ color: "var(--content-secondary)" }}
+      >
+        llm.profiles override
+      </label>
+      <select
+        id={inputId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-md border px-3 py-2 text-body-medium-default"
+        style={{
+          borderColor: "var(--border-base)",
+          background: "var(--surface-base)",
+          color: "var(--content-default)",
+        }}
+      >
+        <option value="">{inheritLabel}</option>
+        {profiles.map((name) => (
+          <option key={name} value={name}>
+            {name}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 
@@ -608,7 +686,7 @@ function ConfigCard({
     "batch_size",
     "max_page_ids",
   ];
-  const rows = knobs.map((key) => {
+  const rows: Array<{ label: string; value: string }> = knobs.map((key) => {
     const eff = result.effectiveConfig[key];
     const overrideValue = (result.overrides as Record<
       string,
@@ -617,6 +695,13 @@ function ConfigCard({
     const effStr = eff === null ? "null" : String(eff);
     const suffix = overrideValue !== undefined ? "  (override)" : "";
     return { label: key, value: `${effStr}${suffix}` };
+  });
+  rows.push({
+    label: "llm.profiles override",
+    value:
+      result.profileOverride !== null
+        ? `${result.profileOverride}  (override)`
+        : "inherit active",
   });
   return (
     <Card>

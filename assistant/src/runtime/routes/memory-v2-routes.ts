@@ -351,6 +351,7 @@ const MemoryV2SimulateRouterParams = z
   .object({
     query: z.string().min(1, "query must be non-empty"),
     configOverrides: SimulateRouterOverridesSchema.optional(),
+    profileOverride: z.string().min(1).optional(),
   })
   .strict();
 
@@ -380,6 +381,8 @@ export interface MemoryV2SimulateRouterResult {
   };
   /** Page index size the router was given (post-tier-carve, all batches). */
   totalCandidatePages: number;
+  /** The profile name passed as a per-call override, if any. */
+  profileOverride: string | null;
 }
 
 /**
@@ -423,11 +426,32 @@ export async function handleSimulateRouter({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2SimulateRouterResult> {
   requireMemoryV2Enabled();
-  const { query, configOverrides } = MemoryV2SimulateRouterParams.parse(body);
+  const { query, configOverrides, profileOverride } =
+    MemoryV2SimulateRouterParams.parse(body);
 
   const liveConfig = loadConfig();
   const mergedConfig = applySimulateOverrides(liveConfig, configOverrides);
   const effectiveRouter = mergedConfig.memory.v2.router;
+
+  // Validate the requested profile name against the configured profile
+  // catalog so the caller gets a structured 400 instead of a silent fall-
+  // through (the resolver tolerates missing override-profile references by
+  // design, but the playground wants the user to know they typo'd).
+  if (profileOverride !== undefined) {
+    const profiles = liveConfig.llm?.profiles ?? {};
+    if (!Object.prototype.hasOwnProperty.call(profiles, profileOverride)) {
+      const available = Object.keys(profiles).sort();
+      const hint =
+        available.length > 0
+          ? ` Available profiles: ${available.join(", ")}.`
+          : " No profiles defined in llm.profiles.";
+      throw new RouteError(
+        `Profile "${profileOverride}" is not defined in llm.profiles.${hint}`,
+        "MEMORY_V2_SIMULATE_INVALID_PROFILE",
+        400,
+      );
+    }
+  }
 
   const workspaceDir = getWorkspaceDir();
   const nowText = await loadNowText(workspaceDir);
@@ -440,6 +464,9 @@ export async function handleSimulateRouter({
     priorEverInjected: [],
     config: mergedConfig,
     database: getDb(),
+    ...(profileOverride !== undefined
+      ? { overrideProfile: profileOverride }
+      : {}),
   });
 
   const pageIndex = await getPageIndex(workspaceDir);
@@ -482,6 +509,7 @@ export async function handleSimulateRouter({
         : {}),
     },
     totalCandidatePages: pageIndex.entries.length,
+    profileOverride: profileOverride ?? null,
   };
 }
 

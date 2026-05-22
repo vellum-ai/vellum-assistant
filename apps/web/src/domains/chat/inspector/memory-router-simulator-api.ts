@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { client } from "@/generated/api/client.gen.js";
 
@@ -22,6 +22,8 @@ export interface MemoryRouterSimulateRequest {
     tier2_size?: number | null;
     batch_size?: number | null;
   };
+  /** Per-call `llm.profiles` override name. Omit to use the active profile. */
+  profileOverride?: string;
 }
 
 export interface MemoryRouterSimulateEffectiveConfig {
@@ -43,6 +45,13 @@ export interface MemoryRouterSimulateResponse {
     batch_size?: number | null;
   };
   totalCandidatePages: number;
+  /** Profile name passed as an override on this call, or null if none. */
+  profileOverride: string | null;
+}
+
+export interface LlmProfilesListResponse {
+  profiles: string[];
+  activeProfile: string | null;
 }
 
 export class SimulateMemoryRouterError extends Error {
@@ -96,5 +105,44 @@ export function useSimulateMemoryRouter(assistantId: string | undefined) {
       }
       return simulateMemoryRouter(assistantId, request);
     },
+  });
+}
+
+async function fetchLlmProfiles(
+  assistantId: string,
+  signal?: AbortSignal
+): Promise<LlmProfilesListResponse> {
+  const { data, response } = await client.get<LlmProfilesListResponse>({
+    url: "/v1/assistants/{assistant_id}/config/llm/profiles/",
+    path: { assistant_id: assistantId },
+    signal,
+    throwOnError: false,
+  });
+  if (!response || !response.ok) {
+    throw new SimulateMemoryRouterError(
+      response?.status ?? 0,
+      response?.statusText ?? "Failed to load LLM profiles"
+    );
+  }
+  if (!data) {
+    throw new SimulateMemoryRouterError(
+      response.status,
+      "Empty response from profile list endpoint"
+    );
+  }
+  return data;
+}
+
+export function useLlmProfiles(assistantId: string | undefined) {
+  return useQuery({
+    queryKey: ["llm-profiles", assistantId] as const,
+    queryFn: async ({ signal }): Promise<LlmProfilesListResponse> => {
+      if (!assistantId) {
+        throw new SimulateMemoryRouterError(0, "Missing assistantId");
+      }
+      return fetchLlmProfiles(assistantId, signal);
+    },
+    enabled: Boolean(assistantId),
+    staleTime: 60_000,
   });
 }

@@ -42,6 +42,18 @@ public struct MemoryRouterPlaygroundClient: Sendable {
         )
     }
 
+    /// Fetches the workspace's defined `llm.profiles` for populating the
+    /// playground's per-pane profile picker.
+    public func fetchProfiles() async throws -> LlmProfilesListResponse {
+        let path = "config/llm/profiles/"
+        let response = try await GatewayHTTPClient.get(path: path, timeout: 15)
+        try throwIfUnsuccessful(response, path: path)
+        return try JSONDecoder().decode(
+            LlmProfilesListResponse.self,
+            from: response.data
+        )
+    }
+
     /// Construct the JSON dict the daemon expects. Built by hand because the
     /// override fields have three states (inherit / value / explicit-null)
     /// and a plain Codable `Encodable` would conflate "absent" with "null".
@@ -53,6 +65,9 @@ public struct MemoryRouterPlaygroundClient: Sendable {
         addOverride(input.batchSize, key: "batch_size", into: &overrides)
         if !overrides.isEmpty {
             body["configOverrides"] = overrides
+        }
+        if let profile = input.profileOverride {
+            body["profileOverride"] = profile
         }
         return body
     }

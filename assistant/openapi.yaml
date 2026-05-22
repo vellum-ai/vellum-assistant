@@ -3652,6 +3652,19 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/config/llm/profiles:
+    get:
+      operationId: config_llm_profiles_get
+      summary: List defined LLM profiles
+      description:
+        Returns the sorted list of profile names defined in `llm.profiles` plus the workspace-wide active profile.
+        Used to populate per-call profile dropdowns (e.g. memory router playground) without requiring the caller to type
+        profile names.
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
   /v1/config/llm/profiles/{name}:
     put:
       operationId: config_llm_profiles_by_name_put
@@ -11471,6 +11484,9 @@ paths:
                           maximum: 9007199254740991
                         - type: "null"
                   additionalProperties: false
+                profileOverride:
+                  type: string
+                  minLength: 1
               required:
                 - query
               additionalProperties: false
