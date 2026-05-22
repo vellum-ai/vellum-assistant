@@ -18,7 +18,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
@@ -221,6 +221,264 @@ describe("ToolCallProgressCard — subagent_spawn-only group", () => {
     ];
     const { getByTestId } = renderCard(toolCalls);
     expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+  });
+});
+
+describe("ToolCallProgressCard — unknown-command nudge", () => {
+  test("renders the 'Create a rule' nudge for tool calls flagged as unknown", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "frobnicate" },
+      }),
+    ];
+    const { getByText } = renderCard(toolCalls, {
+      unknownNudgeToolCallIds: new Set(["tc-1"]),
+      onOpenRuleEditor: () => {},
+      onDismissUnknownNudge: () => {},
+      // Force the body open so the nudge inside the expanded region is in
+      // the DOM regardless of the auto-collapse-on-completion behavior.
+      expandedCardIds: new Map([["tc-1", true]]),
+    });
+    expect(getByText("This command wasn't recognized.")).toBeTruthy();
+    expect(getByText("Create a rule")).toBeTruthy();
+    expect(getByText("to classify it for next time.")).toBeTruthy();
+  });
+
+  test("'Create a rule' click invokes onOpenRuleEditor with the tool call's context", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "frobnicate" },
+        riskLevel: "high",
+        riskReason: "unrecognized command",
+        allowlistOptions: [],
+        scopeOptions: [],
+        directoryScopeOptions: [],
+      }),
+    ];
+    let captured: { toolName?: string; riskLevel?: string } = {};
+    const { getByText } = renderCard(toolCalls, {
+      unknownNudgeToolCallIds: new Set(["tc-1"]),
+      onOpenRuleEditor: (ctx) => {
+        captured = { toolName: ctx.toolName, riskLevel: ctx.riskLevel };
+      },
+      onDismissUnknownNudge: () => {},
+      expandedCardIds: new Map([["tc-1", true]]),
+    });
+    fireEvent.click(getByText("Create a rule"));
+    expect(captured.toolName).toBe("bash");
+    expect(captured.riskLevel).toBe("high");
+  });
+
+  test("dismiss-X button invokes onDismissUnknownNudge with the tool call id", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "frobnicate" },
+      }),
+    ];
+    let dismissed: string | null = null;
+    const { getByLabelText } = renderCard(toolCalls, {
+      unknownNudgeToolCallIds: new Set(["tc-1"]),
+      onOpenRuleEditor: () => {},
+      onDismissUnknownNudge: (id) => {
+        dismissed = id;
+      },
+      expandedCardIds: new Map([["tc-1", true]]),
+    });
+    fireEvent.click(getByLabelText("Dismiss"));
+    expect(dismissed).toBe("tc-1");
+  });
+
+  test("does not render the nudge for tool calls not in the set", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "ls" },
+      }),
+    ];
+    const { queryByText } = renderCard(toolCalls, {
+      unknownNudgeToolCallIds: new Set([]),
+      onOpenRuleEditor: () => {},
+      expandedCardIds: new Map([["tc-1", true]]),
+    });
+    expect(queryByText("This command wasn't recognized.")).toBeNull();
+  });
+});
+
+describe("ToolCallProgressCard — expansion derived from state", () => {
+  test("mounts expanded while loading", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "running",
+        input: { command: "ls" },
+      }),
+    ];
+    const { getByRole } = renderCard(toolCalls);
+    expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
+  });
+
+  test("collapses automatically once the card reaches a terminal state", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "ls" },
+        startedAt: 0,
+        completedAt: 1000,
+      }),
+    ];
+    const { getByRole } = renderCard(toolCalls);
+    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
+  });
+
+  test("auto-collapses on the loading → complete transition without a user toggle", () => {
+    const expandedCardIds = new Map<string, boolean>();
+    const running = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "running",
+        input: { command: "ls" },
+      }),
+    ];
+    const { getByRole, rerender } = render(
+      <ToolCallProgressCard
+        toolCalls={running}
+        expandedToolCallIds={new Set()}
+        onExpandChange={() => {}}
+        expandedCardIds={expandedCardIds}
+      />,
+    );
+    expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
+
+    const completed = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "ls" },
+        startedAt: 0,
+        completedAt: 1000,
+      }),
+    ];
+    rerender(
+      <ToolCallProgressCard
+        toolCalls={completed}
+        expandedToolCallIds={new Set()}
+        onExpandChange={() => {}}
+        expandedCardIds={expandedCardIds}
+      />,
+    );
+    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
+  });
+
+  test("user toggle wins after a state transition (manual expand survives → complete)", () => {
+    const expandedCardIds = new Map<string, boolean>();
+    const running = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "running",
+        input: { command: "ls" },
+      }),
+    ];
+    const { getByRole, rerender } = render(
+      <ToolCallProgressCard
+        toolCalls={running}
+        expandedToolCallIds={new Set()}
+        onExpandChange={() => {}}
+        expandedCardIds={expandedCardIds}
+      />,
+    );
+    // Card mounts expanded; user collapses it manually.
+    fireEvent.click(getByRole("button", { name: /collapse steps/i }));
+    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
+    // User expands it back.
+    fireEvent.click(getByRole("button", { name: /expand steps/i }));
+    expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
+
+    // Card transitions to complete — user's explicit "expanded" must win.
+    const completed = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "ls" },
+        startedAt: 0,
+        completedAt: 1000,
+      }),
+    ];
+    rerender(
+      <ToolCallProgressCard
+        toolCalls={completed}
+        expandedToolCallIds={new Set()}
+        onExpandChange={() => {}}
+        expandedCardIds={expandedCardIds}
+      />,
+    );
+    expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
+  });
+
+  test("persisted expanded=false survives remount of a completed card", () => {
+    // Simulates a user who collapsed a running card; after the turn finishes
+    // the card remounts in `complete` (e.g. latest-turn → history transition)
+    // and must respect the persisted collapse decision.
+    const expandedCardIds = new Map<string, boolean>([["tc-1", false]]);
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "ls" },
+        startedAt: 0,
+        completedAt: 1000,
+      }),
+    ];
+    const { getByRole } = render(
+      <ToolCallProgressCard
+        toolCalls={toolCalls}
+        expandedToolCallIds={new Set()}
+        onExpandChange={() => {}}
+        expandedCardIds={expandedCardIds}
+      />,
+    );
+    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
+  });
+
+  test("persisted expanded=true overrides the auto-collapse on completion", () => {
+    const expandedCardIds = new Map<string, boolean>([["tc-1", true]]);
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "completed",
+        input: { command: "ls" },
+        startedAt: 0,
+        completedAt: 1000,
+      }),
+    ];
+    const { getByRole } = render(
+      <ToolCallProgressCard
+        toolCalls={toolCalls}
+        expandedToolCallIds={new Set()}
+        onExpandChange={() => {}}
+        expandedCardIds={expandedCardIds}
+      />,
+    );
+    expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
   });
 });
 

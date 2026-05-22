@@ -1,6 +1,6 @@
 
 import { AlertCircle, X } from "lucide-react";
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 
 import { ToolCallChip } from "@/domains/chat/components/tool-call-chip/tool-call-chip.js";
 import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip.js";
@@ -189,21 +189,18 @@ function UnifiedToolCallProgressCard({
   toolCalls,
   expandedCardIds,
   cardData,
+  onOpenRuleEditor,
+  unknownNudgeToolCallIds,
+  onDismissUnknownNudge,
 }: ToolCallProgressCardProps & { cardData: ToolCallCardData }) {
   const cardId = toolCalls[0]?.id ?? null;
-  const persistedExpanded =
-    cardId != null ? expandedCardIds.get(cardId) : undefined;
-  // Auto-expand while loading so the user can watch progress; collapse once
-  // the card reaches a terminal state. The persistent map captures the user's
-  // explicit toggle so the preference survives latest-turn → history transitions.
-  const defaultExpanded =
-    persistedExpanded ?? cardData.state === "loading";
-
-  const handleExpandChange = (next: boolean) => {
-    if (cardId != null) expandedCardIds.set(cardId, next);
-  };
+  const expanded = useCardExpanded(cardId, cardData.state, expandedCardIds);
 
   const shellState: ToolProgressCardState = cardData.state;
+
+  // Nudge rows need the raw call (riskLevel, allowlistOptions, …) which
+  // isn't carried on the step descriptor.
+  const toolCallById = new Map(toolCalls.map((tc) => [tc.id, tc]));
 
   return (
     <ToolProgressCardShell
@@ -211,15 +208,112 @@ function UnifiedToolCallProgressCard({
       currentStepTitle={cardData.currentStepTitle}
       currentStepInfo={cardData.currentStepInfo}
       stepCount={cardData.stepCount}
-      defaultExpanded={defaultExpanded}
-      onExpandChange={handleExpandChange}
+      expanded={expanded.value}
+      onExpandChange={expanded.onChange}
     >
       <div className="flex w-full flex-col gap-3 px-3 pb-3">
-        {cardData.steps.map((step, idx) => (
-          <ExpandedStep key={stepKey(step, idx)} step={step} />
-        ))}
+        {cardData.steps.map((step, idx) => {
+          const nudgeTarget =
+            step.kind === "tool" &&
+            unknownNudgeToolCallIds?.has(step.toolCallId)
+              ? toolCallById.get(step.toolCallId)
+              : undefined;
+          return (
+            <Fragment key={stepKey(step, idx)}>
+              <ExpandedStep step={step} />
+              {nudgeTarget && onOpenRuleEditor && (
+                <UnknownCommandNudge
+                  toolCall={nudgeTarget}
+                  onOpenRuleEditor={onOpenRuleEditor}
+                  onDismiss={onDismissUnknownNudge}
+                />
+              )}
+            </Fragment>
+          );
+        })}
       </div>
     </ToolProgressCardShell>
+  );
+}
+
+/**
+ * Drives the unified card's expand/collapse state. Mirrors legacy behavior:
+ * auto-expand while loading, auto-collapse on terminal state, but a user
+ * toggle (now or in a previous mount, recorded in `expandedCardIds`) wins
+ * across state transitions and remounts.
+ *
+ * `localToggle` mirrors the map mutation so React re-renders on click —
+ * mutating the map alone wouldn't trigger one.
+ */
+function useCardExpanded(
+  cardId: string | null,
+  state: ToolCallCardData["state"],
+  expandedCardIds: Map<string, boolean>,
+): { value: boolean; onChange: (next: boolean) => void } {
+  const [localToggle, setLocalToggle] = useState<boolean | undefined>(
+    undefined,
+  );
+  const persisted =
+    cardId != null ? expandedCardIds.get(cardId) : undefined;
+  const userChoice = localToggle ?? persisted;
+  const value = userChoice ?? state === "loading";
+
+  const onChange = (next: boolean) => {
+    setLocalToggle(next);
+    if (cardId != null) expandedCardIds.set(cardId, next);
+  };
+
+  return { value, onChange };
+}
+
+/**
+ * Inline "This command wasn't recognized." nudge rendered beneath a tool
+ * step whose call is flagged in `unknownNudgeToolCallIds`. Restores the
+ * legacy affordance one-for-one — same copy, same "Create a rule" link, same
+ * dismiss-X button.
+ */
+function UnknownCommandNudge({
+  toolCall,
+  onOpenRuleEditor,
+  onDismiss,
+}: {
+  toolCall: ChatMessageToolCall;
+  onOpenRuleEditor: NonNullable<ToolCallProgressCardProps["onOpenRuleEditor"]>;
+  onDismiss?: ToolCallProgressCardProps["onDismissUnknownNudge"];
+}) {
+  return (
+    <div className="flex items-center gap-1 pl-6 text-body-small-default text-[var(--content-tertiary)]">
+      <span>This command wasn&apos;t recognized.</span>
+      <button
+        type="button"
+        onClick={() =>
+          onOpenRuleEditor({
+            toolName: toolCall.toolName,
+            riskLevel: toolCall.riskLevel,
+            riskReason: toolCall.riskReason,
+            input: toolCall.input ?? {},
+            allowlistOptions: toolCall.allowlistOptions ?? [],
+            scopeOptions: toolCall.scopeOptions ?? [],
+            directoryScopeOptions: toolCall.directoryScopeOptions ?? [],
+          })
+        }
+        // typography: off-scale — inline link within body-small nudge
+        className="font-medium text-[var(--content-default)] underline underline-offset-2 hover:text-[var(--content-secondary)]"
+      >
+        Create a rule
+      </button>
+      <span>to classify it for next time.</span>
+      {onDismiss && (
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onClick={() => onDismiss(toolCall.id)}
+          className="ml-1 text-[var(--content-disabled)] hover:text-[var(--content-tertiary)]"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -339,40 +433,11 @@ function ConfirmationView({
                   : {})}
               />
               {unknownNudgeToolCallIds?.has(tc.id) && onOpenRuleEditor && (
-                <div className="flex items-center gap-1 pl-6 text-body-small-default text-[var(--content-tertiary)]">
-                  <span>This command wasn&apos;t recognized.</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onOpenRuleEditor({
-                        toolName: tc.toolName,
-                        riskLevel: tc.riskLevel,
-                        riskReason: tc.riskReason,
-                        input: tc.input ?? {},
-                        allowlistOptions: tc.allowlistOptions ?? [],
-                        scopeOptions: tc.scopeOptions ?? [],
-                        directoryScopeOptions:
-                          tc.directoryScopeOptions ?? [],
-                      })
-                    }
-                    // typography: off-scale — inline link within body-small nudge
-
-                    className="font-medium text-[var(--content-default)] underline underline-offset-2 hover:text-[var(--content-secondary)]"
-                  >
-                    Create a rule
-                  </button>
-                  <span>to classify it for next time.</span>
-                  {onDismissUnknownNudge && (
-                    <button
-                      type="button"
-                      aria-label="Dismiss"
-                      onClick={() => onDismissUnknownNudge(tc.id)}
-                      className="ml-1 text-[var(--content-disabled)] hover:text-[var(--content-tertiary)]"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
+                <UnknownCommandNudge
+                  toolCall={tc}
+                  onOpenRuleEditor={onOpenRuleEditor}
+                  onDismiss={onDismissUnknownNudge}
+                />
               )}
             </Fragment>
           );
