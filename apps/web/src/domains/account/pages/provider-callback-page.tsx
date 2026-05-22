@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
+import * as Sentry from "@sentry/react";
 
 import { AccountHeading } from "@/components/account/account-form.js";
 import { AccountShell } from "@/components/account/account-shell.js";
@@ -55,11 +56,37 @@ function redirectToNativeApp(
 }
 
 /**
+ * Build the URL for Django's native callback endpoint. The endpoint is
+ * `@login_required` and validates the state/scheme it finds in the
+ * Django session against the query params; on success it generates a
+ * single-use auth code and redirects to the native app's custom URL
+ * scheme.
+ */
+function buildNativeCallbackUrl(nativeParams: {
+  scheme: string;
+  state: string;
+}): string {
+  const params = new URLSearchParams({
+    scheme: nativeParams.scheme,
+    state: nativeParams.state,
+  });
+  return `${NATIVE_CALLBACK_PREFIX}?${params.toString()}`;
+}
+
+/**
  * OAuth provider callback handler. Probes the allauth session after the
  * IdP redirect and routes the user to the correct next step:
  * - Authenticated → navigate to returnTo or home
  * - Provider signup needed → redirect to provider signup page
  * - Error → display inline error with back-to-login link
+ *
+ * The native iOS/macOS flow takes a different shape: there's no in-SPA
+ * auth check, and the redirect target (`/accounts/native/callback`) is
+ * itself `@login_required` and validates server-side state. We let
+ * Django be the source of truth for whether the user is authenticated,
+ * because a client-side probe inside `ASWebAuthenticationSession`'s
+ * ephemeral WebKit instance races the cookie store's commit of the
+ * session cookie just set by allauth's social callback.
  */
 export function ProviderCallbackPage() {
   const [searchParams] = useSearchParams();
@@ -84,6 +111,14 @@ export function ProviderCallbackPage() {
     if (error) return;
     didRun.current = true;
 
+    if (nativeParams) {
+      // Hand off directly to Django's native callback. It enforces the
+      // same auth check we'd otherwise duplicate here with a racy
+      // `getSession()` probe.
+      window.location.href = buildNativeCallbackUrl(nativeParams);
+      return;
+    }
+
     (async () => {
       try {
         const result = await getSession();
@@ -106,10 +141,6 @@ export function ProviderCallbackPage() {
             break;
           }
           case "provider_signup": {
-            if (nativeParams) {
-              redirectToNativeApp(nativeParams, "provider_signup_required");
-              return;
-            }
             const returnToParam = searchParams.get("returnTo");
             const signupUrl = returnToParam
               ? `${routes.account.providerSignup}?returnTo=${encodeURIComponent(returnToParam)}`
@@ -118,26 +149,13 @@ export function ProviderCallbackPage() {
             break;
           }
           case "error":
-            if (nativeParams) {
-              // TEMPORARY DEBUG (revert once iOS sign-in cache-miss is
-              // diagnosed): suppress the redirect-back-to-native so the
-              // Safari sheet stays open and the actual getSession()
-              // failure mode is inspectable. Without this, ASWebAuth
-              // catches the scheme:// redirect, closes the sheet, and
-              // destroys the Web Inspector window before anything can
-              // be read.
-              console.log("[debug native auth] getSession result:", result);
-              console.log("[debug native auth] classification outcome:", outcome);
-              console.log("[debug native auth] nativeParams:", nativeParams);
-              setFallbackError(
-                `[debug] ${outcome.message} :: result=${JSON.stringify(result).slice(0, 800)}`,
-              );
-              return;
-            }
             setFallbackError(outcome.message);
             break;
         }
-      } catch {
+      } catch (err) {
+        Sentry.captureException(err, {
+          tags: { context: "provider_callback" },
+        });
         setFallbackError("Something went wrong. Please try signing in again.");
       }
     })();
