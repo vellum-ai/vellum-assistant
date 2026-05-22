@@ -2,7 +2,12 @@ import { type ReactNode } from "react";
 
 import { cn } from "@/utils/misc.js";
 
-export type InspectorTab = "overview" | "prompt" | "response" | "raw" | "memory";
+export type InspectorTab =
+  | "overview"
+  | "prompt"
+  | "response"
+  | "raw"
+  | "memory";
 
 const TABS: { id: InspectorTab; label: string }[] = [
   { id: "overview", label: "Overview" },

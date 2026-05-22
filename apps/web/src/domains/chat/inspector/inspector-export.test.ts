@@ -10,7 +10,8 @@ import {
 
 function makeContext(): LlmContextResponse {
   return {
-    messageId: "msg/with spaces",
+    conversationId: "conv/with spaces",
+    conversationKey: "conversation-key",
     conversationKind: "chat",
     conversationTotalEstimatedCostUsd: 0.0123,
     memoryRecall: {
@@ -88,9 +89,9 @@ function fileContents(files: ReturnType<typeof buildInspectorExportFiles>, path:
 }
 
 describe("inspector export", () => {
-  test("builds a safe zip filename from the message id", () => {
-    expect(buildInspectorExportFilename("msg/with spaces")).toBe(
-      "llm-inspector-msg_with_spaces.zip",
+  test("builds a safe zip filename from the conversation id", () => {
+    expect(buildInspectorExportFilename("conv/with spaces")).toBe(
+      "llm-inspector-conv_with_spaces.zip",
     );
   });
 
@@ -116,7 +117,9 @@ describe("inspector export", () => {
     expect(
       JSON.parse(fileContents(files, "conversation/actual-user-messages.json")),
     ).toMatchObject({
-      messageId: "msg/with spaces",
+      conversationId: "conv/with spaces",
+      conversationKey: "conversation-key",
+      messageId: null,
       messages: [
         {
           callId: "log/alpha",
