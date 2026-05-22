@@ -231,6 +231,7 @@ export function PreChatFlow() {
     if (selectedPriorAssistants.size > 0) {
       context.priorAssistants = stripOtherPrefix([...selectedPriorAssistants]);
     }
+    context.initialMessage = "Wake up, my friend!";
 
     setPendingPreChatContext(context);
     if (trimmedAssistant) setPendingAssistantName(trimmedAssistant);
@@ -304,6 +305,7 @@ export function PreChatFlow() {
         context.assistantName = trimmedAssistant;
       }
       context.googleConnected = false;
+      context.initialMessage = "Wake up, my friend!";
       setPendingPreChatContext(context);
       if (trimmedAssistant) {
         setPendingAssistantName(trimmedAssistant);
