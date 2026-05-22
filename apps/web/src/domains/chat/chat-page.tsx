@@ -1176,7 +1176,8 @@ export function ChatPage() {
   const lastTerminalReason = useTurnStore.use.lastTerminalReason();
   const statusText = useTurnStore.use.statusText();
   const liveWebActivity = useTurnStore.use.liveWebActivity();
-  const turnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText, liveWebActivity };
+  const autoRoutedProfileLabel = useTurnStore.use.autoRoutedProfileLabel();
+  const turnState = { phase, pendingQueuedCount, activeToolCallCount, activeTurnId, lastTerminalReason, statusText, liveWebActivity, autoRoutedProfileLabel };
 
   // Thinking state and onboarding choice state — used for transcriptItems
   const showThinking = useMemo(
