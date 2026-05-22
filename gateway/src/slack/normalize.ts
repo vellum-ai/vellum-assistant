@@ -66,6 +66,11 @@ function slackUserCacheKey(userId: string, botToken: string): string {
   return `${authScope}:${userId}`;
 }
 
+function slackChannelCacheKey(channelId: string, botToken: string): string {
+  const authScope = createHash("sha256").update(botToken).digest("hex");
+  return `${authScope}:${channelId}`;
+}
+
 function evictExpired<T>(cache: Map<string, CacheEntry<T>>): void {
   const now = Date.now();
   for (const [key, entry] of cache) {
@@ -213,10 +218,11 @@ export async function resolveSlackChannel(
   channelId: string,
   botToken: string,
 ): Promise<SlackChannelInfo | undefined> {
-  const cached = cacheGet(channelInfoCache, channelId);
+  const cacheKey = slackChannelCacheKey(channelId, botToken);
+  const cached = cacheGet(channelInfoCache, cacheKey);
   if (cached) return cached;
 
-  const existing = inFlightChannelFetches.get(channelId);
+  const existing = inFlightChannelFetches.get(cacheKey);
   if (existing) return existing;
 
   const fetchPromise = (async (): Promise<SlackChannelInfo | undefined> => {
@@ -245,7 +251,7 @@ export async function resolveSlackChannel(
       const info: SlackChannelInfo = { name };
       cacheSet(
         channelInfoCache,
-        channelId,
+        cacheKey,
         info,
         CHANNEL_CACHE_TTL_MS,
         CHANNEL_CACHE_MAX_SIZE,
@@ -256,11 +262,11 @@ export async function resolveSlackChannel(
     }
   })();
 
-  inFlightChannelFetches.set(channelId, fetchPromise);
+  inFlightChannelFetches.set(cacheKey, fetchPromise);
   try {
     return await fetchPromise;
   } finally {
-    inFlightChannelFetches.delete(channelId);
+    inFlightChannelFetches.delete(cacheKey);
   }
 }
 

@@ -350,6 +350,36 @@ describe("resolveSlackChannel", () => {
     expect(callCount).toBe(1);
     expect(getChannelInfoCacheSize()).toBe(1);
   });
+
+  test("scopes cached channel names by bot token", async () => {
+    let callCount = 0;
+    fetchMock = mock(async (_input, init) => {
+      callCount++;
+      const auth = new Headers(init?.headers).get("authorization");
+      const channel =
+        auth === "Bearer xoxb-team-a"
+          ? { id: "C_SHARED", name: "team-a-channel" }
+          : { id: "C_SHARED", name: "team-b-channel" };
+      return new Response(JSON.stringify({ ok: true, channel }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const [teamAInfo, teamBInfo] = await Promise.all([
+      resolveSlackChannel("C_SHARED", "xoxb-team-a"),
+      resolveSlackChannel("C_SHARED", "xoxb-team-b"),
+    ]);
+
+    expect(teamAInfo!.name).toBe("team-a-channel");
+    expect(teamBInfo!.name).toBe("team-b-channel");
+    expect(callCount).toBe(2);
+    expect(getChannelInfoCacheSize()).toBe(2);
+
+    await resolveSlackChannel("C_SHARED", "xoxb-team-a");
+    await resolveSlackChannel("C_SHARED", "xoxb-team-b");
+    expect(callCount).toBe(2);
+  });
 });
 
 describe("normalizeSlackAppMention with display name", () => {
