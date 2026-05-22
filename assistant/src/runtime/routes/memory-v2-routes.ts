@@ -32,6 +32,7 @@ import {
   readPage,
   renderPageContent,
 } from "../../memory/v2/page-store.js";
+import { ROUTER_PROMPT } from "../../memory/v2/prompts/router.js";
 import { type RouterSource, runRouter } from "../../memory/v2/router.js";
 import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
 import { getLogger } from "../../util/logger.js";
@@ -352,6 +353,13 @@ const MemoryV2SimulateRouterParams = z
     query: z.string().min(1, "query must be non-empty"),
     configOverrides: SimulateRouterOverridesSchema.optional(),
     profileOverride: z.string().min(1).optional(),
+    /**
+     * Inline router system-prompt override (simulator only). Empty /
+     * whitespace-only strings are normalized to "no override" so a
+     * cleared textarea behaves the same as never opening it. The 1 MiB
+     * cap mirrors the file-path size guard in `resolveRouterPrompt`.
+     */
+    routerPromptOverride: z.string().max(1_000_000).optional(),
   })
   .strict();
 
@@ -383,6 +391,8 @@ export interface MemoryV2SimulateRouterResult {
   totalCandidatePages: number;
   /** The profile name passed as a per-call override, if any. */
   profileOverride: string | null;
+  /** `true` when an inline `routerPromptOverride` was applied this call. */
+  routerPromptOverridden: boolean;
 }
 
 /**
@@ -426,8 +436,20 @@ export async function handleSimulateRouter({
   body = {},
 }: RouteHandlerArgs): Promise<MemoryV2SimulateRouterResult> {
   requireMemoryV2Enabled();
-  const { query, configOverrides, profileOverride } =
-    MemoryV2SimulateRouterParams.parse(body);
+  const {
+    query,
+    configOverrides,
+    profileOverride,
+    routerPromptOverride: rawRouterPromptOverride,
+  } = MemoryV2SimulateRouterParams.parse(body);
+
+  // Normalize whitespace-only strings to "no override" so the
+  // bundled/file prompt resolution behaves the same as a cleared editor.
+  const routerPromptOverride =
+    rawRouterPromptOverride !== undefined &&
+    rawRouterPromptOverride.trim().length > 0
+      ? rawRouterPromptOverride
+      : undefined;
 
   const liveConfig = loadConfig();
   const mergedConfig = applySimulateOverrides(liveConfig, configOverrides);
@@ -467,6 +489,7 @@ export async function handleSimulateRouter({
     ...(profileOverride !== undefined
       ? { overrideProfile: profileOverride }
       : {}),
+    ...(routerPromptOverride !== undefined ? { routerPromptOverride } : {}),
     // Always return the full union — the simulator's job is to surface
     // what the router actually picked across all batches, not what
     // injection.ts would have trimmed it to. The `max_page_ids` knob is
@@ -516,7 +539,20 @@ export async function handleSimulateRouter({
     },
     totalCandidatePages: pageIndex.entries.length,
     profileOverride: profileOverride ?? null,
+    routerPromptOverridden: routerPromptOverride !== undefined,
   };
+}
+
+// ── Router prompt template (bundled default for the playground editor) ──
+
+export interface MemoryV2RouterPromptTemplateResult {
+  /** The bundled router prompt body, placeholders intact. */
+  template: string;
+}
+
+async function handleGetRouterPromptTemplate(): Promise<MemoryV2RouterPromptTemplateResult> {
+  requireMemoryV2Enabled();
+  return { template: ROUTER_PROMPT };
 }
 
 // ── Route definitions ───────────────────────────────────────────────────
@@ -609,5 +645,15 @@ export const ROUTES: RouteDefinition[] = [
       "Runs the memory router against the live page index + EMA scores with optional tier_size / batch_size overrides, without recording an injection event or writing an activation log. Returns the slugs that would have been selected, per-slug tier provenance, EMA scores, and the effective router config so operators can validate knob changes before flipping them in workspace config.",
     tags: ["memory"],
     requestBody: MemoryV2SimulateRouterParams,
+  },
+  {
+    operationId: "memory_v2_router_prompt_template",
+    method: "GET",
+    endpoint: "memory/v2/router-prompt-template",
+    handler: handleGetRouterPromptTemplate,
+    summary: "Return the bundled router system-prompt template",
+    description:
+      "Returns the bundled `ROUTER_PROMPT` body with placeholders intact (`{{ASSISTANT_NAME}}`, `{{USER_NAME}}`, `{{PAGE_INDEX}}`). Used by the memory router playground's 'Load default' affordance so users have a known-good starting point when authoring an inline prompt override.",
+    tags: ["memory"],
   },
 ];

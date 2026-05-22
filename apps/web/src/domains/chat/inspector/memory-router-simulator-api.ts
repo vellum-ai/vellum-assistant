@@ -24,6 +24,11 @@ export interface MemoryRouterSimulateRequest {
   };
   /** Per-call `llm.profiles` override name. Omit to use the active profile. */
   profileOverride?: string;
+  /**
+   * Inline router system-prompt override. Empty / whitespace-only strings
+   * are treated as no-override server-side.
+   */
+  routerPromptOverride?: string;
 }
 
 export interface MemoryRouterSimulateEffectiveConfig {
@@ -47,6 +52,8 @@ export interface MemoryRouterSimulateResponse {
   totalCandidatePages: number;
   /** Profile name passed as an override on this call, or null if none. */
   profileOverride: string | null;
+  /** True when an inline router prompt override was applied this call. */
+  routerPromptOverridden: boolean;
 }
 
 export interface LlmProfilesListResponse {
@@ -144,5 +151,51 @@ export function useLlmProfiles(assistantId: string | undefined) {
     },
     enabled: Boolean(assistantId),
     staleTime: 60_000,
+  });
+}
+
+interface RouterPromptTemplateResponse {
+  template: string;
+}
+
+async function fetchRouterPromptTemplate(
+  assistantId: string,
+  signal?: AbortSignal
+): Promise<RouterPromptTemplateResponse> {
+  const { data, response } = await client.get<RouterPromptTemplateResponse>({
+    url: "/v1/assistants/{assistant_id}/memory/v2/router-prompt-template/",
+    path: { assistant_id: assistantId },
+    signal,
+    throwOnError: false,
+  });
+  if (!response || !response.ok) {
+    throw new SimulateMemoryRouterError(
+      response?.status ?? 0,
+      response?.statusText ?? "Failed to load router prompt template"
+    );
+  }
+  if (!data) {
+    throw new SimulateMemoryRouterError(
+      response.status,
+      "Empty response from router prompt template endpoint"
+    );
+  }
+  return data;
+}
+
+export function useDefaultRouterPromptTemplate(
+  assistantId: string | undefined
+) {
+  return useQuery({
+    queryKey: ["router-prompt-template", assistantId] as const,
+    queryFn: async ({ signal }): Promise<RouterPromptTemplateResponse> => {
+      if (!assistantId) {
+        throw new SimulateMemoryRouterError(0, "Missing assistantId");
+      }
+      return fetchRouterPromptTemplate(assistantId, signal);
+    },
+    enabled: Boolean(assistantId),
+    // The template only changes when the daemon ships, so cache aggressively.
+    staleTime: 24 * 60 * 60 * 1000,
   });
 }

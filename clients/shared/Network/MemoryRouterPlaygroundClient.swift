@@ -54,6 +54,20 @@ public struct MemoryRouterPlaygroundClient: Sendable {
         )
     }
 
+    /// Fetches the bundled router system-prompt template so the playground
+    /// "Load default" affordance can seed the per-pane prompt editor.
+    public func fetchDefaultRouterPrompt() async throws -> String {
+        let path = "memory/v2/router-prompt-template/"
+        let response = try await GatewayHTTPClient.get(path: path, timeout: 15)
+        try throwIfUnsuccessful(response, path: path)
+        struct TemplateResponse: Decodable { let template: String }
+        let decoded = try JSONDecoder().decode(
+            TemplateResponse.self,
+            from: response.data
+        )
+        return decoded.template
+    }
+
     /// Construct the JSON dict the daemon expects. Built by hand because the
     /// override fields have three states (inherit / value / explicit-null)
     /// and a plain Codable `Encodable` would conflate "absent" with "null".
@@ -68,6 +82,9 @@ public struct MemoryRouterPlaygroundClient: Sendable {
         }
         if let profile = input.profileOverride {
             body["profileOverride"] = profile
+        }
+        if let prompt = input.routerPromptOverride, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["routerPromptOverride"] = prompt
         }
         return body
     }
