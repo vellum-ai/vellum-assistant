@@ -209,6 +209,7 @@ export interface LibraryViewProps {
   assistantName?: string;
   onNewConversation?: (initialMessage?: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
+  onOpenApp?: (appId: string) => void;
   onEditApp?: (app: { appId: string; dirName?: string; name: string; html: string }) => void;
 }
 
@@ -217,6 +218,7 @@ export function LibraryView({
   assistantName,
   onNewConversation,
   onOpenDocument,
+  onOpenApp,
   onEditApp,
 }: LibraryViewProps) {
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
@@ -325,6 +327,13 @@ export function LibraryView({
 
   const handleOpenApp = useCallback(
     async (appId: string) => {
+      // If an onOpenApp callback is provided, use it (typically for navigation).
+      // Otherwise, fall back to the internal modal experience.
+      if (onOpenApp) {
+        onOpenApp(appId);
+        return;
+      }
+
       if (openingAppId) return;
       setOpeningAppId(appId);
       try {
@@ -337,7 +346,7 @@ export function LibraryView({
         setOpeningAppId(null);
       }
     },
-    [assistantId, openingAppId],
+    [assistantId, openingAppId, onOpenApp],
   );
 
   const handleClose = useCallback(() => {

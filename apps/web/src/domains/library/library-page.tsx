@@ -29,11 +29,19 @@ export function LibraryPage() {
     [navigate],
   );
 
+  const handleOpenApp = useCallback(
+    (appId: string) => {
+      void navigate(routes.library.app(appId));
+    },
+    [navigate],
+  );
+
   return (
     <LibraryView
       assistantId={assistantId}
       onNewConversation={handleNewConversation}
       onOpenDocument={handleOpenDocument}
+      onOpenApp={handleOpenApp}
     />
   );
 }
