@@ -81,13 +81,27 @@ export function resolveCallSiteConfig(
 type Mergeable = Record<string, unknown>;
 
 /**
- * Returns the resolved default profile key for a call site, accounting for
- * the `custom-*` user-profile fallback when the managed profile is unavailable.
+ * Returns the effective default profile key the resolver would actually
+ * select for a call site when no per-turn `overrideProfile` is supplied.
+ *
+ * Mirrors the layering in `resolveCallSiteConfig`:
+ * - For `mainAgent`, the workspace's `activeProfile` sits ABOVE the
+ *   call-site catalog default (and above any static `llm.callSites.mainAgent`
+ *   override), so a non-disabled `activeProfile` wins.
+ * - For other call sites, the catalog default sits ABOVE `activeProfile`,
+ *   so the catalog default (with `custom-*` fallback) wins.
  */
 export function resolveDefaultProfileKey(
   callSite: LLMCallSite,
   llm: z.infer<typeof LLMSchema>,
 ): string | undefined {
+  if (callSite === "mainAgent" && llm.activeProfile != null) {
+    const active = llm.profiles?.[llm.activeProfile];
+    if (active != null && active.status !== "disabled") {
+      return llm.activeProfile;
+    }
+  }
+
   const dflt = CALL_SITE_DEFAULTS[callSite];
   if (dflt?.profile == null) return undefined;
   const target = llm.profiles?.[dflt.profile];
