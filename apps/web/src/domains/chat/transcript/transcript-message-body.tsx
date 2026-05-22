@@ -16,13 +16,20 @@ import { MessageHoverActions } from "@/domains/chat/components/message-hover-act
 import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card.js";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router.js";
 import { ToolCallProgressCard } from "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card.js";
-import { getLeadingThinkingText } from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text.js";
+import {
+  getLeadingThinkingText,
+  getLegacyLeadingThinkingText,
+} from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text.js";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile.js";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces.js";
 import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types.js";
 import { isPointerCoarse } from "@/utils/pointer.js";
 import { useShallow } from "zustand/shallow";
-import { useSubagentStore, type SubagentEntry } from "@/domains/subagents/subagent-store.js";
+import {
+  EMPTY_SUBAGENT_ENTRIES,
+  useSubagentStore,
+  type SubagentEntry,
+} from "@/domains/subagents/subagent-store.js";
 import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types.js";
 
 export interface OpenRuleEditorContext {
@@ -112,35 +119,56 @@ function extractSubagentIdFromResult(
 }
 
 /**
- * Identify the subagent-store entries that were spawned by the given
- * assistant message. Matches on `parentMessageStableId` (set when the spawn
- * happens live during streaming, see `subagent-handlers.ts`) and on
- * `parentMessageId` (set when subagent state is reconstructed from history,
- * see `use-conversation-history.ts`). Returned entries are sorted by
- * `spawnedAt` ascending so the first unclaimed entry corresponds to the
- * first `subagent_spawn` tool call in the message.
+ * Look up the subagent-store entries spawned by `message` via the indexed
+ * `byParent` map. Returns the union (deduped, sorted by `spawnedAt`) of the
+ * buckets keyed by the message's `stableId`, `daemonMessageId`, and `id` so
+ * both live-streaming (`parentMessageStableId`) and history-reconstructed
+ * (`parentMessageId`) entries are found.
+ *
+ * In the common case where the message matches via a single key (live OR
+ * history, not both), the matching bucket is returned by reference — so
+ * unrelated subagent mutations do not change the selector output. The
+ * union path only allocates when more than one bucket has hits.
  */
-function findSubagentEntriesForMessage(
-  byId: Record<string, SubagentEntry>,
+function lookupSubagentEntriesForMessage(
+  byParent: Map<string, SubagentEntry[]>,
   message: DisplayMessage,
-): SubagentEntry[] {
+): readonly SubagentEntry[] {
+  // Fast path for messages with no spawned subagents — avoids the per-key
+  // lookups and the union-path bookkeeping in the hot per-render selector.
+  if (byParent.size === 0) return EMPTY_SUBAGENT_ENTRIES;
+
   const stableId = message.stableId;
   const daemonId = message.daemonMessageId;
   const messageId = message.id;
-  const matches: SubagentEntry[] = [];
-  for (const entry of Object.values(byId)) {
-    const linkedByStable =
-      entry.parentMessageStableId != null &&
-      entry.parentMessageStableId === stableId;
-    const linkedByDaemon =
-      entry.parentMessageId != null &&
-      (entry.parentMessageId === daemonId ||
-        entry.parentMessageId === messageId);
-    if (linkedByStable || linkedByDaemon) {
-      matches.push(entry);
+  const byStable = stableId != null ? byParent.get(stableId) : undefined;
+  const byDaemon = daemonId != null ? byParent.get(daemonId) : undefined;
+  const byMessage =
+    messageId != null && messageId !== daemonId
+      ? byParent.get(messageId)
+      : undefined;
+
+  // Common case — at most one bucket has entries; return it by reference so
+  // the selector result identity is preserved across unrelated store updates.
+  // `byParent` never stores empty buckets, so `!= null` is sufficient.
+  const hits = [byStable, byDaemon, byMessage].filter(
+    (b): b is SubagentEntry[] => b != null,
+  );
+  if (hits.length === 0) return EMPTY_SUBAGENT_ENTRIES;
+  if (hits.length === 1) return hits[0]!;
+
+  // Multi-bucket union path: dedupe by `subagentId` and resort.
+  const seen = new Set<string>();
+  const merged: SubagentEntry[] = [];
+  for (const bucket of hits) {
+    for (const entry of bucket) {
+      if (seen.has(entry.subagentId)) continue;
+      seen.add(entry.subagentId);
+      merged.push(entry);
     }
   }
-  return matches.sort((a, b) => a.spawnedAt - b.spawnedAt);
+  merged.sort((a, b) => a.spawnedAt - b.spawnedAt);
+  return merged;
 }
 
 /**
@@ -150,20 +178,22 @@ function findSubagentEntriesForMessage(
  * filtered to those spawned by the current message, sorted by `spawnedAt`)
  * when the result hasn't landed yet (running spawns, mid-stream reloads).
  *
- * Positional fallback: entries already claimed by an earlier tool call (via
- * either `result` or a previous positional match) are skipped, so parallel
- * spawns within one message map 1:1 in spawn order.
+ * Positional fallback: the caller owns the `claimed` Set so it persists
+ * across every invocation within a single message — that's what stops two
+ * non-consecutive spawn tool-call groups (each producing a separate
+ * `ToolCallProgressCard` mount) from both pulling the same first unclaimed
+ * entry and rendering duplicate cards.
  */
 function resolveSpawnedSubagentIds(
   toolCalls: ChatMessageToolCall[],
-  linkedEntries: SubagentEntry[],
+  linkedEntries: readonly SubagentEntry[],
+  claimed: Set<string>,
 ): string[] {
   const spawnToolCalls = toolCalls.filter(
     (tc) => tc.toolName === "subagent_spawn",
   );
   if (spawnToolCalls.length === 0) return [];
 
-  const claimed = new Set<string>();
   const ids: string[] = [];
 
   for (const tc of spawnToolCalls) {
@@ -442,15 +472,25 @@ export function TranscriptMessageBody({
     );
   };
 
-  // Subscribe only to the subagent-store entries linked to *this* message so
-  // unrelated subagent changes don't re-render every visible message body.
+  // Subscribe to the subagent-store's `byParent` index entry for *this*
+  // message so unrelated subagent changes (status/event mutations on a
+  // different message's subagents, or new spawns under a different message)
+  // don't re-render every visible message body. The bucket reference is
+  // stable across per-event mutations; it only changes when an entry is
+  // added or removed for the matching parent id.
+  //
   // The `subagent_spawned` SSE event lands before the tool_result, so the
   // store entry already exists during the running window — that's what lets
   // `resolveSpawnedSubagentIds` render an inline card even when the spawn
   // tool call has no `result` yet.
   const linkedSubagentEntries = useSubagentStore(
-    useShallow((s) => findSubagentEntriesForMessage(s.byId, message)),
+    useShallow((s) => lookupSubagentEntriesForMessage(s.byParent, message)),
   );
+
+  // Message-scoped: two non-consecutive `subagent_spawn` tool-call groups
+  // must not both positional-match the same linked entry. Accumulates across
+  // every `renderInlineSubagentCards` invocation within a single render.
+  const claimedSpawnIds = new Set<string>();
 
   // Render an inline `SubagentInlineProgressCard` per `subagent_spawn` tool
   // call in the given list. IDs come from `resolveSpawnedSubagentIds`, which
@@ -466,6 +506,7 @@ export function TranscriptMessageBody({
     const spawnedIds = resolveSpawnedSubagentIds(
       toolCalls,
       linkedSubagentEntries,
+      claimedSpawnIds,
     );
     if (spawnedIds.length === 0) return null;
     return (
@@ -699,6 +740,7 @@ export function TranscriptMessageBody({
               unknownNudgeToolCallIds={unknownNudgeToolCallIds}
               onDismissUnknownNudge={onDismissUnknownNudge}
               isStreaming={message.isStreaming ?? false}
+              leadingThinkingText={getLegacyLeadingThinkingText(message)}
             />
             {renderInlineSubagentCards(
               message.toolCalls.filter((tc) => !isSuppressedUiTool(tc)),

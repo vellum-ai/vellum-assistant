@@ -1,9 +1,7 @@
 /**
- * Unified data hook that powers the upcoming tool-call progress card
- * (PR 6 wires it up). Generalises the legacy `useWebSearchCardData` so the
- * same card chrome can drive both web tools (`web_search` / `web_fetch`) and
- * non-web tools (`bash`, `str_replace_editor`, MCP, skills, subagent spawns,
- * etc.) from one path.
+ * Unified data hook that powers the tool-call progress card. Drives both web
+ * tools (`web_search` / `web_fetch`) and non-web tools (`bash`,
+ * `str_replace_editor`, MCP, skills, subagent spawns, etc.) from one path.
  *
  * The hook is intentionally pure relative to its inputs — the React surface
  * (`useToolCallCardData`) only adds a Zustand subscription to the active
@@ -11,11 +9,6 @@
  * leadingThinkingText) → ToolCallCardData` projection is exposed as
  * `computeToolCallCardData` so callers/tests can drive it without React
  * context plumbing.
- *
- * Web-tool steps reuse the existing builders moved over from
- * `use-web-search-card-data.ts` verbatim, so the regression behaviour is
- * exercised end-to-end by the legacy hook's wrapper (which re-exports this
- * module's output narrowed back to `WebSearchCardData`).
  */
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types.js";
@@ -82,10 +75,9 @@ export type ToolCallCardStep =
 /**
  * Card-level data for the unified tool-call progress card.
  *
- * Mirrors the legacy `WebSearchCardData` field-for-field plus:
- *   - `steps` widens to `ToolCallCardStep[]` so non-web tools can ride along.
- *   - `state` adds `"error"` / `"denied"` variants so cards that mix
- *     successful and failed tool calls can render a distinct chrome state.
+ * `steps` is a `ToolCallCardStep[]` that covers web and non-web tools alike.
+ * `state` widens to include `"error"` / `"denied"` so cards that mix
+ * successful and failed tool calls can render a distinct chrome state.
  *
  * The subagent leading-icon slot (`<SubagentAvatarChip>`) is plumbed directly
  * through the shell's `leadingIcon` ReactNode prop by
@@ -122,8 +114,7 @@ export interface ToolCallCardData {
 }
 
 // ---------------------------------------------------------------------------
-// Small pure helpers — moved verbatim from `use-web-search-card-data.ts` so
-// the legacy hook can re-export them for its tests/consumers.
+// Small pure helpers used by the unified card hook and its consumers.
 // ---------------------------------------------------------------------------
 
 /** Format a duration in ms for the row-meta cluster (e.g. `<1s`, `2s`). */

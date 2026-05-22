@@ -58,7 +58,26 @@ export interface SubagentEntry {
 export interface SubagentState {
   byId: Record<string, SubagentEntry>;
   orderedIds: string[];
+  /**
+   * Indexed view of `byId` keyed by parent assistant message id. Each entry
+   * is registered under up to two keys — `parentMessageStableId` (set during
+   * live streaming) and `parentMessageId` (set when subagent state is
+   * reconstructed from history) — so consumers can look up entries by
+   * either id without walking the full map. Entries inside each bucket are
+   * sorted by `spawnedAt` ascending, matching the historical
+   * `findSubagentEntriesForMessage` contract.
+   *
+   * Identity is stable across unrelated mutations: the map (and the array
+   * for any given parent) only changes when entries are added, removed, or
+   * have their parent ids change. Per-event mutations on a subagent leave
+   * the bucket untouched so message-body subscribers don't re-render.
+   */
+  byParent: Map<string, SubagentEntry[]>;
 }
+
+/** Stable empty array returned for parent ids with no spawned subagents.
+ *  Sharing the reference keeps `useShallow`/`Object.is` comparisons happy. */
+export const EMPTY_SUBAGENT_ENTRIES: readonly SubagentEntry[] = [];
 
 // ---------------------------------------------------------------------------
 // Actions
@@ -117,7 +136,45 @@ export type SubagentStore = SubagentState & SubagentActions;
 const INITIAL_STATE: SubagentState = {
   byId: {},
   orderedIds: [],
+  byParent: new Map<string, SubagentEntry[]>(),
 };
+
+/** Parent-id keys an entry contributes to in the `byParent` index. */
+function parentKeysForEntry(entry: SubagentEntry): string[] {
+  const keys: string[] = [];
+  if (entry.parentMessageStableId) keys.push(entry.parentMessageStableId);
+  if (
+    entry.parentMessageId &&
+    entry.parentMessageId !== entry.parentMessageStableId
+  ) {
+    keys.push(entry.parentMessageId);
+  }
+  return keys;
+}
+
+/**
+ * Insert a freshly-spawned entry into the existing `byParent` index. Only
+ * the buckets the entry touches are replaced — every other bucket reference
+ * is preserved so unrelated message subscribers don't see their selector
+ * output change. Returns the existing map by reference when the entry has
+ * no parent ids (nothing to index).
+ */
+function addEntryToByParent(
+  byParent: Map<string, SubagentEntry[]>,
+  entry: SubagentEntry,
+): Map<string, SubagentEntry[]> {
+  const keys = parentKeysForEntry(entry);
+  if (keys.length === 0) return byParent;
+
+  const next = new Map(byParent);
+  for (const key of keys) {
+    const existing = next.get(key) ?? [];
+    const merged = [...existing, entry];
+    merged.sort((a, b) => a.spawnedAt - b.spawnedAt);
+    next.set(key, merged);
+  }
+  return next;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -200,9 +257,11 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       parentMessageId: params.parentMessageId,
     };
 
+    const nextById = { ...byId, [params.subagentId]: entry };
     set({
-      byId: { ...byId, [params.subagentId]: entry },
+      byId: nextById,
       orderedIds: [...orderedIds, params.subagentId],
+      byParent: addEntryToByParent(get().byParent, entry),
     });
   },
 
@@ -327,7 +386,12 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     });
   },
 
-  reset: () => set({ ...INITIAL_STATE }),
+  reset: () =>
+    set({
+      byId: {},
+      orderedIds: [],
+      byParent: new Map<string, SubagentEntry[]>(),
+    }),
 }));
 
 export const useSubagentStore = createSelectors(useSubagentStoreBase);

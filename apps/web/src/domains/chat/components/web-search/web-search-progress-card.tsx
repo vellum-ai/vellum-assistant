@@ -33,9 +33,9 @@ import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-d
  *     with at least one completed `web_search` to feed the rotation)
  *
  * Matches Figma node 4922:103991. Pure presentational — no awareness of the
- * turn state machine. Wires up via the `useWebSearchCardData` selector hook
- * that derives `StepDescriptor[]` plus the per-step header tuple from live
- * tool-call activity metadata.
+ * turn state machine. Wires up via the unified `useToolCallCardData` selector
+ * hook that derives `StepDescriptor[]` plus the per-step header tuple from
+ * live tool-call activity metadata.
  *
  * Toggling between collapsed and expanded states honours
  * `prefers-reduced-motion` (height animation snaps when the user opts out)
@@ -84,7 +84,7 @@ export interface WebSearchProgressCardProps {
   /**
    * Per-step secondary descriptor (gray text after the title). Animates in
    * sync with `currentStepTitle`. Content depends on the active step — see
-   * `WebSearchCardData.currentStepInfo` for the full table of values.
+   * `ToolCallCardData.currentStepInfo` for the full table of values.
    */
   currentStepInfo: string;
   /** Pre-formatted step count for the toggle pill, e.g. "2 steps". */
@@ -111,8 +111,8 @@ export interface WebSearchProgressCardProps {
    * swaps from text (`currentStepInfo`) to a `WebsiteCarousel` rotating
    * through these favicon + title chips. Empty → text mode stays.
    *
-   * Populated by `useWebSearchCardData` from the most recently completed
-   * `web_search`'s results — see `WebSearchCardData.carouselItems` for the
+   * Populated by `useToolCallCardData` from the most recently completed
+   * `web_search`'s results — see `ToolCallCardData.carouselItems` for the
    * derivation contract.
    */
   carouselItems?: WebSearchResultItem[];

@@ -57,7 +57,7 @@ export interface TurnState {
    * Keyed by `toolUseId`. Live-only — cleared on every terminal transition
    * so historical reopens fall back to the persisted
    * `ChatMessageToolCall.activityMetadata` instead. Drives the
-   * `WebSearchProgressCard` selector hook (`useWebSearchCardData`).
+   * unified tool-call card selector hook (`useToolCallCardData`).
    */
   liveWebActivity: Record<string, ToolActivityMetadata>;
   /**

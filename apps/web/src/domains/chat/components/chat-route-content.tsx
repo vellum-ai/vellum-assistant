@@ -350,7 +350,7 @@ export interface ChatRouteContentProps {
   handleInspectMessage?: (messageId: string) => void;
 
   // Subagent
-  subagentState: SubagentState;
+  subagentState: Pick<SubagentState, "byId">;
   activeSubagentId: string | null;
   onSubagentClick: (subagentId: string) => void;
   onCloseSubagentDetail: () => void;
