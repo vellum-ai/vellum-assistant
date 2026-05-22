@@ -15,7 +15,6 @@ export function DevModeVersionUnlock({
   version,
   loading,
 }: DevModeVersionUnlockProps) {
-  const setFlag = useAssistantFeatureFlagStore.use.setFlag();
   const tapCountRef = useRef(0);
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const [message, setMessage] = useState<string | null>(null);
@@ -24,9 +23,9 @@ export function DevModeVersionUnlock({
     tapCountRef.current += 1;
     if (tapCountRef.current >= TAP_THRESHOLD) {
       tapCountRef.current = 0;
-      const nowEnabled =
-        !useAssistantFeatureFlagStore.getState().settingsDeveloperNav;
-      setFlag("settingsDeveloperNav", nowEnabled);
+      const store = useAssistantFeatureFlagStore.getState();
+      const nowEnabled = !store.settingsDeveloperNav;
+      store.setFlag("settingsDeveloperNav", nowEnabled);
       setMessage(
         nowEnabled ? "Developer mode enabled" : "Developer mode disabled",
       );
@@ -36,7 +35,7 @@ export function DevModeVersionUnlock({
         MESSAGE_DURATION_MS,
       );
     }
-  }, [setFlag]);
+  }, []);
 
   useEffect(() => () => clearTimeout(dismissTimerRef.current), []);
 
