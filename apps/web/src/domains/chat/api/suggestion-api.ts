@@ -32,6 +32,7 @@ export async function fetchSuggestion(
       path: { assistant_id: assistantId },
       query: {
         conversationId: conversationKey,
+        conversationKey,
         ...(messageId ? { messageId } : {}),
       },
       throwOnError: false,

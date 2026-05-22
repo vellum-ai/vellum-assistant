@@ -136,7 +136,7 @@ export async function pollForResponse(
       ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/messages/",
       path: { assistant_id: assistantId },
-      query: { conversationId: conversationKey },
+      query: { conversationId: conversationKey, conversationKey },
       throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to poll for messages");
@@ -305,7 +305,7 @@ export async function getChatHistory(
       ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/messages/",
       path: { assistant_id: assistantId },
-      query: { conversationId: conversationKey },
+      query: { conversationId: conversationKey, conversationKey },
       throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to fetch history");
@@ -355,7 +355,7 @@ export async function fetchConversationMessages(
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/messages/",
     path: { assistant_id: assistantId },
-    query: { conversationId: conversationKey },
+    query: { conversationId: conversationKey, conversationKey },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch conversation messages");
@@ -633,7 +633,7 @@ export async function steerToMessage(
       ...SDK_BASE_OPTIONS,
       url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}/steer`,
       path: { assistant_id: assistantId },
-      query: { conversationId: conversationKey },
+      query: { conversationId: conversationKey, conversationKey },
       throwOnError: false,
     });
     return response?.ok ?? false;
@@ -658,7 +658,7 @@ export async function deleteQueuedMessage(
       ...SDK_BASE_OPTIONS,
       url: `/v1/assistants/{assistant_id}/messages/queued/${encoded}`,
       path: { assistant_id: assistantId },
-      query: { conversationId: conversationKey },
+      query: { conversationId: conversationKey, conversationKey },
       throwOnError: false,
     });
     return response?.ok ?? false;

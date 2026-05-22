@@ -33,7 +33,7 @@ export async function getPendingInteractions(
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/pending-interactions/",
     path: { assistant_id: assistantId },
-    query: { conversationId: conversationKey },
+    query: { conversationId: conversationKey, conversationKey },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch pending interactions");
