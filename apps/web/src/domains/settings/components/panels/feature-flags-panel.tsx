@@ -37,9 +37,14 @@ export function FeatureFlagsPanel() {
     const entries: FlagDisplayEntry[] = [];
     for (const flag of ALL_FLAGS) {
       const storeKey = ldKeyToStoreKey(flag.key);
-      const state =
-        flag.scope === "assistant" ? assistantState : clientState;
-      const value = state[storeKey];
+      const clientVal = clientState[storeKey];
+      const assistantVal = assistantState[storeKey];
+      const value =
+        flag.scope === "both"
+          ? clientVal === true || assistantVal === true
+          : flag.scope === "assistant"
+            ? assistantVal
+            : clientVal;
       if (typeof value !== "boolean") continue;
       entries.push({
         storeKey,
