@@ -19,19 +19,23 @@ import type { ToolCallCardStep } from "@/domains/chat/hooks/use-tool-call-card-d
 
 /**
  * Small "+N more" pill used at the tail of a `web_search` row's result list.
- * Mirrors Figma node 4922:104082 — filled `--surface-base` pill with the
- * `body-small-emphasised` (Semi Bold 12) typography variant.
+ * Visually matches `FaviconChip` so the overflow pill sits flush in the same
+ * row: identical outer geometry (`inline-flex items-center`, 10/6 padding,
+ * pill radius, `--surface-base` fill), identical Inter Medium 12 typography
+ * (`body-small-default`), and a `min-h-[26px]` floor so the chip matches the
+ * favicon chips' natural height (which is dictated by their 14×14 favicon
+ * slot inside the same padding).
  */
 export function OverflowChip({ count }: { count: number }) {
   return (
-    <div className="rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[10px] py-[6px]">
+    <span className="inline-flex min-h-[26px] items-center rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[10px] py-[6px]">
       <Typography
-        variant="body-small-emphasised"
+        variant="body-small-default"
         className="text-[var(--content-default)]"
       >
         +{count} more
       </Typography>
-    </div>
+    </span>
   );
 }
 
