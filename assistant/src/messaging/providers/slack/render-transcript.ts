@@ -31,6 +31,8 @@ export interface RenderableSlackMessage {
   content: string;
   /** `null` indicates a legacy pre-upgrade row stored without Slack metadata. */
   metadata: SlackMessageMetadata | null;
+  /** True for Slack's synthetic assistant-thread starter row. */
+  slackAssistantThreadPlaceholder?: boolean;
   /**
    * Sender display name to prepend to the tag line (e.g. `"@alice"`), or
    * `null` to omit the label entirely. Callers should pass `null` when the

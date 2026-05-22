@@ -86,6 +86,7 @@ import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { deliverChannelReply } from "../gateway-client.js";
+import { publishConversationMessagesChanged } from "../sync/resource-sync-events.js";
 import { resolveTrustContext } from "../trust-context-resolver.js";
 import { canonicalChannelAssistantId } from "./channel-route-shared.js";
 import { BadRequestError } from "./errors.js";
@@ -1632,6 +1633,12 @@ async function persistBackfilledSlackMessage(params: {
     message.metadata,
     "actorTimezoneLabel",
   );
+  const assistantAuthored = await isBackfilledSlackAssistantMessage(
+    message,
+    params.account,
+  );
+  const assistantThreadPlaceholder =
+    assistantAuthored && isSlackAssistantThreadPlaceholderShape(message);
   const isGuardian = isBackfilledSlackGuardianMessage(
     message,
     params.guardianExternalUserId,
@@ -1658,17 +1665,15 @@ async function persistBackfilledSlackMessage(params: {
     ...(slackFiles.length > 0 ? { slackFiles } : {}),
   };
 
-  const role = (await isBackfilledSlackAssistantMessage(
-    message,
-    params.account,
-  ))
-    ? "assistant"
-    : "user";
+  const role = assistantAuthored ? "assistant" : "user";
 
   const rawText = message.text ?? "";
 
   const persisted = await addMessage(params.conversationId, role, rawText, {
     slackMeta: writeSlackMetadata(slackMeta),
+    ...(assistantThreadPlaceholder
+      ? { slackAssistantThreadPlaceholder: true }
+      : {}),
     provenanceTrustClass: isGuardian ? "guardian" : "unknown",
     provenanceSourceChannel: "slack",
     ...(params.guardianExternalUserId
@@ -1797,10 +1802,9 @@ function isBackfilledSlackGuardianMessage(
 
 const SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT = "New Assistant Thread";
 
-async function isSlackAssistantThreadPlaceholder(
+function isSlackAssistantThreadPlaceholderShape(
   message: ProviderMessage,
-  account: string | undefined,
-): Promise<boolean> {
+): boolean {
   if (message.metadata?.isBot !== true) return false;
   const hasSlackFiles =
     Array.isArray(message.metadata.slackFiles) &&
@@ -1810,8 +1814,7 @@ async function isSlackAssistantThreadPlaceholder(
       SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT &&
     (message.threadId === undefined || message.threadId === message.id) &&
     message.hasAttachments !== true &&
-    !hasSlackFiles &&
-    (await isBackfilledSlackAssistantMessage(message, account))
+    !hasSlackFiles
   );
 }
 
@@ -1981,9 +1984,6 @@ async function runBackfillSlackDmIfCold(params: {
     const ordered = [...fetched].reverse();
     for (const message of ordered) {
       if (seen.has(message.id)) continue;
-      if (await isSlackAssistantThreadPlaceholder(message, params.account)) {
-        continue;
-      }
       try {
         await persistBackfilledSlackMessage({
           conversationId: params.conversationId,
@@ -2018,6 +2018,9 @@ async function runBackfillSlackDmIfCold(params: {
       },
       "DM cold-start backfill complete",
     );
+    if (written > 0) {
+      publishConversationMessagesChanged(params.conversationId);
+    }
   } catch (err) {
     // `channel_not_found` almost always means the resolved connection is
     // pointing at the wrong Slack workspace (a real config bug), so log it
@@ -2547,9 +2550,6 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     for (const message of fetched) {
       if (!message.id) continue;
       if (threadState.storedChannelTs.has(message.id)) continue;
-      if (await isSlackAssistantThreadPlaceholder(message, account)) {
-        continue;
-      }
       try {
         await persistBackfilledSlackMessage({
           conversationId,
@@ -2579,6 +2579,9 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
       },
       "Slack thread backfill persisted thread messages",
     );
+    if (persisted > 0) {
+      publishConversationMessagesChanged(conversationId);
+    }
     return {
       fetched: fetched.length,
       persisted,

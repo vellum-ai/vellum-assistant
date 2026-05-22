@@ -115,6 +115,7 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import type { Message } from "../providers/types.js";
+import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 import {
   _backfillTriggerCache,
   triggerSlackThreadBackfillIfNeeded,
@@ -1351,7 +1352,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(persisted.provenanceRequesterIdentifier).toBe("U_OTHER_BOT");
   });
 
-  test("skips Slack assistant new-thread placeholder during backfill", async () => {
+  test("persists Slack assistant new-thread placeholder during backfill while excluding it from model context", async () => {
     const conv = createTestConversation();
 
     backfillThreadMock.mockImplementation(async () => [
@@ -1385,12 +1386,19 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     });
 
     expect(result.fetched).toBe(3);
-    expect(result.persisted).toBe(2);
+    expect(result.persisted).toBe(3);
     const rows = readPersistedSlackRows(conv.id);
     expect(rows.map((row) => row.rawContent).sort()).toEqual([
       "New Assistant Thread",
+      "New Assistant Thread",
       "real bot context",
     ]);
+    const assistantPlaceholder = rows.find(
+      (row) =>
+        row.rawContent === "New Assistant Thread" &&
+        row.actorExternalUserId === "B_ASSISTANT",
+    );
+    expect(assistantPlaceholder?.role).toBe("assistant");
     const assistantRow = rows.find(
       (row) => row.rawContent === "real bot context",
     );
@@ -1399,6 +1407,16 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(rows.some((row) => row.actorExternalUserId === "B_OTHER")).toBe(
       true,
     );
+
+    const context = loadSlackChronologicalContext(conv.id, SLACK_CHANNEL_CAPS, {
+      loader: readMessageRowsByConversation,
+      trustClass: "guardian",
+    });
+    expect(context).not.toBeNull();
+    const rendered = JSON.stringify(context!.messages);
+    expect(rendered.split("New Assistant Thread").length - 1).toBe(1);
+    expect(rendered).toContain("Build Bot");
+    expect(rendered).toContain("real bot context");
   });
 
   test("backfilled non-bot message with empty text is persisted unwrapped", async () => {
@@ -2582,6 +2600,72 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     const [calledChannel, calledThread] = backfillThreadMock.mock.calls[0];
     expect(calledChannel).toBe(dmChannelId);
     expect(calledThread).toBe(threadTs);
+  });
+
+  test("placeholder-only Slack assistant thread backfill still leaves visible history while live turn is pending", async () => {
+    const dmChannelId = "D0HTTPAPPPLACEHOLDER";
+    const threadTs = "1700000000.000100";
+    const inboundTs = "1700000000.000300";
+    setConfiguredSlackBotUserId("U_BOT");
+    seedHttpActiveMember(dmChannelId);
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: threadTs,
+        conversationId: dmChannelId,
+        text: "New Assistant Thread",
+        sender: { id: "B_ASSISTANT", name: "Ada" },
+        metadata: { isBot: true, slackBotId: "B_ASSISTANT" },
+      }),
+    ]);
+
+    let capturedConversationId: string | undefined;
+    let resolveProcessed: (() => void) | undefined;
+    const processed = new Promise<void>((resolve) => {
+      resolveProcessed = resolve;
+    });
+    const processMessage = async (
+      conversationId: string,
+    ): Promise<{ messageId: string }> => {
+      capturedConversationId = conversationId;
+      resolveProcessed?.();
+      throw new Error("Conversation is already processing a message");
+    };
+    setAdapterProcessMessage(processMessage);
+
+    const resp = await handleChannelInbound(
+      buildSlackDmRequest(dmChannelId, inboundTs, {
+        sourceMetadata: {
+          messageId: inboundTs,
+          threadId: threadTs,
+          chatType: "im",
+        },
+      }),
+      processMessage,
+      TEST_BEARER_TOKEN,
+    );
+
+    expect(resp.status).toBe(200);
+    await Promise.race([
+      processed,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("processMessage not called")), 250),
+      ),
+    ]);
+    expect(capturedConversationId).toBeDefined();
+
+    const history = handleListMessages({
+      queryParams: {
+        conversationKey: capturedConversationId!,
+        page: "latest",
+        limit: "50",
+      },
+    }) as { messages: Array<{ role: string; content: string }> };
+
+    expect(history.messages).toEqual([
+      expect.objectContaining({
+        content: "New Assistant Thread",
+      }),
+    ]);
   });
 
   test("second thread reply within the TTL window can fetch a newer bounded gap", async () => {

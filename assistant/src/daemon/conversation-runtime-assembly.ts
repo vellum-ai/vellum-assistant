@@ -1206,15 +1206,19 @@ function placeholderForBlockType(type: ContentBlock["type"]): string | null {
 function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
   let slackMeta: ReturnType<typeof readSlackMetadata> = null;
   let provenanceTrustClass: TrustClass | undefined;
+  let slackAssistantThreadPlaceholder = false;
   if (row.metadata) {
     try {
       const outer = JSON.parse(row.metadata) as {
         slackMeta?: unknown;
         provenanceTrustClass?: unknown;
+        slackAssistantThreadPlaceholder?: unknown;
       };
       if (typeof outer.slackMeta === "string") {
         slackMeta = readSlackMetadata(outer.slackMeta);
       }
+      slackAssistantThreadPlaceholder =
+        outer.slackAssistantThreadPlaceholder === true;
       if (
         outer.provenanceTrustClass === "guardian" ||
         outer.provenanceTrustClass === "trusted_contact" ||
@@ -1283,6 +1287,9 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
     role: row.role,
     content: plainText,
     metadata: slackMeta,
+    ...(slackAssistantThreadPlaceholder
+      ? { slackAssistantThreadPlaceholder: true }
+      : {}),
     senderLabel,
     createdAt: row.createdAt,
     contentBlocks,
@@ -1297,6 +1304,7 @@ function isSlackAssistantThreadPlaceholder(
   message: RenderableSlackMessage,
   canonicalConfiguredBotUserId: string | null,
 ): boolean {
+  if (message.slackAssistantThreadPlaceholder === true) return true;
   if (!canonicalConfiguredBotUserId) return false;
   const metadata = message.metadata;
   if (!metadata || metadata.eventKind !== "message") return false;
@@ -1312,7 +1320,7 @@ function isSlackAssistantThreadPlaceholder(
     Array.isArray(metadata.slackFiles) && metadata.slackFiles.length > 0;
 
   return (
-    message.role === "user" &&
+    (message.role === "user" || message.role === "assistant") &&
     canonicalActor === canonicalConfiguredBotUserId &&
     isThreadRoot &&
     !hasSlackFiles &&

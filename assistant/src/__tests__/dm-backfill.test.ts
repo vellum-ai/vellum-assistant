@@ -183,6 +183,7 @@ function readPersistedSlackRows(): Array<{
   provenanceSourceChannel: string | undefined;
   provenanceGuardianExternalUserId: string | undefined;
   provenanceRequesterIdentifier: string | undefined;
+  slackAssistantThreadPlaceholder: boolean | undefined;
 }> {
   const db = getDb();
   return db
@@ -233,6 +234,10 @@ function readPersistedSlackRows(): Array<{
         provenanceRequesterIdentifier:
           typeof envelope.provenanceRequesterIdentifier === "string"
             ? envelope.provenanceRequesterIdentifier
+            : undefined,
+        slackAssistantThreadPlaceholder:
+          typeof envelope.slackAssistantThreadPlaceholder === "boolean"
+            ? envelope.slackAssistantThreadPlaceholder
             : undefined,
       };
     });
@@ -520,7 +525,7 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(botRow?.provenanceRequesterIdentifier).toBe("B_BOT");
   });
 
-  test("skips Slack assistant new-thread placeholder during DM backfill", async () => {
+  test("persists Slack assistant new-thread placeholder during DM backfill and marks it out of model context", async () => {
     backfillDmMock.mockImplementation(async () => [
       makeBackfilledMessage({
         id: "1700000000.000001",
@@ -551,8 +556,22 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     const rows = readPersistedSlackRows();
     expect(rows.map((row) => row.rawContent).sort()).toEqual([
       "New Assistant Thread",
+      "New Assistant Thread",
       "real bot context",
     ]);
+    const assistantPlaceholder = rows.find(
+      (row) =>
+        row.rawContent === "New Assistant Thread" &&
+        row.slackMeta?.actorExternalUserId === "B_ASSISTANT",
+    );
+    expect(assistantPlaceholder?.role).toBe("assistant");
+    expect(assistantPlaceholder?.slackAssistantThreadPlaceholder).toBe(true);
+    const otherPlaceholder = rows.find(
+      (row) =>
+        row.rawContent === "New Assistant Thread" &&
+        row.slackMeta?.actorExternalUserId === "B_OTHER",
+    );
+    expect(otherPlaceholder?.slackAssistantThreadPlaceholder).toBeUndefined();
     expect(
       rows.some((row) => row.slackMeta?.actorExternalUserId === "B_OTHER"),
     ).toBe(true);
