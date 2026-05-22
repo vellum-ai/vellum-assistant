@@ -15,7 +15,7 @@ export type { PendingQuestionState };
 
 export interface StreamContext {
   assistantId: string;
-  conversationKey: string;
+  conversationId: string;
 }
 
 /** Minimal push-based navigation adapter for stream event handlers. */
