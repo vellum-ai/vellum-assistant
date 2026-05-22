@@ -317,12 +317,18 @@ public final class EventStreamClient {
             )
 
             switch sendResult {
-            case .success(let serverConvId, let messageId):
+            case .success(let serverConvId, let messageId, let requestId):
                 if let messageId {
                     self.broadcastMessage(.userMessagePersisted(
                         conversationId: conversationId,
                         content: content ?? "",
                         messageId: messageId
+                    ))
+                }
+                if let requestId {
+                    self.broadcastMessage(.queuedMessageAcked(
+                        conversationId: conversationId,
+                        requestId: requestId
                     ))
                 }
                 if let serverConvId, serverConvId != conversationId {

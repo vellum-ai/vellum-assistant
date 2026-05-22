@@ -211,6 +211,9 @@ final class ChatActionHandler {
         case .messageQueued(let queued):
             handleMessageQueued(queued, vm: vm)
 
+        case .queuedMessageAcked(let conversationId, let requestId):
+            handleQueuedMessageAcked(conversationId: conversationId, requestId: requestId, vm: vm)
+
         case .messageQueuedDeleted(let msg):
             guard belongsToConversation(msg.conversationId) else { return }
             vm.applyQueuedMessageDeletion(requestId: msg.requestId)
@@ -863,9 +866,45 @@ final class ChatActionHandler {
         vm.dispatchPendingSendDirect()
     }
 
+    /// Handles the synthetic queuedMessageAcked event from the POST /v1/messages
+    /// response. Pops the oldest pending message ID and maps it to the requestId
+    /// so steerQueuedMessage can find the requestId before the SSE message_queued
+    /// event arrives.
+    private func handleQueuedMessageAcked(conversationId: String, requestId: String, vm: ChatViewModel) {
+        guard belongsToConversation(conversationId) else { return }
+        // Skip if the SSE message_queued event already populated this mapping
+        guard vm.requestIdToMessageId[requestId] == nil else { return }
+        guard let messageId = vm.pendingMessageIds.first else { return }
+        vm.pendingMessageIds.removeFirst()
+        vm.requestIdToMessageId[requestId] = messageId
+    }
+
     private func handleMessageQueued(_ queued: MessageQueuedMessage, vm: ChatViewModel) {
         guard belongsToConversation(queued.conversationId) else { return }
         vm.pendingQueuedCount += 1
+
+        // If the POST response already populated the mapping for this requestId
+        // (via queuedMessageAcked), skip the FIFO pop and just update the
+        // queue position and handle pending deletions.
+        if let existingMessageId = vm.requestIdToMessageId[queued.requestId] {
+            if vm.pendingLocalDeletions.remove(existingMessageId) != nil {
+                Task {
+                    let success = await vm.conversationQueueClient.deleteQueuedMessage(
+                        conversationId: queued.conversationId,
+                        requestId: queued.requestId
+                    )
+                    if success {
+                        vm.applyQueuedMessageDeletion(requestId: queued.requestId)
+                    } else {
+                        log.error("Failed to send deferred delete_queued_message")
+                    }
+                }
+            } else if let index = vm.messages.firstIndex(where: { $0.id == existingMessageId }) {
+                vm.messages[index].status = .queued(position: queued.position)
+            }
+            return
+        }
+
         // Associate this requestId with the oldest pending user message
         if let messageId = vm.pendingMessageIds.first {
             vm.pendingMessageIds.removeFirst()
