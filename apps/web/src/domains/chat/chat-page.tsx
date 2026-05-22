@@ -143,7 +143,16 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [error, setError] = useState<ChatError | null>(null);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  // Seed with `true` so the chat scroll area renders the skeleton on the very
+  // first frame. The conversation loader bootstrap (`getChatContext` →
+  // `SET_ACTIVE_KEY` → `use-conversation-history`) is asynchronous, and
+  // without this seed the brief window between mount and the history effect
+  // dispatching `setIsLoadingHistory(true)` leaves the user staring at a
+  // blank pane — none of `ChatScrollArea`'s four branches match
+  // (`isLoadingHistory` false, `activeConversationKey` null, no messages).
+  // Set to true means "we're bootstrapping" until the history hook resolves
+  // and flips it false (for both real conversations and empty drafts).
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [compactionCircuitOpenUntil, setCompactionCircuitOpenUntil] = useState<Date | null>(null);
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);

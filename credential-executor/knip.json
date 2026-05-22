@@ -1,0 +1,9 @@
+{
+  "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts"],
+  "project": ["src/**/*.ts"],
+  "ignoreDependencies": [
+    "@vellumai/service-contracts",
+    "@vellumai/credential-storage",
+    "@vellumai/egress-proxy"
+  ]
+}

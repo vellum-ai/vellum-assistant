@@ -26,10 +26,13 @@ export const SDK_BASE_OPTIONS =
  * Build the query-param object for daemon endpoints that accept a
  * conversation identifier. Sends `conversationId` (UUID, resolves
  * against the `conversations` table on all DB versions) as the primary
- * key, with `conversationKey` as a fallback for older handlers.
+ * key. Includes `conversationKey` as a fallback for handlers that
+ * haven't been updated to accept `conversationId` yet.
  *
- * Always use this instead of manually writing
- * `{ conversationKey }` or `{ conversationId: conversationKey, conversationKey }`.
+ * Prefer this over manually writing `{ conversationId }` or
+ * `{ conversationId, conversationKey }` — it keeps the wire format
+ * in one place so fallback params can be dropped globally when all
+ * daemon handlers accept `conversationId`.
  */
 export function conversationQueryParams(conversationId: string): {
   conversationId: string;

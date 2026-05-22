@@ -111,7 +111,7 @@ export interface ChatEventStreamOptions {
  */
 export function subscribeChatEvents(
   assistantId: string,
-  conversationKey: string | null | undefined,
+  conversationId: string | null | undefined,
   onEvent: (event: AssistantEvent) => void,
   onError: (err: Error) => void,
   options: ChatEventStreamOptions = {},
@@ -130,7 +130,7 @@ export function subscribeChatEvents(
   // active.
   let activeAbortController: AbortController | null = null;
   let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
-  const requestedConversationKey = conversationKey ?? undefined;
+  const requestedConversationId = conversationId ?? undefined;
   // Cause of the most recent connect attempt teardown, consumed by the
   // next reconnect when it invokes onReconnect. `"watchdog"` is set
   // by armWatchdog before it aborts; left null otherwise so the
@@ -202,7 +202,7 @@ export function subscribeChatEvents(
       // tears state down before the next reconnect runs.
       recordChatDiagnostic("sse_watchdog_fired", {
         assistantId,
-        conversationKey: requestedConversationKey ?? null,
+        conversationId: requestedConversationId ?? null,
         attempt: reconnectCount,
         idleTimeoutMs,
         wasTurnSending,
@@ -254,7 +254,7 @@ export function subscribeChatEvents(
         },
         extra: {
           assistantId,
-          conversationKey: requestedConversationKey ?? null,
+          conversationId: requestedConversationId ?? null,
           attempt: reconnectCount,
           idleTimeoutMs,
           wasTurnSending,
@@ -296,7 +296,7 @@ export function subscribeChatEvents(
     activeAbortController = abortController;
     const sseDebugClientId = registerSseClient(
       abortController.signal,
-      requestedConversationKey,
+      requestedConversationId,
     );
     // Reset per-attempt liveness counters so each watchdog fire
     // reports state for ITS attempt, not for the entire subscribe
@@ -312,8 +312,11 @@ export function subscribeChatEvents(
         ...SDK_BASE_OPTIONS,
         url: "/v1/assistants/{assistant_id}/events/",
         path: { assistant_id: assistantId },
-        ...(requestedConversationKey
-          ? { query: { conversationKey: requestedConversationKey } }
+        // SSE endpoint `GET /v1/assistants/{id}/events/` accepts only
+        // `conversationKey` as its query param (see events-routes.ts).
+        // Map the internal conversationId variable onto the wire field.
+        ...(requestedConversationId
+          ? { query: { conversationKey: requestedConversationId } }
           : {}),
         headers: {
           Accept: "text/event-stream, application/json",
@@ -431,10 +434,13 @@ export function subscribeChatEvents(
           const envelopeConversationKey = readEventConversationKey(data);
           const eventType = typeof eventData.type === "string" ? eventData.type : "message";
           const parsed = parseAssistantEvent(eventType, eventData);
+          // SSE event type field still named `conversationKey` (event-types.ts);
+          // batch 2 will rename. Source values are the daemon envelope's
+          // `conversationKey` field and the requested conversationId.
           parsed.conversationKey =
             parsed.conversationKey ??
             envelopeConversationKey ??
-            requestedConversationKey;
+            requestedConversationId;
           pushSseEvent(sseDebugClientId, parsed);
           try {
             onEvent(parsed);

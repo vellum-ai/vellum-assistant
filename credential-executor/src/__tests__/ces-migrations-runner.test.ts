@@ -35,9 +35,9 @@ const logErrorFn = mock((..._args: unknown[]): void => {});
 // All other node:fs exports are forwarded unchanged.
 // ---------------------------------------------------------------------------
 
-/* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires */
+/* eslint-disable @typescript-eslint/no-require-imports */
 const _realFs = require("node:fs");
-/* eslint-enable @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires */
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 mock.module("node:fs", () => {
   const proxy: Record<string, unknown> = {};
@@ -48,7 +48,7 @@ mock.module("node:fs", () => {
   // Override only the five functions the migration runner uses.
   // The proxy captures args as any[] and delegates to either our mocks or the
   // real fs. We cast through Function.apply to satisfy overloaded signatures.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // (no-explicit-any is already off for test files via eslint config.)
   type AnyFn = (...args: any[]) => any;
   proxy.existsSync = (...a: unknown[]) =>
     useMocks ? existsSyncFn(a[0] as string) : (_realFs.existsSync as AnyFn)(...a);

@@ -221,7 +221,7 @@ describe("local entrypoint transport isolation", () => {
 describe("CesRpcServer", () => {
   test("completes handshake with correct protocol version", async () => {
     const { server, handshake, input } = createTestServer();
-    const servePromise = server.serve();
+    const _servePromise = server.serve();
 
     const ack = await handshake();
     expect(ack.type).toBe("handshake_ack");
@@ -237,7 +237,7 @@ describe("CesRpcServer", () => {
 
   test("rejects handshake with wrong protocol version", async () => {
     const { server, send, collectOutputLines, input } = createTestServer();
-    const servePromise = server.serve();
+    const _servePromise = server.serve();
 
     send({
       type: "handshake_request",
@@ -259,7 +259,7 @@ describe("CesRpcServer", () => {
 
   test("rejects RPC before handshake", async () => {
     const { server, send, collectOutputLines, input } = createTestServer();
-    const servePromise = server.serve();
+    const _servePromise = server.serve();
 
     send({
       type: "rpc",
@@ -283,13 +283,13 @@ describe("CesRpcServer", () => {
 
   test("dispatches RPC to registered handler", async () => {
     const handlers: RpcHandlerRegistry = {
-      list_grants: async (req: unknown) => {
+      list_grants: async (_req: unknown) => {
         return { grants: [] };
       },
     };
 
     const { server, handshake, rpc, input } = createTestServer(handlers);
-    const servePromise = server.serve();
+    const _servePromise = server.serve();
 
     await handshake();
 
@@ -304,7 +304,7 @@ describe("CesRpcServer", () => {
 
   test("returns METHOD_NOT_FOUND for unknown methods", async () => {
     const { server, handshake, rpc, input } = createTestServer();
-    const servePromise = server.serve();
+    const _servePromise = server.serve();
 
     await handshake();
 
@@ -326,7 +326,7 @@ describe("CesRpcServer", () => {
     };
 
     const { server, handshake, rpc, input } = createTestServer(handlers);
-    const servePromise = server.serve();
+    const _servePromise = server.serve();
 
     await handshake();
 

@@ -174,7 +174,7 @@ export function GeneralPage() {
         />
       </SettingsCard>
 
-      {isLoggedIn && <ProfileCard />}
+      {isLoggedIn && <ProfileCard assistant={platformAssistant} />}
 
       {showSystemResources && (
         <SettingsCard

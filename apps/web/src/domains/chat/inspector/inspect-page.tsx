@@ -30,6 +30,7 @@ import { routes } from "@/utils/routes.js";
 import { CallRail } from "./components/call-rail.js";
 import { TabBar, type InspectorTab } from "./components/tab-bar.js";
 import { MemoryTab } from "./components/tabs/memory-tab.js";
+import { SkillsTab } from "./components/tabs/skills-tab.js";
 import { OverviewTab } from "./components/tabs/overview-tab.js";
 import { PromptTab } from "./components/tabs/prompt-tab.js";
 import { RawTab } from "./components/tabs/raw-tab.js";
@@ -477,6 +478,8 @@ function Loaded({
             <TabContent
               tab={tab}
               entry={selectedLog}
+              logs={logs}
+              buildCallHref={buildCallHref}
               assistantId={assistantId}
               context={context}
               conversationTotalEstimatedCostUsd={
@@ -497,6 +500,8 @@ function Loaded({
 interface TabContentProps {
   tab: InspectorTab;
   entry: LLMRequestLogEntry;
+  logs: LLMRequestLogEntry[];
+  buildCallHref: (logId: string) => string;
   assistantId: string | undefined;
   context: LlmContextResponse | undefined;
   conversationTotalEstimatedCostUsd: number | null | undefined;
@@ -505,6 +510,8 @@ interface TabContentProps {
 function TabContent({
   tab,
   entry,
+  logs,
+  buildCallHref,
   assistantId,
   context,
   conversationTotalEstimatedCostUsd,
@@ -523,6 +530,8 @@ function TabContent({
       return <ResponseTab entry={entry} />;
     case "raw":
       return <RawTab entry={entry} assistantId={assistantId} />;
+    case "skills":
+      return <SkillsTab logs={logs} buildCallHref={buildCallHref} />;
     case "memory":
       return <MemoryTab context={context} />;
   }

@@ -19,13 +19,11 @@ import { platformOAuthHandle } from "@vellumai/service-contracts/credential-rpc"
 import {
   type ManagedSubject,
   resolveManagedSubject,
-  SubjectResolutionError,
   type PlatformCatalogEntry,
   type ResolvedSubject,
 } from "../subjects/managed.js";
 import {
   materializeManagedToken,
-  MaterializationError,
   type ManagedMaterializerOptions,
 } from "../materializers/managed-platform.js";
 
@@ -82,7 +80,7 @@ function createMockFetch(handlers: {
     error?: Error;
   };
 }): typeof globalThis.fetch {
-  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+  return (async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
 
     if (url.includes("/oauth/managed/catalog")) {

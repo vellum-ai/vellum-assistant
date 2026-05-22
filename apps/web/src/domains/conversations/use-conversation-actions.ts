@@ -92,25 +92,53 @@ export function useConversationActions({
     async (conversation: Conversation) => {
       if (!assistantId) return;
       haptic.medium();
+
+      const wasActive =
+        conversation.conversationKey === activeConversationKey;
+      let nextKey: string | null = null;
+      if (wasActive) {
+        nextKey = findNextConversationKey(conversations, conversation.conversationKey);
+      }
+
+      // Snapshot prior `archivedAt` so we can roll back on API failure.
+      // `undefined` is the canonical "not archived" value — sidebar
+      // grouping filters on `archivedAt == null` (see group-conversations.ts).
+      const originalArchivedAt = conversation.archivedAt;
+
+      // Optimistic update: hide the row from the sidebar immediately so it
+      // disappears in the same frame as the click, without waiting for the
+      // network round trip. Any truthy timestamp is sufficient — the real
+      // server-authoritative value gets reconciled by `refreshConversations()`
+      // once the API call succeeds.
+      patchConversation(queryClient, assistantId, conversation.conversationKey, {
+        archivedAt: Date.now(),
+      });
+
+      // Switch away from the archived conversation before the network call
+      // too, so the focused chat never sits on a row that's already been
+      // filtered out of the sidebar.
+      if (wasActive) {
+        if (nextKey) {
+          switchConversation(nextKey);
+        } else {
+          startNewConversation({ silent: true });
+        }
+      }
+
       try {
-        const wasActive =
-          conversation.conversationKey === activeConversationKey;
-        let nextKey: string | null = null;
-        if (wasActive) {
-          nextKey = findNextConversationKey(conversations, conversation.conversationKey);
-        }
-
         await archiveConversation(assistantId, conversation.conversationKey);
+        // Refresh so the optimistic `Date.now()` guess is replaced with the
+        // server-authoritative timestamp and any other side effects sync in.
         await refreshConversations();
-
-        if (wasActive) {
-          if (nextKey) {
-            switchConversation(nextKey);
-          } else {
-            startNewConversation({ silent: true });
-          }
-        }
       } catch (err) {
+        // Roll back the optimistic patch so the row reappears in the
+        // sidebar — the user's action effectively didn't happen. We
+        // intentionally don't try to restore the active-conversation
+        // selection: the user has already moved on visually, and yanking
+        // them back would be more disorienting than the rolled-back row.
+        patchConversation(queryClient, assistantId, conversation.conversationKey, {
+          archivedAt: originalArchivedAt,
+        });
         Sentry.captureException(err, {
           tags: { context: "archiveConversation" },
         });
@@ -120,6 +148,7 @@ export function useConversationActions({
       activeConversationKey,
       assistantId,
       conversations,
+      queryClient,
       refreshConversations,
       startNewConversation,
       switchConversation,
@@ -129,13 +158,26 @@ export function useConversationActions({
   const handleUnarchiveConversation = useCallback(
     async (conversation: Conversation) => {
       if (!assistantId) return;
+
+      const originalArchivedAt = conversation.archivedAt;
+
+      // Optimistic update: clear `archivedAt` so the row pops back into the
+      // active sidebar in the same frame as the click. Mirrors the
+      // optimistic archive path above.
+      patchConversation(queryClient, assistantId, conversation.conversationKey, {
+        archivedAt: undefined,
+      });
+
       try {
         await unarchiveConversation(
           assistantId,
           conversation.conversationKey,
         );
-        patchConversation(queryClient, assistantId, conversation.conversationKey, { archivedAt: undefined });
       } catch (err) {
+        // Roll back so the row re-archives in the UI.
+        patchConversation(queryClient, assistantId, conversation.conversationKey, {
+          archivedAt: originalArchivedAt,
+        });
         Sentry.captureException(err, {
           tags: { context: "unarchiveConversation" },
         });

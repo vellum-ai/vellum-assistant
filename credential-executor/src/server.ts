@@ -195,7 +195,7 @@ export class CesRpcServer {
     if (this.closed) return;
     this.closed = true;
     this.input.destroy();
-    if (typeof (this.output as any).destroy === "function") {
+    if (typeof (this.output as { destroy?: () => void }).destroy === "function") {
       this.output.destroy();
     }
   }

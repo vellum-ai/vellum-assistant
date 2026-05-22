@@ -18,10 +18,10 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createConnection, type Socket } from "node:net";
+import { createConnection, createServer as createNetServer, type Socket } from "node:net";
 import { Readable, Writable } from "node:stream";
 
 import {
@@ -37,7 +37,6 @@ import {
 } from "@vellumai/service-contracts/credential-rpc";
 
 import { PersistentGrantStore } from "../grants/persistent-store.js";
-import { TemporaryGrantStore } from "../grants/temporary-store.js";
 import { AuditStore } from "../audit/store.js";
 import {
   createListGrantsHandler,
@@ -159,12 +158,11 @@ function acceptOneConnection(socketPath: string, signal: AbortSignal): Promise<{
   socket: Socket;
 }> {
   return new Promise((resolve, reject) => {
-    const { createServer: createNetServer } = require("node:net");
     const netServer = createNetServer();
 
     const cleanup = () => {
       netServer.close();
-      try { require("node:fs").unlinkSync(socketPath); } catch { /* ok */ }
+      try { unlinkSync(socketPath); } catch { /* ok */ }
     };
 
     if (signal.aborted) {
@@ -188,7 +186,7 @@ function acceptOneConnection(socketPath: string, signal: AbortSignal): Promise<{
 
     netServer.on("connection", (sock: Socket) => {
       netServer.close();
-      try { require("node:fs").unlinkSync(socketPath); } catch { /* ok */ }
+      try { unlinkSync(socketPath); } catch { /* ok */ }
 
       const readable = new Readable({ read() {} });
       const writable = new Writable({
@@ -356,9 +354,10 @@ describe("managed CES integration (real Unix socket)", () => {
     // -- Pick a free port for health server ------------------------------------
     // Use port 0 trick: bind, read the port, close, then use it.
     const healthPort = await new Promise<number>((resolve) => {
-      const srv = require("node:net").createServer();
+      const srv = createNetServer();
       srv.listen(0, () => {
-        const port = srv.address().port;
+        const address = srv.address();
+        const port = typeof address === "object" && address ? address.port : 0;
         srv.close(() => resolve(port));
       });
     });

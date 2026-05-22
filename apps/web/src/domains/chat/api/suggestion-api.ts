@@ -1,5 +1,4 @@
 import { client } from "@/generated/api/client.gen.js";
-import { conversationQueryParams } from "@/domains/chat/api/client.js";
 
 // `/v1/assistants/{id}/suggestion` is not yet in the OpenAPI schema, so we
 // fall through to the low-level HeyAPI client until it's generated.
@@ -22,7 +21,7 @@ const EMPTY: SuggestionResult = {
 
 export async function fetchSuggestion(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   messageId?: string,
   signal?: AbortSignal,
 ): Promise<SuggestionResult> {
@@ -32,7 +31,7 @@ export async function fetchSuggestion(
       url: "/v1/assistants/{assistant_id}/suggestion",
       path: { assistant_id: assistantId },
       query: {
-        ...conversationQueryParams(conversationKey),
+        conversationId,
         ...(messageId ? { messageId } : {}),
       },
       throwOnError: false,

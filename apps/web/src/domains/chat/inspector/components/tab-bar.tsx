@@ -7,6 +7,7 @@ export type InspectorTab =
   | "prompt"
   | "response"
   | "raw"
+  | "skills"
   | "memory";
 
 const TABS: { id: InspectorTab; label: string }[] = [
@@ -14,6 +15,7 @@ const TABS: { id: InspectorTab; label: string }[] = [
   { id: "prompt", label: "Prompt" },
   { id: "response", label: "Response" },
   { id: "raw", label: "Raw" },
+  { id: "skills", label: "Skills" },
   { id: "memory", label: "Memory" },
 ];
 
