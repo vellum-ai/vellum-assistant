@@ -73,6 +73,7 @@ import { useEventStream } from "@/domains/chat/hooks/use-event-stream.js";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync.js";
 import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input.js";
 import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages.js";
+import { useChatDebugApi } from "@/domains/chat/utils/debug-api.js";
 
 import { SetupScreen } from "@/domains/chat/components/setup-screen.js";
 import { CleanupScreen } from "@/domains/chat/components/cleanup-screen.js";
@@ -87,6 +88,7 @@ import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils.js";
 import { isSurfaceInteractive } from "@/domains/chat/types/types.js";
 import type { UIContext } from "@/domains/messaging/turn-selectors.js";
+import { useTurnStore } from "@/domains/messaging/turn-store.js";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel.js";
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations.js";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu.js";
@@ -730,6 +732,19 @@ export function ChatPage() {
     messagesRef,
     setMessages,
     dismissedSurfaceIdsRef,
+  });
+
+  // Debug API — dev-facing surface for in-the-moment chat inspection.
+  // Unconditionally attached; negligible production overhead.
+  useChatDebugApi({
+    messagesRef,
+    getTurnState: useTurnStore.getState,
+    streamContextRef,
+    streamRef,
+    streamEpochRef,
+    activeConversationKeyRef,
+    getAssistantId: () => assistantIdRef.current,
+    reconcileActiveConversation,
   });
 
   // -------------------------------------------------------------------------
