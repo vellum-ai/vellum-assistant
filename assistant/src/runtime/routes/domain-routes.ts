@@ -64,12 +64,18 @@ async function handleDomainRegister({ body = {} }: RouteHandlerArgs) {
       string,
       unknown
     >;
+    const firstFieldError = ["subdomain", "email_username"].reduce<
+      string | undefined
+    >(
+      (found, field) =>
+        found ??
+        (Array.isArray(respBody[field])
+          ? (respBody[field][0] as string)
+          : undefined),
+      undefined,
+    );
     const detail =
-      respBody.detail ??
-      (Array.isArray(respBody.subdomain)
-        ? respBody.subdomain[0]
-        : undefined) ??
-      `HTTP ${response.status}`;
+      respBody.detail ?? firstFieldError ?? `HTTP ${response.status}`;
     throw new BadRequestError(String(detail));
   }
 
