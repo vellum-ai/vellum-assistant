@@ -325,10 +325,6 @@ final class AvatarAppearanceManager {
     func saveAvatar(_ image: NSImage, bodyShape: AvatarBodyShape? = nil, eyeStyle: AvatarEyeStyle? = nil, color: AvatarColor? = nil, skipWorkspaceSync: Bool = false) {
         let isCharacter = bodyShape != nil
 
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
-
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
@@ -350,24 +346,34 @@ final class AvatarAppearanceManager {
         }
         updateDockIcon()
 
-        // Update the local client-side cache so the next cold launch can
-        // hydrate the dock icon before the daemon is ready.
+        // Character traits are small JSON — persist synchronously.
         if isCharacter, let body = bodyShape, let eyes = eyeStyle, let color = color {
             AvatarCache.saveTraits(bodyShape: body, eyeStyle: eyes, color: color)
             AvatarCache.clearImage()
-        } else {
-            AvatarCache.saveImage(pngData)
-            AvatarCache.clearTraits()
         }
 
-        guard !skipWorkspaceSync else { return }
+        // PNG encoding (tiffRepresentation → NSBitmapImageRep → .png) is
+        // CPU-bound. Run off-main so it doesn't block the UI while the
+        // image is persisted to the local cache and the workspace.
+        let syncToWorkspace = !skipWorkspaceSync
+        Task.detached(priority: .utility) { [weak self] in
+            guard let tiffData = image.tiffRepresentation,
+                  let bitmap = NSBitmapImageRep(data: tiffData),
+                  let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
 
-        // Persist to the assistant's workspace via the gateway.
-        Task {
+            if !isCharacter {
+                AvatarCache.saveImage(pngData)
+                AvatarCache.clearTraits()
+            }
+
+            guard syncToWorkspace else { return }
+
             let workspaceClient = WorkspaceClient()
             _ = await workspaceClient.createWorkspaceDirectory(path: "data/avatar")
             _ = await workspaceClient.writeWorkspaceFile(path: "data/avatar/avatar-image.png", content: pngData)
-            saveAvatarComponentsViaGateway()
+            await MainActor.run { [weak self] in
+                self?.saveAvatarComponentsViaGateway()
+            }
         }
     }
 
@@ -555,6 +561,11 @@ final class AvatarAppearanceManager {
     /// Posted whenever the avatar changes so other components (e.g. menu bar icon) can update.
     static let avatarDidChangeNotification = Notification.Name("AvatarAppearanceManager.avatarDidChange")
 
+    /// Monotonically increasing generation counter for dock icon updates.
+    /// Prevents a slow background rasterization from overwriting a newer
+    /// icon when multiple `updateDockIcon()` calls overlap.
+    @ObservationIgnored private var dockIconGeneration: Int = 0
+
     /// The original bundle icon resolved from the `.app` bundle on disk.
     /// Uses `NSWorkspace` so the result is independent of whatever
     /// `applicationIconImage` is set at runtime and already includes all
@@ -596,9 +607,18 @@ final class AvatarAppearanceManager {
     ///
     /// Reference: https://developer.apple.com/documentation/appkit/nsapplication/applicationiconimage
     func restoreBundleIcon() {
+        dockIconGeneration += 1
+        let generation = dockIconGeneration
         NSApplication.shared.applicationIconImage = Self.bundledAppIcon
         NSApp.dockTile.display()
-        NSWorkspace.shared.setIcon(nil, forFile: Bundle.main.bundlePath, options: [])
+        let bundlePath = Bundle.main.bundlePath
+        Task.detached(priority: .utility) { [weak self] in
+            let isCurrent = await MainActor.run { [weak self] in
+                self?.dockIconGeneration == generation
+            }
+            guard isCurrent else { return }
+            NSWorkspace.shared.setIcon(nil, forFile: bundlePath, options: [])
+        }
     }
 
     /// Updates the application dock icon to match the current avatar.
@@ -610,6 +630,15 @@ final class AvatarAppearanceManager {
     /// pick up the avatar. `applicationIconImage` only affects the
     /// in-process Dock tile, which is why notifications would otherwise
     /// keep showing the bundled green V.
+    ///
+    /// Image processing (resize, squircle mask, compositing, rasterization)
+    /// and the `NSWorkspace.setIcon` write (which internally encodes PNG at
+    /// every icon size) run in a detached task so the main thread is never
+    /// blocked. A monotonic generation counter ensures that only the most
+    /// recent invocation's result is applied to the dock tile.
+    ///
+    /// Reference: https://developer.apple.com/documentation/appkit/nsimage
+    /// — "You may create, use, and destroy NSImage objects from any thread."
     private func updateDockIcon() {
         NotificationCenter.default.post(name: Self.avatarDidChangeNotification, object: nil)
 
@@ -624,23 +653,62 @@ final class AvatarAppearanceManager {
             return
         }
 
+        dockIconGeneration += 1
+        let generation = dockIconGeneration
+        let bundlePath = Bundle.main.bundlePath
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let icon = Self.composeDockIcon(from: avatar)
+
+            // Check generation before the expensive disk write so a
+            // superseded task doesn't overwrite a newer icon's .icns.
+            let isCurrent = await MainActor.run { [weak self] in
+                self?.dockIconGeneration == generation
+            }
+            guard isCurrent else { return }
+
+            // Write .icns to disk — the heaviest single operation (PNG
+            // encoding at multiple resolutions). Safe off main thread:
+            // NSWorkspace.setIcon writes to the file system.
+            NSWorkspace.shared.setIcon(icon, forFile: bundlePath, options: [])
+
+            await MainActor.run { [weak self] in
+                guard let self, self.dockIconGeneration == generation else { return }
+                NSApplication.shared.applicationIconImage = icon
+                NSApp.dockTile.display()
+            }
+        }
+    }
+
+    /// Composes the padded squircle dock icon from a source avatar and forces
+    /// rasterization so the result is a flat bitmap with no deferred drawing
+    /// handlers. Callers receive an image that can be displayed or encoded
+    /// without triggering further computation.
+    nonisolated private static func composeDockIcon(from avatar: NSImage) -> NSImage {
         // Standard macOS icons have ~10% padding so the artwork doesn't crowd
         // the dock running-indicator dot or produce edge fringe artifacts.
         let canvasSize: CGFloat = 512
         let iconSize: CGFloat = 418  // ~82% of canvas, matching Apple icon grid
         let padding = (canvasSize - iconSize) / 2
-        let squircle = Self.squircleIcon(avatar, size: iconSize)
+        let squircle = squircleIcon(avatar, size: iconSize)
 
-        let icon = NSImage(size: NSSize(width: canvasSize, height: canvasSize), flipped: false) { _ in
+        let composed = NSImage(size: NSSize(width: canvasSize, height: canvasSize), flipped: false) { _ in
             let iconRect = NSRect(x: padding, y: padding, width: iconSize, height: iconSize)
             squircle.draw(in: iconRect, from: NSRect(origin: .zero, size: squircle.size),
                           operation: .copy, fraction: 1.0)
             return true
         }
 
-        NSApplication.shared.applicationIconImage = icon
-        NSApp.dockTile.display()
-        NSWorkspace.shared.setIcon(icon, forFile: Bundle.main.bundlePath, options: [])
+        // Force rasterization: tiffRepresentation executes all deferred
+        // drawing handlers (resize → squircle mask → compositing) and
+        // produces a bitmap. Re-creating from that data gives an NSImage
+        // backed by NSBitmapImageRep, so dockTile.display() on the main
+        // thread just blits pixels instead of running the full pipeline.
+        guard let tiffData = composed.tiffRepresentation,
+              let rasterized = NSImage(data: tiffData) else {
+            return composed
+        }
+        return rasterized
     }
 
     /// Renders the source image inside a macOS-style squircle mask at the given point size.
