@@ -24,10 +24,6 @@ import { dirname, join } from "node:path";
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type { DrizzleDb } from "../../memory/db-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
-import {
-  type CredentialListResult,
-  listSecureKeysAsync,
-} from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
@@ -49,6 +45,7 @@ const CREDENTIAL_RECOVERY_MARKER =
 const CREDENTIAL_RECOVERY_TIMEOUT_MS = 2_000;
 
 export type LegacyInferenceMode = "managed" | "your-own";
+type CredentialListResult = { accounts: string[]; unreachable: boolean };
 
 export type ProviderConnectionsBackfillOptions = {
   /**
@@ -58,6 +55,12 @@ export type ProviderConnectionsBackfillOptions = {
    * `*-managed`.
    */
   legacyInferenceMode?: LegacyInferenceMode;
+  /**
+   * Supplied by the daemon startup boundary so this backfill can recover
+   * connection rows from credential names without importing secure-keys
+   * directly.
+   */
+  listStoredCredentialAccounts?: () => Promise<CredentialListResult>;
 };
 
 export function readLegacyInferenceModeSnapshot():
@@ -97,7 +100,7 @@ export async function runProviderConnectionsBackfill(
   try {
     seedCanonicalConnections(db);
     backfillConfigProfiles(db, options);
-    await recoverPersonalConnectionsFromStoredCredentials(db);
+    await recoverPersonalConnectionsFromStoredCredentials(db, options);
   } catch (err) {
     log.error(
       { err },
@@ -289,10 +292,14 @@ function ensurePersonalConnection(
 
 async function recoverPersonalConnectionsFromStoredCredentials(
   db: DrizzleDb,
+  options: ProviderConnectionsBackfillOptions,
 ): Promise<void> {
+  if (!options.listStoredCredentialAccounts) return;
   if (credentialRecoveryMarkerExists()) return;
 
-  const listResult = await listSecureKeysForRecovery();
+  const listResult = await listSecureKeysForRecovery(
+    options.listStoredCredentialAccounts,
+  );
   if (listResult.unreachable) {
     log.warn(
       "Credential store unreachable during provider connection recovery; will retry on next boot",
@@ -311,11 +318,13 @@ async function recoverPersonalConnectionsFromStoredCredentials(
   writeCredentialRecoveryMarker(recoveredProviders);
 }
 
-async function listSecureKeysForRecovery(): Promise<CredentialListResult> {
+async function listSecureKeysForRecovery(
+  listStoredCredentialAccounts: () => Promise<CredentialListResult>,
+): Promise<CredentialListResult> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      listSecureKeysAsync(),
+      listStoredCredentialAccounts(),
       new Promise<CredentialListResult>((resolve) => {
         timeout = setTimeout(
           () => resolve({ accounts: [], unreachable: true }),

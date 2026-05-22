@@ -77,6 +77,7 @@ import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
+  listSecureKeysAsync,
   onCesClientChanged,
   setCesClient,
   setCesReconnect,
@@ -409,7 +410,10 @@ export async function runDaemon(): Promise<void> {
       // Idempotent — runs every boot so new canonicals propagate and manual
       // config.json edits self-heal.
       try {
-        await runProviderConnectionsBackfill(getDb(), { legacyInferenceMode });
+        await runProviderConnectionsBackfill(getDb(), {
+          legacyInferenceMode,
+          listStoredCredentialAccounts: listSecureKeysAsync,
+        });
       } catch (err) {
         log.warn(
           { err },

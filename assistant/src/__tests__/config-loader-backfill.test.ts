@@ -89,7 +89,11 @@ import {
 import { getConnection } from "../providers/inference/connections.js";
 import { credentialKey } from "../security/credential-key.js";
 import { _setStorePath } from "../security/encrypted-store.js";
-import { _resetBackend, setSecureKeyAsync } from "../security/secure-keys.js";
+import {
+  _resetBackend,
+  listSecureKeysAsync,
+  setSecureKeyAsync,
+} from "../security/secure-keys.js";
 import { dropServicesInferenceModeMigration } from "../workspace/migrations/076-drop-services-inference-mode.js";
 
 // ---------------------------------------------------------------------------
@@ -590,7 +594,9 @@ describe("loadConfig startup behavior", () => {
     const db = createProviderConnectionsDb();
     expect(getConnection(db, "anthropic-personal")).toBeNull();
 
-    await runProviderConnectionsBackfill(db);
+    await runProviderConnectionsBackfill(db, {
+      listStoredCredentialAccounts: listSecureKeysAsync,
+    });
 
     expect(getConnection(db, "anthropic-personal")?.auth).toEqual({
       type: "api_key",
@@ -603,7 +609,9 @@ describe("loadConfig startup behavior", () => {
     db.delete(schema.providerConnections)
       .where(eq(schema.providerConnections.name, "anthropic-personal"))
       .run();
-    await runProviderConnectionsBackfill(db);
+    await runProviderConnectionsBackfill(db, {
+      listStoredCredentialAccounts: listSecureKeysAsync,
+    });
     expect(getConnection(db, "anthropic-personal")).toBeNull();
   });
 
