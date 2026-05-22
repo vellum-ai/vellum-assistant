@@ -11045,6 +11045,55 @@ paths:
               type: object
               properties: {}
               additionalProperties: false
+  /v1/memory/v2/simulate-router:
+    post:
+      operationId: memory_v2_simulaterouter_post
+      summary: Dry-run the v4 router with config overrides (read-only)
+      description:
+        Runs the memory router against the live page index + EMA scores with optional tier_size / batch_size
+        overrides, without recording an injection event or writing an activation log. Returns the slugs that would have
+        been selected, per-slug tier provenance, EMA scores, and the effective router config so operators can validate
+        knob changes before flipping them in workspace config.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                  minLength: 1
+                configOverrides:
+                  type: object
+                  properties:
+                    tier1_size:
+                      anyOf:
+                        - type: integer
+                          minimum: 1
+                          maximum: 9007199254740991
+                        - type: "null"
+                    tier2_size:
+                      anyOf:
+                        - type: integer
+                          minimum: 1
+                          maximum: 9007199254740991
+                        - type: "null"
+                    batch_size:
+                      anyOf:
+                        - type: integer
+                          minimum: 1
+                          maximum: 9007199254740991
+                        - type: "null"
+                  additionalProperties: false
+              required:
+                - query
+              additionalProperties: false
   /v1/memory/v2/validate:
     post:
       operationId: memory_v2_validate_post
