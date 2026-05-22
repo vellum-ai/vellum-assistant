@@ -5,7 +5,7 @@
  * `VELLUM_WORKSPACE_DIR` to a per-file temp directory.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
@@ -14,6 +14,7 @@ mock.module("../../../util/logger.js", () => ({
     }),
 }));
 
+import { setPlatformAssistantId } from "../../../config/env.js";
 import {
   invalidateConfigCache,
   loadRawConfig,
@@ -244,5 +245,41 @@ describe("completeA2AInvite", () => {
     const invite = findById(created.inviteId!);
     expect(invite!.status).toBe("active");
     expect(invite!.useCount).toBe(0);
+  });
+});
+
+describe("completeA2AInvite — platform mode", () => {
+  beforeEach(() => {
+    resetTables();
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
+    setPlatformAssistantId("ast_platform_test");
+    setConfig({
+      a2aEnabled: false,
+      publicBaseUrl: "",
+      ingressEnabled: undefined,
+    });
+  });
+
+  afterEach(() => {
+    delete process.env.IS_PLATFORM;
+    delete process.env.VELLUM_PLATFORM_URL;
+    setPlatformAssistantId(undefined);
+  });
+
+  test("resolves sender gateway URL automatically in platform mode", () => {
+    const created = createA2AInvite({});
+    expect(created.success).toBe(true);
+
+    const result = completeA2AInvite({
+      token: created.token!,
+      senderAssistantId: "sender-platform-id-789",
+      acceptor: ACCEPTOR,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.sender?.gatewayUrl).toBe(
+      "https://test-platform.vellum.ai/v1/gateway/callbacks/ast_platform_test",
+    );
   });
 });

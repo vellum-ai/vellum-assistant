@@ -3,7 +3,7 @@
  *
  * ## Source-of-truth precedence
  *
- * The canonical public base URL is resolved through a two-level chain:
+ * The canonical public base URL is resolved through a three-level chain:
  *
  *   1. **User Settings** (`config.ingress.publicBaseUrl`) — set via
  *      the in-chat config flow, the Settings UI, or `config set ingress.publicBaseUrl`. This is the
@@ -16,6 +16,11 @@
  *      tunnels start or stop, `setIngressPublicBaseUrl()` updates this
  *      value in-process.
  *
+ *   3. **Platform derivation** (`getPlatformPublicCallbackBase()`) — for
+ *      platform-hosted assistants (`IS_PLATFORM=true`), derives the URL
+ *      from the platform base URL and assistant ID as
+ *      `${platformBase}/v1/gateway/callbacks/${assistantId}`.
+ *
  * This chain ensures that:
  *   - The assistant's outbound callback URLs (Twilio webhooks, OAuth
  *     redirect URIs, etc.) match the gateway's inbound signature
@@ -23,6 +28,8 @@
  *   - Changing the URL in Settings immediately updates outbound callback
  *     registration, while the gateway can validate inbound Twilio signatures
  *     using forwarded public URL headers from tunnels/proxies.
+ *   - Platform-hosted assistants automatically resolve their public URL
+ *     without manual configuration.
  *
  * All public-facing ingress URL construction is centralized here.
  */
@@ -36,13 +43,39 @@ import {
   normalizePublicBaseUrl,
 } from "@vellumai/service-contracts/twilio-ingress";
 
-import { getIngressPublicBaseUrl } from "../config/env.js";
+import {
+  getIngressPublicBaseUrl,
+  getPlatformAssistantId,
+  getPlatformBaseUrl,
+} from "../config/env.js";
+import { getIsPlatform } from "../config/env-registry.js";
 
 export interface IngressConfig {
   ingress?: {
     enabled?: boolean;
     publicBaseUrl?: string;
   };
+}
+
+/**
+ * Derive the platform callback base URL for platform-hosted assistants.
+ *
+ * Returns `https://<platformBase>/v1/gateway/callbacks/<assistantId>` when
+ * `IS_PLATFORM=true` and both the platform base URL and assistant ID are
+ * available. The `/v1` prefix matches the Django URL pattern at
+ * `django/config/api_router.py` (`gateway/callbacks/<path:callback_path>/`).
+ *
+ * Returns `undefined` when not in platform mode or when the required
+ * identifiers are missing.
+ */
+export function getPlatformPublicCallbackBase(): string | undefined {
+  if (!getIsPlatform()) return undefined;
+
+  const platformBase = getPlatformBaseUrl().replace(/\/+$/, "");
+  const assistantId = getPlatformAssistantId();
+  if (!platformBase || !assistantId) return undefined;
+
+  return `${platformBase}/v1/gateway/callbacks/${assistantId}`;
 }
 
 function assertPublicIngressEnabled(config: IngressConfig): void {
@@ -74,6 +107,9 @@ export function getPublicBaseUrl(config: IngressConfig): string {
   const normalizedIngressEnvValue = normalizePublicBaseUrl(ingressEnvValue);
   if (normalizedIngressEnvValue) return normalizedIngressEnvValue;
 
+  const platformBase = getPlatformPublicCallbackBase();
+  if (platformBase) return platformBase;
+
   throw new Error(
     "No public base URL configured. Set ingress.publicBaseUrl in config.",
   );
@@ -92,10 +128,7 @@ export function getTwilioVoiceWebhookUrl(
   config: IngressConfig,
   callSessionId?: string,
 ): string {
-  return buildTwilioVoiceWebhookUrl(
-    getPublicBaseUrl(config),
-    callSessionId,
-  );
+  return buildTwilioVoiceWebhookUrl(getPublicBaseUrl(config), callSessionId);
 }
 
 /**
