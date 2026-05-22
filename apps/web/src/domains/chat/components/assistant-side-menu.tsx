@@ -62,7 +62,6 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onUnarchiveConversation?: (conversation: Conversation) => void;
   onMarkConversationUnread?: (conversation: Conversation) => void;
   onMarkConversationRead?: (conversation: Conversation) => void;
-  onCreateGroup?: () => void;
   onMoveToGroup?: (conversation: Conversation, groupId: string) => void;
   onRemoveFromGroup?: (conversation: Conversation) => void;
   onRenameGroup?: (groupId: string) => void;
@@ -120,7 +119,6 @@ export function AssistantSideMenu({
   onMarkConversationUnread,
   onMarkConversationRead,
   conversationGroups,
-  onCreateGroup,
   onMoveToGroup,
   onRemoveFromGroup,
   onRenameGroup,

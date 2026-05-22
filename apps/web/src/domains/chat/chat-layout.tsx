@@ -152,7 +152,7 @@ export function ChatLayout() {
   // create/rename/delete affordances are rendered here, not in ChatPage.
   // The hook is self-sufficient (cache invalidation handles rollback), so
   // it can live wherever the sidebar lives.
-  const { handleCreateGroup, handleRenameGroup, handleDeleteGroup } =
+  const { handleRenameGroup, handleDeleteGroup } =
     useConversationGroupActions({
       assistantId: lifecycle.assistantId,
       conversationGroups,
@@ -445,7 +445,6 @@ export function ChatLayout() {
         onOpenIntelligence={handleOpenIdentity}
         isLibraryActive={isLibraryActive}
         onOpenLibrary={handleOpenLibrary}
-        onCreateGroup={handleCreateGroup}
         onRenameGroup={handleRenameGroup}
         onDeleteGroup={handleDeleteGroup}
         footerBanner={footerBanner}
@@ -471,7 +470,6 @@ export function ChatLayout() {
       attentionKeys,
       handleSelectConversation,
       handleStartNewConversation,
-      handleCreateGroup,
       handleRenameGroup,
       handleDeleteGroup,
       isIdentityActive,

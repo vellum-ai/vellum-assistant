@@ -85,7 +85,7 @@ describe("AssistantSideMenu · Conversations category rows", () => {
     expect(html).not.toContain(">Slack<");
   });
 
-  test("renders Slack as a conditional peer section before Recents", () => {
+  test("renders Slack as a conditional peer section after Background", () => {
     const conversations = [
       makeConversation({ conversationKey: "regular", title: "Regular thread" }),
       makeConversation({
@@ -99,12 +99,16 @@ describe("AssistantSideMenu · Conversations category rows", () => {
     const html = renderMenu({ conversations });
     expect(html).toContain(">Slack<");
 
+    const pinnedIndex = html.indexOf(">Pinned<");
+    const recentsIndex = html.indexOf(">Recents<");
+    const scheduledIndex = html.indexOf(">Scheduled<");
     const backgroundIndex = html.indexOf(">Background<");
     const slackIndex = html.indexOf(">Slack<");
-    const recentsIndex = html.indexOf(">Recents<");
-    expect(backgroundIndex).toBeGreaterThanOrEqual(0);
+    expect(pinnedIndex).toBeGreaterThanOrEqual(0);
+    expect(recentsIndex).toBeGreaterThan(pinnedIndex);
+    expect(scheduledIndex).toBeGreaterThan(recentsIndex);
+    expect(backgroundIndex).toBeGreaterThan(scheduledIndex);
     expect(slackIndex).toBeGreaterThan(backgroundIndex);
-    expect(recentsIndex).toBeGreaterThan(slackIndex);
   });
 
   test("renders a count badge only for non-empty category buckets", () => {
