@@ -50,6 +50,15 @@ interface SlackUserInfoLookupResult {
   cacheable: boolean;
 }
 
+const PERMANENT_USER_INFO_SLACK_ERRORS = new Set([
+  "account_inactive",
+  "ekm_access_denied",
+  "missing_scope",
+  "not_allowed_token_type",
+  "user_not_found",
+  "user_not_visible",
+]);
+
 // Cache normalized Slack user facts to avoid repeated API calls within a session.
 const userInfoCache = new Map<string, Promise<SlackUserInfoLookupResult>>();
 
@@ -250,12 +259,19 @@ async function resolveUserInfoUncached(
       info: normalizeSlackUserInfo(resp.user, contactDisplayName),
       cacheable: true,
     };
-  } catch {
+  } catch (err) {
     return {
       info: { displayName: contactDisplayName ?? userId },
-      cacheable: false,
+      cacheable: isPermanentSlackUserInfoFailure(err),
     };
   }
+}
+
+function isPermanentSlackUserInfoFailure(err: unknown): boolean {
+  return (
+    err instanceof SlackApiError &&
+    PERMANENT_USER_INFO_SLACK_ERRORS.has(err.slackError)
+  );
 }
 
 function slackUserInfoCacheKey(
