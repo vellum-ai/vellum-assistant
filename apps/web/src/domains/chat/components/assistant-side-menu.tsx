@@ -2,13 +2,13 @@ import {
   Brain,
   Calendar,
   Clock,
-  FolderPlus,
   Globe,
   Hash,
   Layers,
   LayoutGrid,
   Pin,
   Search,
+  SquarePen,
   X,
 } from "lucide-react";
 import { useCallback, type ReactNode } from "react";
@@ -51,6 +51,7 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onOpenLibrary?: () => void;
   onOpenApp?: (appId: string) => void;
   activeAppId?: string;
+  onStartNewConversation?: () => void;
   footerBanner?: ReactNode;
   footerAction?: ReactNode;
   onClose?: () => void;
@@ -109,6 +110,7 @@ export function AssistantSideMenu({
   onOpenLibrary,
   onOpenApp,
   activeAppId,
+  onStartNewConversation,
   footerBanner,
   footerAction,
   onPinConversation,
@@ -263,13 +265,13 @@ export function AssistantSideMenu({
 
   // --- Header actions ---
 
-  const headerActions = sidebar.conversationGroupsEnabled ? (
+  const headerActions = onStartNewConversation ? (
     <Button
       variant="ghost"
       size="compact"
-      iconOnly={<FolderPlus />}
-      aria-label="Create group"
-      onClick={onCreateGroup}
+      iconOnly={<SquarePen />}
+      aria-label="New conversation"
+      onClick={() => { onStartNewConversation(); onClose?.(); }}
     />
   ) : null;
 

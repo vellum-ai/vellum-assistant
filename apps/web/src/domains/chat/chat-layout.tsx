@@ -20,6 +20,7 @@ import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge.js";
 import type { AssistantContextValue } from "@/components/layout/assistant-context.js";
 
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
+import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import {
   useConversationGroupsQuery,
   useConversationListQuery,
@@ -248,6 +249,14 @@ export function ChatLayout() {
   const canGoBack = historyIndexRef.current > 0;
   const canGoForward = historyIndexRef.current < maxHistoryIndexRef.current;
 
+  const handleStartNewConversation = useCallback(() => {
+    haptic.light();
+    useViewerStore.getState().setMainView("chat");
+    const draftKey = createDraftConversationKey();
+    useConversationStore.getState().setActiveKey(draftKey);
+    void navigate(routes.conversation(draftKey));
+  }, [navigate]);
+
   const handleOpenHome = useCallback(() => {
     navigate(routes.home);
   }, [navigate]);
@@ -431,6 +440,7 @@ export function ChatLayout() {
         processingConversationKeys={processingKeys}
         attentionConversationKeys={attentionKeys}
         onSelectConversation={handleSelectConversation}
+        onStartNewConversation={handleStartNewConversation}
         isIntelligenceActive={isIdentityActive}
         onOpenIntelligence={handleOpenIdentity}
         isLibraryActive={isLibraryActive}
@@ -460,6 +470,7 @@ export function ChatLayout() {
       processingKeys,
       attentionKeys,
       handleSelectConversation,
+      handleStartNewConversation,
       handleCreateGroup,
       handleRenameGroup,
       handleDeleteGroup,
