@@ -55,7 +55,10 @@ final class ConversationListStore {
     ///
     /// Reference: [`@ObservationIgnored`](https://developer.apple.com/documentation/observation/observationignored()).
     @ObservationIgnored var conversations: [ConversationModel] = [] {
-        didSet { recomputeDerivedProperties() }
+        didSet {
+            guard conversations != oldValue else { return }
+            recomputeDerivedProperties()
+        }
     }
     var groups: [ConversationGroup] = [] {
         didSet { recomputeDerivedProperties() }
@@ -531,11 +534,13 @@ final class ConversationListStore {
 
     func updateConversationTitle(id: UUID, title: String) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        guard conversations[index].title != title else { return }
         conversations[index].title = title
     }
 
     func updateConversationInferenceProfile(id: UUID, profile: String?) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        guard conversations[index].inferenceProfile != profile else { return }
         conversations[index].inferenceProfile = profile
     }
 
@@ -546,6 +551,7 @@ final class ConversationListStore {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        guard conversations[index].title != trimmed else { return }
         conversations[index].title = trimmed
         if let conversationId = conversations[index].conversationId {
             Task { await conversationListClient.renameConversation(conversationId: conversationId, name: trimmed) }
@@ -556,20 +562,28 @@ final class ConversationListStore {
 
     // MARK: - Recency
 
+    /// Value-level helper: apply last-interacted timestamp to a local snapshot.
+    /// Returns `true` if a pin-change notification is needed (displayOrder was
+    /// cleared for a Recents conversation). Callers that process multiple
+    /// mutations can use this to coalesce writes into a single `conversations`
+    /// writeback — same pattern as `applyAssistantAttention(from:into:)`.
+    @discardableResult
+    func applyLastInteracted(into conversation: inout ConversationModel) -> Bool {
+        conversation.lastInteractedAt = Date()
+        if conversation.groupId == ConversationGroup.all.id {
+            let hadOrder = conversation.displayOrder != nil
+            if hadOrder { conversation.displayOrder = nil }
+            return hadOrder
+        }
+        return false
+    }
+
     func updateLastInteracted(conversationId: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
         var conversation = conversations[index]
-        conversation.lastInteractedAt = Date()
-        if conversation.groupId == ConversationGroup.all.id {
-            // Clear explicit displayOrder so Recents conversations revert to recency-based sorting.
-            // Grouped conversations keep their manual ordering.
-            let hadOrder = conversation.displayOrder != nil
-            if hadOrder { conversation.displayOrder = nil }
-            conversations[index] = conversation
-            if hadOrder { sendPinChange(for: conversation) }
-        } else {
-            conversations[index] = conversation
-        }
+        let needsPinChange = applyLastInteracted(into: &conversation)
+        conversations[index] = conversation
+        if needsPinChange { sendPinChange(for: conversation) }
     }
 
     // MARK: - Pinning & Ordering
@@ -1210,6 +1224,7 @@ final class ConversationListStore {
     ) {
         var conversation = conversations[index]
         applyAssistantAttention(from: item, into: &conversation)
+        guard conversation != conversations[index] else { return }
         conversations[index] = conversation
     }
 

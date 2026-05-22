@@ -617,6 +617,7 @@ final class ConversationRestorer {
     func handleConversationTitleUpdated(_ response: ConversationTitleUpdatedMessage) {
         guard let delegate else { return }
         guard let index = delegate.conversations.firstIndex(where: { $0.conversationId == response.conversationId }) else { return }
+        guard delegate.conversations[index].title != response.title else { return }
         delegate.conversations[index].title = response.title
     }
 
