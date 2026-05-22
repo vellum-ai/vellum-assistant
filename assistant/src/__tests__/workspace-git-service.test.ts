@@ -421,11 +421,12 @@ describe("WorkspaceGitService", () => {
 
       await Promise.all(commits);
 
-      // All commits should have succeeded
-      const log = execFileSync("git", ["log", "--oneline"], {
-        cwd: testDir,
-        encoding: "utf-8",
-      });
+      // Read through the service so GIT_* vars set by CI runners are stripped
+      // (matches the env used for the commits themselves).
+      const { stdout: log } = await service.runReadOnlyGit([
+        "log",
+        "--oneline",
+      ]);
 
       for (let i = 0; i < 10; i++) {
         expect(log).toContain(`Add file ${i}`);
