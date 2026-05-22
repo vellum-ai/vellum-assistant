@@ -338,8 +338,8 @@ References:
 
 - **Asynchronous loading.** Load data (network responses, file contents, images) asynchronously off the main thread. Show loading states while data is in flight. Never block the main thread waiting for data.
 - **Image loading must be async.** Use `AsyncImage` (built-in) or a library like Kingfisher for image loading. Never decode or resize images synchronously on the main thread — this is a common source of scroll jank in image-heavy views.
-- **(macOS) `NSImage` is NOT thread-safe.** Prefer thread-safe CoreGraphics/ImageIO APIs (`CGImageSource`, `CGContext`, `CGImageDestination`) for image processing off the main thread. See:
-  - [Apple — NSImage](https://developer.apple.com/documentation/appkit/nsimage) (thread safety limitations)
+- **(macOS) `NSImage` is thread-safe since macOS 10.6** — you may create, draw, and access instances from any thread. The archived [Threading Programming Guide](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Multithreading/ThreadSafetySummary/ThreadSafetySummary.html) lists NSImage as "Thread-Unsafe," but this predates the 10.6 thread-safety improvements and was never updated. For performance-sensitive image processing off the main thread, CoreGraphics/ImageIO APIs (`CGImageSource`, `CGContext`, `CGImageDestination`) avoid `NSGraphicsContext` overhead and may be faster for batch encoding. See:
+  - [Apple — NSImage](https://developer.apple.com/documentation/appkit/nsimage)
   - [Apple — CGImageSource](https://developer.apple.com/documentation/imageio/cgimagesource) (thread-safe image loading)
   - [Apple — CGImageDestination](https://developer.apple.com/documentation/imageio/cgimagedestination) (thread-safe JPEG/PNG encoding)
 - **Profile before optimizing, but follow known patterns.** Use Instruments to validate — specifically Time Profiler for main-thread spikes, Core Animation instrument for frame drops, and Allocations for memory. Launch Instruments directly from `/Applications/Instruments.app` or via `xcrun instruments`. However, the patterns above are established project standards — follow them proactively rather than waiting for a performance regression.
