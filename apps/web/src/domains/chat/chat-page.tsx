@@ -670,10 +670,10 @@ export function ChatPage() {
   // Auto-send onboarding initial message once the draft conversation is ready
   useEffect(() => {
     const pending = pendingOnboardingInitialMessageRef.current;
-    if (!pending || activeConversationKey !== pending.conversationKey) return;
+    if (!pending || !assistantId || activeConversationKey !== pending.conversationKey) return;
     pendingOnboardingInitialMessageRef.current = null;
     void sendMessage(pending.content);
-  }, [activeConversationKey, sendMessage]);
+  }, [activeConversationKey, assistantId, sendMessage]);
 
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
   const deepLinkAppConsumed = useRef(false);
