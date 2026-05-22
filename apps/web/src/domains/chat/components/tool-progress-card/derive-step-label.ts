@@ -4,8 +4,8 @@
  * header.
  *
  * Web tool calls (`web_search`, `web_fetch`) are handled separately by the
- * existing web-search card data pipeline — they don't flow through this
- * function. See `apps/web/src/domains/chat/hooks/use-web-search-card-data.ts`.
+ * unified card-data pipeline's web builders — they don't flow through this
+ * function. See `apps/web/src/domains/chat/hooks/use-tool-call-card-data.ts`.
  *
  * This module is intentionally pure: no React, no Zustand, no I/O. Inputs are
  * the tool call payload; outputs are deterministic strings + icon name.
