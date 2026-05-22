@@ -4,13 +4,13 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/lib/api-errors.js";
+import type { A2AInviteParams } from "@/domains/contacts/a2a-invite.js";
 import type {
   ChannelInfo,
   ChannelReadinessSnapshot,
   ContactPayload,
   CreateA2AInviteResponse,
   CreateContactInput,
-  RedeemA2AInviteInput,
   RedeemA2AInviteResponse,
   SlackChannelConfig,
   TelegramConfig,
@@ -489,7 +489,6 @@ interface DaemonCreateInviteResponse {
   inviteId?: string;
   token?: string;
   expiresAt?: number;
-  senderGatewayUrl?: string;
   success?: boolean;
 }
 
@@ -542,7 +541,7 @@ interface DjangoRedeemInviteResponse {
 
 export async function redeemA2AInvite(
   receiverAssistantId: string,
-  input: RedeemA2AInviteInput,
+  input: A2AInviteParams,
 ): Promise<RedeemA2AInviteResponse> {
   const { data, error, response } = await client.post<
     DjangoRedeemInviteResponse,
