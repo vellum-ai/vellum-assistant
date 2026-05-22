@@ -1,7 +1,6 @@
 import { AlertCircle } from "lucide-react";
 
 import { Button } from "@vellum/design-library/components/button";
-import { Notice } from "@vellum/design-library/components/notice";
 import { Typography } from "@vellum/design-library/components/typography";
 
 import { IconBadge } from "./primitives.js";

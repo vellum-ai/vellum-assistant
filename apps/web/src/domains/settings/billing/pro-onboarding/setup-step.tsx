@@ -82,7 +82,7 @@ export function SetupStep({
   return (
     <>
       <Modal.Body
-        className="space-y-5 pt-10 pb-4"
+        className="min-h-[320px] space-y-5 pt-10 pb-4"
         style={{ animation: "onboarding-step-in 350ms ease-out" }}
       >
         <div className="flex flex-col items-center gap-3 pb-2 text-center">

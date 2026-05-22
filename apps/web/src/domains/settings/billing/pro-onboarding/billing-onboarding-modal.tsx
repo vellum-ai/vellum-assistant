@@ -89,7 +89,7 @@ export function BillingOnboardingModal({
 
   return (
     <Modal.Root open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <Modal.Content size="md" hideCloseButton className="min-h-[400px] overflow-hidden">
+      <Modal.Content size="md" hideCloseButton className="overflow-hidden">
         {renderStep()}
       </Modal.Content>
     </Modal.Root>
