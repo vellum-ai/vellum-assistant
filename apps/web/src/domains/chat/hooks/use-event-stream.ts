@@ -441,10 +441,11 @@ export function useEventStream({
 
   // --------------------------------------------------------------------------
   // Effect 5: Reachability retry — request a bus-level SSE bounce
-  // when the reachability probe flips back to "ready".
+  // when the reachability probe flips back to "ready" or a background
+  // probe exhausts its window and needs the bus to keep retrying.
   // --------------------------------------------------------------------------
   useEffect(() => {
-    if (reachabilityPhase !== "ready") {
+    if (reachabilityPhase !== "ready" && reachabilityPhase !== "retrying") {
       return;
     }
     const now = Date.now();
@@ -463,12 +464,17 @@ export function useEventStream({
       reachabilityResetRef.current();
       return;
     }
-    useTurnStore.getState().resetTurn();
-    setErrorRef.current(null);
+    if (reachabilityPhase === "ready") {
+      useTurnStore.getState().resetTurn();
+      setErrorRef.current(null);
+    }
     reconcileAfterNextStreamOpenRef.current = true;
     useEventBusStore
       .getState()
       .publish("reachability.retry-requested", {});
+    if (reachabilityPhase === "retrying") {
+      reachabilityResetRef.current();
+    }
   }, [reachabilityPhase, reconcileAfterNextStreamOpenRef]);
 
   // --------------------------------------------------------------------------

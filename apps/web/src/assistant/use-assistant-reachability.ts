@@ -40,6 +40,7 @@ export type ReachabilityPhase =
   | "checking"
   | "connecting"
   | "ready"
+  | "retrying"
   | "failed";
 
 export type ReachabilityState =
@@ -52,6 +53,7 @@ export type ReachabilityState =
       lastServerState: ConnectionServerState | null;
     }
   | { phase: "ready" }
+  | { phase: "retrying" }
   | {
       phase: "failed";
       isPodWaking: boolean;
@@ -209,7 +211,7 @@ export function useAssistantReachability(
         clearTimer();
         probingRef.current = false;
         if (options.mode === "background") {
-          setState({ phase: "idle" });
+          setState({ phase: "retrying" });
           return;
         }
         setState({
@@ -234,7 +236,7 @@ export function useAssistantReachability(
         clearTimer();
         probingRef.current = false;
         if (options.mode === "background") {
-          setState({ phase: "idle" });
+          setState({ phase: "retrying" });
           return;
         }
         setState({
