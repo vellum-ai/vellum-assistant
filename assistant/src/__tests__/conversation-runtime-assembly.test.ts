@@ -3041,10 +3041,9 @@ describe("Slack channel chronological rendering — multi-thread", () => {
   });
 
   // ── trust-filter regression for loadSlackChronologicalMessages ───────
-  // For untrusted actors, guardian-scoped rows must be excluded
-  // from the chronological transcript the same way `loadFromDb` filters
-  // them out of the default history.
-  test("loadSlackChronologicalMessages filters guardian-scoped rows for untrusted actors", () => {
+  // For untrusted actors, Slack-sourced rows are still shared channel/thread
+  // context, while non-Slack guardian-scoped rows remain private.
+  test("loadSlackChronologicalMessages keeps Slack-visible guardian rows for untrusted actors", () => {
     const caps: ChannelCapabilities = {
       channel: "slack",
       dashboardCapable: false,
@@ -3052,14 +3051,15 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       supportsVoiceInput: false,
       chatType: "channel",
     };
-    // Row 1 has no provenance → guardian-scoped (filtered out).
-    // Row 2 has provenance.trustClass === "trusted_contact" (kept).
     const rows: MessageRow[] = [
       userRow({
         id: "m1",
         createdAt: 1700000000_000,
-        text: "guardian-only context",
+        text: "public guardian instruction",
         slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        extraOuterMetadata: {
+          provenanceTrustClass: "guardian",
+        },
       }),
       userRow({
         id: "m2",
@@ -3068,6 +3068,14 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         slackMeta: buildSlackMeta({ channelTs: T1, displayName: "bob" }),
         extraOuterMetadata: {
           provenanceTrustClass: "trusted_contact",
+        },
+      }),
+      userRow({
+        id: "m3",
+        createdAt: 1700000020_000,
+        text: "private guardian-only context",
+        extraOuterMetadata: {
+          provenanceTrustClass: "guardian",
         },
       }),
     ];
@@ -3081,8 +3089,9 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
       .map((b) => b.text)
       .join("\n");
-    expect(allText).not.toContain("guardian-only context");
+    expect(allText).toContain("public guardian instruction");
     expect(allText).toContain("from untrusted actor");
+    expect(allText).not.toContain("private guardian-only context");
   });
 
   test("loadSlackChronologicalContext preserves summary and filters by Slack watermark", () => {

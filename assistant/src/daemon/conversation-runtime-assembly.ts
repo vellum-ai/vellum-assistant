@@ -20,7 +20,10 @@ import {
   extractMemoryPrefixBlocks,
 } from "../memory/graph/conversation-graph-memory.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
-import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import {
+  readSlackMetadata,
+  readSlackMetadataFromMessageMetadata,
+} from "../messaging/providers/slack/message-metadata.js";
 import {
   compareSlackTs,
   extractTagLineTexts,
@@ -1110,6 +1113,27 @@ function messageRowsToSlackTranscriptRows(
   }));
 }
 
+function hasSlackMetadata(row: MessageRow): boolean {
+  return (
+    readSlackMetadataFromMessageMetadata(row.metadata, {
+      allowFlatLegacy: true,
+    }) !== null
+  );
+}
+
+function filterSlackConversationRowsForActor(
+  rows: MessageRow[],
+  trustClass: TrustClass | undefined,
+): MessageRow[] {
+  if (!isUntrustedTrustClass(trustClass)) return rows;
+  const nonSlackVisibleRows = filterMessagesForUntrustedActor(rows);
+  const nonSlackVisibleIds = new Set(nonSlackVisibleRows.map((row) => row.id));
+  return rows.filter((row) => {
+    if (hasSlackMetadata(row)) return true;
+    return nonSlackVisibleIds.has(row.id);
+  });
+}
+
 /**
  * Extract the user-facing plain text from an already-parsed `ContentBlock[]`.
  * Only `text` blocks contribute to the rendered transcript line. Tool-use /
@@ -1391,11 +1415,10 @@ function assembleSlackChronologicalContext(
  * Compatibility wrapper over `loadSlackChronologicalContext` for callers that
  * still need only the legacy `Message[] | null` projection.
  *
- * When `trustClass` identifies an untrusted actor (guardian-scoped rows
- * must not leak into the model context), rows are passed through
- * `filterMessagesForUntrustedActor` before assembly — mirroring the
- * filtering applied in `loadFromDb` so the chronological transcript
- * respects the same per-actor scoping as the default history path.
+ * When `trustClass` identifies an untrusted actor, non-Slack/private rows
+ * are passed through the default trust filter. Slack-tagged rows stay visible
+ * because the transcript is scoped to the external Slack chat/thread, which
+ * the inbound actor can already read in Slack.
  *
  * Returns `null` when the channel is not Slack — callers should fall
  * through to the default in-memory message history.
@@ -1444,9 +1467,10 @@ export function loadSlackChronologicalContext(
   }
   const loader = options.loader ?? defaultGetMessages;
   const allRows = loader(conversationId);
-  const scopedRows = isUntrustedTrustClass(options.trustClass)
-    ? filterMessagesForUntrustedActor(allRows)
-    : allRows;
+  const scopedRows = filterSlackConversationRowsForActor(
+    allRows,
+    options.trustClass,
+  );
   const rows = filterRowsAfterSlackCompactionBoundary(
     messageRowsToSlackTranscriptRows(scopedRows),
     options,
@@ -1630,9 +1654,10 @@ export function loadSlackActiveThreadFocusBlock(
   if (capabilities.chatType !== "channel") return null;
   const loader = options.loader ?? defaultGetMessages;
   const allRows = loader(conversationId);
-  const scopedRows = isUntrustedTrustClass(options.trustClass)
-    ? filterMessagesForUntrustedActor(allRows)
-    : allRows;
+  const scopedRows = filterSlackConversationRowsForActor(
+    allRows,
+    options.trustClass,
+  );
   const rows = filterRowsAfterSlackCompactionBoundary(
     messageRowsToSlackTranscriptRows(scopedRows),
     options,
