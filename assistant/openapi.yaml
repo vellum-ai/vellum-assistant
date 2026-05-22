@@ -10985,6 +10985,28 @@ paths:
               required:
                 - slug
               additionalProperties: false
+  /v1/memory/v2/ema-scores:
+    post:
+      operationId: memory_v2_emascores_post
+      summary: List every concept page with its injection-frequency EMA score
+      description:
+        Computes the time-decayed injection frequency (3-day half-life) for every entry in the current page index
+        by reading memory_v2_injection_events. Returns entries sorted by score descending then slug ASCII, including
+        zero-score pages so callers can decide whether to filter. Read-only; tier 2 of the v4 router uses the same
+        computation to pick its top-M.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
   /v1/memory/v2/list-concept-pages:
     post:
       operationId: memory_v2_listconceptpages_post
