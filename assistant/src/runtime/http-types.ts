@@ -63,6 +63,7 @@ export interface RuntimeMessageConversationOptions {
     hints?: string[];
     uxBrief?: string;
     chatType?: string;
+    clientTimezone?: string;
   };
   assistantId?: string;
   trustContext?: TrustContext;
@@ -74,8 +75,6 @@ export interface RuntimeMessageConversationOptions {
   isInteractive?: boolean;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
-  /** Slack-only non-persisted notice injected into the active model turn. */
-  slackRuntimeContextNotice?: string;
   /**
    * Persisted user-facing content. When present, storage/UI use this value
    * while the model-facing turn continues to use `content`.

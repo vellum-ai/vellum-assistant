@@ -108,7 +108,6 @@ mock.module("../memory/conversation-crud.js", () => ({
   addMessage: mock(() => ({ id: "msg-1" })),
   archiveConversation: mock(() => true),
   batchSetDisplayOrders: mock(() => {}),
-  clearStrippedInjectionMetadataForConversation: mock(() => {}),
   createConversation: (opts: { conversationType: string }) => {
     createdConversations.push(opts);
     return { id: "conv-1", ...opts };
@@ -156,6 +155,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationTitle: mock(() => {}),
   updateConversationUsage: mock(() => {}),
   setLastNotifiedInferenceProfile: mock(() => {}),
+  setConversationHistoryStrippedAt: mock(() => {}),
   wipeConversation: mock(() => ({ memoryIds: [] })),
 }));
 

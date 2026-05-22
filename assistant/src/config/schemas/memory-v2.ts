@@ -194,6 +194,19 @@ export const MemoryV2ConfigSchema = z
       .describe(
         "Hours between scheduled consolidation runs that synthesize buffered memories into concept pages",
       ),
+    consolidation_max_buffer_lines: z
+      .number({
+        error: "memory.v2.consolidation_max_buffer_lines must be a number",
+      })
+      .int("memory.v2.consolidation_max_buffer_lines must be an integer")
+      .positive(
+        "memory.v2.consolidation_max_buffer_lines must be a positive integer",
+      )
+      .nullable()
+      .default(100)
+      .describe(
+        "Size-based trigger for consolidation. When `memory/buffer.md` reaches this many non-empty lines, consolidation runs even if the time-based interval hasn't elapsed. Defaults to 100. Set to `null` to disable the size trigger and rely solely on `consolidation_interval_hours`.",
+      ),
     max_page_chars: z
       .number({ error: "memory.v2.max_page_chars must be a number" })
       .int("memory.v2.max_page_chars must be an integer")

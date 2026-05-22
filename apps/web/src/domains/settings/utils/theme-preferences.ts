@@ -62,6 +62,8 @@ export function applyThemePreference(theme: ThemePreference): void {
     "data-theme",
     isVelvet ? "velvet" : shouldBeDark ? "dark" : "light",
   );
+  root.classList.toggle("dark", shouldBeDark);
+  root.classList.toggle("velvet", isVelvet);
 }
 
 export function getEffectiveThemePreference(

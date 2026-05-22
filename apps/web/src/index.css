@@ -2,6 +2,11 @@
 @import "@vellum/design-library/tokens.css";
 @source "../node_modules/@vellum/design-library/src/**/*.tsx";
 
+/* Base element styles — theme-aware defaults inherited by all descendants. */
+body {
+  color: var(--content-default);
+}
+
 /* Functional keyframes — app-only animations. Animations consumed by
  * design-library primitives (popoverIn, bottomSheetIn, panelitem-marquee,
  * collapsible-slide-*) live in the library's tokens.css. */
@@ -86,6 +91,30 @@
   transform: rotate(45deg);
   filter: grayscale(1) brightness(0.55);
   opacity: 1;
+}
+
+/* Billing onboarding modal — pulsing glow behind the loading spinner */
+@keyframes onboarding-glow {
+  0%, 100% { opacity: 0.12; transform: scale(1); }
+  50% { opacity: 0.24; transform: scale(1.15); }
+}
+
+/* Billing onboarding modal — welcome screen staggered reveal */
+@keyframes welcome-reveal {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Billing onboarding modal — crown glow pulse */
+@keyframes welcome-crown-glow {
+  0%, 100% { opacity: 0.18; transform: scale(1); }
+  50% { opacity: 0.32; transform: scale(1.08); }
+}
+
+/* Billing onboarding modal — step content entrance */
+@keyframes onboarding-step-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* App shell sizing guards: keep routed pages from collapsing inside flex

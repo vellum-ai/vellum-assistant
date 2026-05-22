@@ -9,6 +9,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
+import { getConfig } from "../config/loader.js";
 import { createContextSummaryMessage } from "../context/window-manager.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
 import {
@@ -20,15 +21,16 @@ import {
   extractMemoryPrefixBlocks,
 } from "../memory/graph/conversation-graph-memory.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
-import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import {
+  readSlackMetadata,
+  readSlackMetadataFromMessageMetadata,
+} from "../messaging/providers/slack/message-metadata.js";
 import {
   compareSlackTs,
   extractTagLineTexts,
-  isReactionTagLine,
   isSlackTsAfter,
   type RenderableSlackMessage,
   type RenderedSlackTranscriptMessage,
-  renderSlackTranscript,
   renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
 import { getInjectors } from "../plugins/registry.js";
@@ -48,6 +50,7 @@ import {
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
+import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { filterMessagesForUntrustedActor } from "./conversation-lifecycle.js";
@@ -1042,17 +1045,6 @@ function injectTransportHints(message: Message, hints: string[]): Message {
   };
 }
 
-function injectSlackRuntimeContextNotice(
-  message: Message,
-  notice: string,
-): Message {
-  const block = `<slack_context_notice>\n${notice}\n</slack_context_notice>`;
-  return {
-    ...message,
-    content: [{ type: "text", text: block }, ...message.content],
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Slack chronological transcript assembly
 // ---------------------------------------------------------------------------
@@ -1119,6 +1111,27 @@ function messageRowsToSlackTranscriptRows(
     createdAt: row.createdAt,
     metadata: row.metadata,
   }));
+}
+
+function hasSlackMetadata(row: MessageRow): boolean {
+  return (
+    readSlackMetadataFromMessageMetadata(row.metadata, {
+      allowFlatLegacy: true,
+    }) !== null
+  );
+}
+
+function filterSlackConversationRowsForActor(
+  rows: MessageRow[],
+  trustClass: TrustClass | undefined,
+): MessageRow[] {
+  if (!isUntrustedTrustClass(trustClass)) return rows;
+  const nonSlackVisibleRows = filterMessagesForUntrustedActor(rows);
+  const nonSlackVisibleIds = new Set(nonSlackVisibleRows.map((row) => row.id));
+  return rows.filter((row) => {
+    if (hasSlackMetadata(row)) return true;
+    return nonSlackVisibleIds.has(row.id);
+  });
 }
 
 /**
@@ -1278,6 +1291,60 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
   };
 }
 
+const SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT = "New Assistant Thread";
+
+function isSlackAssistantThreadPlaceholder(
+  message: RenderableSlackMessage,
+  canonicalConfiguredBotUserId: string | null,
+): boolean {
+  if (!canonicalConfiguredBotUserId) return false;
+  const metadata = message.metadata;
+  if (!metadata || metadata.eventKind !== "message") return false;
+  const actorExternalUserId = metadata.actorExternalUserId?.trim();
+  if (!actorExternalUserId) return false;
+
+  const canonicalActor =
+    canonicalizeInboundIdentity("slack", actorExternalUserId) ??
+    actorExternalUserId;
+  const isThreadRoot =
+    metadata.threadTs === undefined || metadata.threadTs === metadata.channelTs;
+  const hasSlackFiles =
+    Array.isArray(metadata.slackFiles) && metadata.slackFiles.length > 0;
+
+  return (
+    message.role === "user" &&
+    canonicalActor === canonicalConfiguredBotUserId &&
+    isThreadRoot &&
+    !hasSlackFiles &&
+    message.content.replace(/\s+/g, " ").trim() ===
+      SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT
+  );
+}
+
+function getCanonicalConfiguredSlackBotUserId(): string | null {
+  const configuredBotUserId = getConfig().slack.botUserId.trim();
+  if (!configuredBotUserId) return null;
+  return (
+    canonicalizeInboundIdentity("slack", configuredBotUserId) ??
+    configuredBotUserId
+  );
+}
+
+function rowsToRenderableSlackMessages(
+  rows: SlackTranscriptInputRow[],
+): RenderableSlackMessage[] {
+  const canonicalConfiguredBotUserId = getCanonicalConfiguredSlackBotUserId();
+  return rows
+    .map(rowToRenderable)
+    .filter(
+      (message) =>
+        !isSlackAssistantThreadPlaceholder(
+          message,
+          canonicalConfiguredBotUserId,
+        ),
+    );
+}
+
 /**
  * Compatibility projection for callers that still need the legacy
  * `Message[] | null` shape. New runtime callers should use
@@ -1373,7 +1440,7 @@ function assembleSlackChronologicalContext(
   if (capabilities.channel !== "slack") {
     return null;
   }
-  const renderable = rows.map(rowToRenderable);
+  const renderable = rowsToRenderableSlackMessages(rows);
   const rendered = renderSlackTranscriptWithProvenance(renderable);
   const contextSummary = options.contextSummary?.trim();
   const renderedMessages = rendered.renderedMessages;
@@ -1382,6 +1449,7 @@ function assembleSlackChronologicalContext(
       {
         message: createContextSummaryMessage(contextSummary),
         sourceChannelTs: null,
+        tagLineProvenance: "none",
       },
       ...renderedMessages,
     ];
@@ -1402,11 +1470,10 @@ function assembleSlackChronologicalContext(
  * Compatibility wrapper over `loadSlackChronologicalContext` for callers that
  * still need only the legacy `Message[] | null` projection.
  *
- * When `trustClass` identifies an untrusted actor (guardian-scoped rows
- * must not leak into the model context), rows are passed through
- * `filterMessagesForUntrustedActor` before assembly — mirroring the
- * filtering applied in `loadFromDb` so the chronological transcript
- * respects the same per-actor scoping as the default history path.
+ * When `trustClass` identifies an untrusted actor, non-Slack/private rows
+ * are passed through the default trust filter. Slack-tagged rows stay visible
+ * because the transcript is scoped to the external Slack chat/thread, which
+ * the inbound actor can already read in Slack.
  *
  * Returns `null` when the channel is not Slack — callers should fall
  * through to the default in-memory message history.
@@ -1455,9 +1522,10 @@ export function loadSlackChronologicalContext(
   }
   const loader = options.loader ?? defaultGetMessages;
   const allRows = loader(conversationId);
-  const scopedRows = isUntrustedTrustClass(options.trustClass)
-    ? filterMessagesForUntrustedActor(allRows)
-    : allRows;
+  const scopedRows = filterSlackConversationRowsForActor(
+    allRows,
+    options.trustClass,
+  );
   const rows = filterRowsAfterSlackCompactionBoundary(
     messageRowsToSlackTranscriptRows(scopedRows),
     options,
@@ -1565,29 +1633,29 @@ function buildActiveThreadBlockFromRenderable(
   if (members.length === 0) return null;
 
   // The active-thread block is flattened to plain text below, which discards
-  // `Message.role`. Assistant rows are relabeled in the post-render step:
-  // `renderSlackTranscript` emits assistant content with no tag-line wrapper
-  // (to prevent the model mimicking `[MM/DD/YY HH:MM]:` prefixes in outbound
-  // replies), so we prepend an explicit `@assistant:` label to the flattened
-  // line. Unnamed user rows (no real Slack displayName) get a `@user`
-  // senderLabel here so their tag line carries attribution through the
-  // renderer. Labeled user rows and assistant rows pass through unchanged.
+  // `Message.role`. Assistant rows that render content-only are relabeled in
+  // the post-render step. Timezone-aware assistant rows are already
+  // bracket-tagged by the renderer and must not receive another prefix.
+  // Unnamed user rows (no real Slack displayName) get a `@user` senderLabel
+  // here so their tag line carries attribution through the renderer. Labeled
+  // user rows and assistant rows pass through unchanged.
   const labeledMembers = members.map((m) => {
     if (m.role === "assistant") return m;
     if (m.senderLabel !== null) return m;
     return { ...m, senderLabel: "@user" };
   });
 
-  const rendered = renderSlackTranscript(labeledMembers);
-  if (rendered.length === 0) return null;
-  // Reaction / overflow-trailer lines already embed `@assistant` inline, so
-  // `isReactionTagLine` is used to skip those and avoid double-attribution
-  // (`@assistant: [... @assistant reacted ...]`). Regular content and the
-  // `[deleted]` sentinel get the prefix so attribution survives flattening.
-  const lines = rendered
-    .map((msg) => {
-      const text = extractTagLineTexts([msg])[0] ?? "";
-      return msg.role === "assistant" && !isReactionTagLine(text)
+  const rendered = renderSlackTranscriptWithProvenance(labeledMembers);
+  if (rendered.renderedMessages.length === 0) return null;
+  // Reaction / overflow-trailer lines are renderer-owned Slack event lines,
+  // and timezone-aware assistant rows already carry metadata-backed compact
+  // attribution. Regular assistant content and the `[deleted]` sentinel get
+  // the prefix so attribution survives flattening.
+  const lines = rendered.renderedMessages
+    .map((entry) => {
+      const text = extractTagLineTexts([entry.message])[0] ?? "";
+      return entry.message.role === "assistant" &&
+        entry.tagLineProvenance === "none"
         ? `@assistant: ${text}`
         : text;
     })
@@ -1615,7 +1683,7 @@ export function assembleSlackActiveThreadFocusBlock(
   // conversation and omits the field for DMs, so gate the focus block
   // on the positive `"channel"` match.
   if (capabilities.chatType !== "channel") return null;
-  const renderable = rows.map(rowToRenderable);
+  const renderable = rowsToRenderableSlackMessages(rows);
   const activeThreadTs = detectActiveThreadTs(renderable);
   if (!activeThreadTs) return null;
   return buildActiveThreadBlockFromRenderable(renderable, activeThreadTs);
@@ -1641,9 +1709,10 @@ export function loadSlackActiveThreadFocusBlock(
   if (capabilities.chatType !== "channel") return null;
   const loader = options.loader ?? defaultGetMessages;
   const allRows = loader(conversationId);
-  const scopedRows = isUntrustedTrustClass(options.trustClass)
-    ? filterMessagesForUntrustedActor(allRows)
-    : allRows;
+  const scopedRows = filterSlackConversationRowsForActor(
+    allRows,
+    options.trustClass,
+  );
   const rows = filterRowsAfterSlackCompactionBoundary(
     messageRowsToSlackTranscriptRows(scopedRows),
     options,
@@ -1691,7 +1760,6 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<pkb>", // backward-compat: strip legacy tag from pre-rename history
   "<system_reminder>",
   "<transport_hints>",
-  "<slack_context_notice>",
   // The Slack active-thread focus block is non-persisted and injected on
   // the FINAL user turn only. Strip it here so re-assembly during compaction
   // and overflow recovery does not duplicate it across turns.
@@ -1985,7 +2053,6 @@ export interface RuntimeInjectionOptions {
    */
   isBackgroundConversation?: boolean;
   transportHints?: string[] | null;
-  slackRuntimeContextNotice?: string | null;
   /**
    * Pre-rendered Slack chronological transcript that replaces the
    * default `runMessages` history for any Slack conversation (channels
@@ -2322,23 +2389,6 @@ export async function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectChannelCapabilityContext(userTail, options.channelCapabilities),
-      ];
-    }
-  }
-
-  if (
-    mode === "full" &&
-    slackConversation &&
-    options.slackRuntimeContextNotice
-  ) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectSlackRuntimeContextNotice(
-          userTail,
-          options.slackRuntimeContextNotice,
-        ),
       ];
     }
   }

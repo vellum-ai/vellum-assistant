@@ -248,19 +248,34 @@ export function useStreamEventHandler(
       }
       const streamConversationKey =
         streamContextRef.current?.conversationKey;
-      if (
-        event.conversationKey &&
-        streamConversationKey &&
-        isConversationScopedStreamEvent(event) &&
-        event.conversationKey !== streamConversationKey
-      ) {
-        recordChatDiagnostic("sse_event_wrong_conversation", {
-          epoch,
-          activeConversationKey: activeConversationKeyRef.current,
-          streamContext: streamContextRef.current,
-          ...eventSummary,
-        });
-        return;
+      // Defense-in-depth: even though useEventStream's filter already
+      // rejects conversation-scoped events without an explicit matching
+      // conversationKey, gate here too so any future caller of
+      // handleStreamEvent cannot route a conversation-scoped event with
+      // a missing or mismatched key into the active conversation.
+      // Global events (`sync_changed`, `home_feed_updated`, etc.) pass
+      // through unconditionally.
+      if (isConversationScopedStreamEvent(event)) {
+        if (!event.conversationKey || !streamConversationKey) {
+          recordChatDiagnostic("sse_event_wrong_conversation", {
+            epoch,
+            activeConversationKey: activeConversationKeyRef.current,
+            streamContext: streamContextRef.current,
+            reason: !event.conversationKey ? "missing" : "no_stream_context",
+            ...eventSummary,
+          });
+          return;
+        }
+        if (event.conversationKey !== streamConversationKey) {
+          recordChatDiagnostic("sse_event_wrong_conversation", {
+            epoch,
+            activeConversationKey: activeConversationKeyRef.current,
+            streamContext: streamContextRef.current,
+            reason: "mismatch",
+            ...eventSummary,
+          });
+          return;
+        }
       }
       if (
         event.type !== "assistant_text_delta" ||
@@ -447,6 +462,11 @@ export function useStreamEventHandler(
         case "document_comment_resolved":
         case "document_comment_reopened":
         case "document_comment_deleted":
+        case "interaction_resolved":
+          // Attention reconciliation lives in `useAttentionTracking`, which
+          // subscribes to the event bus directly. The chat-stream handler
+          // is intentionally a no-op here.
+          break;
         case "unknown":
           break;
         default: {

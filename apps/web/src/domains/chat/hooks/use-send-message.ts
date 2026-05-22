@@ -42,7 +42,10 @@ import {
   resolveDraftKey,
 } from "@/domains/conversations/conversation-queries.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
-import type { PreChatOnboardingContext } from "@/domains/onboarding/prechat.js";
+import {
+  consumePendingPreChatContext,
+  type PreChatOnboardingContext,
+} from "@/domains/onboarding/prechat.js";
 
 import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters.js";
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat-utils.js";
@@ -163,6 +166,7 @@ export function useSendMessage({
     queuedMessages,
     handleCancelQueuedMessage,
     handleCancelAllQueued,
+    handleSteerMessage,
     handleEditQueueTail,
   } = useMessageQueue({
     assistantId,
@@ -221,7 +225,11 @@ export function useSendMessage({
           resolvedConversationKey,
         });
 
-      const onboardingContext = pendingOnboardingContextRef.current;
+      const onboardingContext =
+        pendingOnboardingContextRef.current ?? consumePendingPreChatContext();
+      if (onboardingContext && !pendingOnboardingContextRef.current) {
+        pendingOnboardingContextRef.current = onboardingContext;
+      }
       const postResult = await postChatMessage(
         requestAssistantId,
         requestConversationKey,
@@ -501,6 +509,9 @@ export function useSendMessage({
             }
             return;
           }
+          if (postResult.requestId) {
+            requestIdToStableIdRef.current.set(postResult.requestId, userMessage.stableId);
+          }
         } catch {
           revertQueuedMessage(userMessage.stableId);
           setError({ message: "Failed to queue message. Please try again." });
@@ -615,6 +626,7 @@ export function useSendMessage({
     queuedMessages,
     handleCancelQueuedMessage,
     handleCancelAllQueued,
+    handleSteerMessage,
     handleEditQueueTail,
   };
 }

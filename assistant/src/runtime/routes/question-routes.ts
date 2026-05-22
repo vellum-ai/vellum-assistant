@@ -148,7 +148,10 @@ function handleQuestionResponse({ body }: RouteHandlerArgs) {
 
   // Validation passed — deregister now to clear the prompter timer, then
   // hand the result to the prompter's caller via rpcResolve.
-  pendingInteractions.resolve(requestId);
+  pendingInteractions.resolve(
+    requestId,
+    response.kind === "close" ? "cancelled" : "answered",
+  );
 
   log.info(
     {

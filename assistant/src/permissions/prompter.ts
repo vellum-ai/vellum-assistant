@@ -79,7 +79,7 @@ export class PermissionPrompter {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
 
       const timer = setTimeout(() => {
-        const interaction = pendingInteractions.resolve(requestId);
+        const interaction = pendingInteractions.resolve(requestId, "cancelled");
         this.ownedIds.delete(requestId);
         log.warn(
           { requestId, toolName },
@@ -130,7 +130,7 @@ export class PermissionPrompter {
       if (signal) {
         const onAbort = () => {
           if (this.ownedIds.has(requestId)) {
-            pendingInteractions.resolve(requestId);
+            pendingInteractions.resolve(requestId, "cancelled");
             this.ownedIds.delete(requestId);
             resolve({ decision: "deny", wasAbort: true });
           }
@@ -196,7 +196,10 @@ export class PermissionPrompter {
     }
     // The prompter owns deregistration; all callers use get() to peek before
     // routing to resolveConfirmation, which fires the rpcResolve callback.
-    const interaction = pendingInteractions.resolve(requestId);
+    const interaction = pendingInteractions.resolve(
+      requestId,
+      decision === "allow" ? "approved" : "rejected",
+    );
     this.ownedIds.delete(requestId);
     (interaction?.rpcResolve as ((v: ConfirmResult) => void) | undefined)?.(
       { decision, selectedPattern, selectedScope, decisionContext },
@@ -210,7 +213,7 @@ export class PermissionPrompter {
    */
   denyAllPending(): void {
     for (const requestId of [...this.ownedIds]) {
-      const interaction = pendingInteractions.resolve(requestId);
+      const interaction = pendingInteractions.resolve(requestId, "superseded");
       this.ownedIds.delete(requestId);
       (interaction?.rpcResolve as ((v: ConfirmResult) => void) | undefined)?.(
         {
@@ -229,7 +232,7 @@ export class PermissionPrompter {
 
   dispose(): void {
     for (const requestId of [...this.ownedIds]) {
-      const interaction = pendingInteractions.resolve(requestId);
+      const interaction = pendingInteractions.resolve(requestId, "cancelled");
       this.ownedIds.delete(requestId);
       interaction?.rpcReject?.(
         new AssistantError("Prompter disposed", ErrorCode.INTERNAL_ERROR),

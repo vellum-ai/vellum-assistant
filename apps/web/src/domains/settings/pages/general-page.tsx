@@ -5,12 +5,12 @@ import { Button } from "@vellum/design-library/components/button";
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
 import { AssistantPicker } from "@/domains/settings/components/assistant-picker.js";
 import { AssistantSleepPolicy } from "@/domains/settings/components/assistant-sleep-policy.js";
-import { AssistantStorageCard } from "@/domains/settings/components/assistant-storage-card.js";
 import { AssistantUpgrades } from "@/domains/settings/components/assistant-upgrades.js";
-import { ComputeUpgradeCard } from "@/domains/settings/components/compute-upgrade-card.js";
+import { ResizeCard } from "@/domains/settings/components/resize-card.js";
 import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section.js";
 import { IOSAppCard } from "@/domains/settings/components/ios-app-card.js";
 import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card.js";
+import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel.js";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant.js";
 import { SettingsCard } from "@/domains/settings/components/settings-card.js";
 import { TimezonePicker } from "@/domains/settings/components/timezone-picker.js";
@@ -23,7 +23,8 @@ import {
 } from "@/domains/settings/components/assistant-status-panel.js";
 
 import { useAuthStore } from "@/stores/auth-store.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import {
   applyThemePreference,
   normalizeThemePreference,
@@ -37,10 +38,14 @@ import {
 } from "@/lib/local-settings.js";
 
 function ThemeCard() {
-  const velvet = useFeatureFlagStore.use.velvet();
+  const velvet = useClientFeatureFlagStore.use.velvet();
   const [theme, setTheme] = useState<ThemePreference>(() =>
     readStoredThemePreference({ velvetEnabled: velvet }),
   );
+
+  useEffect(() => {
+    setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
+  }, [velvet]);
 
   useEffect(() => {
     const handleExternalThemeChange = (event: CustomEvent<string>) => {
@@ -134,9 +139,9 @@ function TimezoneCard() {
 export function GeneralPage() {
   const { assistant, assistantLoading, healthz, healthzLoading, refetch } =
     useAssistantWithHealthz();
-  const accountDeletion = useFeatureFlagStore.use.accountDeletion();
-  const multiPlatformAssistant = useFeatureFlagStore.use.multiPlatformAssistant();
-  const settingsSleepPolicy = useFeatureFlagStore.use.settingsSleepPolicy();
+  const accountDeletion = useAssistantFeatureFlagStore.use.accountDeletion();
+  const multiPlatformAssistant = useAssistantFeatureFlagStore.use.multiPlatformAssistant();
+  const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isLoggedIn = useAuthStore.use.isLoggedIn();
 
   const platformAssistant = assistant?.is_local ? null : assistant;
@@ -202,15 +207,11 @@ export function GeneralPage() {
       )}
 
       {platformAssistant && (
-        <AssistantStorageCard
+        <ResizeCard
           assistant={platformAssistant}
           healthz={healthz}
           refetch={refetch}
         />
-      )}
-
-      {platformAssistant && (
-        <ComputeUpgradeCard assistant={platformAssistant} refetch={refetch} />
       )}
 
       <ThemeCard />
@@ -224,7 +225,14 @@ export function GeneralPage() {
               platformAssistant.current_release_version ??
               null
             }
+            releaseChannel={platformAssistant.release_channel}
             onUpgradeComplete={() => {
+              void refetch();
+            }}
+          />
+          <PreviewReleaseChannel
+            assistantId={platformAssistant.id}
+            onComplete={() => {
               void refetch();
             }}
           />

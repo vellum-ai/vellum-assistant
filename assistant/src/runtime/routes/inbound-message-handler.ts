@@ -15,10 +15,16 @@ import {
   isChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
+import { getConfig } from "../../config/loader.js";
 import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
 } from "../../daemon/approval-generators.js";
+import { findConversation } from "../../daemon/conversation-store.js";
+import {
+  canonicalizeTimeZone,
+  resolveTurnTimezoneContext,
+} from "../../daemon/date-context.js";
 import { getDiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-policy.js";
 import { processMessage } from "../../daemon/process-message.js";
@@ -55,7 +61,10 @@ import {
 import { markProcessed } from "../../memory/delivery-status.js";
 import { upsertBinding } from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
-import { withSlackBotToken } from "../../messaging/providers/slack/adapter.js";
+import {
+  resolveSlackBotUserId,
+  withSlackBotToken,
+} from "../../messaging/providers/slack/adapter.js";
 import {
   backfillDm,
   backfillThreadWindowPage,
@@ -63,6 +72,8 @@ import {
 } from "../../messaging/providers/slack/backfill.js";
 import { downloadSlackFile } from "../../messaging/providers/slack/download.js";
 import {
+  buildSlackTimezoneMetadata,
+  formatSlackTimezoneLabel,
   mergeSlackMetadata,
   readSlackMetadataFromMessageMetadata,
   type SlackFileMetadata,
@@ -101,6 +112,108 @@ const DISK_PRESSURE_REMOTE_BLOCK_REPLY =
 // EDIT_LOOKUP_RETRIES / EDIT_LOOKUP_DELAY_MS constants.
 let deleteLookupRetries = 5;
 let deleteLookupDelayMs = 2000;
+
+interface SlackActorTimezoneMetadata {
+  timezone?: string;
+  timezoneLabel?: string;
+  timezoneOffsetSeconds?: number;
+}
+
+function trimMetadataString(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const value = metadata?.[key];
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseSlackActorTimezoneMetadata(
+  sourceChannel: string,
+  metadata: Record<string, unknown> | undefined,
+): SlackActorTimezoneMetadata | undefined {
+  if (sourceChannel !== "slack") return undefined;
+
+  const timezone = trimMetadataString(metadata, "timezone");
+  const timezoneLabel = trimMetadataString(metadata, "timezoneLabel");
+  const rawOffset = metadata?.timezoneOffsetSeconds;
+  const timezoneOffsetSeconds =
+    typeof rawOffset === "number" && Number.isFinite(rawOffset)
+      ? rawOffset
+      : undefined;
+
+  if (
+    timezone === undefined &&
+    timezoneLabel === undefined &&
+    timezoneOffsetSeconds === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...(timezone ? { timezone } : {}),
+    ...(timezoneLabel ? { timezoneLabel } : {}),
+    ...(timezoneOffsetSeconds !== undefined ? { timezoneOffsetSeconds } : {}),
+  };
+}
+
+function attachSlackRequesterTimezone(
+  trustCtx: TrustContext,
+  timezone: SlackActorTimezoneMetadata | undefined,
+): TrustContext {
+  if (!timezone) return trustCtx;
+  return {
+    ...trustCtx,
+    ...(timezone.timezone ? { requesterTimezone: timezone.timezone } : {}),
+    ...(timezone.timezoneLabel
+      ? { requesterTimezoneLabel: timezone.timezoneLabel }
+      : {}),
+    ...(timezone.timezoneOffsetSeconds !== undefined
+      ? { requesterTimezoneOffsetSeconds: timezone.timezoneOffsetSeconds }
+      : {}),
+  };
+}
+
+function resolveSlackTranscriptTimestampTimezone(
+  clientTimezone?: string | null,
+): {
+  timestampTimezone: string;
+  timestampTimezoneLabel?: string;
+} {
+  const config = getConfig();
+  const timestampTimezone = resolveTurnTimezoneContext({
+    configuredUserTimeZone: config.ui?.userTimezone ?? null,
+    clientTimezone: clientTimezone ?? null,
+    detectedTimezone: config.ui?.detectedTimezone ?? null,
+    hostTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  }).effectiveTimezone;
+  const timestampTimezoneLabel = formatSlackTimezoneLabel(timestampTimezone);
+  return {
+    timestampTimezone,
+    ...(timestampTimezoneLabel ? { timestampTimezoneLabel } : {}),
+  };
+}
+
+function resolveInboundClientTimezone(params: {
+  bodyClientTimezone?: unknown;
+  sourceMetadata?: Record<string, unknown>;
+  conversationId: string;
+}): string | undefined {
+  const bodyClientTimezone =
+    typeof params.bodyClientTimezone === "string"
+      ? canonicalizeTimeZone(params.bodyClientTimezone)
+      : undefined;
+  const metadataClientTimezone =
+    typeof params.sourceMetadata?.clientTimezone === "string"
+      ? canonicalizeTimeZone(params.sourceMetadata.clientTimezone)
+      : undefined;
+  return (
+    bodyClientTimezone ??
+    metadataClientTimezone ??
+    findConversation(params.conversationId)?.clientTimezone
+  );
+}
 
 /**
  * Test-only override for the delete-lookup retry timings. Used by
@@ -143,6 +256,7 @@ export async function handleChannelInbound({
     replyCallbackUrl?: string;
     callbackQueryId?: string;
     callbackData?: string;
+    clientTimezone?: unknown;
   };
 
   const {
@@ -172,6 +286,10 @@ export async function handleChannelInbound({
     sourceChannel === "slack" && typeof sourceMetadata?.channelName === "string"
       ? sourceMetadata.channelName.trim() || null
       : null;
+  const slackActorTimezone = parseSlackActorTimezoneMetadata(
+    sourceChannel,
+    sourceMetadata,
+  );
 
   if (!body.interface || typeof body.interface !== "string") {
     throw new BadRequestError("interface is required");
@@ -562,14 +680,17 @@ export async function handleChannelInbound({
   // ── Actor role resolution ──
   // Uses shared channel-agnostic resolution so all ingress paths classify
   // guardian vs non-guardian actors the same way.
-  const trustCtx: TrustContext = resolveTrustContext({
-    assistantId: canonicalAssistantId,
-    sourceChannel,
-    conversationExternalId,
-    actorExternalId: rawSenderId,
-    actorUsername: body.actorUsername,
-    actorDisplayName: body.actorDisplayName,
-  });
+  const trustCtx: TrustContext = attachSlackRequesterTimezone(
+    resolveTrustContext({
+      assistantId: canonicalAssistantId,
+      sourceChannel,
+      conversationExternalId,
+      actorExternalId: rawSenderId,
+      actorUsername: body.actorUsername,
+      actorDisplayName: body.actorDisplayName,
+    }),
+    slackActorTimezone,
+  );
 
   const diskPressureDecision = classifyDiskPressureTurnPolicy(
     getDiskPressureStatus(),
@@ -654,14 +775,17 @@ export async function handleChannelInbound({
     // preconditions used by the standard approval interception call below.
     const isReactionAdded = body.callbackData?.startsWith("reaction:") === true;
     if (isReactionAdded && replyCallbackUrl && !result.duplicate) {
-      const trustCtxForReaction: TrustContext = resolveTrustContext({
-        assistantId: canonicalAssistantId,
-        sourceChannel,
-        conversationExternalId,
-        actorExternalId: rawSenderId,
-        actorUsername: body.actorUsername,
-        actorDisplayName: body.actorDisplayName,
-      });
+      const trustCtxForReaction: TrustContext = attachSlackRequesterTimezone(
+        resolveTrustContext({
+          assistantId: canonicalAssistantId,
+          sourceChannel,
+          conversationExternalId,
+          actorExternalId: rawSenderId,
+          actorUsername: body.actorUsername,
+          actorDisplayName: body.actorDisplayName,
+        }),
+        slackActorTimezone,
+      );
 
       const approvalMessageTs =
         typeof sourceMetadata?.messageId === "string"
@@ -772,7 +896,6 @@ export async function handleChannelInbound({
           typeof hint === "string" && hint.trim().length > 0,
       )
     : [];
-  let slackRuntimeContextNotice: string | undefined;
 
   // Inject channel-scoped permission hints for Slack channel messages
   if (sourceChannel === "slack") {
@@ -1048,6 +1171,19 @@ export async function handleChannelInbound({
       // this into a `slackMeta` sub-object in the row's metadata column so
       // the chronological renderer can reconstruct thread structure without
       // re-fetching from Slack.
+      const slackSpeakerTimezoneLabel =
+        trustCtx.trustClass !== "guardian"
+          ? slackActorTimezone?.timezoneLabel
+          : undefined;
+      const inboundClientTimezone = resolveInboundClientTimezone({
+        bodyClientTimezone: body.clientTimezone,
+        sourceMetadata,
+        conversationId: result.conversationId,
+      });
+      const slackTranscriptTimestampTimezone =
+        sourceChannel === "slack"
+          ? resolveSlackTranscriptTimestampTimezone(inboundClientTimezone)
+          : undefined;
       const slackInbound =
         sourceChannel === "slack"
           ? {
@@ -1063,6 +1199,17 @@ export async function handleChannelInbound({
               ...(trustCtx.requesterExternalUserId
                 ? { actorExternalUserId: trustCtx.requesterExternalUserId }
                 : {}),
+              ...buildSlackTimezoneMetadata({
+                actorTimezone: slackActorTimezone?.timezone,
+                actorTimezoneLabel: slackActorTimezone?.timezoneLabel,
+                actorTimezoneOffsetSeconds:
+                  slackActorTimezone?.timezoneOffsetSeconds,
+                timestampTimezone:
+                  slackTranscriptTimestampTimezone?.timestampTimezone,
+                timestampTimezoneLabel:
+                  slackTranscriptTimestampTimezone?.timestampTimezoneLabel,
+                speakerTimezoneLabel: slackSpeakerTimezoneLabel,
+              }),
             }
           : undefined;
 
@@ -1118,12 +1265,10 @@ export async function handleChannelInbound({
       // the inbound reply; later turns use a delta window after the latest
       // stored thread ts and before the inbound ts. Awaited (mirrors the DM
       // cold-start path above) so the agent loop dispatched immediately
-      // afterwards observes hydrated context. A late-join notice is added only
-      // to the current turn's runtime context, not persisted as durable Slack
-      // metadata. Failures are swallowed inside the helper so they never block
-      // dispatch.
+      // afterwards observes hydrated context. Failures are swallowed inside
+      // the helper so they never block dispatch.
       if (slackThreadTs) {
-        const backfillResult = await triggerSlackThreadBackfillIfNeeded({
+        await triggerSlackThreadBackfillIfNeeded({
           conversationId: result.conversationId,
           channelId: conversationExternalId,
           threadTs: slackThreadTs,
@@ -1131,8 +1276,6 @@ export async function handleChannelInbound({
           account: slackAccount,
           guardianExternalUserId: trustCtx.guardianExternalUserId,
         });
-        const lateJoinNotice = buildSlackLateJoinNotice(backfillResult);
-        if (lateJoinNotice) slackRuntimeContextNotice = lateJoinNotice;
       }
 
       // Wrap non-guardian inbound content in external_content boundaries so
@@ -1165,7 +1308,6 @@ export async function handleChannelInbound({
         externalChatId: conversationExternalId,
         trustCtx,
         metadataHints,
-        slackRuntimeContextNotice,
         metadataUxBrief,
         commandIntent,
         sourceLanguageCode,
@@ -1173,6 +1315,7 @@ export async function handleChannelInbound({
         assistantId: canonicalAssistantId,
         approvalCopyGenerator,
         chatType: sourceChatType,
+        clientTimezone: inboundClientTimezone,
         slackBotMentioned,
         slackInbound,
       });
@@ -1458,9 +1601,10 @@ function readStoredSlackThreadState(
  *
  * Shared insertion point for any path that hydrates Slack history lazily
  * (DM cold-start backfill, thread gap/delta backfill, etc.). Backfilled Slack
- * rows are always persisted as `user` history: `assistant` rows are reserved
- * for messages produced by the local assistant loop, not third-party channel
- * replay.
+ * rows normally persist as `user` history, but rows authored by this
+ * assistant's configured Slack bot are replayed as assistant history so prior
+ * assistant messages do not enter model context wrapped as external user
+ * content.
  * Caller is responsible for dedup checks before invoking; this helper
  * performs no idempotency check itself.
  */
@@ -1483,6 +1627,17 @@ async function persistBackfilledSlackMessage(params: {
     ...(f.mimetype ? { mimetype: f.mimetype } : {}),
   }));
   const actorExternalUserId = message.sender?.id?.trim();
+  const actorTimezone = trimMetadataString(message.metadata, "actorTimezone");
+  const actorTimezoneLabel = trimMetadataString(
+    message.metadata,
+    "actorTimezoneLabel",
+  );
+  const isGuardian = isBackfilledSlackGuardianMessage(
+    message,
+    params.guardianExternalUserId,
+  );
+  const slackTranscriptTimestampTimezone =
+    resolveSlackTranscriptTimestampTimezone();
   const slackMeta: SlackMessageMetadata = {
     source: "slack",
     channelId: params.channelId,
@@ -1491,14 +1646,24 @@ async function persistBackfilledSlackMessage(params: {
     ...(message.threadId ? { threadTs: message.threadId } : {}),
     ...(message.sender?.name ? { displayName: message.sender.name } : {}),
     ...(actorExternalUserId ? { actorExternalUserId } : {}),
+    ...buildSlackTimezoneMetadata({
+      actorTimezone,
+      actorTimezoneLabel,
+      actorTimezoneOffsetSeconds: message.metadata?.actorTimezoneOffsetSeconds,
+      timestampTimezone: slackTranscriptTimestampTimezone?.timestampTimezone,
+      timestampTimezoneLabel:
+        slackTranscriptTimestampTimezone?.timestampTimezoneLabel,
+      speakerTimezoneLabel: isGuardian ? undefined : actorTimezoneLabel,
+    }),
     ...(slackFiles.length > 0 ? { slackFiles } : {}),
   };
 
-  const isGuardian = isBackfilledSlackGuardianMessage(
+  const role = (await isBackfilledSlackAssistantMessage(
     message,
-    params.guardianExternalUserId,
-  );
-  const role = "user";
+    params.account,
+  ))
+    ? "assistant"
+    : "user";
 
   const rawText = message.text ?? "";
 
@@ -1630,6 +1795,67 @@ function isBackfilledSlackGuardianMessage(
   return canonicalSender === canonicalGuardian;
 }
 
+const SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT = "New Assistant Thread";
+
+async function isSlackAssistantThreadPlaceholder(
+  message: ProviderMessage,
+  account: string | undefined,
+): Promise<boolean> {
+  if (message.metadata?.isBot !== true) return false;
+  const hasSlackFiles =
+    Array.isArray(message.metadata.slackFiles) &&
+    message.metadata.slackFiles.length > 0;
+  return (
+    message.text.replace(/\s+/g, " ").trim() ===
+      SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT &&
+    (message.threadId === undefined || message.threadId === message.id) &&
+    message.hasAttachments !== true &&
+    !hasSlackFiles &&
+    (await isBackfilledSlackAssistantMessage(message, account))
+  );
+}
+
+async function isBackfilledSlackAssistantMessage(
+  message: ProviderMessage,
+  account: string | undefined,
+): Promise<boolean> {
+  if (message.metadata?.isBot !== true) return false;
+
+  const botUserId = getConfig().slack.botUserId.trim();
+  const rawSenderId = message.sender?.id?.trim();
+  if (!botUserId) return false;
+
+  if (rawSenderId && slackIdentityMatches(rawSenderId, botUserId)) return true;
+
+  const rawBotId =
+    typeof message.metadata.slackBotId === "string"
+      ? message.metadata.slackBotId.trim()
+      : "";
+  if (!rawBotId) return false;
+
+  try {
+    const resolvedBotUserId = await resolveSlackBotUserId(account, rawBotId);
+    return (
+      typeof resolvedBotUserId === "string" &&
+      slackIdentityMatches(resolvedBotUserId, botUserId)
+    );
+  } catch (err) {
+    log.warn(
+      { err, slackBotId: rawBotId, channelTs: message.id },
+      "Failed to resolve Slack bot id for backfilled assistant detection",
+    );
+    return false;
+  }
+}
+
+function slackIdentityMatches(left: string, right: string): boolean {
+  const canonicalSender =
+    canonicalizeInboundIdentity("slack", left) ?? left.trim();
+  const canonicalBot =
+    canonicalizeInboundIdentity("slack", right) ?? right.trim();
+  return canonicalSender === canonicalBot;
+}
+
 /**
  * Transient view of `slackFiles` that preserves the download URLs added by
  * `mapSlackFiles` on the in-flight `ProviderMessage`. These URLs never reach
@@ -1755,6 +1981,9 @@ async function runBackfillSlackDmIfCold(params: {
     const ordered = [...fetched].reverse();
     for (const message of ordered) {
       if (seen.has(message.id)) continue;
+      if (await isSlackAssistantThreadPlaceholder(message, params.account)) {
+        continue;
+      }
       try {
         await persistBackfilledSlackMessage({
           conversationId: params.conversationId,
@@ -2178,18 +2407,6 @@ function sortSlackProviderMessages(
   });
 }
 
-function buildSlackLateJoinNotice(
-  result: SlackThreadBackfillResult,
-): string | null {
-  if (result.reason !== "thread_late_join" || result.persisted === 0) {
-    return null;
-  }
-  const omitted = result.omittedMiddle
-    ? " Some middle thread messages were intentionally omitted from this turn's hydrated context to keep latency bounded."
-    : "";
-  return `Slack context note: this turn joined an existing thread. ${result.persisted} earlier thread message${result.persisted === 1 ? " was" : "s were"} backfilled before the current message.${omitted}`;
-}
-
 /**
  * Lazily backfill Slack thread gaps for an inbound thread reply.
  *
@@ -2330,6 +2547,9 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     for (const message of fetched) {
       if (!message.id) continue;
       if (threadState.storedChannelTs.has(message.id)) continue;
+      if (await isSlackAssistantThreadPlaceholder(message, account)) {
+        continue;
+      }
       try {
         await persistBackfilledSlackMessage({
           conversationId,

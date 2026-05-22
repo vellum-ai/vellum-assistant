@@ -12,6 +12,7 @@ mock.module("../config/loader.js", () => ({
     return {
       ...real,
       memory: { ...real.memory, v2: { ...real.memory.v2, enabled: false } },
+      slack: { ...real.slack, botUserId: "U_BOT" },
     };
   },
 }));
@@ -2344,7 +2345,6 @@ describe("Slack channel chronological rendering — multi-thread", () => {
   const T1 = "1700000010.000002"; // top-level message starting thread B
   const T2 = "1700000030.000003"; // newer top-level message
   const ALIAS_T0 = parentAlias(T0);
-  const ALIAS_T1 = parentAlias(T1);
   const ALIAS_T2 = parentAlias(T2);
 
   const SLACK_CHANNEL_ID = "C0123CHANNEL";
@@ -2539,16 +2539,16 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(lines[2]).toContain("Reply in thread B");
     expect(lines[3]).toContain("Reply in thread A");
     // Cross-thread visibility: thread B's reply is in the rendered output
-    // alongside thread A's reply.
-    expect(lines[2]).toContain(`→ ${ALIAS_T1}`);
-    expect(lines[3]).toContain(`→ ${ALIAS_T0}`);
+    // alongside thread A's reply, without parent-arrow prefixes.
+    expect(lines[2]).not.toContain("→ M");
+    expect(lines[3]).not.toContain("→ M");
     // Sender labels appear.
     expect(lines[0]).toContain("alice");
     expect(lines[1]).toContain("bob");
   });
 
   // ── Scenario 2: reply to a top-level (starts new thread) ─────────────
-  test("scenario 2 — reply to top-level renders thread tag pointing at parent", async () => {
+  test("scenario 2 — reply to top-level renders without parent arrow", async () => {
     const rows: MessageRow[] = [
       userRow({
         id: "m1",
@@ -2572,15 +2572,13 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     const lines = texts(result);
 
     expect(lines.length).toBe(2);
-    // Top-level has no thread tag.
     expect(lines[0]).not.toContain("→ M");
-    // Reply points at the parent's deterministic alias.
-    expect(lines[1]).toContain(`→ ${ALIAS_T0}`);
+    expect(lines[1]).not.toContain("→ M");
     expect(lines[1]).toContain("Reply that starts a new thread");
   });
 
   // ── Scenario 3: reply to the most-recent top-level message ───────────
-  test("scenario 3 — reply to last top-level still renders thread tag", async () => {
+  test("scenario 3 — reply to last top-level still renders chronologically", async () => {
     const rows: MessageRow[] = [
       userRow({
         id: "m1",
@@ -2610,13 +2608,12 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     const lines = texts(result);
 
     expect(lines.length).toBe(3);
-    // The reply targets the newer top-level alias, not the older one.
-    expect(lines[2]).toContain(`→ ${ALIAS_T1}`);
-    expect(lines[2]).not.toContain(`→ ${ALIAS_T0}`);
+    expect(lines[2]).toContain("Reply to the newer top-level");
+    expect(lines[2]).not.toContain("→ M");
   });
 
   // ── Scenario 4: brand-new top-level message ──────────────────────────
-  test("scenario 4 — new top-level message has no thread tag", async () => {
+  test("scenario 4 — new top-level message has no parent arrow", async () => {
     const rows: MessageRow[] = [
       userRow({
         id: "m1",
@@ -2636,7 +2633,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     const lines = texts(result);
 
     expect(lines.length).toBe(2);
-    // Both lines render without a thread tag — they are siblings, not
+    // Both lines render without a parent arrow — they are siblings, not
     // members of the same thread.
     expect(lines[0]).not.toContain("→ M");
     expect(lines[1]).not.toContain("→ M");
@@ -2651,9 +2648,9 @@ describe("Slack channel chronological rendering — multi-thread", () => {
   // ── Scenario 5: legacy mixed with post-upgrade rows ──────────────────
   // Pre-upgrade rows have no `slackMeta` sub-key. Post-upgrade rows have
   // it. Both kinds must appear in the rendered transcript with legacy
-  // rows rendered flat (no thread tag) and post-upgrade rows carrying
-  // their thread tags. The renderer's chronological sort must intermix
-  // them on the appropriate timeline.
+  // rows and post-upgrade rows both rendered without parent-arrow prefixes.
+  // The renderer's chronological sort must intermix them on the appropriate
+  // timeline.
   test("scenario 5 — legacy rows mixed with post-upgrade rows render chronologically", async () => {
     const rows: MessageRow[] = [
       // Legacy user row with a displayName hint only — no slackMeta.
@@ -2670,8 +2667,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         text: "Legacy assistant reply",
       }),
       // Post-upgrade row anchored to a thread parent that has no record
-      // in storage (legacy parent) — the renderer still emits the alias
-      // because the metadata is intact.
+      // in storage (legacy parent).
       userRow({
         id: "m3",
         createdAt: 1700000000_000,
@@ -2694,11 +2690,9 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(lines[0]).toContain("Legacy user message");
     expect(lines[1]).toContain("Legacy assistant reply");
     expect(lines[2]).toContain("Post-upgrade thread reply");
-    // Legacy rows render flat — no thread tag arrow.
     expect(lines[0]).not.toContain("→ M");
     expect(lines[1]).not.toContain("→ M");
-    // Post-upgrade row carries its thread tag.
-    expect(lines[2]).toContain(`→ ${ALIAS_T0}`);
+    expect(lines[2]).not.toContain("→ M");
     // Sender labels: legacy rows carry no structured displayName, and the
     // role slot already conveys user-vs-assistant identity, so the row
     // mapper emits `null` senderLabel and the renderer omits the label
@@ -3016,37 +3010,6 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).not.toContain("dm context");
   });
 
-  test("slack late-join notice is model-facing and non-persisted", async () => {
-    const slackChannelCaps: ChannelCapabilities = {
-      channel: "slack",
-      dashboardCapable: false,
-      supportsDynamicUi: false,
-      supportsVoiceInput: false,
-      chatType: "channel",
-    };
-    const notice =
-      "Slack context note: this turn joined an existing thread. 3 earlier thread messages were backfilled before the current message.";
-
-    const { messages: result, blocks } = await applyRuntimeInjections(
-      [{ role: "user", content: [{ type: "text", text: "current turn" }] }],
-      {
-        channelCapabilities: slackChannelCaps,
-        slackRuntimeContextNotice: notice,
-        transportHints: [notice],
-      },
-    );
-
-    const allText = result
-      .flatMap((m) => m.content)
-      .filter((b): b is { type: "text"; text: string } => b.type === "text")
-      .map((b) => b.text)
-      .join("\n");
-    expect(allText).toContain("<slack_context_notice>");
-    expect(allText).toContain(notice);
-    expect(allText).not.toContain("<transport_hints>");
-    expect(JSON.stringify(blocks)).not.toContain(notice);
-  });
-
   // ── transport_hints kept for non-slack channels ───────────────────────
   test("non-slack conversations still receive <transport_hints>", async () => {
     const { messages: result } = await applyRuntimeInjections(
@@ -3072,10 +3035,9 @@ describe("Slack channel chronological rendering — multi-thread", () => {
   });
 
   // ── trust-filter regression for loadSlackChronologicalMessages ───────
-  // For untrusted actors, guardian-scoped rows must be excluded
-  // from the chronological transcript the same way `loadFromDb` filters
-  // them out of the default history.
-  test("loadSlackChronologicalMessages filters guardian-scoped rows for untrusted actors", () => {
+  // For untrusted actors, Slack-sourced rows are still shared channel/thread
+  // context, while non-Slack guardian-scoped rows remain private.
+  test("loadSlackChronologicalMessages keeps Slack-visible guardian rows for untrusted actors", () => {
     const caps: ChannelCapabilities = {
       channel: "slack",
       dashboardCapable: false,
@@ -3083,14 +3045,15 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       supportsVoiceInput: false,
       chatType: "channel",
     };
-    // Row 1 has no provenance → guardian-scoped (filtered out).
-    // Row 2 has provenance.trustClass === "trusted_contact" (kept).
     const rows: MessageRow[] = [
       userRow({
         id: "m1",
         createdAt: 1700000000_000,
-        text: "guardian-only context",
+        text: "public guardian instruction",
         slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        extraOuterMetadata: {
+          provenanceTrustClass: "guardian",
+        },
       }),
       userRow({
         id: "m2",
@@ -3099,6 +3062,14 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         slackMeta: buildSlackMeta({ channelTs: T1, displayName: "bob" }),
         extraOuterMetadata: {
           provenanceTrustClass: "trusted_contact",
+        },
+      }),
+      userRow({
+        id: "m3",
+        createdAt: 1700000020_000,
+        text: "private guardian-only context",
+        extraOuterMetadata: {
+          provenanceTrustClass: "guardian",
         },
       }),
     ];
@@ -3112,8 +3083,9 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
       .map((b) => b.text)
       .join("\n");
-    expect(allText).not.toContain("guardian-only context");
+    expect(allText).toContain("public guardian instruction");
     expect(allText).toContain("from untrusted actor");
+    expect(allText).not.toContain("private guardian-only context");
   });
 
   test("loadSlackChronologicalContext preserves summary and filters by Slack watermark", () => {
@@ -3431,15 +3403,14 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(focusBlock).not.toBeNull();
     expect(focusBlock!).toContain("<active_thread>");
     expect(focusBlock!).toContain("</active_thread>");
-    // Parent (T0) is included, both by content and via the parent alias.
+    // Parent (T0) is included by content.
     expect(focusBlock!).toContain("Top-level in thread A");
     // The new reply is included.
     expect(focusBlock!).toContain("New reply in thread A");
-    expect(focusBlock!).toContain(`→ ${ALIAS_T0}`);
+    expect(focusBlock!).not.toContain("→ M");
     // Thread B's content is NOT in the focus block.
     expect(focusBlock!).not.toContain("Top-level in thread B");
     expect(focusBlock!).not.toContain("Cross-thread reply in B");
-    expect(focusBlock!).not.toContain(`→ ${ALIAS_T1}`);
 
     // The focus block is appended to the FINAL user message as a tail
     // text block — not to any earlier message.
@@ -4037,13 +4008,97 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
     expect(result!).toContain("@assistant: Assistant reply");
   });
 
+  test("timezone-aware assistant rows keep renderer attribution in active-thread focus block", () => {
+    const rows: SlackTranscriptInputRow[] = [
+      buildRow(
+        "user",
+        "Parent",
+        1_000,
+        buildMeta({
+          channelTs: PARENT_TS,
+          displayName: "aaron",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
+        }),
+      ),
+      buildRow(
+        "assistant",
+        "Assistant reply",
+        2_000,
+        buildMeta({
+          channelTs: "1700000005.000001",
+          threadTs: PARENT_TS,
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
+          speakerTimezoneLabel: "ET",
+        }),
+      ),
+      buildRow(
+        "user",
+        "Follow-up",
+        3_000,
+        buildMeta({
+          channelTs: REPLY_TS,
+          threadTs: PARENT_TS,
+          displayName: "aaron",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
+        }),
+      ),
+    ];
+
+    const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
+    expect(result).not.toBeNull();
+    expect(result!).toContain(
+      "[nov 14 2023 3:13 PM MT assistant] Assistant reply",
+    );
+    expect(result!).not.toContain(
+      "@assistant: [nov 14 2023 3:13 PM MT assistant]",
+    );
+  });
+
+  test("assistant content that only looks like a compact tag still gets active-thread attribution", () => {
+    const compactLookingContent =
+      "[nov 14 2023 3:13 PM MT assistant] Assistant reply";
+    const rows: SlackTranscriptInputRow[] = [
+      buildRow(
+        "user",
+        "Parent",
+        1_000,
+        buildMeta({ channelTs: PARENT_TS, displayName: "@alice" }),
+      ),
+      buildRow(
+        "assistant",
+        compactLookingContent,
+        2_000,
+        buildMeta({
+          channelTs: "1700000005.000001",
+          threadTs: PARENT_TS,
+        }),
+      ),
+      buildRow(
+        "user",
+        "Follow-up",
+        3_000,
+        buildMeta({
+          channelTs: REPLY_TS,
+          threadTs: PARENT_TS,
+          displayName: "@alice",
+        }),
+      ),
+    ];
+
+    const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
+    expect(result).not.toBeNull();
+    expect(result!).toContain(`@assistant: ${compactLookingContent}`);
+  });
+
   test("assistant reaction overflow trailer is not double-attributed", () => {
     // When assistant reactions overflow the per-target cap, `renderSlackTranscript`
     // emits a trailer line (`[…and N more reactions to Mxxxxxx]`) whose role
-    // is inherited from the first overflowing reaction — i.e. `assistant`. The
-    // trailer embeds no actor attribution but ends with the parent alias and
-    // shares the same `M<hex>]` signature as a real reaction line, so it must
-    // be detected by `isReactionTagLine` and skipped by the prefix step.
+    // is inherited from the first overflowing reaction — i.e. `assistant`.
+    // Renderer provenance marks it as a Slack reaction line so the flattened
+    // active-thread block does not add a content-message prefix.
     const PARENT_ALIAS_TS = PARENT_TS;
     const buildAssistantReaction = (ts: string, emoji: string) =>
       buildRow(
@@ -4128,6 +4183,7 @@ describe("assembleSlackChronologicalMessages", () => {
   // Anchor times mirror the renderer's HH:MM (UTC) output.
   // 14:25:00 UTC on 2023-11-14 = epoch second 1699971900.
   const TS_14_25 = "1699971900.000100"; // 14:25 UTC
+  const TS_14_26 = "1699971960.000200"; // 14:26 UTC
   const TS_14_28 = "1699972080.000300"; // 14:28 UTC
   const MS_14_25 = 1699971900_000;
   const MS_14_26 = 1699971960_000;
@@ -4286,6 +4342,85 @@ describe("assembleSlackChronologicalMessages", () => {
       const text = (msg.content[0] as { type: "text"; text: string }).text;
       expect(text).not.toMatch(/→ M[0-9a-f]{6}/);
     }
+  });
+
+  test("expanded Slack timezone metadata remains renderable", () => {
+    const userMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_25,
+      eventKind: "message",
+      displayName: "@alice",
+      actorTimezone: "America/New_York",
+      actorTimezoneLabel: "ET",
+      actorTimezoneOffsetSeconds: -18000,
+      timestampTimezone: "America/New_York",
+      timestampTimezoneLabel: "ET",
+      speakerTimezoneLabel: "ET",
+    };
+    const rows: SlackTranscriptInputRow[] = [
+      row("user", "timezone-aware hello", MS_14_25, metadataEnvelope(userMeta)),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
+    expect(result).not.toBeNull();
+    expect(result!.map((m) => (m.content[0] as { text: string }).text)).toEqual(
+      [
+        `[nov 14 2023 9:25 AM ET @alice (ET)] ${slackExternal(
+          "timezone-aware hello",
+          "@alice",
+        )}`,
+      ],
+    );
+  });
+
+  test("Slack context skips configured assistant new-thread placeholder rows", () => {
+    const placeholderMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_25,
+      eventKind: "message",
+      displayName: "Ada",
+      actorExternalUserId: "U_BOT",
+    };
+    const otherBotMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_26,
+      eventKind: "message",
+      displayName: "Build Bot",
+      actorExternalUserId: "B_OTHER",
+    };
+    const realBotMeta: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_28,
+      eventKind: "message",
+      actorExternalUserId: "B_ASSISTANT",
+    };
+    const rows: SlackTranscriptInputRow[] = [
+      row(
+        "user",
+        "New Assistant Thread",
+        MS_14_25,
+        metadataEnvelope(placeholderMeta),
+      ),
+      row(
+        "user",
+        "New Assistant Thread",
+        MS_14_26,
+        metadataEnvelope(otherBotMeta),
+      ),
+      row("user", "real bot context", MS_14_28, metadataEnvelope(realBotMeta)),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
+    expect(result).not.toBeNull();
+    const rendered = JSON.stringify(result);
+    expect(rendered).not.toContain("Ada");
+    expect(rendered.split("New Assistant Thread").length - 1).toBe(1);
+    expect(rendered).toContain("Build Bot");
+    expect(rendered).toContain("real bot context");
   });
 
   test("legacy-DM fixture: pre-upgrade rows (no slackMeta) interleave with post-upgrade rows", () => {
@@ -4501,17 +4636,16 @@ describe("assembleSlackChronologicalMessages", () => {
     });
   });
 
-  test("post-reconciliation: assistant rows with channelTs participate in thread tagging", () => {
+  test("post-reconciliation: assistant rows with channelTs participate in chronological rendering", () => {
     // Once `deliverReplyViaCallback` reconciles `channelTs` from the
     // gateway's response, assistant rows carry a fully-formed slackMeta
     // envelope. They must then render through the Slack chronological
     // path (not the legacy fallback) so reply rows pointing at the
-    // assistant's prior message get a `→ Mxxxxxx` parent-alias arrow.
+    // assistant's prior message appear in Slack timestamp order.
     //
     // This is the cross-thread visibility that the slack-thread-aware-
     // context plan promises: a follow-up user reply to the assistant's
-    // earlier post should render with a parent-alias arrow that the model
-    // can use to reason about which prior assistant message it threads off.
+    // earlier post should render alongside the prior assistant row.
     const SLACK_CHANNEL_ID_2 = "C0THREAD";
     const ASSISTANT_TS = "1700001000.000111";
     const REPLY_TS = "1700001020.000222";
@@ -4556,13 +4690,13 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(result).not.toBeNull();
     expect(result!.length).toBe(2);
 
-    // The user follow-up MUST carry a `→ Mxxxxxx` parent-alias arrow that
-    // points at the assistant's prior message. Before reconciliation, the
-    // assistant row was treated as legacy/null-metadata and excluded from
-    // alias issuance — the user reply rendered without the arrow.
+    // The user follow-up keeps timestamp/sender attribution without carrying
+    // the old parent-alias arrow.
     const replyText = (result![1].content[0] as { text: string }).text;
-    expect(replyText).toMatch(/→ M[0-9a-f]{6}/);
-    expect(replyText).toContain(parentAlias(ASSISTANT_TS));
+    expect(replyText).toBe(
+      `[11/14/23 22:30 @alice]: ${slackExternal("Following up", "@alice")}`,
+    );
+    expect(replyText).not.toContain("→ M");
   });
 
   test("post-reconciliation: assistant row appears in active-thread focus block", () => {

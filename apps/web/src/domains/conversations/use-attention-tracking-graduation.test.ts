@@ -5,17 +5,11 @@ import { decideGraduationDispatches } from "@/domains/conversations/use-attentio
 // ---------------------------------------------------------------------------
 // Tests for the graduation-decision helper used by `useAttentionTracking`.
 //
-// The bug this protects against (Codex P1 on PR #6686): when the bulk
-// pending-interactions fetch fails, the previous shape still removed every
-// graduating key from `processingKeys` without adding any to `attentionKeys`.
-// Conversations with real pending approvals lost both indicators, and once
-// both sets were empty the 10s poller's gate short-circuited so nothing
-// recovered them until the user manually reopened the conversation.
-//
-// The helper now signals "do nothing" by returning [] when `pendingKeys` is
+// The helper signals "do nothing" by returning [] when `pendingKeys` is
 // null (the hook passes null on bulk-fetch failure). Keys stay in
-// `processingKeys` with their snapshots intact; the 10s poller or the next
-// render retries.
+// `processingKeys` with their snapshots intact; the next render retries.
+// Conversations with real pending approvals keep their processing indicator
+// even when the bulk fetch fails.
 // ---------------------------------------------------------------------------
 
 describe("decideGraduationDispatches", () => {
@@ -74,8 +68,8 @@ describe("decideGraduationDispatches", () => {
   test("ignores pending keys that are not in the graduating list", () => {
     // Pending interactions can exist on conversations whose snapshots haven't
     // advanced yet (they're still streaming). Those don't graduate here —
-    // they'll be picked up by the 10s poller's "graduate processing keys
-    // that are now pending" path.
+    // the graduation effect only acts on keys that have actually finished a
+    // turn.
     const actions = decideGraduationDispatches(
       ["conv-1"],
       new Set(["conv-1", "conv-99", "conv-100"]),
@@ -88,9 +82,9 @@ describe("decideGraduationDispatches", () => {
 
   test("empty pendingKeys Set is not the same as null", () => {
     // An empty Set means "fetch succeeded, nothing pending" — graduate
-    // freely. Null means "fetch failed, don't graduate." This is the
-    // distinction the original Codex finding was about: the previous code
-    // collapsed the two cases.
+    // freely. Null means "fetch failed, don't graduate." The two cases
+    // must stay distinct so a fetch failure does not silently drop
+    // processing indicators.
     const successActions = decideGraduationDispatches(["conv-1"], new Set());
     const failureActions = decideGraduationDispatches(["conv-1"], null);
     expect(successActions).toEqual([

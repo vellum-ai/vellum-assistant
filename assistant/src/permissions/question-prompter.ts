@@ -223,8 +223,11 @@ export class QuestionPrompter {
           signal.removeEventListener("abort", onAbort);
         }
         // Idempotent: a no-op if the entry was already removed (e.g. by
-        // `removeByConversation`) or by an earlier path.
-        pendingInteractions.resolve(requestId);
+        // `removeByConversation`) or by an earlier path. The route's
+        // success path resolves with "answered" before invoking rpcResolve,
+        // so this fallback only fires for timeout / abort / removeByConversation —
+        // all cancellation-shaped outcomes.
+        pendingInteractions.resolve(requestId, "cancelled");
         fn();
       };
 

@@ -5,6 +5,7 @@ import { useSearchParams, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { toast } from "@vellum/design-library/components/toast";
+import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/index.js";
 import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal.js";
 import { BillingPanel } from "@/domains/settings/components/billing-panel.js";
 import { BillingPortalReturnHandler } from "@/domains/settings/components/billing-portal-return-handler.js";
@@ -14,7 +15,7 @@ import { PaymentMethodsCard } from "@/domains/settings/components/payment-method
 import { PlanCard } from "@/domains/settings/components/plan-card.js";
 import { ReferralPanel } from "@/domains/settings/components/referral-panel.js";
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 
 /**
@@ -51,10 +52,20 @@ function BillingStatusHandler() {
 }
 
 export function BillingPage() {
-  const proPlanAdjust = useFeatureFlagStore.use.proPlanAdjust();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const proPlanAdjust = useClientFeatureFlagStore.use.proPlanAdjust();
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const openPlanModal = useCallback(() => setPlanModalOpen(true), []);
   const closePlanModal = useCallback(() => setPlanModalOpen(false), []);
+
+  const hasSessionId = searchParams.has("session_id");
+  const closeOnboarding = useCallback(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("session_id");
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   return (
     <div className="max-w-5xl space-y-4">
@@ -75,6 +86,7 @@ export function BillingPage() {
       </Suspense>
       <ReferralPanel />
       <BillingUsagePanel />
+      <BillingOnboardingModal open={hasSessionId} onClose={closeOnboarding} />
     </div>
   );
 }

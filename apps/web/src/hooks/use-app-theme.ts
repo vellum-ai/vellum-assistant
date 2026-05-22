@@ -8,12 +8,11 @@
  */
 import { useEffect } from "react";
 
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import {
   applyThemePreference,
   normalizeThemePreference,
   THEME_STORAGE_KEY,
-  writeStoredThemePreference,
 } from "@/domains/settings/utils/theme-preferences.js";
 
 function readRawStoredTheme(): string | null {
@@ -25,7 +24,7 @@ function readRawStoredTheme(): string | null {
 }
 
 export function useAppTheme() {
-  const velvet = useFeatureFlagStore.use.velvet();
+  const velvet = useClientFeatureFlagStore.use.velvet();
 
   useEffect(() => {
     const stored = readRawStoredTheme();
@@ -33,9 +32,6 @@ export function useAppTheme() {
       velvetEnabled: velvet,
     });
 
-    if (stored !== null && stored !== theme) {
-      writeStoredThemePreference(theme);
-    }
     applyThemePreference(theme);
 
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");

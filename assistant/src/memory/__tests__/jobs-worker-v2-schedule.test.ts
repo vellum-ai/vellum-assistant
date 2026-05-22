@@ -19,7 +19,7 @@
  * Tests use a temp workspace pinned via `VELLUM_WORKSPACE_DIR` so the DB
  * lives under `tmpdir()` and `~/.vellum/` is never touched.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -66,7 +66,7 @@ const { initializeDb } = await import("../db-init.js");
 const { resetTestTables } = await import("../raw-query.js");
 const { memoryJobs } = await import("../schema.js");
 const { applyNestedDefaults } = await import("../../config/loader.js");
-const { setMemoryCheckpoint, deleteMemoryCheckpoint } =
+const { getMemoryCheckpoint, setMemoryCheckpoint, deleteMemoryCheckpoint } =
   await import("../checkpoints.js");
 const { maybeEnqueueGraphMaintenanceJobs } = await import("../jobs-worker.js");
 
@@ -75,6 +75,7 @@ const CONSOLIDATE_CHECKPOINT_KEY = "memory_v2_consolidate_last_run";
 function buildConfig(overrides: {
   v2Enabled?: boolean;
   intervalHours?: number;
+  maxBufferLines?: number | null;
 }) {
   const partial = applyNestedDefaults({});
   if (overrides.v2Enabled !== undefined) {
@@ -83,7 +84,24 @@ function buildConfig(overrides: {
   if (overrides.intervalHours !== undefined) {
     partial.memory.v2.consolidation_interval_hours = overrides.intervalHours;
   }
+  if (overrides.maxBufferLines !== undefined) {
+    partial.memory.v2.consolidation_max_buffer_lines = overrides.maxBufferLines;
+  }
   return partial;
+}
+
+function writeBuffer(lineCount: number): void {
+  const memoryDir = join(tmpWorkspace, "memory");
+  mkdirSync(memoryDir, { recursive: true });
+  const entries = Array.from(
+    { length: lineCount },
+    (_, i) => `- [Jan 15, 2:${String(i).padStart(2, "0")} PM] note ${i}`,
+  );
+  writeFileSync(join(memoryDir, "buffer.md"), entries.join("\n") + "\n");
+}
+
+function removeBuffer(): void {
+  rmSync(join(tmpWorkspace, "memory", "buffer.md"), { force: true });
 }
 
 function countPendingJobs(type: string): number {
@@ -213,6 +231,121 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     expect(countPendingJobs("graph_consolidate")).toBe(1);
     expect(countPendingJobs("graph_pattern_scan")).toBe(1);
     expect(countPendingJobs("graph_narrative_refine")).toBe(1);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+  });
+});
+
+describe("maybeEnqueueGraphMaintenanceJobs — buffer-size trigger", () => {
+  test("default threshold (100 lines) fires once the buffer reaches it", () => {
+    const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+
+    const now = Date.now();
+    // Recent checkpoint so the time-based trigger does not fire.
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - 60_000));
+    writeBuffer(100);
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("explicit null disables the size trigger", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: null,
+    });
+
+    const now = Date.now();
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - 60_000));
+    writeBuffer(500);
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+  });
+
+  test("enqueues when buffer reaches the threshold even if interval not elapsed", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 5,
+    });
+
+    const now = Date.now();
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - 60_000));
+    writeBuffer(10);
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+    // Checkpoint refreshed so the next tick doesn't immediately re-fire.
+    expect(getMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY)).toBe(String(now));
+  });
+
+  test("does not enqueue when buffer is under the threshold", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 5,
+    });
+
+    const now = Date.now();
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - 60_000));
+    writeBuffer(3);
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+  });
+
+  test("treats missing buffer file as zero lines", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 1,
+    });
+
+    const now = Date.now();
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - 60_000));
+    removeBuffer();
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+  });
+
+  test("does not double-enqueue when both triggers would fire", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 5,
+    });
+
+    const now = Date.now();
+    // Stale checkpoint so time-based fires, AND buffer over threshold.
+    setMemoryCheckpoint(
+      CONSOLIDATE_CHECKPOINT_KEY,
+      String(now - 2 * 60 * 60 * 1000),
+    );
+    writeBuffer(10);
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("size trigger inert when v2 is disabled", () => {
+    const config = buildConfig({
+      v2Enabled: false,
+      intervalHours: 1,
+      maxBufferLines: 1,
+    });
+
+    writeBuffer(100);
+
+    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
+
     expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
   });
 });

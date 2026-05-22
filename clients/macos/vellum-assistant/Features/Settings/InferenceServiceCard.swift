@@ -11,6 +11,7 @@ import VellumAssistantShared
 @MainActor
 struct InferenceServiceCard: View {
     @ObservedObject var store: SettingsStore
+    var assistantFeatureFlagStore: AssistantFeatureFlagStore
     var showToast: (String, ToastInfo.Style) -> Void
 
     /// Whether the read-only per-call-site overrides sheet is presented.
@@ -38,7 +39,7 @@ struct InferenceServiceCard: View {
             InferenceProfilesSheet(store: store, isPresented: $showProfilesSheet)
         }
         .sheet(isPresented: $showProvidersSheet) {
-            ProvidersSheet(store: store, isPresented: $showProvidersSheet)
+            ProvidersSheet(store: store, isPresented: $showProvidersSheet, assistantFeatureFlagStore: assistantFeatureFlagStore)
         }
     }
 

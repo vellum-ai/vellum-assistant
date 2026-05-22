@@ -18,7 +18,14 @@
  * resolve the interaction.
  */
 
+import type { InteractionResolutionState } from "../daemon/message-types/messages.js";
 import type { UserDecision } from "../permissions/types.js";
+import { getLogger } from "../util/logger.js";
+import { broadcastMessage } from "./assistant-event-hub.js";
+
+const log = getLogger("pending-interactions");
+
+export type { InteractionResolutionState } from "../daemon/message-types/messages.js";
 
 export interface ConfirmationDetails {
   toolName: string;
@@ -98,15 +105,48 @@ export function register(
  * Remove and return the pending interaction for the given requestId.
  * Auto-clears the proxy timer and detaches the abort listener if present.
  * Returns undefined if no interaction is registered.
+ *
+ * Emits `interaction_resolved` on the event hub when an interaction is
+ * actually removed (no-op when the entry was already consumed by another
+ * path). Callers pass `state` to communicate the lifecycle outcome
+ * — defaults to `"cancelled"`, the safest value when the call site has
+ * no extra context.
  */
-export function resolve(requestId: string): PendingInteraction | undefined {
+export function resolve(
+  requestId: string,
+  state: InteractionResolutionState = "cancelled",
+): PendingInteraction | undefined {
   const interaction = pending.get(requestId);
-  if (interaction) {
-    pending.delete(requestId);
-    if (interaction.timer != null) clearTimeout(interaction.timer);
-    interaction.detachAbort?.();
-  }
+  if (!interaction) return undefined;
+  pending.delete(requestId);
+  if (interaction.timer != null) clearTimeout(interaction.timer);
+  interaction.detachAbort?.();
+  emitResolved(requestId, interaction, state);
   return interaction;
+}
+
+function emitResolved(
+  requestId: string,
+  interaction: PendingInteraction,
+  state: InteractionResolutionState,
+): void {
+  log.info(
+    {
+      requestId,
+      conversationId: interaction.conversationId,
+      kind: interaction.kind,
+      state,
+    },
+    "Pending interaction resolved",
+  );
+  broadcastMessage({
+    type: "interaction_resolved",
+    requestId,
+    conversationId: interaction.conversationId,
+    conversationKey: interaction.conversationId,
+    kind: interaction.kind,
+    state,
+  });
 }
 
 /**
@@ -146,7 +186,10 @@ export function getByConversation(
  * /v1/host-transfer-result after completing the operation, get a 404, and the
  * proxy timer would fire with a spurious timeout error.
  */
-export function removeByConversation(conversationId: string): void {
+export function removeByConversation(
+  conversationId: string,
+  state: InteractionResolutionState = "superseded",
+): void {
   // Snapshot keys to avoid mutation-during-iteration.
   for (const [requestId, interaction] of [...pending]) {
     if (
@@ -160,7 +203,7 @@ export function removeByConversation(conversationId: string): void {
       interaction.kind !== "acp_confirmation"
     ) {
       // resolve() clears the stored timer and detaches abort listeners.
-      resolve(requestId);
+      resolve(requestId, state);
     }
   }
 }

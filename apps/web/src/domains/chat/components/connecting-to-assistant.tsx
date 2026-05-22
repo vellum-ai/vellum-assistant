@@ -1,5 +1,5 @@
 
-import { AlertTriangle, Loader2, Moon } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { Link } from "react-router";
 import type { FC, ReactNode } from "react";
 
@@ -9,7 +9,7 @@ import type {
   ReachabilityState,
 } from "@/assistant/use-assistant-reachability.js";
 import { MAX_ATTEMPTS } from "@/assistant/use-assistant-reachability.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 
 interface ConnectingToAssistantProps {
@@ -74,10 +74,10 @@ interface ConnectingBodyProps {
 
 const ConnectingBody: FC<ConnectingBodyProps> = ({ attempt, isPodWaking }) => {
   const heading = isPodWaking
-    ? "Waking up your assistant"
+    ? "Bringing your assistant back online"
     : "Connecting to your assistant";
   const description = isPodWaking
-    ? "Your assistant was asleep and is coming back online. This can take up to a minute."
+    ? "Your assistant is starting and should be reachable shortly. This can take up to a minute."
     : "We're having trouble reaching your assistant and will keep retrying for up to 60 seconds.";
   // ``attempt`` counts completed probe attempts (0 before the first probe
   // has resolved). Display the human-facing "in-progress" attempt number
@@ -90,11 +90,7 @@ const ConnectingBody: FC<ConnectingBodyProps> = ({ attempt, isPodWaking }) => {
     <StatusLayout
       icon={
         <StatusIcon tone="info">
-          {isPodWaking ? (
-            <Moon className="h-7 w-7" aria-hidden="true" />
-          ) : (
-            <Loader2 className="h-7 w-7 animate-spin" aria-hidden="true" />
-          )}
+          <Loader2 className="h-7 w-7 animate-spin" aria-hidden="true" />
         </StatusIcon>
       }
       title={heading}
@@ -115,7 +111,7 @@ const FailureBody: FC<FailureBodyProps> = ({
   lastServerState,
   onRetry,
 }) => {
-  const doctorEnabled = useFeatureFlagStore.use.doctor();
+  const doctorEnabled = useClientFeatureFlagStore.use.doctor();
   const isCrashLoop = lastServerState === "crash_loop";
 
   const title = isCrashLoop

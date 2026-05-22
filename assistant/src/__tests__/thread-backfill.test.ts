@@ -77,6 +77,14 @@ mock.module("../messaging/providers/slack/adapter.js", () => ({
     _account: string | undefined,
     fn: (token: string) => Promise<unknown>,
   ) => fn("test-slack-token"),
+  resolveSlackBotUserId: async (
+    _account: string | undefined,
+    botId: string,
+  ) => {
+    if (botId === "B_ASSISTANT") return "U_BOT";
+    if (botId === "B_OTHER") return "U_OTHER_BOT";
+    return null;
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -85,6 +93,11 @@ mock.module("../messaging/providers/slack/adapter.js", () => ({
 
 import { v4 as uuid } from "uuid";
 
+import {
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../config/loader.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import {
   type ChannelCapabilities,
@@ -97,6 +110,7 @@ import { recordInbound } from "../memory/delivery-crud.js";
 import type { Message as MessagingMessage } from "../messaging/provider-types.js";
 import * as slackBackfill from "../messaging/providers/slack/backfill.js";
 import {
+  buildSlackTimezoneMetadata,
   readSlackMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
@@ -162,6 +176,20 @@ function resetState(): void {
   backfillDmMock.mockImplementation(async () => []);
   downloadSlackFileMock.mockReset();
   downloadSlackFileMock.mockResolvedValue(null);
+  setConfiguredSlackBotUserId("U_BOT");
+  setConfiguredUserTimezone(undefined);
+}
+
+function setConfiguredSlackBotUserId(botUserId: string): void {
+  const raw = loadRawConfig();
+  setNestedValue(raw, "slack.botUserId", botUserId);
+  saveRawConfig(raw);
+}
+
+function setConfiguredUserTimezone(userTimezone: string | undefined): void {
+  const raw = loadRawConfig();
+  setNestedValue(raw, "ui.userTimezone", userTimezone);
+  saveRawConfig(raw);
 }
 
 let convCounter = 0;
@@ -269,6 +297,12 @@ interface PersistedRow {
   threadTs: string | undefined;
   displayName: string | undefined;
   actorExternalUserId: string | undefined;
+  actorTimezone: string | undefined;
+  actorTimezoneLabel: string | undefined;
+  actorTimezoneOffsetSeconds: number | undefined;
+  timestampTimezone: string | undefined;
+  timestampTimezoneLabel: string | undefined;
+  speakerTimezoneLabel: string | undefined;
   slackFiles: Array<{ name: string; mimetype?: string }> | undefined;
   provenanceTrustClass: string | undefined;
   provenanceSourceChannel: string | undefined;
@@ -296,6 +330,12 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       threadTs: undefined,
       displayName: undefined,
       actorExternalUserId: undefined,
+      actorTimezone: undefined,
+      actorTimezoneLabel: undefined,
+      actorTimezoneOffsetSeconds: undefined,
+      timestampTimezone: undefined,
+      timestampTimezoneLabel: undefined,
+      speakerTimezoneLabel: undefined,
       slackFiles: undefined,
       provenanceTrustClass: undefined,
       provenanceSourceChannel: undefined,
@@ -336,6 +376,12 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       threadTs: slackMeta?.threadTs,
       displayName: slackMeta?.displayName,
       actorExternalUserId: slackMeta?.actorExternalUserId,
+      actorTimezone: slackMeta?.actorTimezone,
+      actorTimezoneLabel: slackMeta?.actorTimezoneLabel,
+      actorTimezoneOffsetSeconds: slackMeta?.actorTimezoneOffsetSeconds,
+      timestampTimezone: slackMeta?.timestampTimezone,
+      timestampTimezoneLabel: slackMeta?.timestampTimezoneLabel,
+      speakerTimezoneLabel: slackMeta?.speakerTimezoneLabel,
       slackFiles: slackMeta?.slackFiles?.map((file) => ({
         name: file.name,
         ...(file.mimetype ? { mimetype: file.mimetype } : {}),
@@ -978,7 +1024,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(contextImage).toBeDefined();
   });
 
-  test("backfilled bot Slack image files are persisted as user image history", async () => {
+  test("backfilled assistant Slack image files are persisted as assistant image history", async () => {
     const conv = createTestConversation();
 
     seedSlackRow(conv.id, "1234.0", undefined, "parent already here");
@@ -992,7 +1038,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
         id: "1234.1",
         text: "bot posted a diagram",
         threadId: "1234.0",
-        sender: { id: "B_IMAGE", name: "Build Bot" },
+        sender: { id: "U_BOT", name: "Douglas" },
         metadata: {
           isBot: true,
           slackFiles: [
@@ -1020,7 +1066,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
       row.content.includes("bot posted a diagram"),
     );
     expect(botRow).toBeDefined();
-    expect(botRow?.role).toBe("user");
+    expect(botRow?.role).toBe("assistant");
     const blocks = JSON.parse(botRow!.content) as Message["content"];
     const textBlock = blocks.find(
       (block): block is Extract<Message["content"][number], { type: "text" }> =>
@@ -1042,6 +1088,27 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     });
 
     expect(context).not.toBeNull();
+    const contextBotMessage = context!.messages.find(
+      (message) =>
+        message.role === "assistant" &&
+        message.content.some(
+          (block) =>
+            block.type === "text" &&
+            block.text.includes("bot posted a diagram"),
+        ),
+    );
+    expect(contextBotMessage).toBeDefined();
+    expect(
+      contextBotMessage!.content
+        .filter(
+          (
+            block,
+          ): block is Extract<Message["content"][number], { type: "text" }> =>
+            block.type === "text",
+        )
+        .map((block) => block.text)
+        .join("\n"),
+    ).not.toContain("<external_content");
     const contextImage = context!.messages
       .flatMap((message) => message.content)
       .find((block) => block.type === "image");
@@ -1082,6 +1149,62 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(persisted.provenanceRequesterIdentifier).toBe("U_ANITA");
   });
 
+  test("backfilled Slack timezone metadata derives timestamp and speaker fields", async () => {
+    const conv = createTestConversation();
+    setConfiguredUserTimezone("America/Denver");
+
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.0",
+        text: "non-guardian context",
+        threadId: undefined,
+        sender: { id: "U_ANITA", name: "Anita" },
+        metadata: {
+          actorTimezone: "America/New_York",
+          actorTimezoneLabel: "ET",
+          actorTimezoneOffsetSeconds: -18000,
+        },
+      }),
+      makeBackfillMessage({
+        id: "1234.1",
+        text: "trusted context",
+        threadId: "1234.0",
+        sender: { id: "U_GUARDIAN", name: "Guardian User" },
+        metadata: {
+          actorTimezone: "America/Denver",
+          actorTimezoneLabel: "MT",
+          actorTimezoneOffsetSeconds: -25200,
+        },
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+      guardianExternalUserId: "U_GUARDIAN",
+    });
+
+    const persisted = readPersistedSlackRows(conv.id);
+    const nonGuardian = persisted.find((p) => p.channelTs === "1234.0");
+    expect(nonGuardian).toBeDefined();
+    expect(nonGuardian?.actorTimezone).toBe("America/New_York");
+    expect(nonGuardian?.actorTimezoneLabel).toBe("ET");
+    expect(nonGuardian?.actorTimezoneOffsetSeconds).toBe(-18000);
+    expect(nonGuardian?.timestampTimezone).toBe("America/Denver");
+    expect(nonGuardian?.timestampTimezoneLabel).toBe("MT");
+    expect(nonGuardian?.speakerTimezoneLabel).toBe("ET");
+
+    const guardian = persisted.find((p) => p.channelTs === "1234.1");
+    expect(guardian).toBeDefined();
+    expect(guardian?.actorTimezone).toBe("America/Denver");
+    expect(guardian?.actorTimezoneLabel).toBe("MT");
+    expect(guardian?.actorTimezoneOffsetSeconds).toBe(-25200);
+    expect(guardian?.timestampTimezone).toBe("America/Denver");
+    expect(guardian?.timestampTimezoneLabel).toBe("MT");
+    expect(guardian?.speakerTimezoneLabel).toBeUndefined();
+  });
+
   test("backfilled guardian-authored text is persisted raw with guardian provenance", async () => {
     const conv = createTestConversation();
 
@@ -1115,16 +1238,98 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(persisted.provenanceRequesterIdentifier).toBe("U_GUARDIAN");
   });
 
-  test("backfilled bot-authored text is persisted raw as user history", async () => {
+  test("backfilled assistant-authored text is persisted raw as assistant history", async () => {
+    const conv = createTestConversation();
+    setConfiguredUserTimezone("America/Denver");
+
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1772681880.000000",
+        text: "earlier assistant reply",
+        threadId: undefined,
+        sender: { id: "U_BOT", name: "Douglas" },
+        metadata: { isBot: true },
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1772681880.000000",
+    });
+
+    const [persisted] = readPersistedSlackRows(conv.id).filter(
+      (p) => p.channelTs === "1772681880.000000",
+    );
+    expect(persisted).toBeDefined();
+    expect(persisted.role).toBe("assistant");
+    expect(persisted.rawContent).toBe("earlier assistant reply");
+    expect(persisted.rawContent).not.toContain("<external_content");
+    expect(persisted.actorExternalUserId).toBe("U_BOT");
+    expect(persisted.timestampTimezone).toBe("America/Denver");
+    expect(persisted.timestampTimezoneLabel).toBe("MT");
+    expect(persisted.speakerTimezoneLabel).toBeUndefined();
+    expect(persisted.provenanceTrustClass).toBe("unknown");
+    expect(persisted.provenanceSourceChannel).toBe("slack");
+    expect(persisted.provenanceRequesterIdentifier).toBe("U_BOT");
+
+    const context = loadSlackChronologicalContext(conv.id, SLACK_CHANNEL_CAPS, {
+      loader: readMessageRowsByConversation,
+      trustClass: "guardian",
+    });
+    expect(context).not.toBeNull();
+    expect(context!.messages).toEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "[mar 4 2026 8:38 PM MT assistant] earlier assistant reply",
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("backfilled bot-id-only assistant text resolves to assistant history", async () => {
     const conv = createTestConversation();
 
     backfillThreadMock.mockImplementation(async () => [
       makeBackfillMessage({
         id: "1234.0",
-        text: "earlier assistant reply",
+        text: "earlier assistant reply from bot id",
         threadId: undefined,
-        sender: { id: "U_BOT", name: "Douglas" },
-        metadata: { isBot: true },
+        sender: { id: "B_ASSISTANT", name: "Douglas" },
+        metadata: { isBot: true, slackBotId: "B_ASSISTANT" },
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+    });
+
+    const [persisted] = readPersistedSlackRows(conv.id).filter(
+      (p) => p.channelTs === "1234.0",
+    );
+    expect(persisted).toBeDefined();
+    expect(persisted.role).toBe("assistant");
+    expect(persisted.rawContent).toBe("earlier assistant reply from bot id");
+    expect(persisted.actorExternalUserId).toBe("B_ASSISTANT");
+    expect(persisted.provenanceRequesterIdentifier).toBe("B_ASSISTANT");
+  });
+
+  test("backfilled third-party bot-authored text stays user history", async () => {
+    const conv = createTestConversation();
+
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.0",
+        text: "deployment bot status update",
+        threadId: undefined,
+        sender: { id: "U_OTHER_BOT", name: "Deploy Bot" },
+        metadata: { isBot: true, slackBotId: "B_OTHER" },
       }),
     ]);
 
@@ -1139,12 +1344,61 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     );
     expect(persisted).toBeDefined();
     expect(persisted.role).toBe("user");
-    expect(persisted.rawContent).toBe("earlier assistant reply");
-    expect(persisted.rawContent).not.toContain("<external_content");
-    expect(persisted.actorExternalUserId).toBe("U_BOT");
+    expect(persisted.rawContent).toBe("deployment bot status update");
+    expect(persisted.actorExternalUserId).toBe("U_OTHER_BOT");
     expect(persisted.provenanceTrustClass).toBe("unknown");
     expect(persisted.provenanceSourceChannel).toBe("slack");
-    expect(persisted.provenanceRequesterIdentifier).toBe("U_BOT");
+    expect(persisted.provenanceRequesterIdentifier).toBe("U_OTHER_BOT");
+  });
+
+  test("skips Slack assistant new-thread placeholder during backfill", async () => {
+    const conv = createTestConversation();
+
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.0",
+        text: "New Assistant Thread",
+        threadId: undefined,
+        sender: { id: "B_ASSISTANT", name: "Ada" },
+        metadata: { isBot: true, slackBotId: "B_ASSISTANT" },
+      }),
+      makeBackfillMessage({
+        id: "1234.1",
+        text: "real bot context",
+        threadId: "1234.0",
+        sender: { id: "B_ASSISTANT", name: "Ada" },
+        metadata: { isBot: true, slackBotId: "B_ASSISTANT" },
+      }),
+      makeBackfillMessage({
+        id: "1234.2",
+        text: "New Assistant Thread",
+        threadId: undefined,
+        sender: { id: "B_OTHER", name: "Build Bot" },
+        metadata: { isBot: true, slackBotId: "B_OTHER" },
+      }),
+    ]);
+
+    const result = await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+    });
+
+    expect(result.fetched).toBe(3);
+    expect(result.persisted).toBe(2);
+    const rows = readPersistedSlackRows(conv.id);
+    expect(rows.map((row) => row.rawContent).sort()).toEqual([
+      "New Assistant Thread",
+      "real bot context",
+    ]);
+    const assistantRow = rows.find(
+      (row) => row.rawContent === "real bot context",
+    );
+    expect(assistantRow?.role).toBe("assistant");
+    expect(assistantRow?.actorExternalUserId).toBe("B_ASSISTANT");
+    expect(rows.some((row) => row.actorExternalUserId === "B_OTHER")).toBe(
+      true,
+    );
   });
 
   test("backfilled non-bot message with empty text is persisted unwrapped", async () => {
@@ -1775,13 +2029,25 @@ function buildSlackDmRequest(
 
 interface SlackInboundProcessOptions {
   displayContent?: string;
-  slackRuntimeContextNotice?: string;
+  transport?: {
+    channelId?: string;
+    hints?: string[];
+    uxBrief?: string;
+    chatType?: string;
+    clientTimezone?: string;
+  };
   slackInbound?: {
     channelId: string;
     channelTs: string;
     threadTs?: string;
     displayName?: string;
     actorExternalUserId?: string;
+    actorTimezone?: string;
+    actorTimezoneLabel?: string;
+    actorTimezoneOffsetSeconds?: number;
+    timestampTimezone?: string;
+    timestampTimezoneLabel?: string;
+    speakerTimezoneLabel?: string;
   };
 }
 
@@ -1808,6 +2074,15 @@ function persistSlackInboundFromProcessMessage(
             ...(slackInbound.actorExternalUserId
               ? { actorExternalUserId: slackInbound.actorExternalUserId }
               : {}),
+            ...buildSlackTimezoneMetadata({
+              actorTimezone: slackInbound.actorTimezone,
+              actorTimezoneLabel: slackInbound.actorTimezoneLabel,
+              actorTimezoneOffsetSeconds:
+                slackInbound.actorTimezoneOffsetSeconds,
+              timestampTimezone: slackInbound.timestampTimezone,
+              timestampTimezoneLabel: slackInbound.timestampTimezoneLabel,
+              speakerTimezoneLabel: slackInbound.speakerTimezoneLabel,
+            }),
             eventKind: "message",
           }),
         }
@@ -1934,18 +2209,15 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     ]);
 
     let capturedHints: string[] | undefined;
-    let capturedSlackNotice: string | undefined;
     const processMessage = async (
       _conversationId: string,
       _content: string,
       _attachmentIds?: string[],
       options?: {
         transport?: { hints?: string[] };
-        slackRuntimeContextNotice?: string;
       },
     ): Promise<{ messageId: string }> => {
       capturedHints = options?.transport?.hints;
-      capturedSlackNotice = options?.slackRuntimeContextNotice;
       return { messageId: "agent-result-id" };
     };
     setAdapterProcessMessage(processMessage);
@@ -1992,16 +2264,7 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     expect(channelTimestamps.has("1234.0")).toBe(true);
     expect(channelTimestamps.has("1234.1")).toBe(true);
 
-    expect(
-      capturedHints?.some((hint) => hint.includes("joined an existing thread")),
-    ).not.toBe(true);
-    expect(capturedSlackNotice).toContain("joined an existing thread");
-    const contents = db.$client
-      .prepare("SELECT content FROM messages")
-      .all() as Array<{ content: string }>;
-    expect(
-      contents.some((row) => row.content.includes("Slack context note")),
-    ).toBe(false);
+    expect(capturedHints ?? []).toEqual([]);
   });
 
   test("live Slack non-guardian passes raw displayContent while wrapping model content", async () => {
@@ -2009,6 +2272,14 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     const captured = await handleAndCaptureLiveSlackProcessMessage(
       buildSlackChannelRequest("1700000000.000300", {
         content: rawContent,
+        clientTimezone: "America/Los_Angeles",
+        sourceMetadata: {
+          messageId: "1700000000.000300",
+          chatType: "channel",
+          timezone: "America/New_York",
+          timezoneLabel: "Eastern Time",
+          timezoneOffsetSeconds: -18000,
+        },
       }),
     );
 
@@ -2020,10 +2291,27 @@ describe("handleChannelInbound — Slack thread backfill wiring", () => {
     expect(captured.options?.slackInbound?.actorExternalUserId).toBe(
       HTTP_SLACK_USER_ID,
     );
+    expect(captured.options?.transport?.clientTimezone).toBe(
+      "America/Los_Angeles",
+    );
+    expect(captured.options?.slackInbound?.actorTimezone).toBe(
+      "America/New_York",
+    );
+    expect(captured.options?.slackInbound?.timestampTimezone).toBe(
+      "America/Los_Angeles",
+    );
+    expect(captured.options?.slackInbound?.timestampTimezoneLabel).toBe("PT");
+    expect(captured.options?.slackInbound?.speakerTimezoneLabel).toBe(
+      "Eastern Time",
+    );
 
     const persisted = readMessagesByConversation(captured.conversationId);
     expect(persisted).toHaveLength(1);
     expect(persisted[0].content).toBe(rawContent);
+    const [persistedSlackRow] = readPersistedSlackRows(captured.conversationId);
+    expect(persistedSlackRow?.timestampTimezone).toBe("America/Los_Angeles");
+    expect(persistedSlackRow?.timestampTimezoneLabel).toBe("PT");
+    expect(persistedSlackRow?.speakerTimezoneLabel).toBe("Eastern Time");
   });
 
   test("live Slack attachment-only passes empty raw displayContent for persistence", async () => {

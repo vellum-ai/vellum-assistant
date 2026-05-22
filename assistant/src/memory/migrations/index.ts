@@ -231,6 +231,14 @@ export {
 export { migrateStripBaseUrlNonOpenaiCompatible } from "./257-strip-base-url-non-openai-compatible.js";
 export { migrateOnboardingEventsPriorAssistants } from "./258-onboarding-events-prior-assistants.js";
 export {
+  downConversationCleanedAt,
+  migrateConversationCleanedAt,
+} from "./259-conversation-cleaned-at.js";
+export {
+  downRenameCleanedAt,
+  migrateRenameCleanedAt,
+} from "./260-rename-cleaned-at.js";
+export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,

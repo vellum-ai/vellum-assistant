@@ -15,4 +15,3 @@ Remove an entry from this file once its companion platform PR is merged.
 | Flag key | Registry declaration date | Owner | Status | Required platform work |
 |---|---|---|---|---|
 | `meet` | 2026-04-19 | sidd@vellum.ai | Platform PR not yet opened (as of 2026-04-19) | Terraform entry in `../vellum-assistant-platform/terraform/launchdarkly.tf` (or equivalent) with `defaultEnabled: false` and a description pointing at `skills/meet-join/SKILL.md`. |
-| `query-complexity-routing` | 2026-05-21 | jay@vellum.ai | Platform PR not yet opened | Terraform entry with `defaultEnabled: true`. Routes user messages to appropriate inference profiles based on query complexity. |

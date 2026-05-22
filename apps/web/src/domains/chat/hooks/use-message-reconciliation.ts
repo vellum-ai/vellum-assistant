@@ -238,15 +238,40 @@ export function useMessageReconciliation({
         });
       }
 
-      // Clear stale isStreaming flags. After onPollReconciled the turn is
-      // idle. With Zustand, getState() reflects the update immediately.
+      // Clear stale isStreaming flags and force-complete stale running
+      // tool calls. After onPollReconciled the turn is idle. With Zustand,
+      // getState() reflects the update immediately.
       if (wasStuck || !isSending(useTurnStore.getState())) {
         setMessages((prev) => {
-          const hasStale = prev.some((m) => m.isStreaming);
-          if (!hasStale) return prev;
-          return prev.map((m) =>
-            m.isStreaming ? { ...m, isStreaming: false } : m,
+          const hasStaleStreaming = prev.some((m) => m.isStreaming);
+          const hasStaleToolCalls = prev.some((m) =>
+            m.toolCalls?.some((tc) => tc.status === "running"),
           );
+          if (!hasStaleStreaming && !hasStaleToolCalls) return prev;
+          return prev.map((m) => {
+            const needsClearStreaming = m.isStreaming;
+            const needsClearToolCalls = m.toolCalls?.some(
+              (tc) => tc.status === "running",
+            );
+            if (!needsClearStreaming && !needsClearToolCalls) return m;
+            return {
+              ...m,
+              ...(needsClearStreaming ? { isStreaming: false } : {}),
+              ...(needsClearToolCalls
+                ? {
+                    toolCalls: m.toolCalls!.map((tc) =>
+                      tc.status === "running"
+                        ? {
+                            ...tc,
+                            status: "completed" as const,
+                            completedAt: Date.now(),
+                          }
+                        : tc,
+                    ),
+                  }
+                : {}),
+            };
+          });
         });
       }
 

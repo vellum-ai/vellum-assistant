@@ -401,6 +401,45 @@ export interface ConfirmationStateChanged {
 }
 
 /**
+ * Lifecycle states reported by `interaction_resolved`.
+ *
+ *  - `"approved"` / `"rejected"` — user-supplied verdict on a confirmation.
+ *  - `"answered"` — user/client provided a response (secret value, question
+ *    answer, host-proxy result).
+ *  - `"cancelled"` — the interaction was torn down without a user response
+ *    (timeout, abort, dispose, prompter shutdown).
+ *  - `"superseded"` — invalidated by a newer event (auto-deny on enqueue, a
+ *    fresh user message arriving while a confirmation was outstanding).
+ */
+export type InteractionResolutionState =
+  | "approved"
+  | "rejected"
+  | "answered"
+  | "cancelled"
+  | "superseded";
+
+/**
+ * Broadcast when a pending interaction (confirmation, secret, question,
+ * host-proxy request) transitions to a resolved state. Clients use this to
+ * drop attention/processing indicators without polling.
+ */
+export interface InteractionResolved {
+  type: "interaction_resolved";
+  requestId: string;
+  /**
+   * Conversation key for the interaction. The daemon's internal conversation
+   * id and the web client's conversation key coincide today (see
+   * `conversation-key-store.ts`); the field is named after the client-facing
+   * concept.
+   */
+  conversationKey: string;
+  state: InteractionResolutionState;
+  /** Kind of the resolved interaction (e.g. "confirmation", "secret", "host_bash"). */
+  kind: string;
+  conversationId?: string;
+}
+
+/**
  * Server-side assistant activity lifecycle for thinking indicator placement.
  *
  * `activityVersion` is monotonically increasing per conversation. Clients must
@@ -528,4 +567,5 @@ export type _MessagesServerMessages =
   | ConfirmationStateChanged
   | AssistantActivityState
   | TurnProfileAutoRouted
-  | ConversationInferenceProfileUpdated;
+  | ConversationInferenceProfileUpdated
+  | InteractionResolved;

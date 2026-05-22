@@ -144,6 +144,18 @@ export interface SlackInboundMessageMetadata {
   displayName?: string;
   /** Canonical Slack external user id for the sender, when available. */
   actorExternalUserId?: string;
+  /** Raw Slack profile timezone for the sender, when supplied. */
+  actorTimezone?: string;
+  /** Compact Slack profile timezone label for the sender, when supplied. */
+  actorTimezoneLabel?: string;
+  /** Raw Slack profile timezone offset in seconds, when supplied. */
+  actorTimezoneOffsetSeconds?: number;
+  /** Timezone used to render this message's timestamp. */
+  timestampTimezone?: string;
+  /** Compact label for the rendered timestamp timezone. */
+  timestampTimezoneLabel?: string;
+  /** Compact timezone label appended to the rendered speaker name. */
+  speakerTimezoneLabel?: string;
 }
 
 /**
@@ -165,8 +177,6 @@ export interface ConversationCreateOptions {
   authContext?: AuthContext;
   /** Whether this turn can block on interactive approval prompts. */
   isInteractive?: boolean;
-  /** Slack-only non-persisted notice injected into the active model turn. */
-  slackRuntimeContextNotice?: string;
   /**
    * Persisted user-facing content. When present, storage/UI use this value
    * while the model-facing turn continues to use `content`.

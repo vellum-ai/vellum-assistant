@@ -106,14 +106,8 @@ import {
   createBackupSnapshotHandler,
 } from "./backup/backup-routes.js";
 import { startBackupWorker } from "./backup/backup-worker.js";
-import {
-  startVoiceApprovalSync,
-  stopVoiceApprovalSync,
-} from "./verification/voice-approval-sync.js";
-import {
-  startOutboundVoiceVerificationSync,
-  stopOutboundVoiceVerificationSync,
-} from "./verification/outbound-voice-verification-sync.js";
+import { stopVoiceApprovalSync } from "./verification/voice-approval-sync.js";
+import { stopOutboundVoiceVerificationSync } from "./verification/outbound-voice-verification-sync.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
@@ -176,6 +170,7 @@ import {
 import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
+import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
 
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
@@ -2205,6 +2200,7 @@ async function main() {
   const ipcServer = new GatewayIpcServer([
     ...featureFlagRoutes,
     ...contactRoutes,
+    ...slackThreadRoutes,
     ...thresholdRoutes,
     ...riskClassificationRoutes,
     ...createVelayRoutes(velayTunnelClient),
@@ -2217,9 +2213,6 @@ async function main() {
   const backupWorkerHandle = startBackupWorker({
     assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
   });
-
-  startVoiceApprovalSync();
-  startOutboundVoiceVerificationSync();
 
   const featureFlagWatcher = new FeatureFlagWatcher();
   featureFlagWatcher.start();

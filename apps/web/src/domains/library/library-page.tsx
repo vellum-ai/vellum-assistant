@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useNavigate } from "react-router";
 
 import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate.js";
+import { PageShell } from "@/components/page-shell.js";
 import { LibraryView } from "@/domains/intelligence/components/apps/library-view.js";
 import { routes } from "@/utils/routes.js";
 
@@ -29,11 +30,24 @@ export function LibraryPage() {
     [navigate],
   );
 
+  // Clicking an app navigates to /assistant/library/:appId, where
+  // LibraryDetailPage handles the dedicated load/render/error UI.
+  const handleOpenApp = useCallback(
+    (appIdToOpen: string) => {
+      void navigate(routes.library.app(appIdToOpen));
+    },
+    [navigate],
+  );
+
   return (
-    <LibraryView
-      assistantId={assistantId}
-      onNewConversation={handleNewConversation}
-      onOpenDocument={handleOpenDocument}
-    />
+    <PageShell>
+      <LibraryView
+        assistantId={assistantId}
+        title="Library"
+        onNewConversation={handleNewConversation}
+        onOpenDocument={handleOpenDocument}
+        onOpenApp={handleOpenApp}
+      />
+    </PageShell>
   );
 }

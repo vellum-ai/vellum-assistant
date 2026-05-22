@@ -1657,4 +1657,104 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
       text: "No search needed.",
     });
   });
+
+  // -----------------------------------------------------------------------
+  // codexSubscription — parameter stripping
+  // -----------------------------------------------------------------------
+  test("codexSubscription: strips max_output_tokens from params", async () => {
+    const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
+      codexSubscription: true,
+    });
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await codexProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      { config: { max_tokens: 64000 } },
+    );
+
+    expect(lastStreamParams!.max_output_tokens).toBeUndefined();
+  });
+
+  test("codexSubscription: strips reasoning param even when effort is set", async () => {
+    const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
+      codexSubscription: true,
+    });
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await codexProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      { config: { effort: "high" } },
+    );
+
+    expect(lastStreamParams!.reasoning).toBeUndefined();
+  });
+
+  test("codexSubscription: strips text.verbosity param", async () => {
+    const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
+      codexSubscription: true,
+    });
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await codexProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      { config: { verbosity: "low" } },
+    );
+
+    expect(lastStreamParams!.text).toBeUndefined();
+  });
+
+  test("codexSubscription: uses Codex baseURL", async () => {
+    new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
+      codexSubscription: true,
+    });
+
+    expect(lastConstructorOptions!.baseURL).toBe(
+      "https://chatgpt.com/backend-api/codex",
+    );
+  });
+
+  test("codexSubscription: strips tools param", async () => {
+    const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
+      codexSubscription: true,
+    });
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    const sampleTool: ToolDefinition = {
+      name: "test_tool",
+      description: "A test tool",
+      input_schema: { type: "object", properties: {} },
+    };
+    await codexProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      [sampleTool],
+    );
+
+    expect(lastStreamParams!.tools).toBeUndefined();
+  });
+
+  test("codexSubscription: still sends model, input, and instructions", async () => {
+    const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
+      codexSubscription: true,
+    });
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await codexProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      "You are helpful.",
+      { config: { effort: "max", verbosity: "high", max_tokens: 64000 } },
+    );
+
+    expect(lastStreamParams!.model).toBe("gpt-5.4");
+    expect(lastStreamParams!.instructions).toBe("You are helpful.");
+    expect(lastStreamParams!.max_output_tokens).toBeUndefined();
+    expect(lastStreamParams!.reasoning).toBeUndefined();
+    expect(lastStreamParams!.text).toBeUndefined();
+  });
 });

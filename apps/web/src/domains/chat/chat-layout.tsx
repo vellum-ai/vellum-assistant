@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/react";
 import {
   useCallback,
   useEffect,
@@ -7,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { haptic } from "@/utils/haptics.js";
 import { routes } from "@/utils/routes.js";
@@ -21,12 +23,15 @@ import type { AssistantContextValue } from "@/components/layout/assistant-contex
 
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
 import {
+  chatContextQueryKey,
   useConversationGroupsQuery,
   useConversationListQuery,
 } from "@/domains/conversations/conversation-queries.js";
 import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking.js";
+import { useConversationActions } from "@/domains/conversations/use-conversation-actions.js";
 import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { useViewerStore } from "@/stores/viewer-store.js";
 import { useSubagentStore } from "@/domains/subagents/subagent-store.js";
 
@@ -124,8 +129,8 @@ export function ChatLayout() {
   // chat-layout child route (home, library, contacts, identity, chat)
   // inherits a populated sidebar on direct navigation — not just /assistant.
   // TanStack Query handles dedup with any other consumer using the same key.
-  const conversationGroupsUI = useFeatureFlagStore.use.conversationGroupsUI();
-  const homePageEnabled = useFeatureFlagStore.use.homePage();
+  const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
+  const homePageEnabled = useClientFeatureFlagStore.use.homePage();
   const isAssistantActive = lifecycle.assistantState.kind === "active";
   const { conversations } = useConversationListQuery(
     lifecycle.assistantId,
@@ -136,12 +141,11 @@ export function ChatLayout() {
     isAssistantActive && conversationGroupsUI,
   );
 
-  // Track processing/attention indicators for every conversation in the
-  // sidebar, on every chat-layout child route. Mounted here (not ChatPage)
-  // so the 10s polling loop and graduation logic stay live when the user is
-  // on home/library/contacts/identity. Pass lifecycle values directly —
-  // `useAssistantContext()` would crash here since this hook runs inside
-  // the layout that PROVIDES that context (no parent outlet to read from).
+  // Track processing/attention indicators for every conversation in
+  // the sidebar, on every chat-layout child route. Mounted at layout
+  // scope so the bus-driven `interaction_resolved` subscriber and the
+  // post-reconnect reconcile sweep stay live across home, library,
+  // contacts, identity, and chat — not only inside `/assistant`.
   useAttentionTracking({
     assistantId: lifecycle.assistantId,
     assistantStateKind: lifecycle.assistantState.kind,
@@ -151,7 +155,7 @@ export function ChatLayout() {
   // create/rename/delete affordances are rendered here, not in ChatPage.
   // The hook is self-sufficient (cache invalidation handles rollback), so
   // it can live wherever the sidebar lives.
-  const { handleCreateGroup, handleRenameGroup, handleDeleteGroup } =
+  const { handleRenameGroup, handleDeleteGroup } =
     useConversationGroupActions({
       assistantId: lifecycle.assistantId,
       conversationGroups,
@@ -420,6 +424,64 @@ export function ChatLayout() {
     [setActiveKey, navigate],
   );
 
+  // --- Sidebar conversation actions (pin / rename / archive / mark / move) ---
+  //
+  // The sidebar's hover-revealed "…" menu reads its items from these
+  // handlers; without them the popover renders empty (every menu item
+  // resolves to `null`). The CRUD hook lives at the layout level so the
+  // sidebar's action wiring stays live on every chat-layout child route
+  // (home, library, contacts, identity) — not only inside a conversation
+  // where ChatPage is mounted.
+  const queryClient = useQueryClient();
+  const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
+
+  const refreshConversations = useCallback(async () => {
+    if (!lifecycle.assistantId) return;
+    try {
+      await queryClient.invalidateQueries({
+        queryKey: chatContextQueryKey(lifecycle.assistantId),
+      });
+    } catch (err) {
+      Sentry.captureException(err, {
+        tags: { context: "refresh_conversations" },
+      });
+    }
+  }, [lifecycle.assistantId, queryClient]);
+
+  // `useConversationActions.handleArchiveConversation` calls
+  // `startNewConversation({ silent: true })` when the active conversation
+  // is archived. Mirror the existing `handleStartNewConversation` shape but
+  // accept the silent opt so the haptic doesn't fire on a side-effect path.
+  const startNewConversation = useCallback(
+    ({ silent }: { silent?: boolean } = {}) => {
+      if (!silent) haptic.light();
+      useViewerStore.getState().setMainView("chat");
+      const draftKey = createDraftConversationKey();
+      useConversationStore.getState().setActiveKey(draftKey);
+      void navigate(routes.conversation(draftKey));
+    },
+    [navigate],
+  );
+
+  const {
+    handleArchiveConversation,
+    handleUnarchiveConversation,
+    handleMarkConversationUnread,
+    handleMarkConversationRead,
+    handleTogglePinConversation,
+    handleMoveToGroup,
+    handleRemoveFromGroup,
+    handleRenameConversation,
+  } = useConversationActions({
+    assistantId: lifecycle.assistantId,
+    activeConversationKey,
+    conversations,
+    refreshConversations,
+    switchConversation: handleSelectConversation,
+    startNewConversation,
+    prePinGroupIdsRef,
+  });
+
   const handleOpenLibrary = useCallback(() => {
     navigate(routes.library.root);
   }, [navigate]);
@@ -444,7 +506,14 @@ export function ChatLayout() {
         onOpenIntelligence={handleOpenIdentity}
         isLibraryActive={isLibraryActive}
         onOpenLibrary={handleOpenLibrary}
-        onCreateGroup={handleCreateGroup}
+        onPinConversation={handleTogglePinConversation}
+        onRenameConversation={handleRenameConversation}
+        onArchiveConversation={handleArchiveConversation}
+        onUnarchiveConversation={handleUnarchiveConversation}
+        onMarkConversationUnread={handleMarkConversationUnread}
+        onMarkConversationRead={handleMarkConversationRead}
+        onMoveToGroup={handleMoveToGroup}
+        onRemoveFromGroup={handleRemoveFromGroup}
         onRenameGroup={handleRenameGroup}
         onDeleteGroup={handleDeleteGroup}
         footerBanner={footerBanner}
@@ -470,7 +539,14 @@ export function ChatLayout() {
       attentionKeys,
       handleSelectConversation,
       handleStartNewConversation,
-      handleCreateGroup,
+      handleTogglePinConversation,
+      handleRenameConversation,
+      handleArchiveConversation,
+      handleUnarchiveConversation,
+      handleMarkConversationUnread,
+      handleMarkConversationRead,
+      handleMoveToGroup,
+      handleRemoveFromGroup,
       handleRenameGroup,
       handleDeleteGroup,
       isIdentityActive,
@@ -490,7 +566,6 @@ export function ChatLayout() {
         toggleSidebar={toggleSidebar}
         topBarCenter={topBarCenter}
         topBarRightSlot={topBarRightSlot}
-        onStartNewConversation={handleStartNewConversation}
         canGoBack={canGoBack}
         canGoForward={canGoForward}
         onGoBack={handleGoBack}

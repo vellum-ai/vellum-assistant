@@ -12,7 +12,6 @@ import { describe, expect, test } from "bun:test";
 import type { Message } from "../../../providers/types.js";
 import {
   extractTagLineTexts,
-  isReactionTagLine,
   parentAlias,
   type RenderableSlackMessage,
   renderSlackTranscript,
@@ -114,19 +113,108 @@ describe("renderSlackTranscript — basics", () => {
     expect(renderSlackTranscript([])).toEqual([]);
   });
 
+  test("renders timezone-aware rows with compact local timestamps and speaker suffixes", () => {
+    const out = renderSlackTranscript([
+      {
+        ...userMsg("1772681640.000001", "aaron", "hey there"),
+        metadata: {
+          source: "slack",
+          channelId: CHANNEL,
+          channelTs: "1772681640.000001",
+          eventKind: "message",
+          displayName: "aaron",
+          actorTimezone: "America/Denver",
+          actorTimezoneLabel: "MT",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
+        },
+      },
+      {
+        ...userMsg("1772681760.000002", "jordan", "whatsup"),
+        metadata: {
+          source: "slack",
+          channelId: CHANNEL,
+          channelTs: "1772681760.000002",
+          eventKind: "message",
+          displayName: "jordan",
+          actorTimezone: "America/New_York",
+          actorTimezoneLabel: "Eastern Time",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
+          speakerTimezoneLabel: "Eastern Time",
+        },
+      },
+      {
+        ...userMsg(
+          "1772681820.000003",
+          "aaron",
+          "nm, i wonder how my assistant is doing",
+        ),
+        metadata: {
+          source: "slack",
+          channelId: CHANNEL,
+          channelTs: "1772681820.000003",
+          eventKind: "message",
+          displayName: "aaron",
+          actorTimezone: "America/Denver",
+          actorTimezoneLabel: "MT",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
+        },
+      },
+      {
+        ...userMsg("1772681880.000004", null, "i'm good", {
+          role: "assistant",
+        }),
+        metadata: {
+          source: "slack",
+          channelId: CHANNEL,
+          channelTs: "1772681880.000004",
+          eventKind: "message",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "Mountain Time",
+          speakerTimezoneLabel: "ET",
+        },
+      },
+      {
+        ...userMsg("1772681940.000005", "jordan", "ayeeeee"),
+        metadata: {
+          source: "slack",
+          channelId: CHANNEL,
+          channelTs: "1772681940.000005",
+          eventKind: "message",
+          displayName: "jordan",
+          actorTimezone: "America/New_York",
+          actorTimezoneLabel: "ET",
+          timestampTimezone: "America/Denver",
+          timestampTimezoneLabel: "MT",
+          speakerTimezoneLabel: "ET",
+        },
+      },
+    ]);
+
+    expect(out).toEqual([
+      textMsg("user", "[mar 4 2026 8:34 PM MT aaron] hey there"),
+      textMsg("user", "[mar 4 2026 8:36 PM MT jordan (ET)] whatsup"),
+      textMsg(
+        "user",
+        "[mar 4 2026 8:37 PM MT aaron] nm, i wonder how my assistant is doing",
+      ),
+      textMsg("assistant", "[mar 4 2026 8:38 PM MT assistant] i'm good"),
+      textMsg("user", "[mar 4 2026 8:39 PM MT jordan (ET)] ayeeeee"),
+    ]);
+  });
+
   test("renders top-level message with MM/DD/YY HH:MM tag", () => {
     const out = renderSlackTranscript([userMsg(TS_14_25, "@alice", "hi")]);
     expect(out).toEqual([textMsg("user", "[11/14/23 14:25 @alice]: hi")]);
   });
 
-  test("renders thread reply with parent alias arrow", () => {
+  test("renders thread reply without parent alias arrow", () => {
     const out = renderSlackTranscript([
       userMsg(TS_14_28, "@bob", "got it", { threadTs: TS_14_25 }),
     ]);
-    const alias = parentAlias(TS_14_25);
-    expect(out).toEqual([
-      textMsg("user", `[11/14/23 14:28 @bob → ${alias}]: got it`),
-    ]);
+    expect(out).toEqual([textMsg("user", "[11/14/23 14:28 @bob]: got it")]);
   });
 
   test("renders edited message with editedAt suffix", () => {
@@ -153,18 +241,17 @@ describe("renderSlackTranscript — basics", () => {
     ]);
   });
 
-  test("edited message in a thread renders both arrow and edit suffix", () => {
+  test("edited message in a thread renders edit suffix without thread arrow", () => {
     const out = renderSlackTranscript([
       userMsg(TS_14_28, "@bob", "got it (edit)", {
         threadTs: TS_14_25,
         editedAt: MS_14_30,
       }),
     ]);
-    const alias = parentAlias(TS_14_25);
     expect(out).toEqual([
       textMsg(
         "user",
-        `[11/14/23 14:28 @bob → ${alias}, edited 11/14/23 14:30]: got it (edit)`,
+        "[11/14/23 14:28 @bob, edited 11/14/23 14:30]: got it (edit)",
       ),
     ]);
   });
@@ -292,10 +379,9 @@ describe("renderSlackTranscript — basics", () => {
       TS_14_25,
       TS_14_28,
     ]);
-    expect(out.renderedMessages.map((entry) => entry.sourceChannelTs)).toEqual([
-      TS_14_25,
-      TS_14_28,
-    ]);
+    expect(
+      out.renderedMessages.map((entry) => entry.tagLineProvenance),
+    ).toEqual(["none", "none"]);
   });
 
   test("omits sender label for user-role message with null senderLabel (no displayName)", () => {
@@ -575,50 +661,6 @@ describe("parentAlias", () => {
   });
 });
 
-// ── isReactionTagLine ────────────────────────────────────────────────────────
-
-describe("isReactionTagLine", () => {
-  // Pinned to the exact shapes `renderReaction` and the overflow trailer
-  // produce. The helper is the public contract that lets consumers
-  // re-label the transcript without double-attributing reaction lines,
-  // so drift here silently breaks `buildActiveThreadBlockFromRenderable`.
-  const alias = parentAlias("1700000000.000100");
-
-  test("matches reaction-add line", () => {
-    expect(
-      isReactionTagLine(`[11/14/23 14:28 @bob reacted 👍 to ${alias}]`),
-    ).toBe(true);
-  });
-
-  test("matches reaction-remove line", () => {
-    expect(
-      isReactionTagLine(`[11/14/23 14:28 @bob removed 👍 from ${alias}]`),
-    ).toBe(true);
-  });
-
-  test("matches overflow trailer line", () => {
-    expect(isReactionTagLine(`[…and 2 more reactions to ${alias}]`)).toBe(true);
-  });
-
-  test("does not match a regular message tag line", () => {
-    expect(isReactionTagLine("[11/14/23 14:25 @alice]: hi")).toBe(false);
-  });
-
-  test("does not match content-only assistant output", () => {
-    expect(isReactionTagLine("on it. here's the answer")).toBe(false);
-  });
-
-  test("does not match the `[deleted]` sentinel", () => {
-    expect(isReactionTagLine("[deleted]")).toBe(false);
-  });
-
-  test("does not match a user-deleted marker", () => {
-    expect(
-      isReactionTagLine("[11/14/23 14:25 @alice — deleted 11/14/23 14:32]"),
-    ).toBe(false);
-  });
-});
-
 // ── reaction cap ─────────────────────────────────────────────────────────────
 
 describe("renderSlackTranscript — reaction cap", () => {
@@ -865,13 +907,12 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
       userMsg(replyTs, "@dan", "I'll join", { threadTs: aliceTopTs }),
     ];
     const out = renderSlackTranscript(messages);
-    const aliceAlias = parentAlias(aliceTopTs);
     expect(extractTagLineTexts(out)).toEqual([
       "[11/14/23 14:25 @alice]: lunch?",
-      `[11/14/23 14:26 @bob → ${aliceAlias}]: yes!`,
-      `[11/14/23 14:27 @alice → ${aliceAlias}]: 12:30 ok?`,
+      "[11/14/23 14:26 @bob]: yes!",
+      "[11/14/23 14:27 @alice]: 12:30 ok?",
       "[11/14/23 14:28 @carol]: standup soon",
-      `[11/14/23 14:28 @dan → ${aliceAlias}]: I'll join`,
+      "[11/14/23 14:28 @dan]: I'll join",
     ]);
   });
 
@@ -883,12 +924,8 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
       userMsg(replyTs, "@ed", "joining now", { threadTs: carolTopTs }),
     ];
     const out = renderSlackTranscript(messages);
-    const carolAlias = parentAlias(carolTopTs);
     const texts = extractTagLineTexts(out);
-    // The reply tag points at carol's alias; carol's top stays untagged.
-    expect(texts[texts.length - 1]).toBe(
-      `[11/14/23 14:28 @ed → ${carolAlias}]: joining now`,
-    );
+    expect(texts[texts.length - 1]).toBe("[11/14/23 14:28 @ed]: joining now");
     expect(texts[3]).toBe("[11/14/23 14:28 @carol]: standup soon");
   });
 
@@ -900,11 +937,8 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
       userMsg(replyTs, "@frank", "+1", { threadTs: carolTopTs }),
     ];
     const out = renderSlackTranscript(messages);
-    const carolAlias = parentAlias(carolTopTs);
     const texts = extractTagLineTexts(out);
-    expect(texts[texts.length - 1]).toBe(
-      `[11/14/23 14:28 @frank → ${carolAlias}]: +1`,
-    );
+    expect(texts[texts.length - 1]).toBe("[11/14/23 14:28 @frank]: +1");
   });
 
   test("scenario: new top-level message (no threadTs)", () => {
@@ -924,7 +958,7 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
 // ── mixed legacy + post-upgrade fixture ──────────────────────────────────────
 
 describe("renderSlackTranscript — mixed legacy + post-upgrade", () => {
-  test("legacy rows render flat with no thread tag and intermix chronologically", () => {
+  test("legacy rows intermix chronologically with post-upgrade rows", () => {
     const messages: RenderableSlackMessage[] = [
       // Post-upgrade: 14:28 reply in alice's thread
       userMsg("1699972080.000900", "@bob", "yes!", { threadTs: TS_14_25 }),
@@ -935,16 +969,14 @@ describe("renderSlackTranscript — mixed legacy + post-upgrade", () => {
       userMsg(TS_14_25, "@alice", "lunch?"),
     ];
     const out = renderSlackTranscript(messages);
-    const alias = parentAlias(TS_14_25);
 
     const texts = extractTagLineTexts(out);
     expect(texts).toEqual([
       "[11/14/23 14:25 @alice]: lunch?",
       "[11/14/23 14:26 @dana]: drive-by note",
-      `[11/14/23 14:28 @bob → ${alias}]: yes!`,
+      "[11/14/23 14:28 @bob]: yes!",
     ]);
-    // Ensure the legacy row has no arrow.
-    expect(texts[1].includes("→")).toBe(false);
+    expect(texts.every((text) => !text.includes("→"))).toBe(true);
   });
 
   test("legacy assistant row carries assistant role and emits content verbatim", () => {

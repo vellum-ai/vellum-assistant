@@ -339,9 +339,11 @@ export class ToolApprovalHandler {
     // the misleading "load the skill" hint.
     const tool = getTool(name);
     if (!tool) {
+      const allowedToolNames = context.allowedToolNames;
       const available = getAllTools()
         .filter((t) => t.executionMode !== "proxy" || context.proxyToolResolver)
         .map((t) => t.name)
+        .filter((n) => !allowedToolNames || allowedToolNames.has(n))
         .sort()
         .join(", ");
       const msg = `Unknown tool: ${name}. Available tools: ${available}`;

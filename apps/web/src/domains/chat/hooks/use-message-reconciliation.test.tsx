@@ -894,3 +894,118 @@ describe("startReconciliationLoop", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// reconcileActiveConversation — stale tool call cleanup
+// ---------------------------------------------------------------------------
+
+describe("reconcileActiveConversation — stale tool call cleanup", () => {
+  test("force-completes stale running tool calls when turn is idle", async () => {
+    messages = [
+      makeMessage({ id: "m1", role: "user", content: "Hello" }),
+      makeMessage({
+        id: "m2",
+        role: "assistant",
+        content: "",
+        isStreaming: true,
+        toolCalls: [
+          { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
+        ],
+      }),
+    ];
+    mockFetchResult = [];
+    const idleTurnState: TurnState = {
+      phase: "idle",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: null,
+      lastTerminalReason: null,
+      statusText: null,
+      liveWebActivity: {},
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnState: idleTurnState,
+    });
+    await reconcileActiveConversation();
+
+    // Both isStreaming and running tool calls should be cleared
+    expect(messages[1]!.isStreaming).toBe(false);
+    expect(messages[1]!.toolCalls![0]!.status).toBe("completed");
+    expect(messages[1]!.toolCalls![0]!.completedAt).toBeDefined();
+  });
+
+  test("force-completes stale tool calls even when isStreaming is already false", async () => {
+    messages = [
+      makeMessage({ id: "m1", role: "user", content: "Hello" }),
+      makeMessage({
+        id: "m2",
+        role: "assistant",
+        content: "partial",
+        isStreaming: false,
+        toolCalls: [
+          { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
+          { id: "tc-2", toolName: "bash", input: {}, status: "completed" as const },
+        ],
+      }),
+    ];
+    mockFetchResult = [];
+    const idleTurnState: TurnState = {
+      phase: "idle",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: null,
+      lastTerminalReason: null,
+      statusText: null,
+      liveWebActivity: {},
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnState: idleTurnState,
+    });
+    await reconcileActiveConversation();
+
+    // The running tool call should be force-completed
+    expect(messages[1]!.toolCalls![0]!.status).toBe("completed");
+    expect(messages[1]!.toolCalls![0]!.completedAt).toBeDefined();
+    // The already-completed tool call should be unchanged
+    expect(messages[1]!.toolCalls![1]!.status).toBe("completed");
+  });
+
+  test("does NOT force-complete tool calls when turn is still sending", async () => {
+    messages = [
+      makeMessage({ id: "m1", role: "user", content: "Hello" }),
+      makeMessage({
+        id: "m2",
+        role: "assistant",
+        content: "",
+        isStreaming: true,
+        toolCalls: [
+          { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
+        ],
+      }),
+    ];
+    mockFetchResult = [];
+    const streamingTurnState: TurnState = {
+      phase: "streaming",
+      pendingQueuedCount: 0,
+      activeToolCallCount: 0,
+      activeTurnId: "turn-42",
+      lastTerminalReason: null,
+      statusText: null,
+      liveWebActivity: {},
+    };
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationKey: "conv-1" },
+      activeConversationKey: "conv-1",
+      turnState: streamingTurnState,
+    });
+    await reconcileActiveConversation();
+
+    // Tool call should remain running since the turn is still active
+    expect(messages[1]!.isStreaming).toBe(true);
+    expect(messages[1]!.toolCalls![0]!.status).toBe("running");
+  });
+});

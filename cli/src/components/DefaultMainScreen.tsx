@@ -1,4 +1,3 @@
-import { spawn } from "child_process";
 import { basename } from "path";
 import {
   useCallback,
@@ -9,8 +8,6 @@ import {
   type ReactElement,
 } from "react";
 import { Box, render as inkRender, Text, useInput, useStdout } from "ink";
-
-import { removeAssistantEntry } from "../lib/assistant-config";
 
 import { SPECIES_CONFIG, type Species } from "../lib/constants";
 import { checkHealth } from "../lib/health-check";
@@ -43,8 +40,26 @@ export const SLASH_COMMANDS = [
   "/help",
   "/q",
   "/quit",
-  "/retire",
 ];
+
+const HELP_COMMANDS = [
+  {
+    command: "/btw <question>",
+    description: "Ask a side question while the assistant is working",
+  },
+  {
+    command: "/quit, /exit, /q",
+    description: "Disconnect and exit",
+  },
+  {
+    command: "/clear",
+    description: "Clear the screen",
+  },
+  {
+    command: "/help, ?",
+    description: "Show this help",
+  },
+] as const;
 
 const SEND_TIMEOUT_MS = 5000;
 
@@ -100,7 +115,7 @@ const MIN_FEED_ROWS = 3;
 // Feed item height estimation
 const TOOL_CALL_CHROME_LINES = 2; // header (┌) + footer (└)
 const MESSAGE_SPACING = 1;
-const HELP_DISPLAY_HEIGHT = 7;
+const HELP_DISPLAY_HEIGHT = HELP_COMMANDS.length + 1;
 
 interface ListMessagesResponse {
   messages: RuntimeMessage[];
@@ -741,26 +756,12 @@ function HelpDisplay(): ReactElement {
   return (
     <Box flexDirection="column">
       <Text bold>Commands:</Text>
-      <Text>
-        {"  /btw <question>   "}
-        <Text dimColor>Ask a side question while the assistant is working</Text>
-      </Text>
-      <Text>
-        {"  /retire           "}
-        <Text dimColor>Retire the remote instance and exit</Text>
-      </Text>
-      <Text>
-        {"  /quit, /exit, /q  "}
-        <Text dimColor>Disconnect and exit</Text>
-      </Text>
-      <Text>
-        {"  /clear            "}
-        <Text dimColor>Clear the screen</Text>
-      </Text>
-      <Text>
-        {"  /help, ?          "}
-        <Text dimColor>Show this help</Text>
-      </Text>
+      {HELP_COMMANDS.map((entry) => (
+        <Text key={entry.command}>
+          {`  ${entry.command.padEnd(17)} `}
+          <Text dimColor>{entry.description}</Text>
+        </Text>
+      ))}
     </Box>
   );
 }
@@ -1390,8 +1391,6 @@ interface ChatAppProps {
   /** Pre-built auth headers (e.g. { Authorization: "Bearer ..." } for local,
    *  { "X-Session-Token": "...", "Vellum-Organization-Id": "..." } for platform). */
   auth?: Record<string, string>;
-  project?: string;
-  zone?: string;
   onExit: () => void;
   handleRef: (handle: ChatAppHandle) => void;
 }
@@ -1402,8 +1401,6 @@ function ChatApp({
   assistantName,
   species,
   auth,
-  project,
-  zone,
   onExit,
   handleRef,
 }: ChatAppProps): ReactElement {
@@ -1953,86 +1950,6 @@ function ChatApp({
         return;
       }
 
-      if (trimmed === "/retire") {
-        if (!project || !zone) {
-          h.showError(
-            "No instance info available. Connect to a hatched instance first.",
-          );
-          return;
-        }
-
-        const confirmIndex = await h.showSelection(`Retire ${assistantId}?`, [
-          "Yes, retire",
-          "Cancel",
-        ]);
-        if (confirmIndex !== 0) {
-          h.addStatus("Cancelled.");
-          return;
-        }
-
-        h.showSpinner(`Retiring instance ${assistantId}...`);
-
-        try {
-          const labelChild = spawn(
-            "gcloud",
-            [
-              "compute",
-              "instances",
-              "add-labels",
-              assistantId,
-              `--project=${project}`,
-              `--zone=${zone}`,
-              "--labels=retired-by=vel",
-            ],
-            { stdio: "pipe" },
-          );
-          await new Promise<void>((resolve) => {
-            labelChild.on("close", () => resolve());
-            labelChild.on("error", () => resolve());
-          });
-        } catch {
-          // Best-effort labeling before deletion
-        }
-
-        const child = spawn(
-          "gcloud",
-          [
-            "compute",
-            "instances",
-            "delete",
-            assistantId,
-            `--project=${project}`,
-            `--zone=${zone}`,
-            "--quiet",
-          ],
-          { stdio: "pipe" },
-        );
-
-        child.on("close", (code) => {
-          handleRef_.current?.hideSpinner();
-          if (code === 0) {
-            removeAssistantEntry(assistantId);
-            handleRef_.current?.addStatus(
-              `Removed ${assistantId} from lockfile.json`,
-            );
-          } else {
-            handleRef_.current?.showError(
-              `Failed to delete instance (exit code ${code})`,
-            );
-          }
-          cleanup();
-          process.exit(code === 0 ? 0 : 1);
-        });
-
-        child.on("error", (err) => {
-          handleRef_.current?.hideSpinner();
-          handleRef_.current?.showError(
-            `Failed to retire instance: ${err.message}`,
-          );
-        });
-        return;
-      }
-
       // If a connection attempt is already in progress, don't silently drop input
       if (connectingRef.current) {
         h.addStatus(
@@ -2217,7 +2134,7 @@ function ChatApp({
       // racing with SSE events that may arrive during the sendMessage await.
       h.showSpinner("Working...");
     },
-    [runtimeUrl, assistantId, auth, project, zone, cleanup, ensureConnected],
+    [runtimeUrl, assistantId, auth, cleanup, ensureConnected],
   );
 
   const handleSubmit = useCallback(
@@ -2529,8 +2446,6 @@ export function renderChatApp(
   onExit: () => void,
   options?: {
     auth?: Record<string, string>;
-    project?: string;
-    zone?: string;
     assistantName?: string;
   },
 ): ChatAppInstance {
@@ -2543,8 +2458,6 @@ export function renderChatApp(
       assistantName={options?.assistantName}
       species={species}
       auth={options?.auth}
-      project={options?.project}
-      zone={options?.zone}
       onExit={onExit}
       handleRef={(h) => {
         chatHandle = h;

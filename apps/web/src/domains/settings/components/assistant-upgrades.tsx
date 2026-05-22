@@ -15,8 +15,12 @@ import {
   assistantsRollbackDetailCreate,
   assistantsUpgradeDetailCreate,
 } from "@/generated/api/sdk.gen.js";
-import type { ReleaseListItem } from "@/generated/api/types.gen.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import type {
+  ReleaseChannelEnum,
+  ReleaseListItem,
+} from "@/generated/api/types.gen.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
+import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store.js";
 import {
   compareParsed,
   parseSemver,
@@ -36,19 +40,36 @@ function releaseLabel(
 
 const POLL_INTERVAL_MS = 3000;
 
+function getVisibleReleaseChannel(
+  releaseChannel: ReleaseChannelEnum | undefined,
+  previewChannelEnabled: boolean,
+): ReleaseChannelEnum {
+  return previewChannelEnabled && releaseChannel === "preview"
+    ? "preview"
+    : "stable";
+}
+
 interface AssistantUpgradesProps {
   assistantId: string;
   currentVersion?: string | null;
+  releaseChannel?: ReleaseChannelEnum;
   onUpgradeComplete?: () => void;
 }
 
 export function AssistantUpgrades({
   assistantId,
   currentVersion,
+  releaseChannel,
   onUpgradeComplete,
 }: AssistantUpgradesProps) {
-  const rollbackEnabled = useFeatureFlagStore.use.rollbackEnabled();
+  const rollbackEnabled = useAssistantFeatureFlagStore.use.rollbackEnabled();
+  const previewChannel = useClientFeatureFlagStore.use.previewChannel();
   const queryClient = useQueryClient();
+  const visibleReleaseChannel = getVisibleReleaseChannel(
+    releaseChannel,
+    previewChannel,
+  );
+  const isPreviewReleaseChannel = visibleReleaseChannel === "preview";
   const [isPollingUpgrade, setIsPollingUpgrade] = useState(false);
   const targetVersionRef = useRef<string | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
@@ -92,7 +113,7 @@ export function AssistantUpgrades({
 
   const { data: releases, isLoading: releasesLoading } = useQuery(
     releasesListOptions({
-      query: { stable: true },
+      query: { channel: visibleReleaseChannel },
     }),
   );
 
@@ -205,7 +226,9 @@ export function AssistantUpgrades({
 
         <div className="flex flex-col gap-1 md:contents">
           <span className="text-body-medium-default text-[var(--content-tertiary)]">
-            {!upgradeAvailable
+            {isPreviewReleaseChannel
+              ? "Preview release"
+              : !upgradeAvailable
               ? "Selected"
               : isRollback
                 ? "Rollback to"
@@ -285,8 +308,21 @@ export function AssistantUpgrades({
             : "Updating..."
           : isRollback
             ? "Rollback"
-            : "Update"}
+            : isPreviewReleaseChannel
+              ? "Update Preview"
+              : "Update"}
       </Button>
+      {isPreviewReleaseChannel && (
+        <p className="text-body-small-default text-[var(--content-tertiary)]">
+          Using Preview releases.{" "}
+          <a
+            href="#preview-release-channel"
+            className="text-[var(--primary-base)] underline-offset-2 hover:underline"
+          >
+            Switch back to Stable
+          </a>
+        </p>
+      )}
       {!upgradeAvailable &&
         currentVersion &&
         effectiveSelectedVersion &&
@@ -298,13 +334,27 @@ export function AssistantUpgrades({
 
       <ConfirmDialog
         open={showConfirmation}
-        title={isRollback ? "Rollback Assistant" : "Update Assistant"}
+        title={
+          isRollback
+            ? "Rollback Assistant"
+            : isPreviewReleaseChannel
+              ? "Update Preview Release"
+              : "Update Assistant"
+        }
         message={
           isRollback
             ? `Rollback to version ${effectiveSelectedVersion ?? "unknown"}? The assistant will be briefly unavailable.`
+            : isPreviewReleaseChannel
+              ? `Update to Preview version ${effectiveSelectedVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`
             : `Update to version ${effectiveSelectedVersion ?? "latest"}? The assistant will be briefly unavailable during the update.`
         }
-        confirmLabel={isRollback ? "Rollback" : "Update"}
+        confirmLabel={
+          isRollback
+            ? "Rollback"
+            : isPreviewReleaseChannel
+              ? "Update Preview"
+              : "Update"
+        }
         onConfirm={handleUpgrade}
         onCancel={() => setShowConfirmation(false)}
       />

@@ -230,7 +230,7 @@ export function ChatBody({
           on first send (LUM-1506 / LUM-1516). */}
       <div
         className={`relative px-3 pt-2 sm:px-6 sm:pb-0 ${
-          isKeyboardOpen ? "pb-1" : "pb-4"
+          isKeyboardOpen ? "pb-2" : "pb-4"
         }`}
       >
         {refreshFeedback && (
@@ -272,7 +272,7 @@ export function ChatBody({
           ) : (
             <ChatComposer {...composerProps} />
           )}
-          {startersSlot}
+          {!isKeyboardOpen && startersSlot}
         </div>
       </div>
       {isAttachmentDragOver && (

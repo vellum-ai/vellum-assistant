@@ -27,7 +27,7 @@ import {
 import { listDocuments } from "@/domains/chat/api/documents.js";
 import { getVercelConfig, isCredentialError, publishApp } from "@/domains/chat/api/publish.js";
 import { usePinnedAppsStore } from "@/domains/chat/pinned-apps-store.js";
-import { useFeatureFlagStore } from "@/lib/feature-flags/feature-flag-store.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { AppPreviewThumbnail } from "@/domains/chat/components/app-card.js";
 import {
   BottomSheet,
@@ -207,19 +207,34 @@ function LibraryDocumentCard({ document, onOpen }: LibraryDocumentCardProps) {
 export interface LibraryViewProps {
   assistantId: string;
   assistantName?: string;
+  /**
+   * Optional page title rendered to the left of the Import action.
+   * Used when LibraryView is the page's primary content (e.g. the
+   * standalone /library route) so the title shares a row with Import.
+   */
+  title?: string;
   onNewConversation?: (initialMessage?: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   onEditApp?: (app: { appId: string; dirName?: string; name: string; html: string }) => void;
+  /**
+   * If provided, clicking an app navigates instead of opening it inline.
+   * The library's `/library/:appId` route renders {@link LibraryDetailPage}
+   * for the dedicated detail view; this callback wires the list click to
+   * that route. When omitted, the click falls back to the inline overlay.
+   */
+  onOpenApp?: (appId: string) => void;
 }
 
 export function LibraryView({
   assistantId,
   assistantName,
+  title,
   onNewConversation,
   onOpenDocument,
   onEditApp,
+  onOpenApp,
 }: LibraryViewProps) {
-  const deployToVercel = useFeatureFlagStore.use.deployToVercel();
+  const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
   const togglePin = usePinnedAppsStore.use.togglePin();
   const [apps, setApps] = useState<AppSummary[]>([]);
@@ -325,6 +340,14 @@ export function LibraryView({
 
   const handleOpenApp = useCallback(
     async (appId: string) => {
+      // When wired with a route-based open handler, navigate to the dedicated
+      // detail page instead of opening inline. LibraryDetailPage handles the
+      // openApp call + dedicated load/error UI, and the URL becomes the
+      // shareable deep-link.
+      if (onOpenApp) {
+        onOpenApp(appId);
+        return;
+      }
       if (openingAppId) return;
       setOpeningAppId(appId);
       try {
@@ -337,7 +360,7 @@ export function LibraryView({
         setOpeningAppId(null);
       }
     },
-    [assistantId, openingAppId],
+    [assistantId, openingAppId, onOpenApp],
   );
 
   const handleClose = useCallback(() => {
@@ -628,7 +651,14 @@ export function LibraryView({
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="mb-4 flex shrink-0 items-center justify-end">
+      <div className="mb-4 flex shrink-0 items-center justify-between gap-4">
+        {title ? (
+          <h1 className="text-title-large text-[var(--content-default)]">
+            {title}
+          </h1>
+        ) : (
+          <span />
+        )}
         <div className="flex items-center gap-2">
           <input
             ref={fileInputRef}

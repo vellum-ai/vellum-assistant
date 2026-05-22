@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { ExternalLink, Hash } from "lucide-react";
+import { ExternalLink, Hash, MessageCircle } from "lucide-react";
 
 import { resolveSlackChannelName } from "@/domains/chat/api/slack-channel-name.js";
 import type {
@@ -18,6 +18,7 @@ type SlackFooterConversation = Pick<
   "channelBinding" | "originChannel"
 > &
   Partial<Pick<Conversation, "conversationKey">>;
+type SlackMessageChannel = NonNullable<DisplayMessage["slackMessage"]>;
 
 export interface SlackChannelFooterProps {
   assistantId?: string;
@@ -133,6 +134,42 @@ function isSlackDmChannelId(channelId: string | undefined): boolean {
   return channelId?.startsWith("D") === true;
 }
 
+function cleanLabel(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function getSlackDmParticipantName(
+  channelBinding: ConversationChannelBinding,
+  messageChannel: SlackMessageChannel | undefined,
+  friendlyChannelName: string | undefined,
+): string | undefined {
+  const sender = messageChannel?.sender;
+  return (
+    cleanLabel(channelBinding.displayName) ??
+    cleanLabel(channelBinding.username) ??
+    cleanLabel(sender?.displayName) ??
+    cleanLabel(sender?.name) ??
+    cleanLabel(sender?.username) ??
+    friendlyChannelName
+  );
+}
+
+function getSlackDmDisplayText(
+  channelBinding: ConversationChannelBinding,
+  channelId: string | undefined,
+  messageChannel: SlackMessageChannel | undefined,
+  friendlyChannelName: string | undefined,
+): string | undefined {
+  if (!isSlackDmChannelId(channelId)) return undefined;
+  const participantName = getSlackDmParticipantName(
+    channelBinding,
+    messageChannel,
+    friendlyChannelName,
+  );
+  return participantName ? `DM with ${participantName}` : "Slack DM";
+}
+
 export function SlackChannelFooter({
   assistantId,
   conversation,
@@ -153,8 +190,23 @@ export function SlackChannelFooter({
     slackChannel?.id ??
     channelBinding?.externalChatId;
   const messageChannel = getSlackMessageChannel(messages, channelId);
-  const fallbackDisplayText = channelBinding
+  const isDmChannel = isSlackDmChannelId(channelId);
+  const channelDisplayText = channelBinding
     ? getSlackChannelDisplayText(channelBinding, messageChannel?.channelName)
+    : undefined;
+  const friendlyChannelName =
+    channelBinding &&
+    channelDisplayText &&
+    !isChannelIdFallback(channelDisplayText, channelBinding)
+      ? channelDisplayText
+      : undefined;
+  const fallbackDisplayText = channelBinding
+    ? (getSlackDmDisplayText(
+        channelBinding,
+        channelId,
+        messageChannel,
+        friendlyChannelName,
+      ) ?? channelDisplayText)
     : undefined;
   const conversationId = conversation?.conversationKey;
   const resolutionKey =
@@ -237,9 +289,10 @@ export function SlackChannelFooter({
     messageChannel?.messageLink,
     channelId,
   );
+  const LabelIcon = isDmChannel ? MessageCircle : Hash;
   const content = (
     <>
-      <Hash className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <LabelIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       <span className="truncate">{displayText}</span>
       {href ? (
         <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />

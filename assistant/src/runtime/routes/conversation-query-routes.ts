@@ -20,7 +20,6 @@
 
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import {
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
@@ -925,10 +924,6 @@ function handleSteerToMessage({
   pathParams = {},
   body,
 }: RouteHandlerArgs) {
-  const config = getConfig();
-  if (!isAssistantFeatureFlagEnabled("queue-steering", config)) {
-    throw new BadRequestError("Queue steering is not enabled");
-  }
   const conversationId =
     queryParams.conversationId ??
     (body && typeof body === "object" && "conversationId" in body

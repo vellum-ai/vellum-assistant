@@ -221,6 +221,26 @@ export class ContextWindowManager {
     return getConfig().compaction;
   }
 
+  get maxInputTokens(): number {
+    return this.config.maxInputTokens;
+  }
+
+  /**
+   * Estimate the prompt-token cost of `messages` using the same path as the
+   * auto-compaction pre-check. Clears the system-prompt cache so the next
+   * turn re-resolves it (the system prompt is lazy and may have changed).
+   */
+  estimateInputTokens(messages: Message[]): number {
+    try {
+      return estimatePromptTokens(messages, this.systemPrompt, {
+        providerName: this.estimationProviderName,
+        toolTokenBudget: this.toolTokenBudget,
+      });
+    } finally {
+      this.clearSystemPromptCache();
+    }
+  }
+
   /**
    * Cheap pre-check — estimate the current token count and compare against
    * `compaction.autoThreshold`. Callers pass the estimate back through

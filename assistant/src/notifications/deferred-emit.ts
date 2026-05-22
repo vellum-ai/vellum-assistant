@@ -23,17 +23,30 @@ import {
 
 const log = getLogger("notifications-deferred-emit");
 
-// How long after a discard we keep swallowing late notifications. `work`
-// in `runBackgroundJob` is not cancelled on timeout — it can continue
-// running and emit skill calls. Five minutes is long enough to cover any
-// realistic in-flight tool call while still bounding the map size.
+// How long after the last observed late notification we keep the tombstone
+// alive. `work` in `runBackgroundJob` is not cancelled on timeout — it can
+// continue running and emit skill calls indefinitely. We refresh the timer
+// on every late arrival, so the tombstone persists as long as the turn is
+// still draining and only expires once the conversation has been quiet for
+// this long.
 const TOMBSTONE_TTL_MS = 5 * 60 * 1000;
 
 type BufferEntry =
   | { state: "buffered"; items: EmitSignalParams<string>[] }
-  | { state: "tombstoned" };
+  | { state: "tombstoned"; timer: ReturnType<typeof setTimeout> };
 
 const buffers = new Map<string, BufferEntry>();
+
+function scheduleTombstoneEviction(
+  conversationId: string,
+): ReturnType<typeof setTimeout> {
+  const timer = setTimeout(() => {
+    const cur = buffers.get(conversationId);
+    if (cur?.state === "tombstoned") buffers.delete(conversationId);
+  }, TOMBSTONE_TTL_MS);
+  timer.unref?.();
+  return timer;
+}
 
 export function registerDeferredConversation(conversationId: string): void {
   buffers.set(conversationId, { state: "buffered", items: [] });
@@ -51,6 +64,12 @@ export function bufferIfDeferred(
   const entry = buffers.get(originatingConversationId);
   if (!entry) return null;
   if (entry.state === "tombstoned") {
+    // Refresh the eviction timer so the tombstone outlives any continuing
+    // turn activity. Otherwise a long-running orphan `processMessage` could
+    // emit a `notifications send` after the fixed TTL elapsed and bypass
+    // buffering, recreating the "success + activity.failed" contradiction.
+    clearTimeout(entry.timer);
+    entry.timer = scheduleTombstoneEviction(originatingConversationId);
     return {
       signalId: uuid(),
       deduplicated: false,
@@ -87,17 +106,20 @@ export async function commitDeferredConversation(
   }
 }
 
-/** Drop any buffered signals and tombstone the conversation briefly. */
+/**
+ * Drop any buffered signals and tombstone the conversation. The tombstone
+ * persists until the turn has been quiet for `TOMBSTONE_TTL_MS`; each late
+ * notification observed via `bufferIfDeferred` refreshes the timer.
+ */
 export function discardDeferredConversation(conversationId: string): number {
   const entry = buffers.get(conversationId);
   if (!entry) return 0;
   const droppedCount = entry.state === "buffered" ? entry.items.length : 0;
-  buffers.set(conversationId, { state: "tombstoned" });
-  const timer = setTimeout(() => {
-    const cur = buffers.get(conversationId);
-    if (cur?.state === "tombstoned") buffers.delete(conversationId);
-  }, TOMBSTONE_TTL_MS);
-  timer.unref?.();
+  if (entry.state === "tombstoned") clearTimeout(entry.timer);
+  buffers.set(conversationId, {
+    state: "tombstoned",
+    timer: scheduleTombstoneEviction(conversationId),
+  });
   if (droppedCount > 0) {
     log.info(
       { conversationId, droppedCount },

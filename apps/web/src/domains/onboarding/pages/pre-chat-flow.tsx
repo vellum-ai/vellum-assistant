@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/browser";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { useIsIOSWeb } from "@/domains/nudges/ios-app-platform.js";
@@ -40,6 +40,7 @@ import {
   clearPrivacyConsent,
   hasRecentPrivacyConsent,
 } from "@/domains/onboarding/signals.js";
+import { resolveUserCohort } from "@/domains/onboarding/utm-cohort.js";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { routes } from "@/utils/routes.js";
@@ -67,6 +68,7 @@ export function PreChatFlow() {
   const lastName = user?.lastName ?? "";
   const isNative = useIsNativePlatform();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
+  const [cohort, setCohort] = useState<string | null>(null);
 
   const isMacOSWeb = useIsMacOSWeb();
   const isIOSWeb = useIsIOSWeb();
@@ -145,6 +147,15 @@ export function PreChatFlow() {
   }, [consent, isAuthLoading, isLoggedIn, userId]);
 
   useEffect(() => {
+    if (isAuthLoading || !isLoggedIn) return;
+    let cancelled = false;
+    void resolveUserCohort().then((resolved) => {
+      if (!cancelled && resolved) setCohort(resolved);
+    });
+    return () => { cancelled = true; };
+  }, [isAuthLoading, isLoggedIn]);
+
+  useEffect(() => {
     if (isAuthLoading) return;
     if (!isLoggedIn) {
       void navigate(routes.account.login, { replace: true });
@@ -168,6 +179,35 @@ export function PreChatFlow() {
     setOnboardingCompleted,
     userId,
   ]);
+
+  // ── Content-automation cohort: skip all pre-chat screens (web only) ──
+  const autoSkippedRef = useRef(false);
+  useEffect(() => {
+    if (cohort !== "content-automation" || isNative) return;
+    if (isAuthLoading || !isLoggedIn || consentDecision !== "ok") return;
+    if (readOnboardingCompleted()) return;
+    if (autoSkippedRef.current) return;
+    autoSkippedRef.current = true;
+
+    const context: PreChatOnboardingContext = {
+      tools: [],
+      tasks: ["writing", "research", "project-management"],
+      tone: DEFAULT_GROUP_ID,
+      googleConnected: false,
+      cohort: "content-automation",
+      initialMessage: "I want to write articles that rank better for GEO.",
+    };
+    setPendingPreChatContext(context);
+    try {
+      setOnboardingCompleted(true);
+    } catch (err) {
+      Sentry.captureException(err, {
+        tags: { context: "prechat_auto_skip_content_automation" },
+      });
+    }
+    clearPrivacyConsent();
+    void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
+  }, [cohort, isNative, isAuthLoading, isLoggedIn, consentDecision, navigate, setOnboardingCompleted]);
 
   function finish(connectedScopes?: string[]): void {
     const context: PreChatOnboardingContext = {
@@ -212,6 +252,10 @@ export function PreChatFlow() {
     !consentReady ||
     readOnboardingCompleted()
   ) {
+    return null;
+  }
+
+  if (cohort === "content-automation" && !isNative) {
     return null;
   }
 

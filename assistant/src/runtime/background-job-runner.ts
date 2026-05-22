@@ -287,6 +287,11 @@ export async function runBackgroundJob(
     });
 
     await Promise.race([work, timeout]);
+    // Symmetric with the `work.catch` above: once `work` has won the race,
+    // the orphan timeout promise can still reject during the await below
+    // (commitDeferredConversation). Swallow so it doesn't surface as an
+    // unhandled rejection that Bun can use to terminate the process.
+    timeout.catch(() => {});
     if (opts.deferNotifications) {
       await commitDeferredConversation(conversation.id);
     }

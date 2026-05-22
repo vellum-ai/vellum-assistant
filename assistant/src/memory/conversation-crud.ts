@@ -190,6 +190,7 @@ export interface ConversationRow {
   contextSummary: string | null;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
+  historyStrippedAt: number | null;
   slackContextCompactionWatermarkTs: string | null;
   slackContextCompactionWatermarkAt: number | null;
   conversationType: string;
@@ -223,6 +224,7 @@ export const parseConversation = createRowMapper<
   contextSummary: "contextSummary",
   contextCompactedMessageCount: "contextCompactedMessageCount",
   contextCompactedAt: "contextCompactedAt",
+  historyStrippedAt: "historyStrippedAt",
   slackContextCompactionWatermarkTs: "slackContextCompactionWatermarkTs",
   slackContextCompactionWatermarkAt: "slackContextCompactionWatermarkAt",
   conversationType: "conversationType",
@@ -604,6 +606,17 @@ export function forkConversation(params: {
     copyBoundaryIndex >= 0
       ? sourceMessages.slice(0, copyBoundaryIndex + 1)
       : ([] as MessageRow[]);
+
+  // Inherit the history-strip marker only when the fork boundary is at-or-
+  // after the strip event. Pre-strip forks branch from history that pre-
+  // dates the strip, so the marker would be a no-op and is misleading to
+  // copy.
+  const sourceHistoryStrippedAt = sourceConversation.historyStrippedAt ?? null;
+  const boundaryMessageCreatedAt = messagesToCopy.at(-1)?.createdAt ?? null;
+  const inheritsHistoryStrippedAt =
+    sourceHistoryStrippedAt != null &&
+    boundaryMessageCreatedAt != null &&
+    boundaryMessageCreatedAt >= sourceHistoryStrippedAt;
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
   const forkTitle =
     params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
@@ -649,6 +662,9 @@ export function forkConversation(params: {
           : null,
         slackContextCompactionWatermarkAt: preserveSourceCompactionState
           ? sourceConversation.slackContextCompactionWatermarkAt
+          : null,
+        historyStrippedAt: inheritsHistoryStrippedAt
+          ? sourceHistoryStrippedAt
           : null,
         inferenceProfile: sourceConversation.inferenceProfile,
       })
@@ -1259,10 +1275,14 @@ interface PaginatedMessagesResult {
   hasMore: boolean;
 }
 
+const PAGINATION_CHUNK_MIN = 50;
+const PAGINATION_SCAN_CAP = 10_000;
+
 export function getMessagesPaginated(
   conversationId: string,
   limit: number | undefined,
   beforeTimestamp?: number,
+  filter?: (row: MessageRow) => boolean,
 ): PaginatedMessagesResult {
   const db = getDb();
 
@@ -1278,30 +1298,69 @@ export function getMessagesPaginated(
       .orderBy(asc(messages.createdAt))
       .all()
       .map(parseMessage);
-    return { messages: rows, hasMore: false };
+    return {
+      messages: filter ? rows.filter(filter) : rows,
+      hasMore: false,
+    };
   }
 
-  const conditions = [eq(messages.conversationId, conversationId)];
-  if (beforeTimestamp !== undefined) {
-    conditions.push(lt(messages.createdAt, beforeTimestamp));
+  // Walk pages newest→oldest, applying `filter` in TS (metadata parsing is
+  // JSON, not a structured column). Keep fetching until we have `limit + 1`
+  // visible rows or the DB is exhausted, so `hasMore` and the cursor reflect
+  // the visible page rather than the unfiltered row count. Without this loop,
+  // a fully-hidden page returns `{ messages: [], hasMore: true }` with no
+  // cursor, which stalls the web client's older-page fetch.
+  let cursorCreatedAt = beforeTimestamp;
+  let cursorMessageId: string | undefined;
+  const visible: MessageRow[] = [];
+  const chunkSize = Math.max(limit + 1, PAGINATION_CHUNK_MIN);
+  // Bound the work a single request can do when `filter` rejects nearly every
+  // row — otherwise a pathological filter against a huge conversation would
+  // tie up a connection for thousands of roundtrips.
+  let rowsScanned = 0;
+
+  while (visible.length < limit + 1 && rowsScanned < PAGINATION_SCAN_CAP) {
+    const cursorPredicate =
+      cursorCreatedAt === undefined
+        ? undefined
+        : cursorMessageId === undefined
+          ? lt(messages.createdAt, cursorCreatedAt)
+          : or(
+              lt(messages.createdAt, cursorCreatedAt),
+              and(
+                eq(messages.createdAt, cursorCreatedAt),
+                lt(messages.id, cursorMessageId),
+              ),
+            );
+
+    const chunk = db
+      .select()
+      .from(messages)
+      .where(and(eq(messages.conversationId, conversationId), cursorPredicate))
+      .orderBy(desc(messages.createdAt), desc(messages.id))
+      .limit(chunkSize)
+      .all()
+      .map(parseMessage);
+
+    if (chunk.length === 0) break;
+    rowsScanned += chunk.length;
+
+    for (const row of chunk) {
+      if (!filter || filter(row)) visible.push(row);
+      if (visible.length >= limit + 1) break;
+    }
+
+    if (chunk.length < chunkSize) break;
+    const lastRow = chunk[chunk.length - 1];
+    cursorCreatedAt = lastRow.createdAt;
+    cursorMessageId = lastRow.id;
   }
 
-  const rows = db
-    .select()
-    .from(messages)
-    .where(and(...conditions))
-    .orderBy(desc(messages.createdAt))
-    .limit(limit + 1)
-    .all()
-    .map(parseMessage);
+  const hasMore = visible.length > limit;
+  if (hasMore) visible.splice(limit);
+  visible.reverse();
 
-  const hasMore = rows.length > limit;
-  if (hasMore) {
-    rows.splice(limit);
-  }
-  rows.reverse();
-
-  return { messages: rows, hasMore };
+  return { messages: visible, hasMore };
 }
 
 export function getLastUserTimestampBefore(
@@ -1389,6 +1448,20 @@ export function updateConversationContextWindow(
       contextSummary,
       contextCompactedMessageCount,
       contextCompactedAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, id))
+    .run();
+}
+
+export function setConversationHistoryStrippedAt(
+  id: string,
+  historyStrippedAt: number | null,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      historyStrippedAt,
       updatedAt: Date.now(),
     })
     .where(eq(conversations.id, id))
@@ -1838,44 +1911,6 @@ export function updateMessageMetadata(
     .set({ metadata: JSON.stringify({ ...existing, ...updates }) })
     .where(eq(messages.id, messageId))
     .run();
-}
-
-/**
- * Bulk-remove the metadata fields that back the blocks stripped by
- * `stripInjectionsForCompaction` — currently `pkbSystemReminderBlock`
- * (`<system_reminder>`), `nowScratchpadBlock` (`<NOW.md …>`),
- * `pkbContextBlock` (`<knowledge_base>`), and `memoryV2StaticBlock`
- * (the static `<memory>\n…</memory>` block matched by the `<memory>\n`
- * prefix in `RUNTIME_INJECTION_PREFIXES`). Called from compaction-strip
- * sites so post-restart rehydration stays consistent with the in-memory
- * state produced by `stripInjectionsForCompaction` (which removes those
- * tags from live messages but cannot touch the DB). Fields backing
- * blocks that are intentionally NOT stripped (`turnContextBlock`,
- * `workspaceBlock`, `memoryInjectedBlock`) are preserved.
- */
-export function clearStrippedInjectionMetadataForConversation(
-  conversationId: string,
-): void {
-  rawRun(
-    `UPDATE messages
-        SET metadata = json_remove(
-          metadata,
-          '$.pkbSystemReminderBlock',
-          '$.nowScratchpadBlock',
-          '$.pkbContextBlock',
-          '$.memoryV2StaticBlock'
-        )
-      WHERE conversation_id = ?
-        AND role = 'user'
-        AND metadata IS NOT NULL
-        AND (
-          json_extract(metadata, '$.pkbSystemReminderBlock') IS NOT NULL
-          OR json_extract(metadata, '$.nowScratchpadBlock') IS NOT NULL
-          OR json_extract(metadata, '$.pkbContextBlock') IS NOT NULL
-          OR json_extract(metadata, '$.memoryV2StaticBlock') IS NOT NULL
-        )`,
-    conversationId,
-  );
 }
 
 /**

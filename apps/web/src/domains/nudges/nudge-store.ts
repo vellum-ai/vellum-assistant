@@ -148,11 +148,10 @@ if (typeof window !== "undefined") {
 // One-shot legacy cleanup
 // ---------------------------------------------------------------------------
 
-// LUM-1716 originally seeded this store from the platform's per-key
-// localStorage entries to preserve dismissals across the platform →
-// vellum-assistant cutover. Post-cutover, the persist middleware owns the
-// state via `vellum:nudge-prefs`, so the legacy keys are orphaned bytes
-// sitting on every user's device. Removing them on first load.
+// One-time cleanup of legacy per-key localStorage entries from an
+// older nudge-state shape. The persist middleware now owns the state
+// under `vellum:nudge-prefs`; the old keys are orphaned bytes on
+// every user's device and get removed on first load.
 const LEGACY_CLEANUP_FLAG = "app.nudgeLegacy.cleaned";
 
 const LEGACY_KEYS = [

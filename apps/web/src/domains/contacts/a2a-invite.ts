@@ -8,9 +8,8 @@ export interface A2AInviteParams {
 
 /**
  * Build a shareable A2A invite link that routes to the connect page.
- *
- * Unlike the platform version, the OSS invite link includes
- * `senderGatewayUrl` — there is no central Django broker to derive it.
+ * The link includes `senderGatewayUrl` so the recipient can reach the
+ * sender's gateway directly, without a central broker.
  */
 export function buildA2AInviteLink(params: A2AInviteParams): string {
   const origin =

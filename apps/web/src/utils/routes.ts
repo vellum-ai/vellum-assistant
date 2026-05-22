@@ -13,6 +13,7 @@
 const r = <const T extends string>(path: T): T => path;
 
 const dyn = (parent: string, id: string): string => `${parent}/${id}`;
+const LOCAL_ADMIN_ORIGIN = "http://localhost:3000";
 
 export const routes = {
   assistant: r("/assistant"),
@@ -83,6 +84,10 @@ export const routes = {
     upgradeSuccess: r("/assistant/settings/billing/upgrade/success"),
   },
 
+  admin: {
+    root: r("/admin"),
+  },
+
   docs: {
     legal: {
       privacyPolicy: r("/docs/privacy-policy"),
@@ -101,4 +106,11 @@ export function legalUrl(
   path: (typeof routes.docs.legal)[keyof typeof routes.docs.legal],
 ): string {
   return `https://${WWW_DOMAIN}${path}`;
+}
+
+/** URL for the platform-hosted admin UI. */
+export function adminUrl(): string {
+  return import.meta.env.DEV
+    ? `${LOCAL_ADMIN_ORIGIN}${routes.admin.root}`
+    : routes.admin.root;
 }
