@@ -159,7 +159,7 @@ describe("CES flags respect explicit false overrides", () => {
 // ---------------------------------------------------------------------------
 
 describe("CES flags do not affect unrelated flags", () => {
-  test("enabling all CES flags does not change browser flag (defaultEnabled: true)", () => {
+  test("enabling all CES flags does not change declared default-enabled flags", () => {
     const overrides: Record<string, boolean> = {};
     for (const key of ALL_CES_FLAG_KEYS) {
       overrides[key] = true;
@@ -167,11 +167,13 @@ describe("CES flags do not affect unrelated flags", () => {
     _setOverridesForTesting(overrides);
     const config = makeConfig();
 
-    // browser defaults to true in the registry and should stay true
-    expect(isAssistantFeatureFlagEnabled("browser", config)).toBe(true);
+    // account-deletion defaults to true in the registry and should stay true.
+    expect(isAssistantFeatureFlagEnabled("account-deletion", config)).toBe(
+      true,
+    );
   });
 
-  test("enabling all CES flags does not change unrelated default-open flags", () => {
+  test("enabling all CES flags does not change unrelated fail-closed flags", () => {
     const overrides: Record<string, boolean> = {};
     for (const key of ALL_CES_FLAG_KEYS) {
       overrides[key] = true;
@@ -179,9 +181,9 @@ describe("CES flags do not affect unrelated flags", () => {
     _setOverridesForTesting(overrides);
     const config = makeConfig();
 
-    // Unknown flags default open unless explicitly overridden.
+    // Unknown flags fail closed unless explicitly overridden.
     expect(
-      isAssistantFeatureFlagEnabled("unrelated-default-open", config),
-    ).toBe(true);
+      isAssistantFeatureFlagEnabled("unrelated-default-closed", config),
+    ).toBe(false);
   });
 });
