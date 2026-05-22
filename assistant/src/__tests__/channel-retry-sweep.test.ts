@@ -533,6 +533,7 @@ describe("channel-retry-sweep", () => {
       liveDeliveryCalls.map((entry) => entry.payload.text).filter(Boolean),
     ).toEqual(["New live response."]);
     expect(rawPayload.slackDmLiveDeliveredTextResponseIndexes).toEqual([1, 2]);
+    expect(rawPayload.replyMessageId).toBe("assistant-live-retry-final");
     expect(deliveryCalls).toEqual([
       {
         conversationId: inbound.conversationId,

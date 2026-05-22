@@ -153,31 +153,33 @@ export function addSlackDmLiveDeliveredTextResponseIndex(
   if (!Number.isSafeInteger(responseIndex) || responseIndex <= 0) return;
 
   const db = getDb();
-  const row = db
-    .select({ rawPayload: channelInboundEvents.rawPayload })
-    .from(channelInboundEvents)
-    .where(eq(channelInboundEvents.id, eventId))
-    .get();
-  if (!row?.rawPayload) return;
+  db.transaction((tx) => {
+    const row = tx
+      .select({ rawPayload: channelInboundEvents.rawPayload })
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, eventId))
+      .get();
+    if (!row?.rawPayload) return;
 
-  const payload = parseRawPayload(row.rawPayload);
-  if (!payload) return;
-  const indexes = normalizePositiveIntegerIndexes(
-    payload[SLACK_DM_LIVE_DELIVERED_TEXT_RESPONSE_INDEXES],
-  );
-  if (!indexes.includes(responseIndex)) indexes.push(responseIndex);
-  indexes.sort((a, b) => a - b);
+    const payload = parseRawPayload(row.rawPayload);
+    if (!payload) return;
+    const indexes = normalizePositiveIntegerIndexes(
+      payload[SLACK_DM_LIVE_DELIVERED_TEXT_RESPONSE_INDEXES],
+    );
+    if (!indexes.includes(responseIndex)) indexes.push(responseIndex);
+    indexes.sort((a, b) => a - b);
 
-  db.update(channelInboundEvents)
-    .set({
-      rawPayload: JSON.stringify({
-        ...payload,
-        [SLACK_DM_LIVE_DELIVERED_TEXT_RESPONSE_INDEXES]: indexes,
-      }),
-      updatedAt: Date.now(),
-    })
-    .where(eq(channelInboundEvents.id, eventId))
-    .run();
+    tx.update(channelInboundEvents)
+      .set({
+        rawPayload: JSON.stringify({
+          ...payload,
+          [SLACK_DM_LIVE_DELIVERED_TEXT_RESPONSE_INDEXES]: indexes,
+        }),
+        updatedAt: Date.now(),
+      })
+      .where(eq(channelInboundEvents.id, eventId))
+      .run();
+  });
 }
 
 // ── Deliver-once guard for terminal reply idempotency ────────────────
