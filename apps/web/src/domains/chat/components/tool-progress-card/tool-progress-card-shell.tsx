@@ -236,17 +236,22 @@ export function ToolProgressCardShell({
             bypassDwell={state !== "loading"}
           />
         </span>
-        <span
-          data-testid="tool-progress-card-step-count-pill"
-          className="flex shrink-0 items-center rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[6px] py-[4px]"
-        >
-          <Typography
-            variant="body-small-default"
-            className="text-[var(--content-emphasised)]"
+        {/* Hide the pill when there are no steps to summarise — rendering
+            a literal "0 steps" chip reads as broken state. Empty string or
+            a "0 …" prefix both fall through. */}
+        {stepCount && !stepCount.startsWith("0 ") ? (
+          <span
+            data-testid="tool-progress-card-step-count-pill"
+            className="flex shrink-0 items-center rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[6px] py-[4px]"
           >
-            {stepCount}
-          </Typography>
-        </span>
+            <Typography
+              variant="body-small-default"
+              className="text-[var(--content-emphasised)]"
+            >
+              {stepCount}
+            </Typography>
+          </span>
+        ) : null}
       </Button>
       {/* Action slot — absolute-positioned over the right end of the header
           row, immediately to the left of the step-count pill. Living
