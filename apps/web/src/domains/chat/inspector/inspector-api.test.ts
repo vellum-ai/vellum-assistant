@@ -79,10 +79,7 @@ beforeEach(() => {
   mockMessages = [];
 });
 
-function staticLog(
-  id: string,
-  createdAt: number,
-): LLMRequestLogEntry {
+function staticLog(id: string, createdAt: number): LLMRequestLogEntry {
   return {
     id,
     createdAt,
@@ -115,7 +112,10 @@ describe("fetchConversationLlmContext — happy path", () => {
       "/v1/assistants/{assistant_id}/conversations/llm-context/",
     );
     expect(requests[0]!.path).toEqual({ assistant_id: "asst-1" });
-    expect(requests[0]!.query).toEqual({ conversationKey: "conv-1" });
+    expect(requests[0]!.query).toEqual({
+      conversationId: "conv-1",
+      conversationKey: "conv-1",
+    });
     expect(result).toEqual(body);
   });
 

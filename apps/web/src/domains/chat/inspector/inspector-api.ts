@@ -1,4 +1,3 @@
-
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
 import {
@@ -6,7 +5,10 @@ import {
   client,
   extractErrorMessage,
 } from "@/domains/chat/api/client.js";
-import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/api/messages.js";
+import {
+  fetchConversationMessages,
+  type RuntimeMessage,
+} from "@/domains/chat/api/messages.js";
 
 import type {
   LlmContextResponse,
@@ -145,7 +147,7 @@ export async function fetchConversationLlmContext(
   const { data, error, response } = await client.get<LlmContextResponse>({
     url: "/v1/assistants/{assistant_id}/conversations/llm-context/",
     path: { assistant_id: assistantId },
-    query: { conversationKey },
+    query: { conversationId: conversationKey, conversationKey },
     signal,
     throwOnError: false,
   });
@@ -161,7 +163,11 @@ export async function fetchConversationLlmContext(
   }
 
   if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to load LLM context");
+    const msg = extractErrorMessage(
+      error,
+      response,
+      "Failed to load LLM context",
+    );
     throw new LlmContextRequestError(response.status, msg);
   }
 
@@ -194,7 +200,11 @@ export async function fetchMessageLlmContextOrThrow(
   });
   assertHasResponse(response, error, "Failed to fetch message LLM context");
   if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to load LLM context");
+    const msg = extractErrorMessage(
+      error,
+      response,
+      "Failed to load LLM context",
+    );
     throw new LlmContextRequestError(response.status, msg);
   }
   if (!data) {
