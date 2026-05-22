@@ -13,7 +13,6 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types.js";
 import type { ChatDebugRefs } from "@/domains/chat/utils/debug-api.js";
 import {
   createChatDebugApi,
-  diffMessages,
   installChatDebugApi,
 } from "@/domains/chat/utils/debug-api.js";
 
@@ -81,51 +80,6 @@ function makeRefs(
     ...overrides,
   };
 }
-
-// ---------------------------------------------------------------------------
-//  diffMessages (pure, most important)
-// ---------------------------------------------------------------------------
-
-describe("diffMessages", () => {
-  test("empty lists → no drift", () => {
-    const result = diffMessages([], []);
-    expect(result.localOnly).toEqual([]);
-    expect(result.serverOnly).toEqual([]);
-    expect(result.contentDrift).toEqual([]);
-  });
-
-  test("local orphan (no id) → localOnly", () => {
-    const local = [fakeDisplayMessage({ id: undefined })];
-    const result = diffMessages(local, []);
-    expect(result.localOnly).toHaveLength(1);
-    expect(result.localOnly[0]!.stableId).toBe("stable-1");
-  });
-
-  test("server-only message → serverOnly", () => {
-    const server = [fakeRuntimeMessage({ id: "srv-1" })];
-    const result = diffMessages([], server);
-    expect(result.serverOnly).toHaveLength(1);
-    expect(result.serverOnly[0]!.id).toBe("srv-1");
-  });
-
-  test("matching id + same length → no drift", () => {
-    const local = [fakeDisplayMessage({ id: "msg-1", content: "hello" })];
-    const server = [fakeRuntimeMessage({ id: "msg-1", content: "hello" })];
-    const result = diffMessages(local, server);
-    expect(result.localOnly).toHaveLength(0);
-    expect(result.serverOnly).toHaveLength(0);
-    expect(result.contentDrift).toHaveLength(0);
-  });
-
-  test("matching id + different length → contentDrift", () => {
-    const local = [fakeDisplayMessage({ id: "msg-1", content: "hello" })];
-    const server = [fakeRuntimeMessage({ id: "msg-1", content: "hello world" })];
-    const result = diffMessages(local, server);
-    expect(result.contentDrift).toHaveLength(1);
-    expect(result.contentDrift[0]!.localContentLength).toBe(5);
-    expect(result.contentDrift[0]!.serverContentLength).toBe(11);
-  });
-});
 
 // ---------------------------------------------------------------------------
 //  createChatDebugApi — tail
@@ -211,39 +165,53 @@ describe("createChatDebugApi.tail", () => {
 });
 
 // ---------------------------------------------------------------------------
-//  createChatDebugApi — diffAgainstServer
+//  createChatDebugApi — serverMessages
 // ---------------------------------------------------------------------------
 
-describe("createChatDebugApi.diffAgainstServer", () => {
+describe("createChatDebugApi.serverMessages", () => {
   test("throws when no context or assistant", async () => {
     const api = createChatDebugApi(
       makeRefs({ getAssistantId: () => null, activeConversationKeyRef: { current: null } }),
     );
-    await expect(api.diffAgainstServer()).rejects.toThrow(
+    await expect(api.serverMessages()).rejects.toThrow(
       "no active assistant/conversation context",
     );
   });
 
-  test("uses injected historyFetcher", async () => {
+  test("returns raw RuntimeMessage[] from injected historyFetcher", async () => {
     const activeConversationKeyRef = { current: "conv-1" } as MutableRefObject<string | null>;
-    const serverMessages = [fakeRuntimeMessage({ id: "srv-1" })];
-    const historyFetcher = async () => serverMessages;
+    const serverList = [
+      fakeRuntimeMessage({ id: "srv-1" }),
+      fakeRuntimeMessage({ id: "srv-2", role: "user" }),
+    ];
+    const historyFetcher = async () => serverList;
     const api = createChatDebugApi(makeRefs({ historyFetcher, activeConversationKeyRef }));
-    const result = await api.diffAgainstServer();
-    expect(result.context.assistantId).toBe("asst-1");
-    expect(result.serverTotal).toBe(1);
-    expect(result.serverOnly).toHaveLength(1);
+    const result = await api.serverMessages();
+    expect(result).toBe(serverList);
+    expect(result).toHaveLength(2);
+    expect(result[0]!.id).toBe("srv-1");
   });
 
-  test("reports orphan when local has no id", async () => {
-    const messagesRef = {
-      current: [fakeDisplayMessage({ id: undefined })],
-    } as MutableRefObject<DisplayMessage[]>;
-    const activeConversationKeyRef = { current: "conv-1" } as MutableRefObject<string | null>;
-    const historyFetcher = async () => [];
-    const api = createChatDebugApi(makeRefs({ messagesRef, historyFetcher, activeConversationKeyRef }));
-    const result = await api.diffAgainstServer();
-    expect(result.localOnly).toHaveLength(1);
+  test("prefers streamContextRef over activeConversationKeyRef + getAssistantId", async () => {
+    const activeConversationKeyRef = { current: "conv-fallback" } as MutableRefObject<string | null>;
+    const streamContextRef = {
+      current: { assistantId: "asst-stream", conversationKey: "conv-stream" },
+    } as MutableRefObject<{ assistantId: string; conversationKey: string } | null>;
+    const seen: Array<{ assistantId: string; conversationKey: string }> = [];
+    const historyFetcher = async (assistantId: string, conversationKey: string) => {
+      seen.push({ assistantId, conversationKey });
+      return [];
+    };
+    const api = createChatDebugApi(
+      makeRefs({
+        getAssistantId: () => "asst-fallback",
+        streamContextRef,
+        activeConversationKeyRef,
+        historyFetcher,
+      }),
+    );
+    await api.serverMessages();
+    expect(seen).toEqual([{ assistantId: "asst-stream", conversationKey: "conv-stream" }]);
   });
 });
 
@@ -287,7 +255,7 @@ describe("createChatDebugApi.help", () => {
     const text = consoleSpy.logged.join("\n");
     expect(text).toContain(".tail(");
     expect(text).toContain(".forceReconcile()");
-    expect(text).toContain(".diffAgainstServer()");
+    expect(text).toContain(".serverMessages()");
     expect(text).toContain("[experimental]");
   });
 
