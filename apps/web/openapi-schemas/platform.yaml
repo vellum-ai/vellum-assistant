@@ -5833,6 +5833,10 @@ components:
         skipped:
           type: boolean
           default: false
+        email_username:
+          type: string
+          minLength: 1
+          maxLength: 255
     OnboardingDomainResponse:
       type: object
       description: |-
