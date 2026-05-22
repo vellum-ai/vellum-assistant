@@ -98,6 +98,37 @@ export function shouldShowAssistantBubble(
 }
 
 /**
+ * Whether the active assistant turn can be cancelled.
+ *
+ * Web-originated sends drive `TurnState` directly, but external-channel
+ * conversations (Slack, Telegram, phone) can stream into an already-open web
+ * tab without the web app ever calling `requestSend()`. In that case the live
+ * transcript or conversation processing marker is the only local proof that
+ * there is an active turn to stop.
+ */
+export function canStopGeneration(
+  state: TurnState,
+  ctx: UIContext,
+): boolean {
+  if (
+    state.phase === "awaiting_user_input" ||
+    ctx.hasPendingSecret ||
+    ctx.hasPendingConfirmation ||
+    ctx.hasPendingQuestion ||
+    ctx.hasPendingContactRequest ||
+    ctx.hasUncompletedVisibleSurface
+  ) {
+    return false;
+  }
+
+  return (
+    isSending(state) ||
+    ctx.hasStreamingAssistantMessage ||
+    ctx.activeConversationIsProcessing === true
+  );
+}
+
+/**
  * Label to display alongside the thinking indicator (e.g. "Processing
  * bash results", "Compacting context"). Returns `null` when no label
  * should be shown — callers should fall back to a default like

@@ -32,6 +32,7 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen.js";
 import type { ClassificationEnum } from "@/generated/api/types.gen.js";
 import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers.js";
+import type { ChatDebugApi } from "@/domains/chat/utils/debug-api.js";
 import { buildChatDiagnosticsSnapshot } from "@/domains/chat/utils/diagnostics.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 
@@ -231,6 +232,31 @@ async function buildClientLogsFile(
     buildTarEntry("web-client-context.json", contextBytes),
     buildTarEntry("web-chat-diagnostics.json", diagnosticsBytes),
   ];
+
+  // ATL-654 triage: capture the live debug API state for indicator-stuck reports.
+  // This is a separate file so support can diff it against the main diagnostics
+  // snapshot without cross-contamination.
+  try {
+    const debugApi =
+      typeof window !== "undefined"
+        ? (window as unknown as { _vellumDebug?: { chat?: ChatDebugApi } })
+            ._vellumDebug?.chat
+        : null;
+    if (debugApi) {
+      const triagePayload = {
+        tail: debugApi.tail?.() ?? null,
+        thinkingIndicator: debugApi.thinkingIndicator?.() ?? null,
+      };
+      const triageBytes = new TextEncoder().encode(
+        JSON.stringify(triagePayload, null, 2),
+      );
+      tarParts.push(buildTarEntry("web-chat-debug-api-triage.json", triageBytes));
+    }
+  } catch {
+    // Debug API is best-effort; if it's missing or throws, don't block the
+    // feedback submission. This can happen during SSR, in tests, or if the
+    // chat page hasn't mounted the API yet.
+  }
 
   if (assistantId) {
     const platformLogsData = await fetchPlatformLogs(assistantId, {

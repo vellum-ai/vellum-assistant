@@ -32,6 +32,11 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+let mockAssistantName: string | null = null;
+mock.module("../daemon/identity-helpers.js", () => ({
+  getAssistantName: () => mockAssistantName,
+}));
+
 import { createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
@@ -112,7 +117,10 @@ function callList(query: Record<string, string>): ListResponse {
 }
 
 describe("handleListMessages page=latest", () => {
-  beforeEach(resetTables);
+  beforeEach(() => {
+    resetTables();
+    mockAssistantName = null;
+  });
 
   test("page=latest with no limit returns all messages chronologically", () => {
     const conv = createConversation();
@@ -301,6 +309,62 @@ describe("handleListMessages page=latest", () => {
           "https://example.slack.com/archives/C123ABCDEF/p1710000000000200",
       },
     });
+  });
+
+  test("assistant Slack messages without stored sender use the assistant name", () => {
+    mockAssistantName = "Nova";
+    const conv = createConversation();
+    const db = getDb();
+    db.insert(messages)
+      .values({
+        id: "msg-slack-assistant",
+        conversationId: conv.id,
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Slack response" }]),
+        metadata: JSON.stringify({
+          slackMeta: writeSlackMetadata({
+            source: "slack",
+            channelId: "C123ABCDEF",
+            channelTs: "1710000000.000300",
+            eventKind: "message",
+          }),
+        }),
+        createdAt: 1,
+      })
+      .run();
+
+    const body = callList({ conversationId: conv.id, page: "latest" });
+
+    expect(body.messages[0].slackMessage?.sender).toEqual({
+      displayName: "Nova",
+    });
+  });
+
+  test("user Slack messages without stored sender do not use the assistant name", () => {
+    mockAssistantName = "Nova";
+    const conv = createConversation();
+    const db = getDb();
+    db.insert(messages)
+      .values({
+        id: "msg-slack-user",
+        conversationId: conv.id,
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Slack request" }]),
+        metadata: JSON.stringify({
+          slackMeta: writeSlackMetadata({
+            source: "slack",
+            channelId: "C123ABCDEF",
+            channelTs: "1710000000.000300",
+            eventKind: "message",
+          }),
+        }),
+        createdAt: 1,
+      })
+      .run();
+
+    const body = callList({ conversationId: conv.id, page: "latest" });
+
+    expect(body.messages[0].slackMessage?.sender).toBeUndefined();
   });
 
   test("page=latest on unresolved conversationKey returns null metadata contract", () => {

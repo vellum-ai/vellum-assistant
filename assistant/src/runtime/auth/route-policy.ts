@@ -469,6 +469,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory/v2/list-concept-pages:POST", scopes: ["settings.read"] },
   { endpoint: "memory/v2/reembed-skills:POST", scopes: ["settings.write"] },
   { endpoint: "memory/v2/concept-frequency:POST", scopes: ["settings.read"] },
+  { endpoint: "memory/v2/ema-scores:POST", scopes: ["settings.read"] },
+  { endpoint: "memory/v2/simulate-router:POST", scopes: ["settings.read"] },
 
   // Trust rule listing
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
@@ -988,6 +990,10 @@ registerPolicy("conversations/cli/create", {
 });
 registerPolicy("conversations/cli/export", {
   requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+registerPolicy("conversations/cli/slack/detach", {
+  requiredScopes: ["settings.write"],
   allowedPrincipalTypes: ["local"],
 });
 // `conversations/cli/clear` wipes every conversation + message + vector

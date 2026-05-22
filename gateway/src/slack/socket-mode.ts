@@ -25,6 +25,7 @@ import {
   normalizeSlackReactionRemoved,
   resolveSlackChannel,
   resolveSlackUser,
+  slackUserActorFields,
   type SlackAppMentionEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
@@ -1018,8 +1019,7 @@ export class SlackSocketModeClient {
         ),
       ]);
       if (userInfo) {
-        actor.displayName = userInfo.displayName;
-        actor.username = userInfo.username;
+        Object.assign(actor, slackUserActorFields(userInfo));
       }
     }
 

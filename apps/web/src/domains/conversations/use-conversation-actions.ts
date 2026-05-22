@@ -9,11 +9,31 @@ import { isSlackConversation } from "@/domains/chat/utils/group-conversations.js
 import { haptic } from "@/utils/haptics.js";
 
 import { shouldReturnToBackground } from "@/domains/chat/utils/chat-utils.js";
-import { type Conversation, archiveConversation, markConversationSeen, markConversationUnread, renameConversation, reorderConversations, unarchiveConversation } from "@/domains/chat/api/conversations.js";
+import { type Conversation, archiveConversation, isBackgroundConversation, markConversationSeen, markConversationUnread, renameConversation, reorderConversations, unarchiveConversation } from "@/domains/chat/api/conversations.js";
 
 // ---------------------------------------------------------------------------
 // Helpers — pure functions, no React state
 // ---------------------------------------------------------------------------
+
+/**
+ * Find the next conversation to switch to after archiving the given one.
+ * Skips archived and background/scheduled conversations so the user lands
+ * on a normal foreground chat, never on a background job like "Memory
+ * Retrospective".
+ */
+export function findNextConversationKey(
+  conversations: Conversation[],
+  archivedKey: string,
+): string | null {
+  return (
+    conversations.find(
+      (c) =>
+        c.conversationKey !== archivedKey &&
+        c.archivedAt == null &&
+        !isBackgroundConversation(c),
+    )?.conversationKey ?? null
+  );
+}
 
 /**
  * Resolve the target groupId when unpinning a conversation. Checks the
@@ -77,12 +97,7 @@ export function useConversationActions({
           conversation.conversationKey === activeConversationKey;
         let nextKey: string | null = null;
         if (wasActive) {
-          nextKey =
-            conversations.find(
-              (c) =>
-                c.conversationKey !== conversation.conversationKey &&
-                c.archivedAt == null,
-            )?.conversationKey ?? null;
+          nextKey = findNextConversationKey(conversations, conversation.conversationKey);
         }
 
         await archiveConversation(assistantId, conversation.conversationKey);

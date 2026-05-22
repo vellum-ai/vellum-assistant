@@ -86,7 +86,7 @@ function CollapsibleNavSectionSection({
       className={className}
       {...itemProps}
     >
-      <div data-slot="collapsible-nav-section-header" className="flex items-center">
+      <div data-slot="collapsible-nav-section-header" className="flex items-center justify-between">
         <Collapsible.Trigger
           className={cn(
             "group h-[28px] max-md:h-auto gap-[4px] max-md:gap-[8px]",

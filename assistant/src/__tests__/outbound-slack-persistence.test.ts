@@ -22,24 +22,33 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: {
-      entries: {},
-      load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
-      install: { nodeManager: "npm" },
-      allowBundled: null,
-      remoteProviders: {
-        skillssh: { enabled: true },
-        clawhub: { enabled: true },
-      },
-      remotePolicy: {
-        blockSuspicious: true,
-        blockMalware: true,
-        maxSkillsShRisk: "medium",
-      },
+type TestConfig = {
+  ui: { userTimezone?: string; detectedTimezone?: string };
+  skills: Record<string, unknown>;
+};
+
+const baseConfig: TestConfig = {
+  ui: {},
+  skills: {
+    entries: {},
+    load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
+    install: { nodeManager: "npm" },
+    allowBundled: null,
+    remoteProviders: {
+      skillssh: { enabled: true },
+      clawhub: { enabled: true },
     },
-  }),
+    remotePolicy: {
+      blockSuspicious: true,
+      blockMalware: true,
+      maxSkillsShRisk: "medium",
+    },
+  },
+};
+let currentConfig: TestConfig = structuredClone(baseConfig);
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => currentConfig,
   loadConfig: () => ({}),
 }));
 
@@ -47,12 +56,21 @@ mock.module("../config/loader.js", () => ({
 // its arguments per test invocation so each case can assert on the metadata
 // that was actually persisted.
 interface AddMessageCall {
+  id: string;
   conversationId: string;
   role: string;
   content: string;
   metadata?: Record<string, unknown>;
 }
 const addMessageCalls: AddMessageCall[] = [];
+const persistedRows: Array<{
+  id: string;
+  conversationId: string;
+  role: string;
+  content: string;
+  createdAt: number;
+  metadata: string | null;
+}> = [];
 mock.module("../memory/conversation-crud.js", () => ({
   addMessage: (
     conversationId: string,
@@ -60,11 +78,35 @@ mock.module("../memory/conversation-crud.js", () => ({
     content: string,
     metadata?: Record<string, unknown>,
   ) => {
-    addMessageCalls.push({ conversationId, role, content, metadata });
-    return { id: `mock-msg-${addMessageCalls.length}` };
+    const id = `mock-msg-${addMessageCalls.length + 1}`;
+    addMessageCalls.push({ id, conversationId, role, content, metadata });
+    persistedRows.push({
+      id,
+      conversationId,
+      role,
+      content,
+      createdAt: Date.now(),
+      metadata: metadata ? JSON.stringify(metadata) : null,
+    });
+    return { id };
   },
   getConversation: () => null,
-  getMessageById: () => null,
+  getMessageById: (messageId: string) =>
+    persistedRows.find((row) => row.id === messageId) ?? null,
+  getMessages: (conversationId: string) =>
+    persistedRows.filter((row) => row.conversationId === conversationId),
+  updateMessageMetadata: (
+    messageId: string,
+    updates: Record<string, unknown>,
+  ) => {
+    const row = persistedRows.find((candidate) => candidate.id === messageId);
+    if (!row) return;
+    const existing =
+      row.metadata && typeof row.metadata === "string"
+        ? (JSON.parse(row.metadata) as Record<string, unknown>)
+        : {};
+    row.metadata = JSON.stringify({ ...existing, ...updates });
+  },
   updateMessageContent: () => {},
   // The handler treats provenance as a flat spread; returning {} keeps the
   // metadata snapshot focused on the fields under test.
@@ -84,6 +126,18 @@ mock.module("../memory/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
 }));
 
+let nextDeliveryTs: string | null = null;
+mock.module("../runtime/gateway-client.js", () => ({
+  deliverChannelReply: async () => ({
+    ok: true,
+    ...(nextDeliveryTs ? { ts: nextDeliveryTs } : {}),
+  }),
+}));
+
+mock.module("../memory/attachments-store.js", () => ({
+  getAttachmentMetadataForMessage: () => [],
+}));
+
 // ── Imports (after mocks) ──────────────────────────────────────────────────
 
 import type { AgentEvent } from "../agent/loop.js";
@@ -98,6 +152,7 @@ import {
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { clearThreadTs, setThreadTs } from "../memory/slack-thread-store.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import { deliverReplyViaCallback } from "../runtime/channel-reply-delivery.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -106,6 +161,8 @@ function makeDeps(
   overrides: {
     assistantMessageChannel?: "slack" | "vellum" | "telegram";
     requesterChatId?: string;
+    requesterTimezoneLabel?: string;
+    clientTimezone?: string;
   } = {},
 ): EventHandlerDeps {
   const assistantMessageChannel = overrides.assistantMessageChannel ?? "slack";
@@ -119,7 +176,9 @@ function makeDeps(
         sourceChannel: assistantMessageChannel,
         trustClass: "guardian",
         requesterChatId: overrides.requesterChatId,
+        requesterTimezoneLabel: overrides.requesterTimezoneLabel,
       },
+      clientTimezone: overrides.clientTimezone,
     } as unknown as EventHandlerDeps["ctx"],
     onEvent: (_msg: ServerMessage) => {},
     reqId: "test-req-id",
@@ -172,12 +231,17 @@ describe("outbound assistant Slack metadata persistence", () => {
 
   beforeEach(() => {
     addMessageCalls.length = 0;
+    persistedRows.length = 0;
+    currentConfig = structuredClone(baseConfig);
+    nextDeliveryTs = null;
     state = createEventHandlerState();
     state.turnStartedAt = 1_700_000_000_000;
   });
 
   afterEach(() => {
     addMessageCalls.length = 0;
+    persistedRows.length = 0;
+    nextDeliveryTs = null;
   });
 
   test("stamps slackMeta with threadTs when the conversation has a Slack thread mapping", async () => {
@@ -215,6 +279,109 @@ describe("outbound assistant Slack metadata persistence", () => {
     // that try to use it before reconciliation get a clear null.
     expect(slackMeta.channelTs).toBeUndefined();
     expect(readSlackMetadata(slackMetaRaw as string)).toBeNull();
+  });
+
+  test("stamps assistant Slack rows with effective timestamp timezone and no speaker suffix", async () => {
+    currentConfig = {
+      ...structuredClone(baseConfig),
+      ui: { userTimezone: "America/Denver" },
+    };
+    state.turnStartedAt = Date.parse("2026-03-05T03:38:00Z");
+    const conversationId = "conv-slack-timezone";
+    const channelId = "C999TIMEZONE";
+
+    const deps = makeDeps(conversationId, {
+      assistantMessageChannel: "slack",
+      requesterChatId: channelId,
+      requesterTimezoneLabel: "ET",
+      clientTimezone: "America/Los_Angeles",
+    });
+    await handleMessageComplete(
+      state,
+      deps,
+      makeMessageCompleteEvent("timezone-aware reply"),
+    );
+
+    const persisted = lastAssistantPersisted();
+    const slackMetaRaw = persisted.metadata?.slackMeta;
+    expect(typeof slackMetaRaw).toBe("string");
+
+    const slackMeta = JSON.parse(slackMetaRaw as string) as Record<
+      string,
+      unknown
+    >;
+    expect(slackMeta.timestampTimezone).toBe("America/Denver");
+    expect(slackMeta.timestampTimezoneLabel).toBe("MT");
+    expect(slackMeta.speakerTimezoneLabel).toBeUndefined();
+  });
+
+  test("falls back to the turn client timezone when no configured user timezone is set", async () => {
+    const conversationId = "conv-slack-client-timezone";
+    const channelId = "C999CLIENTTZ";
+
+    const deps = makeDeps(conversationId, {
+      assistantMessageChannel: "slack",
+      requesterChatId: channelId,
+      clientTimezone: "America/Los_Angeles",
+    });
+    await handleMessageComplete(
+      state,
+      deps,
+      makeMessageCompleteEvent("client timezone reply"),
+    );
+
+    const persisted = lastAssistantPersisted();
+    const slackMeta = JSON.parse(
+      persisted.metadata?.slackMeta as string,
+    ) as Record<string, unknown>;
+    expect(slackMeta.timestampTimezone).toBe("America/Los_Angeles");
+    expect(slackMeta.timestampTimezoneLabel).toBe("PT");
+  });
+
+  test("post-send reconciliation preserves assistant Slack timezone metadata", async () => {
+    currentConfig = {
+      ...structuredClone(baseConfig),
+      ui: { userTimezone: "America/Denver" },
+    };
+    const conversationId = "conv-slack-reconcile-timezone";
+    const channelId = "C999RECONCILE";
+
+    const deps = makeDeps(conversationId, {
+      assistantMessageChannel: "slack",
+      requesterChatId: channelId,
+      requesterTimezoneLabel: "ET",
+    });
+    await handleMessageComplete(
+      state,
+      deps,
+      makeMessageCompleteEvent("delivery reconciliation reply"),
+    );
+
+    const persisted = lastAssistantPersisted();
+    const beforeRaw = persisted.metadata?.slackMeta;
+    expect(typeof beforeRaw).toBe("string");
+    expect(readSlackMetadata(beforeRaw as string)).toBeNull();
+
+    nextDeliveryTs = "1772678280.000200";
+    await deliverReplyViaCallback(
+      conversationId,
+      channelId,
+      "http://gateway/deliver/slack",
+      "assistant-1",
+      { messageId: persisted.id },
+    );
+
+    const row = persistedRows.find(
+      (candidate) => candidate.id === persisted.id,
+    );
+    expect(typeof row?.metadata).toBe("string");
+    const envelope = JSON.parse(row!.metadata!) as Record<string, unknown>;
+    const reconciled = readSlackMetadata(envelope.slackMeta as string);
+    expect(reconciled).not.toBeNull();
+    expect(reconciled!.channelTs).toBe("1772678280.000200");
+    expect(reconciled!.timestampTimezone).toBe("America/Denver");
+    expect(reconciled!.timestampTimezoneLabel).toBe("MT");
+    expect(reconciled!.speakerTimezoneLabel).toBeUndefined();
   });
 
   test("stamps slackMeta WITHOUT threadTs for top-level Slack replies", async () => {

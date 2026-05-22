@@ -11,7 +11,6 @@ export function reportError(
   error: unknown,
   opts: { context: string; userMessage?: string },
 ): void {
-  // eslint-disable-next-line no-console
   console.error(`[${opts.context}]`, error);
 
   if (opts.userMessage) {

@@ -365,6 +365,7 @@ export interface SkillProjectionContext {
 // ── Conditional tool sets ────────────────────────────────────────────
 
 const UI_SURFACE_TOOL_NAMES = new Set(["ui_show", "ui_update", "ui_dismiss"]);
+const SLACK_TASK_PROGRESS_UI_TOOL_NAMES = new Set(["ui_show", "ui_update"]);
 /**
  * Single source of truth for which tools are host tools and the capability
  * each one requires from the connected client interface. Adding a tool here
@@ -471,6 +472,12 @@ export function isToolActiveForContext(
     return false;
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
+    if (
+      ctx.channelCapabilities?.channel === "slack" &&
+      SLACK_TASK_PROGRESS_UI_TOOL_NAMES.has(name)
+    ) {
+      return !ctx.hasNoClient;
+    }
     return ctx.channelCapabilities?.supportsDynamicUi ?? !ctx.hasNoClient;
   }
   if (HOST_TOOL_NAMES.has(name)) {

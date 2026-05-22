@@ -1,10 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import {
-  invalidateConfigCache,
-  loadRawConfig,
-} from "../config/loader.js";
+import { invalidateConfigCache, loadRawConfig } from "../config/loader.js";
 import {
   classifySlash,
   resolveSlash,
@@ -42,6 +39,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     expect(lines).toEqual([
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
+      "/clean — Strip injected runtime context and reset memory injection state (no summarization)",
       "/context — Show conversation context usage",
       "/model — List or switch inference profile",
       "/models — List all available models",
@@ -58,6 +56,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     expect(lines).toEqual([
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
+      "/clean — Strip injected runtime context and reset memory injection state (no summarization)",
       "/context — Show conversation context usage",
       "/model — List or switch inference profile",
       "/models — List all available models",
@@ -74,6 +73,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     expect(lines).toEqual([
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
+      "/clean — Strip injected runtime context and reset memory injection state (no summarization)",
       "/context — Show conversation context usage",
       "/model — List or switch inference profile",
       "/models — List all available models",
@@ -87,6 +87,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     expect(lines).toEqual([
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
+      "/clean — Strip injected runtime context and reset memory injection state (no summarization)",
       "/context — Show conversation context usage",
       "/model — List or switch inference profile",
       "/models — List all available models",
@@ -99,6 +100,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     expect(lines).toEqual([
       "/commands — List all available commands",
       "/compact — Force context compaction immediately",
+      "/clean — Strip injected runtime context and reset memory injection state (no summarization)",
       "/model — List or switch inference profile",
       "/models — List all available models",
     ]);
@@ -187,13 +189,38 @@ describe("resolveSlash /compact target override", () => {
   });
 });
 
+describe("resolveSlash /clean", () => {
+  test("plain /clean resolves to kind=clean", async () => {
+    const result = await resolveSlash("/clean");
+    expect(result).toEqual({ kind: "clean" });
+  });
+
+  test("/clean tolerates surrounding whitespace", async () => {
+    const result = await resolveSlash("  /clean  ");
+    expect(result).toEqual({ kind: "clean" });
+  });
+
+  test("/clean is case-insensitive", async () => {
+    const result = await resolveSlash("/CLEAN");
+    expect(result).toEqual({ kind: "clean" });
+  });
+
+  test("/clean rejects arguments with usage hint", async () => {
+    const result = await resolveSlash("/clean now");
+    expect(result.kind).toBe("unknown");
+    if (result.kind !== "unknown") throw new Error("expected unknown");
+    expect(result.message).toContain("/clean");
+    expect(result.message).toContain("does not take arguments");
+  });
+});
+
 describe("classifySlash is a pure classifier matching resolveSlash kinds", () => {
   // Lookahead in `buildPassthroughBatch` must not run `resolveSlash`'s side
   // effects. The pure classifier is synchronous, takes no side-effecting
   // dependencies, and must agree with resolveSlash's `kind`.
   const cases: Array<{
     input: string;
-    kind: "passthrough" | "compact" | "unknown";
+    kind: "passthrough" | "compact" | "clean" | "unknown";
   }> = [
     { input: "/models", kind: "unknown" },
     { input: "/context", kind: "unknown" },
@@ -204,6 +231,9 @@ describe("classifySlash is a pure classifier matching resolveSlash kinds", () =>
     { input: "/compact 30k", kind: "compact" },
     { input: "/compact 1.5M", kind: "compact" },
     { input: "/compact bogus", kind: "unknown" },
+    { input: "/clean", kind: "clean" },
+    { input: "  /clean  ", kind: "clean" },
+    { input: "/clean foo", kind: "unknown" },
     { input: "/model", kind: "unknown" },
     { input: "/model foo", kind: "unknown" },
     { input: "/opus", kind: "unknown" },
@@ -318,9 +348,7 @@ describe("resolveSlash /model — inference profile switcher", () => {
     const result = await resolveSlash("/model balanced");
     expect(result.kind).toBe("unknown");
     if (result.kind !== "unknown") throw new Error("expected unknown kind");
-    expect(result.message).toBe(
-      "Already using profile `balanced` (Balanced).",
-    );
+    expect(result.message).toBe("Already using profile `balanced` (Balanced).");
   });
 
   test("`/model` with no profiles defined points at Settings", async () => {

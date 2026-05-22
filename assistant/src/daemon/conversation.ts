@@ -53,6 +53,7 @@ import {
   getConversation,
   getConversationOriginChannel,
   getConversationOverrideProfileFromRow,
+  setConversationCleanedAt,
 } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
@@ -104,6 +105,7 @@ import {
   type ChannelCapabilities,
   getSlackCompactionWatermarkForPrefix,
   loadSlackChronologicalContext,
+  stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import {
@@ -141,6 +143,13 @@ import type {
 import { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation");
+
+export interface CleanResult {
+  previousEstimatedInputTokens: number;
+  estimatedInputTokens: number;
+  maxInputTokens: number;
+  preservedMessages: number;
+}
 
 export { findLastUndoableUserMessageIndex } from "./conversation-history.js";
 export type {
@@ -1130,6 +1139,32 @@ export class Conversation {
       });
     }
     return result;
+  }
+
+  /**
+   * Strip stale runtime injections from the message history and reset the
+   * memory-injection ledger without summarizing any history. Mirrors the
+   * non-LLM side effects of `forceCompact`: the next turn re-injects fresh
+   * NOW.md / knowledge-base / memory-v2 static blocks, and per-turn memory
+   * activations are no longer deduped against the prior session.
+   */
+  async forceClean(): Promise<CleanResult> {
+    const previousEstimatedInputTokens =
+      this.contextWindowManager.estimateInputTokens(this.messages);
+    const stripped = stripInjectionsForCompaction(this.messages);
+    this.messages = stripped;
+    await this.graphMemory.onCompacted(0);
+    this.pendingPostCompactReinject = true;
+    setConversationCleanedAt(this.conversationId, Date.now());
+    const estimatedInputTokens = this.contextWindowManager.estimateInputTokens(
+      this.messages,
+    );
+    return {
+      previousEstimatedInputTokens,
+      estimatedInputTokens,
+      maxInputTokens: this.contextWindowManager.maxInputTokens,
+      preservedMessages: this.messages.length,
+    };
   }
 
   setChannelCapabilities(caps: ChannelCapabilities | null): void {

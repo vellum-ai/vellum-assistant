@@ -156,6 +156,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationTitle: mock(() => {}),
   updateConversationUsage: mock(() => {}),
   setLastNotifiedInferenceProfile: mock(() => {}),
+  setConversationCleanedAt: mock(() => {}),
   wipeConversation: mock(() => ({ memoryIds: [] })),
 }));
 

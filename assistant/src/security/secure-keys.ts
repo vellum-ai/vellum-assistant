@@ -113,6 +113,11 @@ const RECONNECT_COOLDOWN_MS = 3_000;
  */
 const CREDENTIAL_OP_TIMEOUT_MS = 45_000;
 
+/** Returns the current CES RPC client if one has been injected. */
+export function getCesClient(): CesClient | undefined {
+  return _cesClient;
+}
+
 /** Inject a CES RPC client for credential routing. Resets the resolved backend. */
 export function setCesClient(client: CesClient | undefined): void {
   _cesClient = client;

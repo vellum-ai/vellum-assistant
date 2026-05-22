@@ -2,9 +2,9 @@
  * Tests for the `assistant memory v2` CLI subgroup.
  *
  * Validates:
- *   - Subcommand registration (reembed, reembed-skills, activation, validate)
- *     under `memory v2`. The `memory` parent is created by the v2 registrar
- *     itself; v1 had its own subcommands but those were retired.
+ *   - Subcommand registration (reembed, reembed-skills, activation, validate,
+ *     ema, simulate) under `memory v2`. The `memory` parent is created by the
+ *     v2 registrar itself; v1 had its own subcommands but those were retired.
  *   - Each mutating subcommand maps to the right `memory_v2_backfill` op.
  *   - `validate` calls `memory_v2_validate` and pretty-prints the report.
  *   - `reembed-skills` calls `memory_v2_reembed_skills` synchronously.
@@ -143,8 +143,10 @@ describe("subcommand registration", () => {
     const subcommandNames = v2!.commands.map((c) => c.name()).sort();
     expect(subcommandNames).toEqual([
       "activation",
+      "ema",
       "reembed",
       "reembed-skills",
+      "simulate",
       "validate",
     ]);
   });
@@ -158,6 +160,7 @@ describe("subcommand registration", () => {
     expect(help).toContain("reembed-skills");
     expect(help).toContain("activation");
     expect(help).toContain("validate");
+    expect(help).toContain("simulate");
     // Removed subcommands must not surface in help.
     expect(help).not.toContain("migrate");
     expect(help).not.toContain("explain");
@@ -307,9 +310,7 @@ describe("memory v2 validate", () => {
     expect(logOutput.some((line) => line.includes("Pages: 49"))).toBe(true);
     expect(logOutput.some((line) => line.includes("Edges: 166"))).toBe(true);
     expect(
-      logOutput.some((line) =>
-        line.includes("Missing edge endpoints: none"),
-      ),
+      logOutput.some((line) => line.includes("Missing edge endpoints: none")),
     ).toBe(true);
     expect(
       logOutput.some((line) => line.includes("Oversized pages: none")),
@@ -325,9 +326,7 @@ describe("memory v2 validate", () => {
       result: {
         pageCount: 10,
         edgeCount: 20,
-        missingEdgeEndpoints: [
-          { from: "people/alice", to: "people/missing" },
-        ],
+        missingEdgeEndpoints: [{ from: "people/alice", to: "people/missing" }],
         oversizedPages: [{ slug: "arcs/big-day", chars: 12345 }],
         parseFailures: [
           { slug: "people/broken", error: "missing frontmatter" },
@@ -342,9 +341,7 @@ describe("memory v2 validate", () => {
       true,
     );
     expect(logOutput.some((line) => line.includes("arcs/big-day"))).toBe(true);
-    expect(logOutput.some((line) => line.includes("people/broken"))).toBe(
-      true,
-    );
+    expect(logOutput.some((line) => line.includes("people/broken"))).toBe(true);
   });
 
   test("exits with code 1 on IPC failure", async () => {

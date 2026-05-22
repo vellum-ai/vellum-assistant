@@ -23,6 +23,7 @@ import type { ConfirmationDecision } from "@/domains/chat/api/event-types.js";
  */
 export interface TranscriptRowProps {
   item: TranscriptItem;
+  assistantDisplayName?: string | null;
   expandedToolCallIds: Set<string>;
   expandedCardIds: Map<string, boolean>;
   onSurfaceAction: (
@@ -70,6 +71,7 @@ export interface TranscriptRowProps {
 
 export const TranscriptRow = memo(function TranscriptRow({
   item,
+  assistantDisplayName,
   expandedToolCallIds,
   expandedCardIds,
   onSurfaceAction,
@@ -98,6 +100,7 @@ export const TranscriptRow = memo(function TranscriptRow({
       return (
         <TranscriptMessageBody
           message={item.message}
+          assistantDisplayName={assistantDisplayName}
           expandedToolCallIds={expandedToolCallIds}
           expandedCardIds={expandedCardIds}
           onSurfaceAction={onSurfaceAction}

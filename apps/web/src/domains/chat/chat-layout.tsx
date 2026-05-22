@@ -20,6 +20,7 @@ import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge.js";
 import type { AssistantContextValue } from "@/components/layout/assistant-context.js";
 
 import { useConversationStore } from "@/domains/conversations/conversation-store.js";
+import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import {
   useConversationGroupsQuery,
   useConversationListQuery,
@@ -35,7 +36,6 @@ import { OfflineBanner } from "@/components/offline-banner.js";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
-import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import { ChatLayoutHeader } from "./chat-layout-header.js";
 
 /**
@@ -137,12 +137,11 @@ export function ChatLayout() {
     isAssistantActive && conversationGroupsUI,
   );
 
-  // Track processing/attention indicators for every conversation in the
-  // sidebar, on every chat-layout child route. Mounted here (not ChatPage)
-  // so the 10s polling loop and graduation logic stay live when the user is
-  // on home/library/contacts/identity. Pass lifecycle values directly —
-  // `useAssistantContext()` would crash here since this hook runs inside
-  // the layout that PROVIDES that context (no parent outlet to read from).
+  // Track processing/attention indicators for every conversation in
+  // the sidebar, on every chat-layout child route. Mounted at layout
+  // scope so the bus-driven `interaction_resolved` subscriber and the
+  // post-reconnect reconcile sweep stay live across home, library,
+  // contacts, identity, and chat — not only inside `/assistant`.
   useAttentionTracking({
     assistantId: lifecycle.assistantId,
     assistantStateKind: lifecycle.assistantState.kind,
@@ -152,7 +151,7 @@ export function ChatLayout() {
   // create/rename/delete affordances are rendered here, not in ChatPage.
   // The hook is self-sufficient (cache invalidation handles rollback), so
   // it can live wherever the sidebar lives.
-  const { handleCreateGroup, handleRenameGroup, handleDeleteGroup } =
+  const { handleRenameGroup, handleDeleteGroup } =
     useConversationGroupActions({
       assistantId: lifecycle.assistantId,
       conversationGroups,
@@ -445,7 +444,6 @@ export function ChatLayout() {
         onOpenIntelligence={handleOpenIdentity}
         isLibraryActive={isLibraryActive}
         onOpenLibrary={handleOpenLibrary}
-        onCreateGroup={handleCreateGroup}
         onRenameGroup={handleRenameGroup}
         onDeleteGroup={handleDeleteGroup}
         footerBanner={footerBanner}
@@ -471,7 +469,6 @@ export function ChatLayout() {
       attentionKeys,
       handleSelectConversation,
       handleStartNewConversation,
-      handleCreateGroup,
       handleRenameGroup,
       handleDeleteGroup,
       isIdentityActive,
@@ -491,7 +488,6 @@ export function ChatLayout() {
         toggleSidebar={toggleSidebar}
         topBarCenter={topBarCenter}
         topBarRightSlot={topBarRightSlot}
-        onStartNewConversation={handleStartNewConversation}
         canGoBack={canGoBack}
         canGoForward={canGoForward}
         onGoBack={handleGoBack}

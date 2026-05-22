@@ -236,13 +236,29 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
 });
 
 describe("maybeEnqueueGraphMaintenanceJobs — buffer-size trigger", () => {
-  test("default null leaves size trigger disabled", () => {
+  test("default threshold (100 lines) fires once the buffer reaches it", () => {
     const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
 
     const now = Date.now();
     // Recent checkpoint so the time-based trigger does not fire.
     setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - 60_000));
     writeBuffer(100);
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("explicit null disables the size trigger", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: null,
+    });
+
+    const now = Date.now();
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - 60_000));
+    writeBuffer(500);
 
     maybeEnqueueGraphMaintenanceJobs(config, now);
 

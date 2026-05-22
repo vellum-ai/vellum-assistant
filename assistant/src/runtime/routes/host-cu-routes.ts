@@ -107,12 +107,12 @@ function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
 
   const conversation = findConversation(peeked.conversationId);
   if (!conversation) {
-    pendingInteractions.resolve(requestId);
+    pendingInteractions.resolve(requestId, "cancelled");
     throw new NotFoundError("Conversation not found for host CU result");
   }
 
   if (!conversation.hostCuProxy) {
-    pendingInteractions.resolve(requestId);
+    pendingInteractions.resolve(requestId, "cancelled");
     throw new NotFoundError("No host CU proxy for conversation");
   }
 

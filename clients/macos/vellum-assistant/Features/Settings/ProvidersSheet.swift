@@ -14,6 +14,7 @@ struct ProvidersSheet: View {
     @ObservedObject var store: SettingsStore
     @Binding var isPresented: Bool
     var client: ProviderConnectionClientProtocol
+    var assistantFeatureFlagStore: AssistantFeatureFlagStore?
 
     @State private var connections: [ProviderConnection] = []
     @State private var editorState: EditorState?
@@ -47,6 +48,29 @@ struct ProvidersSheet: View {
     /// sequence can't produce out-of-order responses that clobber the user's
     /// final intent.
     @State private var inFlightStatusToggles: Set<String> = []
+
+    // -- ChatGPT Subscription OAuth state -----------------------------------
+
+    enum ChatgptOAuthState {
+        case idle, starting, pasteUrl, exchanging, completed, failed
+    }
+
+    @State private var chatgptOAuthState: ChatgptOAuthState = .idle
+    @State private var chatgptPastedUrl = ""
+    @State private var chatgptOAuthError: String?
+    @State private var chatgptOAuthStoredState = ""
+
+    /// True when the ChatGPT subscription OAuth section should be visible:
+    /// feature flag enabled, provider is "openai", and we're in create mode.
+    private var isChatgptSubscriptionVisible: Bool {
+        guard let flagStore = assistantFeatureFlagStore,
+              flagStore.isEnabled("chatgpt-subscription-auth"),
+              editorDraft.provider == "openai",
+              case .create = editorState else {
+            return false
+        }
+        return true
+    }
 
     // MARK: - Nested Types
 
@@ -99,11 +123,13 @@ struct ProvidersSheet: View {
     init(
         store: SettingsStore,
         isPresented: Binding<Bool>,
-        client: ProviderConnectionClientProtocol = ProviderConnectionClient()
+        client: ProviderConnectionClientProtocol = ProviderConnectionClient(),
+        assistantFeatureFlagStore: AssistantFeatureFlagStore? = nil
     ) {
         self.store = store
         self._isPresented = isPresented
         self.client = client
+        self.assistantFeatureFlagStore = assistantFeatureFlagStore
     }
 
     // MARK: - Body
@@ -138,6 +164,11 @@ struct ProvidersSheet: View {
                 newCredentialName = ""
                 loadMaskedTask?.cancel()
                 loadMaskedTask = nil
+                // Reset ChatGPT OAuth state
+                chatgptOAuthState = .idle
+                chatgptPastedUrl = ""
+                chatgptOAuthError = nil
+                chatgptOAuthStoredState = ""
             }
         }
         .animation(VAnimation.fast, value: editorState != nil)
@@ -366,10 +397,15 @@ struct ProvidersSheet: View {
                             editorPlatformNote
                         } else if editorDraft.authType == "none" {
                             editorNoneNote
+                        } else if editorDraft.authType == "oauth_subscription" {
+                            editorOAuthSubscriptionNote
                         }
                     }
                     .disabled(isAuthLocked)
                     editorStatusToggle
+                    if isChatgptSubscriptionVisible {
+                        chatgptSubscriptionSection
+                    }
                     if let actionError {
                         Text(actionError)
                             .font(VFont.bodySmallDefault)
@@ -759,6 +795,19 @@ struct ProvidersSheet: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 
+    private var editorOAuthSubscriptionNote: some View {
+        HStack(spacing: VSpacing.sm) {
+            VIconView(.info, size: 16)
+                .foregroundStyle(VColor.contentSecondary)
+            Text("Authenticated via ChatGPT subscription OAuth.")
+                .font(VFont.bodySmallDefault)
+                .foregroundStyle(VColor.contentSecondary)
+        }
+        .padding(VSpacing.md)
+        .background(VColor.surfaceBase)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+    }
+
     private var editorFooter: some View {
         HStack {
             Spacer()
@@ -794,6 +843,172 @@ struct ProvidersSheet: View {
         case .create: return "Create"
         case .edit, .managedEdit, .none: return "Save"
         }
+    }
+
+    // MARK: - ChatGPT Subscription OAuth
+
+    /// Bordered section for the ChatGPT subscription copy-paste PKCE flow.
+    /// Visible when `isChatgptSubscriptionVisible` is true (feature flag +
+    /// provider=openai + create mode). Mirrors the web UI's bordered section
+    /// in `provider-editor-modal.tsx`.
+    @ViewBuilder
+    private var chatgptSubscriptionSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("ChatGPT Subscription")
+                .font(VFont.bodyMediumEmphasised)
+                .foregroundStyle(VColor.contentDefault)
+            Text("Connect your ChatGPT subscription to use OpenAI models without an API key.")
+                .font(VFont.bodySmallDefault)
+                .foregroundStyle(VColor.contentTertiary)
+
+            switch chatgptOAuthState {
+            case .idle:
+                VButton(label: "Sign in with ChatGPT", style: .outlined, size: .compact) {
+                    Task { await handleChatgptSignIn() }
+                }
+
+            case .starting:
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Starting sign-in...")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+                .frame(height: 32)
+
+            case .pasteUrl:
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("1. Sign in with ChatGPT in the browser")
+                            .font(VFont.bodySmallDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                        Text("2. After sign-in, you'll see an error page")
+                            .font(VFont.bodySmallDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                        Text("3. Copy the URL from the address bar and paste it below")
+                            .font(VFont.bodySmallDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                    }
+                    VTextField(
+                        placeholder: "Paste callback URL here...",
+                        text: Binding(
+                            get: { chatgptPastedUrl },
+                            set: { newValue in
+                                chatgptPastedUrl = newValue
+                                chatgptOAuthError = nil
+                            }
+                        )
+                    )
+                    HStack {
+                        Spacer()
+                        VButton(
+                            label: "Complete Sign In",
+                            style: .primary,
+                            size: .compact,
+                            isDisabled: chatgptPastedUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ) {
+                            Task { await handleChatgptUrlSubmit() }
+                        }
+                    }
+                }
+
+            case .exchanging:
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Completing sign-in...")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+                .frame(height: 32)
+
+            case .completed:
+                Text("ChatGPT subscription connected successfully.")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.systemPositiveStrong)
+
+            case .failed:
+                VButton(label: "Try Again", style: .outlined, size: .compact) {
+                    chatgptOAuthState = .idle
+                    chatgptPastedUrl = ""
+                    chatgptOAuthError = nil
+                }
+            }
+
+            if let chatgptOAuthError {
+                Text(chatgptOAuthError)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.systemNegativeStrong)
+            }
+        }
+        .padding(VSpacing.md)
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
+    }
+
+    /// Start the ChatGPT subscription OAuth flow: call the daemon, open the
+    /// authorize URL in the default browser, and transition to the paste-URL
+    /// state.
+    private func handleChatgptSignIn() async {
+        chatgptOAuthState = .starting
+        chatgptOAuthError = nil
+        guard let result = await client.startChatgptSubscriptionAuth() else {
+            chatgptOAuthState = .failed
+            chatgptOAuthError = "Failed to start ChatGPT sign-in. Please try again."
+            return
+        }
+        chatgptOAuthStoredState = result.state
+        if let url = URL(string: result.authorizeUrl) {
+            NSWorkspace.shared.open(url)
+        }
+        chatgptOAuthState = .pasteUrl
+    }
+
+    /// Extract `code` and `state` from the pasted callback URL and exchange
+    /// them for tokens via the daemon. On success, find the newly-created
+    /// connection and dismiss the editor.
+    private func handleChatgptUrlSubmit() async {
+        chatgptOAuthError = nil
+        let trimmed = chatgptPastedUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            chatgptOAuthError = "Please paste the URL from the error page."
+            return
+        }
+        guard let components = URLComponents(string: trimmed) else {
+            chatgptOAuthError = "Invalid URL. Please paste the full URL from the address bar."
+            return
+        }
+        guard let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
+            chatgptOAuthError = "The URL is missing the authorization code. Make sure you copied the full URL."
+            return
+        }
+        guard let state = components.queryItems?.first(where: { $0.name == "state" })?.value else {
+            chatgptOAuthError = "The URL is missing the state parameter. Make sure you copied the full URL."
+            return
+        }
+
+        chatgptOAuthState = .exchanging
+        let success = await client.exchangeChatgptAuthCode(code: code, state: state)
+        guard success else {
+            chatgptOAuthState = .failed
+            chatgptOAuthError = "Failed to complete sign-in. Please try again."
+            return
+        }
+
+        chatgptOAuthState = .completed
+
+        // Fetch the newly-created connection and dismiss the editor.
+        if let conns = await client.listProviderConnections(provider: "openai") {
+            let chatgptConn = conns.first { $0.name == "chatgpt-subscription" || $0.name == "openai-chatgpt" }
+            if let conn = chatgptConn {
+                connections.append(conn)
+            }
+        }
+        await refresh()
+        editorState = nil
     }
 
     // MARK: - Editor Validation
@@ -1104,7 +1319,7 @@ struct ProvidersSheet: View {
 
         let auth = ProviderConnectionAuth(
             type: draft.authType,
-            credential: draft.authType == "api_key" ? credentialRef : nil
+            credential: (draft.authType == "api_key" || draft.authType == "oauth_subscription") ? credentialRef : nil
         )
         let label: String? = draft.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draft.label.trimmingCharacters(in: .whitespacesAndNewlines)
         let status = draft.status

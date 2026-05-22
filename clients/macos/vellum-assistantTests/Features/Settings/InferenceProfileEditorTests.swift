@@ -80,7 +80,27 @@ final class InferenceProfileEditorTests: XCTestCase {
     }
 
     private static func editorProviderCatalog() -> [ProviderCatalogEntry] {
-        SettingsTestFixture.anthropicAndOpenAICatalog() + [
+        [
+            ProviderCatalogEntry(
+                id: "anthropic",
+                displayName: "Anthropic",
+                models: [
+                    CatalogModel(id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6"),
+                    CatalogModel(id: "claude-opus-4-7", displayName: "Claude Opus 4.7"),
+                ],
+                defaultModel: "claude-sonnet-4-6"
+            ),
+            ProviderCatalogEntry(
+                id: "openai",
+                displayName: "OpenAI",
+                models: [
+                    CatalogModel(id: "gpt-5", displayName: "GPT-5"),
+                    CatalogModel(id: "gpt-5.4", displayName: "GPT-5.4"),
+                    CatalogModel(id: "gpt-5.3-codex", displayName: "GPT-5.3 Codex"),
+                    CatalogModel(id: "gpt-5.5", displayName: "GPT-5.5"),
+                ],
+                defaultModel: "gpt-5"
+            ),
             ProviderCatalogEntry(
                 id: "gemini",
                 displayName: "Google Gemini",
@@ -1256,6 +1276,76 @@ final class InferenceProfileEditorTests: XCTestCase {
             onCancel: {}
         )
         XCTAssertTrue(editor.availableProviderIds.isEmpty)
+    }
+
+    // MARK: - ChatGPT subscription model filter (parity with web CODEX_SUBSCRIPTION_MODEL_IDS)
+
+    /// The constant set must contain exactly the Codex-supported model IDs.
+    /// If the daemon adds or removes subscription-eligible models, this test
+    /// will catch the drift.
+    func testCodexSubscriptionModelIdsMatchesExpectedSet() {
+        XCTAssertEqual(
+            InferenceProfileEditor.codexSubscriptionModelIds,
+            Set(["gpt-5.4", "gpt-5.3-codex"])
+        )
+    }
+
+    /// When the effective connection uses `oauth_subscription` auth, the
+    /// editor body must still build successfully — the filtered model list
+    /// is shorter than the full catalog but the view tree stays valid.
+    func testEditorBodyBuildsWithOAuthSubscriptionConnection() {
+        let connections = [
+            Self.makeConnection(
+                name: "chatgpt-sub",
+                provider: "openai",
+                authType: "oauth_subscription",
+                status: .active,
+                label: "ChatGPT Subscription"
+            ),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "chatgpt",
+                provider: "openai",
+                providerConnection: "chatgpt-sub",
+                model: "gpt-5.4"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertNotNil(editor.body)
+        XCTAssertTrue(editor.canSave)
+    }
+
+    /// When the effective connection uses a standard `api_key` auth, all
+    /// catalog models for the provider remain visible — no filtering.
+    func testEditorDoesNotFilterModelsForApiKeyConnection() {
+        let connections = [
+            Self.makeConnection(
+                name: "openai-key",
+                provider: "openai",
+                authType: "api_key",
+                status: .active
+            ),
+        ]
+        let editor = InferenceProfileEditor(
+            store: store,
+            profile: .constant(InferenceProfile(
+                name: "full",
+                provider: "openai",
+                providerConnection: "openai-key",
+                model: "gpt-5"
+            )),
+            connections: connections,
+            onSave: {},
+            onCancel: {}
+        )
+        XCTAssertNotNil(editor.body)
+        // gpt-5 is not in the codex subscription set but is in the full
+        // catalog, so it's valid for an api_key connection.
+        XCTAssertTrue(editor.canSave)
     }
 
     /// Test helper mirroring `ProvidersSheetTests.makeConnection` so the

@@ -35,6 +35,7 @@ export type RefreshOutcome =
 
 export interface TranscriptProps {
   items: TranscriptItem[];
+  assistantDisplayName?: string | null;
   onSecretSubmit: (requestId: string, value: string) => void;
   onConfirmationDecision: (requestId: string, decision: string) => void;
   onSurfaceAction: (
@@ -116,6 +117,13 @@ export interface TranscriptProps {
    *  gated). When `false`, no spinner element renders and no touch
    *  listeners attach. */
   pullRefreshEnabled?: boolean;
+  /** Scroll coordinator state snapshot for debug API inspection. Optional —
+   *  when omitted, getScrollState() returns a default "not pinned" state. */
+  scrollCoordinatorState?: {
+    isPinnedToLatest: boolean;
+    showScrollToLatest: boolean;
+    shouldLoadOlder: boolean;
+  };
 }
 
 export interface TranscriptHandle {
@@ -127,6 +135,14 @@ export interface TranscriptHandle {
    *  late image loads, streaming growth). */
   getContentElement(): HTMLDivElement | null;
   getViewportHeight(): number;
+  /** Debug API: snapshot of the current scroll state (distance from bottom,
+   *  pinned-to-latest flag, button visibility, older-page load flag). */
+  getScrollState(): {
+    distanceFromBottom: number;
+    isPinned: boolean;
+    showScrollToLatest: boolean;
+    shouldLoadOlder: boolean;
+  };
 }
 
 export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
@@ -204,8 +220,29 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
         getViewportHeight() {
           return scrollRef.current?.clientHeight ?? 0;
         },
+        getScrollState() {
+          const el = scrollRef.current;
+          if (!el) {
+            return {
+              distanceFromBottom: 0,
+              isPinned: true,
+              showScrollToLatest: false,
+              shouldLoadOlder: false,
+            };
+          }
+          const distanceFromBottom = Math.max(
+            0,
+            el.scrollHeight - el.clientHeight - el.scrollTop,
+          );
+          return {
+            distanceFromBottom,
+            isPinned: rest.scrollCoordinatorState?.isPinnedToLatest ?? true,
+            showScrollToLatest: rest.scrollCoordinatorState?.showScrollToLatest ?? false,
+            shouldLoadOlder: rest.scrollCoordinatorState?.shouldLoadOlder ?? false,
+          };
+        },
       }),
-      [],
+      [rest.scrollCoordinatorState],
     );
 
     const rowProps = {
@@ -221,6 +258,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       renderPendingConfirmation: rest.renderPendingConfirmation,
       renderPendingContactRequest: rest.renderPendingContactRequest,
       renderOnboardingChoice: rest.renderOnboardingChoice,
+      assistantDisplayName: rest.assistantDisplayName,
       onOpenRuleEditor: rest.onOpenRuleEditor,
       unknownNudgeToolCallIds: rest.unknownNudgeToolCallIds,
       onDismissUnknownNudge: rest.onDismissUnknownNudge,
