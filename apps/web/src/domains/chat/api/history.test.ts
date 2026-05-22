@@ -59,7 +59,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("fetchLatestHistoryPage URL construction", () => {
-  test("builds the correct URL with conversationKey, page=latest, and limit", async () => {
+  test("builds the correct URL with conversationId, page=latest, and limit", async () => {
     nextResponse = makeJsonResponse({
       messages: [],
       hasMore: false,
@@ -72,7 +72,8 @@ describe("fetchLatestHistoryPage URL construction", () => {
     expect(captured).toHaveLength(1);
     const url = new URL(captured[0]!.url, "http://localhost");
     expect(url.pathname).toBe("/v1/assistants/asst-1/messages/");
-    expect(url.searchParams.get("conversationKey")).toBe("K");
+    expect(url.searchParams.get("conversationId")).toBe("K");
+    expect(url.searchParams.get("conversationKey")).toBeNull();
     expect(url.searchParams.get("page")).toBe("latest");
     expect(url.searchParams.get("limit")).toBe("50");
   });
@@ -93,7 +94,7 @@ describe("fetchLatestHistoryPage URL construction", () => {
 });
 
 describe("fetchOlderHistoryPage URL construction", () => {
-  test("builds the correct URL with conversationKey, beforeTimestamp, and limit", async () => {
+  test("builds the correct URL with conversationId, beforeTimestamp, and limit", async () => {
     nextResponse = makeJsonResponse({
       messages: [],
       hasMore: false,
@@ -106,7 +107,8 @@ describe("fetchOlderHistoryPage URL construction", () => {
     expect(captured).toHaveLength(1);
     const url = new URL(captured[0]!.url, "http://localhost");
     expect(url.pathname).toBe("/v1/assistants/asst-1/messages/");
-    expect(url.searchParams.get("conversationKey")).toBe("K");
+    expect(url.searchParams.get("conversationId")).toBe("K");
+    expect(url.searchParams.get("conversationKey")).toBeNull();
     expect(url.searchParams.get("beforeTimestamp")).toBe("1700000000000");
     expect(url.searchParams.get("limit")).toBe("50");
     expect(url.searchParams.get("page")).toBeNull();

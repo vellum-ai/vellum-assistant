@@ -21,7 +21,7 @@ const EMPTY: SuggestionResult = {
 
 export async function fetchSuggestion(
   assistantId: string,
-  conversationKey: string,
+  conversationId: string,
   messageId?: string,
   signal?: AbortSignal,
 ): Promise<SuggestionResult> {
@@ -31,8 +31,7 @@ export async function fetchSuggestion(
       url: "/v1/assistants/{assistant_id}/suggestion",
       path: { assistant_id: assistantId },
       query: {
-        conversationId: conversationKey,
-        conversationKey,
+        conversationId,
         ...(messageId ? { messageId } : {}),
       },
       throwOnError: false,
