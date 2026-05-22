@@ -627,10 +627,13 @@ async function main(): Promise<void> {
     },
   });
 
-  await server.serve();
+  const endReason = await server.serve();
 
   rpcConnected = false;
-  log.info("RPC session ended. Shutting down...");
+  log.warn(
+    { reason: endReason, uptime: process.uptime(), pid: process.pid },
+    "RPC session ended — shutting down",
+  );
   controller.abort();
 }
 
