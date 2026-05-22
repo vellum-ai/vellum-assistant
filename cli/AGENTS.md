@@ -16,7 +16,17 @@ Examples: `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong here. `config`,
 
 ## Assistant targeting convention
 
-Commands that act on a specific assistant should accept an assistant name or ID as an argument. When none is specified, default to the most recently created local assistant. Use `loadAllAssistants()` and `findAssistantByName()` from `lib/assistant-config` for resolution.
+New or modified commands that act on a specific assistant should accept an assistant display name or ID as an argument. Exact assistant ID matches must win over display-name matches. Unique display-name matches may resolve to the matching assistant ID, but ambiguous display names must fail with an error that lists the matching IDs.
+
+Use the shared helpers from `lib/assistant-config` instead of hand-rolled lookup:
+
+- `lookupAssistantByIdentifier()` for commands that require an explicit target and need custom error handling.
+- `resolveTargetAssistant()` for commands that may fall back to the active assistant or sole lockfile entry.
+- `formatAssistantReference()` for user-facing output that should include both display name and ID when they differ.
+
+Use `parseAssistantTargetArg()` from `lib/assistant-target-args` when parsing command arguments that may contain an unquoted multi-word display name. Do not store raw display names in `activeAssistant`; persist the resolved `assistantId`.
+
+New or modified destructive lifecycle commands must be explicit and safe. A command that deletes, retires, archives, or removes assistant state must print the resolved assistant identity before acting and require an interactive confirmation, with a documented `--yes` bypass only for automation or higher-level clients that already own confirmation. Do not expose destructive lifecycle actions as `vellum client` slash commands.
 
 ## Conventions
 
