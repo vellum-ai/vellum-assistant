@@ -53,18 +53,11 @@ export function useAssistantSyncStream(
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleConversationListRefetch = () => {
-      if (hasDraftSendInFlight()) {
-        console.log("[DRAFT-DEBUG] sync-stream refetch SKIPPED (draft in flight)");
-        return;
-      }
+      if (hasDraftSendInFlight()) return;
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         debounceTimer = null;
-        if (hasDraftSendInFlight()) {
-          console.log("[DRAFT-DEBUG] sync-stream debounced refetch SKIPPED (draft in flight)");
-          return;
-        }
-        console.log("[DRAFT-DEBUG] sync-stream refetch EXECUTING");
+        if (hasDraftSendInFlight()) return;
         void queryClient.invalidateQueries({
           queryKey: chatContextQueryKey(assistantId),
         });

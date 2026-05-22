@@ -114,10 +114,6 @@ export const useConversationStore = createSelectors(
     // --- Active / editing key ---
 
     setActiveKey: (key) => {
-      const prev = get().activeConversationKey;
-      if (prev !== key) {
-        console.log(`[DRAFT-DEBUG] setActiveKey: ${prev?.slice(0, 8)}… → ${key?.slice(0, 8)}…`, new Error().stack?.split("\n").slice(1, 4).join(" | "));
-      }
       set({ activeConversationKey: key });
     },
 

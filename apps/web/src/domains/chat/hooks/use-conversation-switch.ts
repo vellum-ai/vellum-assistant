@@ -117,12 +117,9 @@ export function useConversationSwitch({
 
     // Draft-key resolution (draft→server ID) is not a real switch.
     if (draftKeyResolutionRef.current) {
-      console.log(`[DRAFT-DEBUG] useConversationSwitch BYPASS (draft resolution) key=${activeConversationKey.slice(0, 8)}…`);
       draftKeyResolutionRef.current = false;
       return;
     }
-
-    console.log(`[DRAFT-DEBUG] useConversationSwitch RESET key=${activeConversationKey.slice(0, 8)}… prev=${previousConversationKeyRef.current?.slice(0, 8) ?? "null"}`, new Error().stack?.split("\n").slice(1, 4).join(" | "));
 
     // Track outgoing conversation's attention state.
     const outgoingKey = previousConversationKeyRef.current;

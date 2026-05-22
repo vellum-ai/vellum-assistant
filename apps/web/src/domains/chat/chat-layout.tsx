@@ -441,11 +441,7 @@ export function ChatLayout() {
 
   const refreshConversations = useCallback(async () => {
     if (!lifecycle.assistantId) return;
-    if (hasDraftSendInFlight()) {
-      console.log("[DRAFT-DEBUG] ChatLayout refreshConversations SKIPPED (draft in flight)");
-      return;
-    }
-    console.log("[DRAFT-DEBUG] ChatLayout refreshConversations EXECUTING");
+    if (hasDraftSendInFlight()) return;
     try {
       await queryClient.invalidateQueries({
         queryKey: chatContextQueryKey(lifecycle.assistantId),

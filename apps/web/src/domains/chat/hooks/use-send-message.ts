@@ -546,10 +546,7 @@ export function useSendMessage({
       needsNewBubbleRef.current = true;
 
       const isDraft = !currentConv;
-      if (isDraft) {
-        markDraftSendStart();
-        console.log(`[DRAFT-DEBUG] markDraftSendStart key=${activeConversationKey.slice(0, 8)}…`);
-      }
+      if (isDraft) markDraftSendStart();
       let resolvedId: string | undefined;
 
       try {
@@ -559,8 +556,6 @@ export function useSendMessage({
           turnId,
           attachments.map((att) => att.id),
         );
-
-        console.log(`[DRAFT-DEBUG] sendMessageViaStream returned resolvedId=${resolvedId?.slice(0, 8) ?? "null"} isDraft=${isDraft} activeKey=${activeConversationKeyRef.current?.slice(0, 8) ?? "null"}`);
 
         // Resolve draft key -> server-assigned conversation ID.
         if (resolvedId && resolvedId !== activeConversationKey) {
@@ -575,24 +570,15 @@ export function useSendMessage({
           if (activeConversationKeyRef.current === activeConversationKey) {
             draftKeyResolutionRef.current = true;
             previousConversationKeyRef.current = newKey;
-            console.log(`[DRAFT-DEBUG] draft key resolution: ${activeConversationKey.slice(0, 8)}… → ${newKey.slice(0, 8)}… draftKeyResolutionRef=true`);
             useConversationStore.getState().setActiveKey(newKey);
             void navigate(routes.conversation(newKey), { replace: true });
-          } else {
-            console.log(`[DRAFT-DEBUG] draft key resolution SKIPPED (user navigated away) current=${activeConversationKeyRef.current?.slice(0, 8) ?? "null"}`);
           }
         }
 
-        if (isDraft) {
-          markDraftSendEnd();
-          console.log("[DRAFT-DEBUG] markDraftSendEnd (success)");
-        }
+        if (isDraft) markDraftSendEnd();
         void refreshConversations();
       } catch (err) {
-        if (isDraft) {
-          markDraftSendEnd();
-          console.log("[DRAFT-DEBUG] markDraftSendEnd (error)");
-        }
+        if (isDraft) markDraftSendEnd();
         Sentry.captureException(err, {
           tags: { context: "send_chat_message" },
         });

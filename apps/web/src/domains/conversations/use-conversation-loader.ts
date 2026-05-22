@@ -191,11 +191,7 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const refreshConversations = useCallback(async () => {
     if (!assistantId) return;
-    if (hasDraftSendInFlight()) {
-      console.log("[DRAFT-DEBUG] refreshConversations SKIPPED (draft in flight)");
-      return;
-    }
-    console.log("[DRAFT-DEBUG] refreshConversations EXECUTING", new Error().stack?.split("\n").slice(1, 3).join(" | "));
+    if (hasDraftSendInFlight()) return;
     try {
       await queryClient.invalidateQueries({
         queryKey: chatContextQueryKey(assistantId),
