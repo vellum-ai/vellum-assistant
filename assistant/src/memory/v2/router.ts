@@ -21,9 +21,11 @@
  *      since NOW.md only changes when the model rewrites it. We set the 1h
  *      TTL explicitly here to match the provider-side breakpoints; the
  *      default 5m would force unnecessary cache re-creation.
- * The Anthropic provider also auto-applies a 1h breakpoint on the last text
- * block of a turn-starting user message, so the trailing uncached block does
- * not need an explicit `cache_control`.
+ * The trailing user-message block holds `<last_turn>` content that changes
+ * every call (new user turn + new prior assistant reply), so we pass
+ * `disableTurnStartCache: true` to the provider to suppress its auto-applied
+ * 1h breakpoint there — caching it would create unused cache entries (pure
+ * cache_creation cost with no future hit).
  *
  * This module is pure orchestration — it does not mutate activation state,
  * write any files, or update the conversation. PR 10 wires it into
@@ -390,6 +392,17 @@ async function runRouterBatch(
     if (local) priorIds.push(local.id);
   }
 
+  // Render `<last_turn>` chronologically: the prior assistant reply came
+  // first, then the just-arrived user message that triggered this call.
+  // On conversation start `assistantMessage` is the empty string — skip the
+  // assistant line in that case so we don't emit a dangling `[assistant]:`.
+  const lastTurnLines: string[] = [];
+  if (assistantMessage.trim().length > 0) {
+    lastTurnLines.push(`[assistant]: ${assistantMessage}`);
+  }
+  lastTurnLines.push(`[user]: ${userMessage}`);
+  const lastTurnBlock = `<last_turn>\n${lastTurnLines.join("\n")}\n</last_turn>`;
+
   const userMsg: Message = {
     role: "user",
     content: [
@@ -398,7 +411,7 @@ async function runRouterBatch(
         type: "text",
         text:
           `<already_injected_ids>\n${priorIds.join(", ")}\n</already_injected_ids>\n\n` +
-          `<last_turn>\n[user]: ${userMessage}\n[assistant]: ${assistantMessage}\n</last_turn>`,
+          lastTurnBlock,
       },
     ],
   };
@@ -416,6 +429,7 @@ async function runRouterBatch(
         config: {
           callSite: "memoryRouter" as const,
           tool_choice: { type: "tool" as const, name: ROUTER_TOOL_NAME },
+          disableTurnStartCache: true,
         },
         ...(signal ? { signal } : {}),
       },
