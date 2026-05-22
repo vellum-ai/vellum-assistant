@@ -160,6 +160,9 @@ export function useEventStream({
   const reachabilityResetRef = useRef(reachabilityReset);
   reachabilityResetRef.current = reachabilityReset;
 
+  const reachabilityPhaseRef = useRef(reachabilityPhase);
+  reachabilityPhaseRef.current = reachabilityPhase;
+
   // Track the latest active conversation key in a ref updated during
   // render. The bus subscriber filters against this ref instead of the
   // closure-captured value so an `assistant_text_delta` published in
@@ -413,7 +416,33 @@ export function useEventStream({
   ]);
 
   // --------------------------------------------------------------------------
-  // Effect 4: Schedule a post-resume reconcile.
+  // Effect 4: Upgrade hidden background checks once a turn becomes active.
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    if (
+      assistantStateKind !== "active" ||
+      !assistantId ||
+      !activeConversationKey
+    ) {
+      return;
+    }
+
+    let wasSending = isSending(useTurnStore.getState());
+    return useTurnStore.subscribe((state) => {
+      const nowSending = isSending(state);
+      if (
+        !wasSending &&
+        nowSending &&
+        reachabilityPhaseRef.current === "checking"
+      ) {
+        reachabilityProbeRef.current({ showConnectingImmediately: true });
+      }
+      wasSending = nowSending;
+    });
+  }, [assistantStateKind, assistantId, activeConversationKey]);
+
+  // --------------------------------------------------------------------------
+  // Effect 5: Schedule a post-resume reconcile.
   //
   // The bus tears down + reopens its SSE around app.resume; we listen
   // here so the next `sse.opened` runs the reconcile pass for the
@@ -440,7 +469,7 @@ export function useEventStream({
   ]);
 
   // --------------------------------------------------------------------------
-  // Effect 5: Reachability retry — request a bus-level SSE bounce
+  // Effect 6: Reachability retry — request a bus-level SSE bounce
   // when the reachability probe flips back to "ready" or a background
   // probe exhausts its window and needs the bus to keep retrying.
   // --------------------------------------------------------------------------
@@ -478,7 +507,7 @@ export function useEventStream({
   }, [reachabilityPhase, reconcileAfterNextStreamOpenRef]);
 
   // --------------------------------------------------------------------------
-  // Effect 6: Unmount cleanup.
+  // Effect 7: Unmount cleanup.
   // --------------------------------------------------------------------------
   useEffect(() => {
     return () => {
