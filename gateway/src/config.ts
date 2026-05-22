@@ -81,8 +81,22 @@ function parsePositiveInteger(
   value: unknown,
   name: string,
 ): number | undefined {
-  if (value === undefined || value === null || value === "") return undefined;
-  const parsed = typeof value === "number" ? value : Number(value);
+  if (value === undefined || value === null) return undefined;
+
+  let parsed: number;
+  if (typeof value === "number") {
+    parsed = value;
+  } else if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "") return undefined;
+    if (!/^\d+$/.test(trimmed)) {
+      throw new Error(`${name} must be a positive integer`);
+    }
+    parsed = Number(trimmed);
+  } else {
+    throw new Error(`${name} must be a positive integer`);
+  }
+
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive integer`);
   }
