@@ -1,10 +1,12 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { testWorkspaceDir } from "./test-preload.js";
-
-const flagDir = join(testWorkspaceDir, "flags");
+// Each test gets a fresh, uniquely-named flag directory. Reusing one path
+// across tests (rm + recreate) leaves fs.watch bound to a stale inode, so
+// file events on the recreated directory are silently dropped.
+let flagDir = "";
 
 mock.module("../feature-flag-store.js", () => ({
   clearFeatureFlagStoreCache: mock(() => {}),
@@ -21,6 +23,7 @@ const { FeatureFlagWatcher } = await import("../feature-flag-watcher.js");
 
 describe("FeatureFlagWatcher onChanged callback", () => {
   beforeEach(() => {
+    flagDir = mkdtempSync(join(tmpdir(), "ff-watcher-test-"));
     mkdirSync(flagDir, { recursive: true });
     writeFileSync(join(flagDir, "feature-flags.json"), "{}");
   });
