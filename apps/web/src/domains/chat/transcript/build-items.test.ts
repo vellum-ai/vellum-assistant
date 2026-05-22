@@ -267,6 +267,146 @@ describe("buildTranscriptItems", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Phantom tool-only message filter (ATL-659)
+  //
+  // The daemon synthesises tool calls with `toolName === "unknown"` when a
+  // tool_result block has no matching tool_use (orphan). They arrive as
+  // empty user messages whose only payload is a list of unknown tool calls
+  // and would otherwise render as a confusing "Completed 1 step / Used
+  // unknown" chip. Drop them at the projection step.
+  // ---------------------------------------------------------------------------
+
+  test("phantom tool-only messages (all toolName === 'unknown') are dropped", () => {
+    const phantom = makeMessage({
+      id: "m1",
+      role: "user",
+      content: "",
+      stableId: "s-phantom",
+      toolCalls: [
+        { id: "tc-1", toolName: "unknown", input: {}, status: "completed", result: "orphan" },
+      ],
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [phantom],
+    });
+
+    expect(items).toHaveLength(0);
+  });
+
+  test("mixed messages with unknown tool calls alongside content are kept", () => {
+    const mixed = makeMessage({
+      id: "m1",
+      role: "user",
+      content: "Here is the result.",
+      stableId: "s-mixed",
+      toolCalls: [
+        { id: "tc-1", toolName: "unknown", input: {}, status: "completed", result: "orphan" },
+      ],
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [mixed],
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind).toBe("message");
+    expect((items[0] as MessageItem).message).toBe(mixed);
+  });
+
+  test("messages with mixed known + unknown tool calls are kept", () => {
+    const mixedKnown = makeMessage({
+      id: "m1",
+      role: "user",
+      content: "",
+      stableId: "s-mixed-known",
+      toolCalls: [
+        { id: "tc-1", toolName: "unknown", input: {}, status: "completed", result: "orphan" },
+        { id: "tc-2", toolName: "bash", input: { command: "ls" }, status: "completed", result: "file.txt" },
+      ],
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [mixedKnown],
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind).toBe("message");
+    expect((items[0] as MessageItem).message).toBe(mixedKnown);
+  });
+
+  test("messages with surfaces are kept even with unknown tool calls", () => {
+    const surface = makeSurface({ surfaceId: "surf-1", display: "inline" });
+    const mixedSurface = makeMessage({
+      id: "m1",
+      role: "user",
+      content: "",
+      stableId: "s-mixed-surface",
+      surfaces: [surface],
+      toolCalls: [
+        { id: "tc-1", toolName: "unknown", input: {}, status: "completed", result: "orphan" },
+      ],
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [mixedSurface],
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind).toBe("message");
+    expect((items[0] as MessageItem).message).toBe(mixedSurface);
+  });
+
+  test("messages with attachments are kept even with unknown tool calls", () => {
+    const mixedAttachment = makeMessage({
+      id: "m1",
+      role: "user",
+      content: "",
+      stableId: "s-mixed-attachment",
+      attachments: [
+        { id: "a1", filename: "test.txt", mimeType: "text/plain", sizeBytes: 12, previewUrl: null },
+      ],
+      toolCalls: [
+        { id: "tc-1", toolName: "unknown", input: {}, status: "completed", result: "orphan" },
+      ],
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [mixedAttachment],
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind).toBe("message");
+    expect((items[0] as MessageItem).message).toBe(mixedAttachment);
+  });
+
+  test("real tool-only messages (known toolName) are kept", () => {
+    const realTool = makeMessage({
+      id: "m1",
+      role: "user",
+      content: "",
+      stableId: "s-real-tool",
+      toolCalls: [
+        { id: "tc-1", toolName: "bash", input: { command: "ls" }, status: "completed", result: "file.txt" },
+      ],
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [realTool],
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind).toBe("message");
+    expect((items[0] as MessageItem).message).toBe(realTool);
+  });
+
+  // ---------------------------------------------------------------------------
   // Confirmation path — inline attachment vs standalone fallback
   // ---------------------------------------------------------------------------
 

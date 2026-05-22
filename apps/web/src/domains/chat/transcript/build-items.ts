@@ -52,6 +52,23 @@ export interface BuildTranscriptItemsInput {
  *
  * Every returned item carries a non-empty, distinct `key`.
  */
+function isInvalidMessage(message: DisplayMessage): boolean {
+  // Phantom tool calls synthesized by the daemon when a tool_result block
+  // has no matching tool_use (orphan). They come through as user messages
+  // and render as a confusing "Completed 1 step / Used unknown" chip.
+  // Dropping the whole message is correct — without the parent tool_use
+  // we can't tell the user what tool ran, so the result is meaningless.
+  return (
+    message.role === "user" &&
+    (!message.content || message.content.trim().length === 0) &&
+    (!message.surfaces || message.surfaces.length === 0) &&
+    (!message.attachments || message.attachments.length === 0) &&
+    message.toolCalls != null &&
+    message.toolCalls.length > 0 &&
+    message.toolCalls.every((tc) => tc.toolName === "unknown")
+  );
+}
+
 export function buildTranscriptItems(
   input: BuildTranscriptItemsInput,
 ): TranscriptItem[] {
@@ -77,6 +94,10 @@ export function buildTranscriptItems(
     // messages for state reconstruction (history.ts extracts them). They
     // should not render as user bubbles. Matches macOS ChatVisibleMessageFilter.
     if (message.isSubagentNotification) {
+      continue;
+    }
+
+    if (isInvalidMessage(message)) {
       continue;
     }
 
