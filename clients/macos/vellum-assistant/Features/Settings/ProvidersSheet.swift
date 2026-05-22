@@ -594,6 +594,7 @@ struct ProvidersSheet: View {
             case "none": "None (no credentials)"
             case "platform": "Platform (managed by Vellum)"
             case "api_key": "API Key"
+            case "oauth_subscription": "ChatGPT Subscription"
             default: current
             }
             options.append((label: label, value: current))
@@ -799,7 +800,7 @@ struct ProvidersSheet: View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.info, size: 16)
                 .foregroundStyle(VColor.contentSecondary)
-            Text("Authenticated via ChatGPT subscription OAuth.")
+            Text("Authenticated via ChatGPT subscription — no API key required.")
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentSecondary)
         }
