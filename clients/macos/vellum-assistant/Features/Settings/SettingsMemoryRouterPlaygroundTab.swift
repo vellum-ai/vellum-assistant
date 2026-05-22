@@ -27,6 +27,8 @@ struct SettingsMemoryRouterPlaygroundTab: View {
     @State private var lastQuery: String = ""
     @State private var paneA = PaneState()
     @State private var paneB = PaneState()
+    @State private var availableProfiles: [String] = []
+    @State private var activeProfile: String?
 
     enum PaneId { case a, b }
 
@@ -34,6 +36,8 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         var tier1: String = ""
         var tier2: String = ""
         var batch: String = ""
+        /// Empty string means "inherit active profile".
+        var profile: String = ""
         var isRunning: Bool = false
         var validationError: String?
         var clientError: String?
@@ -58,6 +62,21 @@ struct SettingsMemoryRouterPlaygroundTab: View {
             }
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .task {
+            await loadProfiles()
+        }
+    }
+
+    private func loadProfiles() async {
+        do {
+            let response = try await client.fetchProfiles()
+            availableProfiles = response.profiles
+            activeProfile = response.activeProfile
+        } catch {
+            // Best-effort — leave the pickers empty. The user can still type
+            // an override into config.json directly or wait until profiles
+            // load on a later view appearance.
         }
     }
 
@@ -170,6 +189,7 @@ struct SettingsMemoryRouterPlaygroundTab: View {
                 overrideField(label: "tier2_size", binding: tier2Binding(pane))
                 overrideField(label: "batch_size", binding: batchBinding(pane))
             }
+            profileField(pane: pane)
             HStack {
                 Spacer()
                 VButton(
@@ -184,6 +204,29 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard()
+    }
+
+    private func profileField(pane: PaneId) -> some View {
+        let inheritLabel: String
+        if let active = activeProfile, !active.isEmpty {
+            inheritLabel = "inherit active (\(active))"
+        } else {
+            inheritLabel = "inherit active"
+        }
+        return VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("llm.profiles override")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+            Picker("", selection: profileBinding(pane)) {
+                Text(inheritLabel).tag("")
+                ForEach(availableProfiles, id: \.self) { name in
+                    Text(name).tag(name)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func overrideField(label: String, binding: Binding<String>) -> some View {
@@ -291,6 +334,10 @@ struct SettingsMemoryRouterPlaygroundTab: View {
             metaRow(
                 label: "max_page_ids",
                 value: "\(result.effectiveConfig.maxPageIds)"
+            )
+            metaRow(
+                label: "llm.profiles override",
+                value: result.profileOverride.map { "\($0)  (override)" } ?? "inherit active"
             )
         }
         .padding(VSpacing.lg)
@@ -406,6 +453,10 @@ struct SettingsMemoryRouterPlaygroundTab: View {
         pane == .a ? $paneA.batch : $paneB.batch
     }
 
+    private func profileBinding(_ pane: PaneId) -> Binding<String> {
+        pane == .a ? $paneA.profile : $paneB.profile
+    }
+
     private func canRun(_ pane: PaneId) -> Bool {
         !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !paneState(pane).isRunning
@@ -445,11 +496,14 @@ struct SettingsMemoryRouterPlaygroundTab: View {
             return
         }
 
+        let profileTrimmed = state.profile.trimmingCharacters(in: .whitespacesAndNewlines)
+        let profileOverride: String? = profileTrimmed.isEmpty ? nil : profileTrimmed
         let input = MemoryRouterSimulateInput(
             query: trimmedQuery,
             tier1Size: tier1Override,
             tier2Size: tier2Override,
-            batchSize: batchOverride
+            batchSize: batchOverride,
+            profileOverride: profileOverride
         )
 
         setIsRunning(pane: pane, value: true)

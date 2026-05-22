@@ -172,6 +172,14 @@ interface RunRouterParams {
    * only exercise tier 1 / tier 3 paths can omit it.
    */
   database?: DrizzleDb;
+  /**
+   * Per-call profile override forwarded to `getConfiguredProvider`. When
+   * set, the `memoryRouter` call site resolves against this profile name
+   * instead of the workspace active profile. The simulator route uses
+   * this to compare different profiles against the same query; live
+   * router callers leave it unset.
+   */
+  overrideProfile?: string;
 }
 
 /**
@@ -207,7 +215,11 @@ export async function runRouter(
     return emptyResult("empty_index");
   }
 
-  const provider = await getConfiguredProvider("memoryRouter");
+  const provider = await getConfiguredProvider("memoryRouter", {
+    ...(params.overrideProfile !== undefined
+      ? { overrideProfile: params.overrideProfile }
+      : {}),
+  });
   if (!provider) {
     log.warn("memoryRouter provider unavailable; router skipped");
     return emptyResult("no_provider");

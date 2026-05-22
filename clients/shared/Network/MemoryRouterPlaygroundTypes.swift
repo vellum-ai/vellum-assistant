@@ -25,17 +25,21 @@ public struct MemoryRouterSimulateInput: Equatable, Sendable {
     public let tier1Size: MemoryRouterOverride
     public let tier2Size: MemoryRouterOverride
     public let batchSize: MemoryRouterOverride
+    /// Per-call `llm.profiles` override name. `nil` means "inherit active".
+    public let profileOverride: String?
 
     public init(
         query: String,
         tier1Size: MemoryRouterOverride = .inherit,
         tier2Size: MemoryRouterOverride = .inherit,
-        batchSize: MemoryRouterOverride = .inherit
+        batchSize: MemoryRouterOverride = .inherit,
+        profileOverride: String? = nil
     ) {
         self.query = query
         self.tier1Size = tier1Size
         self.tier2Size = tier2Size
         self.batchSize = batchSize
+        self.profileOverride = profileOverride
     }
 }
 
@@ -118,4 +122,13 @@ public struct MemoryRouterSimulateResponse: Decodable, Sendable {
     public let overrides: MemoryRouterReportedOverrides
     /// Page index size the router was given (post-tier-carve, all batches).
     public let totalCandidatePages: Int
+    /// Profile name passed as an override on this call, or `nil` if none.
+    public let profileOverride: String?
+}
+
+/// Response from `GET /v1/assistants/{id}/config/llm/profiles/`. Used to
+/// populate per-pane profile dropdowns in the playground.
+public struct LlmProfilesListResponse: Decodable, Sendable {
+    public let profiles: [String]
+    public let activeProfile: String?
 }
