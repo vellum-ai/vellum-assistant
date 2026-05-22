@@ -10,10 +10,7 @@ export interface A2AInviteParams {
  * The link includes `senderAssistantId` and `token` so the recipient
  * can redeem the invite via the platform broker.
  */
-export function buildA2AInviteLink(params: {
-  senderAssistantId: string;
-  token: string;
-}): string {
+export function buildA2AInviteLink(params: A2AInviteParams): string {
   const origin =
     typeof window !== "undefined" ? window.location.origin : "";
   const search = new URLSearchParams({

@@ -104,11 +104,6 @@ export interface CreateA2AInviteResponse {
   expiresAt: number;
 }
 
-export interface RedeemA2AInviteInput {
-  senderAssistantId: string;
-  token: string;
-}
-
 export interface RedeemA2AInviteResponse {
   success: boolean;
   alreadyConnected?: boolean;
