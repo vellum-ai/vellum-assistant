@@ -247,13 +247,3 @@ describe("AssistantSideMenu · overlay close affordance", () => {
   });
 });
 
-describe("AssistantSideMenu · compose button mobile close wiring", () => {
-  test("compose button onClick calls onClose alongside onStartNewConversation", () => {
-    const src = readFileSync(
-      new URL("./assistant-side-menu.tsx", import.meta.url).pathname,
-      "utf8",
-    );
-
-    expect(src).toContain("onStartNewConversation(); onClose?.();");
-  });
-});

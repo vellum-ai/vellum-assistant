@@ -35,7 +35,6 @@ import { OfflineBanner } from "@/components/offline-banner.js";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu.js";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
-import { createDraftConversationKey } from "@/domains/chat/utils/conversation-selection.js";
 import { ChatLayoutHeader } from "./chat-layout-header.js";
 
 /**
@@ -249,14 +248,6 @@ export function ChatLayout() {
   const canGoBack = historyIndexRef.current > 0;
   const canGoForward = historyIndexRef.current < maxHistoryIndexRef.current;
 
-  const handleStartNewConversation = useCallback(() => {
-    haptic.light();
-    useViewerStore.getState().setMainView("chat");
-    const draftKey = createDraftConversationKey();
-    useConversationStore.getState().setActiveKey(draftKey);
-    void navigate(routes.conversation(draftKey));
-  }, [navigate]);
-
   const handleOpenHome = useCallback(() => {
     navigate(routes.home);
   }, [navigate]);
@@ -440,7 +431,6 @@ export function ChatLayout() {
         processingConversationKeys={processingKeys}
         attentionConversationKeys={attentionKeys}
         onSelectConversation={handleSelectConversation}
-        onStartNewConversation={handleStartNewConversation}
         isIntelligenceActive={isIdentityActive}
         onOpenIntelligence={handleOpenIdentity}
         isLibraryActive={isLibraryActive}
@@ -470,7 +460,6 @@ export function ChatLayout() {
       processingKeys,
       attentionKeys,
       handleSelectConversation,
-      handleStartNewConversation,
       handleCreateGroup,
       handleRenameGroup,
       handleDeleteGroup,
@@ -491,7 +480,6 @@ export function ChatLayout() {
         toggleSidebar={toggleSidebar}
         topBarCenter={topBarCenter}
         topBarRightSlot={topBarRightSlot}
-        onStartNewConversation={handleStartNewConversation}
         canGoBack={canGoBack}
         canGoForward={canGoForward}
         onGoBack={handleGoBack}

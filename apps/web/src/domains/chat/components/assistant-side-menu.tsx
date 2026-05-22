@@ -9,7 +9,6 @@ import {
   LayoutGrid,
   Pin,
   Search,
-  SquarePen,
   X,
 } from "lucide-react";
 import { useCallback, type ReactNode } from "react";
@@ -52,7 +51,6 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onOpenLibrary?: () => void;
   onOpenApp?: (appId: string) => void;
   activeAppId?: string;
-  onStartNewConversation?: () => void;
   footerBanner?: ReactNode;
   footerAction?: ReactNode;
   onClose?: () => void;
@@ -111,7 +109,6 @@ export function AssistantSideMenu({
   onOpenLibrary,
   onOpenApp,
   activeAppId,
-  onStartNewConversation,
   footerBanner,
   footerAction,
   onPinConversation,
@@ -266,26 +263,15 @@ export function AssistantSideMenu({
 
   // --- Header actions ---
 
-  const headerActions = (
-    <>
-      {sidebar.conversationGroupsEnabled ? (
-        <Button
-          variant="ghost"
-          size="compact"
-          iconOnly={<FolderPlus />}
-          aria-label="Create group"
-          onClick={onCreateGroup}
-        />
-      ) : null}
-      <Button
-        variant="ghost"
-        size="compact"
-        iconOnly={<SquarePen />}
-        aria-label="New conversation"
-        onClick={onStartNewConversation ? () => { onStartNewConversation(); onClose?.(); } : undefined}
-      />
-    </>
-  );
+  const headerActions = sidebar.conversationGroupsEnabled ? (
+    <Button
+      variant="ghost"
+      size="compact"
+      iconOnly={<FolderPlus />}
+      aria-label="Create group"
+      onClick={onCreateGroup}
+    />
+  ) : null;
 
   // --- Flat conversation list renderer ---
 
@@ -418,6 +404,15 @@ export function AssistantSideMenu({
               </CollapsibleNavSection.Section>
 
               <CollapsibleNavSection.Section
+                value="recents"
+                icon={Clock}
+                label="Recents"
+                trailing={countBadge(sidebar.recents.totalCount)}
+              >
+                {renderFlatList(sidebar.recents.items, sidebar.recents.showMore, sidebar.recents.onShowMore)}
+              </CollapsibleNavSection.Section>
+
+              <CollapsibleNavSection.Section
                 value="scheduled"
                 icon={Calendar}
                 label="Scheduled"
@@ -451,15 +446,6 @@ export function AssistantSideMenu({
                   {renderFlatList(sidebar.slack.items, sidebar.slack.showMore, sidebar.slack.onShowMore)}
                 </CollapsibleNavSection.Section>
               ) : null}
-
-              <CollapsibleNavSection.Section
-                value="recents"
-                icon={Clock}
-                label="Recents"
-                trailing={countBadge(sidebar.recents.totalCount)}
-              >
-                {renderFlatList(sidebar.recents.items, sidebar.recents.showMore, sidebar.recents.onShowMore)}
-              </CollapsibleNavSection.Section>
             </CollapsibleNavSection.Root>
 
             {sidebar.conversationGroupsEnabled && sidebar.customGroups.length > 0 ? (
