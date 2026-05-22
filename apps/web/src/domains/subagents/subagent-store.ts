@@ -26,6 +26,13 @@ export interface SubagentTimelineEvent {
   toolName?: string;
   isError?: boolean;
   timestamp: number;
+  /**
+   * Tool-use block ID copied from the daemon's `tool_use_start` /
+   * `tool_result` envelopes. Lets the UI pair a result with its
+   * originating call when a subagent makes parallel calls to the same
+   * tool (which `toolName` alone cannot disambiguate).
+   */
+  toolUseId?: string;
 }
 
 export interface SubagentEntry {
@@ -259,6 +266,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       toolName: params.event.toolName,
       isError: params.event.isError,
       timestamp: params.timestamp,
+      toolUseId: params.event.toolUseId,
     };
 
     set({

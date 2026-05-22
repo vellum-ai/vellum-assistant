@@ -45,9 +45,12 @@ export const WEB_TOOL_NAMES = new Set(["web_search", "web_fetch"]);
  * The first three variants (`thinking`, `web_search`, `web_search_error`)
  * preserve the existing `StepDescriptor` shape from
  * `WebSearchProgressCard`, so the legacy renderer keeps working unchanged.
- * The new `tool` variant carries the title/info/icon tuple produced by
+ * The `tool` variant carries the title/info/icon tuple produced by
  * `deriveStepLabel` plus the per-call duration + status fields the unified
- * card needs to drive its row chrome.
+ * card needs to drive its row chrome. The `tool_error` variant is used by
+ * `useSubagentCardData` for synthesised terminal-error events that have
+ * no preceding `tool_call` (e.g. context-window blowouts surfaced via
+ * the subagent timeline's `error` event type).
  */
 export type ToolCallCardStep =
   | { kind: "thinking"; durationLabel: string; text: string }
@@ -73,7 +76,8 @@ export type ToolCallCardStep =
       iconName: IconName;
       toolCallId: string;
       status: "running" | "completed" | "error" | "denied";
-    };
+    }
+  | { kind: "tool_error"; message: string };
 
 /**
  * Card-level data for the unified tool-call progress card.

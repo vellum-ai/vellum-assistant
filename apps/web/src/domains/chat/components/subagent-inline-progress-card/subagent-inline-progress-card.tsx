@@ -111,25 +111,31 @@ export function SubagentInlineProgressCard({
                 </StepRow>
               );
             }
-            return (
-              <StepRow
-                key={idx}
-                title={step.title}
-                durationLabel={step.durationLabel}
-                tone={step.status === "error" ? "error" : "default"}
-              >
-                {step.info ? (
-                  <ThinkingChip>{step.info}</ThinkingChip>
-                ) : (
-                  <Typography
-                    variant="label-small-default"
-                    className="text-[var(--content-tertiary)]"
-                  >
-                    {step.status === "running" ? "Working…" : "Done"}
-                  </Typography>
-                )}
-              </StepRow>
-            );
+            if (step.kind === "tool") {
+              return (
+                <StepRow
+                  key={idx}
+                  title={step.title}
+                  durationLabel={step.durationLabel}
+                  tone={step.status === "error" ? "error" : "default"}
+                >
+                  {step.info ? (
+                    <ThinkingChip>{step.info}</ThinkingChip>
+                  ) : (
+                    <Typography
+                      variant="label-small-default"
+                      className="text-[var(--content-tertiary)]"
+                    >
+                      {step.status === "running" ? "Working…" : "Done"}
+                    </Typography>
+                  )}
+                </StepRow>
+              );
+            }
+            // `web_search` / `web_search_error` aren't produced by
+            // `useSubagentCardData` today, but the unified step union
+            // includes them — render nothing rather than crash.
+            return null;
           })}
         </div>
       </ToolProgressCardShell>

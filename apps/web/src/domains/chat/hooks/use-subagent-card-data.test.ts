@@ -131,6 +131,7 @@ describe("computeSubagentCardData — step mapping", () => {
           makeEvent({
             type: "tool_call",
             toolName: "file_read",
+            toolUseId: "tu-file-1",
             content: "src/foo.ts",
           }),
         ],
@@ -140,14 +141,14 @@ describe("computeSubagentCardData — step mapping", () => {
     const step = data.steps[0]!;
     expect(step.kind).toBe("tool");
     if (step.kind === "tool") {
-      expect(step.toolName).toBe("file_read");
       expect(step.title).toBe("Using File Read");
       expect(step.info).toBe("src/foo.ts");
       expect(step.status).toBe("running");
+      expect(step.toolCallId).toBe("tu-file-1");
     }
   });
 
-  test("tool_call → tool_result transitions the step to complete with a duration", () => {
+  test("tool_call → tool_result transitions the step to completed with a duration", () => {
     const data = computeSubagentCardData(
       makeEntry({
         events: [
@@ -176,7 +177,7 @@ describe("computeSubagentCardData — step mapping", () => {
     const step = data.steps[0]!;
     expect(step.kind).toBe("tool");
     if (step.kind === "tool") {
-      expect(step.status).toBe("complete");
+      expect(step.status).toBe("completed");
       expect(step.durationLabel).toBe("3s");
     }
   });
@@ -243,8 +244,55 @@ describe("computeSubagentCardData — step mapping", () => {
     expect(data.steps).toHaveLength(2);
     const bash = data.steps[0]!;
     const fileRead = data.steps[1]!;
-    if (bash.kind === "tool") expect(bash.status).toBe("complete");
-    if (fileRead.kind === "tool") expect(fileRead.status).toBe("complete");
+    if (bash.kind === "tool") expect(bash.status).toBe("completed");
+    if (fileRead.kind === "tool") expect(fileRead.status).toBe("completed");
+  });
+
+  test("parallel calls to the same tool are disambiguated by toolUseId", () => {
+    // Two bash calls in flight; the SECOND one's result lands first.
+    // Matching by `toolName` alone would close the first step (wrong);
+    // matching by `toolUseId` must close the second.
+    const data = computeSubagentCardData(
+      makeEntry({
+        events: [
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "bash",
+              toolUseId: "tu-A",
+              content: "first",
+            },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "bash",
+              toolUseId: "tu-B",
+              content: "second",
+            },
+            1,
+          ),
+          makeEvent(
+            { type: "tool_result", toolName: "bash", toolUseId: "tu-B" },
+            2,
+          ),
+        ],
+      }),
+    );
+    expect(data.steps).toHaveLength(2);
+    const first = data.steps[0]!;
+    const second = data.steps[1]!;
+    // First bash call must still be running — its tu-A id wasn't closed.
+    if (first.kind === "tool") {
+      expect(first.status).toBe("running");
+      expect(first.toolCallId).toBe("tu-A");
+    }
+    // Second call must be completed — its tu-B id matched the result.
+    if (second.kind === "tool") {
+      expect(second.status).toBe("completed");
+      expect(second.toolCallId).toBe("tu-B");
+    }
   });
 });
 
@@ -266,6 +314,30 @@ describe("computeSubagentCardData — current step title/info", () => {
       makeEntry({ status: "completed", label: "Find tigers" }),
     );
     expect(data.currentStepTitle).toBe("Finished");
+    expect(data.currentStepInfo).toBe("Find tigers");
+  });
+
+  test("no steps + failed → Failed + error message", () => {
+    // Early-failure path: the subagent failed before emitting any
+    // timeline events (e.g. spawn error or rate limit on first call).
+    // The header must not read "Finished".
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "failed",
+        label: "Research crash",
+        error: "Rate limited",
+      }),
+    );
+    expect(data.currentStepTitle).toBe("Failed");
+    expect(data.currentStepInfo).toBe("Rate limited");
+  });
+
+  test("no steps + aborted → Aborted + label fallback", () => {
+    const data = computeSubagentCardData(
+      makeEntry({ status: "aborted", label: "Find tigers" }),
+    );
+    expect(data.currentStepTitle).toBe("Aborted");
+    // No error string → falls back to the label.
     expect(data.currentStepInfo).toBe("Find tigers");
   });
 
@@ -390,11 +462,13 @@ describe("mapToolEventToStep", () => {
       type: "tool_call",
       content: "summary",
       toolName: "host_bash",
+      toolUseId: "tu-1",
       timestamp: 0,
     });
     expect(step.title).toBe("Using Host Bash");
     expect(step.info).toBe("summary");
     expect(step.status).toBe("running");
+    expect(step.toolCallId).toBe("tu-1");
   });
 
   test("falls back to a generic title when toolName is missing", () => {
@@ -405,6 +479,6 @@ describe("mapToolEventToStep", () => {
       timestamp: 0,
     });
     expect(step.title).toBe("Running tool");
-    expect(step.toolName).toBe("");
+    expect(step.toolCallId).toBe("");
   });
 });
