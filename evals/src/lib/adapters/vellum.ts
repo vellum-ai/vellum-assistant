@@ -265,6 +265,12 @@ export class VellumAgent implements BaseAgent {
 
       this.hatched = true;
     } catch (err) {
+      // Capture container forensics BEFORE retire — once the container
+      // is removed, `docker inspect` and `docker logs` both return empty.
+      // Best-effort: any failure here (docker not installed, container
+      // never created, permission error) is silently ignored so we never
+      // shadow the original hatch error with a diagnostics-capture error.
+      await this.captureContainerForensics().catch(() => undefined);
       await this.jail?.stop().catch(() => undefined);
       if (hatchStarted) {
         await this.runner
@@ -272,6 +278,55 @@ export class VellumAgent implements BaseAgent {
           .catch(() => undefined);
       }
       throw err;
+    }
+  }
+
+  /**
+   * On hatch failure, snapshot the container's docker state to disk so the
+   * report-server UI can render what went wrong. Writes two artifacts under
+   * the run directory:
+   *
+   *   - `docker-inspect.json` — raw `docker inspect` output. Carries the
+   *     container's State.Status ("created" / "exited" / "dead" / ...),
+   *     ExitCode, OOMKilled, Error string, mounts, etc. Useful for the
+   *     "container in Created state, never started" diagnostic that
+   *     prompted this work.
+   *   - `docker-logs.txt` — last 200 lines of the container's stdout/stderr
+   *     (interleaved by docker, no `[STDOUT]` / `[STDERR]` prefixes since
+   *     this isn't going through the logPath tee).
+   *
+   * Both are best-effort — failures are swallowed so a missing docker
+   * binary or already-gone container never masks the hatch error.
+   */
+  private async captureContainerForensics(): Promise<void> {
+    const artifacts = runArtifacts(this.id);
+    const inspect = await this.runner
+      .run("docker", ["inspect", this.assistantContainerName])
+      .catch(() => undefined);
+    if (inspect && inspect.exitCode === 0 && inspect.stdout) {
+      await writeFile(
+        join(artifacts.runDir, "docker-inspect.json"),
+        inspect.stdout,
+      ).catch(() => undefined);
+    }
+    const logs = await this.runner
+      .run("docker", [
+        "logs",
+        "--tail",
+        "200",
+        this.assistantContainerName,
+      ])
+      .catch(() => undefined);
+    if (logs) {
+      const combined =
+        (logs.stdout ?? "") +
+        (logs.stderr ? `\n--- stderr ---\n${logs.stderr}` : "");
+      if (combined.length > 0) {
+        await writeFile(
+          join(artifacts.runDir, "docker-logs.txt"),
+          combined,
+        ).catch(() => undefined);
+      }
     }
   }
 
