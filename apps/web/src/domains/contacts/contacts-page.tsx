@@ -367,10 +367,6 @@ function ContactsPageInner({
 
   const handleContactSetupChannel = useCallback(
     (type: string) => {
-      if (type === "a2a") {
-        setInviteDialogOpen(true);
-        return;
-      }
       if (!onStartSetupConversation) {
         return;
       }
