@@ -6,8 +6,8 @@
  * rendering, argument validation, and the no-message guard. They run
  * entirely inside the CLI process and need no daemon stub.
  *
- * Follow-up opportunity: mock `../../../ipc/cli-client.js` with canned
- * responses to cover the deeper send-message paths against the IPC contract.
+ * The IPC client is mocked with canned responses so tests can assert the
+ * request contract without opening an assistant socket.
  */
 
 import {
@@ -23,6 +23,34 @@ import { Command } from "commander";
 // ---------------------------------------------------------------------------
 
 let mockStdinContent: string | null = null;
+let lastIpcCall: {
+  method: string;
+  params?: Record<string, unknown>;
+  options?: { timeoutMs?: number };
+} | null = null;
+let mockIpcResult: {
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+} = {
+  ok: true,
+  result: {
+    response: "Hello from the model.",
+    model: "test-model",
+    usage: { inputTokens: 3, outputTokens: 4 },
+  },
+};
+
+mock.module("../../../ipc/cli-client.js", () => ({
+  cliIpcCall: async (
+    method: string,
+    params?: Record<string, unknown>,
+    options?: { timeoutMs?: number },
+  ) => {
+    lastIpcCall = { method, params, options };
+    return mockIpcResult;
+  },
+}));
 
 mock.module("../../../providers/provider-send-message.js", () => ({
   // The handler under test calls getConfiguredProvider before any of the
@@ -30,7 +58,10 @@ mock.module("../../../providers/provider-send-message.js", () => ({
   // loads cleanly even though no test actually drives a request.
   getConfiguredProvider: async () => null,
   extractAllText: () => "",
-  userMessage: (text: string) => ({ role: "user", content: [{ type: "text", text }] }),
+  userMessage: (text: string) => ({
+    role: "user",
+    content: [{ type: "text", text }],
+  }),
 }));
 
 mock.module("../../../config/loader.js", () => ({
@@ -44,8 +75,18 @@ mock.module("../../../config/loader.js", () => ({
 }));
 
 mock.module("../../../util/logger.js", () => ({
-  getLogger: () => ({ info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }),
-  getCliLogger: () => ({ info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }),
+  getLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  }),
+  getCliLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  }),
 }));
 
 mock.module("node:fs", () => ({
@@ -127,6 +168,15 @@ async function runCommand(
 
 beforeEach(() => {
   mockStdinContent = null;
+  lastIpcCall = null;
+  mockIpcResult = {
+    ok: true,
+    result: {
+      response: "Hello from the model.",
+      model: "test-model",
+      usage: { inputTokens: 3, outputTokens: 4 },
+    },
+  };
   process.exitCode = 0;
 });
 
@@ -142,6 +192,7 @@ describe("help text", () => {
     expect(stdout).toContain("--model");
     expect(stdout).toContain("--profile");
     expect(stdout).toContain("--max-tokens");
+    expect(stdout).toContain("--timeout-seconds");
     expect(stdout).toContain("--json");
     expect(stdout).toContain("[message...]");
   });
@@ -153,6 +204,7 @@ describe("help text", () => {
     expect(stdout).toContain("--model");
     expect(stdout).toContain("--profile");
     expect(stdout).toContain("--max-tokens");
+    expect(stdout).toContain("--timeout-seconds");
     expect(stdout).toContain("--json");
     expect(stdout).toContain("[message...]");
   });
@@ -223,5 +275,56 @@ describe("--max-tokens", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("Invalid --max-tokens");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// IPC timeout
+// ---------------------------------------------------------------------------
+
+describe("--timeout-seconds", () => {
+  test("uses a long default IPC timeout for inference calls", async () => {
+    const { exitCode, stdout } = await runCommand([
+      "inference",
+      "send",
+      "--json",
+      "Hello",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout).ok).toBe(true);
+    expect(lastIpcCall!.method).toBe("inference_send");
+    expect(lastIpcCall!.options!.timeoutMs).toBe(32 * 60 * 1000);
+  });
+
+  test("passes custom timeout to IPC call", async () => {
+    const { exitCode } = await runCommand([
+      "llm",
+      "send",
+      "--timeout-seconds",
+      "300",
+      "Hello",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall!.method).toBe("inference_send");
+    expect(lastIpcCall!.options!.timeoutMs).toBe(300_000);
+  });
+
+  test("errors on invalid timeout value", async () => {
+    const { exitCode, stdout } = await runCommand([
+      "inference",
+      "send",
+      "--timeout-seconds",
+      "0",
+      "--json",
+      "Hello",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Invalid --timeout-seconds");
   });
 });
