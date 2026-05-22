@@ -45,6 +45,7 @@ import {
   preactivateHostProxySkills,
   shouldAttachHostProxyForCapability,
 } from "../../daemon/host-proxy-preactivation.js";
+import { getAssistantName } from "../../daemon/identity-helpers.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
@@ -157,6 +158,7 @@ function isHiddenMessage(metadata: string | null): boolean {
 
 function buildSlackHistoryMessage(
   slackMeta: SlackMessageMetadata | null,
+  opts?: { role?: string; assistantDisplayName?: string },
 ): RuntimeMessagePayload["slackMessage"] | undefined {
   if (!slackMeta) return undefined;
 
@@ -180,18 +182,20 @@ function buildSlackHistoryMessage(
         messageTs: replyThreadTs,
       })
     : undefined;
+  const assistantDisplayName =
+    opts?.role === "assistant" ? opts.assistantDisplayName : undefined;
+  const senderDisplayName =
+    slackMeta.displayName?.trim() || assistantDisplayName;
 
   return {
     channelId: slackMeta.channelId,
     ...(slackMeta.channelName ? { channelName: slackMeta.channelName } : {}),
     channelTs: slackMeta.channelTs,
     ...(slackMeta.threadTs ? { threadTs: slackMeta.threadTs } : {}),
-    ...(slackMeta.displayName || slackMeta.actorExternalUserId
+    ...(senderDisplayName || slackMeta.actorExternalUserId
       ? {
           sender: {
-            ...(slackMeta.displayName
-              ? { displayName: slackMeta.displayName }
-              : {}),
+            ...(senderDisplayName ? { displayName: senderDisplayName } : {}),
             ...(slackMeta.actorExternalUserId
               ? { externalUserId: slackMeta.actorExternalUserId }
               : {}),
@@ -536,6 +540,7 @@ export function handleListMessages({
   // (consecutive tool refs grouped together).
   const { messages: consolidatedMessages, mergedIdMap } =
     mergeConsecutiveAssistantMessages(mergedMessages);
+  const assistantSlackDisplayName = getAssistantName()?.trim() || undefined;
 
   // Parse content blocks and extract text + tool calls
   const parsed = consolidatedMessages.map((msg) => {
@@ -587,6 +592,10 @@ export function handleListMessages({
     }
     const slackMessage = buildSlackHistoryMessage(
       readSlackMetadataFromMessageMetadata(msg.metadata),
+      {
+        role: msg.role,
+        assistantDisplayName: assistantSlackDisplayName,
+      },
     );
 
     // Strip <no_response/> markers from assistant messages so web/API
