@@ -671,6 +671,20 @@ export function ChatPage() {
     void sendMessage(pending.content);
   }, [activeConversationKey, assistantId, sendMessage]);
 
+  // Auto-send generic onboarding greet when the pending flag fires and no
+  // content-automation initialMessage is queued (avoids double-send).
+  useEffect(() => {
+    if (!_autoGreetPending || !activeConversationKey || !assistantId) return;
+    if (pendingOnboardingInitialMessageRef.current !== null) return;
+    setAutoGreetPending(false);
+    if (awaitingAutoGreetTimeoutRef.current) {
+      clearTimeout(awaitingAutoGreetTimeoutRef.current);
+      awaitingAutoGreetTimeoutRef.current = null;
+    }
+    autoGreetRef.current = false;
+    void sendMessage("Wake up, my friend!");
+  }, [_autoGreetPending, activeConversationKey, assistantId, sendMessage]);
+
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
   const deepLinkAppConsumed = useRef(false);
   useEffect(() => {
