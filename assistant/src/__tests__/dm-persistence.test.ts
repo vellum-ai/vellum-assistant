@@ -179,6 +179,39 @@ describe("PR 16 — Slack DM persistence parity", () => {
     expect(slackMeta!.displayName).toBeUndefined();
   });
 
+  test("DM inbound persists Slack actor timezone metadata", async () => {
+    const ctx = createSlackTurnContext();
+    await persistQueuedMessageBody(
+      ctx,
+      "hello across timezones",
+      [],
+      "req-dm-timezone",
+      {
+        slackInbound: {
+          channelId: "D0123DM",
+          channelTs: "1700000000.777777",
+          displayName: "Alice",
+          actorTimezone: "America/New_York",
+          actorTimezoneLabel: "ET",
+          actorTimezoneOffsetSeconds: -18000,
+          timestampTimezone: "America/New_York",
+          timestampTimezoneLabel: "ET",
+          speakerTimezoneLabel: "ET",
+        },
+      },
+      undefined,
+    );
+
+    const slackMeta = lastPersistedSlackMeta();
+    expect(slackMeta).not.toBeNull();
+    expect(slackMeta!.actorTimezone).toBe("America/New_York");
+    expect(slackMeta!.actorTimezoneLabel).toBe("ET");
+    expect(slackMeta!.actorTimezoneOffsetSeconds).toBe(-18000);
+    expect(slackMeta!.timestampTimezone).toBe("America/New_York");
+    expect(slackMeta!.timestampTimezoneLabel).toBe("ET");
+    expect(slackMeta!.speakerTimezoneLabel).toBe("ET");
+  });
+
   test("DM and channel-message envelopes differ only by threadTs", async () => {
     // Capture the channel-thread case first.
     const ctx = createSlackTurnContext();

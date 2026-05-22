@@ -267,6 +267,11 @@ export function buildSlackMetaForPersistence(params: {
   ) {
     return null;
   }
+  const actorTimezoneOffsetSeconds =
+    typeof candidate.actorTimezoneOffsetSeconds === "number" &&
+    Number.isFinite(candidate.actorTimezoneOffsetSeconds)
+      ? candidate.actorTimezoneOffsetSeconds
+      : undefined;
   const slackMeta: SlackMessageMetadata = {
     source: "slack",
     channelId: candidate.channelId,
@@ -277,6 +282,24 @@ export function buildSlackMetaForPersistence(params: {
     ...(candidate.displayName ? { displayName: candidate.displayName } : {}),
     ...(candidate.actorExternalUserId
       ? { actorExternalUserId: candidate.actorExternalUserId }
+      : {}),
+    ...(candidate.actorTimezone
+      ? { actorTimezone: candidate.actorTimezone }
+      : {}),
+    ...(candidate.actorTimezoneLabel
+      ? { actorTimezoneLabel: candidate.actorTimezoneLabel }
+      : {}),
+    ...(actorTimezoneOffsetSeconds !== undefined
+      ? { actorTimezoneOffsetSeconds }
+      : {}),
+    ...(candidate.timestampTimezone
+      ? { timestampTimezone: candidate.timestampTimezone }
+      : {}),
+    ...(candidate.timestampTimezoneLabel
+      ? { timestampTimezoneLabel: candidate.timestampTimezoneLabel }
+      : {}),
+    ...(candidate.speakerTimezoneLabel
+      ? { speakerTimezoneLabel: candidate.speakerTimezoneLabel }
       : {}),
   };
   return writeSlackMetadata(slackMeta);
