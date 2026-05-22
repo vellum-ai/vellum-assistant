@@ -60,15 +60,15 @@ function makeDelete(conversationId: string): [Request, string[]] {
 // ---------------------------------------------------------------------------
 
 describe("GET /v1/permissions/thresholds/conversations/:conversationId", () => {
-  test("returns 404 for nonexistent conversation", async () => {
+  test("returns 200 with null threshold for nonexistent conversation", async () => {
     const handler = createConversationThresholdGetHandler();
     const [req, params] = makeGet("conv-xyz");
 
     const res = await handler(req, params);
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
 
     const body = await res.json();
-    expect(body.error).toBe("No override for this conversation");
+    expect(body.threshold).toBeNull();
   });
 
   test("returns threshold after PUT creates it", async () => {
@@ -160,7 +160,7 @@ describe("PUT /v1/permissions/thresholds/conversations/:conversationId", () => {
 });
 
 describe("DELETE /v1/permissions/thresholds/conversations/:conversationId", () => {
-  test("removes existing override, subsequent GET returns 404", async () => {
+  test("removes existing override, subsequent GET returns null threshold", async () => {
     const putHandler = createConversationThresholdPutHandler();
     const getHandler = createConversationThresholdGetHandler();
     const deleteHandler = createConversationThresholdDeleteHandler();
@@ -177,7 +177,9 @@ describe("DELETE /v1/permissions/thresholds/conversations/:conversationId", () =
     // Verify gone
     const [getReq, getParams] = makeGet("conv-del");
     const getRes = await getHandler(getReq, getParams);
-    expect(getRes.status).toBe(404);
+    expect(getRes.status).toBe(200);
+    const getBody = await getRes.json();
+    expect(getBody.threshold).toBeNull();
   });
 
   test("returns 204 on nonexistent conversation (idempotent)", async () => {

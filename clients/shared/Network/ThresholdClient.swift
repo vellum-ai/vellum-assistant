@@ -138,9 +138,6 @@ public struct ThresholdClient: ThresholdClientProtocol {
         let response = try await GatewayHTTPClient.get(
             path: "permissions/thresholds/conversations/\(conversationId)", timeout: 10
         )
-        if response.statusCode == 404 {
-            return nil
-        }
         guard response.isSuccess else {
             log.error("getConversationOverride failed (HTTP \(response.statusCode))")
             throw ThresholdClientError.requestFailed(response.statusCode)

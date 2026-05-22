@@ -175,14 +175,7 @@ export function createConversationThresholdGetHandler() {
         )
         .get();
 
-      if (!row) {
-        return Response.json(
-          { error: "No override for this conversation" },
-          { status: 404 },
-        );
-      }
-
-      return Response.json({ threshold: row.threshold });
+      return Response.json({ threshold: row?.threshold ?? null });
     } catch (err) {
       log.error(
         { err, conversationId },

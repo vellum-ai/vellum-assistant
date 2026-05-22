@@ -67,15 +67,15 @@ export async function getConversationOverride(
   assistantId: string,
   conversationId: string,
 ): Promise<string | null> {
-  const { data, error, response } = await client.get<{ threshold: string }, unknown>({
+  const { data, error, response } = await client.get<
+    { threshold: string | null },
+    unknown
+  >({
     ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/permissions/thresholds/conversations/{conversation_id}",
     path: { assistant_id: assistantId, conversation_id: conversationId },
     throwOnError: false,
   });
-  if (response?.status === 404) {
-    return null;
-  }
   assertHasResponse(response, error, "Failed to fetch conversation threshold override.");
   if (!response.ok) {
     const msg = extractErrorMessage(
@@ -85,7 +85,7 @@ export async function getConversationOverride(
     );
     throw new ApiError(response.status, msg);
   }
-  const result = data as unknown as { threshold: string };
+  const result = data as unknown as { threshold: string | null };
   return result.threshold ?? null;
 }
 

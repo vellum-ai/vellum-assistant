@@ -3075,17 +3075,19 @@ export function buildSchema(): Record<string, unknown> {
           ],
           responses: {
             "200": {
-              description: "Conversation threshold override",
+              description:
+                "Conversation threshold override (threshold is null when no override is set)",
               content: {
                 "application/json": {
                   schema: {
                     type: "object",
-                    properties: { threshold: { type: "string" } },
+                    properties: {
+                      threshold: { type: "string", nullable: true },
+                    },
                   },
                 },
               },
             },
-            "404": { description: "No override for this conversation" },
             "500": { description: "Internal server error" },
           },
         },
@@ -3172,17 +3174,19 @@ export function buildSchema(): Record<string, unknown> {
             ],
             responses: {
               "200": {
-                description: "Conversation threshold override",
+                description:
+                  "Conversation threshold override (threshold is null when no override is set)",
                 content: {
                   "application/json": {
                     schema: {
                       type: "object",
-                      properties: { threshold: { type: "string" } },
+                      properties: {
+                        threshold: { type: "string", nullable: true },
+                      },
                     },
                   },
                 },
               },
-              "404": { description: "No override for this conversation" },
               "500": { description: "Internal server error" },
             },
           },
@@ -3326,8 +3330,14 @@ export function buildSchema(): Record<string, unknown> {
               name: "n",
               in: "query",
               required: false,
-              schema: { type: "integer", minimum: 1, maximum: 1000, default: 10 },
-              description: "Number of log entries to return (1–1000, default: 10)",
+              schema: {
+                type: "integer",
+                minimum: 1,
+                maximum: 1000,
+                default: 10,
+              },
+              description:
+                "Number of log entries to return (1–1000, default: 10)",
             },
             {
               name: "level",
@@ -3360,11 +3370,13 @@ export function buildSchema(): Record<string, unknown> {
                       lines: {
                         type: "array",
                         items: { type: "object" },
-                        description: "Matching log entries in chronological order",
+                        description:
+                          "Matching log entries in chronological order",
                       },
                       truncated: {
                         type: "boolean",
-                        description: "True if earlier matching entries exist beyond n",
+                        description:
+                          "True if earlier matching entries exist beyond n",
                       },
                     },
                   },
@@ -4310,7 +4322,13 @@ export function buildSchema(): Record<string, unknown> {
       schemas: {
         BackupSnapshot: {
           type: "object",
-          required: ["path", "filename", "created_at", "size_bytes", "encrypted"],
+          required: [
+            "path",
+            "filename",
+            "created_at",
+            "size_bytes",
+            "encrypted",
+          ],
           properties: {
             path: { type: "string" },
             filename: { type: "string" },
