@@ -40,6 +40,20 @@ mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async () => {},
 }));
 
+mock.module("../messaging/providers/slack/adapter.js", () => ({
+  withSlackBotToken: async (
+    _account: string | undefined,
+    fn: (token: string) => Promise<unknown>,
+  ) => fn("test-slack-token"),
+  resolveSlackBotUserId: async (
+    _account: string | undefined,
+    botId: string,
+  ) => {
+    if (botId === "B_ASSISTANT") return "U_BOT";
+    return null;
+  },
+}));
+
 import type { Message } from "../messaging/provider-types.js";
 
 // `backfillDm` is the only piece of the slack provider surface this test
@@ -59,6 +73,11 @@ mock.module("../messaging/providers/slack/backfill.js", () => ({
   backfillThread: () => backfillThreadMock(),
 }));
 
+import {
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../config/loader.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
@@ -88,6 +107,13 @@ function resetState(): void {
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
   db.run("DELETE FROM external_conversation_bindings");
+  setConfiguredSlackBotUserId("U_BOT");
+}
+
+function setConfiguredSlackBotUserId(botUserId: string): void {
+  const raw = loadRawConfig();
+  setNestedValue(raw, "slack.botUserId", botUserId);
+  saveRawConfig(raw);
 }
 
 function seedActiveMember(): void {
@@ -500,13 +526,19 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
         id: "1700000000.000001",
         text: "New Assistant Thread",
         sender: { id: "B_ASSISTANT", name: "Ada" },
-        metadata: { isBot: true },
+        metadata: { isBot: true, slackBotId: "B_ASSISTANT" },
       }),
       makeBackfilledMessage({
         id: "1700000000.000002",
         text: "real bot context",
         sender: { id: "B_ASSISTANT", name: "Ada" },
-        metadata: { isBot: true },
+        metadata: { isBot: true, slackBotId: "B_ASSISTANT" },
+      }),
+      makeBackfilledMessage({
+        id: "1700000000.000003",
+        text: "New Assistant Thread",
+        sender: { id: "B_OTHER", name: "Build Bot" },
+        metadata: { isBot: true, slackBotId: "B_OTHER" },
       }),
     ]);
 
@@ -518,9 +550,12 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
 
     const rows = readPersistedSlackRows();
     expect(rows.map((row) => row.rawContent).sort()).toEqual([
+      "New Assistant Thread",
       "real bot context",
     ]);
-    expect(rows[0]?.slackMeta?.actorExternalUserId).toBe("B_ASSISTANT");
+    expect(
+      rows.some((row) => row.slackMeta?.actorExternalUserId === "B_OTHER"),
+    ).toBe(true);
   });
 
   test("backfill skips channelTs values already stored", async () => {
