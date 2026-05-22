@@ -1,5 +1,9 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import type {
+  RuntimeInboundPayload,
+  RuntimeInboundResponse,
+} from "../runtime/client.js";
 
 type FetchFn = (
   input: string | URL | Request,
@@ -8,9 +12,32 @@ type FetchFn = (
 let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
   async () => new Response(),
 );
+let runtimePayloads: RuntimeInboundPayload[] = [];
+const forwardToRuntimeMock = mock(
+  async (
+    _config: GatewayConfig,
+    payload: RuntimeInboundPayload,
+  ): Promise<RuntimeInboundResponse> => {
+    runtimePayloads.push(payload);
+    return { accepted: true, duplicate: false, eventId: "runtime-event-1" };
+  },
+);
 
 mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+mock.module("../runtime/client.js", () => ({
+  CircuitBreakerOpenError: class CircuitBreakerOpenError extends Error {
+    readonly retryAfterSecs: number;
+
+    constructor(retryAfterSecs: number) {
+      super("Circuit breaker is open");
+      this.retryAfterSecs = retryAfterSecs;
+    }
+  },
+  forwardToRuntime: (...args: Parameters<typeof forwardToRuntimeMock>) =>
+    forwardToRuntimeMock(...args),
 }));
 
 const {
@@ -18,10 +45,12 @@ const {
   resolveSlackChannel,
   resolveSlackUser,
   clearChannelInfoCache,
+  clearInFlightFetches,
   clearUserInfoCache,
   getChannelInfoCacheSize,
   getUserInfoCacheSize,
 } = await import("../slack/normalize.js");
+const { handleInbound } = await import("../handlers/handle-inbound.js");
 import type { SlackAppMentionEvent } from "../slack/normalize.js";
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
@@ -67,6 +96,9 @@ function makeEvent(
 beforeEach(() => {
   clearUserInfoCache();
   clearChannelInfoCache();
+  clearInFlightFetches();
+  runtimePayloads = [];
+  forwardToRuntimeMock.mockClear();
 });
 
 describe("resolveSlackUser", () => {
@@ -78,6 +110,9 @@ describe("resolveSlackUser", () => {
           user: {
             name: "jdoe",
             real_name: "Jane Doe",
+            tz: "America/New_York",
+            tz_label: "Eastern Daylight Time",
+            tz_offset: -14400,
             profile: { display_name: "Jane D", real_name: "Jane Doe" },
           },
         }),
@@ -89,6 +124,9 @@ describe("resolveSlackUser", () => {
     expect(info).not.toBeUndefined();
     expect(info!.displayName).toBe("Jane D");
     expect(info!.username).toBe("jdoe");
+    expect(info!.timezone).toBe("America/New_York");
+    expect(info!.timezoneLabel).toBe("Eastern Daylight Time");
+    expect(info!.timezoneOffsetSeconds).toBe(-14400);
   });
 
   test("falls back to real_name when display_name is empty", async () => {
@@ -273,6 +311,9 @@ describe("normalizeSlackAppMention with display name", () => {
           user: {
             name: "testuser",
             real_name: "Test User",
+            tz: "America/Denver",
+            tz_label: "Mountain Daylight Time",
+            tz_offset: -21600,
             profile: { display_name: "Test U" },
           },
         }),
@@ -296,6 +337,58 @@ describe("normalizeSlackAppMention with display name", () => {
     expect(result).not.toBeNull();
     expect(result!.event.actor.displayName).toBe("Test U");
     expect(result!.event.actor.username).toBe("testuser");
+    expect(result!.event.actor.timezone).toBe("America/Denver");
+    expect(result!.event.actor.timezoneLabel).toBe("Mountain Daylight Time");
+    expect(result!.event.actor.timezoneOffsetSeconds).toBe(-21600);
+  });
+
+  test("forwards cached Slack timezone fields in runtime source metadata", async () => {
+    fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          user: {
+            name: "testuser",
+            real_name: "Test User",
+            tz: "America/Los_Angeles",
+            tz_label: "Pacific Daylight Time",
+            tz_offset: -25200,
+            profile: { display_name: "Test U" },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const config = makeConfig();
+    const event = makeEvent({ user: "U_WITH_TZ" });
+    await resolveSlackUser("U_WITH_TZ", "xoxb-test");
+
+    const result = normalizeSlackAppMention(
+      event,
+      "evt-tz-forward",
+      config,
+      undefined,
+      "xoxb-test",
+    );
+    expect(result).not.toBeNull();
+
+    await handleInbound(config, result!.event, {
+      routingOverride: result!.routing,
+    });
+
+    expect(forwardToRuntimeMock).toHaveBeenCalledTimes(1);
+    const forwardedPayload = runtimePayloads[0];
+    expect(forwardedPayload).toBeDefined();
+    expect(forwardedPayload!.sourceMetadata!.timezone).toBe(
+      "America/Los_Angeles",
+    );
+    expect(forwardedPayload!.sourceMetadata!.timezoneLabel).toBe(
+      "Pacific Daylight Time",
+    );
+    expect(forwardedPayload!.sourceMetadata!.timezoneOffsetSeconds).toBe(
+      -25200,
+    );
   });
 
   test("renders cache-warmed mention labels in model-facing content", async () => {
