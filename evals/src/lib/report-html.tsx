@@ -177,6 +177,16 @@ pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px;
 .cost-diag-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .cost-diag-table th, .cost-diag-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); }
 .cost-diag-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
+.debug-section { border: 1px solid rgba(251, 113, 133, .24); background: rgba(251, 113, 133, .06); }
+.debug-item { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+.debug-item:last-child { margin-bottom: 0; }
+.debug-item code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(0,0,0,.3); padding: 2px 6px; border-radius: 4px; font-size: 12px; flex: 1; overflow: auto; }
+.debug-item.bad { color: var(--bad); }
+.action-buttons { display: flex; gap: 12px; margin-top: 16px; }
+button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,.08); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s ease; }
+button:hover { background: rgba(139,92,246,.18); border-color: rgba(139,92,246,.4); }
+button.bad { color: var(--bad); border-color: rgba(251,113,133,.4); }
+button.bad:hover { background: rgba(251,113,133,.15); border-color: var(--bad); }
 @media (max-width: 980px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .shell { padding: 18px; } .cards { grid-template-columns: 1fr; } .hero { display: block; } }
 `;
@@ -757,6 +767,44 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
         <StatCard label="Turns" value={run.transcriptTurns} />
         <StatCard label="Cost" value={formatCost(run.totalCostUsd)} />
       </div>
+
+      {(run.status === "abandoned" || run.metadata?.lastHeartbeatAt) && (
+        <section className="section debug-section">
+          <h2>Debug info</h2>
+          {run.status === "abandoned" && run.metadata?.error && (
+            <div className="debug-item bad">
+              <strong>Error:</strong>
+              <code>{run.metadata.error}</code>
+            </div>
+          )}
+          {run.metadata?.lastHeartbeatAt && (
+            <div className="debug-item">
+              <strong>Last heartbeat:</strong>
+              <span>{run.metadata.lastHeartbeatAt}</span>
+            </div>
+          )}
+          <div className="action-buttons">
+            <button
+              className="bad"
+              onClick={() => {
+                if (
+                  confirm(
+                    "Delete this run and all its artifacts? This cannot be undone.",
+                  )
+                ) {
+                  fetch(`/api/runs/${encodeURIComponent(run.runId)}`, {
+                    method: "DELETE",
+                  }).then(() => {
+                    window.location.href = `/sessions/${encodeURIComponent(run.sessionId)}`;
+                  });
+                }
+              }}
+            >
+              Delete run
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="section">
         <h2>Metric card</h2>
