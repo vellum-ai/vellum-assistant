@@ -1,13 +1,18 @@
-import { AlertCircle, Loader2 } from "lucide-react";
+import {
+  AlertCircle,
+  Cpu,
+  Globe,
+  HardDrive,
+  Loader2,
+  type LucideIcon,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-
-import { useNavigate } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@vellum/design-library/components/button";
-import { Card } from "@vellum/design-library/components/card";
 import { Input } from "@vellum/design-library/components/input";
+import { Modal } from "@vellum/design-library/components/modal";
 import { Notice } from "@vellum/design-library/components/notice";
 import {
   SegmentControl,
@@ -26,9 +31,12 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen.js";
-import { SIZE_LABEL, TIER_TO_SIZES } from "@/lib/billing/machine-sizes.js";
+import {
+  SIZE_DESCRIPTION,
+  SIZE_LABEL,
+  TIER_TO_SIZES,
+} from "@/lib/billing/machine-sizes.js";
 import { useEnvironmentStore } from "@/lib/environment/environment-store.js";
-import { routes } from "@/utils/routes.js";
 
 export const DOMAIN_EXIT_DELAY_MS = 800;
 
@@ -146,20 +154,30 @@ function applyReportedFailure(data: unknown): boolean {
 
 type WizardStep = "confirm-pro" | "storage" | "machine-size" | "domain";
 
-export function BillingOnboardingPage() {
-  const navigate = useNavigate();
+export interface BillingOnboardingModalProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export function BillingOnboardingModal({
+  open,
+  onClose,
+}: BillingOnboardingModalProps) {
   const queryClient = useQueryClient();
   const [step, setStep] = useState<WizardStep>("confirm-pro");
   const [proPollExpired, setProPollExpired] = useState(false);
+  const [pollGeneration, setPollGeneration] = useState(0);
 
-  const goToBilling = useCallback(
-    () => navigate(routes.settings.billing, { replace: true }),
-    [navigate],
-  );
-
-  // Force a refetch on mount so we don't read a stale cached "base" entry
-  // from the billing page the user just left.
   useEffect(() => {
+    if (!open) return;
+    void queryClient.invalidateQueries({
+      queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
+    });
+  }, [open, queryClient]);
+
+  const retryPoll = useCallback(() => {
+    setProPollExpired(false);
+    setPollGeneration((g) => g + 1);
     void queryClient.invalidateQueries({
       queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
     });
@@ -175,14 +193,14 @@ export function BillingOnboardingPage() {
       return PRO_POLL_INTERVAL_MS;
     },
     refetchIntervalInBackground: false,
-    enabled: step === "confirm-pro",
+    enabled: open && step === "confirm-pro",
   });
 
   useEffect(() => {
-    if (step !== "confirm-pro") return;
+    if (!open || step !== "confirm-pro") return;
     const t = setTimeout(() => setProPollExpired(true), PRO_POLL_TIMEOUT_MS);
     return () => clearTimeout(t);
-  }, [step]);
+  }, [open, step, pollGeneration]);
 
   useEffect(() => {
     if (step !== "confirm-pro") return;
@@ -192,60 +210,54 @@ export function BillingOnboardingPage() {
   }, [step, subscriptionQuery.data?.plan_id]);
 
   // ----- Steps 1–3 onboarding state -----
-  //
-  // The onboarding state read supplies `selected_storage_gib` (storage step),
-  // `max_machine_tier` (machine step), and `domain_setup_available` (domain
-  // gate). It's no longer polled — storage is applied explicitly by the user.
 
   const onboardingQuery = useQuery({
     ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
-    enabled: step !== "confirm-pro",
+    enabled: open && step !== "confirm-pro",
   });
 
-  // ----- Step 2 → Step 3 advance -----
-  //
-  // Gate on the backend's `domain_setup_available` flag: if the org has no
-  // assistant to attach a domain to, the domain step would dead-end with
-  // `no_assistant_to_attach_domain`. Skip straight to billing instead.
   const domainSetupAvailable = onboardingQuery.data?.domain_setup_available;
   const advanceFromMachineSize = useCallback(() => {
     if (domainSetupAvailable === false) {
-      goToBilling();
+      onClose();
     } else {
       setStep("domain");
     }
-  }, [domainSetupAvailable, goToBilling]);
+  }, [domainSetupAvailable, onClose]);
 
   return (
-    <div className="max-w-4xl space-y-6">
-      <Card padding="lg">{renderStep()}</Card>
-    </div>
+    <Modal.Root open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <Modal.Content size="md" hideCloseButton className="overflow-hidden">
+        {renderStep()}
+      </Modal.Content>
+    </Modal.Root>
   );
 
   function renderStep() {
     if (step === "confirm-pro") {
       if (subscriptionQuery.isError) {
-        return <FetchErrorState onGoToBilling={goToBilling} />;
+        return <FetchErrorState onGoToBilling={onClose} />;
       }
       if (proPollExpired) {
         return (
           <TimeoutState
-            message="We're still confirming your upgrade. Try again from billing in a moment."
-            onGoToBilling={goToBilling}
+            message="We're still confirming your upgrade."
+            onRetry={retryPoll}
+            onGoToBilling={onClose}
           />
         );
       }
       return (
         <PendingState
           title="Finalizing your upgrade…"
-          body="Stripe is confirming your subscription. This usually takes a few seconds."
+          body="This usually takes a few seconds."
         />
       );
     }
 
     if (step === "storage") {
       if (onboardingQuery.isError) {
-        return <FetchErrorState onGoToBilling={goToBilling} />;
+        return <FetchErrorState onGoToBilling={onClose} />;
       }
       return (
         <StorageStep
@@ -257,8 +269,7 @@ export function BillingOnboardingPage() {
 
     if (step === "machine-size") {
       if (onboardingQuery.isError) {
-        // We still need the onboarding state for `max_machine_tier`.
-        return <FetchErrorState onGoToBilling={goToBilling} />;
+        return <FetchErrorState onGoToBilling={onClose} />;
       }
       const maxTier = (onboardingQuery.data?.max_machine_tier ??
         null) as MachineTierEnum | null;
@@ -271,12 +282,69 @@ export function BillingOnboardingPage() {
     }
 
     if (step === "domain") {
-      return <DomainStep onExit={goToBilling} />;
+      return <DomainStep onExit={onClose} />;
     }
 
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Visual primitives
+// ---------------------------------------------------------------------------
+
+function StepDots({ current }: { current: number }) {
+  return (
+    <div className="flex items-center justify-center gap-1.5">
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          className="h-1.5 rounded-full transition-all duration-300"
+          style={{
+            width: i === current ? 20 : 6,
+            backgroundColor:
+              i <= current
+                ? "var(--content-default)"
+                : "var(--border-element)",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function IconBadge({
+  icon: Icon,
+  tone = "positive",
+}: {
+  icon: LucideIcon;
+  tone?: "positive" | "negative" | "warning";
+}) {
+  const toneVar =
+    tone === "positive"
+      ? "--system-positive-strong"
+      : tone === "warning"
+        ? "--system-mid-strong"
+        : "--system-negative-strong";
+  return (
+    <span
+      className="flex h-11 w-11 items-center justify-center rounded-full"
+      style={{
+        backgroundColor: `color-mix(in oklab, var(${toneVar}) 12%, transparent)`,
+      }}
+    >
+      <Icon
+        className="h-5 w-5"
+        style={{ color: `var(${toneVar})` }}
+        aria-hidden="true"
+      />
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Wizard steps
+// ---------------------------------------------------------------------------
 
 function StorageStep({
   storageGib,
@@ -318,26 +386,34 @@ function StorageStep({
   const amount = storageGib != null ? `${storageGib} GiB` : "additional";
 
   return (
-    <div className="space-y-5">
-      <div className="space-y-2">
-        <Typography variant="title-small" as="h1">
-          Apply your workspace storage
-        </Typography>
-        <Typography
-          variant="body-medium-lighter"
-          as="p"
-          className="text-[var(--content-secondary)]"
-        >
-          Your Pro plan includes {amount} of workspace storage. Apply it to
-          this assistant now?
-        </Typography>
+    <div
+      className="flex flex-col gap-5 px-6 pt-5 pb-6"
+      style={{ animation: "onboarding-step-in 350ms ease-out" }}
+    >
+      <StepDots current={0} />
+
+      <div className="flex flex-col items-center gap-3 text-center">
+        <IconBadge icon={HardDrive} />
+        <div className="space-y-1">
+          <Typography variant="title-small" as="h1">
+            Apply your workspace storage
+          </Typography>
+          <Typography
+            variant="body-medium-lighter"
+            as="p"
+            className="text-[var(--content-secondary)]"
+          >
+            Your Pro plan includes {amount} of workspace storage.
+            Apply it to this assistant now?
+          </Typography>
+        </div>
       </div>
 
       <Notice tone="warning">{RESTART_NOTICE}</Notice>
 
       {errorMsg ? <Notice tone="error">{errorMsg}</Notice> : null}
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center justify-end gap-2 pt-1">
         <Button
           variant="outlined"
           data-testid="onboarding-storage-skip"
@@ -408,33 +484,50 @@ function MachineSizeStep({
   };
 
   return (
-    <div className="space-y-5">
-      <div className="space-y-2">
-        <Typography variant="title-small" as="h1">
-          Choose your machine size
-        </Typography>
-        <Typography
-          variant="body-medium-lighter"
-          as="p"
-          className="text-[var(--content-secondary)]"
-        >
-          Set the compute size for this assistant. You can change it later in
-          billing settings.
-        </Typography>
+    <div
+      className="flex flex-col gap-5 px-6 pt-5 pb-6"
+      style={{ animation: "onboarding-step-in 350ms ease-out" }}
+    >
+      <StepDots current={1} />
+
+      <div className="flex flex-col items-center gap-3 text-center">
+        <IconBadge icon={Cpu} />
+        <div className="space-y-1">
+          <Typography variant="title-small" as="h1">
+            Choose your machine size
+          </Typography>
+          <Typography
+            variant="body-medium-lighter"
+            as="p"
+            className="text-[var(--content-secondary)]"
+          >
+            Set the compute size for this assistant. You can change it
+            later in billing settings.
+          </Typography>
+        </div>
       </div>
 
-      <SegmentControl
-        items={items}
-        value={selected}
-        onChange={setSelected}
-        ariaLabel="Machine size"
-      />
+      <div className="space-y-2">
+        <SegmentControl
+          items={items}
+          value={selected}
+          onChange={setSelected}
+          ariaLabel="Machine size"
+        />
+        <Typography
+          variant="body-small-default"
+          as="p"
+          className="text-center text-[var(--content-tertiary)]"
+        >
+          {SIZE_DESCRIPTION[selected]}
+        </Typography>
+      </div>
 
       <Notice tone="warning">{RESTART_NOTICE}</Notice>
 
       {errorMsg ? <Notice tone="error">{errorMsg}</Notice> : null}
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center justify-end gap-2 pt-1">
         <Button
           variant="outlined"
           data-testid="onboarding-machine-skip"
@@ -466,9 +559,6 @@ function DomainStep({ onExit }: { onExit: () => void }) {
 
   const busy = domainMutation.isPending || confirmed;
 
-  // Auto-exit after the success notice has rendered for DOMAIN_EXIT_DELAY_MS.
-  // Pattern mirrors the upgrade/success page redirect effect so that unmount
-  // clears the timer instead of leaking it.
   useEffect(() => {
     if (!confirmed) return;
     const t = setTimeout(onExit, DOMAIN_EXIT_DELAY_MS);
@@ -498,8 +588,6 @@ function DomainStep({ onExit }: { onExit: () => void }) {
 
   const handleSkip = () => {
     if (busy) return;
-    // The skip path should never strand the user: exit to billing on both
-    // success and failure responses from the backend.
     domainMutation.mutate(
       { body: { skipped: true } },
       { onSuccess: onExit, onError: () => onExit() },
@@ -507,22 +595,29 @@ function DomainStep({ onExit }: { onExit: () => void }) {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="space-y-2">
-        <Typography variant="title-small" as="h1">
-          Pick a custom subdomain (optional)
-        </Typography>
-        <Typography
-          variant="body-medium-lighter"
-          as="p"
-          className="text-[var(--content-secondary)]"
-        >
-          Your assistant will be reachable at{" "}
-          <span className="font-mono">
-            {subdomain || "<subdomain>"}.{emailRootDomain}
-          </span>
-          . You can change this later.
-        </Typography>
+    <div
+      className="flex flex-col gap-5 px-6 pt-5 pb-6"
+      style={{ animation: "onboarding-step-in 350ms ease-out" }}
+    >
+      <StepDots current={2} />
+
+      <div className="flex flex-col items-center gap-3 text-center">
+        <IconBadge icon={Globe} />
+        <div className="space-y-1">
+          <Typography variant="title-small" as="h1">
+            Pick a custom subdomain
+          </Typography>
+          <Typography
+            variant="body-medium-lighter"
+            as="p"
+            className="text-[var(--content-secondary)]"
+          >
+            Your assistant will be reachable at{" "}
+            <span className="font-mono text-[var(--content-default)]">
+              {subdomain || "<subdomain>"}.{emailRootDomain}
+            </span>
+          </Typography>
+        </div>
       </div>
 
       <div className="flex items-center gap-2">
@@ -550,7 +645,7 @@ function DomainStep({ onExit }: { onExit: () => void }) {
         <Notice tone="success">Domain set — redirecting…</Notice>
       ) : null}
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center justify-end gap-2 pt-1">
         <Button
           variant="outlined"
           data-testid="onboarding-domain-skip"
@@ -572,75 +667,119 @@ function DomainStep({ onExit }: { onExit: () => void }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Status states
+// ---------------------------------------------------------------------------
+
 function PendingState({ title, body }: { title: string; body: string }) {
   return (
-    <div className="flex flex-col items-center gap-3 py-6 text-center">
-      <Loader2
-        className="h-6 w-6 animate-spin text-[var(--content-secondary)]"
-        aria-hidden="true"
-      />
-      <Typography variant="title-small" as="h1">
-        {title}
-      </Typography>
-      <Typography
-        variant="body-medium-lighter"
-        as="p"
-        className="text-[var(--content-secondary)]"
-      >
-        {body}
-      </Typography>
+    <div className="flex min-h-[280px] flex-col items-center justify-center gap-4 px-6 py-10 text-center">
+      <div className="relative flex h-11 w-11 items-center justify-center">
+        <div
+          className="absolute h-14 w-14 rounded-full"
+          style={{
+            backgroundColor:
+              "color-mix(in oklab, var(--system-positive-strong) 10%, transparent)",
+            animation: "onboarding-glow 2.4s ease-in-out infinite",
+          }}
+          aria-hidden="true"
+        />
+        <div
+          className="absolute h-9 w-9 rounded-full"
+          style={{
+            backgroundColor:
+              "color-mix(in oklab, var(--system-positive-strong) 8%, transparent)",
+            animation: "onboarding-glow 2.4s ease-in-out infinite 0.4s",
+          }}
+          aria-hidden="true"
+        />
+        <Loader2
+          className="relative h-5 w-5 animate-spin text-[var(--system-positive-strong)]"
+          aria-hidden="true"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Typography variant="title-small" as="h1">
+          {title}
+        </Typography>
+        <Typography
+          variant="body-medium-lighter"
+          as="p"
+          className="text-[var(--content-secondary)]"
+        >
+          {body}
+        </Typography>
+      </div>
     </div>
   );
 }
 
 function FetchErrorState({ onGoToBilling }: { onGoToBilling: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-3 py-6 text-center">
-      <AlertCircle
-        className="h-8 w-8 text-[var(--system-negative-strong)]"
-        aria-hidden="true"
-      />
-      <Typography variant="title-small" as="h1">
-        Couldn&apos;t reach billing
-      </Typography>
-      <Typography
-        variant="body-medium-lighter"
-        as="p"
-        className="text-[var(--content-secondary)]"
-      >
-        We hit a problem checking your subscription. Your upgrade may still be
-        processing — return to billing to refresh.
-      </Typography>
-      <div className="mt-4 flex justify-center">
-        <Button
-          variant="primary"
-          data-testid="onboarding-go-to-billing"
-          onClick={onGoToBilling}
+    <div className="flex flex-col items-center gap-4 px-6 py-10 text-center">
+      <IconBadge icon={AlertCircle} tone="negative" />
+      <div className="space-y-1.5">
+        <Typography variant="title-small" as="h1">
+          Couldn&apos;t reach billing
+        </Typography>
+        <Typography
+          variant="body-medium-lighter"
+          as="p"
+          className="text-[var(--content-secondary)]"
         >
-          Go to billing
-        </Button>
+          We hit a problem checking your subscription. Your upgrade may still be
+          processing — return to billing to refresh.
+        </Typography>
       </div>
+      <Button
+        variant="primary"
+        data-testid="onboarding-go-to-billing"
+        onClick={onGoToBilling}
+      >
+        Go to billing
+      </Button>
     </div>
   );
 }
 
 function TimeoutState({
   message,
+  onRetry,
   onGoToBilling,
 }: {
   message: string;
+  onRetry: () => void;
   onGoToBilling: () => void;
 }) {
   return (
-    <div className="space-y-4">
-      <Notice tone="warning">{message}</Notice>
-      <div className="flex justify-end">
+    <div className="flex min-h-[280px] flex-col items-center justify-center gap-4 px-6 py-10 text-center">
+      <IconBadge icon={AlertCircle} tone="warning" />
+      <div className="space-y-1.5">
+        <Typography variant="title-small" as="h1">
+          Taking longer than expected
+        </Typography>
+        <Typography
+          variant="body-medium-lighter"
+          as="p"
+          className="text-[var(--content-secondary)]"
+        >
+          {message}
+        </Typography>
+      </div>
+      <div className="flex items-center gap-2 pt-2">
         <Button
           variant="outlined"
           data-testid="onboarding-go-to-billing"
           onClick={onGoToBilling}
         >
           Go to billing
+        </Button>
+        <Button
+          variant="primary"
+          data-testid="onboarding-retry"
+          onClick={onRetry}
+        >
+          Try again
         </Button>
       </div>
     </div>
