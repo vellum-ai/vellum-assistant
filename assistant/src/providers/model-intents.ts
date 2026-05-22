@@ -24,7 +24,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   },
   gemini: {
     balanced: "gemini-3-flash-preview",
-    "latency-optimized": "gemini-3.1-flash-lite-preview",
+    "latency-optimized": "gemini-3.1-flash-lite",
     "quality-optimized": "gemini-3.1-pro-preview",
     "vision-optimized": "gemini-3-flash-preview",
   },

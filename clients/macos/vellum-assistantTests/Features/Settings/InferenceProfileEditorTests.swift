@@ -121,6 +121,10 @@ final class InferenceProfileEditorTests: XCTestCase {
                         id: "gemini-3.1-flash-lite-preview",
                         displayName: "Gemini 3.1 Flash-Lite Preview"
                     ),
+                    CatalogModel(
+                        id: "gemini-3.1-flash-lite",
+                        displayName: "Gemini 3.1 Flash-Lite"
+                    ),
                     CatalogModel(id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash"),
                     CatalogModel(id: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash Lite"),
                     CatalogModel(id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro"),
@@ -668,12 +672,13 @@ final class InferenceProfileEditorTests: XCTestCase {
     func testCanSelectGemini3ModelFromDynamicCatalog() {
         let geminiModels = store.dynamicProviderModels("gemini")
         XCTAssertEqual(
-            geminiModels.prefix(4).map(\.id),
+            geminiModels.prefix(5).map(\.id),
             [
                 "gemini-3.1-pro-preview",
                 "gemini-3.1-pro-preview-customtools",
                 "gemini-3-flash-preview",
                 "gemini-3.1-flash-lite-preview",
+                "gemini-3.1-flash-lite",
             ]
         )
         XCTAssertEqual(

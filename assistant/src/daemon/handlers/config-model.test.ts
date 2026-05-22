@@ -70,6 +70,7 @@ describe("projectProviderForWire", () => {
       "gemini-3.1-pro-preview-customtools",
       "gemini-3-flash-preview",
       "gemini-3.1-flash-lite-preview",
+      "gemini-3.1-flash-lite",
     ];
 
     expect(modelIds.filter((id) => id.startsWith("gemini-3"))).toEqual(
