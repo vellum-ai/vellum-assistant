@@ -30,7 +30,7 @@ export function BillingOnboardingModal({
   onClose,
 }: BillingOnboardingModalProps) {
   const queryClient = useQueryClient();
-  const [step, setStep] = useState<WizardStep>("confirm-pro");
+  const [step, setStep] = useState<WizardStep>("welcome"); // HACK: skip confirm-pro for testing
   const [proPollExpired, setProPollExpired] = useState(false);
   const [pollGeneration, setPollGeneration] = useState(0);
 
@@ -122,9 +122,10 @@ export function BillingOnboardingModal({
     }
 
     if (step === "setup") {
-      if (onboardingQuery.isError) {
-        return <FetchErrorState onGoToBilling={onClose} />;
-      }
+      // HACK: skip error check for testing
+      // if (onboardingQuery.isError) {
+      //   return <FetchErrorState onGoToBilling={onClose} />;
+      // }
       const maxTier = (onboardingQuery.data?.max_machine_tier ??
         null) as MachineTierEnum | null;
       return (

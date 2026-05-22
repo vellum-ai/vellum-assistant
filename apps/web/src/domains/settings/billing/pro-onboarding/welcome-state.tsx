@@ -4,7 +4,7 @@ import { Button } from "@vellum/design-library/components/button";
 
 export function WelcomeState({ onContinue }: { onContinue: () => void }) {
   return (
-    <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden px-8 text-center">
+    <div className="relative flex min-h-[320px] flex-col items-center justify-center overflow-hidden px-8 text-center">
       <div
         className="pointer-events-none absolute inset-0"
         style={{

@@ -14,7 +14,7 @@ export function CompleteState({ onBack }: { onBack: () => void }) {
   const assistantName = activeAssistant?.name || "your assistant";
 
   return (
-    <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden px-8 text-center">
+    <div className="relative flex min-h-[320px] flex-col items-center justify-center overflow-hidden px-8 text-center">
       <div
         className="pointer-events-none absolute inset-0"
         style={{
