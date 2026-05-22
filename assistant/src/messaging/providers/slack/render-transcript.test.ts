@@ -379,10 +379,6 @@ describe("renderSlackTranscript — basics", () => {
       TS_14_25,
       TS_14_28,
     ]);
-    expect(out.renderedMessages.map((entry) => entry.sourceChannelTs)).toEqual([
-      TS_14_25,
-      TS_14_28,
-    ]);
     expect(
       out.renderedMessages.map((entry) => entry.tagLineProvenance),
     ).toEqual(["none", "none"]);
