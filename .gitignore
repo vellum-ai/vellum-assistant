@@ -129,4 +129,9 @@ clients/chrome-extension/vellum-browser-relay.zip
 
 # Drizzle migration files — schema is applied via drizzle-kit push at runtime
 gateway/src/db/migrations/
+
+# Chrome extension builds
 clients/chrome-extension/vellum-browser-relay.zip
+
+# vel command
+apps/web/.vel/watchers.json
