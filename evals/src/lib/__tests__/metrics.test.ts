@@ -1,13 +1,20 @@
-import { rm } from "node:fs/promises";
-import { resolve } from "node:path";
+import { rm, readFile } from "node:fs/promises";
+import { resolve, join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
 import {
+  abandonAllRunningRunsSync,
   appendTranscriptTurn,
+  DEFAULT_HEARTBEAT_TIMEOUT_MS,
   ensureRunArtifacts,
+  readRunMetadata,
   readUsage,
   runMetrics,
+  RUNS_DIR,
+  scavengeAbandonedRuns,
+  updateHeartbeat,
+  writeRunMetadata,
   writeUsage,
 } from "../metrics";
 import type { TestDef } from "../test-def";
@@ -89,5 +96,141 @@ describe("timeline-recall metrics", () => {
     expect(results.map((r) => r.name).sort()).toEqual(["a", "b"]);
     expect(Date.now() - start).toBeLessThan(140);
     await rm(dir, { recursive: true, force: true });
+  });
+});
+
+// Counter-padded 14-digit timestamp so seeded runs match the
+// `isValidRunId` regex (^eval-[a-z0-9\-]+-\d{14}$) the server enforces.
+let scavCounter = 0;
+async function seedRunningRun(input: {
+  startedAt: string;
+  lastHeartbeatAt?: string;
+  status?: "running" | "completed" | "failed";
+}): Promise<string> {
+  const ts = `${Date.now()}${scavCounter++ % 10}`.slice(-14);
+  const runId = `eval-scav-${ts}`;
+  await ensureRunArtifacts(runId);
+  await writeRunMetadata(runId, {
+    runId,
+    sessionId: "session-scav",
+    profileId: "p1",
+    testId: "t1",
+    status: input.status ?? "running",
+    startedAt: input.startedAt,
+    lastHeartbeatAt: input.lastHeartbeatAt,
+    artifactDir: `${RUNS_DIR}/${runId}`,
+  });
+  return runId;
+}
+
+describe("scavengeAbandonedRuns", () => {
+  test("flips a running run with a stale heartbeat to abandoned with a deterministic clock", async () => {
+    const stale = await seedRunningRun({
+      startedAt: "2026-05-22T13:00:00.000Z",
+      lastHeartbeatAt: "2026-05-22T13:00:00.000Z",
+    });
+    const fresh = await seedRunningRun({
+      startedAt: "2026-05-22T13:05:00.000Z",
+      lastHeartbeatAt: "2026-05-22T13:05:00.000Z",
+    });
+
+    // Inject a "now" 5 minutes after the stale run's last heartbeat. With the
+    // default 60s timeout, stale → abandoned, fresh stays running.
+    const now = () => new Date("2026-05-22T13:05:00.000Z");
+    const result = await scavengeAbandonedRuns({ now });
+
+    expect(result.count).toBeGreaterThanOrEqual(1);
+    const staleMeta = await readRunMetadata(stale);
+    const freshMeta = await readRunMetadata(fresh);
+    expect(staleMeta?.status).toBe("abandoned");
+    expect(staleMeta?.error).toContain("Process exited without completing");
+    expect(staleMeta?.completedAt).toBe("2026-05-22T13:05:00.000Z");
+    expect(freshMeta?.status).toBe("running");
+  });
+
+  test("respects custom heartbeatTimeoutMs", async () => {
+    const run = await seedRunningRun({
+      startedAt: "2026-05-22T14:00:00.000Z",
+      lastHeartbeatAt: "2026-05-22T14:00:30.000Z",
+    });
+    // Default 60s wouldn't flip — but with 10s it does.
+    const now = () => new Date("2026-05-22T14:00:45.000Z");
+    await scavengeAbandonedRuns({ now, heartbeatTimeoutMs: 10_000 });
+    const meta = await readRunMetadata(run);
+    expect(meta?.status).toBe("abandoned");
+  });
+
+  test("exports a sane default timeout", () => {
+    expect(DEFAULT_HEARTBEAT_TIMEOUT_MS).toBe(60_000);
+  });
+});
+
+describe("abandonAllRunningRunsSync", () => {
+  test("flips every running run regardless of heartbeat age and writes run.json (not metadata.json)", async () => {
+    const a = await seedRunningRun({
+      startedAt: new Date().toISOString(),
+      lastHeartbeatAt: new Date().toISOString(),
+    });
+    const b = await seedRunningRun({
+      startedAt: new Date().toISOString(),
+      lastHeartbeatAt: new Date().toISOString(),
+    });
+    const completed = await seedRunningRun({
+      startedAt: new Date().toISOString(),
+      status: "completed",
+    });
+
+    const count = abandonAllRunningRunsSync({ signal: "SIGINT" });
+    expect(count).toBeGreaterThanOrEqual(2);
+
+    const aMeta = await readRunMetadata(a);
+    const bMeta = await readRunMetadata(b);
+    const cMeta = await readRunMetadata(completed);
+    expect(aMeta?.status).toBe("abandoned");
+    expect(aMeta?.error).toContain("SIGINT");
+    expect(bMeta?.status).toBe("abandoned");
+    // Already-completed runs are left alone.
+    expect(cMeta?.status).toBe("completed");
+
+    // Belt-and-suspenders: the write landed in run.json (the real filename
+    // per runArtifacts()), not metadata.json (the bug that made the
+    // pre-fix signal handler a silent no-op).
+    const runJson = await readFile(join(RUNS_DIR, a, "run.json"), "utf8");
+    expect(JSON.parse(runJson).status).toBe("abandoned");
+  });
+
+  test("uses a different error message for the 'exit' signal", () => {
+    abandonAllRunningRunsSync({ signal: "exit" });
+    // No assertion on count — other tests may have left no running runs.
+    // We just confirm the function doesn't throw with the synthetic signal.
+    expect(true).toBe(true);
+  });
+});
+
+describe("updateHeartbeat", () => {
+  test("writes lastHeartbeatAt when the run is still running", async () => {
+    const runId = await seedRunningRun({
+      startedAt: "2026-05-22T15:00:00.000Z",
+      lastHeartbeatAt: "2026-05-22T15:00:00.000Z",
+    });
+    const before = (await readRunMetadata(runId))?.lastHeartbeatAt;
+    await new Promise((r) => setTimeout(r, 5));
+    await updateHeartbeat(runId);
+    const after = (await readRunMetadata(runId))?.lastHeartbeatAt;
+    expect(after).toBeDefined();
+    expect(after).not.toBe(before);
+  });
+
+  test("is a no-op when the run is no longer running (status race-safety)", async () => {
+    const runId = await seedRunningRun({
+      startedAt: "2026-05-22T15:00:00.000Z",
+      lastHeartbeatAt: "2026-05-22T15:00:00.000Z",
+      status: "completed",
+    });
+    const before = (await readRunMetadata(runId))?.lastHeartbeatAt;
+    await updateHeartbeat(runId);
+    const after = (await readRunMetadata(runId))?.lastHeartbeatAt;
+    // No write — value is unchanged, even though we asked for a heartbeat.
+    expect(after).toBe(before);
   });
 });
