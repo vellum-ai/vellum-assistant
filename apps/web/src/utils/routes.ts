@@ -46,6 +46,7 @@ export const routes = {
 
   home: r("/assistant/home"),
   identity: r("/assistant/identity"),
+  plugins: r("/assistant/plugins"),
   skills: r("/assistant/skills"),
   workspace: r("/assistant/workspace"),
   library: {

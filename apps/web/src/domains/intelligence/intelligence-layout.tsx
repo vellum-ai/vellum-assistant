@@ -3,15 +3,26 @@ import { NavLink, Outlet, useLocation, useOutletContext } from "react-router";
 import { cn } from "@vellum/design-library";
 
 import { PageShell } from "@/components/page-shell.js";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store.js";
 import { routes } from "@/utils/routes.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 
-const INTELLIGENCE_TABS = [
+interface IntelligenceTab {
+  readonly label: string;
+  readonly to: string;
+}
+
+const BASE_INTELLIGENCE_TABS: readonly IntelligenceTab[] = [
   { label: "Identity", to: routes.identity },
   { label: "Skills", to: routes.skills },
   { label: "Workspace", to: routes.workspace },
   { label: "Contacts", to: routes.contacts.root },
-] as const;
+];
+
+const PLUGINS_TAB: IntelligenceTab = {
+  label: "Plugins",
+  to: routes.plugins,
+};
 
 /**
  * Shared layout for the "About Assistant" pages (Identity, Skills,
@@ -28,8 +39,17 @@ const INTELLIGENCE_TABS = [
  */
 export function IntelligenceLayout() {
   const assistantName = useAssistantIdentityStore.use.name();
+  const externalPlugins = useAssistantFeatureFlagStore.use.externalPlugins();
   const { pathname } = useLocation();
   const outletContext = useOutletContext();
+
+  // Insert the Plugins tab between Identity and Skills when the
+  // `external-plugins` flag is on. The PluginsPage route itself
+  // redirects back to Identity when the flag is off, in case the URL
+  // is reached directly.
+  const tabs: readonly IntelligenceTab[] = externalPlugins
+    ? [BASE_INTELLIGENCE_TABS[0], PLUGINS_TAB, ...BASE_INTELLIGENCE_TABS.slice(1)]
+    : BASE_INTELLIGENCE_TABS;
 
   return (
     <PageShell>
@@ -42,7 +62,7 @@ export function IntelligenceLayout() {
         style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
         aria-label="About assistant sections"
       >
-        {INTELLIGENCE_TABS.map(({ label, to }) => {
+        {tabs.map(({ label, to }) => {
           const isActive =
             pathname === to || pathname.startsWith(to + "/");
           return (
