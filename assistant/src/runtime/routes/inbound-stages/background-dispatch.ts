@@ -225,6 +225,13 @@ export function processChannelMessageInBackground(
             }
           : undefined;
       let replyMessageId: string | undefined;
+      const slackDmTextDelivery = createSlackDmTextDeliveryController({
+        sourceChannel,
+        chatType,
+        replyCallbackUrl,
+        chatId: externalChatId,
+        assistantId,
+      });
       const observeAgentEvent = (msg: ServerMessage): void => {
         if (
           msg.type === "message_complete" &&
@@ -233,6 +240,7 @@ export function processChannelMessageInBackground(
         ) {
           replyMessageId = msg.messageId;
         }
+        slackDmTextDelivery?.observeEvent(msg);
         slackThinkingStatus?.observeEvent(msg);
       };
 
@@ -299,6 +307,10 @@ export function processChannelMessageInBackground(
 
       if (replyCallbackUrl) {
         try {
+          if (slackDmTextDelivery) {
+            await slackDmTextDelivery.waitForPendingDeliveries();
+          }
+
           await deliverReplyViaCallback(
             conversationId,
             externalChatId,
@@ -416,6 +428,88 @@ const NO_RESPONSE_SENTINEL_FORMS = [
   "<no_response>",
 ] as const;
 
+function isSlackDeliveryCallbackUrl(replyCallbackUrl?: string): boolean {
+  if (!replyCallbackUrl) return false;
+  try {
+    return new URL(replyCallbackUrl).pathname.endsWith("/deliver/slack");
+  } catch {
+    return replyCallbackUrl.endsWith("/deliver/slack");
+  }
+}
+
+export function shouldDeliverSlackDmTextResponses(params: {
+  sourceChannel: ChannelId;
+  chatType?: string;
+  replyCallbackUrl?: string;
+}): boolean {
+  return (
+    params.sourceChannel === "slack" &&
+    params.chatType === "im" &&
+    isSlackDeliveryCallbackUrl(params.replyCallbackUrl)
+  );
+}
+
+type SlackDmTextDeliveryController = {
+  observeEvent: (msg: ServerMessage) => void;
+  waitForPendingDeliveries: () => Promise<void>;
+};
+
+function createSlackDmTextDeliveryController(params: {
+  sourceChannel: ChannelId;
+  chatType?: string;
+  replyCallbackUrl?: string;
+  chatId: string;
+  assistantId?: string;
+}): SlackDmTextDeliveryController | undefined {
+  const { replyCallbackUrl } = params;
+  if (!shouldDeliverSlackDmTextResponses(params) || !replyCallbackUrl) {
+    return undefined;
+  }
+
+  let pendingText = "";
+  let deliveryChain = Promise.resolve();
+
+  const flushPendingText = (): void => {
+    const text = pendingText;
+    pendingText = "";
+
+    const deliverableText = text.replace(NO_RESPONSE_INLINE_RE, "").trim();
+    if (deliverableText.length === 0) return;
+
+    deliveryChain = deliveryChain
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: params.chatId,
+            text: deliverableText,
+            assistantId: params.assistantId,
+            useBlocks: true,
+          });
+        } catch (err) {
+          log.warn(
+            { err, chatId: params.chatId },
+            "Failed to deliver intermediate Slack DM assistant text",
+          );
+        }
+      });
+  };
+
+  return {
+    observeEvent(msg) {
+      if (msg.type === "assistant_text_delta") {
+        pendingText += msg.text;
+        return;
+      }
+
+      if (msg.type === "tool_use_start") {
+        flushPendingText();
+      }
+    },
+    waitForPendingDeliveries: () => deliveryChain,
+  };
+}
+
 function isPotentialNoResponsePrefix(text: string): boolean {
   const lower = text.toLowerCase();
   return NO_RESPONSE_SENTINEL_FORMS.some((sentinel) =>
@@ -436,12 +530,9 @@ function shouldEmitSlackThinkingStatus(
   sourceChannel: ChannelId,
   replyCallbackUrl?: string,
 ): boolean {
-  if (sourceChannel !== "slack" || !replyCallbackUrl) return false;
-  try {
-    return new URL(replyCallbackUrl).pathname.endsWith("/deliver/slack");
-  } catch {
-    return replyCallbackUrl.endsWith("/deliver/slack");
-  }
+  return (
+    sourceChannel === "slack" && isSlackDeliveryCallbackUrl(replyCallbackUrl)
+  );
 }
 
 export function shouldStartSlackThinkingStatusImmediately(params: {
