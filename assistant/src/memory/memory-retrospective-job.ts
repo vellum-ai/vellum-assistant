@@ -208,6 +208,11 @@ async function runLegacyRetrospective(
       source: MEMORY_RETROSPECTIVE_SOURCE,
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       callSite: "memoryRetrospective",
+      // The background conversation's title already reads "Memory
+      // Retrospective", and `hint` is the full retrospective prompt — surfacing
+      // it verbatim as a "Conversation Woke" card body is noisy internal
+      // scaffolding for the user. Suppress it, matching the fork-based path.
+      suppressWakeSurface: true,
     });
     wakeSucceeded = result.invoked;
     failureReason = result.reason;
