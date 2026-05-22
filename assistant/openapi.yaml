@@ -1857,11 +1857,32 @@ paths:
                         type: number
                       total:
                         type: number
+                      completed:
+                        type: number
+                      failed:
+                        type: number
+                      skipped:
+                        type: number
+                      claimed:
+                        type: number
+                      stillPending:
+                        type: number
                     required:
                       - heartbeat
                       - scheduler
                       - total
+                      - completed
+                      - failed
+                      - skipped
+                      - claimed
+                      - stillPending
                     additionalProperties: false
+                  completed:
+                    type: number
+                  failed:
+                    type: number
+                  skipped:
+                    type: number
                   nextIntent:
                     anyOf:
                       - type: object
@@ -1894,6 +1915,8 @@ paths:
                           - sourcePayload
                         additionalProperties: false
                       - type: "null"
+                  dueWorkRemaining:
+                    type: boolean
                 required:
                   - leaseId
                   - reason
@@ -1901,7 +1924,11 @@ paths:
                   - startedAt
                   - deadlineAt
                   - counts
+                  - completed
+                  - failed
+                  - skipped
                   - nextIntent
+                  - dueWorkRemaining
                 additionalProperties: false
       requestBody:
         required: true
