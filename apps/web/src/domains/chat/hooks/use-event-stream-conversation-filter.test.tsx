@@ -118,4 +118,42 @@ describe("useEventStream — conversation-switch filtering", () => {
     } as unknown as AssistantEvent);
     expect(handler).toHaveBeenCalledTimes(1);
   });
+
+  test("rejects conversation-scoped events that omit conversationKey (no implicit broadcast)", () => {
+    // Regression coverage: before the fix, conversation-scoped events
+    // arriving without a conversationKey were treated as broadcast and
+    // forwarded to whichever conversation was active — causing
+    // cross-conversation jumbling. The new filter rejects them: a
+    // conversation-scoped event without an explicit key is treated as
+    // "unknown conversation", not "broadcast".
+    const handler = mock(() => {});
+    renderEventStream("conv-A", handler);
+    useEventBusStore.getState().publish("sse.event", {
+      type: "assistant_text_delta",
+      delta: "should be rejected",
+    } as unknown as AssistantEvent);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  test("forwards conversation-scoped events whose conversationKey matches the active conversation", () => {
+    const handler = mock(() => {});
+    renderEventStream("conv-A", handler);
+    useEventBusStore.getState().publish("sse.event", {
+      type: "message_complete",
+      conversationKey: "conv-A",
+      messageId: "m1",
+    } as unknown as AssistantEvent);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  test("a tool_call event for another conversation is dropped even when the active conversation has no current SSE epoch yet", () => {
+    const handler = mock(() => {});
+    renderEventStream("conv-A", handler);
+    useEventBusStore.getState().publish("sse.event", {
+      type: "tool_call",
+      conversationKey: "conv-B",
+      toolName: "bash",
+    } as unknown as AssistantEvent);
+    expect(handler).not.toHaveBeenCalled();
+  });
 });

@@ -34,6 +34,7 @@ import {
 } from "react";
 
 import type { AssistantEvent } from "@/domains/chat/api/event-types.js";
+import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils.js";
 import {
   bucketMessagesAdded,
   recordChatDiagnostic,
@@ -210,19 +211,32 @@ export function useEventStream({
     const unsubEvent = bus.subscribe("sse.event", (event) => {
       const eventConversationKey = (event as { conversationKey?: string })
         .conversationKey;
-      // Assistant-broadcast events (no conversationKey) are routed to
-      // every conversation-scoped consumer; the handler decides what
-      // to do with them. Per-conversation events are filtered against
-      // the LATEST active conversation key, not the closure-captured
-      // value — see comment on `activeConversationKeyLatestRef`.
+      // Two-stage filter to prevent cross-conversation event leakage.
+      // The bus opens a single unfiltered SSE connection, so every
+      // event for every conversation flows through this subscriber.
+      //
+      // 1. Global events (`sync_changed`, `home_feed_updated`, etc.)
+      //    are not tied to a conversation — always pass them through.
+      // 2. Conversation-scoped events must have an explicit
+      //    `conversationKey` matching the current active conversation.
+      //    Events whose conversationKey is missing or mismatched are
+      //    rejected: a missing key is treated as "unknown
+      //    conversation" rather than "broadcast", because under the
+      //    bus-owned unfiltered SSE there is no per-conversation
+      //    subscription URL to fall back to for routing.
+      if (!isConversationScopedStreamEvent(event)) {
+        handleStreamEventRef.current(event, streamEpochRef.current);
+        return;
+      }
       if (
-        eventConversationKey !== undefined &&
+        eventConversationKey === undefined ||
         eventConversationKey !== activeConversationKeyLatestRef.current
       ) {
         recordChatDiagnostic("sse_event_wrong_conversation_filtered", {
           eventConversationKey,
           activeConversationKey: activeConversationKeyLatestRef.current,
           eventType: event.type,
+          reason: eventConversationKey === undefined ? "missing" : "mismatch",
         });
         return;
       }
