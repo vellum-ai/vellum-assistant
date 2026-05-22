@@ -30,6 +30,7 @@ export interface DropdownOption<T extends string> {
   readonly value: T;
   readonly label: string;
   readonly icon?: ReactNode;
+  readonly suffix?: ReactNode;
   /**
    * When true, the option renders dimmed and cannot be selected (by click,
    * keyboard, or hover-highlight). The option still occupies a row so the
@@ -347,8 +348,11 @@ export function Dropdown<T extends string>({
                 {option.icon}
               </span>
             )}
-            <span className="min-w-0 flex-1 truncate">
-              {option.label}
+            <span className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="truncate">{option.label}</span>
+              {option.suffix && (
+                <span className="shrink-0">{option.suffix}</span>
+              )}
             </span>
             {isSelected && (
               <Check
@@ -406,8 +410,13 @@ export function Dropdown<T extends string>({
             {selectedOption.icon}
           </span>
         )}
-        <span className="flex-1 truncate">
-          {selectedOption?.label ?? placeholder ?? ""}
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="truncate">
+            {selectedOption?.label ?? placeholder ?? ""}
+          </span>
+          {selectedOption?.suffix && (
+            <span className="shrink-0">{selectedOption.suffix}</span>
+          )}
         </span>
         <ChevronDown
           className="h-3.5 w-3.5 shrink-0"

@@ -3,6 +3,7 @@ import { Globe, Lock, Users } from "lucide-react";
 import { useState } from "react";
 
 import { Dropdown, type DropdownOption, type DropdownProps } from "./dropdown.js";
+import { Tag } from "./tag.js";
 
 const fruits: DropdownOption<string>[] = [
   { value: "apple", label: "Apple" },
@@ -164,6 +165,35 @@ export const EndAligned: Story = {
             onChange={setValue}
           />
         </div>
+      </div>
+    );
+  },
+};
+
+const machineSizes: DropdownOption<"small" | "medium" | "large">[] = [
+  {
+    value: "small",
+    label: "Small — 2 vCPU, 3 GiB",
+    suffix: <Tag tone="positive">Current</Tag>,
+  },
+  { value: "medium", label: "Medium — 2.5 vCPU, 5 GiB" },
+  { value: "large", label: "Large — 4 vCPU, 8 GiB" },
+];
+
+export const WithSuffix: Story = {
+  args: {
+    "aria-label": "Machine size",
+  },
+  render: function SuffixDropdown(args) {
+    const [value, setValue] = useState<"small" | "medium" | "large">("small");
+    return (
+      <div className="w-80">
+        <Dropdown
+          {...(args as DropdownProps<"small" | "medium" | "large">)}
+          options={machineSizes}
+          value={value}
+          onChange={setValue}
+        />
       </div>
     );
   },
