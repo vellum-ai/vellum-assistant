@@ -5,9 +5,11 @@ import {
   appendSimulatorMessage,
   appendTranscriptTurn,
   ensureRunArtifacts,
+  readRunMetadata,
   readTranscript,
   readUsage,
   runMetrics,
+  updateHeartbeat,
   type MetricResult,
   writeMetricResults,
   writeRunMetadata,
@@ -222,6 +224,9 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       ...event,
       emittedAt: new Date().toISOString(),
     }).catch(() => undefined);
+    // Update the heartbeat on every progress event to signal that the
+    // process is alive. This is best-effort and never blocks the run.
+    void updateHeartbeat(input.runId).catch(() => undefined);
   };
   const agent = createAgent({
     profile: input.profile,
@@ -230,6 +235,38 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
   });
   const simulator =
     input.simulator ?? new UserSimulator({ maxTurns: input.maxTurns });
+
+  // Set up heartbeat and signal handlers to prevent runs from dangling in
+  // "running" if the process is killed or exits uncleanly.
+  const heartbeatInterval = setInterval(async () => {
+    void updateHeartbeat(input.runId).catch(() => undefined);
+  }, 5_000);
+
+  const cleanup = async () => {
+    clearInterval(heartbeatInterval);
+  };
+
+  const handleSignal = async (signal: NodeJS.Signals) => {
+    const metadata = await readRunMetadata(input.runId);
+    if (metadata && metadata.status === "running") {
+      await writeRunMetadata(input.runId, {
+        ...metadata,
+        status: "abandoned",
+        completedAt: new Date().toISOString(),
+        error: `Received signal ${signal} (process terminated by user or system)`,
+      });
+    }
+  };
+
+  process.on("SIGINT", async () => {
+    await handleSignal("SIGINT");
+    process.exit(130); // SIGINT exit code
+  });
+  process.on("SIGTERM", async () => {
+    await handleSignal("SIGTERM");
+    process.exit(143); // SIGTERM exit code
+  });
+
   progress({
     step: "artifacts",
     status: "start",
@@ -477,6 +514,7 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
     }
     throw err;
   } finally {
+    await cleanup();
     progress({
       step: "shutdown",
       status: "start",
@@ -490,5 +528,16 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       message: "Assistant shut down",
       detail: agent.id,
     });
+    // Verify the run didn't somehow exit "running" by accident.
+    const finalMetadata = await readRunMetadata(input.runId);
+    if (finalMetadata?.status === "running") {
+      await writeRunMetadata(input.runId, {
+        ...finalMetadata,
+        status: "failed",
+        completedAt: new Date().toISOString(),
+        error:
+          "Run exited without final status — this should never happen; please file a bug.",
+      });
+    }
   }
 }

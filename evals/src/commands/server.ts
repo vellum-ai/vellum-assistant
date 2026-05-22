@@ -1,9 +1,11 @@
 /** `evals server` — local HTML report browser for .runs artifacts. */
+import { rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
 import type { Command } from "commander";
 
 import { renderReportPage, type ReportPageInput } from "../lib/report-html";
+import { RUNS_DIR, scavengeAbandonedRuns } from "../lib/metrics";
 import {
   findExecutionRunId,
   listReportSessions,
@@ -41,11 +43,23 @@ function notFoundJson(message: string): Response {
   return jsonResponse({ error: message }, 404);
 }
 
+/**
+ * Validates that a runId is safe to use in file system operations.
+ * Returns true if it matches the expected format (eval-...-<timestamp>),
+ * preventing path traversal attacks.
+ */
+function isValidRunId(runId: string): boolean {
+  return /^eval-[a-z0-9\-]+-\d{14}$/.test(runId);
+}
+
 export async function handleRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
+  const method = request.method.toUpperCase();
 
   if (path === "/") {
+    // Run scavenger on each index page load to catch stale runs.
+    await scavengeAbandonedRuns();
     const sessions = await listReportSessions();
     return pageResponse({ kind: "index", sessions });
   }
@@ -126,6 +140,68 @@ export async function handleRequest(request: Request): Promise<Response> {
     const session = await readReportSession(sessionId);
     if (!session) return notFoundPage(`No session ${sessionId}.`);
     return pageResponse({ kind: "session", session });
+  }
+
+  // DELETE /api/runs/:runId — delete a specific run directory.
+  const apiDeleteRun = path.match(/^\/api\/runs\/([^/]+)$/);
+  if (apiDeleteRun && method === "DELETE") {
+    const runIdEnc = apiDeleteRun[1];
+    const runId = decodeURIComponent(runIdEnc);
+    if (!isValidRunId(runId)) {
+      return jsonResponse(
+        { error: `Invalid runId format: ${runId}` },
+        400,
+      );
+    }
+    try {
+      const runPath = `${RUNS_DIR}/${runId}`;
+      await rm(runPath, { recursive: true, force: true });
+      return jsonResponse({ deleted: runId });
+    } catch (err) {
+      return jsonResponse(
+        {
+          error: err instanceof Error ? err.message : "Failed to delete run",
+        },
+        500,
+      );
+    }
+  }
+
+  // DELETE /api/runs — delete all runs except those with fresh heartbeats.
+  if (path === "/api/runs" && method === "DELETE") {
+    try {
+      await scavengeAbandonedRuns();
+      // Now delete all non-running runs (completed, failed, abandoned, unknown).
+      const { readdir } = await import("node:fs/promises");
+      const { readRunMetadata } = await import("../lib/metrics");
+      const runDirs = await readdir(RUNS_DIR).catch(() => []);
+      let deletedCount = 0;
+      let skippedCount = 0;
+      for (const runDir of runDirs) {
+        if (!isValidRunId(runDir)) continue;
+        const metadata = await readRunMetadata(runDir).catch(
+          () => undefined,
+        );
+        if (metadata && metadata.status === "running") {
+          skippedCount++;
+          continue;
+        }
+        try {
+          await rm(`${RUNS_DIR}/${runDir}`, { recursive: true, force: true });
+          deletedCount++;
+        } catch {
+          // Silently skip on error.
+        }
+      }
+      return jsonResponse({ deleted: deletedCount, skipped: skippedCount });
+    } catch (err) {
+      return jsonResponse(
+        {
+          error: err instanceof Error ? err.message : "Failed to delete runs",
+        },
+        500,
+      );
+    }
   }
 
   return notFoundPage(`No route matches ${url.pathname}.`);
@@ -240,7 +316,9 @@ export function registerServerCommand(program: Command): void {
       (value) => Number(value),
       DEFAULT_PORT,
     )
-    .action((opts: { host: string; port: number }) => {
+    .action(async (opts: { host: string; port: number }) => {
+      // Before starting the server, clean up any stale runs.
+      await scavengeAbandonedRuns();
       const { url } = startReportServer(opts);
       console.log(`Evals report server listening on ${url}`);
     });

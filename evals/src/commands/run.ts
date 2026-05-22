@@ -6,6 +6,7 @@ import {
   createConsoleReporter,
   createSummaryOnlyReporter,
 } from "../lib/runner/progress";
+import { scavengeAbandonedRuns } from "../lib/metrics";
 import { loadProfile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
 import { openInBrowser, startReportServer } from "./server";
@@ -78,6 +79,10 @@ export function registerRunCommand(program: Command): void {
         quiet?: boolean;
         serve?: boolean;
       }) => {
+        // Before starting a new run, clean up any stale runs that crashed
+        // or were killed without properly finalizing their status.
+        await scavengeAbandonedRuns();
+
         const profiles = await Promise.all(
           splitCsv(opts.profiles).map((id) => loadProfile(id)),
         );

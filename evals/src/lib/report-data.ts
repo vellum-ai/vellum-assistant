@@ -52,6 +52,7 @@ export interface ReportRunDetail extends ReportRunSummary {
 export type SessionStatus =
   | "completed"
   | "failed"
+  | "abandoned"
   | "partial"
   | "running"
   | "unknown";

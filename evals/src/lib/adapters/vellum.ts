@@ -232,7 +232,10 @@ export class VellumAgent implements BaseAgent {
           "--name",
           this.id,
         ],
-        { env: selectProviderEnv(this.processEnv) },
+        {
+          env: selectProviderEnv(this.processEnv),
+          logPath: runArtifacts(this.id).runDir + "/subprocess-hatch.log",
+        },
       );
       assertSuccess(hatch, `hatch Vellum profile ${this.profile.id}`);
       hatchStarted = true;
@@ -242,13 +245,21 @@ export class VellumAgent implements BaseAgent {
         recordingDir: runArtifacts(this.id).runDir,
       });
 
-      for (const command of setupCommands(this.profile)) {
-        const setup = await this.runner.run(this.cliCommand, [
-          "exec",
-          this.id,
-          "--",
-          ...shellWords(command),
-        ]);
+      for (const [idx, command] of setupCommands(this.profile).entries()) {
+        const setup = await this.runner.run(
+          this.cliCommand,
+          [
+            "exec",
+            this.id,
+            "--",
+            ...shellWords(command),
+          ],
+          {
+            logPath:
+              runArtifacts(this.id).runDir +
+              `/subprocess-setup-${idx + 1}.log`,
+          },
+        );
         assertSuccess(setup, `setup command for profile ${this.profile.id}`);
       }
 

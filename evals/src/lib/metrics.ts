@@ -103,9 +103,11 @@ export interface RunMetadata {
   sessionLabel?: string;
   profileId: string;
   testId: string;
-  status: "running" | "completed" | "failed" | "unknown";
+  status: "running" | "completed" | "failed" | "abandoned" | "unknown";
   startedAt?: string;
   completedAt?: string;
+  /** ISO timestamp of the last heartbeat. Used by the scavenger to detect stale runs. */
+  lastHeartbeatAt?: string;
   error?: string;
   artifactDir: string;
 }
@@ -332,4 +334,60 @@ export async function runMetrics(input: {
       runMetricFile(path, { runId: input.runId }),
     ),
   );
+}
+
+/**
+ * Scans `.runs/` for any metadata with `status: "running"` and a heartbeat
+ * older than the given threshold (in ms). Flips those to `status: "abandoned"`
+ * with an error message indicating the last heartbeat time.
+ *
+ * Called on startup and periodically during normal operation to prevent
+ * processes that exit uncleanly (killed, deadlocked, etc.) from dangling in
+ * "running" forever.
+ */
+export async function scavengeAbandonedRuns(
+  heartbeatTimeoutMs: number = 60_000,
+): Promise<{ count: number; skipped: number }> {
+  const runDirs = await readdir(RUNS_DIR).catch(() => []);
+  let count = 0;
+  let skipped = 0;
+  const now = new Date();
+
+  for (const runDir of runDirs) {
+    const metadata = await readRunMetadata(runDir).catch(() => undefined);
+    if (!metadata || metadata.status !== "running") continue;
+
+    const lastHeartbeat = metadata.lastHeartbeatAt
+      ? new Date(metadata.lastHeartbeatAt)
+      : new Date(metadata.startedAt ?? 0);
+    const timeSinceHeartbeat = now.getTime() - lastHeartbeat.getTime();
+
+    if (timeSinceHeartbeat > heartbeatTimeoutMs) {
+      await writeRunMetadata(runDir, {
+        ...metadata,
+        status: "abandoned",
+        completedAt: now.toISOString(),
+        error: `Process exited without completing (last heartbeat: ${lastHeartbeat.toISOString()})`,
+      });
+      count++;
+    } else {
+      skipped++;
+    }
+  }
+
+  return { count, skipped };
+}
+
+/**
+ * Updates the `lastHeartbeatAt` timestamp on a run's metadata to now.
+ * Called during progress events and periodically via setInterval to keep
+ * the heartbeat fresh while a run is in flight.
+ */
+export async function updateHeartbeat(runId: string): Promise<void> {
+  const metadata = await readRunMetadata(runId);
+  if (!metadata) return;
+  await writeRunMetadata(runId, {
+    ...metadata,
+    lastHeartbeatAt: new Date().toISOString(),
+  });
 }
